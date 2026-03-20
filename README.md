@@ -1,144 +1,231 @@
-# DAVAN Attendance System
+# 🎓 Davan Attendance System
 
-> Attendance analysis and leave management system for Davan Institute of Advanced Management Studies.
+> Single-file attendance and faculty management web app for **Davan Institute of Advanced Management Studies**, Davangere.
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-
----
-
-## Features
-
-- **Live attendance data** — synced from davandvg.com portal via scheduled scrape (5:30 PM daily)
-- **Role-based login** — Admin, Manager, Vice Principal, Full-Time Faculty, Visiting Faculty
-- **Shortage Report** — per-student, per-subject attendance shortage analysis
-- **Shortage Summary** — consolidated one-row-per-student view with expandable subject pills
-- **Leave Manager** — mark leave, assign substitutes, track compensation
-- **Timetable Viewer** — morning/afternoon side-by-side view with workload summary
-- **Subject Exemptions** — exclude subjects like Placement Training from analysis
-- **Login Activity Log** — admin can see who logged in, when, and from what device
-- **Firebase backend** — all data stored in Firestore, accessible from anywhere
+[![Version](https://img.shields.io/badge/version-v255-gold)](#) [![Firebase](https://img.shields.io/badge/backend-Firebase-orange)](#) [![Students](https://img.shields.io/badge/students-578-green)](#)
 
 ---
 
-## Tech Stack
+## 📌 Overview
 
-| Layer | Technology |
-|---|---|
-| Frontend | HTML / CSS / JS (single file) |
-| Auth | Firebase Authentication |
-| Database | Firebase Firestore |
-| Hosting | GitHub Pages |
-| Scraper | Python (`app.py`) — runs locally |
-| Charts | Chart.js |
-| Excel | SheetJS (xlsx) |
+A **single HTML file** web application that runs entirely in the browser. Uses **Firebase Firestore** for real-time data and **Firebase Auth** for role-based access. Manages student attendance, faculty leave, internal exam timetables, and administrative workflows across 3 courses (BCA, BBA, B.Com) and 3 years.
+
+**Live app:** `arshgujjar.github.io/davan-attendance`  
+**Companion file:** `results.html` — student results and report cards
 
 ---
 
-## Setup
+## ✨ Features
 
-### 1. Firebase
+### 📊 Attendance
+- Student-wise attendance percentage with visual bar charts
+- Class-level attendance grouped by subject
+- Absentee tracking with photo upload
+- Shortage report — students below 75%
+- Subject-wise Class View with faculty name per subject
 
-1. Go to [Firebase Console](https://console.firebase.google.com)
-2. Open project `davan-attendance-2026`
-3. Enable **Authentication → Email/Password**
-4. Enable **Firestore Database**
-5. Set Firestore rules (see below)
+### 👥 Leave Manager
+- Mark faculty leave by date and auto-find substitutes (tiered priority logic)
+- WhatsApp-ready substitute assignment message
+- Compensation slot tracking — who owes what, when it's due
+- Full leave history with search and filters
+- Admin history and per-faculty records
 
-### 2. Firestore Security Rules
+### 📝 Internal Timetable
+- View, Create/Edit, Duty, and Download tabs
+- **8 default time slots per date** (4 morning + 4 afternoon) — admin enters start time, end = start + 1 hour
+- **Smart subject dropdowns** — auto-populated from allocation data per batch/year, labs excluded, used subjects hidden
+- **Faculty Incharge** — two fulltime faculty per internal, printed in timetable footer
+- **Duty allocation** — multiple faculty per exam slot, grouped by date → time slot; same slot = no duplicates
+- Export as **PDF** (print window) or **Excel** (XLSX, morning/afternoon sheets)
+- Creates next internal as copy of previous (same subjects, blank dates)
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
+### 🗓️ Timetable & Allocation
+- Class-wise timetable viewer (by class or faculty)
+- Editable timetable and allocation tables
+- Faculty allocation viewer with subject codes
+- Subject Index tab — full grid of all classes
 
-    // Users can read their own profile
-    match /users/{uid} {
-      allow read: if request.auth.uid == uid;
-      allow write: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
+### 🤖 Smart Assist *(v255)*
+Rule-based intelligence — no external API, works offline.
 
-    // App data (students, timetable, allocations) — any logged-in user can read
-    match /app_data/{doc} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin','manager','vp'];
-    }
+| Tab | What it does |
+|-----|-------------|
+| 👤 Substitute | Scores all available faculty using 6 rules and ranks best matches |
+| 🚨 Alerts | Checks attendance, leave patterns, workload imbalance, duty gaps |
+| 🔎 Search | Plain-English queries: "III BCA low attendance", "Anitha leave this week" |
 
-    // Leave history — authenticated users only
-    match /leave_history/{doc} {
-      allow read, write: if request.auth != null;
-    }
+### 📢 Banner System
+| Banner | Position | Audience |
+|--------|----------|----------|
+| Banner 1 | Fixed below topbar (admin broadcast) | All users |
+| Banner 2 | Animated holiday ticker above footer | All users |
+| Banner 3 | Internal duty reminder | Faculty/Visiting only |
 
-    // Comp log — authenticated users only
-    match /comp_log/{doc} {
-      allow read, write: if request.auth != null;
-    }
+### 🔔 Notifications
+- Faculty push notification subscriptions
+- Day-before attendance alerts
+- Test notification to all subscribed faculty
 
-    // Login activity — admin/manager read, any auth write (for logging)
-    match /login_activity/{doc} {
-      allow read: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin','manager'];
-      allow write: if request.auth != null;
-    }
-  }
-}
-```
-
-### 3. GitHub Pages
-
-1. Push this repo to `github.com/harshgujjar/davan-attendance`
-2. Go to **Settings → Pages → Source → main branch → / (root)**
-3. Your app will be live at `https://harshgujjar.github.io/davan-attendance`
-4. Add this URL to Firebase Console → Authentication → Authorised Domains
-
-### 4. First Login
-
-- **Username:** `admin`
-- **Password:** `1234`
-- ⚠️ Change the admin password immediately after first login via User Management
-
-### 5. Scheduled Scrape (app.py)
-
-The scraper runs locally on your machine and pushes data to Firestore at 5:30 PM daily.
-
-**Windows Task Scheduler:**
-```
-Action: python C:\path\to\app.py --scrape
-Trigger: Daily at 17:30
-```
-
-**Mac/Linux cron:**
-```
-30 17 * * * cd /path/to/project && python app.py --scrape
-```
-
-Your laptop must be on at 5:30 PM for the scheduled scrape to run.
-Manual scrape: click **Scrape Now** in Admin panel (requires localhost:5000 running).
+### ⚙️ Admin
+- User management (create, edit, delete accounts)
+- Academic calendar with holidays and events
+- Login activity log
+- Global settings panel
 
 ---
 
-## Roles
+## 👤 Roles & Access
 
-| Role | Scrape | Edit TT | All Student Data | Own Shortage | Leave/Comp | User Mgmt |
-|---|---|---|---|---|---|---|
-| Admin | ✅ | ✅ | ✅ | ✅ | All | ✅ |
-| Manager | ❌ | ✅ | ✅ | ✅ | All | ❌ |
-| Vice Principal | ❌ | ✅ | ✅ | ✅ | All (read) | ❌ |
-| Full-Time | ❌ | ❌ | ✅ read | ✅ | Own | ❌ |
-| Visiting | ❌ | ❌ | ❌ | ✅ own subjects | Own | ❌ |
-
----
-
-## Version History
-
-See hidden comment block in `index.html` for full changelog.
-
-Current version: **v089** — 11 Mar 2026
+| Role | Access |
+|------|--------|
+| `admin` | Full access — all panels, user management, settings |
+| `manager` | All except user management and admin settings |
+| `vp` | Vice Principal — analysis, internals, duty |
+| `fulltime` | Own timetable, leave, smart assist |
+| `visiting` | Own timetable and duty only |
 
 ---
 
-## License
+## 🗄️ Data Architecture
 
-Copyright © 2026 Davan Institute of Advanced Management Studies.
-Licensed under the [GNU General Public License v3.0](LICENSE).
+### Firebase Collections
+| Collection | Document | Content |
+|-----------|----------|---------|
+| `app_data` | `live_banner` | Banner 1 message |
+| `app_data` | `live_banner_2` | Banner 2 toggle |
+| `app_data` | `internals_meta` | Current internal doc ID |
+| `app_data` | `academic_calendar` | Holidays + events |
+| `internals` | `{docId}` | `{meta, batches, slots, duties}` |
+| `users` | `{uid}` | User profile, role, faculty key |
+
+### localStorage Keys
+| Key | Content |
+|-----|---------|
+| `davan_leave_history` | Leave records + substitution assignments |
+| `davan_timetable` | Class timetable data |
+| `davan_allocations` | Faculty-subject-class mapping |
+| `davan_students` | Scraped student attendance data |
+| `davan_comp_log` | Compensation tracking |
+| `davan_sec_*` | Sidebar section collapse state |
+
+---
+
+## 🤖 Smart Assist Rules Reference
+
+### Substitute Suggester
+Scores each available faculty out of 100 base points:
+
+| Rule | Effect |
+|------|--------|
+| Teaches same subject as absent faculty | +40 per subject |
+| On leave today | Filtered out |
+| Already subbing today | −20 per period |
+| Visiting faculty (< 3 allocations) | −15 |
+| 4+ subs this week | −25 |
+| 2–3 subs this week | −10 |
+
+### Alerts Engine
+| Alert | Trigger | Level |
+|-------|---------|-------|
+| Critically low attendance | avg_pct < 75% | 🔴 Red |
+| At-risk attendance | 75% ≤ avg_pct < 80% | 🟡 Amber |
+| Frequent leave | 3+ leaves this month | 🟡 Amber |
+| Sub load imbalance | Max > 2.5× average | 🟡 Amber |
+| Internal duty gap | Slot with no duty assigned | 🟡 Amber |
+| All clear | No issues | 🟢 Green |
+
+### Quick Search Queries
+```
+"defaulters"           → Students below 75%
+"low attendance"       → Students 75–80%
+"III BCA"              → That class's attendance
+"Anitha leave"         → Her leave + sub history
+"leave this week"      → All faculty leaves this week
+"absent today"         → Who's on leave today
+"faculty workload"     → Substitution count ranked
+```
+
+---
+
+## 🔔 UI System
+
+All browser `alert()` and `confirm()` dialogs (31 total) replaced with three custom components:
+
+```javascript
+dvToast(msg, type, duration)    // 'ok' | 'error' | 'warn' | 'info'
+dvConfirm(title, msg, callback) // Modal with Cancel + Confirm
+dvAlert(title, msg)             // Modal with OK button
+```
+
+All Smart Assist actions log to browser console with `[SA]` prefix for debugging.
+
+---
+
+## 🏗️ Internal Timetable — Batch Mapping
+
+Subject dropdowns auto-populated from `LM_ALLOC_DEFAULT`:
+
+| Batch Name | Course | Semester |
+|------------|--------|---------|
+| I BCA | BCA | Sem II |
+| II BCA | BCA | Sem IV |
+| III BCA | BCA | Sem VI |
+| I BBA | BBA | Sem II |
+| II BBA | BBA | Sem IV |
+| III BBA | BBA | Sem VI |
+| I B.Com | BCom | Sem II |
+| II B.Com | BCom | Sem IV |
+| III B.Com | BCom | Sem VI |
+
+---
+
+## 📋 Version History (Recent)
+
+| Version | Date | Key Change |
+|---------|------|-----------|
+| v255 | 20 Mar 2026 | Smart Assist: substitute suggester, alerts, quick search |
+| v254 | 20 Mar 2026 | Fix subject pre-fill: build grid immediately after form render |
+| v249 | 20 Mar 2026 | Fix batch→sem map: use Roman numerals (II/IV/VI) |
+| v247 | 20 Mar 2026 | Fix all missing confirmations and toasts across app |
+| v246 | 20 Mar 2026 | Universal toast/confirm/alert system (31 replacements) |
+| v245 | 20 Mar 2026 | Fix Firebase reserved ID `__default__` → `int_default_1` |
+| v244 | 20 Mar 2026 | Duty: serial numbers, slot-level faculty deduplication |
+| v243 | 20 Mar 2026 | Internals View: dark theme, colour-coded batch columns |
+| v242 | 20 Mar 2026 | Per-date time slots, subject dropdowns, 2nd internal copies from 1st |
+| v241 | 20 Mar 2026 | Faculty Incharge footer; edit tab auto-loads current internal |
+| v240 | 20 Mar 2026 | Duty grouped by date+slot; Faculty Incharge 2 dropdowns |
+| v238–239 | 20 Mar 2026 | Full Internals module + Apr 2026 default timetable |
+| v236–237 | 20 Mar 2026 | Sidebar collapsible sections + compact styling |
+| v229–235 | 19–20 Mar 2026 | Banner system: 3 banners, positioning, mobile fixes |
+| v222 | 18 Mar 2026 | Stable base — all attendance and leave features complete |
+
+---
+
+## 📁 Files
+
+```
+index.html          Main app (~15,900 lines, v255)
+results.html        Student results and report cards (r398)
+davan_logo_2026.gif College logo (28×28px)
+davan_degree1.png   Degree college logo (used in internal timetable)
+```
+
+---
+
+## 🛠️ Setup
+
+1. Clone the repo
+2. Open `index.html` in a browser — no build step required
+3. Firebase config is embedded — connects automatically
+4. Login with admin credentials to access all features
+
+---
+
+## 🏫 About
+
+**Davan Institute of Advanced Management Studies**  
+Davan-Nutana Alliance · LIC Colony, BIET Road, Davangere  
+Director: Harsha A Gujjar · Session: 05.02.2026 – 24.05.2026 · Students: 578
+
+*Built and maintained for internal use by Davan College.*
