@@ -1,8 +1,20 @@
-// sw.js — Davan Attendance System
-// Place this file at: github.com/harshgujjar/davan-attendance/sw.js
-
-const CACHE_VERSION = 'davan-v3';
+// sw.js — Davan Attendance System v4
+const CACHE_VERSION = 'davan-v4';
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
+
+// URLs to never cache — let them pass through directly
+const BYPASS_URLS = [
+  'firestore.googleapis.com',
+  'firebase.googleapis.com',
+  'identitytoolkit.googleapis.com',
+  'securetoken.googleapis.com',
+  'firebaseinstallations.googleapis.com',
+  'firebase.google.com',
+  'googleapis.com',
+  'ngrok',
+  'workers.dev',
+  'fcm.googleapis.com',
+];
 
 self.addEventListener('install', e => {
   console.log('[SW] Installing:', CACHE_VERSION);
@@ -19,11 +31,21 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  const url = e.request.url;
+
+  // Always bypass Firebase, Google APIs, and external services
+  if (BYPASS_URLS.some(b => url.includes(b))) return;
+
+  // Only cache GET requests for same-origin assets
   if (e.request.method !== 'GET') return;
+
   e.respondWith(
     fetch(e.request).then(res => {
-      const clone = res.clone();
-      caches.open(CACHE_VERSION).then(c => c.put(e.request, clone));
+      // Only cache successful same-origin responses
+      if (res.ok && res.type === 'basic') {
+        const clone = res.clone();
+        caches.open(CACHE_VERSION).then(c => c.put(e.request, clone));
+      }
       return res;
     }).catch(() => caches.match(e.request))
   );
