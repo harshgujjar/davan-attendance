@@ -1,6 +1,5 @@
 // sw.js — Save this file as sw.js in your GitHub repo root
-// e.g. github.com/arshgujjar/attendance-app/sw.js
-// The file must be accessible at: https://arshgujjar.github.io/sw.js
+// Must be accessible at: https://harshgujjar.github.io/davan-attendance/sw.js
 
 const CACHE_NAME = 'davan-v1';
 
@@ -38,7 +37,7 @@ self.addEventListener('notificationclick', e => {
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       for (const client of list) {
-        if (client.url.includes('arshgujjar.github.io') && 'focus' in client) {
+        if (client.url.includes('harshgujjar.github.io') && 'focus' in client) {
           return client.focus();
         }
       }
