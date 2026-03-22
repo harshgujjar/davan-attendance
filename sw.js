@@ -19,8 +19,8 @@ self.addEventListener('push', e => {
 
   const options = {
     body:    data.body    || '',
-    icon:    data.icon    || '/davan_degree1.png',
-    badge:   data.badge   || '/davan_degree1.png',
+    icon:    data.icon    || '/davan-attendance/davan_degree1.png',
+    badge:   data.badge   || '/davan-attendance/davan_degree1.png',
     vibrate: [200, 100, 200],
     tag:     data.tag     || 'davan-alert',
     data:    data.data    || {},
