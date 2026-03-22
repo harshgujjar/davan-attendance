@@ -1,15 +1,13 @@
-// sw.js — Davan Attendance System v4
-const CACHE_VERSION = 'davan-v4';
+// sw.js — Davan Attendance System v5
+const CACHE_VERSION = 'davan-v5';
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
 
-// URLs to never cache — let them pass through directly
 const BYPASS_URLS = [
   'firestore.googleapis.com',
   'firebase.googleapis.com',
   'identitytoolkit.googleapis.com',
   'securetoken.googleapis.com',
   'firebaseinstallations.googleapis.com',
-  'firebase.google.com',
   'googleapis.com',
   'ngrok',
   'workers.dev',
@@ -32,16 +30,10 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = e.request.url;
-
-  // Always bypass Firebase, Google APIs, and external services
   if (BYPASS_URLS.some(b => url.includes(b))) return;
-
-  // Only cache GET requests for same-origin assets
   if (e.request.method !== 'GET') return;
-
   e.respondWith(
     fetch(e.request).then(res => {
-      // Only cache successful same-origin responses
       if (res.ok && res.type === 'basic') {
         const clone = res.clone();
         caches.open(CACHE_VERSION).then(c => c.put(e.request, clone));
@@ -61,19 +53,41 @@ self.addEventListener('push', e => {
     icon:    data.icon    || '/davan-attendance/icon-192.png',
     badge:   data.badge   || '/davan-attendance/icon-192.png',
     vibrate: [200, 100, 200],
-    tag:     data.tag     || 'davan-alert',
-    data:    data.data    || {},
+    tag:     data.tag     || ('davan-' + Date.now()), // unique tag
+    data:    { title: data.title, body: data.body, icon: data.icon||'🔔' },
     actions: data.actions || [],
   };
-  e.waitUntil(self.registration.showNotification(data.title || 'Davan College', options));
+
+  e.waitUntil(
+    Promise.all([
+      self.registration.showNotification(data.title || 'Davan College', options),
+      // Update app badge count
+      self.registration.navigationPreload?.enable?.(),
+      // Post to all open clients to store in inbox
+      clients.matchAll({ type: 'window' }).then(list => {
+        list.forEach(c => c.postMessage({
+          type: 'PUSH_RECEIVED',
+          title: data.title || 'Davan College',
+          body:  data.body  || '',
+          icon:  data.icon  || '🔔',
+          ts:    Date.now()
+        }));
+      })
+    ])
+  );
 });
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
+  const data = e.notification.data || {};
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       for (const client of list) {
-        if (client.url.includes('davan-attendance') && 'focus' in client) return client.focus();
+        if (client.url.includes('davan-attendance') && 'focus' in client) {
+          // Tell app to clear badge and mark as read
+          client.postMessage({ type: 'NOTIF_CLICKED', ...data });
+          return client.focus();
+        }
       }
       if (clients.openWindow) return clients.openWindow(APP_URL);
     })
