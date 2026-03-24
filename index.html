@@ -11,11 +11,11 @@
   <!-- Windows File Explorer Properties (Tags / Authors / Title) -->
   <meta name="title" content="Davan &amp; Nutana Attendance Analyzer">
   <meta name="author" content="Harsha Gujjar">
-  <meta name="keywords" content="v410, Attendance, Analyzer, Davan, Nutana, Davangere">
+  <meta name="keywords" content="v424, Attendance, Analyzer, Davan, Nutana, Davangere">
   <meta name="description" content="Attendance and result analytics for Davan &amp; Nutana Institutions, Davangere. Developed by Harsha Gujjar, Director.">
   <meta name="application-name" content="Attendance Result Analyzer">
   <meta name="generator" content="Developed by Harsha Gujjar — Davan Institute of Advanced Management Studies">
-  <meta name="version" content="v410">
+  <meta name="version" content="v424">
 
   <!-- Favicon & App Icons -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -3317,6 +3317,41 @@
           </div>
         </div>
 
+        <!-- ── Realtime Database Rules ── -->
+        <div style="background:var(--surface);border:1px solid rgba(251,146,60,0.35);border-radius:var(--radius);padding:24px;margin-bottom:16px;">
+          <div style="font-size:13px;font-weight:700;color:var(--warn);margin-bottom:4px;">🔥 Realtime Database Rules</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">
+            If manager/VP still sees blank dashboard after Firestore rules are set, RTDB rules are also blocking reads.<br>
+            Go to <strong style="color:var(--text);">Firebase Console → Realtime Database → Rules</strong> and paste the rules below, then click <strong style="color:var(--ok);">Publish</strong>.
+          </div>
+          <pre id="aset-rtdb-rules-block" style="background:#0a0a0a;border:1px solid #2a2a2a;border-radius:6px;padding:14px;font-size:11px;font-family:var(--mono);color:#fb923c;white-space:pre;overflow-x:auto;margin:0 0 12px 0;line-height:1.7;">{
+  "rules": {
+    "davan_pub": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    ".read": "auth != null",
+    ".write": "auth != null"
+  }
+}</pre>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button onclick="
+              const t = document.getElementById('aset-rtdb-rules-block').textContent;
+              navigator.clipboard ? navigator.clipboard.writeText(t).then(() => {
+                const b = event.target; b.textContent = '✅ Copied!';
+                setTimeout(() => b.textContent = '📋 Copy Rules', 2000);
+              }) : dvToast('Copy not supported — select text manually', 'warn');"
+              style="padding:8px 18px;background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.3);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">
+              📋 Copy Rules
+            </button>
+            <a href="https://console.firebase.google.com/project/davan-attendance-2026/database/davan-attendance-2026-default-rtdb/rules" target="_blank"
+              style="padding:8px 18px;background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;">
+              🌐 Open Firebase Console →
+            </a>
+            <span style="font-size:11px;color:var(--muted);">opens in new tab</span>
+          </div>
+        </div>
+
         <!-- ── Live Announcement Banner ── -->
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:16px;">
           <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px;">📢 Live Announcement Banner</div>
@@ -4020,18 +4055,26 @@ const ROLE_VP       = 'vp';
 const ROLE_FULLTIME = 'fulltime';
 const ROLE_VISITING = 'visiting';
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §01 FIREBASE / FIRESTORE HELPERS                       ║
+// ║  fsGet, fsSet, fsGetAll, fsAdd, fsDelete, loadFirestoreData, RTDB║
+// ║  Lines (approx): 4023–4192                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ── Firestore helpers ──
 async function fsGet(col, id) {
-  try { const s = await db.collection(col).doc(id).get(); return s.exists ? s.data() : null; }
-  catch(e) { console.error('fsGet', e); return null; }
+  // Throws on error so callers can distinguish "doc doesn't exist" (null) from "read failed" (throws)
+  const s = await db.collection(col).doc(id).get();
+  return s.exists ? s.data() : null;
 }
 async function fsSet(col, id, data) {
   try { await db.collection(col).doc(id).set(data, { merge: true }); return true; }
   catch(e) { console.error('fsSet', e); return false; }
 }
 async function fsGetAll(col) {
-  try { const s = await db.collection(col).get(); return s.docs.map(d => ({ id: d.id, ...d.data() })); }
-  catch(e) { console.error('fsGetAll', e); return []; }
+  // Throws on error so callers know the difference between "empty collection" and "read failed"
+  const s = await db.collection(col).get();
+  return s.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 async function fsAdd(col, data) {
   try { const r = await db.collection(col).add(data); return r.id; }
@@ -4042,8 +4085,41 @@ async function fsDelete(col, id) {
   catch(e) { console.error('fsDelete', e); return false; }
 }
 
+// ── Fetch a user profile: Firestore first, RTDB mirror fallback ──
+// This is the ONLY safe way to fetch profiles — Firestore fails on file:// for some roles
+async function _fetchProfile(uid) {
+  // 1. Try Firestore
+  try {
+    const doc = await db.collection('users').doc(uid).get();
+    if (doc.exists) return doc.data();
+  } catch(e) {
+    console.warn('[_fetchProfile] Firestore blocked:', e.code, '— trying RTDB mirror');
+  }
+  // 2. Try RTDB mirror (admin syncs this via ☁️ Sync to Cloud)
+  try {
+    if (rtdb) {
+      const snap = await rtdb.ref('davan_users/' + uid).once('value');
+      if (snap.val()) { console.log('[_fetchProfile] Loaded from RTDB mirror'); return snap.val(); }
+    }
+  } catch(e) {
+    console.warn('[_fetchProfile] RTDB also failed:', e.message);
+  }
+  // 3. Try localStorage cache
+  try {
+    const cached = JSON.parse(localStorage.getItem('davan_profile_' + uid) || 'null');
+    if (cached) { console.log('[_fetchProfile] Using localStorage cache'); return cached; }
+  } catch(e) {}
+  return null;
+}
+
 // ── Load Firestore → localStorage shims ──
 async function loadFirestoreData() {
+  // Manager/VP: Firestore blocks on file:// origin — skip straight to RTDB/localStorage
+  if (currentProfile && ['manager','vp'].includes(currentProfile.role)) {
+    console.log('[loadFirestoreData] role:', currentProfile.role, '— using RTDB/localStorage path directly');
+    await _loadFromRTDB();
+    return;
+  }
   // Run all reads in parallel — much faster than sequential awaits
   let studentsDoc, ttDoc, allocDoc, exSubDoc, metaDoc, exStudDoc;
   try {
@@ -4056,10 +4132,20 @@ async function loadFirestoreData() {
       fsGet('app_data', 'exempt_students'),
     ]);
   } catch(e) {
-    console.error('[loadFirestoreData] Promise.all failed:', e);
-    // If permission denied, show clear message to manager/VP
-    if (e?.code === 'permission-denied' || e?.message?.includes('permissions')) {
+    const isPermDenied = e?.code === 'permission-denied' || e?.message?.includes('Missing or insufficient permissions');
+    console.warn('[loadFirestoreData] read failed:', e?.code || e?.message,
+      '| role:', currentProfile?.role,
+      '| origin:', location.protocol,
+      '| auth uid:', firebase.auth().currentUser?.uid || 'null');
+    if (isPermDenied) {
+      // Permission denied — try RTDB then localStorage (do NOT stop here)
       _showFirestorePermissionError();
+      await _loadFromRTDB();
+    } else {
+      // Other error (network etc) — try localStorage cache silently
+      console.error('[loadFirestoreData] non-permission error:', e);
+      const cached = (() => { try { return JSON.parse(localStorage.getItem('davan_students') || 'null'); } catch(_){ return null; } })();
+      if (cached?.length) { allStudents = cached; if (typeof renderAll === 'function') renderAll(); }
     }
     return;
   }
@@ -4067,9 +4153,10 @@ async function loadFirestoreData() {
   console.log('[loadFirestoreData] studentsDoc:', studentsDoc ? `{data: Array(${studentsDoc.data?.length ?? 'no .data field'}), keys: ${Object.keys(studentsDoc).join(',')}}` : 'null — check Firestore rules');
   console.log('[loadFirestoreData] metaDoc:', metaDoc ? JSON.stringify(metaDoc).slice(0,200) : 'null');
 
-  // If studentsDoc is null and we're a non-admin role, likely a permissions issue — try RTDB fallback
-  if (!studentsDoc && currentProfile && !['admin'].includes(currentProfile.role)) {
-    console.warn('[loadFirestoreData] studentsDoc is null for role:', currentProfile.role, '— trying RTDB fallback');
+  // studentsDoc is null only if the Firestore doc genuinely doesn't exist (admin never saved data)
+  // Errors are thrown by fsGet now and caught above — so null here is not a permissions issue
+  if (!studentsDoc) {
+    console.warn('[loadFirestoreData] students doc missing in Firestore for role:', currentProfile?.role, '— trying RTDB/localStorage fallback');
     await _loadFromRTDB();
     return;
   }
@@ -4122,7 +4209,7 @@ async function loadFirestoreData() {
     const ist = new Date(d.getTime() + 5.5*60*60*1000);
     const pad = n => String(n).padStart(2,'0');
     const fmt = `${pad(ist.getUTCDate())}-${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][ist.getUTCMonth()]}-${ist.getUTCFullYear()} ${pad(ist.getUTCHours())}:${pad(ist.getUTCMinutes())}`;
-    setTopbarVersion(`HTML: v410 · Data: ${fmt} IST`);
+    setTopbarVersion(`HTML: v424 · Data: ${fmt} IST`);
   }
 }
 // ── RTDB fallback — used when Firestore rules block manager/VP reads ──
@@ -4132,16 +4219,22 @@ async function _loadFromRTDB() {
     _showFirestorePermissionError();
     return;
   }
-  try {
-    const snap = await rtdb.ref('davan_students').once('value');
+  // Try public path first (no auth needed — works on file:// origin)
+  // Falls back to authenticated path, then localStorage
+  const paths = ['davan_pub/students', 'davan_students'];
+  for (const path of paths) {
+    try {
+      const snap = await rtdb.ref(path).once('value');
     const val  = snap.val();
     if (val?.data?.length) {
       allStudents = val.data;
       try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch(e) {}
       console.log('[RTDB fallback] Loaded', allStudents.length, 'students from RTDB');
-      // Also load meta from RTDB
+      // Also load meta from RTDB — use davan_pub/meta (readable by all auth'd users)
+      // davan_meta is admin-only; davan_pub/meta is mirrored by admin on sync
       try {
-        const metaSnap = await rtdb.ref('davan_meta').once('value');
+        const metaPath = (currentProfile?.role === 'admin') ? 'davan_meta' : 'davan_pub/meta';
+        const metaSnap = await rtdb.ref(metaPath).once('value');
         const meta = metaSnap.val();
         if (meta) {
           const lsSet = (k, v) => { if (v) { try { localStorage.setItem(k, String(v)); } catch(e){} } };
@@ -4151,14 +4244,30 @@ async function _loadFromRTDB() {
         }
       } catch(me) { console.warn('[RTDB fallback] meta load failed:', me.message); }
       dvToast('✅ Data loaded via cloud mirror (' + allStudents.length + ' students)', 'ok', 4000);
+      if (typeof renderAll === 'function') renderAll();
+      return; // ← success — don't try next path
     } else {
-      console.warn('[RTDB fallback] No data in RTDB either — admin must sync to cloud first');
-      _showFirestorePermissionError();
+      // RTDB empty — admin hasn't synced yet. Try localStorage before giving up.
+      console.warn('[RTDB fallback] RTDB is empty at', path, '— trying next path or localStorage');
+      // Don't fall back to localStorage yet — try the next path in the loop first
+      continue;
     }
   } catch(e) {
-    console.error('[RTDB fallback] failed:', e);
-    _showFirestorePermissionError();
+    console.warn('[RTDB fallback] path', path, 'blocked:', e.message, '— trying next path');
+    // Continue loop to try next path
   }
+}
+// All paths exhausted — try localStorage as last resort
+const cached = (() => { try { return JSON.parse(localStorage.getItem('davan_students') || 'null'); } catch(_){ return null; } })();
+if (cached?.length) {
+  allStudents = cached;
+  console.log('[RTDB fallback] All RTDB paths failed — using cached localStorage data:', allStudents.length, 'students');
+  dvToast('⚠️ Using cached data — admin must Sync to Cloud to refresh', 'warn', 8000);
+  if (typeof renderAll === 'function') renderAll();
+} else {
+  console.warn('[RTDB fallback] All paths exhausted — no data available');
+  _showNoDataError();
+}
 }
 
 async function fsSaveTimetable() {
@@ -4189,7 +4298,57 @@ function _showFirestorePermissionError() {
   console.warn('[Firestore] Permission denied for role:', role, '— RTDB fallback will be attempted');
 }
 
+// ── Diagnostic helper — run checkManagerAccess() in browser console to debug ──
+async function checkManagerAccess() {
+  const user = firebase.auth().currentUser;
+  console.group('🔍 Manager Access Diagnostics');
+  console.log('Protocol:', location.protocol, '← must be http/https not file://');
+  console.log('Auth user:', user ? `${user.email} (uid: ${user.uid})` : '❌ NOT LOGGED IN');
+  console.log('Current profile:', currentProfile);
+  try {
+    const test = await db.collection('app_data').doc('students').get();
+    console.log('✅ Firestore read: OK —', test.exists ? 'doc exists' : 'doc missing (admin must scrape+sync)');
+  } catch(e) {
+    console.error('❌ Firestore read FAILED:', e.code, e.message);
+    console.log('→ Check Firebase Console → Firestore → Rules');
+    console.log('→ Rule needed: allow read, write: if request.auth != null;');
+  }
+  try {
+    const snap = await rtdb.ref('davan_students').once('value');
+    const val = snap.val();
+    console.log('✅ RTDB read: OK —', val?.data?.length ? `${val.data.length} students` : '⚠️ empty (admin must Sync to Cloud)');
+  } catch(e) {
+    console.error('❌ RTDB read FAILED:', e.code || e.message);
+    console.log('→ Check Firebase Console → Realtime Database → Rules');
+    console.log('→ Rule needed: { ".read": "auth != null", ".write": "auth != null" }');
+  }
+  console.log('localStorage students:', (() => { try { const d = JSON.parse(localStorage.getItem('davan_students')||'null'); return d?.length ? `${d.length} cached` : 'empty'; } catch(e){ return 'parse error'; } })());
+  console.groupEnd();
+}
+window.checkManagerAccess = checkManagerAccess; // expose to console
 
+// Shown when RTDB is also empty (admin hasn't synced yet) — different from permission error
+function _showNoDataError() {
+  if (_permErrShown) return;
+  _permErrShown = true;
+  const role = currentProfile?.role || 'your role';
+  const emptyMsg = document.getElementById('dash-empty-msg');
+  if (emptyMsg) {
+    emptyMsg.innerHTML =
+      '<span style="color:var(--warn);font-size:15px;font-weight:700;">⚠️ No Data Available</span><br>' +
+      '<span style="font-size:12px;color:var(--muted);">No attendance data found for this device (' + role + ').<br>' +
+      'Ask the admin to click <strong style="color:var(--ok);">☁️ Sync to Cloud</strong> on the main dashboard to push data to the cloud mirror.</span>';
+  }
+  console.warn('[No data] RTDB empty and no localStorage cache for role:', role);
+}
+
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §02 LOGIN & AUTH (Firebase)                            ║
+// ║  loadLoginNameDropdown, doFacultyLogin, doFirebaseLogin, onLoginSuccess║
+// ║  Lines (approx): 4193–4514                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 //  FIREBASE AUTH
 // ═══════════════════════════════════════════════════════════════
@@ -4274,13 +4433,14 @@ async function doFacultyLogin() {
     const email = matched.username.includes('@') ? matched.username : `${matched.username}@davan.local`;
     await auth.setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
     const cred = await auth.signInWithEmailAndPassword(email, password);
-    const profile = await fsGet('users', cred.user.uid);
+    const profile = await _fetchProfile(cred.user.uid);
     if (!profile) {
       _signingOut = true;
       await auth.signOut();
       _signingOut = false;
       showAlert('login-error-faculty', '⚠ Account not configured. Contact admin.'); return;
     }
+    try { localStorage.setItem('davan_profile_' + cred.user.uid, JSON.stringify(profile)); } catch(e) {}
     // Secondary check — belt-and-suspenders in case role wasn't in login_index
     if ([ROLE_ADMIN, ROLE_MANAGER].includes(profile.role)) {
       _signingOut = true;
@@ -4331,8 +4491,10 @@ async function doFirebaseLogin() {
     const email = username.includes('@') ? username : `${username}@davan.local`;
     await auth.setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
     const cred = await auth.signInWithEmailAndPassword(email, password);
-    const profile = await fsGet('users', cred.user.uid);
+    const profile = await _fetchProfile(cred.user.uid);
     if (!profile) { await auth.signOut(); showAlert('login-error', '⚠ Account not configured. Contact admin.'); return; }
+    // Cache profile in localStorage for next load
+    try { localStorage.setItem('davan_profile_' + cred.user.uid, JSON.stringify(profile)); } catch(e) {}
     currentUser = cred.user; currentProfile = profile;
     if (remember) localStorage.setItem('davan_remember_user', username);
     else localStorage.removeItem('davan_remember_user');
@@ -4375,8 +4537,11 @@ async function doFirebaseLogout() {
 auth.onAuthStateChanged(async user => {
   if (_signingOut) return; // ignore auth events during deliberate sign-out flows
   if (user) {
-    const profile = await fsGet('users', user.uid);
-    if (profile) { currentUser = user; currentProfile = profile; onLoginSuccess(); }
+    const profile = await _fetchProfile(user.uid);
+    if (profile) {
+      try { localStorage.setItem('davan_profile_' + user.uid, JSON.stringify(profile)); } catch(e) {}
+      currentUser = user; currentProfile = profile; onLoginSuccess();
+    }
   }
 });
 
@@ -4433,7 +4598,7 @@ async function onLoginSuccess() {
     if (ssToggle) ssToggle.style.display = isFac ? '' : 'none';
   }, 100);
   setStatus(true, `${p.name} · ${roleLabels[p.role]||p.role}`);
-  setTopbarVersion(`HTML: v410 · Firebase`);
+  setTopbarVersion(`HTML: v424 · Firebase`);
   // Eruda dev console — admin only, script injected dynamically so it never loads for other roles
   if (p.role === ROLE_ADMIN) {
     try {
@@ -4442,6 +4607,20 @@ async function onLoginSuccess() {
       s.onload = () => { try { eruda.init(); } catch(e) {} };
       document.head.appendChild(s);
     } catch(e) {}
+    // Auto-mirror user profiles to RTDB every time admin logs in
+    // This ensures manager can always fetch their profile via RTDB on file:// origin
+    setTimeout(async () => {
+      try {
+        if (!rtdb) return;
+        const usersSnap = await db.collection('users').get();
+        const usersObj  = {};
+        usersSnap.forEach(doc => { usersObj[doc.id] = doc.data(); });
+        await rtdb.ref('davan_users').set(usersObj);
+        console.log('[Admin auto-sync] Mirrored', Object.keys(usersObj).length, 'profiles to RTDB davan_users');
+      } catch(e) {
+        console.warn('[Admin auto-sync] User profile mirror failed:', e.message);
+      }
+    }, 3000); // 3s delay — let login settle first
   }
   if (isActingAsFaculty()) {
     const ftSel = document.getElementById('ft-faculty');
@@ -4512,6 +4691,12 @@ async function onLoginSuccess() {
 }
 
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §03 VP DUAL-MODE TOGGLE                                ║
+// ║  vpToggleMode, vpApplyMode, isActingAsFaculty                   ║
+// ║  Lines (approx): 4515–4707                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 //  VP DUAL-MODE TOGGLE
 // ═══════════════════════════════════════════════════════════════
@@ -4705,6 +4890,12 @@ function vpApplyMode(mode, skipRedirect) {
 
 
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §04 FACULTY DASHBOARD (fdb)                            ║
+// ║  fdbRender, fdbRenderCards, fdbRenderTT                         ║
+// ║  Lines (approx): 4708–4954                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 //  FACULTY DASHBOARD
 // ═══════════════════════════════════════════════════════════════
@@ -4952,6 +5143,12 @@ function fdbRenderTT() {
   if (ttFac) ttFac.checked = prevFac;
 }
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §05 SIDEBAR NAV & ROLE GATING                          ║
+// ║  srcToggle, secToggle, applySidebarForRole                      ║
+// ║  Lines (approx): 4955–5062                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ── Sidebar section collapse/expand ──────────────────────────
 const SEC_KEYS = ['analysis','tools','leave','tt','results','internals','admin'];
 
@@ -5061,6 +5258,12 @@ function applySidebarForRole(role) {
 }
 
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §06 USER MANAGEMENT & STAFF DIRECTORY                  ║
+// ║  staffDirectoryRender, umCreateUser, umDeleteUser, renderUserManagement║
+// ║  Lines (approx): 5063–5560                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 //  USER MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
@@ -5559,6 +5762,12 @@ async function renderUserManagement() {
 }
 
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §07 LOGIN ACTIVITY / ACTION LOG / SYSLOG               ║
+// ║  renderLoginActivity, actLog, sysLogStore, sysLogRender         ║
+// ║  Lines (approx): 5561–5765                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 //  LOGIN ACTIVITY
 // ═══════════════════════════════════════════════════════════════
@@ -5765,6 +5974,12 @@ console.error = function(...args) {
 };
 // ═══════════════════════════════════════════════════════════════
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §08 SUBJECT EXEMPTIONS (ATTENDANCE)                    ║
+// ║  getSubjectExemptions, isExemptedSubject, addSubjectExemption   ║
+// ║  Lines (approx): 5766–5860                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 function getSubjectExemptions() {
   try { return JSON.parse(localStorage.getItem('davan_exempt_subjects') || '[]'); } catch(e) { return []; }
 }
@@ -5863,6 +6078,12 @@ function renderSubjectExemptions() {
 //  PANEL SWITCHING
 // ---------------------------------------------------------------──
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §09 MOBILE / PANEL SWITCH / STATUS UTILS               ║
+// ║  mobToggleSidebar, switchPanel, setStatus, setTopbarVersion, showAlert║
+// ║  Lines (approx): 5861–6013                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 function mobToggleSidebar() {
   const sidebar = document.getElementById('main-sidebar');
   const overlay = document.getElementById('mob-overlay');
@@ -5934,6 +6155,12 @@ function hideAlerts(...ids) {
 //  LOGIN
 // ---------------------------------------------------------------──
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §10 SCRAPER — SESSION INJECT & LOGIN                   ║
+// ║  doLogin, logout, injectSession, fetchPage, renderNavLinks      ║
+// ║  Lines (approx): 6014–6260                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 async function doLogin() {
   const email    = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value.trim();
@@ -5968,7 +6195,7 @@ async function doLogin() {
         localStorage.removeItem('davan_remember');
       }
 
-      setStatus(true, 'HTML: v410 · Backend: ' + (data.version || '?') + ' — ' + (data.landed_url || ''));
+      setStatus(true, 'HTML: v424 · Backend: ' + (data.version || '?') + ' — ' + (data.landed_url || ''));
       showAlert('login-success', '✅ Logged in! Loading attendance data…');
 
       // Populate nav links if available
@@ -6053,7 +6280,7 @@ async function doInjectSession(phpsessid, errId, successId, btn, btnLabel) {
       return false;
     }
     if (data.ok) {
-      setStatus(true, 'HTML: v410 · Backend: ' + (data.version || '?') + ' — ' + (data.admin_url || ''));
+      setStatus(true, 'HTML: v424 · Backend: ' + (data.version || '?') + ' — ' + (data.admin_url || ''));
       if (successId) showAlert(successId, '✅ Connected! Loading attendance data…');
       if (data.nav_links && data.nav_links.length) renderNavLinks(data.nav_links);
       if (data.landed_url) document.getElementById('nav-url').value = data.landed_url;
@@ -6200,6 +6427,12 @@ function renderRawTables(tables) {
 //  SCRAPE ALL ATTENDANCE
 // ---------------------------------------------------------------──
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §11 SCRAPER — SCRAPE & EXPORT                          ║
+// ║  scrapeAll, manualScrapeMarks, exportExcel, renderAll, saveDavanSharedData║
+// ║  Lines (approx): 6261–6370                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 async function scrapeAll() {
   actLog('scrape', 'Attendance scrape started');
   sysLogStore('info', 'Attendance scrape started by ' + (currentProfile?.name||'?'));
@@ -6369,6 +6602,12 @@ function saveDavanSharedData() {
 
 let dashTab = 'college';
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §12 DASHBOARD — TABS & FACULTY REPORT                  ║
+// ║  dashSetTab, dashRenderFacultyReport, dashRenderMySubjects, renderDashboard║
+// ║  Lines (approx): 6371–6615                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 function dashSetTab(tab) {
   dashTab = tab;
   const tabs  = ['college','faculty','mysubjects'];
@@ -6614,6 +6853,12 @@ function renderDashboard() {
 //  STUDENTS TABLE
 // ---------------------------------------------------------------──
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §13 STUDENTS LIST & FILTERS                            ║
+// ║  renderStudents, getFacultyStudents, applyFilters, autoScrapeOnLogin║
+// ║  Lines (approx): 6616–7155                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 function renderStudents(list) {
   const tbody = document.getElementById('students-tbody');
   if (!list.length) {
@@ -7104,16 +7349,31 @@ async function syncStudentsToFirestore() {
   try {
     await fsSet('app_data', 'students', { data: allStudents, savedAt: new Date().toISOString() });
     await fsSet('app_data', 'students', { data: allStudents, savedAt: new Date().toISOString() });
-    // Also mirror to RTDB as fallback for manager/VP if Firestore rules block reads
+    // Mirror to RTDB — manager/VP read from here when Firestore is blocked
     try {
       if (rtdb) {
-        await rtdb.ref('davan_students').set({ data: allStudents, savedAt: new Date().toISOString() });
-        await rtdb.ref('davan_meta').set({
+        const metaPayload = {
           scraped_at:     localStorage.getItem('davan_scraped_at') || null,
           scraped_by:     localStorage.getItem('davan_scraped_by') || currentProfile?.name || 'Admin',
           total_students: allStudents.length,
           saved_at:       new Date().toISOString(),
-        });
+        };
+        const studentsPayload = { data: allStudents, savedAt: new Date().toISOString() };
+        // Authenticated path (existing)
+        await rtdb.ref('davan_students').set(studentsPayload);
+        await rtdb.ref('davan_meta').set(metaPayload);
+        // Public path — readable without auth, works on file:// origin for manager
+        await rtdb.ref('davan_pub/students').set(studentsPayload);
+        await rtdb.ref('davan_pub/meta').set(metaPayload);
+        console.log('[Sync] Written to both davan_students and davan_pub/students');
+        // Mirror user profiles so _fetchProfile works on file:// for all roles
+        try {
+          const usersSnap = await db.collection('users').get();
+          const usersObj  = {};
+          usersSnap.forEach(doc => { usersObj[doc.id] = doc.data(); });
+          await rtdb.ref('davan_users').set(usersObj);
+          console.log('[Sync] Mirrored', Object.keys(usersObj).length, 'user profiles to RTDB');
+        } catch(ue) { console.warn('[Sync] User mirror failed (non-critical):', ue.message); }
       }
     } catch(re) { console.warn('[Sync] RTDB mirror failed (non-critical):', re.message); }
     // Also update meta
@@ -7154,6 +7414,12 @@ async function manualScrapeAll() {
 //  ABSENTEES TABLE — Excel-style sort + filter
 // ---------------------------------------------------------------──
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §14 ABSENTEES                                          ║
+// ║  abSort, renderAbsentees, clearAbsenteeFilters                  ║
+// ║  Lines (approx): 7156–7280                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 let abSortKey = 'min';
 let abSortDir = 1; // 1=asc, -1=desc
 
@@ -7280,6 +7546,12 @@ function renderAbsentees() {
 //  CLASS SUMMARY TABLE
 // ---------------------------------------------------------------──
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §15 CLASSES VIEW                                       ║
+// ║  renderClasses                                                  ║
+// ║  Lines (approx): 7281–7335                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 function renderClasses() {
   const { warn, crit } = getThresholds();
   const tbody   = document.getElementById('classes-tbody');
@@ -7336,6 +7608,12 @@ function renderClasses() {
 //  HELPERS — dynamic thresholds
 // ---------------------------------------------------------------──
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §16 THRESHOLDS & SHORTAGE LIST                         ║
+// ║  getThresholds, renderShortage, shSetScope, shSort, renderShortage║
+// ║  Lines (approx): 7336–7960                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 function getThresholds() {
   // Read from whichever input is available and has a valid value
   const warnRaw =
@@ -7964,6 +8242,12 @@ let ssScope          = 'all';   // 'all' | 'my'
 let ssMyFilterActive = false;
 let ssMyFilterState  = null;
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §17 SHORTAGE SUMMARY                                   ║
+// ║  ssSetScope, ssReloadData, renderShortageSummary                ║
+// ║  Lines (approx): 7961–8182                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 function ssSetScope(scope) {
   ssScope = scope;
   const btnAll = document.getElementById('ss-scope-all');
@@ -8179,6 +8463,12 @@ function ssSToggle(id) {
 
 
 // ---------------------------------------------------------------──
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §18 CLASS VIEW — PORTAL TABLE                          ║
+// ║  cvRender, cvShowList, cvOpenClass, cvRefreshDetail             ║
+// ║  Lines (approx): 8183–8527                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 //  CLASS VIEW  (portal-style student × subject table)
 // ---------------------------------------------------------------──
 
@@ -8528,6 +8818,12 @@ function cvRefreshDetail() {
 //  NOTIFY STUDENTS
 // ---------------------------------------------------------------──
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §19 NOTIFY (WhatsApp messaging)                        ║
+// ║  renderNotify, generateMessage, copyMsg                         ║
+// ║  Lines (approx): 8528–8625                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 function renderNotify() {
   const college  = (document.getElementById('nt-college')?.value || '').toLowerCase();
   const course   = (document.getElementById('nt-course')?.value  || '').toLowerCase();
@@ -8620,6 +8916,12 @@ function copyMsg(id) {
 }
 
 // ---------------------------------------------------------------──
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §20 EXEMPTIONS (URN-based)                             ║
+// ║  getExemptions, addExemption, searchExemptCandidates, renderExemptions║
+// ║  Lines (approx): 8626–9016                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 //  EXEMPTIONS
 // ---------------------------------------------------------------──
 
@@ -8779,7 +9081,7 @@ function renderExemptions() {
 
     if (data.logged_in && data.data_available && data.total_students > 0) {
       // ── Backend already has live session + data (e.g. same Flask run) ──
-      setStatus(true, 'HTML: v410 · Backend: ' + (data.version || '?') + ' — ' + (data.admin_url || ''));
+      setStatus(true, 'HTML: v424 · Backend: ' + (data.version || '?') + ' — ' + (data.admin_url || ''));
       if (data.admin_url) document.getElementById('nav-url').value = data.admin_url;
       gpShow('📊', 'Restoring data…', `Loading ${data.total_students} students`, 60, `${data.total_students} students`);
       try {
@@ -8813,7 +9115,7 @@ function renderExemptions() {
         });
         const ld = await lr.json();
         if (ld.ok) {
-          setStatus(true, 'HTML: v410 · Backend: ' + (ld.version || '?') + ' — ' + (ld.landed_url || ''));
+          setStatus(true, 'HTML: v424 · Backend: ' + (ld.version || '?') + ' — ' + (ld.landed_url || ''));
           if (ld.landed_url) document.getElementById('nav-url').value = ld.landed_url;
           gpShow('⏳', 'Scraping attendance…', 'Fetching all classes from portal', 20, '');
           try {
@@ -8936,6 +9238,20 @@ function renderExemptions() {
      v408       | 24-Mar-2026 01:00 IST — Fix: docSub.name/short also filtered through looksLikeCode so STATIC_CODE_NAMES wins even when Firestore stores raw code as subject name
      v409       | 24-Mar-2026 01:15 IST — Fix: BCA Sem V portal codes (21BCA5Cxx style) added to STATIC_CODE_NAMES; looksLikeCode regex extended to catch digit-prefixed codes
      v410       | 24-Mar-2026 01:30 IST — Fix: STATIC_CODE_NAMES hoisted to module-level RC_SUBJECT_CODE_NAMES const; rcResolveSubjectName() replaces all inline fallbacks permanently
+     v411       | 24-Mar-2026 01:45 IST — Add: 35 section markers (§01–§35) throughout JS for fast surgical edits; each marker shows tag, description, approx line range
+     v412       | 24-Mar-2026 02:00 IST — Fix: Manager/VP presence write to RTDB skipped (rules deny write); they still read presence list — no more permission_denied spam
+     v413       | 24-Mar-2026 02:15 IST — Fix: _loadFromRTDB falls back to localStorage on permission_denied (no blank screen); RTDB rules card added to admin settings
+     v414       | 24-Mar-2026 02:30 IST — Fix: RTDB rules card updated to reflect actual deployed rules: blanket auth != null read/write
+     v415       | 24-Mar-2026 02:45 IST — Fix: RTDB empty branch now falls back to localStorage + shows correct actionable message; _showNoDataError() added
+     v416       | 24-Mar-2026 03:00 IST — Fix: fsGet/fsGetAll now throw on error instead of returning null; manager Firestore read no longer silently diverts to RTDB
+     v417       | 24-Mar-2026 03:15 IST — Fix: loadFirestoreData catch now calls _loadFromRTDB on permission-denied; intLoadList guarded for non-admin; checkManagerAccess() debug helper added
+     v418       | 24-Mar-2026 03:30 IST — Rebuild: manager login system from scratch — _fetchProfile with RTDB fallback; manager bypasses Firestore entirely; user profiles mirrored to RTDB on sync
+     v419       | 24-Mar-2026 03:45 IST — Fix: admin auto-mirrors all user profiles to RTDB davan_users on every login — manager profile always available without manual sync
+     v420       | 24-Mar-2026 04:00 IST — changes made outside this conversation — details not logged
+     v421       | 24-Mar-2026 07:00 IST — Fix: two syntax errors causing SyntaxError at line 9158: missing } closing _loadFromRTDB() for-loop, and missing </script> after §21 block
+     v422       | 24-Mar-2026 07:00 IST — Fix: remove dead code after return in 7 functions (classSettingsReset, adminResetAll, ttReset, aleDeleteRow, aleReset, lmDeleteRecord, clearLeaveHistory)
+     v423       | 24-Mar-2026 19:46 IST — Fix: _loadFromRTDB loop now returns after success; catch continues to next path; localStorage fallback after all paths exhausted — stops permission_denied on davan_students for manager
+     v424       | 24-Mar-2026 19:46 IST — Fix: intLoadList skipped for manager (no Firestore internals access); meta read uses davan_pub/meta for non-admin roles (davan_meta is admin-only)
 ═══════════════════════════════════════════════════════════════════ -->
 
 <!-- ── Banner 2: Upcoming holiday ticker — inside footer, above © line ── -->
@@ -8973,9 +9289,9 @@ function renderExemptions() {
       © 2026 <strong style="color:#777">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #3a3a3a; font-family: monospace; margin-top: 2px;">
-      <span id="footer-version">Version: v410</span>
+      <span id="footer-version">Version: v424</span>
       &nbsp;·&nbsp;
-      Updated: 24 Mar 2026, <span id="footer-time">01:30</span> IST
+      Updated: 24 Mar 2026, <span id="footer-time">07:00</span> IST
       &nbsp;·&nbsp;
       <span id="footer-changelog-toggle" onclick="toggleChangelog()"
         style="cursor:pointer;color:#555;text-decoration:underline;text-underline-offset:2px;">
@@ -9014,6 +9330,12 @@ function renderExemptions() {
 
 <script>
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §21 DATA STRIP / FOOTER VERSION / CHANGELOG / CLOCK    ║
+// ║  updateLoginMetaCard, updateDataStrip, loadVersionInfo, toggleChangelog║
+// ║  Lines (approx): 9017–9388                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ── Data strip updater ------------------------------------------
 function updateLoginMetaCard() {
   const fmtIst = iso => {
@@ -9203,6 +9525,7 @@ const HTML_CHANGELOG = [
   { v: 'v408', date: '24-Mar-2026 01:00 IST', note: 'Fix: docSub.name/short also filtered through looksLikeCode — STATIC_CODE_NAMES wins even when Firestore stores raw code as subject name' },
   { v: 'v409', date: '24-Mar-2026 01:15 IST', note: 'Fix: BCA Sem V portal codes (21BCA5Cxx style) added to STATIC_CODE_NAMES; looksLikeCode regex extended to catch digit-prefixed codes' },
   { v: 'v410', date: '24-Mar-2026 01:30 IST', note: 'Fix: STATIC_CODE_NAMES hoisted to module-level RC_SUBJECT_CODE_NAMES const; rcResolveSubjectName() is now the single resolver used everywhere — subject codes can never leak through again' },
+  { v: 'v411', date: '24-Mar-2026 01:45 IST', note: 'Add: 35 section markers (§01–§35) throughout JS — each shows tag, description, approx line range for fast context-efficient edits' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -9231,17 +9554,17 @@ async function loadVersionInfo() {
     const res  = await fetch('/api/version');
     const data = await res.json();
     const fv   = document.getElementById('footer-version');
-    if (fv) fv.textContent = `HTML: v410 · Backend: ${data.version} — ${data.current}`;
+    if (fv) fv.textContent = `HTML: v424 · Backend: ${data.version} — ${data.current}`;
 
     const cur = document.getElementById('cl-current');
-    if (cur) cur.textContent = `HTML: v401 · 23-Mar-2026 22:45 IST · Backend: ${data.version} · ${data.date} — ${data.current}`;
+    if (cur) cur.textContent = `HTML: v424 · 24-Mar-2026 19:46 IST · Backend: ${data.version} · ${data.date} — ${data.current}`;
 
     renderChangelogBody([...(data.changelog || [])].reverse(), data.version);
   } catch(e) {
     const fv = document.getElementById('footer-version');
-    if (fv) fv.textContent = 'Version: v410';
+    if (fv) fv.textContent = 'Version: v424';
     const cur = document.getElementById('cl-current');
-    if (cur) cur.textContent = 'HTML: v410 · 23-Mar-2026 21:02 IST (backend offline)';
+    if (cur) cur.textContent = 'HTML: v424 · 24-Mar-2026 19:46 IST (backend offline)';
     renderChangelogBody([], 'v133');
   }
 }
@@ -9421,8 +9744,16 @@ function lmGetClassMeta(cls) {
   return LM_CLASS_META[cls] || { strength: 0, room: '' };
 }
 
+</script>
 
 // ═══════════════════════════════════════════════════════════════
+
+<script>
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §22 TIMETABLE CODE PARSER & CLASS SETTINGS             ║
+// ║  lmParseCode, lmCodeLabel, classSettingsRender, classSettingsSave║
+// ║  Lines (approx): 9389–9595                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
 //  TT CODE PARSER
 // ═══════════════════════════════════════════════════════════════
 // Parses a raw TT code string into structured parts:
@@ -9573,12 +9904,7 @@ function classSettingsSave() {
 }
 
 function classSettingsReset() {
-  dvConfirm('Reset Class Settings', 'Reset all class settings to defaults?', () => { _doResetClassSettings(); }, {icon:'⚙️', okLabel:'Reset'}); return;
-  LM_CLASS_META = JSON.parse(JSON.stringify(LM_CLASS_META_DEFAULT));
-  lmSaveClassMeta();
-  classSettingsRender();
-  const msg = document.getElementById('cs-msg');
-  if (msg) { msg.style.color='var(--warn)'; msg.textContent='↩ Reset to defaults.'; setTimeout(()=>msg.textContent='',3000); }
+  dvConfirm('Reset Class Settings', 'Reset all class settings to defaults?', () => { _doResetClassSettings(); }, {icon:'⚙️', okLabel:'Reset'});
 }
 
 function lmLoadData() {
@@ -9591,6 +9917,12 @@ function lmLoadData() {
 
 // ═══════════════════════════════════════════════════════════════
 //  ADMIN SYSTEM
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §23 ADMIN SETTINGS (PIN / AI KEY / NGROK / RULES)      ║
+// ║  adminGetPin, asetSaveAiKey, asetSaveNgrokUrl, getAiKey, logAiUsage║
+// ║  Lines (approx): 9593–10019                                     ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 const ADMIN_DEFAULT_PIN = '1234';
 let adminUnlocked = false;
@@ -10008,14 +10340,15 @@ function adminChangePin() {
 }
 
 function adminResetAll() {
-  dvConfirm('Reset All Data', 'Reset ALL timetable and allocation data to defaults? This cannot be undone.', () => { _doResetAllTT(); }, {icon:'⚠️', okLabel:'Reset All'}); return;
-  localStorage.removeItem('davan_timetable');
-  localStorage.removeItem('davan_allocations');
-  lmLoadData();
-  const msg = document.getElementById('aset-upload-msg');
-  msg.style.color='var(--ok)'; msg.textContent='✅ Reset to defaults.';
+  dvConfirm('Reset All Data', 'Reset ALL timetable and allocation data to defaults? This cannot be undone.', () => { _doResetAllTT(); }, {icon:'⚠️', okLabel:'Reset All'});
 }
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §24 TIMETABLE ENTRY EDITOR (tte)                       ║
+// ║  tteBuildDatalist, tteOnGridInput, tteScanDuplicates, tteMarkCell║
+// ║  Lines (approx): 10020–11217                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 //  TIMETABLE ENTRY EDITOR
 // ═══════════════════════════════════════════════════════════════
@@ -11634,15 +11967,15 @@ async function ttSave() {
 }
 
 function ttReset() {
-  dvConfirm('Reset Timetable', 'Reset timetable to original defaults?', () => { _doResetTT(); }, {icon:'📅', okLabel:'Reset'}); return;
-  localStorage.removeItem('davan_timetable');
-  LM_TIMETABLE = JSON.parse(JSON.stringify(LM_TT_DEFAULT));
-  lmInit();
-  ttRenderEditor();
-  const msg = document.getElementById('tte-msg');
-  msg.style.color='var(--ok)'; msg.textContent='✅ Timetable reset to defaults.';
+  dvConfirm('Reset Timetable', 'Reset timetable to original defaults?', () => { _doResetTT(); }, {icon:'📅', okLabel:'Reset'});
 }
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §25 ALLOCATION VIEWER & EDITOR (aloc)                  ║
+// ║  allocRenderViewer, allocRenderEditor, aleAddRow, aleSave       ║
+// ║  Lines (approx): 11648–11860                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 //  ALLOCATION VIEWER
 // ═══════════════════════════════════════════════════════════════
@@ -11736,10 +12069,7 @@ function aleAddRow() {
 }
 
 function aleDeleteRow(gi) {
-  dvConfirm('Delete Allocation', 'Delete this allocation entry?', () => { _doDeleteAlloc(this); }, {icon:'🗑️', okLabel:'Delete'}); return;
-  LM_ALLOCATIONS.splice(gi, 1);
-  localStorage.setItem('davan_allocations', JSON.stringify(LM_ALLOCATIONS));
-  allocRenderEditor();
+  dvConfirm('Delete Allocation', 'Delete this allocation entry?', () => { _doDeleteAlloc(gi); }, {icon:'🗑️', okLabel:'Delete'});
 }
 
 async function aleSave() {
@@ -11767,13 +12097,7 @@ async function aleSave() {
 }
 
 function aleReset() {
-  dvConfirm('Reset Allocations', 'Reset allocations to original defaults?', () => { _doResetAlloc(); }, {icon:'⚙️', okLabel:'Reset'}); return;
-  localStorage.removeItem('davan_allocations');
-  LM_ALLOCATIONS = JSON.parse(JSON.stringify(LM_ALLOC_DEFAULT));
-  lmInit();
-  allocRenderEditor();
-  const msg = document.getElementById('ale-msg');
-  msg.style.color='var(--ok)'; msg.textContent='✅ Allocations reset to defaults.';
+  dvConfirm('Reset Allocations', 'Reset allocations to original defaults?', () => { _doResetAlloc(); }, {icon:'⚙️', okLabel:'Reset'});
 }
 
 let lmSelectedSubs = {};
@@ -11855,6 +12179,12 @@ function lmNextDateForDay(dayName) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §26 LEAVE MANAGER CORE (lm)                            ║
+// ║  lmInit, lmFindSubs, lmRenderGrid, lmSelectSub, lmGetSubstitutes║
+// ║  Lines (approx): 11861–12890                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 //  LEAVE MANAGER — CORE HELPERS
 // ═══════════════════════════════════════════════════════════════
@@ -13184,6 +13514,12 @@ async function scRenderResults(s) {
   console.log('[SC] Results rendered:', prevResults.length, 'sems');
 }
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §27 STUDENT CARD MODAL (sc / scRender)                 ║
+// ║  scOpen, scRenderAttendance, scRenderResults, scClose           ║
+// ║  Lines (approx): 12891–15190                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ── TAB 3: Report Card (full rcRenderCard view inside slate) ──────
 async function scRenderReportCard(s) {
   const body = document.getElementById('sc-body');
@@ -15157,10 +15493,7 @@ function lmReWhatsApp(id) {
 }
 
 function lmDeleteRecord(id) {
-  dvConfirm('Delete Record', 'Delete this leave record? This cannot be undone.', () => { _doDeleteLeaveRecord(id); }, {icon:'🗑️', okLabel:'Delete'}); return;
-  const hist = lmGetHistory().filter(h => h.id !== id);
-  try { localStorage.setItem('davan_leave_history', JSON.stringify(hist)); } catch(e) {}
-  renderLeaveHistory();
+  dvConfirm('Delete Record', 'Delete this leave record? This cannot be undone.', () => { _doDeleteLeaveRecord(id); }, {icon:'🗑️', okLabel:'Delete'});
 }
 
 function clearLeaveHistory() {
@@ -15168,9 +15501,7 @@ function clearLeaveHistory() {
     localStorage.removeItem('davan_leave_history');
     renderLeaveHistory();
     dvToast('✅ Leave history cleared', 'ok');
-  }, {icon:'🗑️', okLabel:'Clear All'}); return;
-  localStorage.removeItem('davan_leave_history');
-  renderLeaveHistory();
+  }, {icon:'🗑️', okLabel:'Clear All'});
 }
 
 
@@ -15187,6 +15518,12 @@ let rcFiltered = [];
 let rcIndex    = -1;
 let rcPhotos   = {};
 let rcPhotosReady = Promise.resolve(); // resolves when photos are loaded
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §28 RESULTS CARD MODULE (rc) — DATA & STATE            ║
+// ║  rcResultsCache, rcPhotosReady, rcLoad, rcFilter, rcIndex state ║
+// ║  Lines (approx): 15191–15414                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
 let rcResultsCache = {};
 let rcSearchSuppressed = false; // prevents rcSearch re-opening dropdown on programmatic value set
 
@@ -15413,6 +15750,12 @@ document.addEventListener('click', e => {
   }
 });
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §29 RESULTS CARD — SUBJECT NAME RESOLVER (RC_SUBJECT_CODE_NAMES)║
+// ║  RC_SUBJECT_CODE_NAMES, rcLooksLikeCode, rcResolveSubjectName  ← EDIT HERE for new codes║
+// ║  Lines (approx): 15415–15490                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ── Module-level subject code → name map (permanent, single source of truth) ──
 const RC_SUBJECT_CODE_NAMES = {
   // BCom Sem I
@@ -15490,6 +15833,12 @@ function rcResolveSubjectName(code, ...hints) {
   return stripped || code;
 }
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §30 RESULTS CARD — RENDER (rcRenderCard)               ║
+// ║  rcRenderCard — card HTML, subject table, summary, previous sem results║
+// ║  Lines (approx): ~15491–16100                                   ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ── Render card ------------------------------------------─────────
 async function rcRenderCard(s) {
   const content = document.getElementById('rc-content');
@@ -17578,7 +17927,7 @@ function liveBannerInit() {
       txt.textContent  = d.text;
       document.body.classList.add('banner-active');
       document.documentElement.style.setProperty('--banner-h', '42px');
-    }, e => console.warn('lb1 error', e));
+    }, e => { if (['admin','manager'].includes(currentProfile?.role)) console.warn('lb1 error', e); });
 
   // ── Banner 2 ──────────────────────────────────────────────
   if (_lb2Unsub) _lb2Unsub();
@@ -17732,6 +18081,12 @@ function lbRenderLog() {
 
 
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §31 INTERNALS / EXAM SCHEDULE MODULE (int)             ║
+// ║  intLoad, intSave, intRenderAdmin, intDutyLoad, intDownloadPDF  ║
+// ║  Lines (approx): 17736–19130                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ═══════════════════════════════════════════════════════════════
 //  INTERNALS MODULE
 // ═══════════════════════════════════════════════════════════════
@@ -17845,6 +18200,12 @@ async function intInit() {
 
 // ── Load list of all internals from Firebase ──────────────────
 async function intLoadList() {
+  // Only admin/vp have Firestore read access to 'internals' collection
+  // Manager uses RTDB/localStorage only — skip Firestore internals read
+  if (!currentProfile || !['admin','vp'].includes(currentProfile.role)) {
+    console.log('[intLoadList] skipped for role:', currentProfile?.role);
+    return;
+  }
   try {
     const snap = await db.collection('internals').get();
     INT_LIST = [];
@@ -19227,12 +19588,15 @@ function livePresenceInit(profile) {
   };
 
   // Write presence + auto-remove on disconnect
-  _presenceRef = rtdb.ref('davan_presence/' + uid);
-  _presenceRef.set(data);
-  _presenceRef.onDisconnect().remove();
-
-  // Refresh every 4 minutes to keep alive
-  setInterval(() => _presenceRef?.set(data), 4 * 60 * 1000);
+  // Manager/VP: RTDB rules deny writes to /davan_presence — skip silently, they can still read
+  const canWritePresence = !['manager','vp'].includes(profile.role);
+  if (canWritePresence) {
+    _presenceRef = rtdb.ref('davan_presence/' + uid);
+    _presenceRef.set(data);
+    _presenceRef.onDisconnect().remove();
+    // Refresh every 4 minutes to keep alive
+    setInterval(() => _presenceRef?.set(data), 4 * 60 * 1000);
+  }
 
   // Admin: watch all presence
   if (['admin','manager'].includes(profile.role)) {
@@ -19411,6 +19775,12 @@ async function managerRequestScrape() {
   } catch(e) { dvToast('❌ Failed: ' + e.message, 'error'); }
 }
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §32 PWA INSTALL BANNER                                 ║
+// ║  showInstallBanner, hideInstallBanner, triggerInstall           ║
+// ║  Lines (approx): 19415–19442                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ── PWA Install Banner ────────────────────────────────────────
 function showInstallBanner(prompt) {
   const el = document.getElementById('pwa-install-banner');
@@ -19440,6 +19810,12 @@ async function triggerInstall() {
 
 // ── END PWA Install ───────────────────────────────────────────
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §33 NOTIFICATION INBOX (notif)                         ║
+// ║  notifStore, notifUpdateBadge, notifRenderList, notifDrawerToggle║
+// ║  Lines (approx): 19443–19572                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ── NOTIFICATION INBOX ───────────────────────────────────────
 const NOTIF_KEY = 'davan_notif_inbox';
 let _notifDrawerOpen = false;
@@ -19569,6 +19945,12 @@ function notifInit() {
   }
 }
 // ── END NOTIFICATION INBOX ────────────────────────────────────
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §34 CUSTOM BROADCAST (cb)                              ║
+// ║  cbSend, cbSchedule, cbTickScheduled, cbRenderScheduled         ║
+// ║  Lines (approx): ~19573–19745                                   ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ══════════════════════════════════════════════════════════════
 
 let _cbScheduledToasts = []; // { id, title, body, icon, target, duration, fireAt }
@@ -20148,6 +20530,12 @@ function calCancelEdit() {
   document.getElementById('cal-add-form').style.display = 'none';
 }
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SECTION: §35 ACADEMIC CALENDAR (cal) — END MARKER               ║
+// ║  calInit, calRenderTable, calSaveEvent, calDeleteEvent, fmtCalDate║
+// ║  Lines (approx): ~19746–20155                                   ║
+// ╚══════════════════════════════════════════════════════════════════╝
 // ── END ACADEMIC CALENDAR ─────────────────────────────────────
 
 
