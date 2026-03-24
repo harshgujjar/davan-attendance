@@ -9494,6 +9494,8 @@ function renderExemptions() {
      v453       | 24-Mar-2026 16:45 IST — Fix: doFirebaseLogin sets LOCAL persistence before first signIn — removes double signOut/re-signIn that left firebase.auth().currentUser null on file://
      v454       | 24-Mar-2026 17:15 IST — Fix: _ensureAuth() re-authenticates silently before RTDB writes if session dropped; credentials stored in sessionStorage on login
      v455       | 24-Mar-2026 17:30 IST — Fix: _ensureAuth credentials stored in localStorage (not sessionStorage) — survives page reload and session restore from Firebase LOCAL persistence
+     v456       | 24-Mar-2026 20:30 IST — Fix: Results Card attendance table subject column now resolves via rcResolveSubjectName() — raw codes no longer leak through
+     v457       | 24-Mar-2026 20:45 IST — Fix: rcFacForSubject rewritten to parse "I/II/III YEAR B.Com/BCA/BBA (A)" class format — faculty column now populates correctly in Results Card attendance table
 ═══════════════════════════════════════════════════════════════════ -->
 
 <!-- ── Banner 2: Upcoming holiday ticker — inside footer, above © line ── -->
@@ -9531,9 +9533,9 @@ function renderExemptions() {
       © 2026 <strong style="color:#777">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #3a3a3a; font-family: monospace; margin-top: 2px;">
-      <span id="footer-version">Version: v455</span>
+      <span id="footer-version">Version: v457</span>
       &nbsp;·&nbsp;
-      Updated: 24 Mar 2026, <span id="footer-time">07:00</span> IST
+      Updated: 24 Mar 2026, <span id="footer-time">20:45</span> IST
       &nbsp;·&nbsp;
       <span id="footer-changelog-toggle" onclick="toggleChangelog()"
         style="cursor:pointer;color:#555;text-decoration:underline;text-underline-offset:2px;">
@@ -9810,14 +9812,14 @@ async function loadVersionInfo() {
     if (fv) fv.textContent = `HTML: v455 · Backend: ${data.version} — ${data.current}`;
 
     const cur = document.getElementById('cl-current');
-    if (cur) cur.textContent = `HTML: v455 · 24-Mar-2026 17:30 IST · Backend: ${data.version} · ${data.date} — ${data.current}`;
+    if (cur) cur.textContent = `HTML: v457 · 24-Mar-2026 20:45 IST · Backend: ${data.version} · ${data.date} — ${data.current}`;
 
     renderChangelogBody([...(data.changelog || [])].reverse(), data.version);
   } catch(e) {
     const fv = document.getElementById('footer-version');
     if (fv) fv.textContent = 'Version: v455';
     const cur = document.getElementById('cl-current');
-    if (cur) cur.textContent = 'HTML: v455 · 24-Mar-2026 17:30 IST (backend offline)';
+    if (cur) cur.textContent = 'HTML: v457 · 24-Mar-2026 20:45 IST (backend offline)';
     renderChangelogBody([], 'v133');
   }
 }
@@ -16216,12 +16218,14 @@ async function rcRenderCard(s) {
     const status= pctN === null ? '—' : pctN >= 75 ? '🟢 OK' : pctN >= 65 ? '🟡 Border' : '🔴 Shortage';
     const need  = (pctN !== null && pctN < 75 && sub.ct)
       ? `<br><span style="font-size:9px;color:var(--danger);">Need ${Math.ceil((0.75*sub.ct - (sub.ca||0))/(1-0.75))} more</span>` : '';
-    // Faculty from LM_ALLOCATIONS
-    const fac = rcFacForSubject(sub.subject, s.class);
+    // Resolve display name via §29 resolver — handles raw codes + plain names
+    const dispSubName = rcResolveSubjectName(sub.code, sub.name, sub.short, sub.subject);
+    // Faculty from LM_ALLOCATIONS (try plain sub.subject first, then resolved name)
+    const fac = rcFacForSubject(sub.subject || dispSubName, s.class);
     const int1 = sub.int1 !== undefined && sub.int1 !== null ? `${sub.int1}<br><span style="font-size:9px;color:${(sub.int1_result||'').toUpperCase()==='PASS'?'var(--ok)':'var(--danger)'};">${sub.int1_result||''}</span>` : '—';
     const int2 = sub.int2 !== undefined && sub.int2 !== null ? `${sub.int2}<br><span style="font-size:9px;color:${(sub.int2_result||'').toUpperCase()==='PASS'?'var(--ok)':'var(--danger)'};">${sub.int2_result||''}</span>` : '—';
     return `<tr style="background:${bg};">
-      <td style="font-size:12px;font-weight:500;">${sub.subject||'—'}</td>
+      <td style="font-size:12px;font-weight:500;">${dispSubName||'—'}</td>
       <td style="font-size:11px;color:#a78bfa;">${fac||'—'}</td>
       <td style="font-family:var(--mono);font-size:12px;text-align:center;">${sub.ct||'—'}</td>
       <td style="font-family:var(--mono);font-size:12px;text-align:center;">${sub.ca??'—'}</td>
@@ -16417,38 +16421,52 @@ function rcSummCard(icon, label, val, col) {
 // ── Faculty lookup from LM_ALLOCATIONS ---------------------──────
 function rcFacForSubject(subjectName, cls) {
   if (!subjectName || !LM_ALLOCATIONS || !LM_ALLOCATIONS.length) return '';
-  const c = (cls||'').toLowerCase();
+  const c  = (cls||'').toLowerCase();
   const sn = subjectName.toLowerCase();
-  const semNumM = c.match(/sem(\d)/i);
-  const semNum  = semNumM ? semNumM[1] : '';
-  const semRoman = {'1':'I','2':'II','3':'III','4':'IV','5':'V','6':'VI'}[semNum] || '';
-  const course  = c.includes('bca')?'BCA':c.includes('bba')?'BBA':c.includes('bcom')?'BCom':'';
-  const secM    = c.match(/sec([a-e])/i);
-  const sec     = secM ? secM[1].toUpperCase() : ''; // 'A','B','C'
+
+  // ── Detect course from class string (handles "B.Com", "BCom", "BCA", "BBA") ──
+  const course = /b\.?com/i.test(cls) ? 'BCom' : /bca/i.test(cls) ? 'BCA' : /bba/i.test(cls) ? 'BBA' : '';
+
+  // ── Detect year → Roman sem: "I YEAR"=Sem I/II, "II YEAR"=Sem III/IV, "III YEAR"=Sem V/VI ──
+  // Portal stores year not semester, so we try both sems for that year
+  const yearM = c.match(/^(i{1,3}|iv|v|vi)\s+year/i);
+  const yearWord = yearM ? yearM[1].toUpperCase() : '';
+  const yearToSems = { 'I':['I','II'], 'II':['III','IV'], 'III':['V','VI'] };
+  const possibleSems = yearToSems[yearWord] || [];
+
+  // ── Section from "(A)", "(B)" in class string ──
+  const secM = cls.match(/\(([A-Za-z])\)/);
+  const sec  = secM ? secM[1].toUpperCase() : '';
 
   const subjectMatch = a => {
     const an = (a.subject||'').toLowerCase();
     return an === sn || sn.startsWith(an.slice(0,8)) || an.startsWith(sn.slice(0,8));
   };
 
-  // Try exact section match first
-  if (sec) {
+  // ── Try: matching course + one of the possible sems ──
+  for (const semRoman of possibleSems) {
+    // With section
+    if (sec) {
+      const m = (LM_ALLOCATIONS||[]).find(a =>
+        (a.course||'').toUpperCase() === course.toUpperCase() &&
+        a.sem === semRoman &&
+        (a.section||'').toUpperCase().includes(sec) &&
+        subjectMatch(a)
+      );
+      if (m) return m.faculty;
+    }
+    // Without section
     const m = (LM_ALLOCATIONS||[]).find(a =>
-      (a.course||'').toUpperCase() === course &&
+      (a.course||'').toUpperCase() === course.toUpperCase() &&
       a.sem === semRoman &&
-      (a.section||'').toUpperCase().includes(sec) &&
       subjectMatch(a)
     );
     if (m) return m.faculty;
   }
 
-  // Fallback: no section filter
-  const m = (LM_ALLOCATIONS||[]).find(a =>
-    (a.course||'').toUpperCase() === course &&
-    a.sem === semRoman &&
-    subjectMatch(a)
-  );
-  return m ? m.faculty : '';
+  // ── Final fallback: just subject name match, ignore course/sem ──
+  const mAny = (LM_ALLOCATIONS||[]).find(a => subjectMatch(a));
+  return mAny ? mAny.faculty : '';
 }
 
 // ── Fetch previous results from Firestore ---------------------───
