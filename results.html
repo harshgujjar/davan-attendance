@@ -231,11 +231,13 @@
 
  r396 | 17-Mar-2026 19:01 IST | Strip faculty count: show subjects-assigned count (A:10f B:10f) not unique faculty names
 
- r399 | 17-Mar-2026 19:01 IST | Professors dropdown: serial number added to each professor row
+ r397 | 17-Mar-2026 19:01 IST | Professors dropdown: serial number added to each professor row
 
  r398 | 24-Mar-2026 09:00 IST | Fix: add RTDB SDK + _resGetProfile() Firestore→RTDB→localStorage fallback — manager profile load no longer blocked by Firestore rules
 
  r399 | 24-Mar-2026 09:00 IST | Fix: robust auth gate — 4s grace period before redirect; localStorage handoff fallback so manager session from index.html is honoured without re-login
+
+ r400 | 24-Mar-2026 09:00 IST | Fix: fsGet() RTDB davan_pub/ fallback on permission-denied — all manager reads auto-route to RTDB mirror; resLoadBatchList derives batches from davan_pub/results keys for manager
  ═══════════════════════════════════════════════════
        RESET & TOKENS
     ═══════════════════════════════════════════════════ */
@@ -1142,7 +1144,7 @@
     <div id="topbar-meta"></div>
     <div class="topbar-right">
       <div id="status-dot"></div>
-      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r399</span>
+      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r400</span>
       <button id="vp-toggle-btn" onclick="resVPToggle()" style="display:none;font-size:11px;font-family:var(--mono);font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;">👁 My Subjects</button>
       <span id="topbar-user" style="font-size:12px;font-family:var(--mono);color:var(--text);"></span>
     </div>
@@ -2171,7 +2173,7 @@
     <div class="res-footer">
       <div style="margin-bottom:4px;font-size:11px;color:var(--text);">© 2026 Davan Institute of Advanced Management Studies</div>
       <div style="margin-bottom:4px;"><span id="footer-desc">Timetable edit mode: Edit checkbox; inline subject/faculty inputs with datalist autocomplete; add/delete rows; Save to Firebase</span></div>
-      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r399</span> &nbsp;·&nbsp; Updated: 24-Mar-2026 09:00 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
+      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r400</span> &nbsp;·&nbsp; Updated: 24-Mar-2026 09:00 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
     </div>
       </div><!-- /.main-wrap -->
     </div><!-- /.app-body -->
@@ -2604,11 +2606,53 @@ let resCurrentSubTab  = 'regular';
 let resScrapeConfigOpen = false;
 
 // ═══════════════════════════════════════════════════════════════
-//  FIRESTORE HELPERS
+//  FIRESTORE HELPERS  (with RTDB davan_pub/ fallback for manager)
 // ═══════════════════════════════════════════════════════════════
+
+// Maps Firestore (collection, doc) → RTDB davan_pub/ path for manager reads.
+// Returns null if no mapping exists (manager can't read that doc anyway).
+function _rtdbPubPath(col, id) {
+  if (col === 'results')   return 'davan_pub/results/' + id;
+  if (col === 'app_data') {
+    if (id === 'students')      return 'davan_pub/students';
+    if (id === 'results_index') return null; // derive from davan_pub/results instead
+    if (id === 'subject_maxmarks') return 'davan_pub/subject_maxmarks';
+    if (id === 'section_config_BCA_SemV') return 'davan_pub/section_config_BCA_SemV';
+    if (id.startsWith('allocation_')) return 'davan_pub/allocations';
+  }
+  if (col === 'users') return 'davan_users/' + id;
+  return null;
+}
+
+function _isManagerRole() {
+  return currentProfile && ['manager','vp'].includes(currentProfile.role);
+}
+
 async function fsGet(col, id) {
-  try { const s = await db.collection(col).doc(id).get(); return s.exists ? s.data() : null; }
-  catch(e) { console.error('fsGet',e); return null; }
+  // Always try Firestore first
+  try {
+    const s = await db.collection(col).doc(id).get();
+    return s.exists ? s.data() : null;
+  } catch(e) {
+    if (e.code !== 'permission-denied' && e.code !== 'PERMISSION_DENIED') {
+      console.error('fsGet', e); return null;
+    }
+    // Permission denied — try RTDB davan_pub/ fallback for manager/vp
+    const path = _rtdbPubPath(col, id);
+    if (!path) { console.warn('fsGet: no RTDB fallback for', col, id); return null; }
+    try {
+      const snap = await rtdb.ref(path).once('value');
+      const val  = snap.val();
+      if (val === null) return null;
+      // allocation docs are stored flat under davan_pub/allocations — return as-is
+      // results are stored per-key under davan_pub/results/<key>
+      // students stored as {data:[...]} under davan_pub/students
+      return val;
+    } catch(re) {
+      console.error('fsGet RTDB fallback failed for', path, re);
+      return null;
+    }
+  }
 }
 async function fsSet(col, id, data) {
   try { await db.collection(col).doc(id).set(data); return true; }
@@ -4428,6 +4472,18 @@ async function resLoadBatchList() {
     const d = await fsGet('app_data','results_index');
     console.log('[resLoadBatchList] results_index doc:', d);
     RES_BATCHES = d?.batches||[];
+    // Manager fallback: results_index not separately mirrored — derive batch keys
+    // from davan_pub/results which IS mirrored by index.html on every sync.
+    if (!RES_BATCHES.length && _isManagerRole()) {
+      try {
+        const snap = await rtdb.ref('davan_pub/results').once('value');
+        const val  = snap.val();
+        if (val && typeof val === 'object') {
+          RES_BATCHES = Object.keys(val);
+          console.log('[resLoadBatchList] Manager: derived batches from davan_pub/results:', RES_BATCHES);
+        }
+      } catch(re) { console.warn('[resLoadBatchList] RTDB davan_pub/results failed:', re); }
+    }
     console.log('[resLoadBatchList] batches:', RES_BATCHES);
   }
   catch(e) { console.error('[resLoadBatchList] error:', e); RES_BATCHES = []; }
