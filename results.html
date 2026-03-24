@@ -245,6 +245,8 @@
  r401 | 24-Mar-2026 09:00 IST | Fix: add databaseURL (asia-southeast1) to firebaseConfig — RTDB was connecting to wrong US region causing all RTDB reads to fail for manager
 
  r402 | 24-Mar-2026 09:00 IST | Add: davan_degree.png as favicon + apple-touch-icon + theme-color for results.html
+
+ r404 | 24-Mar-2026 09:00 IST | Fix: SyntaxError — invalid \n escape sequence in onAuthReady roleLabel line (introduced in r403 edit)
  ═══════════════════════════════════════════════════
        RESET & TOKENS
     ═══════════════════════════════════════════════════ */
@@ -1151,7 +1153,7 @@
     <div id="topbar-meta"></div>
     <div class="topbar-right">
       <div id="status-dot"></div>
-      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r402</span>
+      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r404</span>
       <button id="vp-toggle-btn" onclick="resVPToggle()" style="display:none;font-size:11px;font-family:var(--mono);font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;">👁 My Subjects</button>
       <span id="topbar-user" style="font-size:12px;font-family:var(--mono);color:var(--text);"></span>
     </div>
@@ -2180,7 +2182,7 @@
     <div class="res-footer">
       <div style="margin-bottom:4px;font-size:11px;color:var(--text);">© 2026 Davan Institute of Advanced Management Studies</div>
       <div style="margin-bottom:4px;"><span id="footer-desc">Timetable edit mode: Edit checkbox; inline subject/faculty inputs with datalist autocomplete; add/delete rows; Save to Firebase</span></div>
-      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r402</span> &nbsp;·&nbsp; Updated: 24-Mar-2026 09:00 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
+      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r404</span> &nbsp;·&nbsp; Updated: 24-Mar-2026 09:00 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
     </div>
       </div><!-- /.main-wrap -->
     </div><!-- /.app-body -->
@@ -2737,8 +2739,13 @@ async function onAuthReady() {
   document.getElementById('status-dot').classList.add('online');
   try {
     const d = await fsGet('app_data','students');
-    if (d?.data) allStudents = d.data;
-  } catch(e){}
+    if (d?.data) {
+      allStudents = d.data;
+      console.log('[onAuthReady] Students loaded:', allStudents.length);
+    } else {
+      console.warn('[onAuthReady] No students data — davan_pub/students is empty. Admin must run ☁️ Sync to Cloud.');
+    }
+  } catch(e){ console.error('[onAuthReady] students load error:', e); }
 
   // Hide admin-only UI for faculty
   const isFac = resIsFaculty();
@@ -4477,33 +4484,50 @@ async function resRenderAll() {
 
 async function resLoadBatchList() {
   try {
+    // 1. Try Firestore results_index (works for admin)
     const d = await fsGet('app_data','results_index');
-    console.log('[resLoadBatchList] results_index doc:', d);
-    RES_BATCHES = d?.batches||[];
-    // Manager fallback: results_index not separately mirrored — derive batch keys
-    // from davan_pub/results which IS mirrored by index.html on every sync.
-    if (!RES_BATCHES.length && _isManagerRole()) {
+    RES_BATCHES = d?.batches || [];
+
+    // 2. Always try RTDB davan_pub/results as fallback/supplement
+    // (covers manager who can't read Firestore, and also catches
+    //  any batches not yet in results_index)
+    if (!RES_BATCHES.length) {
       try {
         const snap = await rtdb.ref('davan_pub/results').once('value');
         const val  = snap.val();
         if (val && typeof val === 'object') {
           RES_BATCHES = Object.keys(val);
-          console.log('[resLoadBatchList] Manager: derived batches from davan_pub/results:', RES_BATCHES);
+          console.log('[resLoadBatchList] RTDB davan_pub/results batches:', RES_BATCHES);
         }
-      } catch(re) { console.warn('[resLoadBatchList] RTDB davan_pub/results failed:', re); }
+      } catch(re) { console.warn('[resLoadBatchList] RTDB fallback failed:', re); }
     }
-    console.log('[resLoadBatchList] batches:', RES_BATCHES);
+
+    console.log('[resLoadBatchList] final batches:', RES_BATCHES);
   }
   catch(e) { console.error('[resLoadBatchList] error:', e); RES_BATCHES = []; }
+
   const sel = document.getElementById('res-batch-select');
   if (!sel) return;
   const prev = sel.value;
   sel.innerHTML = '<option value="">— Select Class Batch —</option>';
-  RES_BATCHES.forEach(k => {
-    const o = document.createElement('option');
-    o.value = k; o.textContent = resBatchLabel(k); sel.appendChild(o);
-  });
-  if (prev && RES_BATCHES.includes(prev)) sel.value = prev;
+
+  if (!RES_BATCHES.length) {
+    // Show helpful message for manager when no data found
+    const noDataOpt = document.createElement('option');
+    noDataOpt.disabled = true;
+    noDataOpt.textContent = '⚠ No data — ask admin to run ☁️ Sync to Cloud';
+    sel.appendChild(noDataOpt);
+    // Also show a visible toast
+    if (typeof liveShowToast === 'function') {
+      liveShowToast('⚠ No Results Data', 'Ask admin to open index.html and click ☁️ Sync to Cloud to push data.', '☁️', 8000);
+    }
+  } else {
+    RES_BATCHES.forEach(k => {
+      const o = document.createElement('option');
+      o.value = k; o.textContent = resBatchLabel(k); sel.appendChild(o);
+    });
+    if (prev && RES_BATCHES.includes(prev)) sel.value = prev;
+  }
   resRenderBatchChips();
 }
 
