@@ -10,6 +10,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
   <style>
     /*
  r280 | 15-Mar-2026 15:55 IST | Fix students tab showing wrong batch: refresh RES_DATA from full combined view when switching to Students tab
@@ -231,6 +232,8 @@
  r396 | 17-Mar-2026 19:01 IST | Strip faculty count: show subjects-assigned count (A:10f B:10f) not unique faculty names
 
  r397 | 17-Mar-2026 19:01 IST | Professors dropdown: serial number added to each professor row
+
+ r398 | 24-Mar-2026 09:00 IST | Fix: add RTDB SDK + _resGetProfile() with Firestore→RTDB→localStorage fallback chain — manager no longer blocked by Firestore rules on profile load
  ═══════════════════════════════════════════════════
        RESET & TOKENS
     ═══════════════════════════════════════════════════ */
@@ -1137,7 +1140,7 @@
     <div id="topbar-meta"></div>
     <div class="topbar-right">
       <div id="status-dot"></div>
-      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r397</span>
+      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r398</span>
       <button id="vp-toggle-btn" onclick="resVPToggle()" style="display:none;font-size:11px;font-family:var(--mono);font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;">👁 My Subjects</button>
       <span id="topbar-user" style="font-size:12px;font-family:var(--mono);color:var(--text);"></span>
     </div>
@@ -2166,7 +2169,7 @@
     <div class="res-footer">
       <div style="margin-bottom:4px;font-size:11px;color:var(--text);">© 2026 Davan Institute of Advanced Management Studies</div>
       <div style="margin-bottom:4px;"><span id="footer-desc">Timetable edit mode: Edit checkbox; inline subject/faculty inputs with datalist autocomplete; add/delete rows; Save to Firebase</span></div>
-      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r397</span> &nbsp;·&nbsp; Updated: 17-Mar-2026 19:01 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
+      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r398</span> &nbsp;·&nbsp; Updated: 24-Mar-2026 09:00 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
     </div>
       </div><!-- /.main-wrap -->
     </div><!-- /.app-body -->
@@ -2521,11 +2524,55 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
+const rtdb = firebase.database();
+
+// ── Profile loader with Firestore → RTDB → localStorage fallback ──
+// Mirrors _fetchProfile() from index.html so manager reads work even
+// when Firestore security rules block non-admin access to /users/<uid>.
+async function _resGetProfile(uid) {
+  // 1. Try Firestore first (works for admin/faculty)
+  try {
+    const snap = await db.collection('users').doc(uid).get();
+    if (snap.exists) { console.log('[_resGetProfile] Firestore OK'); return snap.data(); }
+  } catch(e) {
+    console.warn('[_resGetProfile] Firestore blocked:', e.code, '— trying RTDB');
+  }
+  // 2. RTDB mirror — admin mirrors all profiles to davan_users/ on every login
+  try {
+    const snap = await rtdb.ref('davan_users/' + uid).once('value');
+    if (snap.val()) { console.log('[_resGetProfile] RTDB davan_users OK'); return snap.val(); }
+  } catch(e) {
+    console.warn('[_resGetProfile] RTDB davan_users failed:', e.message);
+  }
+  // 3. davan_pub/profiles mirror (secondary RTDB path)
+  try {
+    const snap = await rtdb.ref('davan_pub/profiles/' + uid).once('value');
+    if (snap.val()) { console.log('[_resGetProfile] RTDB davan_pub/profiles OK'); return snap.val(); }
+  } catch(e) {
+    console.warn('[_resGetProfile] RTDB davan_pub/profiles failed:', e.message);
+  }
+  // 4. localStorage cache written by index.html on every login
+  try {
+    const cached = JSON.parse(localStorage.getItem('davan_profile_' + uid) || 'null');
+    if (cached) { console.log('[_resGetProfile] localStorage cache OK'); return cached; }
+  } catch(e) {}
+  // 5. Handoff written by openResultsPage() in index.html
+  try {
+    const handoffUid  = localStorage.getItem('davan_last_uid');
+    const handoffRole = localStorage.getItem('davan_last_role');
+    if (handoffUid === uid && handoffRole) {
+      const cached = JSON.parse(localStorage.getItem('davan_profile_' + handoffUid) || 'null');
+      if (cached) { console.log('[_resGetProfile] handoff+cache OK'); return cached; }
+    }
+  } catch(e) {}
+  console.error('[_resGetProfile] All paths exhausted for uid:', uid);
+  return null;
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  STANDALONE MODE — flip to false when linked to main app
 // ═══════════════════════════════════════════════════════════════
-const STANDALONE = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+const STANDALONE = false;
 
 // ═══════════════════════════════════════════════════════════════
 //  GLOBALS
@@ -2595,7 +2642,7 @@ if (STANDALONE) {
 } else {
   auth.onAuthStateChanged(async user => {
     if (user) {
-      const profile = await fsGet('users', user.uid);
+      const profile = await _resGetProfile(user.uid);
       if (profile) { currentUser = user; currentProfile = profile; await onAuthReady(); resSummaryRender(); resStripRender(); }
       else showAuthError('User profile not found. Please log in from the dashboard.');
     } else {
