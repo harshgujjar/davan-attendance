@@ -10,8 +10,8 @@
 
 A **single HTML file** web application that runs entirely in the browser. Uses **Firebase Firestore** for real-time data and **Firebase Auth** for role-based access. Manages student attendance, faculty leave, internal exam timetables, and administrative workflows across 3 courses (BCA, BBA, B.Com) and 3 years.
 
-**Live app:** `arshgujjar.github.io/davan-attendance`  
-**Companion file:** `results.html` — student results and report cards
+**Live app:** `https://harshgujjar.github.io/davan-attendance/index.html`  
+**Companion file:** `https://harshgujjar.github.io/davan-attendance/results.html` — student results and report cards
 
 ---
 
