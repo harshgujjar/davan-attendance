@@ -6151,7 +6151,8 @@ function _showNoDataError() {
 
 // Cache of name→username mapping loaded from login_index public doc
 let _loginIndex = {};
-let _signingOut = false; // guard: prevents onAuthStateChanged firing during deliberate sign-out
+let _signingOut = false;       // guard: prevents onAuthStateChanged firing during deliberate sign-out
+let _loginToastShown = false; // guard: prevents duplicate welcome toast when onLoginSuccess fires twice
 
 async function loadLoginNameDropdown() {
   const sel = document.getElementById('login-name-select');
@@ -6196,6 +6197,47 @@ function loginSwitchTab(tab) {
   document.getElementById('tab-admin-btn').style.background     = isFaculty ? 'transparent' : '#1a1a2e';
   document.getElementById('tab-admin-btn').style.color          = isFaculty ? 'var(--muted)' : 'var(--accent)';
   document.getElementById('tab-admin-btn').style.borderBottom   = isFaculty ? '2px solid transparent' : '2px solid var(--accent)';
+}
+
+// Simple login sound - reuses global AudioContext, plays sound immediately
+async function playLoginSound() {
+  try {
+    // Use global audio context if exists, otherwise create new one
+    let ctx = _audioContext;
+    if (!ctx) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      ctx = new AudioContext();
+      _audioContext = ctx; // Store in global variable
+      console.log('[LoginSound] Created new global AudioContext');
+    } else {
+      console.log('[LoginSound] Using existing global AudioContext, state:', ctx.state);
+    }
+    
+    // Resume if suspended (required by browser autoplay policy)
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+      console.log('[LoginSound] AudioContext resumed from suspended state');
+    }
+    
+    // Small delay to ensure context is ready
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.5, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+    console.log('[LoginSound] ✅ Played! Context state:', ctx.state);
+  } catch(e) {
+    console.error('[LoginSound] Error:', e);
+  }
 }
 
 async function doFacultyLogin() {
@@ -6258,13 +6300,7 @@ async function doFacultyLogin() {
     await fsAdd('login_activity', { uid: cred.user.uid, name: profile.name, role: profile.role||'?', loginAt: new Date().toISOString(), userAgent: navigator.userAgent });
     actLog('login', profile.name + ' logged in as ' + (profile.role||'?')); sysLogStore('info', 'Login: ' + profile.name + ' (' + (profile.role||'?') + ')');
     showAlert('login-success-faculty', `✅ Welcome, ${profile.name}!`);
-    // Initialize audio context on login (user gesture - button click)
-    if (typeof ntInitAudioContext === 'function') {
-      ntInitAudioContext();
-      setTimeout(() => onLoginSuccess(), 50);
-    } else {
-      onLoginSuccess();
-    }
+    onLoginSuccess();
   } catch(err) {
     if (err.code === 'auth/too-many-requests') {
       // Cooldown — disable button for 30s
@@ -6321,9 +6357,11 @@ async function doFirebaseLogin() {
     actLog('login', (profile.name||username) + ' logged in as ' + (profile.role||'?')); sysLogStore('info', 'Login: ' + (profile.name||username) + ' (' + (profile.role||'?') + ')');
     showAlert('login-success', `✅ Welcome, ${profile.name}!`);
     // Initialize audio context on login (user gesture - button click)
-    if (typeof ntInitAudioContext === 'function') {
-      ntInitAudioContext();
-      setTimeout(() => onLoginSuccess(), 50);
+    console.log('[Login] Calling ensureAudioReady...');
+    if (typeof ensureAudioReady === 'function') {
+      ensureAudioReady();
+      console.log('[Login] ensureAudioReady called, waiting 200ms...');
+      setTimeout(() => onLoginSuccess(), 200);
     } else {
       onLoginSuccess();
     }
@@ -6401,14 +6439,22 @@ async function onLoginSuccess() {
     }
   }
   
-  // Show welcome toast with sound
-  const roleLabel = roleLabels[p.role] || p.role;
-  liveShowToast(
-    `👋 Welcome, ${roleLabel}!`,
-    `${p.name || 'User'} logged in successfully`,
-    p.role === 'admin' ? '🎯' : p.role === 'vp' ? '🏛️' : p.role === 'manager' ? '📊' : '👨‍🏫',
-    6000
-  );
+  // Show welcome toast with sound — timestamp guard blocks the duplicate call within same login event
+  // but resets automatically so every fresh login always shows the toast
+  const _now = Date.now();
+  console.log('[LoginFlow] Checking toast condition:', _now, '-', _loginToastShown, '=', _now - _loginToastShown);
+  if (_now - _loginToastShown > 3000) {
+    _loginToastShown = _now;
+    const roleLabel = roleLabels[p.role] || p.role;
+    console.log('[LoginFlow] Calling playLoginSound() for', roleLabel);
+    await playLoginSound(); // Wait for sound to be ready
+    liveShowToast(
+      `👋 Welcome, ${roleLabel}!`,
+      `${p.name || 'User'} logged in successfully`,
+      p.role === 'admin' ? '🎯' : p.role === 'vp' ? '🏛️' : p.role === 'manager' ? '📊' : '👨‍🏫',
+      6000
+    );
+  }
   // Load from localStorage immediately — charts render before any network call
   try { const c = localStorage.getItem('davan_students'); if (c) allStudents = JSON.parse(c); } catch(e) {}
   lmLoadData(); renderAll();
@@ -8099,7 +8145,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: Increment this number every time you make code changes
-const CODE_BUILD = 561;  // Changed from 560 -> 561 on 27-Mar-2026 - Simplified toast sound: removed delays, direct playback
+const CODE_BUILD = 576;  // Changed from 575 -> 576 on 27-Mar-2026 - Added login flow logging for toast sound debugging
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 
 function getISTDateTime() {
@@ -8412,14 +8458,26 @@ window.addEventListener('DOMContentLoaded', async () => {
   try {
     const methods = await auth.fetchSignInMethodsForEmail('admin@davan.local');
     if (!methods.length) {
-      const cred = await auth.createUserWithEmailAndPassword('admin@davan.local', 'admin123');
-      await db.collection('users').doc(cred.user.uid).set({
-        name:'Admin', username:'admin', role:ROLE_ADMIN, facultyKey:'', classIncharge:'',
-        createdAt: new Date().toISOString(), createdBy:'system'
-      });
-      await auth.signOut();
+      try {
+        const cred = await auth.createUserWithEmailAndPassword('admin@davan.local', 'admin123');
+        await db.collection('users').doc(cred.user.uid).set({
+          name:'Admin', username:'admin', role:ROLE_ADMIN, facultyKey:'', classIncharge:'',
+          createdAt: new Date().toISOString(), createdBy:'system'
+        });
+        await auth.signOut();
+        console.log('[Admin Seed] ✅ Created successfully');
+      } catch (createError) {
+        // Silently ignore if email already exists or other creation errors
+        if (createError.code !== 'auth/email-already-in-use') {
+          console.warn('[Admin Seed] Creation error:', createError.code);
+        }
+      }
+    } else {
+      console.log('[Admin Seed] Admin already exists');
     }
-  } catch(e) { console.log('Admin seed:', e.code||e.message); }
+  } catch(e) { 
+    console.log('[Admin Seed] Check error:', e.code||e.message); 
+  }
 
   // Pre-fill remembered admin username
   const savedUser = localStorage.getItem('davan_remember_user');
@@ -12014,7 +12072,7 @@ function cvRefreshDetail() {
 
 let _notificationLogs = {}; // Cache of notification logs
 let _skipConfirmDialog = false; // Session flag for confirmation dialog
-let _audioContext = null; // Global audio context for notifications
+let _audioContext = null; // Global audio context
 
 // Initialize audio context on first user interaction (required by browser autoplay policy)
 function ntInitAudioContext() {
@@ -12113,6 +12171,26 @@ function ntInitAudioContext() {
     // Play startup sound immediately if already running
     ntPlayStartupSound();
   }
+}
+
+// Initialize audio context (no "play once" restriction - can be called multiple times)
+async function ensureAudioReady() {
+  console.log('[ensureAudioReady] START - _audioContext exists:', !!_audioContext);
+  if (!_audioContext) {
+    try {
+      _audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      console.log('[ensureAudioReady] SET _audioContext = new AudioContext, state:', _audioContext.state);
+      console.log('[ensureAudioReady] Global _audioContext now:', !!_audioContext);
+    } catch(e) {
+      console.error('[ensureAudioReady] Failed to create AudioContext:', e);
+    }
+  }
+  
+  if (_audioContext && _audioContext.state === 'suspended') {
+    await _audioContext.resume();
+    console.log('[ensureAudioReady] Resumed, state now:', _audioContext.state);
+  }
+  console.log('[ensureAudioReady] END - _audioContext exists:', !!_audioContext);
 }
 
 // Trigger audio on first user interaction (required by browser autoplay policy)
@@ -13250,14 +13328,25 @@ function renderExemptions() {
       </div>
     </div>
   </div>
+  <!--
+  ═══════════════════════════════════════════════════════════════════
+  VERSION LOG — keep in sync with footer version line below
+  ═══════════════════════════════════════════════════════════════════
+  v488–v568 | changes made outside this conversation — details not logged
+  v569      | 27-Mar-2026 | Added await ctx.resume() in playLoginSound for browser audio policy
+  v570      | 27-Mar-2026 | await ctx.resume() in liveShowToast so toast sound plays after context is running
+  v571      | 27-Mar-2026 | Guard _loginToastShown flag prevents duplicate welcome toast on double onLoginSuccess call
+  v572      | 27-Mar-2026 | Timestamp-based dedup for welcome toast: fires every login, suppresses only same-event duplicate
+  ═══════════════════════════════════════════════════════════════════
+  -->
   <div style="padding:14px 40px;display:flex;flex-direction:column;align-items:center;gap:4px;">
     <div style="font-size: 13px; color: #555; letter-spacing: 0.5px;">
       © 2026 <strong style="color:#777">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #3a3a3a; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">488</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">572</span></span>
       &nbsp;·&nbsp;
-      Updated: <span id="footer-date">26 Mar 2026</span>, <span id="footer-time">12:00</span> IST
+      Updated: <span id="footer-date">27 Mar 2026</span>, <span id="footer-time">18:30</span> IST
       &nbsp;·&nbsp;
       <span id="footer-changelog-toggle" onclick="toggleChangelog()"
         style="cursor:pointer;color:#555;text-decoration:underline;text-underline-offset:2px;">
@@ -26358,7 +26447,7 @@ function liveToastInit(profile) {
   });
 }
 
-function liveShowToast(title, body, icon, duration) {
+async function liveShowToast(title, body, icon, duration) {
   const el    = document.getElementById('live-toast');
   const tEl   = document.getElementById('live-toast-title');
   const bEl   = document.getElementById('live-toast-body');
@@ -26383,12 +26472,23 @@ function liveShowToast(title, body, icon, duration) {
   }
   // Play notification sound using global audio context if available
   try {
-    // Use global audio context or create new one
-    const ctx = _audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    console.log('[Toast] Playing sound, _audioContext:', !!_audioContext);
     
-    // If suspended, resume it
+    // If no audio context exists, create one synchronously (user gesture from login button)
+    let ctx = _audioContext;
+    if (!ctx) {
+      console.log('[Toast] Creating AudioContext synchronously...');
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      _audioContext = ctx; // Set global for next time
+      console.log('[Toast] Created, state:', ctx.state);
+    }
+    
+    console.log('[Toast] AudioContext state:', ctx.state);
+    
+    // If suspended, resume it (must await so oscillator starts after context is running)
     if (ctx.state === 'suspended') {
-      ctx.resume();
+      await ctx.resume();
+      console.log('[Toast] Resumed AudioContext');
     }
     
     // Play two-tone beep
@@ -26401,8 +26501,9 @@ function liveShowToast(title, body, icon, duration) {
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.4);
+    console.log('[Toast] ✅ Sound played!');
   } catch(e) {
-    console.error('[Toast] Sound failed:', e);
+    console.error('[Toast] ❌ Error:', e);
   }
   // Store in notification inbox
   if (typeof notifStore === 'function') notifStore(title, body, icon);
