@@ -6227,13 +6227,18 @@ async function playLoginSound() {
     
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.5, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    
+    // Pleasant ascending tone - three notes (C-E-G major chord)
+    osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+    osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.15); // E5
+    osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.3); // G5
+    
+    // Much louder volume
+    gain.gain.setValueAtTime(1.0, ctx.currentTime); // Maximum volume without distortion
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
     
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.4);
+    osc.stop(ctx.currentTime + 0.8);
     console.log('[LoginSound] ✅ Played! Context state:', ctx.state);
   } catch(e) {
     console.error('[LoginSound] Error:', e);
@@ -6241,6 +6246,9 @@ async function playLoginSound() {
 }
 
 async function doFacultyLogin() {
+  // Initialize audio context immediately (user gesture from login button click)
+  initAudioOnInteraction();
+  
   const password = (document.getElementById('login-password-faculty')?.value || '').trim();
   const remember = document.getElementById('remember-me-faculty')?.checked;
   const btn      = document.getElementById('login-btn-faculty');
@@ -6323,6 +6331,9 @@ async function doFacultyLogin() {
 }
 
 async function doFirebaseLogin() {
+  // Initialize audio context immediately (user gesture from login button click)
+  initAudioOnInteraction();
+  
   const username = (document.getElementById('login-email')?.value || '').trim();
   const password = (document.getElementById('login-password')?.value || '').trim();
   const remember = document.getElementById('remember-me')?.checked;
@@ -6355,16 +6366,13 @@ async function doFirebaseLogin() {
     }
     await fsAdd('login_activity', { uid: cred.user.uid, name: profile.name||username, role: profile.role||'?', loginAt: new Date().toISOString(), userAgent: navigator.userAgent });
     actLog('login', (profile.name||username) + ' logged in as ' + (profile.role||'?')); sysLogStore('info', 'Login: ' + (profile.name||username) + ' (' + (profile.role||'?') + ')');
-    showAlert('login-success', `✅ Welcome, ${profile.name}!`);
-    // Initialize audio context on login (user gesture - button click)
-    console.log('[Login] Calling ensureAudioReady...');
-    if (typeof ensureAudioReady === 'function') {
-      ensureAudioReady();
-      console.log('[Login] ensureAudioReady called, waiting 200ms...');
-      setTimeout(() => onLoginSuccess(), 200);
-    } else {
-      onLoginSuccess();
-    }
+    // Removed duplicate showAlert - toast will handle the welcome message
+    // showAlert('login-success', `✅ Welcome, ${profile.name}!`);
+    // Play login sound (audio context already initialized on first user interaction)
+    console.log('[Login] Calling playLoginSound...');
+    _isManualLogin = true; // Mark this as a manual login
+    await playLoginSound();
+    onLoginSuccess();
   } catch(err) {
     const msg = err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential' ? 'Incorrect password.'
               : err.code === 'auth/user-not-found' ? 'Account not found.'
@@ -6398,15 +6406,28 @@ async function doFirebaseLogout() {
   setStatus(false, 'Not connected');
 }
 
+// Wrap auth listener to run after DOM is ready and functions are parsed
+window.addEventListener('DOMContentLoaded', () => {
 auth.onAuthStateChanged(async user => {
   if (_signingOut) return; // ignore auth events during deliberate sign-out flows
   if (user) {
     const profile = await _fetchProfile(user.uid);
     if (profile) {
       try { localStorage.setItem('davan_profile_' + user.uid, JSON.stringify(profile)); } catch(e) {}
-      currentUser = user; currentProfile = profile; onLoginSuccess();
+      currentUser = user; currentProfile = profile;
+      console.log('[Auth] Session restored');
+      
+      // Auto-login - just call onLoginSuccess to set up UI normally
+      // No toast or sound for auto-login
+      if (typeof onLoginSuccess === 'function') {
+        onLoginSuccess();
+      } else {
+        console.warn('[Auth] onLoginSuccess not yet defined, will call when ready');
+        setTimeout(() => onLoginSuccess(), 100);
+      }
     }
   }
+});
 });
 
 async function onLoginSuccess() {
@@ -6439,15 +6460,12 @@ async function onLoginSuccess() {
     }
   }
   
-  // Show welcome toast with sound — timestamp guard blocks the duplicate call within same login event
-  // but resets automatically so every fresh login always shows the toast
+  // Show welcome toast with sound for manual login
   const _now = Date.now();
-  console.log('[LoginFlow] Checking toast condition:', _now, '-', _loginToastShown, '=', _now - _loginToastShown);
+  console.log('[LoginFlow] Showing toast for login');
   if (_now - _loginToastShown > 3000) {
     _loginToastShown = _now;
     const roleLabel = roleLabels[p.role] || p.role;
-    console.log('[LoginFlow] Calling playLoginSound() for', roleLabel);
-    await playLoginSound(); // Wait for sound to be ready
     liveShowToast(
       `👋 Welcome, ${roleLabel}!`,
       `${p.name || 'User'} logged in successfully`,
@@ -8144,10 +8162,9 @@ function setTopbarVersion(text) {
 }
 
 // ----- Version & Update Tracking -----
-// CODE_BUILD: Increment this number every time you make code changes
-const CODE_BUILD = 576;  // Changed from 575 -> 576 on 27-Mar-2026 - Added login flow logging for toast sound debugging
-const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
-
+// CODE_BUILD: 602 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
+const CODE_BUILD = 603;  // FIX: Added missing definition
+// const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
   // Convert to IST (UTC+5:30)
@@ -8454,6 +8471,10 @@ async function doInjectSession(phpsessid, errId, successId, btn, btnLabel) {
 
 // Auto-reconnect on page load if saved cookie exists
 window.addEventListener('DOMContentLoaded', async () => {
+  // Clear result stats cache to force reload with new pass threshold logic
+  _facultyResultStatsCache = {};
+  console.log('[DOMContentLoaded] Result stats cache cleared for fresh data');
+  
   // Seed admin account on first run (silent — skips if already exists)
   try {
     const methods = await auth.fetchSignInMethodsForEmail('admin@davan.local');
@@ -8498,12 +8519,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (facPwInp) { facPwInp.value = savedFacPw; document.getElementById('remember-me-faculty').checked = true; }
     // Auto-login: only if onAuthStateChanged hasn't already restored a session
     // We defer slightly so Firebase's onAuthStateChanged fires first
+    console.log('[AutoLogin] Faculty credentials found, currentUser:', !!currentUser);
     setTimeout(() => {
+      console.log('[AutoLogin] Attempting faculty auto-login, currentUser:', !!currentUser);
       if (!currentUser) doFacultyLogin();
     }, 1200);
   } else if (savedUser && savedAdminPw) {
     // Auto-login admin/manager tab if credentials are saved
+    console.log('[AutoLogin] Admin credentials found, currentUser:', !!currentUser);
     setTimeout(() => {
+      console.log('[AutoLogin] Attempting admin auto-login, currentUser:', !!currentUser);
       if (!currentUser) doFirebaseLogin();
     }, 1200);
   }
@@ -8956,6 +8981,13 @@ function dashRenderFacultyReport() {
   
   // Fetch faculty subjects from result data and render result cards
   console.log('[renderFacultyResults] Calling fetchFacultyResultSubjects for:', fac);
+  
+  // First, ensure RES_DATA is loaded (same as results.html)
+  if (typeof window.RES_DATA === 'undefined' || !window.RES_DATA) {
+    console.log('[renderFacultyResults] Loading RES_DATA from Firebase...');
+    loadResultDataIntoIndex(); // Fire and forget - will populate window.RES_DATA
+  }
+  
   fetchFacultyResultSubjects(fac).then(resultSubjects => {
     console.log('[renderFacultyResults] Got result subjects:', resultSubjects);
     const container = document.getElementById('fac-results-container');
@@ -9180,6 +9212,67 @@ async function fetchFacultyResultSubjects(facultyName) {
 // Cache for faculty result stats to avoid repeated Firebase calls
 const _facultyResultStatsCache = {};
 
+// Load result data from Firebase into window.RES_DATA (same as results.html)
+async function loadResultDataIntoIndex() {
+  console.log('[loadResultDataIntoIndex] START');
+  try {
+    // Try to fetch from Firestore results collection (main storage for result data)
+    if (typeof db !== 'undefined' && db) {
+      const snap = await db.collection('results').get();
+      if (!snap.empty) {
+        const docs = [];
+        snap.forEach(doc => {
+          const data = doc.data();
+          data._id = doc.id;
+          docs.push(data);
+        });
+        
+        if (docs.length > 0) {
+          // Merge all docs into combined data like results.html does
+          let regular = [], backlog = [], subjects = [];
+          const subjectMap = {};
+          
+          docs.forEach(doc => {
+            regular.push(...(doc.regular || []));
+            backlog.push(...(doc.backlog || []));
+            (doc.subjects || []).forEach(sub => {
+              const key = sub.code + '|' + doc._batch;
+              if (!subjectMap[key]) {
+                subjectMap[key] = { ...sub, _batch: doc._batch, _course: doc._course, _sem: doc._sem };
+              }
+            });
+          });
+          
+          subjects = Object.values(subjectMap);
+          const base = docs[0];
+          
+          window.RES_DATA = {
+            ...base,
+            key: 'all_batches',
+            regular,
+            backlog,
+            subjects,
+            course: '',
+            sem: '',
+            _combined: true,
+            _filteredBatches: docs.map(d => d._batch || d.key),
+          };
+          
+          console.log('[loadResultDataIntoIndex] SUCCESS - Loaded', regular.length, 'students from', docs.length, 'batches');
+          return;
+        }
+      }
+      console.log('[loadResultDataIntoIndex] No docs in results collection');
+    } else {
+      console.log('[loadResultDataIntoIndex] Firebase db not available');
+    }
+    
+    console.log('[loadResultDataIntoIndex] No result data found');
+  } catch(e) {
+    console.error('[loadResultDataIntoIndex] ERROR:', e.message);
+  }
+}
+
 // Helper function to get result stats for a faculty card
 async function smartAssistGetResultStatsForCard(card, facultyName) {
   console.log('[smartAssistGetResultStatsForCard] START - faculty:', facultyName, 'card:', card);
@@ -9287,11 +9380,14 @@ function extractResultStatsFromData(students, card, facultyName) {
   let marksCount = 0;
   
   relevantStudents.forEach(({ subject: sub }) => {
-    const ia = sub.ia || sub.internal || 0;
-    const ct = sub.ct || sub.external || 0;
-    const total = ia + ct;
+    // Use total field if available (from RES_DATA), otherwise calculate from ia+ct
+    const total = sub.total !== undefined && sub.total !== null ? sub.total : (sub.ia || sub.internal || 0) + (sub.ct || sub.external || 0);
+    const maxMarks = sub.max || 100;
+    const passThreshold = Math.ceil(maxMarks * 0.35);
     
-    if (total >= 40) {
+    console.log('[extractResultStatsFromData] Subject:', sub.name || sub.subject, '| Total:', total, '| Max:', maxMarks, '| Pass:', passThreshold, '| Result:', total >= passThreshold ? 'PASS' : 'FAIL');
+    
+    if (total >= passThreshold) {
       result.passed++;
     } else {
       result.failed++;
@@ -9326,30 +9422,129 @@ async function fetchHistoricalResultStats(card, facultyName) {
   
   const { course, section, subject, sem, subjectCode } = card;
   
-  console.log('[fetchHistoricalResultStats] Card data:', { course, section, subject, sem, subjectCode });
-  
-  // Build faculty name variations for matching (used throughout function)
-  const facultyLower = facultyName.toLowerCase();
-  const facultyVariations = [facultyLower];
-  
-  // Add first name variation
-  const firstName = facultyLower.split(' ')[0];
-  if (firstName && firstName !== facultyLower) {
-    facultyVariations.push(firstName);
-  }
-  
-  // Add common name variations
-  if (facultyLower.includes('akshata')) {
-    facultyVariations.push('akshata prasanna kumar');
-    facultyVariations.push('akshata');
-  }
-  if (facultyLower.includes('anitha') || facultyLower.includes('anith')) {
-    facultyVariations.push('anitha');
-  }
-  
-  console.log('[fetchHistoricalResultStats] Faculty variations:', facultyVariations);
-  
   try {
+    // Load results from Firestore
+    let resultsDocs = [];
+    if (typeof db !== 'undefined' && db) {
+      const snap = await db.collection('results').get();
+      snap.forEach(doc => resultsDocs.push({ id: doc.id, ...doc.data() }));
+    }
+    
+    if (!resultsDocs.length) {
+      console.log('[fetchHistoricalResultStats] No results found');
+      return result;
+    }
+    
+    console.log('[fetchHistoricalResultStats] Found', resultsDocs.length, 'result docs');
+    
+    // Find matching students for this faculty/subject
+    const facultyLower = facultyName.toLowerCase();
+    const subjectLower = (subject || '').toLowerCase();
+    
+    let matchedStudents = [];
+    
+    for (const doc of resultsDocs) {
+      const docCourse = (doc.course || doc._course || '').toUpperCase();
+      const docSem = doc.sem || doc._sem || '';
+      
+      // Must match course
+      if (docCourse !== (course || '').toUpperCase()) continue;
+      
+      const subjects = doc.subjects || [];
+      for (const sub of subjects) {
+        // Check if this subject is taught by this faculty
+        const facultyFields = [
+          (sub.facultyDI || '').toLowerCase(),
+          (sub.facultyNU || '').toLowerCase(), 
+          (sub.facultyC || '').toLowerCase(),
+          (sub.faculty || '').toLowerCase()
+        ].filter(f => f);
+        
+        const isFacultyMatch = facultyFields.some(f => f.includes(facultyLower) || facultyLower.includes(f));
+        
+        if (!isFacultyMatch) continue;
+        
+        // Check subject match
+        const subName = (sub.name || sub.short || sub.code || '').toLowerCase();
+        const subCode = sub.code || '';
+        
+        if (subjectLower && !subName.includes(subjectLower) && !subjectLower.includes(subName)) {
+          continue;
+        }
+        
+        // Get students for this subject
+        const allStudents = doc.regular || doc.students || [];
+        for (const student of allStudents) {
+          const studentSubjects = student.subjects || {};
+          if (studentSubjects[subCode]) {
+            matchedStudents.push({ 
+              student, 
+              subject: studentSubjects[subCode],
+              docSem 
+            });
+          }
+        }
+      }
+    }
+    
+    if (matchedStudents.length === 0) {
+      console.log('[fetchHistoricalResultStats] No matching students found');
+      return result;
+    }
+    
+    console.log('[fetchHistoricalResultStats] Found', matchedStudents.length, 'students');
+    
+    // Calculate statistics
+    result.hasData = true;
+    result.totalStudents = matchedStudents.length;
+    result.semLabel = `Semester ${matchedStudents[0].docSem || '?'}`;
+    result.subjectName = subject || 'Unknown';
+    
+    let totalMarks = 0;
+    let marksCount = 0;
+    let topper = { name: '', marks: 0, urn: '' };
+    
+    for (const { student, subject: sub } of matchedStudents) {
+      const total = sub.total !== undefined ? sub.total : 
+                    ((parseFloat(sub.ia || 0) + parseFloat(sub.ct || 0)));
+      const maxMarks = sub.max || 100;
+      const passThreshold = Math.ceil(maxMarks * 0.35);
+      
+      const isPass = (sub.result || '').toUpperCase() === 'PASS' || 
+                     (!isNaN(total) && total >= passThreshold);
+      
+      if (isPass) result.passed++;
+      else result.failed++;
+      
+      if (total > 0 && !isNaN(total)) {
+        totalMarks += total;
+        marksCount++;
+        if (total > topper.marks) {
+          topper = { 
+            name: student.name || '', 
+            marks: total, 
+            urn: student.urn || student.seat_no || '' 
+          };
+        }
+      }
+    }
+    
+    result.passPercentage = result.totalStudents ? 
+      Math.round((result.passed / result.totalStudents) * 100) : 0;
+    result.avgMarks = marksCount ? (totalMarks / marksCount).toFixed(1) : null;
+    if (topper.name) result.topper = topper;
+    
+    console.log('[fetchHistoricalResultStats] SUCCESS:', result);
+    
+  } catch(e) {
+    console.error('[fetchHistoricalResultStats] Error:', e);
+  }
+  
+  console.log('[fetchHistoricalResultStats] END - returning:', result);
+  return result;
+}
+
+// === DELETE EVERYTHING FROM HERE TO LINE 10148 ===
     // Try to get results from Firebase
     let resultsDocs = null;
     
@@ -9468,6 +9663,12 @@ async function fetchHistoricalResultStats(card, facultyName) {
         if (subjectCode && subCode && subjectCode.toLowerCase() === subCode.toLowerCase()) {
           console.log('[fetchHistoricalResultStats]   Found subject by CODE match:', subCode, subName);
           
+          // REQUIRE semester to match when using code match
+          if (sem && docSem !== sem) {
+            console.log('[fetchHistoricalResultStats]   Semester mismatch - card:', sem, 'doc:', docSem, 'skipping');
+            continue;
+          }
+          
           // Get students for this subject from doc.regular
           const allStudents = doc.regular || doc.students || [];
           
@@ -9485,11 +9686,21 @@ async function fetchHistoricalResultStats(card, facultyName) {
           
           // Section is determined by campus field or URN pattern, not class string
           const matchedStudents = [];
+          console.log('[fetchHistoricalResultStats]   Filtering', allStudents.length, 'students by section:', section);
+          
+          // If no section specified or section filtering not working, use ALL students
+          // This is the fallback - will show combined DI+NU stats
+          if (!section) {
+            console.log('[fetchHistoricalResultStats]   No section filter - using all students');
+            matchedStudents.push(...allStudents);
+          } else {
           for (const student of allStudents) {
             // Check section match using campus/URN (same as results.html facIsDI_global, facIsNUB_global, facIsNUC_global)
             if (section) {
               const campus = student.campus || '';
               const urn = (student.urn || student.usn || '').toUpperCase();
+              
+              console.log('[fetchHistoricalResultStats]     Student:', student.name, '| Campus:', campus, '| URN:', urn, '| Section:', section);
               
               let isMatch = false;
               if (section === 'DI') {
@@ -9508,7 +9719,10 @@ async function fetchHistoricalResultStats(card, facultyName) {
               }
               
               if (!isMatch) {
+                console.log('[fetchHistoricalResultStats]     -> NOT MATCHED (section mismatch)');
                 continue;
+              } else {
+                console.log('[fetchHistoricalResultStats]     -> MATCHED');
               }
             }
             
@@ -9532,6 +9746,7 @@ async function fetchHistoricalResultStats(card, facultyName) {
             break; // Exit subject loop
           }
         }
+        } // Close the else block for section filtering
         
         // Check if this subject is taught by the faculty we're looking for
         const facultyFields = [subFacultyDI, subFacultyNU, subFacultyC, subFaculty].filter(Boolean);
@@ -9552,14 +9767,49 @@ async function fetchHistoricalResultStats(card, facultyName) {
           
           // Get students for this subject from doc.regular
           const allStudents = doc.regular || doc.students || [];
-          const sectionPattern = section ? new RegExp(`\\(${section}\\)`, 'i') : null;
+          
+          // Load Section C URNs if needed (for BCA Sem V)
+          let secCURNs = new Set();
+          if (docCourse === 'BCA' && docSem === 'V' && (section === 'NU' || section === 'NU-B' || section === 'NU-C')) {
+            try {
+              const secCDoc = await db.collection('app_data').doc('section_config_BCA_SemV').get();
+              if (secCDoc.exists && secCDoc.data().secC) {
+                secCURNs = new Set(secCDoc.data().secC.map(u => u.toUpperCase().trim()));
+              }
+            } catch(e) { /* ignore */ }
+          }
           
           // Filter students by section and find those with this subject
           const matchedStudents = [];
           for (const student of allStudents) {
-            // Check section match
-            if (sectionPattern && student.class && !sectionPattern.test(student.class)) {
-              continue;
+            // Check section match using campus/URN (same as results.html facIsDI_global, facIsNUB_global, facIsNUC_global)
+            if (section) {
+              const campus = student.campus || '';
+              const urn = (student.urn || student.usn || '').toUpperCase();
+              
+              let isMatch = false;
+              if (section === 'DI') {
+                // DI section: campus is DI or URN contains DI
+                isMatch = (campus === 'DI' || (!campus && urn.includes('DI')));
+              } else if (section === 'NU' || section === 'NU-B') {
+                // NU-B section: campus is NU AND NOT in Section C list
+                const isNU = (campus === 'NU' || (!campus && urn.includes('NU')));
+                const isSecC = secCURNs.has(urn);
+                isMatch = isNU && !isSecC;
+              } else if (section === 'NU-C') {
+                // NU-C section: campus is NU AND in Section C list
+                const isNU = (campus === 'NU' || (!campus && urn.includes('NU')));
+                const isSecC = secCURNs.has(urn);
+                isMatch = isNU && isSecC;
+              } else {
+                // Traditional section matching (A, B, C) via class field
+                const sectionPattern = new RegExp(`\\(${section}\\)`, 'i');
+                isMatch = !student.class || sectionPattern.test(student.class);
+              }
+              
+              if (!isMatch) {
+                continue;
+              }
             }
             
             // Check if student has this subject
@@ -9785,9 +10035,36 @@ async function fetchHistoricalResultStats(card, facultyName) {
                   const allStudents = resultsDoc.regular || resultsDoc.students || [];
                   const subCode = sub.code;
                   
-                  // Find students with this subject
+                  // Find students with this subject, filtered by section
                   const matchedStudents = [];
                   for (const student of allStudents) {
+                    // Apply section filter (same logic as direct matching)
+                    if (section) {
+                      const campus = student.campus || '';
+                      const urn = (student.urn || student.usn || '').toUpperCase();
+                      
+                      let isMatch = false;
+                      if (section === 'DI') {
+                        isMatch = (campus === 'DI' || (!campus && urn.includes('DI')));
+                      } else if (section === 'NU' || section === 'NU-B') {
+                        const isNU = (campus === 'NU' || (!campus && urn.includes('NU')));
+                        const isSecC = secCURNs.has(urn);
+                        isMatch = isNU && !isSecC;
+                      } else if (section === 'NU-C') {
+                        const isNU = (campus === 'NU' || (!campus && urn.includes('NU')));
+                        const isSecC = secCURNs.has(urn);
+                        isMatch = isNU && isSecC;
+                      } else {
+                        // Traditional section matching (A, B, C) via class field
+                        const sectionPattern = new RegExp(`\\(${section}\\)`, 'i');
+                        isMatch = !student.class || sectionPattern.test(student.class);
+                      }
+                      
+                      if (!isMatch) {
+                        continue;
+                      }
+                    }
+                    
                     const studentSubjects = student.subjects || {};
                     if (studentSubjects[subCode]) {
                       matchedStudents.push({ student, subject: studentSubjects[subCode] });
@@ -9814,7 +10091,7 @@ async function fetchHistoricalResultStats(card, facultyName) {
         console.warn('[fetchHistoricalResultStats] Allocation lookup failed for sem', searchSem, ':', e.message);
       }
     }
-    }
+    } // Close the if (!bestMatch) block
     
     console.log('[fetchHistoricalResultStats] Docs checked:', docsChecked, 'All faculty matches found:', facultyMatchesFound);
     console.log('[fetchHistoricalResultStats] Best match:', bestMatch ? { sem: bestMatch.docSem, subject: bestMatch.subjectName, students: bestMatch.students.length, score: bestMatchScore } : 'none');
@@ -9832,19 +10109,24 @@ async function fetchHistoricalResultStats(card, facultyName) {
       let topper = { name: '', marks: 0, urn: '' };
       
       bestMatch.students.forEach(({ student, subject: sub }) => {
-        const ia = parseFloat(sub.ia || sub.internal || sub.int || 0);
-        const ct = parseFloat(sub.ct || sub.external || sub.ext || sub.total || 0);
-        const total = ia + ct;
+        // Use total field if available, otherwise calculate from ia+ct
+        const total = sub.total !== undefined && sub.total !== null ? sub.total : (parseFloat(sub.ia || sub.internal || sub.int || 0) + parseFloat(sub.ct || sub.external || sub.ext || 0));
+        const maxMarks = sub.max || 100;
+        const passThreshold = Math.ceil(maxMarks * 0.35);
         
         // Check pass status
         const subResult = (sub.result || '').toUpperCase();
-        if (subResult === 'PASS' || total >= 40) {
+        const isPass = subResult === 'PASS' || (!isNaN(total) && total >= passThreshold);
+        
+        console.log('[fetchHistoricalResultStats] Student:', student.name, '| Total:', total, '| Max:', maxMarks, '| Pass Threshold:', passThreshold, '| Result:', subResult, '| Calculated:', isPass ? 'PASS' : 'FAIL');
+        
+        if (isPass) {
           result.passed++;
         } else {
           result.failed++;
         }
         
-        if (total > 0) {
+        if (total > 0 && !isNaN(total)) {
           totalMarks += total;
           marksCount++;
           // Track topper
@@ -9860,10 +10142,6 @@ async function fetchHistoricalResultStats(card, facultyName) {
       result.avgMarks = marksCount ? (totalMarks / marksCount).toFixed(1) : null;
       if (topper.name) result.topper = topper;
     }
-  } catch(e) {
-    console.warn('[fetchHistoricalResultStats] Error:', e.message);
-    console.error(e);
-  }
   
   console.log('[fetchHistoricalResultStats] END - returning:', result);
   return result;
@@ -12072,139 +12350,34 @@ function cvRefreshDetail() {
 
 let _notificationLogs = {}; // Cache of notification logs
 let _skipConfirmDialog = false; // Session flag for confirmation dialog
+// Initialize audio context on first user interaction (required by browser autoplay policy)
+// No startup sound - only play sound on login
 let _audioContext = null; // Global audio context
+let _isManualLogin = false; // Flag to track if login was triggered by user action
 
 // Initialize audio context on first user interaction (required by browser autoplay policy)
-function ntInitAudioContext() {
+const initAudioOnInteraction = () => {
   if (!_audioContext) {
     try {
       _audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      console.log('[NT] AudioContext initialized, state:', _audioContext.state);
+      console.log('[Audio] AudioContext initialized, state:', _audioContext.state);
     } catch(e) {
-      console.error('[NT] Failed to init AudioContext:', e);
+      console.error('[Audio] Failed to init AudioContext:', e);
     }
   }
-  if (_audioContext && _audioContext.state === 'suspended') {
-    _audioContext.resume();
-    console.log('[NT] AudioContext resumed');
-  }
-}
-
-// Play startup sound on page load
-function ntPlayStartupSound() {
-  console.log('[NT] Playing startup sound...');
-  console.log('[NT] _audioContext exists:', !!_audioContext);
-  
-  // Use the global audio context (should already be created and resumed)
-  const audioCtx = _audioContext || new (window.AudioContext || window.webkitAudioContext)();
-  console.log('[NT] Using audio context, state:', audioCtx.state);
-  
-  // If suspended, resume first with small delay
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-    console.log('[NT] Called resume() for startup sound');
-    // Wait a bit for resume to take effect
-    setTimeout(() => {
-      playOscillatorSound(audioCtx);
-    }, 50);
-  } else {
-    playOscillatorSound(audioCtx);
-  }
-}
-
-// Helper function to play oscillator sound
-function playOscillatorSound(audioCtx) {
-  try {
-    // Single high-pitched beep for startup
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    
-    oscillator.frequency.value = 1000;
-    oscillator.type = 'sine';
-    
-    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
-    
-    oscillator.start(audioCtx.currentTime);
-    oscillator.stop(audioCtx.currentTime + 0.4);
-    
-    console.log('[NT] ✅ Startup sound played successfully');
-  } catch(e) {
-    console.error('[NT] ❌ Startup sound failed:', e);
-  }
-}
-
-// Initialize audio context and play startup sound on first user interaction
-let _startupSoundPlayed = false;
-function ntInitAudioContext() {
-  console.log('[NT] ntInitAudioContext called, already played:', _startupSoundPlayed);
-  if (_startupSoundPlayed) {
-    console.log('[NT] Startup sound already played, skipping');
-    return;
-  }
-  _startupSoundPlayed = true;
-  
-  if (!_audioContext) {
-    try {
-      _audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      console.log('[NT] AudioContext initialized, state:', _audioContext.state);
-    } catch(e) {
-      console.error('[NT] Failed to init AudioContext:', e);
-    }
-  }
-  
-  // Resume audio context (this will work because it's called after user gesture)
   if (_audioContext && _audioContext.state === 'suspended') {
     _audioContext.resume().then(() => {
-      console.log('[NT] AudioContext resumed successfully');
-      // Play startup sound after resume completes
-      ntPlayStartupSound();
+      console.log('[Audio] AudioContext resumed successfully');
+      // No auto-login toast/sound - only play for manual logins
     }).catch(err => {
-      console.error('[NT] Failed to resume AudioContext:', err);
-      // Try playing anyway
-      ntPlayStartupSound();
+      console.error('[Audio] Failed to resume AudioContext:', err);
     });
-  } else {
-    // Play startup sound immediately if already running
-    ntPlayStartupSound();
   }
-}
-
-// Initialize audio context (no "play once" restriction - can be called multiple times)
-async function ensureAudioReady() {
-  console.log('[ensureAudioReady] START - _audioContext exists:', !!_audioContext);
-  if (!_audioContext) {
-    try {
-      _audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      console.log('[ensureAudioReady] SET _audioContext = new AudioContext, state:', _audioContext.state);
-      console.log('[ensureAudioReady] Global _audioContext now:', !!_audioContext);
-    } catch(e) {
-      console.error('[ensureAudioReady] Failed to create AudioContext:', e);
-    }
-  }
-  
-  if (_audioContext && _audioContext.state === 'suspended') {
-    await _audioContext.resume();
-    console.log('[ensureAudioReady] Resumed, state now:', _audioContext.state);
-  }
-  console.log('[ensureAudioReady] END - _audioContext exists:', !!_audioContext);
-}
-
-// Trigger audio on first user interaction (required by browser autoplay policy)
-// Try click first
-const initAudioOnInteraction = () => {
-  ntInitAudioContext();
 };
 
+// Initialize on first click, keypress, or touch (user gesture required by browser)
 document.addEventListener('click', initAudioOnInteraction, { once: true });
-
-// Also try on any keypress (for login form interactions)
 document.addEventListener('keydown', initAudioOnInteraction, { once: true });
-
-// Also try on touch for mobile devices
 document.addEventListener('touchstart', initAudioOnInteraction, { once: true });
 
 // Load notification logs from Firestore
@@ -13735,6 +13908,29 @@ function syncDataTimestampUI() {
   const timeEl = document.getElementById('footer-time');
   if (dateEl) dateEl.textContent = `${day} ${monShort} ${year}`;
   if (timeEl) timeEl.textContent = `${hh}:${mm}`;
+}
+
+// Topbar version display function
+function setTopbarVersion(text) {
+  const el = document.getElementById('topbar-version');
+  if (el) el.textContent = text;
+}
+
+// Login tab switcher function
+function loginSwitchTab(tabName) {
+  console.log('[loginSwitchTab] Switching to:', tabName);
+  // Implementation would depend on your login UI structure
+  // This is a placeholder - adjust based on your actual login panel HTML
+  const tabs = document.querySelectorAll('.login-tab');
+  const panels = document.querySelectorAll('.login-panel');
+  tabs.forEach(t => t.classList.remove('active'));
+  panels.forEach(p => p.style.display = 'none');
+  
+  const activeTab = document.querySelector(`.login-tab[data-tab="${tabName}"]`);
+  const activePanel = document.getElementById(`login-panel-${tabName}`);
+  
+  if (activeTab) activeTab.classList.add('active');
+  if (activePanel) activePanel.style.display = 'block';
 }
 
 // Load version on page ready
@@ -18761,8 +18957,10 @@ function handlePassFailCount(match, query) {
         // Check if student passed (all subjects passed)
         const subjects = student.subjects || [];
         const hasFailed = subjects.some(sub => {
-          const total = (sub.ia || 0) + (sub.ct || 0);
-          return total < 40; // Assuming 40 is pass mark
+          const total = sub.total !== undefined && sub.total !== null ? sub.total : ((sub.ia || 0) + (sub.ct || 0));
+          const maxMarks = sub.max || 100;
+          const passThreshold = Math.ceil(maxMarks * 0.35);
+          return total < passThreshold;
         });
         
         if (hasFailed) failedStudents++;
@@ -26474,34 +26672,28 @@ async function liveShowToast(title, body, icon, duration) {
   try {
     console.log('[Toast] Playing sound, _audioContext:', !!_audioContext);
     
-    // If no audio context exists, create one synchronously (user gesture from login button)
+    // If no audio context exists or it's suspended, we can't play sound yet (no user gesture)
     let ctx = _audioContext;
     if (!ctx) {
-      console.log('[Toast] Creating AudioContext synchronously...');
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      _audioContext = ctx; // Set global for next time
-      console.log('[Toast] Created, state:', ctx.state);
+      console.log('[Toast] No AudioContext yet, skipping sound');
+    } else if (ctx.state === 'suspended') {
+      console.log('[Toast] AudioContext suspended, cannot play sound without user gesture');
+    } else {
+      // AudioContext is ready, play the sound
+      console.log('[Toast] AudioContext state:', ctx.state);
+      
+      // Play two-tone beep
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.5, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+      console.log('[Toast] ✅ Sound played!');
     }
-    
-    console.log('[Toast] AudioContext state:', ctx.state);
-    
-    // If suspended, resume it (must await so oscillator starts after context is running)
-    if (ctx.state === 'suspended') {
-      await ctx.resume();
-      console.log('[Toast] Resumed AudioContext');
-    }
-    
-    // Play two-tone beep
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.5, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.4);
-    console.log('[Toast] ✅ Sound played!');
   } catch(e) {
     console.error('[Toast] ❌ Error:', e);
   }
@@ -28116,5 +28308,6 @@ function saDoExport(type) {
     </div>
     <div id="live-toast-bar" style="height:3px;background:var(--accent);border-radius:2px;margin-top:10px;transition:width linear;width:100%;"></div>
   </div>
+</script>
 </body>
 </html>
