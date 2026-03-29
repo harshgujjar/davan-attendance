@@ -9,16 +9,16 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Davan &amp; Nutana Attendance Analyzer v598</title>
+  <title>Davan &amp; Nutana Attendance Analyzer v604</title>
 
   <!-- Windows File Explorer Properties (Tags / Authors / Title) -->
   <meta name="title" content="Davan &amp; Nutana Attendance Analyzer">
   <meta name="author" content="Harsha Gujjar">
-  <meta name="keywords" content="v598, Attendance, Analyzer, Davan, Nutana, Davangere">
+  <meta name="keywords" content="v604, Attendance, Analyzer, Davan, Nutana, Davangere">
   <meta name="description" content="Attendance and result analytics for Davan &amp; Nutana Institutions, Davangere. Developed by Harsha Gujjar, Director.">
   <meta name="application-name" content="Attendance Result Analyzer">
   <meta name="generator" content="Developed by Harsha Gujjar — Davan Institute of Advanced Management Studies">
-  <meta name="version" content="v598" id="meta-version">
+  <meta name="version" content="v604" id="meta-version">
 
   <!-- Favicon & App Icons -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -1130,7 +1130,7 @@
       font-size:11px;font-weight:700;font-family:var(--mono);
       background:var(--accent);color:#000;transition:all 0.2s;">
     </button>
-    <span id="topbar-version" style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:6px;opacity:0.7;">v598</span>
+    <span id="topbar-version" style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:6px;opacity:0.7;">v604</span>
   </div>
 </div>
 
@@ -2634,6 +2634,8 @@
           <option value="critical">🔴 Critical Only</option>
           <option value="warning">🟡 Warning Only</option>
         </select>
+        <button onclick="ntOpenBulkSend()" id="btn-bulk-send" style="background:#25d366;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;">📨 Bulk Send</button>
+        <button onclick="ntShowExtensionDownload()" title="Install WA Bulk Sender Extension" style="background:var(--surface2);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);border-radius:6px;padding:8px 12px;font-size:12px;cursor:pointer;white-space:nowrap;">🧩 Extension</button>
       </div>
 
       <div id="notify-list">
@@ -8494,8 +8496,8 @@ function setTopbarVersion(text) {
 }
 
 // ----- Version & Update Tracking -----
-// CODE_BUILD: 602 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 598;  // always = HTML footer version number
+// CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
+const CODE_BUILD = 604;  // always = HTML footer version number
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -13260,6 +13262,433 @@ function renderExemptions() {
 
 </script>
 
+<script>
+// ══════════════════════════════════════════════════════════════
+//  §19.19e  BULK SEND — WhatsApp Auto-Sender
+//  Communicates with Davan WA Bulk Sender browser extension
+// ══════════════════════════════════════════════════════════════
+
+let _bulkQueue    = [];
+let _bulkCount    = 10;   // default
+let _bulkDelay    = 30;   // seconds
+let _bulkExtReady = false;
+let _bulkRunning  = false;
+let _bulkPaused   = false;
+
+// ── Check if extension is installed ──
+function ntCheckExtension() {
+  return new Promise(resolve => {
+    let resolved = false;
+    const done = (val) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
+      window.removeEventListener('message', handler);
+      resolve(val);
+    };
+
+    const timeout = setTimeout(() => done(false), 2500);
+
+    const handler = (e) => {
+      if (!e.data) return;
+      const msgType = e.data.type || e.data._type || '';
+      // Accept ping response OR extension ready signal (fires on inject)
+      if (msgType === 'DAVAN_PING_RESPONSE' || msgType === 'DAVAN_EXTENSION_READY') {
+        done(true);
+      }
+    };
+    window.addEventListener('message', handler);
+
+    // Send ping with both field names for compatibility
+    window.postMessage({ type: 'DAVAN_PING', _type: 'DAVAN_PING' }, '*');
+
+    // Re-send after 500ms in case content script wasn't ready yet
+    setTimeout(() => {
+      if (!resolved) window.postMessage({ type: 'DAVAN_PING', _type: 'DAVAN_PING' }, '*');
+    }, 500);
+    setTimeout(() => {
+      if (!resolved) window.postMessage({ type: 'DAVAN_PING', _type: 'DAVAN_PING' }, '*');
+    }, 1200);
+  });
+}
+
+// ── Open the Bulk Send modal ──
+async function ntOpenBulkSend() {
+  const overlay = document.getElementById('bulk-send-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+
+  // Check extension
+  const dot   = document.getElementById('bulk-ext-dot');
+  const label = document.getElementById('bulk-ext-label');
+  dot.style.background = '#f59e0b';
+  label.style.color    = '#f59e0b';
+  label.textContent    = 'Checking extension…';
+
+  _bulkExtReady = await ntCheckExtension();
+
+  if (_bulkExtReady) {
+    dot.style.background = '#22c55e';
+    label.style.color    = '#22c55e';
+    label.textContent    = '✅ Extension connected — fully automatic';
+  } else {
+    dot.style.background = '#f59e0b';
+    label.style.color    = '#f59e0b';
+    label.textContent    = '⚠️ Extension not found — install Davan WA Bulk Sender first';
+  }
+
+  // Reset to config view
+  document.getElementById('bulk-config').style.display   = 'block';
+  document.getElementById('bulk-progress').style.display = 'none';
+  document.getElementById('bulk-done').style.display     = 'none';
+
+  ntBulkBuildQueue();
+}
+
+function ntCloseBulkSend() {
+  document.getElementById('bulk-send-overlay').style.display = 'none';
+}
+
+// ── Build queue from current notify filter ──
+function ntBulkBuildQueue() {
+  const { warn, crit } = getThresholds();
+  const college = (document.getElementById('nt-college')?.value || '').toLowerCase();
+  const course  = (document.getElementById('nt-course')?.value  || '').toLowerCase();
+  const sem     = (document.getElementById('nt-sem')?.value     || '').toLowerCase();
+  const filter  = document.getElementById('nt-status')?.value || 'all';
+
+  let list = allStudents.filter(s => {
+    if (isExempted(s)) return false;
+    const cls = (s.class || '').toLowerCase();
+    if (college && !(s.college||'').toLowerCase().includes(college) && !cls.includes(college)) return false;
+    if (course  && !cls.includes(course)) return false;
+    if (sem     && !cls.includes(sem))    return false;
+    const pct = s.min_pct;
+    if (filter === 'critical' && !(pct !== null && pct < crit))  return false;
+    if (filter === 'warning'  && !(pct !== null && pct >= crit && pct < warn)) return false;
+    if (filter === 'all'      && !(pct !== null && pct < warn))  return false;
+    // Must have phone
+    const phone = (s.phone || '').replace(/\D/g, '');
+    if (!phone || phone.length < 10) return false;
+    return true;
+  }).sort((a, b) => (a.min_pct ?? 999) - (b.min_pct ?? 999));
+
+  // Apply count limit
+  const limited = (_bulkCount > 0) ? list.slice(0, _bulkCount) : list;
+
+  _bulkQueue = limited.map(s => ({
+    name:    s.name || '',
+    phone:   s.phone || '',
+    message: generateMessage(s, s.min_pct ?? s.avg_pct, warn),
+    class:   s.class || '',
+    pct:     s.min_pct ?? s.avg_pct ?? null,
+    urn:     s.urn || s.seat_no || '',
+  }));
+
+  // Update UI
+  const countEl   = document.getElementById('bulk-queue-count');
+  const previewEl = document.getElementById('bulk-queue-preview');
+  if (countEl) countEl.textContent = _bulkQueue.length;
+
+  if (previewEl) {
+    if (!_bulkQueue.length) {
+      previewEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px;">No students match current filter with valid phone numbers.</div>';
+    } else {
+      previewEl.innerHTML = _bulkQueue.map((s, i) =>
+        `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
+          <div>
+            <span style="color:var(--muted);margin-right:6px;">${i+1}.</span>
+            <strong>${s.name}</strong>
+            <span style="color:var(--muted);margin-left:6px;">${s.class}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            ${s.pct != null ? `<span style="color:var(--danger);font-size:11px;">${s.pct.toFixed(1)}%</span>` : ''}
+            <span style="color:var(--blue);font-family:monospace;font-size:10px;">${s.phone}</span>
+          </div>
+        </div>`
+      ).join('');
+    }
+  }
+}
+
+function ntBulkSetCount(n) {
+  _bulkCount = n;
+  document.querySelectorAll('.bulk-count-btn').forEach(btn => {
+    const v = parseInt(btn.dataset.count);
+    const active = v === n;
+    btn.style.border     = active ? '1px solid #25d366' : '1px solid var(--border)';
+    btn.style.background = active ? 'rgba(37,211,102,0.1)' : 'var(--bg)';
+    btn.style.color      = active ? '#25d366' : 'var(--text)';
+    btn.style.fontWeight = active ? '700' : '400';
+  });
+  ntBulkBuildQueue();
+}
+
+function ntBulkSetDelay(d) {
+  _bulkDelay = d;
+  document.querySelectorAll('.bulk-delay-btn').forEach(btn => {
+    const v = parseInt(btn.dataset.delay);
+    const active = v === d;
+    btn.style.border     = active ? '1px solid #25d366' : '1px solid var(--border)';
+    btn.style.background = active ? 'rgba(37,211,102,0.1)' : 'var(--bg)';
+    btn.style.color      = active ? '#25d366' : 'var(--text)';
+    btn.style.fontWeight = active ? '700' : '400';
+    if (active) btn.textContent = d + 's ✓';
+    else btn.textContent = d + 's';
+  });
+}
+
+// ── Start bulk send ──
+function ntBulkStart() {
+  if (!_bulkQueue.length) {
+    liveShowToast('No Students', 'No students in queue — check filters.', '⚠️', 3000);
+    return;
+  }
+
+  if (_bulkExtReady) {
+    // Extension mode — fully automatic
+    window.postMessage({
+      type:  'DAVAN_START_BULK',
+      queue: _bulkQueue,
+      delay: _bulkDelay,
+    }, '*');
+  } else {
+    // Fallback mode — open wa.me tabs manually, manager clicks Send
+    ntBulkManualMode();
+    return;
+  }
+
+  // Show progress UI
+  document.getElementById('bulk-config').style.display   = 'none';
+  document.getElementById('bulk-progress').style.display = 'block';
+  document.getElementById('bulk-total-count').textContent = _bulkQueue.length;
+  ntBulkUpdateProgress(0, _bulkQueue.length, _bulkQueue[0], false, 0);
+  _bulkRunning = true;
+  _bulkPaused  = false;
+}
+
+// ── Manual fallback (no extension) ──
+let _manualIdx = 0;
+let _manualTimer = null;
+function ntBulkManualMode() {
+  _manualIdx = 0;
+  document.getElementById('bulk-config').style.display   = 'none';
+  document.getElementById('bulk-progress').style.display = 'block';
+  document.getElementById('bulk-total-count').textContent = _bulkQueue.length;
+  _bulkRunning = true;
+
+  const openNext = () => {
+    if (_manualIdx >= _bulkQueue.length) { ntBulkFinish(_bulkQueue.length, 0); return; }
+    const s = _bulkQueue[_manualIdx];
+    ntBulkUpdateProgress(_manualIdx, _bulkQueue.length, s, false, 0);
+    const phone = (s.phone || '').replace(/\D/g,'');
+    const p = phone.length === 10 ? '91'+phone : phone;
+    window.open('https://wa.me/' + p + '?text=' + encodeURIComponent(s.message), '_blank');
+    _manualIdx++;
+    // Start countdown
+    let cd = _bulkDelay;
+    document.getElementById('bulk-countdown-wrap').style.display = 'block';
+    _manualTimer = setInterval(() => {
+      cd--;
+      const cdEl = document.getElementById('bulk-countdown');
+      if (cdEl) cdEl.textContent = cd;
+      ntBulkUpdateProgress(_manualIdx, _bulkQueue.length, _bulkQueue[_manualIdx] || null, true, cd);
+      if (cd <= 0) {
+        clearInterval(_manualTimer);
+        if (_bulkRunning && !_bulkPaused) openNext();
+      }
+    }, 1000);
+  };
+  openNext();
+}
+
+function ntBulkUpdateProgress(sent, total, current, showCountdown, countdown) {
+  const pct = total > 0 ? Math.round((sent / total) * 100) : 0;
+  const sentEl = document.getElementById('bulk-sent-count');
+  const barEl  = document.getElementById('bulk-prog-bar');
+  const nameEl = document.getElementById('bulk-cur-name');
+  const phoneEl= document.getElementById('bulk-cur-phone');
+  const cdWrap = document.getElementById('bulk-countdown-wrap');
+  const cdEl   = document.getElementById('bulk-countdown');
+  if (sentEl)  sentEl.textContent  = sent;
+  if (barEl)   barEl.style.width   = pct + '%';
+  if (nameEl)  nameEl.textContent  = current?.name  || '—';
+  if (phoneEl) phoneEl.textContent = current?.phone || '';
+  if (cdWrap)  cdWrap.style.display = showCountdown ? 'block' : 'none';
+  if (cdEl && showCountdown) cdEl.textContent = countdown;
+}
+
+function ntBulkFinish(sent, skipped) {
+  _bulkRunning = false;
+  document.getElementById('bulk-progress').style.display = 'none';
+  document.getElementById('bulk-done').style.display     = 'block';
+  const summary = document.getElementById('bulk-done-summary');
+  if (summary) summary.textContent = sent + ' messages sent · ' + skipped + ' skipped';
+}
+
+function ntBulkPause() {
+  if (_bulkExtReady) {
+    window.postMessage({ type: 'DAVAN_PAUSE' }, '*');
+  } else {
+    _bulkPaused = true;
+    clearInterval(_manualTimer);
+  }
+  const btn = document.getElementById('bulk-pause-btn');
+  if (btn) {
+    btn.textContent = _bulkPaused ? '▶ Resume' : '⏸ Pause';
+    btn.onclick = _bulkPaused ? ntBulkResume : ntBulkPause;
+  }
+  _bulkPaused = !_bulkPaused;
+}
+
+function ntBulkResume() {
+  if (_bulkExtReady) {
+    window.postMessage({ type: 'DAVAN_RESUME' }, '*');
+  } else {
+    _bulkPaused = false;
+    // Re-open next tab
+    if (_manualIdx < _bulkQueue.length) {
+      const s = _bulkQueue[_manualIdx];
+      const phone = (s.phone || '').replace(/\D/g,'');
+      const p = phone.length === 10 ? '91'+phone : phone;
+      window.open('https://wa.me/' + p + '?text=' + encodeURIComponent(s.message), '_blank');
+    }
+  }
+  const btn = document.getElementById('bulk-pause-btn');
+  if (btn) { btn.textContent = '⏸ Pause'; btn.onclick = ntBulkPause; }
+  _bulkPaused = false;
+}
+
+function ntBulkStop() {
+  if (_bulkExtReady) window.postMessage({ type: 'DAVAN_STOP' }, '*');
+  clearInterval(_manualTimer);
+  _bulkRunning = false;
+  _bulkPaused  = false;
+  document.getElementById('bulk-progress').style.display = 'none';
+  document.getElementById('bulk-config').style.display   = 'block';
+}
+
+// ── Send queue to mobile via Firebase ──
+async function ntBulkSendToMobile() {
+  ntBulkBuildQueue();
+  if (!_bulkQueue.length) { liveShowToast('Empty', 'No students in queue.', '⚠️', 2000); return; }
+
+  const btn = document.getElementById('btn-send-to-mobile');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending…'; }
+
+  try {
+    const rtdbUrl = 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app';
+    const payload = {
+      queue:     _bulkQueue,
+      pushedAt:  new Date().toISOString(),
+      pushedBy:  currentUser?.name || currentUser?.email || 'Admin',
+      count:     _bulkQueue.length,
+    };
+    const res = await fetch(rtdbUrl + '/bulk_mobile/queue.json', {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('RTDB write failed: ' + res.status);
+
+    liveShowToast('✅ Sent to Mobile!', _bulkQueue.length + ' students pushed — open the mobile app', '📱', 3500);
+
+    // Open mobile page in new tab (optional convenience)
+    const mobileUrl = 'https://harshgujjar.github.io/davan-attendance/bulk_sender_mobile.html';
+    if (btn) {
+      btn.textContent = '✅ Sent!';
+      setTimeout(() => { btn.disabled = false; btn.textContent = '📱 Send to Mobile'; }, 3000);
+    }
+  } catch (err) {
+    console.error('[Davan] Mobile push failed:', err);
+    liveShowToast('❌ Push Failed', err.message, '⚠️', 3500);
+    if (btn) { btn.disabled = false; btn.textContent = '📱 Send to Mobile'; }
+  }
+}
+
+// ── Extension download modal ──
+function ntShowExtensionDownload() {
+  const existing = document.getElementById('ext-download-overlay');
+  if (existing) { existing.style.display = 'flex'; return; }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'ext-download-overlay';
+  overlay.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9500;align-items:center;justify-content:center;padding:16px;';
+  overlay.innerHTML = \`
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:440px;max-height:90vh;overflow-y:auto;">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#38bdf8;">🧩 Install WA Bulk Sender Extension</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">Chrome / Edge / Opera (Desktop only)</div>
+        </div>
+        <button onclick="document.getElementById('ext-download-overlay').style.display='none'"
+          style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;">✕</button>
+      </div>
+      <div style="padding:20px;">
+
+        <a href="https://harshgujjar.github.io/davan-attendance/extension_v1.1.zip" download
+          style="display:block;width:100%;background:#38bdf8;color:#000;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;margin-bottom:20px;">
+          ⬇️ Download Extension ZIP
+        </a>
+
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px;">How to install:</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          \${['1. Click <strong>Download Extension ZIP</strong> above',
+             '2. Unzip the downloaded file',
+             '3. Open Chrome → go to <code style="background:var(--bg);padding:2px 6px;border-radius:4px;">chrome://extensions</code>',
+             '4. Turn ON <strong>Developer Mode</strong> (top-right toggle)',
+             '5. Click <strong>Load unpacked</strong> → select the unzipped <code style="background:var(--bg);padding:2px 6px;border-radius:4px;">extension_v1.1</code> folder',
+             '6. Pin the 📨 extension from the toolbar',
+             '7. Come back here and click <strong>Bulk Send</strong>'].map(step => \`
+            <div style="display:flex;gap:10px;align-items:flex-start;font-size:12px;color:var(--muted);background:var(--bg);padding:10px;border-radius:8px;">
+              <span style="color:var(--text);">\${step}</span>
+            </div>\`).join('')}
+        </div>
+
+        <div style="margin-top:16px;padding:10px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);border-radius:8px;font-size:11px;color:var(--muted);">
+          ⚠️ <strong style="color:var(--text);">WhatsApp Web</strong> must be open and logged in before starting Bulk Send.
+        </div>
+      </div>
+    </div>\`;
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.style.display = 'none';
+  });
+  document.body.appendChild(overlay);
+}
+
+// ── Listen for extension progress messages ──
+window.addEventListener('message', (e) => {
+  if (!e.data) return;
+  // Accept messages with or without _davan flag — extension may omit it
+  const d = e.data;
+
+  const dType = d.type || d._type || '';
+  if (dType === 'DAVAN_EXTENSION_READY') {
+    _bulkExtReady = true;
+  }
+
+  if (dType === 'OPENING' || dType === 'SENT' || dType === 'SKIPPED') {
+    const cur = _bulkQueue[d.sent] || null;
+    ntBulkUpdateProgress(d.sent, d.total, cur, false, 0);
+  }
+
+  if (dType === 'COUNTDOWN') {
+    const cur = _bulkQueue[d.sent] || null;
+    ntBulkUpdateProgress(d.sent, d.total, cur, true, d.countdown);
+  }
+
+  if (dType === 'DONE' || dType === 'STOPPED') {
+    ntBulkFinish(d.sent, d.total - d.sent);
+  }
+});
+
+// ── Close modal on overlay click ──
+document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
+  if (e.target === document.getElementById('bulk-send-overlay')) ntCloseBulkSend();
+});
+</script>
+
 
 <!-- ═══════════════════════════════════════════════════════════════════
      VERSION HISTORY — DAVAN Attendance Analyzer (index_vXXX.html)
@@ -13481,6 +13910,12 @@ function renderExemptions() {
   v596      | 29-Mar-2026 | Feat: Photo circle clickable — pointer cursor + tooltip; click opens full-size lightbox (90vw/vh, dark overlay, click to close); Smart Assist student rows clickable → scOpen
   v597      | 29-Mar-2026 | Feat: Topper name in Exam Results card is now clickable — opens student card via scOpen
   v598      | 29-Mar-2026 | Fix: SyntaxError from JSON.stringify in nested template literal — topper onclick moved to _resDashTopperHtml helper fn
+  v599      | 29-Mar-2026 | Feat: §19.19e Bulk WA Send — extension mode (auto-click) + manual fallback; modal with count/delay/preview; mobile copy; progress UI
+  v600      | 29-Mar-2026 | Fix: Bulk Send button moved to correct panel (Notify Students, not Notification Report)
+  v601      | 29-Mar-2026 18:10 IST | Fix: Bulk Send modal extracted from ntExportWord JS template — now a real DOM element; ntOpenBulkSend no longer gets null and silently fails
+  v602      | 29-Mar-2026 18:10 IST | Fix: ntCheckExtension — accept type or _type field; remove strict _davan guard; timeout 800ms→2000ms; all extension message checks use flexible dType
+  v603      | 29-Mar-2026 18:10 IST | Fix: Extension ping — content_bridge.js drops chrome.tabs.getCurrent (not available in content scripts); retry pings x3; accept DAVAN_EXTENSION_READY as ping fallback; manifest matches all origins
+  v604      | 29-Mar-2026 18:10 IST | Feat: Mobile Firebase push — Send to Mobile button writes queue to RTDB bulk_mobile/queue; Extension install modal with download link; bulk_sender_mobile.html auto-loads from Firebase
   ═══════════════════════════════════════════════════════════════════
   -->
   <div style="padding:14px 40px;display:flex;flex-direction:column;align-items:center;gap:4px;">
@@ -13488,9 +13923,9 @@ function renderExemptions() {
       © 2026 <strong style="color:#777">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #3a3a3a; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">598</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">604</span></span>
       &nbsp;·&nbsp;
-      Updated: <span id="footer-date">29 Mar 2026</span>, <span id="footer-time">12:34</span> IST
+      Updated: <span id="footer-date">29 Mar 2026</span>, <span id="footer-time">18:10</span> IST
       &nbsp;·&nbsp;
       <span id="footer-changelog-toggle" onclick="toggleChangelog()"
         style="cursor:pointer;color:#555;text-decoration:underline;text-underline-offset:2px;">
@@ -28249,6 +28684,115 @@ function saDoExport(type) {
     </div>
     <div id="live-toast-bar" style="height:3px;background:var(--accent);border-radius:2px;margin-top:10px;transition:width linear;width:100%;"></div>
   </div>
-</script>
+
+
+
+<!-- ══════════════════════════════════════════════════════════
+     BULK SEND MODAL — §19 NOTIFY
+════════════════════════════════════════════════════════════ -->
+<div id="bulk-send-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;">
+
+    <!-- Header -->
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#25d366;">📨 Bulk WhatsApp Send</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Auto-sends shortage notifications one by one</div>
+      </div>
+      <button onclick="ntCloseBulkSend()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;">✕</button>
+    </div>
+
+    <!-- Config (shown before start) -->
+    <div id="bulk-config" style="padding:16px 20px;">
+
+      <!-- Extension status -->
+      <div id="bulk-ext-status" style="background:var(--bg);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;display:flex;align-items:center;gap:8px;">
+        <span id="bulk-ext-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;"></span>
+        <span id="bulk-ext-label" style="color:var(--muted);">Checking extension…</span>
+      </div>
+
+      <!-- Count selector -->
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">How many students to send?</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="bulk-count-btn" data-count="5"  onclick="ntBulkSetCount(5)"  style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;font-weight:600;">5</button>
+          <button class="bulk-count-btn" data-count="10" onclick="ntBulkSetCount(10)" style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;font-weight:600;">10</button>
+          <button class="bulk-count-btn" data-count="20" onclick="ntBulkSetCount(20)" style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;font-weight:600;">20</button>
+          <button class="bulk-count-btn" data-count="0"  onclick="ntBulkSetCount(0)"  style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;font-weight:600;">All</button>
+        </div>
+      </div>
+
+      <!-- Delay selector -->
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Delay between messages</div>
+        <div style="display:flex;gap:8px;">
+          <button class="bulk-delay-btn" data-delay="15" onclick="ntBulkSetDelay(15)" style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;">15s</button>
+          <button class="bulk-delay-btn" data-delay="30" onclick="ntBulkSetDelay(30)" style="padding:8px 16px;border-radius:8px;border:1px solid #25d366;background:rgba(37,211,102,0.1);color:#25d366;cursor:pointer;font-size:13px;font-weight:700;">30s ✓</button>
+          <button class="bulk-delay-btn" data-delay="60" onclick="ntBulkSetDelay(60)" style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;">60s</button>
+        </div>
+      </div>
+
+      <!-- Queue preview -->
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Students in queue: <strong id="bulk-queue-count" style="color:var(--text);">—</strong></div>
+        <div id="bulk-queue-preview" style="max-height:180px;overflow-y:auto;background:var(--bg);border-radius:8px;padding:8px;"></div>
+      </div>
+
+      <!-- Mobile send -->
+      <div style="margin-bottom:14px;display:flex;gap:8px;">
+        <button id="btn-send-to-mobile" onclick="ntBulkSendToMobile()" style="flex:1;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;">
+          📱 Send to Mobile
+        </button>
+        <a href="https://harshgujjar.github.io/davan-attendance/bulk_sender_mobile.html" target="_blank"
+          style="flex:1;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;text-decoration:none;">
+          🔗 Open Mobile Page
+        </a>
+      </div>
+
+      <!-- Start button -->
+      <button id="bulk-start-btn" onclick="ntBulkStart()" style="width:100%;background:#25d366;color:#fff;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;">
+        ▶ Start Bulk Send
+      </button>
+      <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:8px;">
+        Extension auto-clicks Send in WhatsApp Web · No action needed per message
+      </div>
+    </div>
+
+    <!-- Progress (shown while running) -->
+    <div id="bulk-progress" style="display:none;padding:16px 20px;">
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:24px;font-weight:700;color:#25d366;" id="bulk-sent-count">0</div>
+        <div style="font-size:12px;color:var(--muted);">of <span id="bulk-total-count">0</span> sent</div>
+      </div>
+      <div style="background:var(--bg);border-radius:4px;height:8px;margin-bottom:12px;">
+        <div id="bulk-prog-bar" style="background:#25d366;height:8px;border-radius:4px;width:0%;transition:width 0.4s;"></div>
+      </div>
+      <div id="bulk-current-student" style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:12px;border-left:3px solid #25d366;">
+        <div style="font-size:11px;color:var(--muted);">Currently sending to</div>
+        <div id="bulk-cur-name" style="font-size:14px;font-weight:700;margin-top:2px;">—</div>
+        <div id="bulk-cur-phone" style="font-size:11px;color:var(--blue);font-family:monospace;"></div>
+      </div>
+      <div id="bulk-countdown-wrap" style="text-align:center;margin-bottom:16px;display:none;">
+        <div style="font-size:32px;font-weight:700;color:#38bdf8;" id="bulk-countdown">30</div>
+        <div style="font-size:11px;color:var(--muted);">seconds until next message</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button id="bulk-pause-btn" onclick="ntBulkPause()" style="flex:1;background:var(--amber);color:#000;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;">⏸ Pause</button>
+        <button onclick="ntBulkStop()" style="flex:1;background:var(--danger);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;">■ Stop</button>
+      </div>
+    </div>
+
+    <!-- Done -->
+    <div id="bulk-done" style="display:none;padding:20px;text-align:center;">
+      <div style="font-size:40px;margin-bottom:8px;">🎉</div>
+      <div style="font-size:16px;font-weight:700;color:#25d366;margin-bottom:4px;">All Done!</div>
+      <div id="bulk-done-summary" style="font-size:12px;color:var(--muted);margin-bottom:16px;"></div>
+      <button onclick="ntCloseBulkSend()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
+    </div>
+
+  </div>
+</div>
+
+
 </body>
 </html>
