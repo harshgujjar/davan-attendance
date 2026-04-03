@@ -7429,6 +7429,8 @@ async function onLoginSuccess() {
   _shFiltersInited = false; shInitFacultyFilters();
   // Load any scheduled broadcast toasts
   if (typeof cbLoadScheduled === 'function') cbLoadScheduled();
+  // Load FA config + start scheduler at login — must not wait for panel open
+  if (typeof facAlertBootstrap === 'function') facAlertBootstrap();
   // Set scope to 'my' for faculty, 'all' for admin — both Shortage Report and Shortage Summary
   const isFac = isActingAsFaculty();
   setTimeout(() => {
@@ -16581,6 +16583,8 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
   v632      | 04-Apr-2026 23:30 IST | Fix: UID mismatch also detected on sign-in success path — if Auth UID differs from Firestore doc UID, doc is rekeyed immediately on Save; fixes cases where account already existed in Auth under a different UID
   v633      | 05-Apr-2026 00:30 IST | Fix: Staff Directory password now stays in sync with User Management — sdSaveToFirestore syncs SD passwords → users collection; umSaveEdit + umResetPassword sync back → Staff Directory via sdSyncPasswordFromUM()
   v634      | 05-Apr-2026 02:00 IST | Fix: SD_DEFAULT passwords corrected (Lalita 215215→240240, Roopa 240240→567567, Pooja C 519519→525525); Add: 🔄 Sync Passwords from UM button in Staff Directory toolbar — pulls live UM usernames into SD in one click
+  v635      | 05-Apr-2026 10:30 IST | Fix: Faculty Alert scheduler tick 5min→1min; pre-class window ±1min; day-before window <2min
+  v636      | 05-Apr-2026 11:30 IST | Fix: faConfig.enabled stuck false — facAlertBootstrap() loads config+starts scheduler at login; facAlertInit guards double-start
   ═══════════════════════════════════════════════════════════════════
   -->
   <div style="padding:14px 40px;display:flex;flex-direction:column;align-items:center;gap:4px;">
@@ -16588,9 +16592,9 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#777">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #3a3a3a; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">634</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">636</span></span>
       &nbsp;·&nbsp;
-      Updated: <span id="footer-date">05 Apr 2026</span>, <span id="footer-time">02:00</span> IST
+      Updated: <span id="footer-date">05 Apr 2026</span>, <span id="footer-time">11:30</span> IST
       &nbsp;·&nbsp;
       <span id="footer-changelog-toggle" onclick="toggleChangelog()"
         style="cursor:pointer;color:#555;text-decoration:underline;text-underline-offset:2px;">
@@ -25682,6 +25686,23 @@ let faCodeMode = ''; // 'worker' | 'sw'
 const FA_DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
 // ── Init ──────────────────────────────────────────────────────
+// Bootstrap: load config + start scheduler silently at login (no UI required)
+async function facAlertBootstrap() {
+  try {
+    const doc = await db.collection('app_data').doc('fa_config').get();
+    if (doc.exists) {
+      const d = doc.data();
+      faConfig    = { ...faConfig, ...d.config };
+      faWorkerUrl = d.workerUrl || faWorkerUrl;
+    }
+  } catch(e) { console.warn('[FA] Bootstrap config load failed:', e.message); }
+  if (!faSchedulerInterval) {
+    faFiredLoad();
+    faSchedulerInterval = setInterval(facAlertSchedulerTick, 60 * 1000); // 1-min tick
+    facAlertSchedulerTick();
+  }
+}
+
 async function facAlertInit() {
   // Load config from Firestore
   try {
@@ -25720,10 +25741,12 @@ async function facAlertInit() {
   // Register service worker + subscribe this device
   facRegisterSW();
 
-  // Start scheduler check every 5 minutes
-  faFiredLoad(); // restore fired keys from localStorage — prevents duplicate notifications on refresh
-  faSchedulerInterval = setInterval(facAlertSchedulerTick, 5 * 60 * 1000);
-  facAlertSchedulerTick(); // run immediately
+  // Start scheduler — guard against double-start if bootstrap already ran
+  if (!faSchedulerInterval) {
+    faFiredLoad(); // restore fired keys from localStorage
+    faSchedulerInterval = setInterval(facAlertSchedulerTick, 60 * 1000); // 1-min tick
+    facAlertSchedulerTick();
+  }
 }
 
 // ── Save config ───────────────────────────────────────────────
@@ -26324,7 +26347,7 @@ async function facAlertSchedulerTick() {
   const [dbH, dbM] = (faConfig.dayBeforeTime||'20:00').split(':').map(Number);
   const dbMins = dbH*60 + dbM;
   const dayBeforeKey = 'daybefore|' + today;
-  if (Math.abs(mins - dbMins) < 5 && !(await faFiredCheck(dayBeforeKey))) {
+  if (Math.abs(mins - dbMins) < 2 && !(await faFiredCheck(dayBeforeKey))) {
     await faFiredSave(dayBeforeKey);
     const tomorrow = FA_DAYS[(now.getDay()+1)%7];
     const schedule = facAlertGetSchedule(tomorrow);
@@ -26344,7 +26367,7 @@ async function facAlertSchedulerTick() {
     if (!m) continue;
     const classMins = parseInt(m[1])*60 + parseInt(m[2]);
     const minsUntil = classMins - mins;
-    if (minsUntil >= (faConfig.minsBefore-3) && minsUntil <= (faConfig.minsBefore+2)) {
+    if (minsUntil >= (faConfig.minsBefore-1) && minsUntil <= (faConfig.minsBefore+1)) {
       const fireKey = s.faculty + '|' + classMins + '|' + today;
       if (await faFiredCheck(fireKey)) continue; // already sent — blocked in Firestore
       const subs = facAlertGetSubs(s.faculty);
