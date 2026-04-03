@@ -1875,12 +1875,17 @@
         </div>
         <!-- ct tooltip summary -->
         <div id="fdb-ct-summary" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,160,42,0.07);border:1px solid rgba(196,160,42,0.2);border-radius:6px;font-size:11px;color:var(--muted);font-family:var(--mono);line-height:1.8;"></div>
-        <!-- ct checkbox — checked by default; faculty checkbox hidden -->
+        <!-- ct checkbox + subject index checkbox; faculty checkbox hidden -->
         <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;">
             <input type="checkbox" id="fdb-show-ct" checked onchange="fdbRenderTT()"
               style="accent-color:var(--accent);width:14px;height:14px;">
             Show ct beside code
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;">
+            <input type="checkbox" id="fdb-show-subject-index" onchange="fdbRenderTT()"
+              style="accent-color:var(--accent);width:14px;height:14px;">
+            Show Subject Index
           </label>
           <input type="checkbox" id="fdb-show-faculty" style="display:none;">
         </div>
@@ -3491,7 +3496,7 @@
         </label>
         <label id="ttv-show-ct-label" style="display:flex;align-items:center;gap:6px;
           margin-left:4px;font-size:12px;color:var(--text);cursor:pointer;">
-          <input type="checkbox" id="ttv-show-ct" onchange="ttRenderViewer()"
+          <input type="checkbox" id="ttv-show-ct" checked onchange="ttRenderViewer()"
             style="accent-color:var(--accent);width:14px;height:14px;">
           Show ct beside code
           <span id="ttv-ct-status" style="font-size:10px;font-family:var(--mono);margin-left:4px;"></span>
@@ -4123,6 +4128,10 @@
           <button onclick="sdSaveToFirestore()" id="sd-save-btn"
             style="padding:9px 18px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">
             💾 Save All Changes
+          </button>
+          <button onclick="sdSyncFromUM()" id="sd-sync-btn"
+            style="padding:9px 18px;background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;" title="Pull passwords from User Management into Staff Directory">
+            🔄 Sync Passwords from UM
           </button>
           <button onclick="window.print()"
             style="padding:9px 14px;font-size:12px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;cursor:pointer;">
@@ -7173,13 +7182,33 @@ async function doFacultyLogin() {
     const email = matched.username.includes('@') ? matched.username : `${matched.username}@davan.local`;
     _isManualLogin = true; // Set BEFORE signIn — Firebase fires onAuthStateChanged immediately on sign-in
     await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-    const cred = await auth.signInWithEmailAndPassword(email, password);
-    const profile = await _fetchProfile(cred.user.uid);
+    // Accounts created via Bulk Create use username as the Firebase Auth password;
+    // accounts created via Manual Create use the app password. Try both.
+    let cred;
+    try {
+      cred = await auth.signInWithEmailAndPassword(email, password);
+    } catch(e1) {
+      if (e1.code === 'auth/invalid-credential' || e1.code === 'auth/wrong-password') {
+        // Fallback: bulk-created accounts have username as Firebase Auth password
+        cred = await auth.signInWithEmailAndPassword(email, matched.username);
+      } else {
+        throw e1;
+      }
+    }
+    let profile = await _fetchProfile(cred.user.uid);
     if (!profile) {
-      _signingOut = true;
-      await auth.signOut();
-      _signingOut = false;
-      showAlert('login-error-faculty', '⚠ Account not configured. Contact admin.'); return;
+      // Firestore/RTDB profile doc missing — reconstruct minimal profile from login_index data
+      // (admin may have created the Auth account but not yet saved the Firestore profile)
+      if (matched && matched.name && matched.username) {
+        profile = { name: matched.name, username: matched.username, role: matched.role || ROLE_FULLTIME, uid: cred.user.uid };
+        // Persist to localStorage so next load doesn't hit this path
+        try { localStorage.setItem('davan_profile_' + cred.user.uid, JSON.stringify(profile)); } catch(e) {}
+      } else {
+        _signingOut = true;
+        await auth.signOut();
+        _signingOut = false;
+        showAlert('login-error-faculty', '⚠ Account not configured. Contact admin.'); return;
+      }
     }
     try { localStorage.setItem('davan_profile_' + cred.user.uid, JSON.stringify(profile)); } catch(e) {}
     // Secondary check — belt-and-suspenders in case role wasn't in login_index
@@ -7244,7 +7273,19 @@ async function doFirebaseLogin() {
     _isManualLogin = true; // Set BEFORE signIn — Firebase fires onAuthStateChanged immediately on sign-in
     await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
     const cred = await auth.signInWithEmailAndPassword(email, password);
-    const profile = await _fetchProfile(cred.user.uid);
+    let profile = await _fetchProfile(cred.user.uid);
+    if (!profile) {
+      // Firestore/RTDB profile doc missing — try login_index as last resort
+      try {
+        const liDoc = await db.collection('app_data').doc('login_index').get();
+        if (liDoc.exists) {
+          const liUser = (liDoc.data().users || []).find(u => u.username === username || u.username + '@davan.local' === email || u.username === email);
+          if (liUser && liUser.name) {
+            profile = { name: liUser.name, username: liUser.username, role: liUser.role || ROLE_ADMIN, uid: cred.user.uid };
+          }
+        }
+      } catch(le) { /* login_index read failed — fall through */ }
+    }
     if (!profile) { _signingOut = true; await auth.signOut(); _signingOut = false; showAlert('login-error', '\u26a0 Account not configured. Contact admin.'); return; }
     // Cache profile in localStorage for next load
     try { localStorage.setItem('davan_profile_' + cred.user.uid, JSON.stringify(profile)); } catch(e) {}
@@ -7993,6 +8034,26 @@ function fdbRenderTT() {
     const myAllocs = (LM_ALLOCATIONS||[]).filter(a => allKeys.includes(a.faculty));
     const subjects = [...new Set(myAllocs.map(a=>a.subject).filter(Boolean))];
 
+    // ── Helpers (mirrors fdbRenderCards — needed here since they're local there) ──
+    const _semMap = {
+      'I':'sem1','II':'sem2','III':'sem3','IV':'sem4','V':'sem5','VI':'sem6',
+      'SemI':'sem1','SemII':'sem2','SemIII':'sem3','SemIV':'sem4','SemV':'sem5','SemVI':'sem6',
+      'Sem1':'sem1','Sem2':'sem2','Sem3':'sem3','Sem4':'sem4','Sem5':'sem5','Sem6':'sem6'
+    };
+    const _getSem = sem => { const r = String(sem||'').trim(); const f = 'Sem'+r.replace(/^Sem/i,''); return _semMap[f]||_semMap[r]||('sem'+r.replace(/^Sem/i,'').toLowerCase()); };
+    const _getSec = sec => { const m = String(sec||'').match(/\(([A-Za-z])\)/)||String(sec||'').match(/\b([A-Za-z])\b/); return m ? m[1].toLowerCase() : null; };
+    const classMatchesCard = (sc, card) => {
+      const cls = String(sc||'').toLowerCase();
+      const crs = String(card.course||'').toLowerCase();
+      const sm  = _getSem(card.sem);
+      const sec = _getSec(card.section);
+      if (!cls.includes(crs)||!cls.includes(sm)) return false;
+      if (!sec) return true;
+      return cls.includes('sec'+sec)||cls.includes('('+sec+')');
+    };
+    const _normSub = s => String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    const subjectMatches = (a, b) => { const an=_normSub(a),bn=_normSub(b); if(!an||!bn) return false; if(an===bn) return true; return an.split(' ').slice(0,2).join(' ')===bn.split(' ').slice(0,2).join(' '); };
+
     // Get scrape timestamp from localStorage
     const scrapedAtRaw = localStorage.getItem('davan_scraped_at');
     let scrapedAtLabel = '';
@@ -8053,20 +8114,35 @@ function fdbRenderTT() {
     ctSummaryEl.style.display = 'none';
   }
 
-  const showFaculty = document.getElementById('fdb-show-faculty')?.checked ?? false;
-  // Temporarily override ttv checkboxes so ttBuildFacultyGrid reads correct values
-  const ttCt  = document.getElementById('ttv-show-ct');
-  const ttFac = document.getElementById('ttv-show-faculty');
-  const prevCt  = ttCt?.checked;
-  const prevFac = ttFac?.checked;
-  if (ttCt)  ttCt.checked  = showCt;
-  if (ttFac) ttFac.checked = showFaculty;
+  const showFaculty     = document.getElementById('fdb-show-faculty')?.checked ?? false;
+  const showSubjectIdx  = document.getElementById('fdb-show-subject-index')?.checked ?? false;
 
-  wrap.innerHTML = ttBuildFacultyGrid(resolvedKey);
-
-  // Restore
-  if (ttCt)  ttCt.checked  = prevCt;
-  if (ttFac) ttFac.checked = prevFac;
+  if (showSubjectIdx) {
+    // Subject Index mode: render ttBuildSubjectIndexGrid for each class this faculty teaches
+    // Use same resolution as ttBuildFacultyGrid — filter by resolvedKey directly
+    const myAllocs  = (LM_ALLOCATIONS||[]).filter(a => a.faculty === resolvedKey);
+    const myClasses = [...new Set(myAllocs.map(a =>
+      ttGetClasses().find(c => lmClassMatch(a, c))
+    ).filter(Boolean))];
+    if (!myClasses.length) {
+      wrap.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>No classes found for your allocations.</div>';
+    } else {
+      wrap.innerHTML = myClasses.map(cls => {
+        // Build set of base codes this faculty teaches in this specific class
+        const classAllocs = myAllocs.filter(a => lmClassMatch(a, cls));
+        const facultyCodes = new Set(classAllocs.map(a => lmBaseCode(a.code||'').toUpperCase()).filter(Boolean));
+        return `<div style="margin-bottom:32px;">
+          <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);
+            letter-spacing:2px;text-transform:uppercase;padding:6px 0 5px;
+            border-bottom:2px solid var(--accent);margin-bottom:10px;">📋 ${cls}</div>
+          ${ttBuildSubjectIndexGrid(cls, showFaculty, showCt, false, facultyCodes)}
+        </div>`;
+      }).join('');
+    }
+  } else {
+    // Faculty schedule mode (default)
+    wrap.innerHTML = ttBuildFacultyGrid(resolvedKey);
+  }
 }
 
 
@@ -8229,11 +8305,11 @@ const SD_DEFAULT = {
     { name:'Dr. Shilpa R Y',          password:'510510', contact:'95917 24804', role:'fulltime', subjects:'Corporate Administration, Financial Management, Service Marketing' },
     { name:'Chandan G B',             password:'507507', contact:'99643 22171', role:'fulltime', subjects:'Advanced Financial Accounting, Cost Accounting, Income Tax - II' },
     { name:'Smitha',                  password:'508508', contact:'99724 42555', role:'fulltime', subjects:'Business Analytics, Computer Skills and Business, Computer Skills in Business' },
-    { name:'Lalita Shivappa Kurubar', password:'215215', contact:'80732 06168', role:'fulltime', subjects:'Kannada' },
-    { name:'Roopa M C',               password:'240240', contact:'94496 83234', role:'fulltime', subjects:'Environmental Studies, Basics of Business Research, Accounting Standards - II' },
+    { name:'Lalita Shivappa Kurubar', password:'240240', contact:'80732 06168', role:'fulltime', subjects:'Kannada' },
+    { name:'Roopa M C',               password:'567567', contact:'94496 83234', role:'fulltime', subjects:'Environmental Studies, Basics of Business Research, Accounting Standards - II' },
     { name:'Priyanka V',              password:'515515', contact:'80887 83099', role:'fulltime', subjects:'Python Programming, Python Programming Lab' },
     { name:'Hemavati Desai',          password:'518518', contact:'81979 09244', role:'fulltime', subjects:'English' },
-    { name:'Pooja C',                 password:'519519', contact:'96327 36954', role:'fulltime', subjects:'Database Management System, DBMS Lab, Introduction to Quantum Computing' },
+    { name:'Pooja C',                 password:'525525', contact:'96327 36954', role:'fulltime', subjects:'Database Management System, DBMS Lab, Introduction to Quantum Computing' },
   ],
   visiting: [
     { name:'Gnaneshwari S A',         password:'301301', contact:'97313 31556', role:'visiting', subjects:'Business Mathematics, Statistics for Business Decisions' },
@@ -8380,6 +8456,55 @@ function sdDeleteRow(sec, idx) {
   }, { icon:'🗑️', okLabel:'Delete', okColor:'var(--danger)' });
 }
 
+async function sdSyncFromUM() {
+  const btn = document.getElementById('sd-sync-btn');
+  const msg = document.getElementById('sd-save-msg');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+  try {
+    const usersSnap = await db.collection('users').get();
+    // Build map: name → username, and username → username
+    const umMap = {};
+    usersSnap.forEach(doc => {
+      const u = doc.data();
+      if (u.username) {
+        umMap[u.name]     = u.username; // match by name
+        umMap[u.username] = u.username; // match by username itself
+      }
+    });
+    if (!sdData) await new Promise(res => {
+      db.collection('app_data').doc(SD_DOC).get().then(snap => {
+        sdData = snap.exists ? snap.data() : JSON.parse(JSON.stringify(SD_DEFAULT));
+        res();
+      }).catch(() => { sdData = JSON.parse(JSON.stringify(SD_DEFAULT)); res(); });
+    });
+    let changed = 0;
+    ['fulltime','visiting','nonteaching'].forEach(sec => {
+      (sdData[sec]||[]).forEach(entry => {
+        const umPass = umMap[entry.name] || umMap[entry.password];
+        if (umPass && umPass !== entry.password) {
+          entry.password = umPass;
+          changed++;
+        }
+      });
+    });
+    if (changed) {
+      await db.collection('app_data').doc(SD_DOC).set(sdData);
+      sdRenderSection('fulltime');
+      sdRenderSection('visiting');
+      sdRenderSection('nonteaching');
+      if (msg) { msg.style.color='var(--ok)'; msg.textContent=`✅ ${changed} password(s) pulled from User Management`; }
+      dvToast(`🔄 ${changed} SD password(s) updated from User Management`, 'ok', 4000);
+    } else {
+      if (msg) { msg.style.color='var(--muted)'; msg.textContent='✅ Already in sync — no changes needed'; }
+      dvToast('✅ Staff Directory passwords already match User Management', 'ok', 3000);
+    }
+  } catch(e) {
+    if (msg) { msg.style.color='var(--danger)'; msg.textContent='❌ Sync failed: '+e.message; }
+    dvToast('❌ Sync failed: '+e.message, 'error', 5000);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync Passwords from UM'; }
+}
+
 async function sdSaveToFirestore() {
   const btn = document.getElementById('sd-save-btn');
   const msg = document.getElementById('sd-save-msg');
@@ -8387,8 +8512,33 @@ async function sdSaveToFirestore() {
   btn.disabled = true; btn.textContent = '⏳ Saving…';
   try {
     await db.collection('app_data').doc(SD_DOC).set(sdData);
-    if (msg) { msg.style.color='var(--ok)'; msg.textContent='✅ Saved to Firestore'; }
-    dvToast('✅ Staff directory saved', 'ok');
+    // Sync SD passwords → User Management (users collection)
+    // SD password field doubles as username — match by username
+    try {
+      const allEntries = [...(sdData.fulltime||[]), ...(sdData.visiting||[]), ...(sdData.nonteaching||[])];
+      const usersSnap = await db.collection('users').get();
+      const syncOps = [];
+      usersSnap.forEach(doc => {
+        const u = doc.data();
+        const sdEntry = allEntries.find(e => e.password && (e.password === u.username || e.name === u.name));
+        if (sdEntry && sdEntry.password && sdEntry.password !== u.password) {
+          syncOps.push(db.collection('users').doc(doc.id).update({ password: sdEntry.password }));
+        }
+      });
+      if (syncOps.length) {
+        await Promise.all(syncOps);
+        await umRebuildLoginIndex();
+        if (msg) { msg.style.color='var(--ok)'; msg.textContent=`✅ Saved — ${syncOps.length} password(s) synced to User Management`; }
+        dvToast(`✅ Staff directory saved — ${syncOps.length} password(s) synced`, 'ok', 4000);
+      } else {
+        if (msg) { msg.style.color='var(--ok)'; msg.textContent='✅ Saved to Firestore'; }
+        dvToast('✅ Staff directory saved', 'ok');
+      }
+    } catch(syncErr) {
+      console.warn('[SD] Password sync to users failed:', syncErr.message);
+      if (msg) { msg.style.color='var(--ok)'; msg.textContent='✅ Saved (password sync failed silently)'; }
+      dvToast('✅ Staff directory saved', 'ok');
+    }
   } catch(e) {
     if (msg) { msg.style.color='var(--danger)'; msg.textContent='❌ Save failed: '+e.message; }
   }
@@ -8494,10 +8644,83 @@ async function umCreateUser() {
 }
 
 async function umResetPassword(uid, name) {
-  const newPass = prompt(`New password for ${name}:`);
-  if (!newPass || newPass.length < 6) { dvAlert('Password Too Short', 'Password must be at least 6 characters.', {icon:'🔑'}); return; }
-  try { await fsSet('users', uid, { pendingPasswordReset: newPass }); dvToast(`✅ Password reset saved for ${name}`, 'ok'); }
-  catch(e) { dvToast('❌ Error: ' + e.message, 'error', 5000); }
+  const newPass = prompt(`New password for ${name} (min 6 characters):`);
+  if (!newPass) return;
+  if (newPass.length < 6) { dvAlert('Password Too Short', 'Password must be at least 6 characters.', {icon:'🔑'}); return; }
+  dvToast('Updating password…', 'info', 8000);
+  try {
+    const curDoc = await db.collection('users').doc(uid).get();
+    const curPass = curDoc.data()?.password || '';
+    const usnm    = curDoc.data()?.username  || '';
+    const emailForAuth = usnm.includes('@') ? usnm : `${usnm}@davan.local`;
+    if (!usnm) throw new Error('No username stored for this account.');
+
+    const secApp  = firebase.apps.find(a => a.name==='secondary') || firebase.initializeApp(firebaseConfig,'secondary');
+    const secAuth = secApp.auth();
+    try { await secAuth.signOut(); } catch(e) {}
+
+    // Step 1: try known passwords (bulk-created accounts use username as Firebase Auth password)
+    let cred = null;
+    for (const tryPass of [curPass, usnm, newPass].filter(Boolean)) {
+      try { cred = await secAuth.signInWithEmailAndPassword(emailForAuth, tryPass); break; }
+      catch(e) { cred = null; }
+    }
+
+    if (cred) {
+      try { await cred.user.updatePassword(newPass); } catch(e) { /* already current */ }
+      const authUid = cred.user.uid;
+      await secAuth.signOut();
+      // Rekey Firestore doc if Auth UID doesn't match
+      if (authUid !== uid) {
+        const oldData = (await db.collection('users').doc(uid).get()).data() || {};
+        const mergedData = { ...oldData, uid: authUid, password: newPass };
+        await db.collection('users').doc(authUid).set(mergedData);
+        await db.collection('users').doc(uid).delete();
+        if (typeof rtdb !== 'undefined' && rtdb) {
+          try { await rtdb.ref('davan_users/' + authUid).set(mergedData); } catch(e) {}
+          try { await rtdb.ref('davan_users/' + uid).remove(); } catch(e) {}
+        }
+        await umRebuildLoginIndex();
+        dvToast(`✅ Password updated & UID relinked for ${name}`, 'ok', 4000);
+        return;
+      }
+    } else {
+      // Step 2: account missing — create it fresh
+      // CRITICAL: capture new UID and re-key Firestore doc to match
+      let newUid = null;
+      try {
+        const newCred = await secAuth.createUserWithEmailAndPassword(emailForAuth, newPass);
+        newUid = newCred.user.uid;
+      } catch(createErr) {
+        if (createErr.code === 'auth/email-already-in-use') {
+          throw new Error('Account exists in Firebase Auth but password is unknown. Reset it manually in Firebase Console → Authentication, then try again.');
+        }
+        throw createErr;
+      }
+      await secAuth.signOut();
+      // Re-key Firestore doc to new UID so login resolves the correct profile
+      if (newUid && newUid !== uid) {
+        const oldData = (await db.collection('users').doc(uid).get()).data() || {};
+        await db.collection('users').doc(newUid).set({ ...oldData, uid: newUid, password: newPass });
+        await db.collection('users').doc(uid).delete();
+        if (typeof rtdb !== 'undefined' && rtdb) {
+          try { await rtdb.ref('davan_users/' + newUid).set({ ...oldData, uid: newUid, password: newPass }); } catch(e) {}
+          try { await rtdb.ref('davan_users/' + uid).remove(); } catch(e) {}
+        }
+        await umRebuildLoginIndex();
+        dvToast(`✅ Password set for ${name} — Auth account created & UID relinked`, 'ok', 4000);
+        return; // doc already updated above — skip the update below
+      }
+    }
+
+    await db.collection('users').doc(uid).update({ password: newPass });
+    await sdSyncPasswordFromUM(usnm, name, newPass);
+    await umRebuildLoginIndex();
+    dvToast(`✅ Password updated for ${name} — Firebase Auth + records in sync`, 'ok', 4000);
+  } catch(e) {
+    console.error('[umResetPassword]', e);
+    dvToast('❌ Reset failed: ' + e.message, 'error', 6000);
+  }
 }
 
 async function umDeleteUser(uid, name) {
@@ -8578,6 +8801,35 @@ function umTogglePassVis(uid) {
   if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
 }
 
+// Sync a password change from User Management back to Staff Directory
+async function sdSyncPasswordFromUM(username, name, newPassword) {
+  try {
+    const snap = await db.collection('app_data').doc(SD_DOC).get();
+    if (!snap.exists) return;
+    const data = snap.data();
+    let changed = false;
+    ['fulltime','visiting','nonteaching'].forEach(sec => {
+      (data[sec]||[]).forEach(entry => {
+        if (entry.password === username || entry.name === name) {
+          entry.password = newPassword;
+          changed = true;
+        }
+      });
+    });
+    if (changed) {
+      await db.collection('app_data').doc(SD_DOC).set(data);
+      // Keep in-memory sdData in sync too
+      if (sdData) {
+        ['fulltime','visiting','nonteaching'].forEach(sec => {
+          (sdData[sec]||[]).forEach(entry => {
+            if (entry.password === username || entry.name === name) entry.password = newPassword;
+          });
+        });
+      }
+    }
+  } catch(e) { console.warn('[SD] sdSyncPasswordFromUM failed:', e.message); }
+}
+
 async function umSaveEdit(uid) {
   const name      = document.getElementById('edit-name-' + uid)?.value.trim();
   const username  = document.getElementById('edit-username-' + uid)?.value.trim().toLowerCase();
@@ -8589,26 +8841,95 @@ async function umSaveEdit(uid) {
   if (!name || !username) { msgEl.style.color='var(--danger)'; msgEl.textContent='⚠ Name and username required.'; return; }
   dvToast('Saving…', 'info', 8000);
   try {
+    // Fetch current password from Firestore BEFORE any updates (needed for Auth re-auth)
+    const curDoc = await db.collection('users').doc(uid).get();
+    const curPass = curDoc.data()?.password || '';
+
     await db.collection('users').doc(uid).update({ name, username, role, facultyKey: fk, classIncharge: ci });
-    if (password) {
-      if (password.length < 6) { msgEl.style.color='var(--danger)'; msgEl.textContent='⚠ Password min 6 chars.'; return; }
+    // Always sync Firebase Auth — even if password field is blank (ensures account exists)
+    const authPass = password || curPass || username;
+    if (authPass) {
+      if (password && password.length < 6) { msgEl.style.color='var(--danger)'; msgEl.textContent='⚠ Password min 6 chars.'; return; }
       // Update Firebase Auth password via secondary app
       try {
         const secApp = firebase.apps.find(a => a.name==='secondary') || firebase.initializeApp(firebaseConfig,'secondary');
         const secAuth = secApp.auth();
-        const usnm = document.getElementById('edit-username-'+uid)?.value.trim().toLowerCase() || '';
+        try { await secAuth.signOut(); } catch(e) {}
+        const usnm = username || '';
         const emailForAuth = usnm.includes('@') ? usnm : `${usnm}@davan.local`;
-        const oldPassEl = document.getElementById('edit-pass-'+uid);
-        // Sign in with current stored password to get credential, then update
-        const curDoc = await db.collection('users').doc(uid).get();
-        const curPass = curDoc.data()?.password || '';
-        if (curPass) {
-          const cred = await secAuth.signInWithEmailAndPassword(emailForAuth, curPass);
-          await cred.user.updatePassword(password);
-          await secAuth.signOut();
+
+        // Step 1: try stored password, then username (bulk-created accounts use username as Auth password), then new password
+        let cred = null;
+        for (const tryPass of [curPass, usnm, password].filter(Boolean)) {
+          try { cred = await secAuth.signInWithEmailAndPassword(emailForAuth, tryPass); break; }
+          catch(e) { cred = null; }
         }
-      } catch(authErr) { console.warn('Auth password update failed:', authErr.message); }
-      await db.collection('users').doc(uid).update({ password });
+
+        if (cred) {
+          // Signed in — update to new password only if admin explicitly typed one
+          if (password) {
+            try { await cred.user.updatePassword(password); } catch(e) { /* already current */ }
+          }
+          // CRITICAL: check if Auth UID matches the Firestore doc UID — rekey if not
+          const authUid = cred.user.uid;
+          await secAuth.signOut();
+          if (authUid !== uid) {
+            const oldData = (await db.collection('users').doc(uid).get()).data() || {};
+            const mergedData = { ...oldData, uid: authUid };
+            if (password) mergedData.password = password;
+            await db.collection('users').doc(authUid).set(mergedData);
+            await db.collection('users').doc(uid).delete();
+            if (typeof rtdb !== 'undefined' && rtdb) {
+              try { await rtdb.ref('davan_users/' + authUid).set(mergedData); } catch(e) {}
+              try { await rtdb.ref('davan_users/' + uid).remove(); } catch(e) {}
+            }
+            await umRebuildLoginIndex();
+            dvToast('🔑 UID relinked — ' + usnm + ' now maps to correct account', 'ok', 3000);
+            setTimeout(() => renderUserManagement(), 800);
+            return; // doc rekeyed — skip the update below
+          }
+          if (password) dvToast('🔑 Firebase Auth password synced', 'ok', 2000);
+        } else {
+          // Step 2: account missing — create it with authPass
+          // CRITICAL: capture the new UID and re-key the Firestore doc to match
+          let newUid = null;
+          try {
+            const newCred = await secAuth.createUserWithEmailAndPassword(emailForAuth, authPass);
+            newUid = newCred.user.uid;
+          } catch(createErr) {
+            if (createErr.code === 'auth/email-already-in-use') {
+              throw new Error('Account exists in Firebase Auth but password is unknown. Go to Firebase Console → Authentication → find ' + emailForAuth + ' → reset password manually, then save again here.');
+            }
+            throw createErr;
+          }
+          await secAuth.signOut();
+          // Re-key Firestore doc: copy to new UID, delete old UID doc
+          if (newUid && newUid !== uid) {
+            const oldData = (await db.collection('users').doc(uid).get()).data() || {};
+            await db.collection('users').doc(newUid).set({ ...oldData, uid: newUid });
+            await db.collection('users').doc(uid).delete();
+            // Also mirror new UID to RTDB
+            if (typeof rtdb !== 'undefined' && rtdb) {
+              try { await rtdb.ref('davan_users/' + newUid).set({ ...oldData, uid: newUid }); } catch(e) {}
+              try { await rtdb.ref('davan_users/' + uid).remove(); } catch(e) {}
+            }
+            dvToast('🔑 Firebase Auth account created — UID relinked', 'ok', 3000);
+          } else {
+            dvToast('🔑 Firebase Auth account created', 'ok', 2000);
+          }
+        }
+      } catch(authErr) {
+        console.warn('Auth password update failed:', authErr.message);
+        msgEl.style.color = 'var(--warn)';
+        msgEl.textContent = '⚠ Firestore updated but Firebase Auth sync failed: ' + authErr.message;
+      }
+      if (password) {
+        // Update password on whichever UID doc now exists
+        const liveUid = (await db.collection('users').where('username','==',username).get()).docs[0]?.id || uid;
+        await db.collection('users').doc(liveUid).update({ password });
+        // Sync new password back to Staff Directory
+        await sdSyncPasswordFromUM(username, name, password);
+      }
     }
     await umRebuildLoginIndex();
     dvToast('✅ User updated', 'ok');
@@ -9069,7 +9390,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 612;  // always = HTML footer version number
+const CODE_BUILD = 634;  // always = HTML footer version number
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -13771,6 +14092,16 @@ async function fuSaveFollowup() {
     if (!_fuAllFollowups[urn]) _fuAllFollowups[urn] = [];
     _fuAllFollowups[urn].push(record);
 
+    // Also push into FL panel flat cache so Follow-up Log reflects it immediately
+    _flAllRecords.push({
+      ...record,
+      urn,
+      studentName:  record.studentName  || _fuCurrentName,
+      studentClass: record.studentClass || _fuCurrentClass,
+      type: record.type || 'notification',
+      tokenStatus: record.tokenStatus || 'open',
+    });
+
     fuCloseForm();
     liveShowToast('✅ Saved', 'Follow-up recorded for ' + _fuCurrentName, '📝', 3000);
 
@@ -16235,6 +16566,21 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
   v617      | 31-Mar-2026 15:45 IST | Feat: Student card Follow-ups tab — full detail cards (status/type badge, outcome, remarks, due date, closed block, WA link) + ＋ New Visit Record button; faculty can also raise records
   v618      | 31-Mar-2026 16:15 IST | Feat: Follow-ups section in side-panel Report Card with ＋ New Visit Record + auto-refresh on save; Fix: photo zoom lightbox moved outside sc-modal so overflow:hidden no longer blocks it
   v619      | 31-Mar-2026 16:30 IST | Fix: Report Card photo zoom — added onclick/rcZoomPhoto() to photo img in rcRenderCard; zoom was missing entirely (only sc-modal had it)
+  v620      | 03-Apr-2026 16:00 IST | Fix: Follow-up records saved from Notification Report now appear immediately in Follow-up Log panel (push new record into _flAllRecords cache)
+  v621      | 03-Apr-2026 17:30 IST | Fix: CT not showing on fdb dashboard (pass lmBaseCode to ttGetCt in ttBuildFacultyGrid); ttv-show-ct default checked; fdb panel: add Show Subject Index checkbox (renders ttBuildSubjectIndexGrid per class)
+  v622      | 03-Apr-2026 18:00 IST | Fix: Subject Index checkbox on fdb — myAllocs now filters by resolvedKey directly (matches ttBuildFacultyGrid logic) instead of allKeys expansion which caused empty class list
+  v623      | 03-Apr-2026 18:30 IST | Fix: ReferenceError classMatchesCard/subjectMatches not defined in fdbRenderTT — inline helpers added to CT summary block (they were local consts inside fdbRenderCards, unreachable from fdbRenderTT)
+  v624      | 03-Apr-2026 19:00 IST | Fix: Subject Index on fdb now dims non-faculty cells — ttBuildSubjectIndexGrid gets facultyCodes Set; own-subject cells stay bright, other subjects fade out
+  v625      | 03-Apr-2026 19:30 IST | Fix: Staff password change now reliably syncs Firebase Auth — secondary app signed out before re-auth; curPass fetched before Firestore update; umResetPassword now actually updates Firebase Auth (was only writing pendingPasswordReset to Firestore)
+  v626      | 03-Apr-2026 20:00 IST | Fix: auth/invalid-credential on password edit — try curPass first, fall back to new password (handles case where Firebase Auth was already changed out-of-band via Console); same fallback in umResetPassword
+  v627      | 03-Apr-2026 20:30 IST | Fix: Firebase Auth account missing — umSaveEdit + umResetPassword now create the account if all sign-in attempts fail (auth/invalid-credential when account never existed or was deleted)
+  v628      | 04-Apr-2026 16:00 IST | Fix: auth/invalid-credential on Faculty tab — try app password first, fall back to username as Firebase Auth password (bulk-created accounts use username; manual-created use app password)
+  v629      | 04-Apr-2026 19:00 IST | Fix: "Firestore updated but Firebase Auth sync failed" — umSaveEdit + umResetPassword now try username as Firebase Auth password before giving up (bulk-created accounts use username as Auth password)
+  v630      | 04-Apr-2026 20:30 IST | Fix: umSaveEdit now creates missing Firebase Auth account even when password field is blank (uses curPass or username as fallback) — accounts absent from Auth no longer require a password change to be fixed
+  v631      | 04-Apr-2026 22:00 IST | Fix: Critical UID mismatch — umSaveEdit + umResetPassword now re-key the Firestore users doc to the new Auth UID when creating a missing account; old doc deleted, RTDB mirror updated — prevents two users logging in as the same person
+  v632      | 04-Apr-2026 23:30 IST | Fix: UID mismatch also detected on sign-in success path — if Auth UID differs from Firestore doc UID, doc is rekeyed immediately on Save; fixes cases where account already existed in Auth under a different UID
+  v633      | 05-Apr-2026 00:30 IST | Fix: Staff Directory password now stays in sync with User Management — sdSaveToFirestore syncs SD passwords → users collection; umSaveEdit + umResetPassword sync back → Staff Directory via sdSyncPasswordFromUM()
+  v634      | 05-Apr-2026 02:00 IST | Fix: SD_DEFAULT passwords corrected (Lalita 215215→240240, Roopa 240240→567567, Pooja C 519519→525525); Add: 🔄 Sync Passwords from UM button in Staff Directory toolbar — pulls live UM usernames into SD in one click
   ═══════════════════════════════════════════════════════════════════
   -->
   <div style="padding:14px 40px;display:flex;flex-direction:column;align-items:center;gap:4px;">
@@ -16242,9 +16588,9 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#777">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #3a3a3a; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">619</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">634</span></span>
       &nbsp;·&nbsp;
-      Updated: <span id="footer-date">31 Mar 2026</span>, <span id="footer-time">16:30</span> IST
+      Updated: <span id="footer-date">05 Apr 2026</span>, <span id="footer-time">02:00</span> IST
       &nbsp;·&nbsp;
       <span id="footer-changelog-toggle" onclick="toggleChangelog()"
         style="cursor:pointer;color:#555;text-decoration:underline;text-underline-offset:2px;">
@@ -18079,7 +18425,7 @@ function ttBuildFacultyGrid(faculty) {
             // CT display
             let ctHtml = '';
             if (showCt) {
-              const ctVal = ttGetCt(cls, entry.code);
+              const ctVal = ttGetCt(cls, lmBaseCode(entry.code));
               ctHtml = ctVal !== null
                 ? `<span style="font-size:9px;color:#facc15;font-family:var(--mono);margin-left:3px;font-weight:700;">${ctVal}</span>`
                 : `<span style="font-size:8px;color:#3a3a3a;font-family:var(--mono);margin-left:2px;">?</span>`;
@@ -18255,7 +18601,9 @@ function ttBuildFacultyOnlyGrid(cls, filterFaculty, showFaculty, showCt, transpo
 }
 
 // Subject Index grid: cells show CODE — Full Subject Name (from allocations)
-function ttBuildSubjectIndexGrid(cls, showFaculty, showCt, transposed) {
+function ttBuildSubjectIndexGrid(cls, showFaculty, showCt, transposed, facultyCodes) {
+  // facultyCodes: optional Set of base codes this faculty teaches in this class.
+  // When provided, non-faculty cells are dimmed so only the faculty's own periods stand out.
   const entries  = LM_TIMETABLE.filter(t => t.class === cls);
   const allocs   = lmGetAllocations();
   const days     = LM_DAYS_ORDER;
@@ -18286,15 +18634,19 @@ function ttBuildSubjectIndexGrid(cls, showFaculty, showCt, transposed) {
     if (!entry) return `<td style="${tdStyle}"><span style="color:#333">—</span></td>`;
     const code  = entry.code || '';
     const baseC = lmBaseCode(code);
+    const isMine = !facultyCodes || facultyCodes.has(baseC.toUpperCase());
     const full  = getFullSubject(baseC);
     const fac   = showFaculty ? getFacultyForCode(baseC) : '';
     const ct    = showCt ? ttGetCt(cls, baseC) : null;
-    const ctBadge = ct != null ? `<span style="color:var(--muted);font-size:8px;font-family:var(--mono);margin-left:3px;">(${ct})</span>` : '';
+    const ctBadge = ct != null ? `<span style="color:${isMine?'#facc15':'var(--muted)'};font-size:8px;font-family:var(--mono);margin-left:3px;">(${ct})</span>` : '';
     const hue   = [...baseC].reduce((s,c)=>s+c.charCodeAt(0),0) % 360;
-    const bg    = `rgba(${Math.round(Math.sin(hue*0.05)*30+50)},${Math.round(Math.cos(hue*0.03)*30+80)},${Math.round(Math.sin(hue*0.07)*30+100)},0.15)`;
-    return `<td style="${tdStyle}background:${bg};">
-      <div style="font-size:11px;font-family:var(--mono);font-weight:700;color:var(--accent);margin-bottom:3px;">${code}${ctBadge}</div>
-      <div style="font-size:10px;color:var(--text);line-height:1.3;font-family:var(--body);">${full !== code ? full : ''}</div>
+    const bgBase = `rgba(${Math.round(Math.sin(hue*0.05)*30+50)},${Math.round(Math.cos(hue*0.03)*30+80)},${Math.round(Math.sin(hue*0.07)*30+100)},0.15)`;
+    const bg    = isMine ? bgBase : 'transparent';
+    const codeColor = isMine ? 'var(--accent)' : '#3a3a4a';
+    const textColor = isMine ? 'var(--text)' : '#3a3a4a';
+    return `<td style="${tdStyle}background:${bg};${isMine ? '' : 'opacity:0.45;'}">
+      <div style="font-size:11px;font-family:var(--mono);font-weight:700;color:${codeColor};margin-bottom:3px;">${code}${ctBadge}</div>
+      <div style="font-size:10px;color:${textColor};line-height:1.3;font-family:var(--body);">${full !== code ? full : ''}</div>
       ${fac ? `<div style="font-size:9px;color:#60a5fa;line-height:1.3;font-family:var(--body);margin-top:2px;font-style:italic;">${fac}</div>` : ''}
     </td>`;
   }
