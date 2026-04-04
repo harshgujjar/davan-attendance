@@ -1535,7 +1535,7 @@
       <div class="sidebar-item" data-panel="notify" onclick="switchPanel('notify')" id="nav-notify" style="display:none;">
         <span class="icon">📣</span> Notify Students
       </div>
-      <div class="sidebar-item" data-panel="notify-report" onclick="switchPanel('notify-report');ntRenderReport();fuLoadAll().then(fuUpdateBadge)" id="nav-notify-report" style="display:none;">
+      <div class="sidebar-item" data-panel="notify-report" onclick="switchPanel('notify-report');fuLoadAll().then(()=>ntRenderReport()).then(()=>fuUpdateBadge())" id="nav-notify-report" style="display:none;">
         <span class="icon">📊</span> Notification Report
       </div>
       <div class="sidebar-item" data-panel="followup-log" onclick="switchPanel('followup-log');flInit()" id="nav-followup-log" style="display:none;">
@@ -9506,7 +9506,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 648;  // always = HTML footer version number
+const CODE_BUILD = 651;  // always = HTML footer version number
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -14028,7 +14028,15 @@ function copyMsg(id) {
 // ═══════════════════════════════════════════════════════════════════
 
 async function ntRefreshReport() {
-  await ntLoadLogs();
+  // Force-reload both notification logs and follow-up records
+  await Promise.all([ ntLoadLogs(), flLoadAll(true) ]);
+  // Rebuild _fuAllFollowups from freshly loaded _flAllRecords
+  _fuAllFollowups = {};
+  _flAllRecords.forEach(r => {
+    if (!_fuAllFollowups[r.urn]) _fuAllFollowups[r.urn] = [];
+    _fuAllFollowups[r.urn].push(r);
+  });
+  _fuFullyLoaded = true; // full reload complete
   ntRenderReport();
   dvToast('Report refreshed', 'success');
 }
@@ -14040,10 +14048,11 @@ async function ntRenderReport() {
   const courseFilter = document.getElementById('ntr-course')?.value;
   const wrap = document.getElementById('notify-report-list');
   
-  // Load logs if not already loaded
-  if (Object.keys(_notificationLogs).length === 0) {
-    await ntLoadLogs();
-  }
+  // Load both notification logs AND follow-up records before rendering
+  const loadPromises = [];
+  if (Object.keys(_notificationLogs).length === 0) loadPromises.push(ntLoadLogs());
+  if (Object.keys(_fuAllFollowups).length === 0) loadPromises.push(fuLoadAll());
+  if (loadPromises.length) await Promise.all(loadPromises);
   
   // Filter and process logs
   let logs = Object.values(_notificationLogs);
@@ -14303,6 +14312,7 @@ let _fuCurrentUrn   = '';
 let _fuCurrentName  = '';
 let _fuCurrentClass = '';
 let _fuAllFollowups = {};   // cache: urn → [followup, ...]
+let _fuFullyLoaded  = false; // true only after a complete Firestore collection fetch
 
 // ── Open follow-up form ──
 function fuOpenForm(urn, name, cls) {
@@ -14443,6 +14453,9 @@ async function fuSaveFollowup() {
       tokenStatus: record.tokenStatus || 'open',
     });
 
+    // New record saved — invalidate full-load flag so next fuLoadAll re-fetches Firestore
+    _fuFullyLoaded = false;
+
     fuCloseForm();
     liveShowToast('✅ Saved', 'Follow-up recorded for ' + _fuCurrentName, '📝', 3000);
 
@@ -14469,12 +14482,27 @@ async function fuSaveFollowup() {
 
 // ── Load all follow-up logs ──
 async function fuLoadAll() {
-  if (Object.keys(_fuAllFollowups).length) return;
+  // Sync from _flAllRecords if it has more records than current cache
+  if (_flAllRecords.length > 0) {
+    const prevCount = Object.values(_fuAllFollowups).reduce((t, a) => t + a.length, 0);
+    if (_flAllRecords.length > prevCount) {
+      _fuAllFollowups = {};
+      _flAllRecords.forEach(r => {
+        if (!_fuAllFollowups[r.urn]) _fuAllFollowups[r.urn] = [];
+        _fuAllFollowups[r.urn].push(r);
+      });
+    }
+  }
+  // Only skip Firestore fetch if we've done a FULL load before
+  // (non-empty cache is NOT sufficient — a student with no prior records won't be in cache)
+  if (_fuFullyLoaded) return;
   try {
     const snap = await db.collection('davan_followup_logs').get();
+    _fuAllFollowups = {};
     snap.forEach(doc => {
       _fuAllFollowups[doc.id] = doc.data().followups || [];
     });
+    _fuFullyLoaded = true;
   } catch(e) {
     console.warn('[FU] Load error:', e);
   }
@@ -16828,8 +16856,8 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
      v485       | 26-Mar-2026 12:00 IST — Fix: intLoadList for manager/faculty no longer returns blank; tries RTDB davan_pub/internals_current then falls back to default timetable; intSave+intSetCurrent mirror to RTDB
      v486       | 26-Mar-2026 12:00 IST — Fix: duties included in RTDB mirror; intDutyLoad skips Firestore for manager/faculty; duties now visible in manager duty tab
      v487       | 26-Mar-2026 12:00 IST — Fix: manager gets full Firestore read/write on Internals page (all tabs); auto-mirror to RTDB on every load — no manual Save needed
-     v488-v647  | changes made outside this conversation — details not logged
-     v648       | 04-Apr-2026 17:30 IST — Feat: Android widget bridge — davanWidgetSync() added; called on faculty login, admin login, onAuthStateChanged restore, and logout; widget now switches to per-user view automatically
+     v488-v650  | changes made outside this conversation — details not logged
+     v651       | 04-Apr-2026 17:30 IST — Feat: Android widget bridge — davanWidgetSync() added; called on faculty login, admin login, onAuthStateChanged restore, and logout; widget auto-switches faculty/admin view
 ═══════════════════════════════════════════════════════════════════ -->
 
 <!-- ── Banner 2: Upcoming holiday ticker — inside footer, above © line ── -->
@@ -16946,6 +16974,9 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
   v645      | 05-Apr-2026 17:00 IST | Fix: Next Holiday widget — wrong panel ID "calendar" → "academic-calendar"; add calPreload() to fetch calEvents at login so widget shows data immediately
   v646      | 05-Apr-2026 17:15 IST | Fix: Last Alert widget — wrong panel ID "fa" → "faculty-alerts"; empty state now links to Faculty Alerts panel; subtitle clarifies localStorage scope
   v647      | 05-Apr-2026 17:30 IST | Fix: Follow-ups widget — was reading empty _fuAllFollowups cache; now reads _flAllRecords via flTokenStatus(); added flPreload() at login; shows open+overdue count correctly
+  v648      | 05-Apr-2026 18:00 IST | Fix: fuSaveFollowup now refreshes FL panel UI immediately if panel is active (flPopulateFilterDropdowns+flApplyFilters); both cache pushes annotated clearly
+  v649      | 05-Apr-2026 18:30 IST | Fix: Follow-up records invisible in Notification Report + student card — ntRenderReport now awaits fuLoadAll() before rendering; sidebar nav fixed to load fu data first; ntRefreshReport force-reloads both logs; fuLoadAll re-syncs _fuAllFollowups from _flAllRecords when live saves outpace the cache
+  v650      | 05-Apr-2026 19:00 IST | Fix: Student card Visit Records empty — fuLoadAll guard "cache non-empty = fully loaded" was wrong; student with no prior records not in cache so guard skipped Firestore fetch; replaced with _fuFullyLoaded flag; invalidated on each new save so next open always re-fetches
   ═══════════════════════════════════════════════════════════════════
   -->
   <div style="padding:14px 40px;display:flex;flex-direction:column;align-items:center;gap:4px;">
@@ -16953,7 +16984,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#777">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #3a3a3a; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">648</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">651</span></span>
       &nbsp;·&nbsp;
       Updated: <span id="footer-date">05 Apr 2026</span>, <span id="footer-time">17:30</span> IST
       &nbsp;·&nbsp;
@@ -16995,7 +17026,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
 <script>
 
 // Guard: ensure CODE_BUILD is always defined even if the first script block errors out
-if (typeof CODE_BUILD === 'undefined') { window.CODE_BUILD = 648; }
+if (typeof CODE_BUILD === 'undefined') { window.CODE_BUILD = 651; }
 
 // ╔══════════════════════════════════════════════════════════════════╗
 // ║  SECTION: §21 DATA STRIP / FOOTER VERSION / CHANGELOG / CLOCK    ║
@@ -17239,7 +17270,7 @@ const HTML_CHANGELOG = [
   { v: 'v482', date: '26-Mar-2026 00:16 IST', note: 'Add: "Schedule section" TOC block for §01–§35 quick navigation' },
   { v: 'v483', date: '26-Mar-2026 12:00 IST', note: 'Fix: §27 sc-modal Need X more formula — ceil(0.75*ct - ca)' },
   { v: 'v487', date: '26-Mar-2026 12:00 IST', note: 'Fix: manager gets full Firestore read/write on Internals (all tabs); auto-mirror to RTDB on every load — no manual Save needed for faculty' },
-  { v: 'v648', date: '04-Apr-2026 17:30 IST', note: 'Feat: Android widget bridge — davanWidgetSync() pushes logged-in identity to home-screen widget; widget auto-switches faculty/admin view on login/logout' },
+  { v: 'v651', date: '04-Apr-2026 17:30 IST', note: 'Feat: Android widget bridge — davanWidgetSync() pushes logged-in identity to home-screen widget; widget auto-switches faculty/admin view on login/logout' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
