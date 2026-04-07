@@ -65,7 +65,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Davan &amp; Nutana Attendance Analyzer v665</title>
+  <title>Davan &amp; Nutana Attendance Analyzer v666</title>
 
   <!-- Windows File Explorer Properties (Tags / Authors / Title) -->
   <meta name="title" content="Davan &amp; Nutana Attendance Analyzer">
@@ -74,7 +74,7 @@
   <meta name="description" content="Attendance and result analytics for Davan &amp; Nutana Institutions, Davangere. Developed by Harsha Gujjar, Director.">
   <meta name="application-name" content="Attendance Result Analyzer">
   <meta name="generator" content="Developed by Harsha Gujjar — Davan Institute of Advanced Management Studies">
-  <meta name="version" content="v665" id="meta-version">
+  <meta name="version" content="v666" id="meta-version">
 
   <!-- Favicon & App Icons -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -1241,7 +1241,7 @@
       font-size:11px;font-weight:700;font-family:var(--mono);
       background:var(--accent);color:#000;transition:all 0.2s;">
     </button>
-    <span id="topbar-version" style="font-family:var(--mono);font-size:10px;color:var(--accent);margin-left:6px;opacity:0.9;font-weight:600;letter-spacing:0.3px;">v665</span>
+    <span id="topbar-version" style="font-family:var(--mono);font-size:10px;color:var(--accent);margin-left:6px;opacity:0.9;font-weight:600;letter-spacing:0.3px;">v666</span>
   </div>
 </div>
 
@@ -9729,7 +9729,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 665;  // always = HTML footer version number
+const CODE_BUILD = 666;  // always = HTML footer version number
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -10646,6 +10646,39 @@ function lcbRenderChips() {
   bar.innerHTML = html;
 }
 
+// Map timetable class label → student doc class key (e.g. "II YEAR BCA (A)" → "Davan-BCA-Sem4-SecA")
+// IMPORTANT: check III before II before I — "II YEAR".includes("I YEAR") is true!
+function lcbTtClassToStudentClass(cls) {
+  const course = cls.includes('BCA') ? 'BCA' : (cls.includes('B.Com') || cls.includes('BCom')) ? 'BCom' : cls.includes('BBA') ? 'BBA' : null;
+  if (!course) return '';
+  const sem = cls.includes('III YEAR') || cls.startsWith('III ') ? 'Sem6'
+            : cls.includes('II YEAR')  || cls.startsWith('II ')  ? 'Sem4'
+            : cls.includes('I YEAR')   || cls.startsWith('I ')   ? 'Sem2' : null;
+  if (!sem) return '';
+  const secMatch = cls.match(/\(([A-Z])\)/);
+  const sec = secMatch ? secMatch[1] : 'A';
+  return 'Davan-' + course + '-' + sem + '-Sec' + sec;
+}
+
+// Build ct/sc maps from allStudents: key = "studentClass|subjectname_lowercase"
+function lcbBuildCtMaps() {
+  const ctMap = {}, scMap = {};
+  const students = (typeof allStudents !== 'undefined') ? allStudents : [];
+  for (const stu of students) {
+    const sClass = (stu.class || '').trim();
+    if (!sClass) continue;
+    for (const sub of (stu.subjects || [])) {
+      const name = (sub.subject || '').trim().toLowerCase();
+      if (!name) continue;
+      const ct = Number(sub.ct) || 0;
+      const key = sClass + '|' + name;
+      if (!ctMap[key] || ct > ctMap[key]) ctMap[key] = ct;
+      scMap[key] = (scMap[key] || 0) + 1;
+    }
+  }
+  return { ctMap, scMap };
+}
+
 // Build cards for one slot
 function lcbBuildPanel(slotIdx, dayName) {
   if (slotIdx < 0 || slotIdx >= LCB_SLOTS.length) {
@@ -10668,6 +10701,9 @@ function lcbBuildPanel(slotIdx, dayName) {
     return '<div style="color:var(--muted);font-size:11px;padding:12px;text-align:center;opacity:0.6;">No classes this slot</div>';
   }
 
+  // Build ct/sc maps once per panel render
+  const { ctMap, scMap } = lcbBuildCtMaps();
+
   let html = '';
   for (const cls of classesThisSlot) {
     const entry = tt.find(t => t.class === cls && t.slot === slotInfo.slot && t.day === dayName);
@@ -10681,19 +10717,39 @@ function lcbBuildPanel(slotIdx, dayName) {
     const facStr    = facObjs.map(f => f.faculty).filter(Boolean)[0] || '—';
     const room      = (typeof lmGetRoom === 'function') ? lmGetRoom(cls, entry.code) : (lmGetClassMeta(cls).room || '');
 
+    // CT / SC lookup — Pass 1: exact subject name, Pass 2: partial name match
+    const studentClass = lcbTtClassToStudentClass(cls);
+    const subjectLower = subjectStr.trim().toLowerCase();
+    const nameKey = studentClass + '|' + subjectLower;
+    let ct = ctMap[nameKey] || -1;
+    let sc = scMap[nameKey] || -1;
+    if (ct < 0 && studentClass) {
+      // Pass 2: partial name match within same class
+      const matchKey = Object.keys(ctMap).find(k =>
+        k.startsWith(studentClass + '|') &&
+        (k.split('|')[1].includes(subjectLower) || subjectLower.includes(k.split('|')[1]))
+      );
+      if (matchKey) { ct = ctMap[matchKey] || -1; sc = scMap[matchKey] || -1; }
+    }
+    const statsStr = (sc > 0 && ct > 0) ? 's' + sc + ' · ct' + ct : (ct > 0 ? 'ct' + ct : '');
+
     // Running state border highlight
     const runningStyle = state === 'running' ? 'border-color:rgba(52,211,153,0.4);' : '';
 
     html += '<div style="background:' + cardBg + ';border:1px solid ' + cardBorder + ';border-radius:8px;padding:9px 11px;' + runningStyle + '">';
-    // Class name row
+    // Class name + room row
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">';
     html += '<span style="font-size:10px;font-weight:700;color:' + accentColor + ';">' + safeClass + '</span>';
     if (room) {
       html += '<span style="font-size:9px;font-family:var(--mono);background:rgba(96,165,250,0.12);color:#93c5fd;padding:1px 6px;border-radius:4px;font-weight:700;">🚪 ' + room + '</span>';
     }
     html += '</div>';
-    // Subject
-    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:2px;">' + subjectStr + '</div>';
+    // Subject + stats
+    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:2px;">' + subjectStr;
+    if (statsStr) {
+      html += ' <span style="font-size:10px;font-weight:500;color:#fde68a;font-family:var(--mono);">(' + statsStr + ')</span>';
+    }
+    html += '</div>';
     // Faculty
     html += '<div style="font-size:10px;color:#a78bfa;">👤 ' + facStr + '</div>';
     html += '</div>';
@@ -17322,7 +17378,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
      v662 | 07-Apr-2026 15:30 IST — Feat: Faculty Alerts — PWA column in Subscription Status; facRegisterSW stores pwaInstalled+userAgent+subscribedAt; post-subscribe instructional toast
      v663 | 07-Apr-2026 21:30 IST — Fix: faWidgetToast writes title+body+davan_push_notif (was only writing msg, showing ‘Notice’); facRegisterSW deduplicates by endpoint (fixes 14-device accumulation)
      v664 | 07-Apr-2026 22:00 IST — Fix: facAlertNotifyAdmin uses SW showNotification so Test alert appears in OS tray even when PWA is open (new Notification() was downgraded to toast when page focused)
-     v665 | 07-Apr-2026 — Fix: auto-clear stuck SW notifications before every showNotification() call in facAlertNotifyAdmin + duty notifs; duty notifs converted from new Notification() to SW showNotification(); static tags on admin-confirm and duty notifications to prevent accumulation; wcpTestClassNotif() fixed to use SW showNotification + auto-clear + tag; Test Class Alert button restored to widget panel
+     v666 | 07-Apr-2026 — Merge v662 LCB changes: lcbTtClassToStudentClass + lcbBuildCtMaps; LCB cards show (sN · ctN) in yellow beside subject name; III/II/I YEAR order fix in class→student-key mapping
      v655       | 05-Apr-2026 15:45 IST - Feat: APK download section added to both faculty + admin login tabs — visible to all roles before sign-in
 ═══════════════════════════════════════════════════════════════════ -->
 
@@ -17450,7 +17506,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#777">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #3a3a3a; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">665</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">666</span></span>
       &nbsp;·&nbsp;
       Updated: <span id="footer-date">05 Apr 2026</span>, <span id="footer-time">17:30</span> IST
       &nbsp;·&nbsp;
@@ -17751,6 +17807,8 @@ const HTML_CHANGELOG = [
   { v: 'v662', date: '07-Apr-2026 15:30 IST', note: 'Feat: Faculty Alerts PWA column in Subscription Status (📲 Installed/⚠️ Browser only/legacy); facRegisterSW stores pwaInstalled+userAgent+subscribedAt; post-subscribe instructional toast' },
   { v: 'v663', date: '07-Apr-2026 21:30 IST', note: 'Fix: faWidgetToast title+body fields + davan_push_notif for native widget notif; facRegisterSW endpoint dedup (no more 14-device accumulation)' },
   { v: 'v664', date: '07-Apr-2026 22:00 IST', note: 'Fix: facAlertNotifyAdmin uses SW showNotification — Test alert now appears in OS tray even when PWA is open (new Notification() was demoted to toast when page focused)' },
+  { v: 'v665', date: '07-Apr-2026', note: 'Fix: auto-clear stuck SW notifications before every showNotification(); duty notifs use SW showNotification; static tags on admin-confirm + duty notifs; wcpTestClassNotif uses SW + auto-clear + tag; Test Class Alert button restored' },
+  { v: 'v666', date: '07-Apr-2026', note: 'Merge v662 LCB changes: lcbTtClassToStudentClass + lcbBuildCtMaps; LCB cards show (sN · ctN) in yellow beside subject; III/II/I YEAR order fix in class→student-key mapping' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
