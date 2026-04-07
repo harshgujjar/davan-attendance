@@ -2005,7 +2005,14 @@
         <!-- Header row -->
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
           <span style="font-size:11px;font-family:var(--mono);color:#60a5fa;letter-spacing:1px;text-transform:uppercase;font-weight:700;">📡 Live Class Board</span>
-          <button onclick="lcbRefresh(true)" style="padding:4px 12px;background:rgba(96,165,250,0.15);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);border-radius:6px;font-size:11px;cursor:pointer;">↻ Refresh</button>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">
+              <input type="checkbox" id="lcb-lab-toggle" onchange="lcbLabToggle()"
+                style="width:14px;height:14px;accent-color:#a78bfa;cursor:pointer;">
+              <span style="font-size:11px;font-family:var(--mono);color:#a78bfa;font-weight:700;letter-spacing:0.5px;">🧪 LAB</span>
+            </label>
+            <button onclick="lcbRefresh(true)" style="padding:4px 12px;background:rgba(96,165,250,0.15);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);border-radius:6px;font-size:11px;cursor:pointer;">↻ Refresh</button>
+          </div>
         </div>
 
         <!-- Chip bar: 8 slot chips + LIVE -->
@@ -10590,6 +10597,8 @@ const LCB_SLOTS = [
 
 let _lcbTimer    = null;
 let _lcbSelected = -1;  // -1 = LIVE mode
+let _lcbDay      = -1;  // -1 = today; 0-5 = Mon–Sat index
+let _lcbLabOnly  = false; // true = show only lab classes
 
 function lcbSlotStartMin(slot) {
   const m = slot.match(/(\d+)\.(\d+)\s+to/);
@@ -10639,6 +10648,32 @@ function lcbRenderChips() {
   const activeIdx = _lcbSelected === -1 ? lcbLiveIdx() : _lcbSelected;
   let html = '';
 
+  // ── DAY CHIPS (Mon–Sat) ───────────────────────────────────────────
+  const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat'];
+  const todayDow = new Date().getDay(); // 0=Sun,1=Mon…6=Sat
+  // todayIdx in 0–5 (Mon=0…Sat=5); -1 if today is Sunday
+  const todayIdx = (todayDow >= 1 && todayDow <= 6) ? todayDow - 1 : -1;
+
+  // Wrapper row for day chips
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;width:100%;margin-bottom:8px;">';
+  for (let d = 0; d < 6; d++) {
+    const isToday   = d === todayIdx;
+    const isActive  = _lcbDay === d || (_lcbDay === -1 && isToday);
+    html += '<button onclick="lcbSelectDay(' + d + ')" style="' +
+      'padding:4px 10px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer;' +
+      'font-family:var(--mono);letter-spacing:0.4px;border:2px solid;transition:all 0.2s;' +
+      (isActive
+        ? 'background:rgba(251,191,36,0.2);color:#fbbf24;border-color:#fbbf24;box-shadow:0 0 6px rgba(251,191,36,0.35);'
+        : isToday
+          ? 'background:rgba(251,191,36,0.07);color:#92400e;border-color:#78350f;'
+          : 'background:transparent;color:#4b5563;border-color:#374151;') +
+      '">' + DAY_LABELS[d] + (isToday ? ' ·' : '') + '</button>';
+  }
+  html += '</div>';
+
+  // ── TIME CHIPS (LIVE + 8 slots) ───────────────────────────────────
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;width:100%;">';
+
   // LIVE chip
   const liveActive = _lcbSelected === -1;
   html += '<button onclick="lcbSelectLive()" style="' +
@@ -10677,6 +10712,8 @@ function lcbRenderChips() {
       'background:' + chipBg + ';color:' + chipColor + ';border-color:' + chipBorder + ';' + chipExtra +
       '">' + LCB_SLOTS[i].short + '</button>';
   }
+  html += '</div>';
+
   bar.innerHTML = html;
 }
 
@@ -10743,6 +10780,13 @@ function lcbBuildPanel(slotIdx, dayName) {
     const entry = tt.find(t => t.class === cls && t.slot === slotInfo.slot && t.day === dayName);
     if (!entry) continue;
 
+    // Detect if this card is a lab class
+    const parsedCode = (typeof lmParseCode === 'function') ? lmParseCode(entry.code) : { isLab: false };
+    const isLab = parsedCode.isLab;
+
+    // Lab filter: if _lcbLabOnly is on, skip non-lab cards entirely
+    if (_lcbLabOnly && !isLab) continue;
+
     const safeClass = cls.replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const facObjs   = (typeof ttGetFacultyForSlotAll === 'function') ? ttGetFacultyForSlotAll(cls, slotInfo.slot, dayName) : [];
     const subjAllocs= (typeof lmAllocsForSlot === 'function') ? lmAllocsForSlot(cls, entry.code) : [];
@@ -10767,17 +10811,33 @@ function lcbBuildPanel(slotIdx, dayName) {
     }
     const statsStr = (sc > 0 && ct > 0) ? 's' + sc + ' · ct' + ct : (ct > 0 ? 'ct' + ct : '');
 
-    // Running state border highlight
-    const runningStyle = state === 'running' ? 'border-color:rgba(52,211,153,0.4);' : '';
+    // Gray-out non-lab cards when lab filter is active (won't reach here if _lcbLabOnly skips them,
+    // but keep this for potential future "dim" mode instead of skip)
+    const dimmed     = _lcbLabOnly && !isLab;
+    const cardOpacity= dimmed ? 'opacity:0.25;filter:grayscale(1);' : '';
 
-    html += '<div style="background:' + cardBg + ';border:1px solid ' + cardBorder + ';border-radius:8px;padding:9px 11px;' + runningStyle + '">';
+    // Running state border highlight; lab cards get purple border
+    const runningStyle = state === 'running' ? 'border-color:rgba(52,211,153,0.4);' : '';
+    const labBorder    = isLab ? 'border-color:rgba(167,139,250,0.45);' : '';
+
+    const effectiveBg     = dimmed ? 'rgba(100,100,100,0.04)' : cardBg;
+    const effectiveBorder = dimmed ? 'rgba(100,100,100,0.15)' : cardBorder;
+
+    html += '<div style="background:' + effectiveBg + ';border:1px solid ' + effectiveBorder + ';border-radius:8px;padding:9px 11px;' + runningStyle + labBorder + cardOpacity + '">';
     // Class name + room row
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">';
     html += '<span style="font-size:10px;font-weight:700;color:' + accentColor + ';">' + safeClass + '</span>';
+    // Room badge — larger, normal weight so it breathes
     if (room) {
-      html += '<span style="font-size:9px;font-family:var(--mono);background:rgba(96,165,250,0.12);color:#93c5fd;padding:1px 6px;border-radius:4px;font-weight:700;">🚪 ' + room + '</span>';
+      const roomBg  = isLab ? 'rgba(167,139,250,0.15)' : 'rgba(96,165,250,0.12)';
+      const roomCol = isLab ? '#c4b5fd' : '#93c5fd';
+      html += '<span style="font-size:12px;font-family:var(--mono);background:' + roomBg + ';color:' + roomCol + ';padding:2px 8px;border-radius:5px;font-weight:500;letter-spacing:0.3px;">🚪 ' + room + '</span>';
     }
     html += '</div>';
+    // Lab badge row (batch·lab info)
+    if (isLab && parsedCode.batch) {
+      html += '<div style="font-size:10px;color:#a78bfa;font-family:var(--mono);margin-bottom:3px;">🧪 ' + parsedCode.batch + (parsedCode.lab ? ' · Lab ' + parsedCode.lab : '') + '</div>';
+    }
     // Subject + stats
     html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:2px;">' + subjectStr;
     if (statsStr) {
@@ -10788,7 +10848,7 @@ function lcbBuildPanel(slotIdx, dayName) {
     html += '<div style="font-size:10px;color:#a78bfa;">👤 ' + facStr + '</div>';
     html += '</div>';
   }
-  return html || '<div style="color:var(--muted);font-size:11px;padding:12px;">No entries</div>';
+  return html || '<div style="color:var(--muted);font-size:11px;padding:12px;text-align:center;opacity:0.5;">' + (_lcbLabOnly ? 'No lab classes this slot' : 'No entries') + '</div>';
 }
 
 function lcbRender() {
@@ -10806,7 +10866,8 @@ function lcbRender() {
   }
 
   const days    = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const dayName = days[new Date().getDay()];
+  // _lcbDay: -1 = today; 0=Mon…5=Sat (offset by 1 from JS getDay)
+  const dayName = _lcbDay === -1 ? days[new Date().getDay()] : days[_lcbDay + 1];
 
   const leftIdx  = _lcbSelected === -1 ? lcbLiveIdx() : _lcbSelected;
   const rightIdx = leftIdx + 1;
@@ -10826,6 +10887,11 @@ function lcbRender() {
   lcbRenderChips();
 }
 
+function lcbSelectDay(d) {
+  _lcbDay = d;
+  lcbRender();
+}
+
 function lcbSelectSlot(idx) {
   _lcbSelected = idx;
   lcbRender();
@@ -10833,6 +10899,13 @@ function lcbSelectSlot(idx) {
 
 function lcbSelectLive() {
   _lcbSelected = -1;
+  _lcbDay = -1;   // fallback to today
+  lcbRender();
+}
+
+function lcbLabToggle() {
+  const cb = document.getElementById('lcb-lab-toggle');
+  _lcbLabOnly = cb ? cb.checked : false;
   lcbRender();
 }
 
@@ -10842,6 +10915,10 @@ function lcbRefresh(force) {
 
 function lcbStart() {
   _lcbSelected = -1;
+  _lcbDay = -1;
+  _lcbLabOnly = false;
+  const cb = document.getElementById('lcb-lab-toggle');
+  if (cb) cb.checked = false;
   lcbRender();
   clearInterval(_lcbTimer);
   _lcbTimer = setInterval(function() {
