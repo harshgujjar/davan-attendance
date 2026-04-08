@@ -1,6 +1,7 @@
 // sw.js — Davan Attendance System v5
 const CACHE_VERSION = 'davan-v5';
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
+const ICON_URL = 'https://harshgujjar.github.io/davan-attendance/icon-192.png';
 
 const BYPASS_URLS = [
   'firestore.googleapis.com',
@@ -50,11 +51,12 @@ self.addEventListener('push', e => {
   }
   const options = {
     body:    data.body    || '',
-    icon:    data.icon    || '/davan-attendance/icon-192.png',
-    badge:   data.badge   || '/davan-attendance/icon-192.png',
+    icon:    data.icon    || ICON_URL,
+    badge:   data.badge   || ICON_URL,
+    image:   data.image   || undefined,
     vibrate: [200, 100, 200],
     tag:     data.tag     || ('davan-' + Date.now()), // unique tag
-    data:    { title: data.title, body: data.body, icon: data.icon||'🔔' },
+    data:    { title: data.title, body: data.body, icon: data.icon || '🔔' },
     actions: data.actions || [],
   };
 
