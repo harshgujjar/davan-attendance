@@ -45,28 +45,33 @@ self.addEventListener('fetch', e => {
 });
 
 self.addEventListener('push', e => {
+  console.log('[SW] Push received');
   let data = { title: 'Davan College', body: 'You have a notification.' };
-  try { data = e.data.json(); } catch(err) {
+  try {
+    data = e.data.json();
+    console.log('[SW] Push data:', JSON.stringify(data));
+  } catch(err) {
     try { data.body = e.data.text(); } catch(e2) {}
   }
+
+  // Build options — keep it simple, no image field (causes silent failure on some Android)
   const options = {
-    body:    data.body    || '',
-    icon:    data.icon    || ICON_URL,
-    badge:   data.badge   || ICON_URL,
-    image:   data.image   || undefined,
+    body:    data.body  || '',
+    icon:    data.icon  || ICON_URL,
+    badge:   data.badge || ICON_URL,
     vibrate: [200, 100, 200],
-    tag:     data.tag     || ('davan-' + Date.now()), // unique tag
+    tag:     data.tag   || 'davan-alert',
     data:    { title: data.title, body: data.body, icon: data.icon || '🔔' },
-    actions: data.actions || [],
   };
 
+  console.log('[SW] Showing notification:', data.title, '| icon:', options.icon);
+
   e.waitUntil(
-    Promise.all([
-      self.registration.showNotification(data.title || 'Davan College', options),
-      // Update app badge count
-      self.registration.navigationPreload?.enable?.(),
+    self.registration.showNotification(data.title || 'Davan College', options)
+    .then(() => {
+      console.log('[SW] Notification shown OK');
       // Post to all open clients to store in inbox
-      clients.matchAll({ type: 'window' }).then(list => {
+      return clients.matchAll({ type: 'window' }).then(list => {
         list.forEach(c => c.postMessage({
           type: 'PUSH_RECEIVED',
           title: data.title || 'Davan College',
@@ -74,8 +79,9 @@ self.addEventListener('push', e => {
           icon:  data.icon  || '🔔',
           ts:    Date.now()
         }));
-      })
-    ])
+      });
+    })
+    .catch(err => console.error('[SW] showNotification failed:', err))
   );
 });
 
@@ -86,7 +92,6 @@ self.addEventListener('notificationclick', e => {
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       for (const client of list) {
         if (client.url.includes('davan-attendance') && 'focus' in client) {
-          // Tell app to clear badge and mark as read
           client.postMessage({ type: 'NOTIF_CLICKED', ...data });
           return client.focus();
         }

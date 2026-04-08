@@ -84,7 +84,7 @@
      "✅ Working from: index_vXXX.html"
 
   ── SESSION HANDOFF (update on every build) ──────────────────────
-  Version    : v692
+  Version    : v693
   Date       : 09-Apr-2026 IST
   Last change: Fix: rcLogWASend writes to davan_followup_logs (was student_followups — wrong
                collection, so WA logs never appeared in Follow-ups tab). Also pushes entry into
@@ -1291,7 +1291,7 @@
       font-size:11px;font-weight:700;font-family:var(--mono);
       background:var(--accent);color:#000;transition:all 0.2s;">
     </button>
-    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v692 · Last Updated: 09-Apr-2026 IST</span>
+    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v693 · Last Updated: 09-Apr-2026 IST</span>
   </div>
 </div>
 
@@ -9843,7 +9843,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 692;  // always = HTML footer version number
+const CODE_BUILD = 693;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '07-Apr-2026', time: '22:54', full: '07-Apr-2026 22:54 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
@@ -17884,7 +17884,8 @@ function updateDataStrip() {
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
   { v: 'v688', date: '09-Apr-2026 IST', note: 'Fix: rcLogWASend writes to davan_followup_logs (was student_followups — wrong collection, WA logs never appeared in Follow-ups tab). Fix: _flAllRecords updated + _fuFullyLoaded invalidated on WA send. Fix: INT 1/INT 2 TOTAL summary card sub-line font 9px → 12px bold, main value 18px → 22px.' },
-  { v: 'v692', date: '09-Apr-2026 IST', note: 'Fix: All icon/badge paths changed to absolute URLs (https://harshgujjar.github.io/...) — fixes blue circle on Android widget/push. FA_SW_CODE upgraded to davan-v5 with ICON_URL constant + image field — forces sw.js update on all faculty devices. davan_push_notif RTDB write adds icon+badge+image fields. tmplPre adds {faculty} name. duty-24h/1h notifs get badge field. Cloudflare Worker payload + facAlertNotifyAdmin + wcpTestClassNotif all use absolute URLs.' },
+  { v: 'v693', date: '09-Apr-2026 IST', note: 'Fix: facAlertNotifyAdmin now sends via Cloudflare Worker to admin\'s own push subscription (not local SW) — admin gets real push notification like faculty. Fix: sw.js removes image field (caused silent failure on some Android), adds console logs for push debugging. Fix: sw.js showNotification wrapped in .then()/.catch() to surface errors.' },
+  { v: 'v692', date: '09-Apr-2026 IST', note: 'Fix: All icon/badge paths changed to absolute URLs — fixes blue circle on Android widget/push. FA_SW_CODE upgraded to davan-v5 with ICON_URL constant. davan_push_notif RTDB write adds icon+badge+image. tmplPre adds {faculty} name. Cloudflare Worker payload + facAlertNotifyAdmin + wcpTestClassNotif all use absolute URLs.' },
   { v: 'v687', date: '09-Apr-2026 14:00 IST', note: 'Report Card: Int 1/Int 2 widgets show actual total/% /class-rank (not —). Attendance table footer adds Int 1 Total + Int 2 Total rows with %+rank. WhatsApp button moved to right side of photo row (prominent green). Results tab: CGPI banner at top with per-sem SGPA chips. WA send → auto-logged to davan_notification_logs + student_followups. Follow-ups tab: shows full WA/notification history (sender, role, time, phone, preview) above visit records.' },
   { v: 'v687', date: '09-Apr-2026 11:30 IST', note: 'Internal Marks: replace Hide II Int checkbox with Sort by Rank (PASS top→bottom, then FAIL, then AB). C·Faculty Performance: faculty name click now correctly navigates admin to dashboard→Faculty Report tab and populates selected faculty. Student card: wider (980px desktop), 2-col desktop layout (summary left, subject cards right) for at-a-glance admin view.' },
   { v: 'v661', date: '07-Apr-2026 12:00 IST', note: 'Live Class Board redesign: 8 slot chips + LIVE chip; left=selected slot, right=next slot; chip states running/upcoming/over with pulse; room on every card' },
@@ -27729,35 +27730,39 @@ async function facAlertSendTest(faculty) {
   liveShowToast('✅ Test sent', faculty, '🔔', 4000);
 }
 
-// Show local browser notification to admin as confirmation
-function facAlertNotifyAdmin(title, body) {
-  // Always use SW showNotification — it posts to the OS tray even when the PWA tab is open/focused.
-  // new Notification() is silently suppressed by Chrome when the page is in the foreground.
+// Send confirmation push to admin via Worker (same path as faculty notifications)
+async function facAlertNotifyAdmin(title, body) {
+  // Get admin's own push subscription from Firestore
+  const adminKey = currentProfile?.facultyKey || currentProfile?.name || currentProfile?.username || 'admin';
+  try {
+    const doc = await db.collection('app_data').doc(FA_SUBS_DOC).get();
+    if (doc.exists) {
+      const data = doc.data();
+      const adminSubs = data['admin'] || data[adminKey] || [];
+      if (adminSubs.length && faWorkerUrl) {
+        await fetch(faWorkerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, body, subscriptions: adminSubs }),
+        });
+        return;
+      }
+    }
+  } catch(e) { console.warn('[FA] Admin push failed:', e.message); }
+  // Fallback: local SW notification if no admin subscription stored
   if (!('Notification' in window)) return;
   const opts = {
     body,
     icon: 'https://harshgujjar.github.io/davan-attendance/icon-192.png',
     badge: 'https://harshgujjar.github.io/davan-attendance/icon-192.png',
-    tag: 'admin-confirm', // static tag — replaces previous instead of stacking
-  };
-  const postViaSwOrFallback = async (permission) => {
-    if (permission !== 'granted') return;
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      // Preferred: SW shows real OS tray notification regardless of focus state
-      const reg = await navigator.serviceWorker.ready;
-      // Auto-clear any stuck notifications before firing a new one
-      const old = await reg.getNotifications();
-      old.forEach(n => n.close());
-      await reg.showNotification(title, opts);
-    } else {
-      // Fallback: browser notification (may be suppressed when page is focused)
-      new Notification(title, opts);
-    }
+    tag: 'admin-confirm',
   };
   if (Notification.permission === 'granted') {
-    postViaSwOrFallback('granted');
-  } else if (Notification.permission !== 'denied') {
-    Notification.requestPermission().then(postViaSwOrFallback);
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      const reg = await navigator.serviceWorker.ready;
+      const old = await reg.getNotifications(); old.forEach(n => n.close());
+      reg.showNotification(title, opts);
+    } else { new Notification(title, opts); }
   }
 }
 
