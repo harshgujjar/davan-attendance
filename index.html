@@ -84,7 +84,7 @@
      "✅ Working from: index_vXXX.html"
 
   ── SESSION HANDOFF (update on every build) ──────────────────────
-  Version    : v695
+  Version    : v697
   Date       : 09-Apr-2026 IST
   Last change: Fix: rcLogWASend writes to davan_followup_logs (was student_followups — wrong
                collection, so WA logs never appeared in Follow-ups tab). Also pushes entry into
@@ -109,7 +109,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Davan &amp; Nutana Attendance Analyzer v695</title>
+  <title>Davan &amp; Nutana Attendance Analyzer v697</title>
 
   <!-- Windows File Explorer Properties (Tags / Authors / Title) -->
   <meta name="title" content="Davan &amp; Nutana Attendance Analyzer">
@@ -118,7 +118,7 @@
   <meta name="description" content="Attendance and result analytics for Davan &amp; Nutana Institutions, Davangere. Developed by Harsha Gujjar, Director.">
   <meta name="application-name" content="Attendance Result Analyzer">
   <meta name="generator" content="Developed by Harsha Gujjar — Davan Institute of Advanced Management Studies">
-  <meta name="version" content="v695" id="meta-version">
+  <meta name="version" content="v697" id="meta-version">
 
   <!-- Favicon & App Icons -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -1291,7 +1291,7 @@
       font-size:11px;font-weight:700;font-family:var(--mono);
       background:var(--accent);color:#000;transition:all 0.2s;">
     </button>
-    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v695 · Last Updated: 09-Apr-2026 IST</span>
+    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v697 · Last Updated: 09-Apr-2026 IST</span>
   </div>
 </div>
 
@@ -9843,7 +9843,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 695;  // always = HTML footer version number
+const CODE_BUILD = 697;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '07-Apr-2026', time: '22:54', full: '07-Apr-2026 22:54 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
@@ -17692,7 +17692,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#777">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #3a3a3a; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">695</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">697</span></span>
       &nbsp;·&nbsp;
       Updated: <span id="footer-date">09 Apr 2026</span>, <span id="footer-time">14:00</span> IST
       &nbsp;·&nbsp;
@@ -17883,6 +17883,8 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v697', date: '09-Apr-2026 IST', note: 'Fix: Who\'s Online — active users disappearing fixed. Presence now writes separate lastSeen (updated every 4 min heartbeat) vs since (login time, never changes). Stale check uses lastSeen, raised to 15 min threshold. Stale removals collected outside loop to prevent cascade re-trigger.' },
+  { v: 'v696', date: '09-Apr-2026 IST', note: 'Fix: Who\'s Online stuck entries — presence heartbeat now updates since timestamp every 4 min; admin watcher purges entries older than 10 min (handles crash/disconnect/tab-kill). Shankar B C and similar stale entries auto-clear.' },
   { v: 'v695', date: '09-Apr-2026 IST', note: 'Fix: buildPkcs8 ASN.1 wrong length bytes fixed (0x81,0x87 to 0x41) — push notifications now work (sent:1 failed:0). sw.js badge removed (was blue circle on Android). CODE_BUILD + footer + meta version all bumped to 695.' },
   { v: 'v694', date: '09-Apr-2026 IST', note: 'Debug: facAlertPush logs full Worker response. Added Diag button per faculty — sends real push and shows raw Worker response on screen. facAlertTestWorker + facAlertDiagPush for on-screen diagnostics.' },
   { v: 'v688', date: '09-Apr-2026 IST', note: 'Fix: rcLogWASend writes to davan_followup_logs (was student_followups — wrong collection, WA logs never appeared in Follow-ups tab). Fix: _flAllRecords updated + _fuFullyLoaded invalidated on WA send. Fix: INT 1/INT 2 TOTAL summary card sub-line font 9px → 12px bold, main value 18px → 22px.' },
@@ -31495,30 +31497,49 @@ let _presenceRef = null;
 
 function livePresenceInit(profile) {
   if (!rtdb) return;
-  const uid = profile.username || profile.name || 'unknown';
-  const data = {
-    name:   profile.name || uid,
-    role:   profile.role || '—',
-    device: /mobile|android|iphone/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
-    since:  Date.now(),
-  };
+  const uid          = profile.username || profile.name || 'unknown';
+  const HEARTBEAT_MS = 4 * 60 * 1000;   // write every 4 min
+  const STALE_MS     = 15 * 60 * 1000;  // stale if no heartbeat for 15 min
+  const loginTime    = Date.now();
+
+  function makeData() {
+    return {
+      name:     profile.name || uid,
+      role:     profile.role || '—',
+      device:   /mobile|android|iphone/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+      since:    loginTime,           // login time — never changes
+      lastSeen: Date.now(),          // updated every heartbeat — used for stale check
+    };
+  }
 
   // Write presence + auto-remove on disconnect
-  // Manager/VP: RTDB rules deny writes to /davan_presence — skip silently, they can still read
+  // Manager/VP: RTDB rules deny writes to /davan_presence — skip silently
   const canWritePresence = !['manager','vp'].includes(profile.role);
   if (canWritePresence) {
     _presenceRef = rtdb.ref('davan_presence/' + uid);
-    _presenceRef.set(data);
+    _presenceRef.set(makeData());
     _presenceRef.onDisconnect().remove();
-    // Refresh every 4 minutes to keep alive
-    setInterval(() => _presenceRef?.set(data), 4 * 60 * 1000);
+    // Heartbeat — updates lastSeen so stale-check can distinguish crash vs active
+    setInterval(() => _presenceRef?.update({ lastSeen: Date.now() }), HEARTBEAT_MS);
   }
 
   // Admin: watch all presence
   if (['admin','manager'].includes(profile.role)) {
     rtdb.ref('davan_presence').on('value', snap => {
+      const now   = Date.now();
       const users = [];
-      snap.forEach(child => users.push({ uid: child.key, ...child.val() }));
+      const stale = [];
+      snap.forEach(child => {
+        const val      = child.val();
+        const lastSeen = val.lastSeen || val.since || 0;
+        if (lastSeen && (now - lastSeen) > STALE_MS) {
+          stale.push(child.key); // collect stale keys, remove after loop
+        } else {
+          users.push({ uid: child.key, ...val });
+        }
+      });
+      // Remove stale entries outside the loop to avoid cascade re-triggers
+      stale.forEach(key => rtdb.ref('davan_presence/' + key).remove());
       livePresenceRender(users);
     });
   }
