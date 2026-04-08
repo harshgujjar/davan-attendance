@@ -16,12 +16,10 @@ const BYPASS_URLS = [
 ];
 
 self.addEventListener('install', e => {
-  console.log('[SW] Installing:', CACHE_VERSION);
   self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
-  console.log('[SW] Activating:', CACHE_VERSION);
   e.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k)))
@@ -45,62 +43,31 @@ self.addEventListener('fetch', e => {
 });
 
 self.addEventListener('push', e => {
-  console.log('[SW] Push received');
   let data = { title: 'Davan College', body: 'You have a notification.' };
-  try {
-    data = e.data.json();
-    console.log('[SW] Push data:', JSON.stringify(data));
-  } catch(err) {
+  try { data = e.data.json(); } catch(err) {
     try { data.body = e.data.text(); } catch(e2) {}
   }
-
-  // Build options — keep it simple, no image field (causes silent failure on some Android)
   const options = {
-    body:    data.body  || '',
-    icon:    data.icon  || ICON_URL,
-    badge:   data.badge || ICON_URL,
+    body:    data.body    || '',
+    icon:    data.icon    || ICON_URL,
+    badge:   data.badge   || ICON_URL,
+    image:   data.image   || undefined,
     vibrate: [200, 100, 200],
-    tag:     data.tag   || 'davan-alert',
-    data:    { title: data.title, body: data.body, icon: data.icon || '🔔' },
+    tag:     data.tag     || 'davan-alert',
+    data:    data.data    || {},
+    actions: data.actions || [],
   };
-
-  console.log('[SW] Showing notification:', data.title, '| icon:', options.icon);
-
-  e.waitUntil(
-    self.registration.showNotification(data.title || 'Davan College', options)
-    .then(() => {
-      console.log('[SW] Notification shown OK');
-      // Post to all open clients to store in inbox
-      return clients.matchAll({ type: 'window' }).then(list => {
-        list.forEach(c => c.postMessage({
-          type: 'PUSH_RECEIVED',
-          title: data.title || 'Davan College',
-          body:  data.body  || '',
-          icon:  data.icon  || '🔔',
-          ts:    Date.now()
-        }));
-      });
-    })
-    .catch(err => console.error('[SW] showNotification failed:', err))
-  );
+  e.waitUntil(self.registration.showNotification(data.title || 'Davan College', options));
 });
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const data = e.notification.data || {};
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       for (const client of list) {
-        if (client.url.includes('davan-attendance') && 'focus' in client) {
-          client.postMessage({ type: 'NOTIF_CLICKED', ...data });
-          return client.focus();
-        }
+        if (client.url.includes('davan-attendance') && 'focus' in client) return client.focus();
       }
       if (clients.openWindow) return clients.openWindow(APP_URL);
     })
   );
-});
-
-self.addEventListener('message', e => {
-  if (e.data === 'SKIP_WAITING') self.skipWaiting();
 });
