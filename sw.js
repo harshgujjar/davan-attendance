@@ -50,7 +50,7 @@ self.addEventListener('push', e => {
   const options = {
     body:    data.body    || '',
     icon:    data.icon    || ICON_URL,
-    badge:   data.badge   || undefined,
+    badge:   data.badge   || ICON_URL,
     image:   data.image   || undefined,
     vibrate: [200, 100, 200],
     tag:     data.tag     || 'davan-alert',
@@ -70,4 +70,8 @@ self.addEventListener('notificationclick', e => {
       if (clients.openWindow) return clients.openWindow(APP_URL);
     })
   );
+});
+
+self.addEventListener('message', e => {
+  if (e.data === 'SKIP_WAITING') self.skipWaiting();
 });
