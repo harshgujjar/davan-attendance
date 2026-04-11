@@ -84,16 +84,16 @@
      "✅ Working from: index_vXXX.html"
 
   ── SESSION HANDOFF (update on every build) ──────────────────────
-  Version    : v738
+  Version    : v744
   Date       : 11-Apr-2026 IST
-  Last change: Fix: logout always writes loggedIn:false to RTDB (v738).
-               Root cause: devToken guard in davanWidgetSync logout block
-               skipped the RTDB write when localStorage was empty/fresh.
-               Widget then read stale loggedIn:true and stayed on old user.
-               Fix: removed devToken guard — uid is always available from
-               currentUser.uid so the RTDB write now always happens.
+  Last change: Fix: FA_WORKER_CODE — failedSids was pushing only the last
+               20 chars of endpoint (slice(-20)) instead of the full URL.
+               This caused the v743 prune logic in facAlertPush to never
+               match and never clean up dead subscriptions. Worker now
+               pushes full endpoint string. Redeploy worker from Faculty
+               Alerts → Show Cloudflare Worker Code for fix to take effect.
   Open issues: None.
-  Resume tip : Upload index_v737.html and say "Continue from handoff"
+  Resume tip : Upload index_v744.html and say "Continue from handoff"
   ================================================================
   -->
   <!-- ── Eruda mobile console — remove these 2 lines when done debugging ── -->
@@ -7859,6 +7859,35 @@ function wcpInit() {
     const dismissed = sessionStorage.getItem('wcp_apk_dismissed');
     apk.style.display = (isStandalone || dismissed) ? 'none' : 'block';
   }
+
+  // Check if installed widget APK is outdated vs current PWA
+  wcpCheckWidgetVersion();
+}
+
+async function wcpCheckWidgetVersion() {
+  try {
+    if (!rtdb || !currentUser) return;
+    const snap = await rtdb.ref('davan_pub/widget_pin/' + currentUser.uid).once('value');
+    if (!snap.exists()) return;
+    const installedVer = snap.val().htmlVersion || 0;
+    if (installedVer > 0 && installedVer < CODE_BUILD) {
+      const existing = document.getElementById('wcp-update-banner');
+      if (existing) existing.remove();
+      const banner = document.createElement('div');
+      banner.id = 'wcp-update-banner';
+      banner.style.cssText = 'background:#78350F;color:#FDE68A;padding:10px 14px;border-radius:8px;margin-top:10px;font-size:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;';
+      banner.innerHTML =
+        '<span>📲 Widget update available — installed v' + installedVer + ', latest v' + CODE_BUILD + '. Reinstall the APK.</span>' +
+        '<div style="display:flex;gap:8px;align-items:center;">' +
+        '<a href="https://harshgujjar.github.io/davan-attendance/DavanWidget.apk" ' +
+        'style="background:#FDE68A;color:#78350F;padding:5px 12px;border-radius:6px;font-weight:bold;text-decoration:none;font-size:12px;white-space:nowrap;">⬇️ Update</a>' +
+        '<span onclick="document.getElementById(\'wcp-update-banner\').remove()" ' +
+        'style="cursor:pointer;opacity:0.6;font-size:15px;padding:0 4px;">✕</span>' +
+        '</div>';
+      const panel = document.getElementById('widget-control-panel');
+      if (panel) panel.appendChild(banner);
+    }
+  } catch(e) { /* silent */ }
 }
 function wcpClose() {
   // Close Home Screen Widget panel for this session only — reappears on refresh
@@ -7876,7 +7905,18 @@ function wcpForceRefresh() {
   if (!currentUser || !currentProfile) return;
   davanWidgetSync(currentUser, currentProfile);
   const msg = document.getElementById('wcp-msg');
-  if (msg) { msg.textContent = '✓ Refresh triggered'; setTimeout(() => { msg.textContent = ''; }, 2000); }
+  if (!msg) return;
+  if (window.DavanWidgetBridge) {
+    // Inside the Android app WebView — widget refreshes immediately
+    msg.style.color = '#34D399';
+    msg.textContent = '✓ Widget refreshing now…';
+  } else {
+    // Browser — RTDB updated, widget picks it up on next periodic fetch (~30 min)
+    // or tap the widget to open the app and it will refresh immediately
+    msg.style.color = '#FDE68A';
+    msg.textContent = '✓ Data updated. Widget refreshes within 30 min, or open the widget app to refresh now.';
+  }
+  setTimeout(() => { msg.textContent = ''; }, 5000);
 }
 function wcpClearWidget() {
   davanWidgetSync(null, null);
@@ -7896,7 +7936,7 @@ async function wcpTestClassNotif() {
     if (p !== 'granted') { wcpWarn('Permission denied'); return; }
   }
   const opts = {
-    body: 'III YEAR BCA (A) — Advanced Java\n09.30 to 10.30',
+    body: 'III YEAR BCA (A) — Advanced Java\n09.30 to 10.30\n\nSent: ' + faDtStamp(),
     icon: 'https://harshgujjar.github.io/davan-attendance/icon-192.png',
     tag: 'class-reminder'
   };
@@ -10202,8 +10242,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 738;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '10-Apr-2026', time: '22:00', full: '10-Apr-2026 22:00 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 744;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '11-Apr-2026', time: '21:00', full: '11-Apr-2026 21:00 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -18344,6 +18384,10 @@ function updateDataStrip() {
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
   { v: 'v737', date: '11-Apr-2026 IST', note: 'Fix: widget_pin keyed by UID — confirmed root cause from Firebase RTDB + logcat: PWA wrote widget_pin/_wpbk37k4_ (its localStorage devToken), APK read widget_pin/dev_f16e1680_ (its SharedPrefs devToken) — two independently-generated tokens that never matched, so widget always fell back to admin. Fix: use Firebase UID as the key on both sides. PWA now writes davan_pub/widget_pin/<uid>. APK v75 reads widget_pin/<cachedUid>, falls back to widget_identity/* scan on first run to discover UID, caches it, next fetch reads widget_pin/<uid> directly.' },
+  { v: 'v744', date: '11-Apr-2026 21:00 IST', note: 'Fix: FA_WORKER_CODE — failedSids was pushing sub.endpoint.slice(-20) (last 20 chars) instead of full endpoint URL. This broke the v743 prune logic — facAlertPush could never match failedSids against stored subscriptions so dead subs were never cleaned. Worker now returns full endpoint. Requires worker redeploy from Faculty Alerts → Show Cloudflare Worker Code.' },
+  { v: 'v743', date: '11-Apr-2026 20:30 IST', note: 'Fix: facAlertPush now auto-prunes expired/unsubscribed (410) endpoints from Firestore after every push send. Parses failedSids from worker response, resolves faculty Firestore key with alias lookup, removes dead subs, logs "🧹 Pruned N". Previously only facAlertNotifyAdmin pruned admin subs — faculty subs accumulated stale entries forever.' },
+  { v: 'v742', date: '11-Apr-2026 19:30 IST', note: 'Feat: All push notifications (auto + manual) now include sending date+time as last line of body — format "11/4 9:58" (D/M H:MM, no leading zeros, IST). faDtStamp() helper added. Applied to: facAlertBuildMsg (pre-class + day-before auto), facAlertSendTest, facAlertSendManualAll, facAlertSendDayBefore, facAlertNotifyAdmin (admin confirmations + login alert), calNotifBuildMessage (calendar events), wcpTestClassNotif, faWidgetToast.' },
+  { v: 'v741', date: '11-Apr-2026 18:00 IST', note: 'Fix: lmAllocMatchesCode — removed ac.startsWith(base) prefix match that caused AFM (Roopa M C) to falsely appear in AF slots alongside Chandan G B. Now exact-match only; lmBaseCode alias normalisation covers all legitimate variants. Fix: rcRenderFollowups (Report Card side-panel follow-up section) now loads and renders WA/notification history above visit records, fully in sync with scRenderFollowups (Follow-ups tab). Both views show identical data for the same student.' },
   { v: 'v739', date: '11-Apr-2026 IST', note: 'Fix: Android WebView bridge — davanWidgetSync now detects window.DavanWidgetBridge (injected when PWA runs inside widget WebView) and calls saveUser(uid, role, name, email) directly. Widget stores uid in SharedPrefs and fetches widget_pin/<uid> directly — no devToken, no updatedAt scan, no guessing. Logout calls clearUser(). RTDB write still happens after so data is always fresh.' },
   { v: 'v736', date: '11-Apr-2026 IST', note: 'Fix: widget_pin self-contained payload — davanWidgetSync now writes the COMPLETE payload directly into widget_pin/<devToken>.' },
   { v: 'v735', date: '11-Apr-2026 IST', note: 'Fix: Widget Device Binding — davanWidgetSync now generates a permanent per-device token (davan_widget_dev_token in localStorage) and writes davan_pub/widget_pin/<devToken> = { uid, name, role, loggedIn, updatedAt } on every login. Root cause of bug: widget was scanning all widget_identity/* nodes and picking the most-recent updatedAt — so the last person to log in on any device showed on everyone\'s home-screen widget. Fix ensures each phone is pinned to its own UID. On logout, widget_pin/<devToken>.loggedIn is set to false. Android APK needs companion update to read widget_pin/<devToken> instead of scanning all entries.' },
@@ -21489,7 +21533,8 @@ function lmAllocMatchesCode(alloc, slotCode) {
   }
   if (!alloc.code) return true; // no code = accept any
   const ac = lmBaseCode(alloc.code);
-  return ac === base || base.startsWith(ac) || ac.startsWith(base);
+  // Exact match only — startsWith was causing AFM to falsely match AF slots
+  return ac === base;
 }
 
 // For a split class slot (K/H), return ALL faculty allocs that match
@@ -26259,13 +26304,14 @@ async function rcRenderFollowups(s) {
   body.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:8px 0;">Loading…</div>';
   await fuLoadAll();
 
-  const records = (_fuAllFollowups[urn] || []).slice().sort((a, b) => new Date(b.meetingDate) - new Date(a.meetingDate));
-
-  if (!records.length) {
-    body.innerHTML = '<div style="text-align:center;padding:20px 0;color:var(--muted);font-size:12px;">'
-      + '<div style="font-size:24px;margin-bottom:6px;">🤝</div>No visit records yet.</div>';
-    return;
+  // Also load notification logs if not already loaded (sync with Follow-ups tab)
+  if (!_notificationLogs || !Object.keys(_notificationLogs).length) {
+    try { await ntLoadLogs(); } catch(e) {}
   }
+
+  const records   = (_fuAllFollowups[urn] || []).slice().sort((a, b) => new Date(b.meetingDate) - new Date(a.meetingDate));
+  const ntLog     = _notificationLogs[urn];
+  const ntEntries = (ntLog?.notifications || []).slice().sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   const uid    = firebase.auth().currentUser?.uid || '';
   const role   = currentProfile?.role || '';
@@ -26274,6 +26320,32 @@ async function rcRenderFollowups(s) {
   const safeName = (s.name || '').replace(/'/g, '&#39;');
 
   let html = '';
+
+  // ── WhatsApp / Notification history section (same as Follow-ups tab) ──
+  if (ntEntries.length) {
+    html += '<div style="background:rgba(37,211,102,0.07);border:1px solid rgba(37,211,102,0.25);border-radius:10px;padding:12px;margin-bottom:16px;">';
+    html += '<div style="font-size:11px;font-weight:700;color:#25d366;font-family:var(--mono);letter-spacing:1px;margin-bottom:10px;">\u{1F4F2} WHATSAPP / NOTIFICATION HISTORY (' + ntEntries.length + ')</div>';
+    ntEntries.slice(0,10).forEach(function(n) {
+      const ts = n.timestamp ? new Date(n.timestamp).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}) : '\u2014';
+      const roleColor = {admin:'var(--accent)',manager:'#60a5fa',vp:'#a78bfa',faculty:'#22c55e'}[n.senderRole]||'var(--muted)';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:4px;">';
+      html += '<span style="font-size:11px;font-weight:700;color:' + roleColor + ';">' + (n.senderName||'\u2014') + ' <span style="font-size:10px;opacity:0.7;">(' + (n.senderRole||'') + ')</span></span>';
+      html += '<span style="font-size:10px;color:var(--muted);font-family:var(--mono);">' + ts + '</span>';
+      html += '</div>';
+      if (n.phone) html += '<div style="font-size:10px;color:var(--muted);">\u{1F4DE} Sent to: <strong style="color:var(--text);">+91 ' + n.phone + '</strong>' + (n.lang?' \u00a0\u00b7\u00a0 '+n.lang:'') + '</div>';
+      if (n.messagePreview) html += '<div style="font-size:10px;color:var(--muted);margin-top:4px;font-style:italic;">"' + (n.messagePreview||'').replace(/</g,'&lt;').substring(0,100) + '\u2026"</div>';
+      html += '</div>';
+    });
+    if (ntEntries.length > 10) html += '<div style="font-size:10px;color:var(--muted);text-align:center;">+ ' + (ntEntries.length-10) + ' older entries</div>';
+    html += '</div>';
+  }
+
+  if (!records.length && !ntEntries.length) {
+    body.innerHTML = html + '<div style="text-align:center;padding:20px 0;color:var(--muted);font-size:12px;">'
+      + '<div style="font-size:24px;margin-bottom:6px;">\u{1F91D}</div>No visit records yet.</div>';
+    return;
+  }
   records.forEach(r => {
     const ts = (function() {
       if (r.tokenStatus === 'closed') return 'closed';
@@ -28227,7 +28299,7 @@ async function faWidgetToast(faculty) {
     if (!rtdb) { dvToast('RTDB not available', 'error'); return; }
     const now = Date.now();
     const title = '📱 Admin Message';
-    const body  = msg.trim();
+    const body  = msg.trim() + '\n\nSent: ' + faDtStamp();
     const target = 'specific:' + faculty;
     // davan_live_toast — for PWA in-app banner (liveToastInit reads title+body)
     await rtdb.ref('davan_live_toast').set({
@@ -28498,13 +28570,23 @@ function facAlertRenderPreview() {
 }
 
 // ── Build message from template ───────────────────────────────
+// ── Compact timestamp for all push notification bodies ──
+// Returns e.g. "11/4 9:58" (D/M H:MM, no leading zeros, IST)
+function faDtStamp() {
+  const n = new Date();
+  const ist = new Date(n.getTime() + (5*60+30)*60000);
+  return ist.getUTCDate() + '/' + (ist.getUTCMonth()+1) + ' ' +
+    ist.getUTCHours() + ':' + String(ist.getUTCMinutes()).padStart(2,'0');
+}
+
 function facAlertBuildMsg(tmpl, s, dayName) {
-  return (tmpl||'')
+  const msg = (tmpl||'')
     .replace(/{faculty}/g, s.faculty||'')
     .replace(/{subject}/g, s.subject||'')
     .replace(/{class}/g,   s.class||'')
     .replace(/{day}/g,     dayName||'')
     .replace(/{time}/g,    s.time||'');
+  return msg + '\n\nSent: ' + faDtStamp();
 }
 
 // ── Send push to one faculty ──────────────────────────────────
@@ -28521,7 +28603,7 @@ async function facAlertSendOne(faculty, subject, cls, time, dayName) {
 async function facAlertSendTest(faculty) {
   const subs = facAlertGetSubs(faculty);
   if (!subs.length) { dvAlert('No Subscription', `${faculty} has no push subscription. They need to open the app and allow notifications.`, {icon:'🔔'}); return; }
-  const msg = `Dear ${faculty}, this is a test notification from Davan Attendance System. Push notifications are working correctly.`;
+  const msg = `Dear ${faculty}, this is a test notification from Davan Attendance System. Push notifications are working correctly.\n\nSent: ${faDtStamp()}`;
   await facAlertPush(faculty, 'Test Alert — Davan College', msg, subs);
   facAlertNotifyAdmin('✅ Test Sent — ' + faculty, 'Test notification delivered');
   liveShowToast('✅ Test sent', faculty, '🔔', 4000);
@@ -28529,6 +28611,8 @@ async function facAlertSendTest(faculty) {
 
 // Send confirmation push to admin via Worker (same path as faculty notifications)
 async function facAlertNotifyAdmin(title, body) {
+  // Append send timestamp to all admin confirmation pushes
+  const bodyWithTs = body + '\n\nSent: ' + faDtStamp();
   // Get admin's own push subscription from Firestore
   const adminKey = currentProfile?.facultyKey || currentProfile?.name || currentProfile?.username || 'admin';
   console.log('[AdminNotif] facAlertNotifyAdmin called | adminKey=' + adminKey + ' | faWorkerUrl=' + faWorkerUrl + ' | FA_SUBS_DOC=' + FA_SUBS_DOC);
@@ -28544,7 +28628,7 @@ async function facAlertNotifyAdmin(title, body) {
         const res = await fetch(faWorkerUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, body, subscriptions: adminSubs }),
+          body: JSON.stringify({ title, body: bodyWithTs, subscriptions: adminSubs }),
         });
         const resText = await res.text();
         console.log('[AdminNotif] Worker response status=' + res.status + ' body=' + resText);
@@ -28584,7 +28668,7 @@ async function facAlertNotifyAdmin(title, body) {
   console.log('[AdminNotif] Falling back to local SW notification | permission=' + Notification.permission);
   if (!('Notification' in window)) { console.warn('[AdminNotif] Notification API not available'); return; }
   const opts = {
-    body,
+    body: bodyWithTs,
     icon: 'https://harshgujjar.github.io/davan-attendance/icon-192.png',
     badge: 'https://harshgujjar.github.io/davan-attendance/icon-192.png',
     tag: 'admin-confirm',
@@ -28613,7 +28697,7 @@ async function facAlertSendManualAll() {
     let sent = 0;
     for (const fac of subscribed) {
       const subs = facAlertGetSubs(fac);
-      await facAlertPush(fac, 'Test Alert — Davan College', 'Test notification for ' + fac + '. System is working ✅', subs, true);
+      await facAlertPush(fac, 'Test Alert — Davan College', 'Test notification for ' + fac + '. System is working ✅\n\nSent: ' + faDtStamp(), subs, true);
       sent++;
       // Progress toast every 3 sends
       if (sent % 3 === 0) dvToast('📣 Sending... ' + sent + '/' + subscribed.length, 'info', 5000);
@@ -28644,7 +28728,7 @@ async function facAlertSendDayBefore() {
     // Build combined message for all classes
     const title = 'Tomorrow: ' + classes.length + ' class' + (classes.length>1?'es':'') + ' — Davan College';
     const lines = classes.map(s => '• ' + s.subject + ' (' + s.class + ') at ' + s.time);
-    const body  = 'Reminder for ' + dayName + ':\n' + lines.join('\n');
+    const body  = 'Reminder for ' + dayName + ':\n' + lines.join('\n') + '\n\nSent: ' + faDtStamp();
 
     // Single push notification with all classes
     await facAlertPush(faculty, title, body, subs, true); // true = skip individual toast
@@ -28690,6 +28774,32 @@ async function facAlertPush(faculty, title, body, subs, skipToast) {
     const failCount  = parsed.failed ?? '?';
     const failedSids = parsed.failedSids?.length ? ' | failedSids:' + parsed.failedSids.join(',') : '';
     facAlertLogEntry((ok ? '✅' : '❌') + ' ' + faculty + ': sent=' + sentCount + ' failed=' + failCount + failedSids + ' | ' + title.slice(0,30));
+
+    // Auto-prune expired/unsubscribed endpoints (410/404) from Firestore
+    if (parsed.failedSids && parsed.failedSids.length) {
+      try {
+        const doc = await db.collection('app_data').doc(FA_SUBS_DOC).get();
+        if (doc.exists) {
+          const data = doc.data();
+          // Find the Firestore key that holds this faculty's subs
+          const candidates = new Set([faculty]);
+          const ALIASES = window.FACULTY_NAME_ALIASES || {};
+          if (ALIASES[faculty]) candidates.add(ALIASES[faculty]);
+          for (const [k,v] of Object.entries(ALIASES)) {
+            if (k === faculty || v === faculty) { candidates.add(k); candidates.add(v); }
+          }
+          const liveKey = [...candidates].find(c => data[c]?.length) || faculty;
+          const current = data[liveKey] || [];
+          const pruned  = current.filter(s => !parsed.failedSids.includes(s.endpoint));
+          if (pruned.length < current.length) {
+            await db.collection('app_data').doc(FA_SUBS_DOC).set(
+              { [liveKey]: pruned }, { merge: true }
+            );
+            facAlertLogEntry('🧹 Pruned ' + (current.length - pruned.length) + ' expired sub(s) for ' + faculty);
+          }
+        }
+      } catch(e) { console.warn('[FA] Prune error for', faculty, e.message); }
+    }
 
     // Fire individual live toast per faculty (skip during bulk day-before send)
     if (ok && !skipToast && faConfig.toastEnabled !== false && rtdb) {
@@ -28944,7 +29054,7 @@ export default {
       } catch(e) {
         failed++;
         errors.push(e.message);
-        failedSids.push(sub.endpoint?.slice(-20)||'?');
+        failedSids.push(sub.endpoint||'?');
       }
     }
     return new Response(JSON.stringify({ ok:true, sent, failed, errors, failedSids }), { headers:CORS });
@@ -29031,7 +29141,7 @@ async function scheduledMain(env) {
       if (k.toLowerCase().trim() === facLower && Array.isArray(v) && v.length) return v;
     }
     // Token-overlap match
-    const tokenSet = n => n.toLowerCase().trim().split(/\s+/).filter(t=>t.length>1);
+    const tokenSet = n => n.toLowerCase().trim().split(/\\s+/).filter(t=>t.length>1);
     const facTokens = tokenSet(faculty);
     if (facTokens.length >= 2) {
       for (const [k, v] of Object.entries(faSubscriptions)) {
@@ -29051,8 +29161,8 @@ async function scheduledMain(env) {
     const schedule = [];
     slots.forEach(t => {
       const rawCode  = (t.code||'').trim();
-      const normCode = rawCode.replace(/^K\([^)]+\)\/H$/i,'K/H')
-                               .replace(/^K\([^)]+\)$/i,'KAN')
+      const normCode = rawCode.replace(/^K\\([^)]+\\)\\/H$/i,'K/H')
+                               .replace(/^K\\([^)]+\\)$/i,'KAN')
                                .split(' ')[0]
                                .replace(/[0-9]+$/,'');
       const allocs = allocations.filter(a => {
@@ -29064,13 +29174,13 @@ async function scheduledMain(env) {
         });
       });
       const cls = (t.class||'').toUpperCase();
-      const clsHasSection = /\([A-Z]\)/.test(cls);
-      const clsNorm = cls.replace(/\./g,'');
+      const clsHasSection = /\\([A-Z]\\)/.test(cls);
+      const clsNorm = cls.replace(/\\./g,'');
       const matchedAllocs = allocs.filter(a => {
-        const course = (a.course||'').toUpperCase().replace(/\./g,'');
+        const course = (a.course||'').toUpperCase().replace(/\\./g,'');
         if (!clsNorm.includes(course)) return false;
         if (clsHasSection) {
-          const secMatch = (a.section||'').match(/\(([A-Z])\)/);
+          const secMatch = (a.section||'').match(/\\(([A-Z])\\)/);
           if (secMatch && !cls.includes('('+secMatch[1]+')')) return false;
         }
         const yearMap = {'I':1,'II':2,'III':3,'IV':4,'V':5,'VI':6};
@@ -29092,7 +29202,7 @@ async function scheduledMain(env) {
 
   // ── Helper: template ────────────────────────────────────────
   function buildMsg(tmpl, vars) {
-    return (tmpl||'').replace(/\{(\w+)\}/g, (_,k) => vars[k]||'');
+    return (tmpl||'').replace(/\\{(\\w+)\\}/g, (_,k) => vars[k]||'');
   }
 
   // ── Helper: send push via self worker endpoint ───────────────
@@ -29127,7 +29237,7 @@ async function scheduledMain(env) {
         const dateDisp = d.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric', timeZone:'Asia/Kolkata' });
         const icons = { holiday:'🎉', event:'📌', exam:'📝', vacc:'💉', working:'🏫', other:'📅' };
         const calTitle = '📅 Tomorrow — ' + dayDisp + ' ' + dateDisp;
-        const calBody  = events.map(e => (icons[e.type]||'📅') + ' ' + e.name + (e.for?' ('+e.for+')':'')).join('\n');
+        const calBody  = events.map(e => (icons[e.type]||'📅') + ' ' + e.name + (e.for?' ('+e.for+')':'')).join('\\n');
         // Send to all subscribed faculty
         const faculties = [...new Set(allocations.map(a=>a.faculty).filter(Boolean))];
         for (const fac of faculties) {
@@ -29163,7 +29273,7 @@ async function scheduledMain(env) {
   // Pre-class alerts
   const schedule = getSchedule(dayName);
   for (const s of schedule) {
-    const m = (s.time||'').match(/(\d+)[.:](\d+)/);
+    const m = (s.time||'').match(/(\\d+)[.:](\\d+)/);
     if (!m) continue;
     const rawH = parseInt(m[1]), rawM = parseInt(m[2]);
     const classH = (rawH >= 1 && rawH <= 7) ? rawH + 12 : rawH;
@@ -29313,7 +29423,7 @@ function b64url(data)     {
 function b64decode(s)     {
   const b = s.replace(/-/g,'+').replace(/_/g,'/');
   return Uint8Array.from(atob(b), c=>c.charCodeAt(0));
-}\``;
+}`;
 // ── sw.js code ────────────────────────────────────────────────
 const FA_SW_CODE = `// sw.js — Davan Attendance System v5
 const CACHE_VERSION = 'davan-v5';
@@ -33258,7 +33368,7 @@ function calNotifBuildMessage(events, dateStr) {
   const lines = events.map(e => (typeIcon[e.type]||'📅') + ' ' + e.name + (e.for ? ' (' + e.for + ')' : ''));
   return {
     title: '📅 Tomorrow — ' + dayName + ' ' + dateDisp,
-    body:  lines.join('\n'),
+    body:  lines.join('\n') + '\n\nSent: ' + faDtStamp(),
   };
 }
 
