@@ -84,23 +84,17 @@
      "✅ Working from: index_vXXX.html"
 
   ── SESSION HANDOFF (update on every build) ──────────────────────
-  Version    : v736
+  Version    : v737
   Date       : 11-Apr-2026 IST
-  Last change: Fix: widget_pin self-contained payload (davanWidgetSync v736).
-               Root cause of v735 flaw: widget_pin held only { uid } and pointed
-               to widget_identity/<uid> for full data. But widget_identity/<uid>
-               is shared across all devices logged in as same user — so Phone A
-               logout set chandan.loggedIn=false, breaking Phone B's widget.
-               Fix: widget_pin/<devToken> now holds the COMPLETE payload (name,
-               role, facultyKey, ttSlots, loggedIn, etc). Android widget reads
-               ONLY widget_pin/<devToken> — 1 RTDB read, no second lookup.
-               On logout only widget_pin/<devToken> is updated — widget_identity
-               is never cleared (kept as admin "last seen" record only).
-               Each device is fully isolated — same user on 2 phones = 2 nodes,
-               neither can affect the other.
-  Open issues: Android APK needs update to read widget_pin/<devToken> directly
-               (full payload) instead of widget_identity scan or 2-step lookup.
-  Resume tip : Upload index_v736.html and say "Continue from handoff"
+  Last change: Fix: widget_pin now keyed by UID (davanWidgetSync v737).
+               Confirmed root cause from Firebase RTDB + logcat:
+               PWA wrote widget_pin/_wpbk37k4_ (devToken), APK read
+               widget_pin/dev_f16e1680_ (its own devToken) — never matched.
+               Fix: both sides now use Firebase UID as the key.
+               PWA writes widget_pin/<uid>. APK (v75) reads widget_pin/<cachedUid>,
+               falls back to widget_identity scan on first run to get UID.
+  Open issues: None.
+  Resume tip : Upload index_v737.html and say "Continue from handoff"
   ================================================================
   -->
   <!-- ── Eruda mobile console — remove these 2 lines when done debugging ── -->
@@ -7801,7 +7795,7 @@ async function davanWidgetSync(user, profile) {
       //    This is the ONLY path the Android widget reads.
       //    Each device owns this node exclusively — logout on another device
       //    never touches this node, so Phone B is never broken by Phone A.
-      await rtdb.ref('davan_pub/widget_pin/' + devToken).set(payload);
+      await rtdb.ref('davan_pub/widget_pin/' + user.uid).set(payload); // v737: uid as key
 
       // 2. Write to widget_identity/<uid> for the admin panel only.
       //    loggedIn is always true here — we do NOT clear it on logout
@@ -7809,7 +7803,7 @@ async function davanWidgetSync(user, profile) {
       //    Admin panel uses it as "last seen" info — stale is acceptable.
       await rtdb.ref('davan_pub/widget_identity/' + user.uid).set(payload);
 
-      console.log('[WidgetSync v736] devToken', devToken, '→', profile.name, '(' + user.uid + ')');
+      console.log('[WidgetSync v737] uid=' + user.uid + ' name=' + profile.name);
 
     } else if (currentUser && currentUser.uid) {
       // ── LOGOUT ──
@@ -7817,12 +7811,12 @@ async function davanWidgetSync(user, profile) {
       // Do NOT touch widget_identity/<uid> — another device may still be
       // logged in as the same user and must not be disrupted.
       if (devToken) {
-        await rtdb.ref('davan_pub/widget_pin/' + devToken).update({
+        await rtdb.ref('davan_pub/widget_pin/' + currentUser.uid).update({ // v737
           loggedIn:    false,
           loggedOutAt: Date.now()
         });
       }
-      console.log('[WidgetSync v736] Logout — cleared widget_pin/' + devToken);
+      console.log('[WidgetSync v737] Logout uid=' + currentUser.uid);
     }
   } catch (e) {
     console.warn('[WidgetSync] RTDB write failed silently:', e);
@@ -10185,7 +10179,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 736;  // always = HTML footer version number
+const CODE_BUILD = 737;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '10-Apr-2026', time: '22:00', full: '10-Apr-2026 22:00 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
@@ -18326,7 +18320,8 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
-  { v: 'v736', date: '11-Apr-2026 IST', note: 'Fix: widget_pin self-contained payload — davanWidgetSync now writes the COMPLETE payload (uid, name, role, facultyKey, email, htmlVersion, loggedIn, updatedAt, ttSlots) directly into widget_pin/<devToken>. Android widget reads only this one node — no second lookup into widget_identity needed. On logout only widget_pin/<devToken>.loggedIn is set to false; widget_identity/<uid> is never cleared on logout (kept as admin last-seen record only). This fixes the v735 flaw where same user logged in on 2 phones shared widget_identity/<uid> — Phone A logout set loggedIn:false on that shared node, breaking Phone B widget. Now each device is completely isolated: same user on Phone A and Phone B = 2 independent widget_pin nodes, neither can affect the other.' },
+  { v: 'v737', date: '11-Apr-2026 IST', note: 'Fix: widget_pin keyed by UID — confirmed root cause from Firebase RTDB + logcat: PWA wrote widget_pin/_wpbk37k4_ (its localStorage devToken), APK read widget_pin/dev_f16e1680_ (its SharedPrefs devToken) — two independently-generated tokens that never matched, so widget always fell back to admin. Fix: use Firebase UID as the key on both sides. PWA now writes davan_pub/widget_pin/<uid>. APK v75 reads widget_pin/<cachedUid>, falls back to widget_identity/* scan on first run to discover UID, caches it, next fetch reads widget_pin/<uid> directly.' },
+  { v: 'v736', date: '11-Apr-2026 IST', note: 'Fix: widget_pin self-contained payload — davanWidgetSync now writes the COMPLETE payload directly into widget_pin/<devToken>.' },
   { v: 'v735', date: '11-Apr-2026 IST', note: 'Fix: Widget Device Binding — davanWidgetSync now generates a permanent per-device token (davan_widget_dev_token in localStorage) and writes davan_pub/widget_pin/<devToken> = { uid, name, role, loggedIn, updatedAt } on every login. Root cause of bug: widget was scanning all widget_identity/* nodes and picking the most-recent updatedAt — so the last person to log in on any device showed on everyone\'s home-screen widget. Fix ensures each phone is pinned to its own UID. On logout, widget_pin/<devToken>.loggedIn is set to false. Android APK needs companion update to read widget_pin/<devToken> instead of scanning all entries.' },
   { v: 'v734', date: '10-Apr-2026 IST', note: 'Cron Scheduler: FA_WORKER_CODE updated with scheduled() cron handler — Cloudflare Worker now reads fa_config, push_subscriptions, fa_fired, timetable, allocations, academic_calendar, config from Firestore REST API (no service account needed — uses existing Firebase web API key). Day-before alerts, pre-class alerts, and calendar event notifications all fire server-side via Cloudflare Cron Trigger (* * * * *). Browser setInterval remains as fallback. Setup: deploy new worker code → Cloudflare Settings → Triggers → add cron * * * * * → add env vars FIREBASE_PROJECT_ID + FIREBASE_API_KEY. Calendar notif warning updated from amber ⚠ to green ✅. Cron Setup instructions card added to Faculty Alerts panel.' },
   { v: 'v733', date: '10-Apr-2026 IST', note: 'Fix: Tomorrow\'s Event Notification — calNotifSchedulerCheck was blocked by faConfig.enabled gate (Faculty Alerts master toggle). Calendar notif now runs independently of FA toggle — moved calNotifSchedulerCheck call before the faConfig.enabled guard in facAlertSchedulerTick. Warning label added to card: scheduler requires app to be open in browser at configured time. Use Send Now for reliable manual delivery.' },
