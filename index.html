@@ -84,16 +84,17 @@
      "✅ Working from: index_vXXX.html"
 
   ── SESSION HANDOFF (update on every build) ──────────────────────
-  Version    : v744
-  Date       : 11-Apr-2026 IST
-  Last change: Fix: FA_WORKER_CODE — failedSids was pushing only the last
-               20 chars of endpoint (slice(-20)) instead of the full URL.
-               This caused the v743 prune logic in facAlertPush to never
-               match and never clean up dead subscriptions. Worker now
-               pushes full endpoint string. Redeploy worker from Faculty
-               Alerts → Show Cloudflare Worker Code for fix to take effect.
+  Version    : v748
+  Date       : 13-Apr-2026 IST
+  Last change: Fix: LP fetch now authenticates to portal RTDB correctly.
+               Portal RTDB requires Firebase anonymous auth (signInAnonymously).
+               Added _lpGetPortalToken() — inits 'lp-portal' Firebase app with
+               portal config (AIzaSyBnWSfjilDwri7dBpONF2GwgXDJnc1W--w), signs in
+               anonymously, appends ?auth=<idToken> to REST fetch.
+               Path confirmed: davan_pub/lessonPlan on portal RTDB.
+               Key format: BCA-HIN-SemII-SecA, d.faculty holds faculty name.
   Open issues: None.
-  Resume tip : Upload index_v744.html and say "Continue from handoff"
+  Resume tip : Upload index_v748.html and say "Continue from handoff"
   ================================================================
   -->
   <!-- ── Eruda mobile console — remove these 2 lines when done debugging ── -->
@@ -1684,6 +1685,18 @@
     </div>
     </div>
 
+    <!-- Lesson Plan -->
+    <div class="sidebar-card">
+      <div class="sidebar-section" id="nav-section-lessonplan" style="display:none;" onclick="secToggle('lessonplan')">
+        <span>Lesson Plan</span><span class="sec-arrow">▶</span>
+      </div>
+      <div class="sidebar-sec-items" id="sec-items-lessonplan">
+        <div class="sidebar-item" data-panel="lessonplan" onclick="switchPanel('lessonplan');lpInit()" id="nav-lessonplan" style="display:none;">
+          <span class="icon">📋</span> Lesson Plan
+        </div>
+      </div>
+    </div>
+
     <!-- Admin -->
 
     <div class="sidebar-card">    <div class="sidebar-section" id="nav-section-admin" style="display:none;" onclick="secToggle('admin')">
@@ -2058,6 +2071,56 @@
     <!-- ════════════════════════════════════════
          PANEL: FACULTY DASHBOARD
     ════════════════════════════════════════ -->
+    <!-- ════════════════════════════════════════
+         PANEL: LESSON PLAN
+    ════════════════════════════════════════ -->
+    <div class="panel" id="panel-lessonplan">
+      <div class="page-title">📋 Lesson Plan</div>
+      <div class="page-sub">Syllabus progress from Student Portal (scraped data)</div>
+
+      <!-- ── Toolbar ── -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+        background:var(--surface);border:1px solid var(--border);
+        border-radius:var(--radius);padding:12px 16px;margin-bottom:18px;">
+
+        <select id="lp-panel-class-sel" onchange="lpSetClassFilter(this.value)"
+          style="background:var(--surface2);color:var(--text);border:1px solid var(--border);
+          border-radius:6px;padding:7px 12px;font-size:12px;font-family:var(--mono);min-width:180px;">
+          <option value="">📚 All Classes</option>
+        </select>
+
+        <select id="lp-panel-fac-sel" onchange="lpSetFacFilter(this.value)"
+          style="background:var(--surface2);color:var(--text);border:1px solid var(--border);
+          border-radius:6px;padding:7px 12px;font-size:12px;font-family:var(--mono);min-width:180px;">
+          <option value="">👤 All Faculty</option>
+        </select>
+
+        <input id="lp-panel-search" type="text" placeholder="🔍 Search subject…"
+          oninput="lpRender()"
+          style="background:var(--surface2);color:var(--text);border:1px solid var(--border);
+          border-radius:6px;padding:7px 12px;font-size:12px;font-family:var(--mono);
+          flex:1;min-width:160px;outline:none;" />
+
+        <button onclick="lpInit(true)" title="Reload from portal DB"
+          style="padding:7px 14px;background:rgba(96,165,250,0.12);color:#60a5fa;
+          border:1px solid rgba(96,165,250,0.3);border-radius:6px;font-size:12px;cursor:pointer;">
+          ↻ Refresh
+        </button>
+
+        <span id="lp-panel-updated"
+          style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-left:4px;"></span>
+      </div>
+
+      <!-- ── Summary pills ── -->
+      <div id="lp-panel-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;"></div>
+
+      <!-- ── Cards grid ── -->
+      <div id="lp-panel-grid"
+        style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;">
+        <div class="empty"><div class="empty-icon">⏳</div>Loading lesson plans…</div>
+      </div>
+    </div>
+
     <div class="panel" id="panel-dashboard-faculty">
       <div class="page-title" id="fdb-title">My Dashboard</div>
       <div class="page-sub" id="fdb-sub">Your subject attendance overview + timetable.</div>
@@ -2077,6 +2140,24 @@
       <!-- ── Shortage cards grid ── -->
       <div id="fdb-cards" style="margin-bottom:28px;">
         <div class="empty"><div class="empty-icon">📭</div>No data loaded.</div>
+      </div>
+
+      <!-- ── Lesson Plan Summary ── -->
+      <div id="fdb-lp-section" style="margin-bottom:24px;">
+        <div style="font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;
+          color:var(--muted);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);
+          display:flex;align-items:center;justify-content:space-between;">
+          <span>📋 Lesson Plan</span>
+          <button onclick="fdbRenderLP(true)" title="Refresh LP"
+            style="padding:3px 10px;background:rgba(52,211,153,0.1);color:#34d399;
+            border:1px solid rgba(52,211,153,0.25);border-radius:5px;font-size:10px;cursor:pointer;">↻</button>
+        </div>
+        <div id="fdb-lp-grid"
+          style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;">
+          <div class="empty" style="grid-column:1/-1;">
+            <div class="empty-icon">📚</div>Loading lesson plans…
+          </div>
+        </div>
       </div>
 
       <!-- ── Timetable ── -->
@@ -7095,6 +7176,57 @@ const db   = firebase.firestore();
 const auth = firebase.auth();
 const rtdb = firebase.database(); // Realtime DB — for presence + live toast
 
+// ── db2: Student Portal RTDB (requires anonymous auth token) ─────────────────
+const LP_PORTAL_URL = 'https://davan-student-portal-default-rtdb.asia-southeast1.firebasedatabase.app';
+const LP_PORTAL_CFG = {
+  apiKey:      'AIzaSyBnWSfjilDwri7dBpONF2GwgXDJnc1W--w',
+  databaseURL: LP_PORTAL_URL,
+  projectId:   'davan-student-portal'
+};
+let _lpPortalApp   = null;
+let _lpPortalToken = '';
+let _lpPortalTokExp = 0;
+
+async function _lpGetPortalToken() {
+  const now = Date.now();
+  if (_lpPortalToken && now < _lpPortalTokExp - 60000) return _lpPortalToken;
+  try {
+    // Init portal Firebase app if not done
+    if (!_lpPortalApp) {
+      _lpPortalApp = firebase.apps.find(a => a.name === 'lp-portal')
+                  || firebase.initializeApp(LP_PORTAL_CFG, 'lp-portal');
+    }
+    const auth = _lpPortalApp.auth ? _lpPortalApp.auth() : firebase.auth(_lpPortalApp);
+    let user = auth.currentUser;
+    if (!user) {
+      const cred = await auth.signInAnonymously();
+      user = cred.user;
+    }
+    _lpPortalToken  = await user.getIdToken(false);
+    _lpPortalTokExp = now + 3600000;
+    console.log('[LP portal] anon auth OK');
+    return _lpPortalToken;
+  } catch(e) {
+    console.warn('[LP portal] auth failed:', e.message);
+    return '';
+  }
+}
+
+async function lpDb2Get(path) {
+  try {
+    const token = await _lpGetPortalToken();
+    const auth  = token ? ('?auth=' + token) : '';
+    const url   = LP_PORTAL_URL + '/' + path + '.json' + auth;
+    console.log('[LP db2] GET', path);
+    const res   = await fetch(url);
+    if (!res.ok) { const b = await res.text(); console.warn('[LP db2]', res.status, b); return null; }
+    const data  = await res.json();
+    console.log('[LP db2] keys:', data ? Object.keys(data).length : 'null');
+    return data;
+  } catch(e) { console.warn('[LP db2] failed:', e.message); return null; }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 let currentUser    = null;
 let currentProfile = null;
 
@@ -8548,6 +8680,7 @@ function vpApplyMode(mode, skipRedirect) {
 function fdbRender() {
   fdbRenderCards();
   fdbRenderTT();
+  fdbRenderLP();
   if (typeof wgtRenderFaculty === 'function') wgtRenderFaculty();
 }
 
@@ -9095,6 +9228,8 @@ function applySidebarForRole(role) {
     'nav-internals':        ['admin','manager','vp','fulltime','visiting'],
     'nav-internal-marks':   ['admin','manager','vp','fulltime','visiting'],
     'nav-internal-marks-analysis': ['admin','manager','vp','fulltime','visiting'],
+    'nav-section-lessonplan': ['admin','manager','vp'],
+    'nav-lessonplan':         ['admin','manager','vp'],
     'nav-section-admin':    ['admin','manager'],
     'nav-smart-assist':     ['admin','manager','vp','fulltime'],
     'nav-user-management':  ['admin'],
@@ -11819,7 +11954,20 @@ async function dashRenderFacultyReport() {
   html += intCardsHtml || `<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">No internal marks data loaded yet</div>`;
   html += '</div>';
 
+  // ===== LESSON PLAN SECTION =====
+  html += `<div style="font-family:var(--mono);font-size:11px;font-weight:700;color:#34d399;
+    letter-spacing:1px;text-transform:uppercase;padding:6px 0 10px;border-bottom:1px solid rgba(52,211,153,0.3);margin:20px 0 14px;display:flex;align-items:center;justify-content:space-between;">
+    <span>📋 Lesson Plan Summary</span>
+    <button onclick="dashRenderFacultyLP('${fac.replace(/'/g,'&#39;')}',true)" style="padding:3px 10px;background:rgba(52,211,153,0.1);color:#34d399;border:1px solid rgba(52,211,153,0.25);border-radius:5px;font-size:10px;cursor:pointer;font-family:var(--mono);">↻ Refresh</button>
+  </div>`;
+  html += `<div id="fac-lp-container" style="margin-bottom:24px;">
+    <div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">⏳ Loading lesson plans…</div>
+  </div>`;
+
   el.innerHTML = html;
+
+  // Load LP section asynchronously
+  dashRenderFacultyLP(fac, false);
   
   // Use new results.html-compatible loader — direct stats, no two-step
   resDashGetFacultyResults(fac).then(resultSubjects => {
@@ -35892,6 +36040,533 @@ function saDoExport(type) {
   </div>
 </div>
 
+<script>
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  LESSON PLAN MODULE  — reads from davan-student-portal RTDB (db2)      ║
+// ║  lpInit, lpRender, lpDashRender, fdbRenderLP                           ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// ── Module state ────────────────────────────────────────────────────────────
+let _lpData      = null;   // raw davan_pub/lessonPlan from portal RTDB
+let _lpFetching  = false;
+let _lpFetchedAt = 0;
+let _lpFetchError = null;
+
+// ── LP code → human name map (mirrors student portal LP_CODE_NAMES) ─────────
+const _LP_NAMES = {
+  'HIN':'Hindi','KAN':'Kannada','ENGL':'English','HINL':'Hindi','KAN-B':'Kannada',
+  'IC':'Indian Constitution','EVS':'Environmental Studies',
+  'SPORTS':'Sports & Physical Education','NSS':'NSS','NCC':'NCC','YRC':'YRC',
+  'ApMath':'Applied Mathematics','MATH':'Mathematics',
+  'CProg':'C Programming','CProg_Lab':'C Programming Lab',
+  'DS':'Data Structures','DS_Lab':'Data Structures Lab',
+  'DE':'Digital Electronics','DE_Lab':'Digital Electronics Lab',
+  'OA_Lab':'Office Automation Lab',
+  'IP':'Internet Programming','IP_Lab':'Internet Programming Lab',
+  'Java':'Java Programming','Java_Lab':'Java Programming Lab',
+  'CN':'Computer Networks','CN_Lab':'Computer Networks Lab',
+  'OS':'Operating Systems','OS_Lab':'OS Lab',
+  'DBMS':'Database Management Systems','DBMS_Lab':'DBMS Lab',
+  'DAA':'Design & Analysis of Algorithms','DAA_Lab':'DAA Lab',
+  'SE':'Software Engineering',
+  'Stats':'Statistical Computing & R Programming','Stats_Lab':'Statistical Computing Lab',
+  'CC':'Cloud Computing','DM':'Digital Marketing','CyberSec':'Cyber Security',
+  'AI':'Artificial Intelligence','PDPTM':'Personality Development',
+  'PM':'Principles of Management','BC':'Business Communication',
+  'FA':'Financial Accounting','MM':'Marketing Management',
+  'OB':'Organisational Behaviour','CA':'Cost Accounting',
+  'BM':'Business Mathematics','BL':'Business Law',
+  'POA':'Production & Operations Management','IncomeTax':'Income Tax-I',
+  'BankLaw':'Banking Law and Practice','ITB':'IT for Business',
+  'HRM':'Human Resource Management','CB':'Consumer Behaviour',
+  'CorpAcct':'Corporate Accounting','BStats':'Business Statistics',
+  'AccStd':'Accounting Standards','FM':'Financial Management',
+  'GST':'GST - Law and Practice','Audit':'Principles of Auditing',
+};
+
+// ── Resolve subject name from LP key + data ──────────────────────────────────
+function _lpResolveName(key, d) {
+  const keyParts = key.split('-');
+  const subCode  = d.subject || (keyParts.length >= 2 ? keyParts[1] : key);
+  // 1. Live allocations in index.html (most accurate)
+  const allocs = LM_ALLOCATIONS || [];
+  for (const a of allocs) {
+    const code = (a.code || '').trim();
+    if (code === subCode || code.replace(/^(BCA|BBA|BCom)[_-]?/i,'') === subCode)
+      return a.subject || subCode;
+  }
+  // 2. LP_NAMES map
+  if (_LP_NAMES[subCode])               return _LP_NAMES[subCode];
+  if (_LP_NAMES[subCode.toUpperCase()]) return _LP_NAMES[subCode.toUpperCase()];
+  // 3. data fields
+  if (d.subject_name) return d.subject_name;
+  if (d.full_name)    return d.full_name;
+  return subCode;
+}
+
+// ── Parse class label from LP key (e.g. "BCA-HIN-SemII-SecA") ───────────────
+function _lpParseClass(key) {
+  // key format: COURSE-CODE-SemROM-SecX
+  const parts = key.split('-');
+  if (parts.length < 4) return key;
+  const course  = parts[0];
+  const semPart = parts.find(p => /^Sem/i.test(p)) || '';
+  const secPart = parts.find(p => /^Sec/i.test(p)) || '';
+  const semNum  = semPart.replace(/^Sem/i,'');
+  const sec     = secPart.replace(/^Sec/i,'');
+  const yearMap = {'I':1,'II':2,'III':3,'IV':4,'V':5,'VI':6};
+  const yr      = yearMap[semNum] ? (Math.ceil(yearMap[semNum]/2) === 1 ? 'I' : Math.ceil(yearMap[semNum]/2) === 2 ? 'II' : 'III') : semNum;
+  return `${yr} YEAR ${course} (${sec})`;
+}
+
+// ── Timestamp label ───────────────────────────────────────────────────────────
+function _lpTimeLabel(ts) {
+  if (!ts) return '—';
+  const d   = new Date(ts);
+  const pad = n => String(n).padStart(2,'0');
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${pad(d.getDate())}-${mon[d.getMonth()]} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ── Fetch LP data from portal RTDB (cached for 5 min) ────────────────────────
+async function _lpFetch(force) {
+  if (_lpData && !force && Date.now() - _lpFetchedAt < 300000) return _lpData;
+  if (_lpFetching) { await new Promise(r => setTimeout(r, 800)); return _lpData; }
+  _lpFetching  = true;
+  _lpFetchError = null;
+  try {
+    const raw = await lpDb2Get('davan_pub/lessonPlan');
+    _lpData     = (raw && typeof raw === 'object') ? raw : {};
+    _lpFetchedAt = Date.now();
+    console.log('[LP] loaded', Object.keys(_lpData).length, 'entries');
+  } catch(e) {
+    console.warn('[LP] fetch failed:', e.message);
+    _lpFetchError = e.message;
+    _lpData = _lpData || {};
+  }
+  _lpFetching = false;
+  return _lpData;
+}
+
+// ── Build one subject card HTML ───────────────────────────────────────────────
+function _lpCard(key, d, showClass) {
+  const subName  = _lpResolveName(key, d);
+  const topics   = Array.isArray(d.topics) ? d.topics : Object.values(d.topics || {});
+  const done     = topics.filter(t => !!t.handled_date).length;
+  const pending  = topics.filter(t => !t.handled_date && !!t.given_date).length;
+  const notStart = topics.filter(t => !t.handled_date && !t.given_date).length;
+  const total    = topics.length || Number(d.total_topics) || 0;
+  const pct      = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const barColor = pct < 40 ? 'var(--danger)' : pct < 70 ? 'var(--warn)' : 'var(--ok)';
+  const fac      = d.faculty  || '';
+  const updAt    = _lpTimeLabel(d.updated_at);
+  const classLabel = _lpParseClass(key);
+  const safeKey  = key.replace(/[^a-zA-Z0-9_-]/g,'_');
+  const pctColor = pct < 40 ? 'var(--danger)' : pct < 70 ? '#f59e0b' : 'var(--ok)';
+
+  // Topic rows
+  const topicRows = topics.length ? topics.map((t, i) => {
+    const icon = t.handled_date ? '✅' : t.given_date ? '⏳' : '⬜';
+    const note = t.handled_date ? t.handled_date
+               : t.given_date   ? `Given ${t.given_date}`
+               : 'Not started';
+    const txt  = [t.topic, t.sub_topic].filter(Boolean).join(' — ');
+    return `<div style="display:flex;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);align-items:flex-start;font-size:11px;">
+      <span style="color:var(--muted);font-family:var(--mono);min-width:18px;">${i+1}.</span>
+      <span style="min-width:16px;">${icon}</span>
+      <span style="flex:1;color:var(--text);">${txt || '—'}</span>
+      <span style="color:var(--muted);font-family:var(--mono);font-size:10px;white-space:nowrap;">${note}</span>
+    </div>`;
+  }).join('') : `<div style="color:var(--muted);font-size:11px;padding:6px 0;">No topic data</div>`;
+
+  return `<div style="background:var(--surface);border:1px solid var(--border);
+      border-left:3px solid ${barColor};border-radius:var(--radius);padding:14px 16px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+      <div>
+        <div style="font-weight:700;font-size:13px;color:var(--text);">${subName}</div>
+        ${showClass ? `<div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:1px;">${classLabel}</div>` : ''}
+        ${fac ? `<div style="font-size:11px;color:#60a5fa;font-family:var(--mono);margin-top:2px;">👩‍🏫 ${fac}</div>` : ''}
+      </div>
+      <div style="font-size:22px;font-weight:800;color:${pctColor};font-family:var(--mono);line-height:1;">${pct}%</div>
+    </div>
+    <div style="height:5px;background:var(--border);border-radius:3px;margin-bottom:8px;overflow:hidden;">
+      <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width .3s;"></div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+      ${done     ? `<span style="font-size:10px;font-family:var(--mono);color:var(--ok);background:rgba(34,197,94,0.1);padding:2px 7px;border-radius:4px;">✅ ${done} done</span>` : ''}
+      ${pending  ? `<span style="font-size:10px;font-family:var(--mono);color:#f59e0b;background:rgba(245,158,11,0.1);padding:2px 7px;border-radius:4px;">⏳ ${pending} pending</span>` : ''}
+      ${notStart ? `<span style="font-size:10px;font-family:var(--mono);color:var(--muted);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:4px;">⬜ ${notStart} not started</span>` : ''}
+      <span style="font-size:10px;font-family:var(--mono);color:var(--muted);padding:2px 7px;">📚 ${total} total</span>
+    </div>
+    <div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-bottom:8px;">Updated: ${updAt}</div>
+    <details>
+      <summary style="cursor:pointer;font-size:11px;color:var(--accent);user-select:none;list-style:none;display:flex;align-items:center;gap:4px;">
+        <span>▼ Topics (${total})</span>
+      </summary>
+      <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;">${topicRows}</div>
+    </details>
+  </div>`;
+}
+
+// ── Build summary pills HTML from entry list ──────────────────────────────────
+function _lpSummaryPills(entries) {
+  let totalSubj = entries.length;
+  let totalTopics = 0, totalDone = 0, totalPending = 0;
+  entries.forEach(([, d]) => {
+    const topics  = Array.isArray(d.topics) ? d.topics : Object.values(d.topics || {});
+    const total   = topics.length || Number(d.total_topics) || 0;
+    totalTopics  += total;
+    totalDone    += topics.filter(t => !!t.handled_date).length;
+    totalPending += topics.filter(t => !t.handled_date && !!t.given_date).length;
+  });
+  const overallPct = totalTopics > 0 ? Math.round((totalDone/totalTopics)*100) : 0;
+  const pill = (label, color, bg) =>
+    `<span style="display:inline-block;padding:3px 10px;border-radius:5px;font-size:11px;
+      font-family:var(--mono);font-weight:700;background:${bg};color:${color};">${label}</span>`;
+  return pill(totalSubj+' subjects','#60a5fa','rgba(96,165,250,0.12)')
+       + pill(totalDone+' done','var(--ok)','rgba(34,197,94,0.12)')
+       + (totalPending ? pill(totalPending+' pending','#f59e0b','rgba(245,158,11,0.12)') : '')
+       + pill(overallPct+'% overall', overallPct<40?'var(--danger)':overallPct<70?'#f59e0b':'var(--ok)',
+              overallPct<40?'rgba(239,68,68,0.12)':overallPct<70?'rgba(245,158,11,0.12)':'rgba(34,197,94,0.12)');
+}
+
+// ── Populate class & faculty selects from raw LP data ────────────────────────
+function _lpPopulateSelects(classSel, facSel, data) {
+  if (!classSel || !facSel || !data) return;
+  const entries = Object.entries(data);
+
+  // Classes: derive unique class labels from keys
+  const classSet = new Set(entries.map(([k]) => _lpParseClass(k)));
+  const curClass = classSel.value;
+  classSel.innerHTML = '<option value="">📚 All Classes</option>'
+    + [...classSet].sort().map(c => `<option value="${c}"${c===curClass?' selected':''}>${c}</option>`).join('');
+
+  // Faculty
+  const facSet = new Set(entries.map(([,d]) => d.faculty).filter(Boolean));
+  const curFac = facSel.value;
+  facSel.innerHTML = '<option value="">👤 All Faculty</option>'
+    + [...facSet].sort().map(f => `<option value="${f}"${f===curFac?' selected':''}>${f}</option>`).join('');
+}
+
+// ── Filter entries by class / faculty / search ────────────────────────────────
+function _lpFilter(data, clsFilter, facFilter, search) {
+  if (!data) return [];
+  return Object.entries(data).filter(([key, d]) => {
+    if (clsFilter && _lpParseClass(key) !== clsFilter) return false;
+    if (facFilter && (d.faculty||'') !== facFilter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const name = _lpResolveName(key, d).toLowerCase();
+      if (!name.includes(q) && !key.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  1. SIDEBAR PANEL — full lesson plan panel
+// ════════════════════════════════════════════════════════════════
+async function lpInit(force) {
+  const grid    = document.getElementById('lp-panel-grid');
+  const sumEl   = document.getElementById('lp-panel-summary');
+  const updEl   = document.getElementById('lp-panel-updated');
+  const classSel= document.getElementById('lp-panel-class-sel');
+  const facSel  = document.getElementById('lp-panel-fac-sel');
+  if (!grid) return;
+  grid.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div>Loading from student portal…</div>';
+  if (sumEl) sumEl.innerHTML = '';
+
+  const data = await _lpFetch(force);
+
+  if (!data || !Object.keys(data).length) {
+    grid.innerHTML = `<div style="padding:14px;background:rgba(239,68,68,0.06);border-radius:8px;border:1px solid rgba(239,68,68,0.2);font-size:12px;font-family:var(--mono);">
+      <div style="color:var(--danger);font-weight:700;margin-bottom:4px;">📭 No lesson plan data found</div>
+      ${_lpFetchError ? `<div style="color:var(--danger);margin-bottom:4px;">Error: ${_lpFetchError}</div>` : ''}
+      <div style="color:#f59e0b;font-size:11px;">👉 Open browser console (F12) and look for [LP db2] / [LP rtdb] lines.</div>
+    </div>`;
+    return;
+  }
+
+  if (updEl) updEl.textContent = 'Fetched ' + _lpTimeLabel(_lpFetchedAt);
+  _lpPopulateSelects(classSel, facSel, data);
+  lpRender();
+}
+
+function lpSetClassFilter(val) { lpRender(); }
+function lpSetFacFilter(val)   { lpRender(); }
+
+function lpRender() {
+  const grid    = document.getElementById('lp-panel-grid');
+  const sumEl   = document.getElementById('lp-panel-summary');
+  const classSel= document.getElementById('lp-panel-class-sel');
+  const facSel  = document.getElementById('lp-panel-fac-sel');
+  const searchEl= document.getElementById('lp-panel-search');
+  if (!grid || !_lpData) return;
+
+  const clsFilter = classSel  ? classSel.value  : '';
+  const facFilter = facSel    ? facSel.value    : '';
+  const search    = searchEl  ? searchEl.value.trim() : '';
+
+  const entries = _lpFilter(_lpData, clsFilter, facFilter, search);
+
+  if (sumEl) sumEl.innerHTML = _lpSummaryPills(entries);
+
+  if (!entries.length) {
+    grid.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div>No subjects match the filter.</div>';
+    return;
+  }
+
+  // Sort: by class then by subject name
+  entries.sort((a, b) => {
+    const ca = _lpParseClass(a[0]), cb = _lpParseClass(b[0]);
+    if (ca !== cb) return ca.localeCompare(cb);
+    return _lpResolveName(a[0],a[1]).localeCompare(_lpResolveName(b[0],b[1]));
+  });
+
+  grid.innerHTML = entries.map(([key, d]) => _lpCard(key, d, true)).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  2. ADMIN DASHBOARD TAB — Lesson Plan pane
+// ════════════════════════════════════════════════════════════════
+async function lpDashPopulateSelects() {
+  const data = await _lpFetch(false);
+  _lpPopulateSelects(
+    document.getElementById('lp-dash-class-sel'),
+    document.getElementById('lp-dash-fac-sel'),
+    data
+  );
+}
+
+function lpDashSetClass(val) { lpDashRender(); }
+function lpDashSetFac(val)   { lpDashRender(); }
+
+function lpDashRender() {
+  const grid    = document.getElementById('lp-dash-grid');
+  const sumEl   = document.getElementById('lp-dash-summary');
+  const classSel= document.getElementById('lp-dash-class-sel');
+  const facSel  = document.getElementById('lp-dash-fac-sel');
+  const searchEl= document.getElementById('lp-dash-search');
+  if (!grid) return;
+
+  if (!_lpData) {
+    grid.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div>Loading…</div>';
+    _lpFetch(false).then(() => lpDashRender());
+    return;
+  }
+
+  const clsFilter = classSel  ? classSel.value  : '';
+  const facFilter = facSel    ? facSel.value    : '';
+  const search    = searchEl  ? searchEl.value.trim() : '';
+  const entries   = _lpFilter(_lpData, clsFilter, facFilter, search);
+
+  if (sumEl) sumEl.innerHTML = _lpSummaryPills(entries);
+
+  if (!entries.length) {
+    grid.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div>No subjects match.</div>';
+    return;
+  }
+
+  entries.sort((a, b) => {
+    const ca = _lpParseClass(a[0]), cb = _lpParseClass(b[0]);
+    if (ca !== cb) return ca.localeCompare(cb);
+    return _lpResolveName(a[0],a[1]).localeCompare(_lpResolveName(b[0],b[1]));
+  });
+
+  grid.innerHTML = entries.map(([key, d]) => _lpCard(key, d, true)).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  3. FACULTY DASHBOARD — LP summary (only this faculty's subjects)
+// ════════════════════════════════════════════════════════════════
+async function fdbRenderLP(force) {
+  const grid = document.getElementById('fdb-lp-grid');
+  if (!grid) return;
+  if (!currentProfile) return;
+
+  const ownKey    = currentProfile.facultyKey || currentProfile.name || '';
+  const aliasKey  = (typeof FACULTY_NAME_ALIASES !== 'undefined' && FACULTY_NAME_ALIASES)
+                    ? (FACULTY_NAME_ALIASES[ownKey] || '') : '';
+  const allKeys   = [...new Set([ownKey, aliasKey].filter(Boolean))];
+
+  if (!allKeys.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">👤</div>No faculty key set.</div>';
+    return;
+  }
+
+  grid.innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">⏳</div>Loading lesson plans…</div>';
+
+  const data = await _lpFetch(force);
+
+  if (!data || !Object.keys(data).length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">📭</div>No LP data in portal DB.</div>';
+    return;
+  }
+
+  // Filter: subjects where d.faculty matches any of allKeys
+  const entries = Object.entries(data).filter(([, d]) => {
+    const fac = (d.faculty || '').trim();
+    return allKeys.some(k => fac === k || fac.toLowerCase() === k.toLowerCase());
+  });
+
+  if (!entries.length) {
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">
+      <div class="empty-icon">📚</div>No lesson plan entries found for ${allKeys[0]}.
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+        Ensure faculty name in LP data matches: <code>${allKeys.join(' / ')}</code>
+      </div>
+    </div>`;
+    return;
+  }
+
+  // Sort by class then subject
+  entries.sort((a, b) => {
+    const ca = _lpParseClass(a[0]), cb = _lpParseClass(b[0]);
+    if (ca !== cb) return ca.localeCompare(cb);
+    return _lpResolveName(a[0],a[1]).localeCompare(_lpResolveName(b[0],b[1]));
+  });
+
+  // Summary strip
+  const topics   = entries.flatMap(([,d]) => Array.isArray(d.topics)?d.topics:Object.values(d.topics||{}));
+  const done     = topics.filter(t=>!!t.handled_date).length;
+  const pending  = topics.filter(t=>!t.handled_date&&!!t.given_date).length;
+  const total    = topics.length;
+  const pct      = total > 0 ? Math.round((done/total)*100) : 0;
+  const pctColor = pct < 40 ? 'var(--danger)' : pct < 70 ? '#f59e0b' : 'var(--ok)';
+
+  const summaryHtml = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+    <span style="font-size:11px;font-family:var(--mono);color:#60a5fa;background:rgba(96,165,250,0.1);padding:2px 8px;border-radius:4px;">${entries.length} subjects</span>
+    <span style="font-size:11px;font-family:var(--mono);color:var(--ok);background:rgba(34,197,94,0.1);padding:2px 8px;border-radius:4px;">✅ ${done} done</span>
+    ${pending?`<span style="font-size:11px;font-family:var(--mono);color:#f59e0b;background:rgba(245,158,11,0.1);padding:2px 8px;border-radius:4px;">⏳ ${pending} pending</span>`:''}
+    <span style="font-size:11px;font-family:var(--mono);color:${pctColor};background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:4px;font-weight:700;">${pct}% overall</span>
+  </div>`;
+
+  grid.innerHTML = summaryHtml
+    + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;">`
+    + entries.map(([key, d]) => _lpCard(key, d, true)).join('')
+    + `</div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  4. ADMIN FACULTY REPORT — LP section (called after faculty selected)
+// ════════════════════════════════════════════════════════════════
+async function dashRenderFacultyLP(fac, force) {
+  const container = document.getElementById('fac-lp-container');
+  if (!container || !fac) return;
+
+  container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">⏳ Loading lesson plans…</div>';
+
+  const data = await _lpFetch(force);
+
+  if (!data || !Object.keys(data).length) {
+    container.innerHTML = `<div style="padding:14px;background:rgba(239,68,68,0.06);border-radius:8px;border:1px solid rgba(239,68,68,0.2);font-size:12px;font-family:var(--mono);">
+      <div style="color:var(--danger);font-weight:700;margin-bottom:4px;">📭 No lesson plan data found in portal DB</div>
+      ${_lpFetchError ? `<div style="color:var(--danger);margin-bottom:4px;">Error: ${_lpFetchError}</div>` : ''}
+      <div style="color:#f59e0b;font-size:11px;">Check browser console (F12) for [LP portal] / [LP db2] logs.</div>
+    </div>`;
+    return;
+  }
+
+  // Match faculty — try exact, alias, case-insensitive
+  const aliasKey = (typeof FACULTY_NAME_ALIASES !== 'undefined' && FACULTY_NAME_ALIASES)
+                    ? (FACULTY_NAME_ALIASES[fac] || '') : '';
+  const allKeys = [...new Set([fac, aliasKey].filter(Boolean))];
+
+  const entries = Object.entries(data).filter(([, d]) => {
+    const f = (d.faculty || '').trim();
+    return allKeys.some(k => f === k || f.toLowerCase() === k.toLowerCase());
+  });
+
+  if (!entries.length) {
+    container.innerHTML = `<div style="padding:16px;background:rgba(52,211,153,0.05);border-radius:8px;border:1px solid rgba(52,211,153,0.15);text-align:center;color:var(--muted);font-size:12px;">
+      📚 No lesson plan entries found for <strong style="color:var(--text);">${fac}</strong>.<br>
+      <span style="font-size:10px;font-family:var(--mono);margin-top:4px;display:inline-block;">Ensure faculty name in LP data matches: <code>${allKeys.join(' / ')}</code></span>
+    </div>`;
+    return;
+  }
+
+  // Sort by class then subject
+  entries.sort((a, b) => {
+    const ca = _lpParseClass(a[0]), cb = _lpParseClass(b[0]);
+    if (ca !== cb) return ca.localeCompare(cb);
+    return _lpResolveName(a[0],a[1]).localeCompare(_lpResolveName(b[0],b[1]));
+  });
+
+  // Summary strip
+  const topics   = entries.flatMap(([,d]) => Array.isArray(d.topics)?d.topics:Object.values(d.topics||{}));
+  const done     = topics.filter(t=>!!t.handled_date).length;
+  const pending  = topics.filter(t=>!t.handled_date&&!!t.given_date).length;
+  const notStart = topics.filter(t=>!t.handled_date&&!t.given_date).length;
+  const total    = topics.length;
+  const pct      = total > 0 ? Math.round((done/total)*100) : 0;
+  const pctColor = pct < 40 ? 'var(--danger)' : pct < 70 ? '#f59e0b' : 'var(--ok)';
+  const tagS     = (bg,col,txt) => `<span style="font-size:11px;font-family:var(--mono);font-weight:700;color:${col};background:${bg};padding:3px 10px;border-radius:5px;">${txt}</span>`;
+
+  let html = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+    ${tagS('rgba(96,165,250,0.1)','#60a5fa',entries.length+' subjects')}
+    ${tagS('rgba(34,197,94,0.1)','var(--ok)','✅ '+done+' done')}
+    ${pending ? tagS('rgba(245,158,11,0.1)','#f59e0b','⏳ '+pending+' pending') : ''}
+    ${notStart ? tagS('rgba(255,255,255,0.05)','var(--muted)','⬜ '+notStart+' not started') : ''}
+    ${tagS('rgba(52,211,153,0.08)',pctColor,pct+'% overall')}
+  </div>`;
+
+  // Collapsible subject cards with topic dropdown
+  html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">`;
+  entries.forEach(([key, d]) => {
+    const subName  = _lpResolveName(key, d);
+    const classLabel = _lpParseClass(key);
+    const subTopics  = Array.isArray(d.topics) ? d.topics : Object.values(d.topics || {});
+    const sDone    = subTopics.filter(t=>!!t.handled_date).length;
+    const sPending = subTopics.filter(t=>!t.handled_date&&!!t.given_date).length;
+    const sNotStart= subTopics.filter(t=>!t.handled_date&&!t.given_date).length;
+    const sTotal   = subTopics.length || Number(d.total_topics) || 0;
+    const sPct     = sTotal > 0 ? Math.min(100,Math.round((sDone/sTotal)*100)) : 0;
+    const barCol   = sPct < 40 ? 'var(--danger)' : sPct < 70 ? '#f59e0b' : 'var(--ok)';
+    const updAt    = _lpTimeLabel(d.updated_at);
+
+    const topicRows = subTopics.map((t,i) => {
+      const icon = t.handled_date ? '✅' : t.given_date ? '⏳' : '⬜';
+      const note = t.handled_date ? t.handled_date : t.given_date ? `Given ${t.given_date}` : 'Not started';
+      const txt  = [t.topic, t.sub_topic].filter(Boolean).join(' — ');
+      return `<div style="display:flex;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px;align-items:flex-start;">
+        <span style="color:var(--muted);font-family:var(--mono);min-width:18px;">${i+1}.</span>
+        <span style="min-width:16px;">${icon}</span>
+        <span style="flex:1;color:var(--text);">${txt||'—'}</span>
+        <span style="color:var(--muted);font-family:var(--mono);font-size:10px;white-space:nowrap;">${note}</span>
+      </div>`;
+    }).join('') || '<div style="color:var(--muted);font-size:11px;padding:6px 0;">No topic data</div>';
+
+    html += `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${barCol};border-radius:var(--radius);padding:14px 16px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+        <div>
+          <div style="font-weight:700;font-size:13px;color:var(--text);">${subName}</div>
+          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:1px;">${classLabel}</div>
+        </div>
+        <div style="font-size:22px;font-weight:800;color:${barCol};font-family:var(--mono);line-height:1;">${sPct}%</div>
+      </div>
+      <div style="height:5px;background:var(--border);border-radius:3px;margin-bottom:8px;overflow:hidden;">
+        <div style="height:100%;width:${sPct}%;background:${barCol};border-radius:3px;"></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+        ${sDone    ? `<span style="font-size:10px;font-family:var(--mono);color:var(--ok);background:rgba(34,197,94,0.1);padding:2px 7px;border-radius:4px;">✅ ${sDone} done</span>` : ''}
+        ${sPending ? `<span style="font-size:10px;font-family:var(--mono);color:#f59e0b;background:rgba(245,158,11,0.1);padding:2px 7px;border-radius:4px;">⏳ ${sPending} pending</span>` : ''}
+        ${sNotStart? `<span style="font-size:10px;font-family:var(--mono);color:var(--muted);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:4px;">⬜ ${sNotStart} not started</span>` : ''}
+        <span style="font-size:10px;font-family:var(--mono);color:var(--muted);padding:2px 7px;">📚 ${sTotal} total</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-bottom:8px;">Updated: ${updAt}</div>
+      <details>
+        <summary style="cursor:pointer;font-size:11px;color:var(--accent);user-select:none;list-style:none;display:flex;align-items:center;gap:4px;">
+          <span>▼ Topics (${sTotal})</span>
+        </summary>
+        <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;">${topicRows}</div>
+      </details>
+    </div>`;
+  });
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+</script>
 
 </body>
 </html>
