@@ -2,6 +2,7 @@
 
 > Single-file attendance and faculty management web app for **Davan Institute of Advanced Management Studies**, Davangere.
 > https://harshgujjar.github.io/davan-attendance/toc_viewer_v675.html
+> https://harshgujjar.github.io/davan-attendance/student_portal.html
 
 [![Version](https://img.shields.io/badge/version-v255-gold)](#) [![Firebase](https://img.shields.io/badge/backend-Firebase-orange)](#) [![Students](https://img.shields.io/badge/students-578-green)](#)
 
