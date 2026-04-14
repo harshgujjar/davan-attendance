@@ -84,7 +84,7 @@
      "✅ Working from: index_vXXX.html"
 
   ── SESSION HANDOFF (update on every build) ──────────────────────
-  Version    : v748
+  Version    : v751
   Date       : 13-Apr-2026 IST
   Last change: Fix: LP fetch now authenticates to portal RTDB correctly.
                Portal RTDB requires Firebase anonymous auth (signInAnonymously).
@@ -94,7 +94,7 @@
                Path confirmed: davan_pub/lessonPlan on portal RTDB.
                Key format: BCA-HIN-SemII-SecA, d.faculty holds faculty name.
   Open issues: None.
-  Resume tip : Upload index_v748.html and say "Continue from handoff"
+  Resume tip : Upload index_v751.html and say "Continue from handoff"
   ================================================================
   -->
   <!-- ── Eruda mobile console — remove these 2 lines when done debugging ── -->
@@ -1287,7 +1287,7 @@
       font-size:11px;font-weight:700;font-family:var(--mono);
       background:var(--accent);color:#000;transition:all 0.2s;">
     </button>
-    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v734 · Last Updated: 10-Apr-2026 IST</span>
+    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v751 · Last Updated: 14-Apr-2026 IST</span>
   </div>
 </div>
 
@@ -5573,6 +5573,8 @@
           <span style="font-size:10px;font-weight:400;color:var(--muted);font-family:var(--mono);">— which subject has the most perfect-attendance students</span>
         </div>
         <div id="pa-subject-summary-body" style="margin-top:12px;"></div>
+        <!-- 2nd summary: subject × faculty × class-section -->
+        <div id="pa-subject-section-summary-body" style="margin-top:20px;"></div>
       </div>
 
       <!-- ── SECTION 2: Threshold Filter ── -->
@@ -5593,7 +5595,9 @@
         </div>
 
         <!-- Subject summary for threshold section -->
-        <div id="pa-thresh-subject-summary" style="margin-bottom:18px;"></div>
+        <div id="pa-thresh-subject-summary" style="margin-bottom:12px;"></div>
+        <!-- 2nd summary: subject × faculty × class-section for threshold -->
+        <div id="pa-thresh-subject-section-summary" style="margin-bottom:18px;"></div>
 
         <!-- Shortcut jump nav — built dynamically by paThreshRender -->
         <div id="pa-thresh-jumpnav" style="margin-bottom:14px;"></div>
@@ -6992,6 +6996,158 @@ function paRender() {
   paThreshRender();
 }
 
+// ── PA helper: parse student class string → { course, semRoman, secLetter } ──
+function _paClassParts(cls) {
+  // e.g. "Davan-BCA-Sem6-SecA" → { course:'BCA', semNum:6, secLetter:'A' }
+  if (!cls) return null;
+  const c = cls.replace('Davan-', '');
+  const courseM = c.match(/^(BCA|BBA|BCom)/i);
+  const semM    = c.match(/Sem(\d+)/i);
+  const secM    = c.match(/Sec([A-Z])/i);
+  if (!courseM || !semM) return null;
+  return {
+    course: courseM[1].toUpperCase() === 'BCOM' ? 'BCom' : courseM[1].toUpperCase() === 'BBA' ? 'BBA' : 'BCA',
+    semNum: parseInt(semM[1]),
+    secLetter: secM ? secM[1] : 'A',
+  };
+}
+
+// ── PA helper: roman numeral for sem ──
+function _paSemRoman(n) {
+  return ['I','II','III','IV','V','VI'][n-1] || String(n);
+}
+
+// ── PA helper: human-readable class label ──
+// e.g. BCA sem2 secA → "1st BCA A"  (sem2=1st year)
+function _paClassLabel(course, semNum, secLetter) {
+  const year = Math.ceil(semNum / 2);
+  const suffix = ['st','nd','rd'][year-1] || 'th';
+  return `${year}${suffix} ${course} ${secLetter}`;
+}
+
+// ── PA helper: look up faculty from LM_ALLOCATIONS for subject+class ──
+function _paGetFaculty(subjectName, course, semNum, secLetter) {
+  const allocs = LM_ALLOCATIONS || [];
+  if (!allocs.length) return '—';
+  const semRoman = _paSemRoman(semNum);
+  // Section label variants used in allocations
+  const secVariants = {
+    A: ['Morning (A)', 'Afternoon (A)', 'Morning (C)'],
+    B: ['Afternoon (B)', 'Morning (B)'],
+    C: ['Morning (C)', 'Afternoon (C)'],
+  };
+  const secTags = secVariants[secLetter] || [];
+
+  // Normalize subject for loose matching
+  const normSub = s => s.toLowerCase().replace(/[^a-z0-9]/g,' ').replace(/\s+/g,' ').trim();
+  const subN = normSub(subjectName);
+
+  // Try exact match first, then prefix match
+  let match = allocs.find(a =>
+    a.course === course &&
+    a.sem === semRoman &&
+    secTags.includes(a.section) &&
+    normSub(a.subject) === subN
+  );
+  if (!match) {
+    match = allocs.find(a =>
+      a.course === course &&
+      a.sem === semRoman &&
+      secTags.includes(a.section) &&
+      (normSub(a.subject).startsWith(subN.split(' ')[0]) || subN.startsWith(normSub(a.subject).split(' ')[0]))
+    );
+  }
+  if (!match) {
+    // fallback: any section for this course+sem+subject
+    match = allocs.find(a =>
+      a.course === course &&
+      a.sem === semRoman &&
+      normSub(a.subject) === subN
+    );
+  }
+  return match ? match.faculty : '—';
+}
+
+// ── 2nd Summary: Subject × Faculty × Class-Section table ──────────
+// mode: 'perfect' (100%) or 'thresh' (>= thresh)
+function paRenderSubjectSectionSummary(students, containerId, mode, thresh) {
+  const body = document.getElementById(containerId);
+  if (!body) return;
+
+  // key: "subjectName|||course|||semNum|||secLetter"
+  const keyMap = {}; // key → { subject, faculty, classLabel, count }
+
+  (students || []).forEach(s => {
+    const parts = _paClassParts(s.class);
+    if (!parts) return;
+    const { course, semNum, secLetter } = parts;
+
+    (s.subjects || []).forEach(sub => {
+      if (!sub.subject || isExemptedSubject(sub.subject) || !sub.ct || sub.ct <= 0) return;
+      const pct = capPct(parseFloat(sub.pct) || 0);
+      const meets = (mode === 'perfect') ? pct >= 100 : pct >= thresh;
+      if (!meets) return;
+
+      const key = `${sub.subject}|||${course}|||${semNum}|||${secLetter}`;
+      if (!keyMap[key]) {
+        const faculty = _paGetFaculty(sub.subject, course, semNum, secLetter);
+        const classLabel = _paClassLabel(course, semNum, secLetter);
+        keyMap[key] = { subject: sub.subject, faculty, classLabel, count: 0 };
+      }
+      keyMap[key].count++;
+    });
+  });
+
+  const entries = Object.values(keyMap).sort((a, b) => {
+    // Sort by count descending (highest students on top), then subject name
+    if (b.count !== a.count) return b.count - a.count;
+    if (a.subject < b.subject) return -1;
+    if (a.subject > b.subject) return 1;
+    if (a.classLabel < b.classLabel) return -1;
+    if (a.classLabel > b.classLabel) return 1;
+    return 0;
+  });
+
+  if (!entries.length) {
+    body.innerHTML = '';
+    return;
+  }
+
+  const accentColor = mode === 'perfect' ? 'var(--ok)' : '#f59e0b';
+  const title = mode === 'perfect'
+    ? '📋 Subject × Section Breakdown — 100% Attendance'
+    : `📋 Subject × Section Breakdown — ≥${thresh}% Threshold`;
+
+  let html = `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-top:4px;">
+    <div style="font-size:11px;font-weight:700;color:${accentColor};font-family:var(--mono);letter-spacing:.06em;margin-bottom:10px;">${title}</div>
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="background:var(--surface2);color:var(--muted);font-size:10px;font-family:var(--mono);letter-spacing:.05em;border-bottom:1px solid var(--border);">
+          <th style="padding:7px 10px;text-align:left;white-space:nowrap;">#</th>
+          <th style="padding:7px 10px;text-align:left;white-space:nowrap;">SUBJECT</th>
+          <th style="padding:7px 10px;text-align:left;white-space:nowrap;">FACULTY</th>
+          <th style="padding:7px 10px;text-align:left;white-space:nowrap;">CLASS / SECTION</th>
+          <th style="padding:7px 10px;text-align:center;white-space:nowrap;">STUDENTS</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  entries.forEach((e, i) => {
+    const rowBg = i % 2 === 0 ? '' : 'background:var(--surface2);';
+    html += `<tr style="border-bottom:1px solid var(--border);${rowBg}">
+      <td style="padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:11px;">${i + 1}</td>
+      <td style="padding:8px 10px;font-size:12px;color:var(--text);">${e.subject}</td>
+      <td style="padding:8px 10px;font-size:11px;color:var(--muted);font-family:var(--mono);">${e.faculty}</td>
+      <td style="padding:8px 10px;font-size:11px;font-family:var(--mono);color:${accentColor};font-weight:600;">${e.classLabel}</td>
+      <td style="padding:8px 10px;text-align:center;font-family:var(--mono);font-weight:700;color:${accentColor};">${e.count}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div></div>`;
+  body.innerHTML = html;
+}
+
 // ── SECTION 1: Subject-wise 100% Attendance Footfall ──────────────
 function paRenderSubjectSummary(students) {
   const body = document.getElementById('pa-subject-summary-body');
@@ -7023,7 +7179,7 @@ function paRenderSubjectSummary(students) {
   entries.forEach(([subName, d], i) => {
     const barW = Math.round((d.count / maxCount) * 100);
     const rankBadge = i < 3
-      ? `<span style="font-size:13px;min-width:20px;">${['🥇','🥈','🥉'][i]}</span>`
+      ? `<span style="font-size:11px;color:var(--muted);font-family:var(--mono);min-width:20px;text-align:right;">${i+1}</span><span style="font-size:13px;">${['🥇','🥈','🥉'][i]}</span>`
       : `<span style="font-size:11px;color:var(--muted);font-family:var(--mono);min-width:20px;text-align:right;">${i+1}</span>`;
     const barColor = i === 0 ? 'var(--ok)' : i === 1 ? '#60a5fa' : i === 2 ? '#f59e0b' : 'var(--muted)';
     html += `<div style="display:flex;align-items:center;gap:10px;">
@@ -7038,6 +7194,9 @@ function paRenderSubjectSummary(students) {
   });
   html += '</div>';
   body.innerHTML = html;
+
+  // 2nd summary: subject × faculty × section (100% mode)
+  paRenderSubjectSectionSummary(students, 'pa-subject-section-summary-body', 'perfect', 100);
 }
 
 // ── SECTION 2: Threshold-based Filter ────────────────────────────
@@ -7113,6 +7272,7 @@ function paThreshRender() {
       const bw = Math.round((cnt / maxThreshCount) * 100);
       const col = i === 0 ? 'var(--ok)' : i === 1 ? '#60a5fa' : '#f59e0b';
       summHtml += `<div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:10px;font-family:var(--mono);color:var(--muted);min-width:18px;text-align:right;flex-shrink:0;">${i+1}</span>
         <div style="min-width:120px;font-size:11px;color:var(--text);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${subName}">${subName}</div>
         <div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;">
           <div style="height:100%;width:${bw}%;background:${col};border-radius:4px;"></div>
@@ -7123,6 +7283,9 @@ function paThreshRender() {
     summHtml += '</div></div>';
   }
   summEl.innerHTML = summHtml;
+
+  // 2nd summary: subject × faculty × section (threshold mode)
+  paRenderSubjectSectionSummary(students, 'pa-thresh-subject-section-summary', 'thresh', thresh);
 
   // Build band tables
   function bandTableHtml(rows, color, labelPrefix) {
@@ -10819,7 +10982,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 744;  // always = HTML footer version number
+const CODE_BUILD = 751;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '11-Apr-2026', time: '21:00', full: '11-Apr-2026 21:00 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
@@ -18782,7 +18945,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#c8cdd8">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #7a8494; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">733</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">751</span></span>
       &nbsp;·&nbsp;
       Updated: <span id="footer-date">09 Apr 2026</span>, <span id="footer-time">14:00</span> IST
       &nbsp;·&nbsp;
@@ -18973,6 +19136,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v751', date: '14-Apr-2026 IST', note: 'Feat: PA section — 2nd summary table added (Subject × Faculty × Class-Section × Student count) for both 100% perfect attendance and threshold filter modes. Faculty resolved from LM_ALLOCATIONS via course+sem+section lookup with prefix fallback. Serial numbers added to bar-chart summary rows (medals retained for top 3). New helpers: _paClassParts, _paSemRoman, _paClassLabel, _paGetFaculty, paRenderSubjectSectionSummary.' },
   { v: 'v737', date: '11-Apr-2026 IST', note: 'Fix: widget_pin keyed by UID — confirmed root cause from Firebase RTDB + logcat: PWA wrote widget_pin/_wpbk37k4_ (its localStorage devToken), APK read widget_pin/dev_f16e1680_ (its SharedPrefs devToken) — two independently-generated tokens that never matched, so widget always fell back to admin. Fix: use Firebase UID as the key on both sides. PWA now writes davan_pub/widget_pin/<uid>. APK v75 reads widget_pin/<cachedUid>, falls back to widget_identity/* scan on first run to discover UID, caches it, next fetch reads widget_pin/<uid> directly.' },
   { v: 'v744', date: '11-Apr-2026 21:00 IST', note: 'Fix: FA_WORKER_CODE — failedSids was pushing sub.endpoint.slice(-20) (last 20 chars) instead of full endpoint URL. This broke the v743 prune logic — facAlertPush could never match failedSids against stored subscriptions so dead subs were never cleaned. Worker now returns full endpoint. Requires worker redeploy from Faculty Alerts → Show Cloudflare Worker Code.' },
   { v: 'v743', date: '11-Apr-2026 20:30 IST', note: 'Fix: facAlertPush now auto-prunes expired/unsubscribed (410) endpoints from Firestore after every push send. Parses failedSids from worker response, resolves faculty Firestore key with alias lookup, removes dead subs, logs "🧹 Pruned N". Previously only facAlertNotifyAdmin pruned admin subs — faculty subs accumulated stale entries forever.' },
