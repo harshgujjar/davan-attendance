@@ -100,7 +100,8 @@ LOG     : v2.00 merge of student_login_v1_08 + student_admin_v1_01 into one file
     Phone now stored in portal_students payload during import
     Existing students without phone show — until re-imported
 
-  v6.43 | 2026-04-14 | FIX: Admin mobile hamburger dimmed screen but sidebar never opened. Root cause: toggleMobileSidebar() tried getElementById('student-sidebar') which is null on #screen-admin, crashing silently after activating the overlay. Fix: added #admin-sidebar drawer inside #screen-admin with all tab shortcuts + Sign Out button; toggleMobileSidebar() now detects active screen and opens the correct sidebar; overlay tap closes both; admin username shown in drawer header.
+  v6.44 | 2026-04-14 | FEAT: Controls tab — By Class override now uses a dropdown populated from all imported student classes (no manual typing). By URN override now has smart search: auto-detects URN vs name as you type (badge shows mode), shows matching students in dropdown with URN + name + class, keyboard arrow/enter navigation, click to select, preview shows selected student name. Login push now logs errors to console instead of silent .catch(()=>{}).
+  v6.43 | 2026-04-14 | FIX: Admin mobile hamburger dimmed screen but sidebar never opened.
   v6.42 | 2026-04-14 | FIX: Holiday banner not showing — getTodayHoliday now zero-pads day (03 vs 3) and merges built-in fallback list so holidays work even without live calendarData; FEAT: "📅 Today" chip appears when viewing another day to jump back to today
   v6.41 | 2026-04-14 | FEAT: Timetable — (1) Holiday banner with reason when viewed day is a holiday per calendar; (2) Date shown on every slot card; (3) LP progress strip on each slot — Faculty · Subject header, % bar, ✅/⏳/⬜/📚 counts with total, last updated
   v6.40 | 2026-04-14 | FIX: Topbar photo circle showed initials even after dash photo loaded — dash rcLoadPhoto.then() now also updates topbar circle with the resolved URL once cache is warm
@@ -1937,14 +1938,24 @@ body.dash-active .data-strip { display: block; }
       <div class="ctrl-group-header">🏫 By Class override</div>
       <div style="padding:14px 16px;">
         <div style="font-size:12px;color:var(--muted);font-family:var(--mono);margin-bottom:12px;">Priority: byUrn &gt; byClass &gt; Global.</div>
-        <div class="override-add-row"><input type="text" id="cls-key-input" placeholder="e.g. III-BCA-A" class="no-icon"/><button class="btn btn-sm btn-primary" onclick="addClassOverride()">+ Add</button></div>
+        <div class="override-add-row"><select id="cls-key-input" class="no-icon"><option value="">— Select class —</option></select><button class="btn btn-sm btn-primary" onclick="addClassOverride()">+ Add</button></div>
         <div class="override-list" id="class-override-list"></div>
       </div>
     </div>
     <div class="ctrl-group">
       <div class="ctrl-group-header">🪪 By URN override</div>
       <div style="padding:14px 16px;">
-        <div class="override-add-row"><input type="text" id="urn-key-input" placeholder="e.g. 21BCA001" class="no-icon"/><button class="btn btn-sm btn-primary" onclick="addUrnOverride()">+ Add</button></div>
+        <div class="override-add-row" style="flex-direction:column;gap:8px;">
+          <div style="position:relative;width:100%;">
+            <input type="text" id="urn-key-input" placeholder="Type URN or student name…" class="no-icon" autocomplete="off" oninput="urnOverrideSearch(this.value)" onkeydown="urnOverrideKeydown(event)" style="width:100%;padding-right:36px;"/>
+            <span id="urn-search-badge" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:10px;font-family:var(--mono);color:var(--muted);pointer-events:none;"></span>
+          </div>
+          <div id="urn-search-dropdown" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:200px;overflow-y:auto;"></div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="urn-selected-preview" style="flex:1;font-size:12px;font-family:var(--mono);color:var(--accent);min-height:18px;"></span>
+            <button class="btn btn-sm btn-primary" onclick="addUrnOverride()" style="white-space:nowrap;">+ Add</button>
+          </div>
+        </div>
         <div class="override-list" id="urn-override-list"></div>
       </div>
     </div>
@@ -2996,6 +3007,14 @@ function populateClassDropdowns() {
     STATE.allClasses.forEach(cls => { const o=document.createElement('option'); o.value=cls; o.textContent=cls; el.appendChild(o); });
     if (prev) el.value = prev;
   });
+  // By Class override dropdown
+  const clsSel = document.getElementById('cls-key-input');
+  if (clsSel && clsSel.tagName === 'SELECT') {
+    const prev = clsSel.value;
+    while (clsSel.options.length > 1) clsSel.remove(1);
+    STATE.allClasses.forEach(cls => { const o=document.createElement('option'); o.value=cls; o.textContent=cls; clsSel.appendChild(o); });
+    if (prev) clsSel.value = prev;
+  }
   // Admin TT dropdown → mother-app class names from davan_pub/timetable data
   const ttSel = document.getElementById('tt-class-sel');
   if (ttSel) {
@@ -3064,10 +3083,71 @@ async function addClassOverride() {
   try { await rtdbSet('controls/byClass/'+key, STATE.controls.byClass[key]); document.getElementById('cls-key-input').value=''; renderOverrides('byClass','class-override-list'); } catch(e) { alert('Error: '+e.message); }
 }
 async function addUrnOverride() {
-  const key=(document.getElementById('urn-key-input').value||'').trim().toUpperCase(); if(!key) return;
+  const inp = document.getElementById('urn-key-input');
+  const key = (inp.dataset.selectedUrn || inp.value || '').trim().toUpperCase(); if(!key) return;
   if (!STATE.controls.byUrn) STATE.controls.byUrn={};
   if (!STATE.controls.byUrn[key]) { STATE.controls.byUrn[key]={}; CONTROL_FLAGS.forEach(f=>{ STATE.controls.byUrn[key][f]=true; }); }
-  try { await rtdbSet('controls/byUrn/'+key, STATE.controls.byUrn[key]); document.getElementById('urn-key-input').value=''; renderOverrides('byUrn','urn-override-list'); } catch(e) { alert('Error: '+e.message); }
+  try {
+    await rtdbSet('controls/byUrn/'+key, STATE.controls.byUrn[key]);
+    inp.value=''; inp.dataset.selectedUrn='';
+    document.getElementById('urn-selected-preview').textContent='';
+    document.getElementById('urn-search-dropdown').style.display='none';
+    document.getElementById('urn-search-badge').textContent='';
+    renderOverrides('byUrn','urn-override-list');
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+/* ── URN smart search ── */
+let _urnSearchTimer=null;
+function urnOverrideSearch(val) {
+  const inp=document.getElementById('urn-key-input');
+  const badge=document.getElementById('urn-search-badge');
+  const dd=document.getElementById('urn-search-dropdown');
+  const preview=document.getElementById('urn-selected-preview');
+  inp.dataset.selectedUrn=''; preview.textContent='';
+  const q=(val||'').trim();
+  if(!q){dd.style.display='none';badge.textContent='';return;}
+  // Auto-detect: if mostly digits/uppercase letters and short → URN mode, else name mode
+  const looksLikeUrn = /^[A-Z0-9]{3,}$/i.test(q.replace(/\s/g,'')) && q.length<=15 && !/[a-z]/.test(q);
+  badge.textContent = looksLikeUrn ? 'URN' : 'NAME';
+  clearTimeout(_urnSearchTimer);
+  _urnSearchTimer=setTimeout(()=>{
+    const students=Object.values(STATE.students||{});
+    let matches;
+    if(looksLikeUrn) {
+      matches=students.filter(s=>(s.urn||'').toUpperCase().includes(q.toUpperCase()));
+    } else {
+      matches=students.filter(s=>(s.name||'').toLowerCase().includes(q.toLowerCase()));
+    }
+    matches=matches.slice(0,8);
+    if(!matches.length){dd.innerHTML='<div style="padding:10px 14px;font-size:12px;font-family:var(--mono);color:var(--muted);">No students found</div>';dd.style.display='block';return;}
+    dd.innerHTML=matches.map((s,i)=>`<div class="urn-dd-item" data-urn="${s.urn||''}" data-name="${s.name||''}" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);${i===0?'background:rgba(240,165,0,0.05);':''}">
+      <span style="font-family:var(--mono);font-size:12px;color:var(--accent);min-width:90px;">${s.urn||''}</span>
+      <span style="font-size:13px;flex:1;">${s.name||''}</span>
+      <span style="font-size:11px;font-family:var(--mono);color:var(--muted);">${s.class||''}</span>
+    </div>`).join('');
+    dd.querySelectorAll('.urn-dd-item').forEach(el=>{
+      el.onmousedown=e=>{e.preventDefault();urnOverrideSelect(el.dataset.urn,el.dataset.name);};
+    });
+    dd.style.display='block';
+  },200);
+}
+function urnOverrideSelect(urn, name) {
+  const inp=document.getElementById('urn-key-input');
+  inp.value=urn; inp.dataset.selectedUrn=urn;
+  document.getElementById('urn-selected-preview').textContent=name ? '👤 '+name : '';
+  document.getElementById('urn-search-badge').textContent='';
+  document.getElementById('urn-search-dropdown').style.display='none';
+}
+function urnOverrideKeydown(e) {
+  const dd=document.getElementById('urn-search-dropdown');
+  if(dd.style.display==='none') return;
+  const items=[...dd.querySelectorAll('.urn-dd-item')];
+  const cur=dd.querySelector('.urn-dd-item.hovered');
+  if(e.key==='ArrowDown'){e.preventDefault();const idx=items.indexOf(cur);const next=items[(idx+1)%items.length];items.forEach(i=>i.classList.remove('hovered'));next.classList.add('hovered');next.style.background='rgba(240,165,0,0.08)';}
+  else if(e.key==='ArrowUp'){e.preventDefault();const idx=items.indexOf(cur);const prev=items[(idx-1+items.length)%items.length];items.forEach(i=>i.classList.remove('hovered'));prev.classList.add('hovered');prev.style.background='rgba(240,165,0,0.08)';}
+  else if(e.key==='Enter'&&cur){e.preventDefault();urnOverrideSelect(cur.dataset.urn,cur.dataset.name);}
+  else if(e.key==='Escape'){dd.style.display='none';}
 }
 async function toggleOverrideFlag(type, key, flag, currentVal) {
   STATE.controls[type][key][flag] = !currentVal;
@@ -4227,6 +4307,11 @@ function closeMoreDrawer() {
 document.addEventListener('click', function(e) {
   if (!e.target.closest('#sbn-more-drawer') && !e.target.closest('#sbn-more-toggle')) {
     closeMoreDrawer();
+  }
+  // Close URN override search dropdown when clicking outside
+  if (!e.target.closest('#urn-key-input') && !e.target.closest('#urn-search-dropdown')) {
+    const dd = document.getElementById('urn-search-dropdown');
+    if (dd) dd.style.display = 'none';
   }
 });
 
