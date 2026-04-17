@@ -106,6 +106,8 @@ LOG     : v2.00 merge of student_login_v1_08 + student_admin_v1_01 into one file
   v6.42 | 2026-04-14 | FIX: Holiday banner not showing — getTodayHoliday now zero-pads day (03 vs 3) and merges built-in fallback list so holidays work even without live calendarData; FEAT: "📅 Today" chip appears when viewing another day to jump back to today
   v6.41 | 2026-04-14 | FEAT: Timetable — (1) Holiday banner with reason when viewed day is a holiday per calendar; (2) Date shown on every slot card; (3) LP progress strip on each slot — Faculty · Subject header, % bar, ✅/⏳/⬜/📚 counts with total, last updated
   v6.40 | 2026-04-14 | FIX: Topbar photo circle showed initials even after dash photo loaded — dash rcLoadPhoto.then() now also updates topbar circle with the resolved URL once cache is warm
+  v6.53 | 2026-04-17 | FIX: Dashboard percentage mismatch vs Attendance page — renderHomeDashboard() and renderDashAttSummary() were recalculating pct from ca/ct instead of using sub.pct from Firebase (the real scraped college value). Fixed: per-subject pct, Overall Att. stat widget, and Shortage/OK counts now all use sub.pct (ca/ct as fallback), matching the Attendance page exactly.
+  v6.52 | 2026-04-17 | FEAT: Dashboard Attendance Summary now shows "X / Y classes attended" below the progress bar for each subject.
   v6.51 | 2026-04-17 | FEAT: Bell badge now shows unread count (numbered pill, not dot); notices pushed to bell on render (deduped by notice key); sidebar 🔔 Notices button shows same unread count badge; badge clears when bell panel or Notices panel is opened; Admin student card RC tab now loads + shows SHORTAGE NOTIFICATIONS SENT and VISIT RECORDS / FOLLOW-UP LOG via rcLoadNotifications (Firestore)
   v6.50 | 2026-04-16 | FIX: Admin student card photo not showing — ascLoadPhoto was reading wrong RTDB path (portal_students/{urn}) instead of davan_student_photos/{urn}; now delegates to rcLoadPhoto, shares cache
   v6.49 | 2026-04-16 | FEAT: Students tab — class summary cards now show portal logins CREATED vs class strength from davan_pub/students (not login count); click any card to see exactly which students have no portal login yet (red "No Login" rows with pre-filled + Create button); click again or ✕ to go back to normal view. STATE.allStudents now persists davan_pub/students across renders.
@@ -203,7 +205,7 @@ LOG     : v2.00 merge of student_login_v1_08 + student_admin_v1_01 into one file
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v6.51 — Davan &amp; Nutana</title>
+<title>Student Portal v6.53 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -4602,7 +4604,7 @@ function addLpSubject() {
   // Init bell badge from localStorage
   updateBellBadge();
   // Update page title
-  document.title = 'Student Portal v6.51 — Davan & Nutana';
+  document.title = 'Student Portal v6.53 — Davan & Nutana';
   // Update version chip
   const vEl = document.getElementById('topbar-version');
   if (vEl) vEl.textContent = 'Portal v6.51';
@@ -5213,18 +5215,18 @@ function renderHomeDashboard() {
   // Semester
   const semEl = document.getElementById('sd-semester');
   if (semEl) semEl.textContent = u && u.semester ? 'Sem ' + u.semester : '—';
-  // Overall attendance
-  const totalCt = subs.reduce((a, s) => a + (s.ct || 0), 0);
-  const totalCa = subs.reduce((a, s) => a + (s.ca || 0), 0);
-  const overallPct = totalCt ? parseFloat(((totalCa / totalCt) * 100).toFixed(1)) : null;
+  // Overall attendance — use Firebase scraped pct per subject (same logic as Attendance page)
+  const _subPct = s => typeof s.pct === 'number' ? s.pct : (s.ct ? ((s.ca / s.ct) * 100) : 0);
+  const validSubs = subs.filter(s => s.ct > 0);
+  const overallPct = validSubs.length ? parseFloat((validSubs.reduce((a, s) => a + _subPct(s), 0) / validSubs.length).toFixed(1)) : null;
   const pctEl = document.getElementById('sd-overall-pct');
   if (pctEl) {
     pctEl.textContent = overallPct !== null ? overallPct + '%' : '—';
     pctEl.className = 'stat-value ' + (overallPct === null ? 'blue' : overallPct < 75 ? 'danger' : overallPct < 85 ? 'warn' : 'ok');
   }
-  // Subjects OK vs shortage
-  const shortageCount = subs.filter(s => s.ct && (s.ca / s.ct) < 0.75).length;
-  const okCount = subs.filter(s => s.ct && (s.ca / s.ct) >= 0.75).length;
+  // Subjects OK vs shortage — use Firebase pct
+  const shortageCount = subs.filter(s => s.ct && _subPct(s) < 75).length;
+  const okCount = subs.filter(s => s.ct && _subPct(s) >= 75).length;
   const okEl = document.getElementById('sd-subjects-ok');
   if (okEl) okEl.textContent = okCount || (canShow('attendance') ? '0' : '—');
   const shortEl = document.getElementById('sd-subjects-short');
@@ -5291,7 +5293,9 @@ function renderDashAttSummary(subs) {
 
   // ── Attendance rows ──
   const attRows = subs.map(sub => {
-    const pct   = sub.ct ? ((sub.ca / sub.ct) * 100) : 0;
+    // Use Firebase scraped pct (same as Attendance page) — ca/ct recalc gives wrong results
+    // because the college system uses a different working-days denominator
+    const pct   = typeof sub.pct === 'number' ? sub.pct : (sub.ct ? ((sub.ca / sub.ct) * 100) : 0);
     const pctFmt = sub.ct ? pct.toFixed(1) + '%' : '—';
     const color = sub.ct ? (pct < 75 ? 'var(--danger)' : pct < 85 ? 'var(--warn)' : 'var(--ok)') : 'var(--muted)';
     const barW  = sub.ct ? Math.min(100, pct) : 0;
