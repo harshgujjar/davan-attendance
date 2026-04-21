@@ -5905,6 +5905,10 @@
         <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           <button onclick="s38_waToday()" style="padding:8px 14px;background:rgba(37,211,102,0.15);color:#25d366;border:1px solid rgba(37,211,102,0.4);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">📱 WA Today</button>
           <button onclick="s38_waYesterday()" style="padding:8px 14px;background:rgba(37,211,102,0.08);color:#25d366;border:1px solid rgba(37,211,102,0.25);border-radius:6px;font-size:12px;cursor:pointer;">📱 WA Yesterday</button>
+          <div style="display:flex;align-items:center;gap:4px;background:rgba(37,211,102,0.06);border:1px solid rgba(37,211,102,0.2);border-radius:6px;padding:3px 6px 3px 8px;">
+            <input type="date" id="s38-wa-custom-date" style="background:transparent;border:none;color:#25d366;font-size:11px;cursor:pointer;outline:none;width:112px;" title="Pick a date to send WA report">
+            <button onclick="s38_waCustomDate()" style="padding:5px 10px;background:rgba(37,211,102,0.2);color:#25d366;border:1px solid rgba(37,211,102,0.35);border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">📱 Send</button>
+          </div>
           <button onclick="s38_printView()" style="padding:8px 14px;background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);border-radius:6px;font-size:12px;cursor:pointer;">🖨 Print</button>
           <button onclick="s38_exportPDF()" style="padding:8px 14px;background:var(--accent);color:#000;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">⬇ Export PDF</button>
         </div>
@@ -5983,9 +5987,8 @@
           </div>
         </div>
 
-        <div style="display:flex;gap:8px;margin-top:12px">
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
           <button onclick="s38_save()" style="padding:8px 18px;background:var(--accent);color:#000;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">💾 Save to Firebase</button>
-          <button onclick="s38_clrForm()" style="padding:8px 14px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer;">Clear Form</button>
         </div>
       </div>
 
@@ -40872,7 +40875,43 @@ async function dashRenderFacultyLP(fac, force) {
     });
   }
 
-  function onDateChange(){ loadFormFromLocal(); s38_updateLive(); }
+  function onDateChange(){
+    const dateEl=document.getElementById('s38-date');
+    if(!dateEl)return;
+    const date=dateEl.value;
+    if(!date){s38_clrForm();s38_updateLive();return;}
+    // If localDB already has this date (from SEED or prior Firebase load), show it immediately
+    if(localDB[date]){
+      loadFormFromLocal();
+      s38_updateLive();
+    } else {
+      // Date not in memory yet — try to fetch from Firebase
+      s38_clrForm();
+      s38_updateLive();
+      if(typeof db!=='undefined'){
+        dvToast('🔄 Loading data for '+fmtDate(date)+'…','info',2000);
+        SRCS.forEach(src=>{
+          const docId=`${date}_${src.replace(/@/g,'AT')}`;
+          db.collection(COL).doc(docId).get().then(snap=>{
+            if(snap.exists){
+              const d=snap.data();
+              if(!localDB[date])localDB[date]={};
+              localDB[date][src]={enq:d.enq||new Array(8).fill(0),app:d.app||new Array(8).fill(0),adm:d.adm||new Array(8).fill(0)};
+            }
+            // After all 3 SRCS fetched, reload form
+            if(Object.keys(localDB[date]||{}).length===SRCS.length||src===SRCS[SRCS.length-1]){
+              // Use current dateEl value (user may have changed it again)
+              if(document.getElementById('s38-date')?.value===date){
+                render();
+                loadFormFromLocal();
+                s38_updateLive();
+              }
+            }
+          }).catch(()=>{});
+        });
+      }
+    }
+  }
 
   function autoSaveCurrent(){
     const dateEl=document.getElementById('s38-date');
@@ -40961,21 +41000,52 @@ async function dashRenderFacultyLP(fac, force) {
           localDB[d.date][d.src]={enq:d.enq||new Array(8).fill(0),app:d.app||new Array(8).fill(0),adm:d.adm||new Array(8).fill(0)};
         });
         render();
+        // Always reload form using current date (user may have changed it while loading)
         loadFormFromLocal();
         s38_updateLive();
       }).catch(()=>{ render(); loadFormFromLocal(); s38_updateLive(); });
     }catch(e){ render(); loadFormFromLocal(); s38_updateLive(); }
   }
 
+  // Save all 3 campus tabs for the current date in one shot
+  window.s38_saveAllTabs=function(){
+    const dateEl=document.getElementById('s38-date');
+    if(!dateEl)return;
+    const date=dateEl.value;
+    if(!date){dvToast('Pick a date first','warn');return;}
+    autoSaveCurrent(); // persist current form values into localDB first
+    if(typeof db==='undefined'){dvToast('⚠ Firebase not ready','warn');return;}
+    dvToast('💾 Saving all 3 tabs to Firebase…','info',2500);
+    const writes=SRCS.map(src=>{
+      if(!localDB[date]||!localDB[date][src])return Promise.resolve();
+      const docId=`${date}_${src.replace(/@/g,'AT')}`;
+      return db.collection(COL).doc(docId).set({
+        date,src,
+        enq:localDB[date][src].enq,
+        app:localDB[date][src].app,
+        adm:localDB[date][src].adm,
+        updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    Promise.all(writes)
+      .then(()=>{
+        render(); s38_updateLive();
+        dvToast(`✅ All 3 tabs for ${fmtDate(date)} saved to Firebase`,'ok',5000);
+        showStatus();
+      })
+      .catch(e=>dvToast('❌ Save all failed: '+e.message,'error',6000));
+  };
+
   window.s38_save=function(){
     const dateEl=document.getElementById('s38-date');
     if(!dateEl)return;
     const date=dateEl.value;
-    if(!date){alert('Pick a date');return;}
+    if(!date){dvToast('Pick a date first','warn');return;}
     autoSaveCurrent();
     render();
     s38_updateLive();
-    if(typeof db==='undefined'){showStatus();return;}
+    if(typeof db==='undefined'){dvToast('⚠ Firebase not ready — data saved locally only','warn');return;}
+    dvToast('💾 Saving to Firebase…','info',2000);
     try{
       const docId=`${date}_${curSrc.replace(/@/g,'AT')}`;
       db.collection(COL).doc(docId).set({
@@ -40984,8 +41054,13 @@ async function dashRenderFacultyLP(fac, force) {
         app:localDB[date][curSrc].app,
         adm:localDB[date][curSrc].adm,
         updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-      }).then(showStatus).catch(e=>alert('Save error: '+e.message));
-    }catch(e){showStatus();}
+      }).then(()=>{
+        dvToast(`✅ ${curSrc} data for ${fmtDate(date)} saved to Firebase`,'ok',4000);
+        showStatus();
+      }).catch(e=>{
+        dvToast('❌ Save failed: '+e.message,'error',6000);
+      });
+    }catch(e){dvToast('❌ Save error: '+e.message,'error',6000);}
   };
 
   function showStatus(){
@@ -41061,9 +41136,9 @@ async function dashRenderFacultyLP(fac, force) {
   }
 
   window.s38_saveRow=function(date,src,tr){
-    tr.querySelectorAll('td.editable').forEach(td=>td.classList.remove('unsaved'));
-    const btn=tr.querySelector('.s38-row-save-btn');if(btn)btn.remove();
-    if(typeof db==='undefined'){showStatus();return;}
+    if(typeof db==='undefined'){dvToast('⚠ Firebase not ready — data saved locally only','warn');return;}
+    const btn=tr.querySelector('.s38-row-save-btn');
+    if(btn){btn.textContent='⏳';btn.disabled=true;}
     try{
       const docId=`${date}_${src.replace(/@/g,'AT')}`;
       db.collection(COL).doc(docId).set({
@@ -41072,8 +41147,21 @@ async function dashRenderFacultyLP(fac, force) {
         app:localDB[date][src].app,
         adm:localDB[date][src].adm,
         updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-      }).then(showStatus).catch(e=>alert('Save error: '+e.message));
-    }catch(e){showStatus();}
+      }).then(()=>{
+        tr.querySelectorAll('td.editable').forEach(td=>td.classList.remove('unsaved'));
+        const b=tr.querySelector('.s38-row-save-btn');if(b)b.remove();
+        dvToast(`✅ ${src} / ${fmtDate(date)} saved to Firebase`,'ok',4000);
+        showStatus();
+      }).catch(e=>{
+        const b=tr.querySelector('.s38-row-save-btn');
+        if(b){b.textContent='💾';b.disabled=false;}
+        dvToast('❌ Row save failed: '+e.message,'error',6000);
+      });
+    }catch(e){
+      const b=tr.querySelector('.s38-row-save-btn');
+      if(b){b.textContent='💾';b.disabled=false;}
+      dvToast('❌ Row save error: '+e.message,'error',6000);
+    }
   };
 
   function recomputeSummaryRows(date){
@@ -41200,7 +41288,9 @@ async function dashRenderFacultyLP(fac, force) {
     if(!d)return'';
     const[y,m,day]=d.split('-');
     const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return`${parseInt(day)}-${months[parseInt(m)-1]}-${y}`;
+    const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const dateObj=new Date(parseInt(y),parseInt(m)-1,parseInt(day));
+    return`${parseInt(day)}-${months[parseInt(m)-1]}-${y} (${days[dateObj.getDay()]})`;
   }
 
   function buildWAMsg(date){
@@ -41209,6 +41299,11 @@ async function dashRenderFacultyLP(fac, force) {
 
     const COURSE=['I PU Sc','I PU Com','II PU Sc','II PU Com','BBA','BCA','B.Com'];
     const HR='--------------------------------';
+    const SRC_LABEL={
+      'DAVAN':'Davan Institute of Advanced Management Studies',
+      'DAVAN@NUTANA':'Davan Institute @ Nutana Campus',
+      'NUTANA':'Nutana College'
+    };
     let msg=`*DAILY ADMISSION STATUS - ${dateStr(date)}*\n`;
     msg+=`_Davan Institute of Advanced Management Studies_\n`;
     msg+=`${HR}\n\n`;
@@ -41220,7 +41315,7 @@ async function dashRenderFacultyLP(fac, force) {
       const tEnq=e.enq[7]||0, tApp=e.app[7]||0, tAdm=e.adm[7]||0;
       if(tEnq===0&&tApp===0&&tAdm===0)return;
 
-      msg+=`*[${src}]*\n`;
+      msg+=`*[${SRC_LABEL[src]||src}]*\n`;
 
       const lines=[];
       COURSE.forEach((c,i)=>{
@@ -41268,7 +41363,10 @@ async function dashRenderFacultyLP(fac, force) {
       msg+=`*Cumulative Admissions by Course*\n`;
       msg+=admLines.join('\n')+'\n\n';
     }
-    msg+=`_Sent from Davan CMS · ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}_`;
+    const senderName = (typeof currentProfile!=='undefined'&&currentProfile?.name) ? currentProfile.name : 'Davan CMS';
+    const senderRole = (typeof currentProfile!=='undefined'&&currentProfile?.role) ? currentProfile.role : '';
+    const senderLabel = senderRole ? `${senderName} · ${senderRole}` : senderName;
+    msg+=`_Sent from ${senderLabel} · ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}_`;
     return msg;
   }
 
@@ -41306,6 +41404,18 @@ async function dashRenderFacultyLP(fac, force) {
     const date=t.toISOString().split('T')[0];
     const msg=buildWAMsg(date);
     if(!msg){alert('No data found for '+dateStr(date));return;}
+    showWAModal(msg);
+  };
+
+  window.s38_waCustomDate=function(){
+    const inp=document.getElementById('s38-wa-custom-date');
+    const date=inp?.value;
+    if(!date){dvToast('Pick a date first','warn');return;}
+    const msg=buildWAMsg(date);
+    if(!msg){
+      dvToast('No data saved for '+dateStr(date),'warn',4000);
+      return;
+    }
     showWAModal(msg);
   };
 
