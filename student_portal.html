@@ -106,6 +106,7 @@ LOG     : v2.00 merge of student_login_v1_08 + student_admin_v1_01 into one file
   v6.42 | 2026-04-14 | FIX: Holiday banner not showing — getTodayHoliday now zero-pads day (03 vs 3) and merges built-in fallback list so holidays work even without live calendarData; FEAT: "📅 Today" chip appears when viewing another day to jump back to today
   v6.41 | 2026-04-14 | FEAT: Timetable — (1) Holiday banner with reason when viewed day is a holiday per calendar; (2) Date shown on every slot card; (3) LP progress strip on each slot — Faculty · Subject header, % bar, ✅/⏳/⬜/📚 counts with total, last updated
   v6.40 | 2026-04-14 | FIX: Topbar photo circle showed initials even after dash photo loaded — dash rcLoadPhoto.then() now also updates topbar circle with the resolved URL once cache is warm
+  v6.54 | 2026-04-19 | Phase C: loads davan_pub/session_config from RTDB; STATE.semConfig + STATE.activeSemKey + STATE.isCurrentSem set on load. Subject matching now sem-aware: new sems (2026-27_even+) use full-name exact match, current sem keeps fuzzy prefix matching. Sem label shown in student sidebar under class. Compatible with all future sems automatically.
   v6.53 | 2026-04-17 | FIX: Dashboard percentage mismatch vs Attendance page — renderHomeDashboard() and renderDashAttSummary() were recalculating pct from ca/ct instead of using sub.pct from Firebase (the real scraped college value). Fixed: per-subject pct, Overall Att. stat widget, and Shortage/OK counts now all use sub.pct (ca/ct as fallback), matching the Attendance page exactly.
   v6.52 | 2026-04-17 | FEAT: Dashboard Attendance Summary now shows "X / Y classes attended" below the progress bar for each subject.
   v6.51 | 2026-04-17 | FEAT: Bell badge now shows unread count (numbered pill, not dot); notices pushed to bell on render (deduped by notice key); sidebar 🔔 Notices button shows same unread count badge; badge clears when bell panel or Notices panel is opened; Admin student card RC tab now loads + shows SHORTAGE NOTIFICATIONS SENT and VISIT RECORDS / FOLLOW-UP LOG via rcLoadNotifications (Firestore)
@@ -1591,6 +1592,7 @@ body.dash-active .data-strip { display: block; }
             <div class="student-info">
               <div class="student-name" id="stu-name-disp">—</div>
               <div class="student-urn"  id="stu-urn-disp">—</div>
+              <div id="stu-sem-label-disp" style="display:none;font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:3px;letter-spacing:0.5px;"></div>
             </div>
             <span style="font-size:11px;color:var(--ok);font-family:var(--mono);">✓ Signed in</span>
           </div>
@@ -2717,6 +2719,13 @@ function showStudentScreen(data) {
   document.getElementById('stu-avatar').textContent = initials;
   document.getElementById('stu-name-disp').textContent = data.name || 'Student';
   document.getElementById('stu-urn-disp').textContent  = (data.urn||'') + (data.class ? ' · ' + data.class : '');
+  // Show active sem label from session_config (future-ready)
+  const _semCfg = STATE.semConfig;
+  const _semLabelEl = document.getElementById('stu-sem-label-disp');
+  if (_semLabelEl && _semCfg && _semCfg.academicYear) {
+    _semLabelEl.textContent = _semCfg.academicYear + ' · ' + (_semCfg.semType||'') + ' Sem';
+    _semLabelEl.style.display = 'block';
+  }
   if (data.passwordChanged) {
     const b = document.getElementById('chg-info-banner');
     if (b) b.querySelector('span:last-child').textContent = 'Your password has been personalised. Update or continue to dashboard.';
@@ -3129,7 +3138,7 @@ async function loadExceptionsData() {
 ════════════════════════════════════════════════════ */
 async function loadAllData() {
   try {
-    const [stuRaw, ctrlRaw, noticesRaw, studsArr, metaRaw, bannerRaw, bcastRaw, ovRaw, ttRaw, allocRaw, calRaw, excRaw, banRaw, lpKeysRaw] = await Promise.all([
+    const [stuRaw, ctrlRaw, noticesRaw, studsArr, metaRaw, bannerRaw, bcastRaw, ovRaw, ttRaw, allocRaw, calRaw, excRaw, banRaw, lpKeysRaw, semCfgRaw] = await Promise.all([
       rtdbGet('davan_pub/portal_students'),
       rtdbGet('controls'),
       rtdbGet('notices'),
@@ -3141,6 +3150,7 @@ async function loadAllData() {
       rtdbGet('davan_pub/timetable').catch(()=>null),
       rtdbGet('davan_pub/allocations').catch(()=>null),
       rtdbGet('davan_pub/calendar').catch(()=>null),
+      rtdbGet('davan_pub/session_config').catch(()=>null),
       rtdbGet('controls/lpExceptions').catch(()=>null),
       rtdbGet('controls/bannedStudents').catch(()=>null),
       rtdbGet('lessonPlan').catch(()=>null)
@@ -3158,6 +3168,12 @@ async function loadAllData() {
     STATE.metaData  = metaRaw || null;
     STATE.adminMotherTT    = (ttRaw    && ttRaw.data)    ? ttRaw.data    : [];
     STATE.adminMotherAlloc = (allocRaw && allocRaw.data) ? allocRaw.data : [];
+    STATE.semConfig        = semCfgRaw || null;
+    // Derive sem key — used for subject matching path selection
+    STATE.activeSemKey = STATE.semConfig
+      ? (STATE.semConfig.academicYear || '').replace('/','\u002d') + '_' + (STATE.semConfig.semType || 'Odd').toLowerCase()
+      : '2025-26_odd';
+    STATE.isCurrentSem = STATE.activeSemKey === '2025-26_odd'; // hardcoded allocs only for this sem
     STATE.calendarData = (calRaw && calRaw.data) ? calRaw.data : (Array.isArray(calRaw) ? calRaw : null);
     STATE.lpExceptions   = excRaw && typeof excRaw === 'object' && !Array.isArray(excRaw)
                            ? Object.keys(excRaw)
@@ -4893,6 +4909,8 @@ async function loadStudentDashboard() {
         // Apply canonical aliases so name variants map to a single form (v6.36)
         const aliasSubName = s => { const n = normSubName(s); return (typeof SUBJECT_NAME_ALIASES !== 'undefined' && SUBJECT_NAME_ALIASES[n]) || n; };
         const firstNWords = (s, n) => normSubName(s).split(' ').slice(0, n).join(' ');
+        // For new sems (2026-27_even+) use full-name exact match only — no fuzzy prefix
+        const _newSemMode = STATE.activeSemKey && STATE.activeSemKey !== '2025-26_odd';
         // Use Firebase sub.subject OR resolved STU_KNOWN_NAMES name for matching
         const resolvedName = (typeof STU_KNOWN_NAMES !== 'undefined' && STU_KNOWN_NAMES[code]) || sub.subject || '';
         const subNorm = aliasSubName(resolvedName);
@@ -4905,6 +4923,9 @@ async function loadStudentDashboard() {
           if (a.codes && (a.codes.includes(code) || a.codes.includes(stripped))) return true;
           if (!a.subject || !subNorm) return false;
           const aNorm = aliasSubName(a.subject);
+          // New sem (2026-27_even+): full name exact match only — subjects typed precisely
+          if (_newSemMode) return aNorm === subNorm;
+          // Current sem: fuzzy prefix matching (handles portal truncation)
           if (aNorm === subNorm) return true;
           const fw4a = firstNWords(a.subject, 4);
           const fw4s = firstNWords(resolvedName, 4);
