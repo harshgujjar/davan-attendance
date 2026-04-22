@@ -1341,7 +1341,7 @@
       font-size:11px;font-weight:700;font-family:var(--mono);
       background:var(--accent);color:#000;transition:all 0.2s;">
     </button>
-    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v824 · Last Updated: 22-Apr-2026 IST</span>
+    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v826 · Last Updated: 22-Apr-2026 IST</span>
   </div>
 </div>
 
@@ -11672,7 +11672,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 824;  // always = HTML footer version number
+const CODE_BUILD = 826;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '18-Apr-2026', time: '21:00', full: '18-Apr-2026 21:00 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
@@ -19804,7 +19804,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#c8cdd8">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #7a8494; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">824/span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">826/span></span>
       &nbsp;·&nbsp;
       Updated: <span id="footer-date">09 Apr 2026</span>, <span id="footer-time">14:00</span> IST
       &nbsp;·&nbsp;
@@ -20001,6 +20001,8 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v826', date: '22-Apr-2026 IST', note: 'Fix: Staging Timetable Editor not showing saved timetable data on load (same race condition as v824 allocation fix). _ttRenderEditorStaging was sync and read LM_TIMETABLE from memory which could be empty/stale. Made async and added Firestore re-fetch of semesters_<key>/timetable at top of every render, so LM_TIMETABLE is always fresh from DB before grid builds.' },
+  { v: 'v825', date: '22-Apr-2026 IST', note: 'Fix: Planning sems (e.g. 2026-27_odd) missing from main semester switcher dropdown on login. Root cause: scfgUpdateSwitcherFromConfigs only iterated SCFG_SEM_ORDER which may not include all ALL_SEM_CONFIGS keys when scfgBuildSemOrder() runs before SESSION_CONFIG is ready (race). Fix: switcher now also iterates ALL_SEM_CONFIGS keys not present in SCFG_SEM_ORDER, so any planning sem with a saved config always appears in the dropdown immediately on login.' },
   { v: 'v824', date: '22-Apr-2026 IST', note: 'Fix: Staging Allocation Editor showed live-sem data (82 Even-sem rows) instead of empty builder when Firestore doc was cleared. Root cause: race condition — _aleRenderStaging read LM_ALLOCATIONS from memory which still held live-sem data before staging mode fully cleared it. Fix: _aleRenderStaging now re-fetches semesters_<key>/allocations from Firestore at the top of every render, setting LM_ALLOCATIONS = [] if doc missing. Eliminates stale memory state entirely.' },
   { v: 'v823', date: '22-Apr-2026 IST', note: 'Timetable Builder: Always show both Morning and Afternoon slot groups for all classes in staging mode — faculty may place subjects in either session regardless of class type. Summary panel slot count updated to match (48 total slots per class).' },
   { v: 'v822', date: '22-Apr-2026 IST', note: 'Timetable Builder Summary Panel: Added clickable progress summary above the grid in staging mode. Shows serial number (1/10 format), class name, slots filled/total, and status badge (Complete/Partial/Empty). Clicking a row switches the class dropdown to that class and scrolls to its grid. Summary header shows overall X/total complete count. Extra slots outside normal morning/afternoon range are also counted.' },
@@ -21895,7 +21897,18 @@ function scfgUpdateSwitcherFromConfigs() {
   // ── Sidebar switcher ──
   const sel = document.getElementById('sem-switcher-select');
   if (sel) {
-    SCFG_SEM_ORDER.forEach(sem => {
+    // Build a combined list: SCFG_SEM_ORDER + any ALL_SEM_CONFIGS keys not already in it
+    const _semOrderKeys = new Set(SCFG_SEM_ORDER.map(s => s.key));
+    const _extraKeys = Object.keys(ALL_SEM_CONFIGS || {}).filter(k => !_semOrderKeys.has(k));
+    const _extraSems = _extraKeys.map(k => {
+      const parts = k.split('_'); // e.g. ["2026-27","odd"]
+      const year = parts[0] || '';
+      const type = parts[1] ? (parts[1].charAt(0).toUpperCase() + parts[1].slice(1)) : '';
+      return { key: k, year, type, semNums: type === 'Even' ? '2,4,6' : '1,3,5', label: year + ' ' + type, dates: '' };
+    });
+    const _allSems = [...SCFG_SEM_ORDER, ..._extraSems];
+
+    _allSems.forEach(sem => {
       const cfg = ALL_SEM_CONFIGS[sem.key];
       if (!cfg) return;
       const _cfgDates = _scfgSwitcherDates(cfg);
@@ -24043,11 +24056,18 @@ function _ttSummaryClick(cls) {
   if (wrap) setTimeout(() => wrap.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
 }
 
-function _ttRenderEditorStaging(semKey) {
+async function _ttRenderEditorStaging(semKey) {
   const wrap = document.getElementById('tte-grid-view');
   const msg  = document.getElementById('tte-msg');
   if (!wrap) return;
   if (msg) msg.textContent = '';
+
+  // Always re-sync LM_TIMETABLE from Firestore for this staging sem
+  // (avoids stale live-sem data or empty memory from race conditions)
+  try {
+    const _ttDoc = await fsGet('semesters_' + semKey, 'timetable');
+    LM_TIMETABLE = _ttDoc?.data || [];
+  } catch(e) { LM_TIMETABLE = []; }
 
   const classes = _ttStagingGetClasses();
 
