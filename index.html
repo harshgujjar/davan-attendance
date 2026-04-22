@@ -4208,6 +4208,7 @@
         </select>
         <label onclick="aleUploadClick()" style="padding:9px 14px;font-size:12px;background:#1a2a1a;color:#6f6;border:1px solid #2a4a2a;border-radius:8px;cursor:pointer;white-space:nowrap;">📤 Upload Excel</label>
         <input type="file" id="ale-upload-input" accept=".xlsx,.xls" style="display:none;" onchange="ttHandleUpload(event)">
+        <button onclick="aleRefresh()" id="ale-refresh-btn" title="Reload from Firestore" style="padding:9px 14px;font-size:13px;background:#111;color:#6cf;border:1px solid #2a3a4a;border-radius:8px;cursor:pointer;white-space:nowrap;">🔄 Refresh</button>
       </div>
 
       <div id="ale-rows-wrap" style="margin-bottom:12px;"></div>
@@ -9375,6 +9376,14 @@ async function onLoginSuccess() {
   // Fetch Firestore in background — always re-render after load
   loadFirestoreData().then(() => {
     lmLoadData(); renderAll();
+    // Re-render alloc editor explicitly — it may have rendered before Firestore loaded
+    // (race condition: lmLoadData() runs first from localStorage, renderAll() shows stale data,
+    //  then Firestore overwrites LM_ALLOCATIONS but panel is already painted with wrong rows)
+    const _aePanel = document.getElementById('panel-alloc-editor');
+    if (_aePanel && _aePanel.style.display !== 'none' && typeof allocRenderEditor === 'function') {
+      allocRenderEditor();
+      console.log('[onLoginSuccess] Re-rendered alloc editor after Firestore load');
+    }
   }).catch(e => {
     console.error('[onLoginSuccess] loadFirestoreData failed:', e);
   });
@@ -9470,34 +9479,29 @@ async function onLoginSuccess() {
         }
       } catch(e) { console.warn('[Admin auto-sync] Timetable failed:', e.message); }
 
-      // 7. Allocations — sem-aware push on admin login
-      // Current sem (2025-26_odd): always push LM_ALLOC_DEFAULT (hardcoded, authoritative)
-      // New sems: read from app_data/allocations (built by staging system — do NOT overwrite)
+      // 7. Allocations — always read from Firestore app_data/allocations (source of truth).
+      // Firestore is written by the staging activation flow (_scfgDoActivate) for every sem,
+      // so it is always up-to-date. Fall back to LM_ALLOC_DEFAULT only if Firestore is empty.
+      // NOTE: hardcoded sem-key comparisons removed — they broke whenever the active sem advanced.
       try {
         const _activeSemKey = SESSION_CONFIG.academicYear.replace('/','\u002d') + '_' + SESSION_CONFIG.semType.toLowerCase();
-        const _isCurrentSem = _activeSemKey === '2025-26_even';
-        if (_isCurrentSem) {
-          // Current sem — push hardcoded default as always
+        const newAllocDoc = await db.collection('app_data').doc('allocations').get();
+        if (newAllocDoc.exists && newAllocDoc.data()?.data?.length) {
+          const allocData = newAllocDoc.data().data;
+          LM_ALLOCATIONS = allocData;
+          localStorage.setItem('davan_allocations', JSON.stringify(allocData));
+          lmInit();
+          if (rtdb) await rtdb.ref('davan_pub/allocations').set({ data: allocData });
+          console.log('[Admin auto-sync] Allocations loaded from Firestore for sem ' + _activeSemKey + ' (' + allocData.length + ' entries)');
+        } else {
+          // Firestore empty — push LM_ALLOC_DEFAULT as bootstrap
           const allocData = JSON.parse(JSON.stringify(LM_ALLOC_DEFAULT));
           await db.collection('app_data').doc('allocations').set({ data: allocData, updatedAt: new Date().toISOString() });
           LM_ALLOCATIONS = allocData;
           localStorage.setItem('davan_allocations', JSON.stringify(allocData));
           lmInit();
           if (rtdb) await rtdb.ref('davan_pub/allocations').set({ data: allocData });
-          console.log('[Admin auto-sync] Allocations pushed from LM_ALLOC_DEFAULT (' + allocData.length + ' entries)');
-        } else {
-          // New sem — read from Firestore app_data/allocations (do NOT overwrite with hardcoded)
-          const newAllocDoc = await db.collection('app_data').doc('allocations').get();
-          if (newAllocDoc.exists && newAllocDoc.data()?.data?.length) {
-            const allocData = newAllocDoc.data().data;
-            LM_ALLOCATIONS = allocData;
-            localStorage.setItem('davan_allocations', JSON.stringify(allocData));
-            lmInit();
-            if (rtdb) await rtdb.ref('davan_pub/allocations').set({ data: allocData });
-            console.log('[Admin auto-sync] Allocations loaded from Firestore for sem ' + _activeSemKey + ' (' + allocData.length + ' entries)');
-          } else {
-            console.warn('[Admin auto-sync] No allocations found for sem ' + _activeSemKey + ' — skipping RTDB push');
-          }
+          console.log('[Admin auto-sync] Allocations bootstrapped from LM_ALLOC_DEFAULT (' + allocData.length + ' entries) — Firestore was empty');
         }
       } catch(e) { console.warn('[Admin auto-sync] Allocations failed:', e.message); }
 
@@ -11672,7 +11676,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 829;  // always = HTML footer version number
+const CODE_BUILD = 835;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '18-Apr-2026', time: '21:00', full: '18-Apr-2026 21:00 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
@@ -20001,6 +20005,8 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v835', date: '22-Apr-2026 IST', note: 'Fix: Edit Allocation (admin) showing planning-year allocation instead of live-sem data. Root cause: admin auto-sync (step 7) had a hardcoded _isCurrentSem check (key === 2025-26_even) — when SESSION_CONFIG advanced to a new sem, _isCurrentSem became false and the else branch loaded app_data/allocations from Firestore, which now held the staged/activated planning data. Fix: removed the hardcoded key comparison entirely. Admin auto-sync now always reads from Firestore app_data/allocations (source of truth, updated by _scfgDoActivate on every sem activation), falling back to LM_ALLOC_DEFAULT only when Firestore is empty (bootstrap case).' },
+  { v: 'v830', date: '22-Apr-2026 IST', note: 'Fix: Edit Allocation showing staging/planning data on live sem. Root cause: allocRenderEditor() _isStaging condition used hardcoded key comparison (_semCurrentKey !== 2025-26_even) instead of the authoritative _semStagingMode flag. On live sem _semCurrentKey is __live__ (not 2025-26_even), so the condition misevaluated to true and routed to _aleRenderStaging(). Fixed: _isStaging now correctly uses _semStagingMode && _semCurrentKey !== __live__. Same cleanup applied to aleAddRow() and aleSave() for consistency.' },
   { v: 'v829', date: '22-Apr-2026 IST', note: 'Fix: View Timetable in planning mode showing wrong-sem classes (e.g. II YEAR B.COM in an odd-sem 2026-27_odd plan). Root cause: auto-clone (scfgAutoClone) copies previous sem timetable into Firestore staging doc — remap was done but some rows survived with wrong sems. Fix: (1) ttGetClasses() now filters LM_TIMETABLE rows by staging sem type (e.g. only I,III,V classes for _odd key) so viewer never shows wrong-sem classes. (2) ttRenderViewer() strips wrong-sem rows from LM_TIMETABLE after Firestore re-fetch as an extra safety layer. Both fixes use getSemsForType() as single source of truth.' },
   { v: 'v828', date: '22-Apr-2026 IST', note: 'Fix: View Timetable showing live-sem data in planning mode. Root cause: ttPopulateClassSelect() called lmLoadData() when LM_TIMETABLE was empty, restoring live localStorage data over the staging LM_TIMETABLE=[]. Fix: (1) ttRenderViewer() made async — now re-fetches semesters_<key>/timetable from Firestore at the top in staging mode, same pattern as _aleRenderStaging (v824). (2) ttPopulateClassSelect() blocked from calling lmLoadData() when _semStagingMode=true. (3) Planning mode banner injected above timetable grid showing sem key + staged status, so viewer clearly indicates planning sem.' },
   { v: 'v827', date: '22-Apr-2026 IST', note: 'Fix 1: Add Row in staging allocation editor was broken — aleAddStagingRow() pushed to LM_ALLOCATIONS then called allocRenderEditor() → _aleRenderStaging() which re-fetched Firestore and overwrote the new row before render. Fixed by adding skipFetch=true param: aleAddStagingRow() now calls _aleRenderStaging(semKey, true) directly, skipping the Firestore re-fetch so the new row survives. Fix 2: Reset to Default button now hidden in staging/planning mode (would wipe planned data). Added id="ale-reset-btn"; allocRenderEditor() hides it when _isStaging. Fix 3: Summary Report label added above the allocation table in staging mode — shows total row count + per-section breakdown as pill badges, updates live as filters change or rows are added/deleted.' },
@@ -20610,7 +20616,30 @@ function lmLoadData() {
     localStorage.setItem('davan_timetable_ver', LM_TT_VER);
   }
   try { LM_TIMETABLE   = JSON.parse(localStorage.getItem('davan_timetable'))   || LM_TT_DEFAULT;   } catch(e){ LM_TIMETABLE   = LM_TT_DEFAULT;   }
-  try { LM_ALLOCATIONS = JSON.parse(localStorage.getItem('davan_allocations')) || LM_ALLOC_DEFAULT; } catch(e){ LM_ALLOCATIONS = LM_ALLOC_DEFAULT; }
+  // ── Allocation: bust stale localStorage cache when sem type mismatch detected ──
+  // If the active sem is Even (should have Sem II,IV,VI) but localStorage has
+  // Odd-sem rows (Sem I,III,V), the cache is stale from a planning-mode write.
+  // Wipe it so Firestore data wins on the next loadFirestoreData() call.
+  try {
+    const _cachedAlloc = JSON.parse(localStorage.getItem('davan_allocations') || 'null');
+    if (_cachedAlloc && _cachedAlloc.length && typeof getSemsForType === 'function') {
+      const _activeSemType = (SESSION_CONFIG.semType || '').toLowerCase(); // 'even' | 'odd'
+      const _expectedSems  = getSemsForType(_activeSemType);               // e.g. ['II','IV','VI']
+      const _wrongSems     = getSemsForType(_activeSemType === 'even' ? 'odd' : 'even');
+      const _hasWrongRows  = _cachedAlloc.some(r => _wrongSems.includes(r.sem));
+      const _hasRightRows  = _cachedAlloc.some(r => _expectedSems.includes(r.sem));
+      if (_hasWrongRows && !_hasRightRows) {
+        // All rows are wrong-sem — this is stale planning data. Wipe cache.
+        localStorage.removeItem('davan_allocations');
+        console.warn('[lmLoadData] Stale allocation cache detected (wrong sem type for active session) — wiped. Firestore will reload.');
+        LM_ALLOCATIONS = LM_ALLOC_DEFAULT;
+      } else {
+        LM_ALLOCATIONS = _cachedAlloc;
+      }
+    } else {
+      LM_ALLOCATIONS = _cachedAlloc || LM_ALLOC_DEFAULT;
+    }
+  } catch(e){ LM_ALLOCATIONS = LM_ALLOC_DEFAULT; }
   if (!LM_TIMETABLE   || !LM_TIMETABLE.length)   LM_TIMETABLE   = LM_TT_DEFAULT;
   if (!LM_ALLOCATIONS || !LM_ALLOCATIONS.length)  LM_ALLOCATIONS = LM_ALLOC_DEFAULT;
   lmLoadClassMeta();
@@ -22031,10 +22060,18 @@ async function semSwitcherInit() {
   if (typeof scfgUpdateSwitcherFromConfigs === 'function') scfgUpdateSwitcherFromConfigs();
 
   // Restore saved selection (silently, no toast)
-  if (saved !== '__live__') {
-    sel.value = saved;
-    if (sel.value === saved) {
-      await semSwitchTo(saved, true); // true = silent restore
+  // ADMIN OVERRIDE: never restore a staging key across page reloads for admin role.
+  // Staging mode is transient planning mode — admin must always start on live data.
+  // (Non-admin roles: archive keys restore normally so VP/manager don't lose their view.)
+  const _savedRole = currentProfile?.role || '';
+  const _savedKey  = (_savedRole === 'admin' && saved !== '__live__')
+    ? (() => { sessionStorage.removeItem('davan_sem_key'); return '__live__'; })()
+    : saved;
+
+  if (_savedKey !== '__live__') {
+    sel.value = _savedKey;
+    if (sel.value === _savedKey) {
+      await semSwitchTo(_savedKey, true); // true = silent restore
     } else {
       sel.value = '__live__'; // archived key no longer exists
       sessionStorage.removeItem('davan_sem_key');
@@ -24482,6 +24519,29 @@ function allocRenderViewer() {
 // ═══════════════════════════════════════════════════════════════
 //  ALLOCATION EDITOR
 // ═══════════════════════════════════════════════════════════════
+async function aleRefresh() {
+  const btn = document.getElementById('ale-refresh-btn');
+  const msg = document.getElementById('ale-msg');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Loading...'; }
+  if (msg) { msg.style.color = 'var(--muted)'; msg.textContent = 'Reloading from Firestore…'; }
+  try {
+    const allocDoc = await fsGet('app_data', 'allocations');
+    if (allocDoc?.data?.length) {
+      LM_ALLOCATIONS = allocDoc.data;
+      try { localStorage.setItem('davan_allocations', JSON.stringify(LM_ALLOCATIONS)); } catch(e) {}
+      allocRenderEditor();
+      if (msg) { msg.style.color = 'var(--ok)'; msg.textContent = '✅ Reloaded ' + LM_ALLOCATIONS.length + ' entries from Firestore.'; }
+      setTimeout(() => { if (msg) msg.textContent = ''; }, 3000);
+    } else {
+      if (msg) { msg.style.color = 'var(--warn)'; msg.textContent = '⚠️ No allocation data found in Firestore.'; }
+    }
+  } catch(e) {
+    if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = '❌ Refresh failed: ' + (e.message || e); }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Refresh'; }
+  }
+}
+
 function allocRenderEditor() {
   // Rebuild sem filter dropdown dynamically based on active sem
   const semSel = document.getElementById('ale-filter-sem');
@@ -24502,8 +24562,10 @@ function allocRenderEditor() {
     semSel.innerHTML = '<option value="">All Sems</option>' +
       sems.map(s => '<option value="'+s+'"'+(s===curVal?' selected':'')+'>'+s+'</option>').join('');
   }
-  // TWO-PATH: current sem uses existing logic, future sems use new builder
-  const _isStaging = _semCurrentKey !== '__live__' && _semCurrentKey !== '2025-26_even';
+  // TWO-PATH: use _semStagingMode as the single authoritative flag.
+  // _semStagingMode is set true by scfgSelectTab() when entering a future/planning sem,
+  // and false for live sem (__live__) and archived sems. Do NOT hardcode sem keys here.
+  const _isStaging = _semStagingMode && _semCurrentKey && _semCurrentKey !== '__live__';
   // Hide Reset to Default in staging (it would wipe planned data)
   const _resetBtn = document.getElementById('ale-reset-btn');
   if (_resetBtn) _resetBtn.style.display = _isStaging ? 'none' : '';
@@ -24555,8 +24617,14 @@ function _aleRenderCurrent() {
   const inpStyle  = 'background:#111;color:#ccc;border:1px solid #2a2a2a;border-radius:6px;padding:7px 8px;font-size:12px;font-family:var(--mono);width:100%;box-sizing:border-box;';
   const codeStyle = 'background:#111;color:var(--accent);border:1px solid #2a2a2a;border-radius:6px;padding:7px 8px;font-size:12px;font-family:var(--mono);width:100%;box-sizing:border-box;text-align:center;font-weight:700;';
   const courseOpts = ['BCA','BCom','BBA'].map(c=>`<option value="${c}">${c}</option>`).join('');
-  // ⚠️  Use getSemsForType() — sem options must match current staging session type.
-  const _stagingSemType = (_semCurrentKey||'').split('_')[1] || 'odd';
+  // ⚠️  Use getSemsForType() — sem options must match active sem type.
+  // When on live sem (__live__), use SESSION_CONFIG.semType directly.
+  // When _semCurrentKey is e.g. '2026-27_odd', split gives 'odd'.
+  // Do NOT use split('_')[1] when key is '__live__' — that gives 'live' which is invalid.
+  const _liveSemType   = (SESSION_CONFIG.semType || 'even').toLowerCase();
+  const _stagingSemType = (_semCurrentKey && _semCurrentKey !== '__live__')
+    ? ((_semCurrentKey.split('_')[1]) || _liveSemType)
+    : _liveSemType;
   const semOpts    = getSemsForType(_stagingSemType).map(s=>`<option value="${s}">${s}</option>`).join('');
   const secOpts    = ['Morning (A)','Afternoon (A)','Afternoon (B)','Morning (B)','Morning (C)','Afternoon (C)'].map(s=>`<option value="${s}">${s}</option>`).join('');
 
@@ -24888,7 +24956,7 @@ async function _aleSaveStaging(semKey) {
 
 function aleAddRow() {
   if (!adminUnlocked) return;
-  if (_semStagingMode && _semCurrentKey !== '__live__' && _semCurrentKey !== '2025-26_even') {
+  if (_semStagingMode && _semCurrentKey && _semCurrentKey !== '__live__') {
     aleAddStagingRow(); return;
   }
   const newEntry = {course:'BCA',sem:'IV',section:'Morning (A)',subject:'',faculty:''};
@@ -24905,7 +24973,7 @@ function aleDeleteRow(gi) {
 
 async function aleSave() {
   // Route to staging save if in planning mode
-  if (_semStagingMode && _semCurrentKey !== '__live__' && _semCurrentKey !== '2025-26_even') {
+  if (_semStagingMode && _semCurrentKey && _semCurrentKey !== '__live__') {
     return await _aleSaveStaging(_semCurrentKey);
   }
   const msg = document.getElementById('ale-msg');
