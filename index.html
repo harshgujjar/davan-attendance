@@ -4215,7 +4215,7 @@
 
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button onclick="aleSave()" style="padding:10px 20px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">💾 Save Changes</button>
-        <button onclick="aleReset()" style="padding:10px 18px;background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:8px;font-size:13px;cursor:pointer;">↩ Reset to Default</button>
+        <button id="ale-reset-btn" onclick="aleReset()" style="padding:10px 18px;background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:8px;font-size:13px;cursor:pointer;">↩ Reset to Default</button>
       </div>
       <div id="ale-msg" style="margin-top:10px;font-size:12px;font-family:var(--mono);"></div>
     </div>
@@ -11672,7 +11672,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 826;  // always = HTML footer version number
+const CODE_BUILD = 829;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '18-Apr-2026', time: '21:00', full: '18-Apr-2026 21:00 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
@@ -20001,6 +20001,9 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v829', date: '22-Apr-2026 IST', note: 'Fix: View Timetable in planning mode showing wrong-sem classes (e.g. II YEAR B.COM in an odd-sem 2026-27_odd plan). Root cause: auto-clone (scfgAutoClone) copies previous sem timetable into Firestore staging doc — remap was done but some rows survived with wrong sems. Fix: (1) ttGetClasses() now filters LM_TIMETABLE rows by staging sem type (e.g. only I,III,V classes for _odd key) so viewer never shows wrong-sem classes. (2) ttRenderViewer() strips wrong-sem rows from LM_TIMETABLE after Firestore re-fetch as an extra safety layer. Both fixes use getSemsForType() as single source of truth.' },
+  { v: 'v828', date: '22-Apr-2026 IST', note: 'Fix: View Timetable showing live-sem data in planning mode. Root cause: ttPopulateClassSelect() called lmLoadData() when LM_TIMETABLE was empty, restoring live localStorage data over the staging LM_TIMETABLE=[]. Fix: (1) ttRenderViewer() made async — now re-fetches semesters_<key>/timetable from Firestore at the top in staging mode, same pattern as _aleRenderStaging (v824). (2) ttPopulateClassSelect() blocked from calling lmLoadData() when _semStagingMode=true. (3) Planning mode banner injected above timetable grid showing sem key + staged status, so viewer clearly indicates planning sem.' },
+  { v: 'v827', date: '22-Apr-2026 IST', note: 'Fix 1: Add Row in staging allocation editor was broken — aleAddStagingRow() pushed to LM_ALLOCATIONS then called allocRenderEditor() → _aleRenderStaging() which re-fetched Firestore and overwrote the new row before render. Fixed by adding skipFetch=true param: aleAddStagingRow() now calls _aleRenderStaging(semKey, true) directly, skipping the Firestore re-fetch so the new row survives. Fix 2: Reset to Default button now hidden in staging/planning mode (would wipe planned data). Added id="ale-reset-btn"; allocRenderEditor() hides it when _isStaging. Fix 3: Summary Report label added above the allocation table in staging mode — shows total row count + per-section breakdown as pill badges, updates live as filters change or rows are added/deleted.' },
   { v: 'v826', date: '22-Apr-2026 IST', note: 'Fix: Staging Timetable Editor not showing saved timetable data on load (same race condition as v824 allocation fix). _ttRenderEditorStaging was sync and read LM_TIMETABLE from memory which could be empty/stale. Made async and added Firestore re-fetch of semesters_<key>/timetable at top of every render, so LM_TIMETABLE is always fresh from DB before grid builds.' },
   { v: 'v825', date: '22-Apr-2026 IST', note: 'Fix: Planning sems (e.g. 2026-27_odd) missing from main semester switcher dropdown on login. Root cause: scfgUpdateSwitcherFromConfigs only iterated SCFG_SEM_ORDER which may not include all ALL_SEM_CONFIGS keys when scfgBuildSemOrder() runs before SESSION_CONFIG is ready (race). Fix: switcher now also iterates ALL_SEM_CONFIGS keys not present in SCFG_SEM_ORDER, so any planning sem with a saved config always appears in the dropdown immediately on login.' },
   { v: 'v824', date: '22-Apr-2026 IST', note: 'Fix: Staging Allocation Editor showed live-sem data (82 Even-sem rows) instead of empty builder when Firestore doc was cleared. Root cause: race condition — _aleRenderStaging read LM_ALLOCATIONS from memory which still held live-sem data before staging mode fully cleared it. Fix: _aleRenderStaging now re-fetches semesters_<key>/allocations from Firestore at the top of every render, setting LM_ALLOCATIONS = [] if doc missing. Eliminates stale memory state entirely.' },
@@ -22612,7 +22615,21 @@ function normalizeSection(s) {
 //  TIMETABLE VIEWER
 // ═══════════════════════════════════════════════════════════════
 function ttGetClasses() {
-  const classes = [...new Set(LM_TIMETABLE.map(t => t.class))];
+  let rows = LM_TIMETABLE || [];
+  // In staging mode, filter to only classes whose sem matches the staging sem type.
+  // e.g. 2026-27_odd (Odd sem = I,III,V) should only show BCA-I, BCA-III, BCA-V etc.
+  if (_semStagingMode && _semCurrentKey && _semCurrentKey !== '__live__') {
+    const _stgType = (_semCurrentKey).split('_')[1]; // 'odd' or 'even'
+    const _validSems = getSemsForType(_stgType);     // e.g. ['I','III','V'] for odd
+    // Class string format: "BCA-III-Morning (A)" — extract the roman numeral part
+    rows = rows.filter(t => {
+      if (!t.class) return false;
+      const parts = t.class.split('-');
+      // parts[1] is the sem roman numeral (e.g. "III")
+      return _validSems.includes(parts[1]);
+    });
+  }
+  const classes = [...new Set(rows.map(t => t.class))];
   return classes.sort();
 }
 
@@ -22656,7 +22673,9 @@ function ttSetViewMode(mode) {
 }
 
 function ttPopulateClassSelect(selId) {
-  if (!LM_TIMETABLE || !LM_TIMETABLE.length) lmLoadData();
+  // Do NOT call lmLoadData() in staging mode — it would overwrite the staging LM_TIMETABLE
+  // with live localStorage data. Staging LM_TIMETABLE is [] when no timetable built yet.
+  if (!_semStagingMode && (!LM_TIMETABLE || !LM_TIMETABLE.length)) lmLoadData();
   const sel = document.getElementById(selId);
   if (!sel) return;
   const current = sel.value;
@@ -22673,7 +22692,8 @@ function ttPopulateClassSelect(selId) {
 }
 
 function ttPopulateFacultySelect() {
-  if (!LM_ALLOCATIONS || !LM_ALLOCATIONS.length) lmLoadData();
+  // Do NOT call lmLoadData() in staging mode — staging LM_ALLOCATIONS loaded from Firestore.
+  if (!_semStagingMode && (!LM_ALLOCATIONS || !LM_ALLOCATIONS.length)) lmLoadData();
   const sel = document.getElementById('ttv-faculty');
   if (!sel) return;
   const current = sel.value;
@@ -23462,10 +23482,28 @@ function ttCtDebug() {
   body.innerHTML = lines.join('<br>');
 }
 
-function ttRenderViewer() {
-  // In staging/planning mode, never call lmLoadData() — that would restore live data into LM_TIMETABLE.
-  // If no staging timetable exists yet, LM_TIMETABLE is intentionally [] — show empty state.
-  if (!_semStagingMode && (!LM_TIMETABLE || !LM_TIMETABLE.length)) lmLoadData();
+async function ttRenderViewer() {
+  // In staging/planning mode, NEVER call lmLoadData() — it restores live localStorage data into LM_TIMETABLE.
+  // Re-fetch from Firestore instead to guarantee we show the correct staging timetable.
+  if (_semStagingMode && _semCurrentKey && _semCurrentKey !== '__live__') {
+    try {
+      const _ttDoc = await fsGet('semesters_' + _semCurrentKey, 'timetable');
+      LM_TIMETABLE = _ttDoc?.data || [];
+    } catch(e) { LM_TIMETABLE = []; }
+    // Extra safety: strip any wrong-sem rows that may have been introduced by a bad clone.
+    // e.g. if staging key is 2026-27_odd (Odd sem = I,III,V), remove II/IV/VI rows.
+    if (LM_TIMETABLE.length) {
+      const _stgType   = _semCurrentKey.split('_')[1]; // 'odd' or 'even'
+      const _validSems = getSemsForType(_stgType);
+      LM_TIMETABLE = LM_TIMETABLE.filter(t => {
+        if (!t.class) return true; // keep if no class field (shouldn't happen)
+        const semPart = (t.class.split('-')[1] || '');
+        return _validSems.includes(semPart);
+      });
+    }
+  } else if (!_semStagingMode && (!LM_TIMETABLE || !LM_TIMETABLE.length)) {
+    lmLoadData();
+  }
   const wrap = document.getElementById('ttv-grid');
   if (!wrap) return;
 
@@ -23485,6 +23523,28 @@ function ttRenderViewer() {
     </div>`;
     return;
   }
+  // ── Planning mode banner (shown above timetable when viewing staged data) ──
+  let _ttvStagingBanner = document.getElementById('ttv-staging-banner');
+  if (!_ttvStagingBanner) {
+    _ttvStagingBanner = document.createElement('div');
+    _ttvStagingBanner.id = 'ttv-staging-banner';
+    wrap.parentNode.insertBefore(_ttvStagingBanner, wrap);
+  }
+  if (_semStagingMode) {
+    const _planKeyType = (_semCurrentKey || '').split('_')[1] || '';
+    const _planNums = _planKeyType === 'odd' ? 'Sem 1, 3, 5' : _planKeyType === 'even' ? 'Sem 2, 4, 6' : '';
+    _ttvStagingBanner.innerHTML =
+      '<div style="background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.25);border-radius:10px;' +
+      'padding:10px 16px;margin-bottom:14px;font-size:11px;font-family:var(--mono);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+        '<span style="color:#60a5fa;font-weight:700;">✒ Planning Mode: ' + (_semCurrentKey||'').replace(/_/g,' ') + '</span>' +
+        (_planNums ? '<span style="color:#fbbf24;font-size:10px;">(' + _planNums + ')</span>' : '') +
+        '<span style="color:var(--muted);">· Viewing staged timetable — not published yet</span>' +
+      '</div>';
+    _ttvStagingBanner.style.display = 'block';
+  } else {
+    _ttvStagingBanner.style.display = 'none';
+  }
+
   const showFaculty = document.getElementById('ttv-show-faculty')?.checked || false;
   const showCt      = document.getElementById('ttv-show-ct')?.checked      || false;
   // Update ct data-available status label
@@ -24443,10 +24503,14 @@ function allocRenderEditor() {
       sems.map(s => '<option value="'+s+'"'+(s===curVal?' selected':'')+'>'+s+'</option>').join('');
   }
   // TWO-PATH: current sem uses existing logic, future sems use new builder
-  if (_semCurrentKey === '__live__' || _semCurrentKey === '2025-26_even') {
-    _aleRenderCurrent();
-  } else {
+  const _isStaging = _semCurrentKey !== '__live__' && _semCurrentKey !== '2025-26_even';
+  // Hide Reset to Default in staging (it would wipe planned data)
+  const _resetBtn = document.getElementById('ale-reset-btn');
+  if (_resetBtn) _resetBtn.style.display = _isStaging ? 'none' : '';
+  if (_isStaging) {
     _aleRenderStaging(_semCurrentKey);
+  } else {
+    _aleRenderCurrent();
   }
 }
 
@@ -24541,17 +24605,19 @@ function _aleRenderCurrent() {
 
 // ── NEW SEM Allocation Builder (2026-27_even onwards) ──
 // Faculty from Staff Directory. Subjects fresh. Full-name match validation.
-async function _aleRenderStaging(semKey) {
+async function _aleRenderStaging(semKey, skipFetch) {
   const wrap = document.getElementById('ale-rows-wrap');
   const msg  = document.getElementById('ale-msg');
   if (!wrap) return;
   if (msg) msg.textContent = '';
-  // Always re-sync LM_ALLOCATIONS from Firestore for this staging sem
-  // (avoids stale live-sem data lingering in memory from race conditions)
-  try {
-    const _stagingDoc = await fsGet('semesters_' + semKey, 'allocations');
-    LM_ALLOCATIONS = _stagingDoc?.data || [];
-  } catch(e) { LM_ALLOCATIONS = []; }
+  // Re-sync LM_ALLOCATIONS from Firestore unless skipFetch=true
+  // (skipFetch is set when Add Row just pushed a new entry — don't overwrite it)
+  if (!skipFetch) {
+    try {
+      const _stagingDoc = await fsGet('semesters_' + semKey, 'allocations');
+      LM_ALLOCATIONS = _stagingDoc?.data || [];
+    } catch(e) { LM_ALLOCATIONS = []; }
+  }
   // Read filter values
   const _filterCourse = document.getElementById('ale-filter-course')?.value || '';
   const _filterSem    = document.getElementById('ale-filter-sem')?.value    || '';
@@ -24671,12 +24737,41 @@ async function _aleRenderStaging(semKey) {
     }
   }
 
+  // ── Summary report: count rows by section (respecting active filters) ──
+  const _sectionCounts = {};
+  rows.forEach(r => {
+    const sec = r.section || 'Unknown';
+    _sectionCounts[sec] = (_sectionCounts[sec] || 0) + 1;
+  });
+  const _secSummaryParts = Object.entries(_sectionCounts)
+    .sort((a,b) => a[0].localeCompare(b[0]))
+    .map(([sec, cnt]) =>
+      '<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:6px;padding:3px 10px;font-size:11px;font-family:var(--mono);">' +
+        '<span style="color:#60a5fa;font-weight:700;">'+cnt+'</span>' +
+        '<span style="color:var(--muted);">'+_aleEsc(sec)+'</span>' +
+      '</span>');
+  const _filterTag = (_filterCourse || _filterSem)
+    ? '<span style="color:var(--muted);font-size:10px;margin-left:4px;">(filtered: '+[_filterCourse,_filterSem].filter(Boolean).join(' \u00b7 ')+')</span>'
+    : '';
+  const _summaryHtml =
+    '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;padding:10px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;">' +
+      '<span style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:1px;white-space:nowrap;">📊 SUMMARY REPORT</span>' +
+      '<span style="color:var(--border);">|</span>' +
+      '<span style="font-size:12px;font-family:var(--mono);color:#ccc;white-space:nowrap;">' +
+        '<span style="color:var(--accent);font-weight:700;">'+rows.length+'</span> rows'+_filterTag+
+      '</span>' +
+      (rows.length && _secSummaryParts.length
+        ? '<span style="color:var(--border);">|</span>' + _secSummaryParts.join('')
+        : '<span style="color:var(--muted);font-size:11px;font-family:var(--mono);">No rows yet — click + Add Row to start</span>') +
+    '</div>';
+
   wrap.innerHTML =
     '<div style="background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.2);border-radius:10px;padding:10px 16px;margin-bottom:14px;font-size:11px;font-family:var(--mono);">' +
       '<span style="color:#60a5fa;font-weight:700;">\u2712 Planning Mode: '+semLabel+'</span>' +
       '<span style="color:var(--muted);margin-left:12px;">Faculty from Staff Directory &nbsp;\u00b7&nbsp; Subjects typed fresh each sem</span>' +
-      (!hasPortalData ? '&nbsp;&nbsp;<span style="color:#fbbf24;font-size:10px;">\u26a0 No scrape data yet — subject match check will run after students are scraped</span>' : '') +
+      (!hasPortalData ? '&nbsp;&nbsp;<span style="color:#fbbf24;font-size:10px;">\u26a0 No scrape data yet \u2014 subject match check will run after students are scraped</span>' : '') +
     '</div>' +
+    _summaryHtml +
     '<div style="'+rowStyle+'margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:8px;">' +
       '<span style="'+hdrStyle+'">Course</span><span style="'+hdrStyle+'">Sem</span><span style="'+hdrStyle+'">Section</span>' +
       '<span style="'+hdrStyle+'">Subject</span><span style="'+hdrStyle+'">Code</span><span style="'+hdrStyle+'">Faculty</span><span></span>' +
@@ -24708,7 +24803,7 @@ function aleStagingDeleteRow(gi) {
     allocRenderEditor();
   }, {icon:'🗑️', okLabel:'Delete'});
 }
-function aleAddStagingRow() {
+async function aleAddStagingRow() {
   // Safety: if LM_ALLOCATIONS still has current sem hardcoded data, clear it first
   // Staging should only have data saved for this sem key
   // ⚠️  Use getSemsForType() — single source of truth. Do NOT inline sem arrays here.
@@ -24721,7 +24816,9 @@ function aleAddStagingRow() {
     LM_ALLOCATIONS = (LM_ALLOCATIONS||[]).filter(a => !_wrongSems.includes(a.sem));
   }
   LM_ALLOCATIONS.push({course:'BCA', sem: _validSems[0], section:'Morning (A)', subject:'', code:'', faculty:''});
-  allocRenderEditor();
+  // Pass skipFetch=true so _aleRenderStaging does NOT re-fetch from Firestore
+  // (which would wipe the row we just pushed)
+  await _aleRenderStaging(_semCurrentKey, /*skipFetch=*/true);
   const wrap = document.getElementById('ale-rows-wrap');
   if (wrap) wrap.lastElementChild?.scrollIntoView({behavior:'smooth'});
 }
