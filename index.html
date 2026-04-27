@@ -5330,6 +5330,7 @@
             <select id="int-edit-select" onchange="intEditLoad()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px;min-width:200px;">
               <option value="">-- Select or Create --</option>
             </select>
+            <button onclick="intEditLoad(true)" title="Force reload from Firestore" style="padding:8px 10px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;font-size:15px;cursor:pointer;line-height:1;">↻</button>
             <button onclick="intEditNew()" style="padding:8px 16px;background:var(--accent);color:#000;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">+ New Internal</button>
           </div>
           <div id="int-edit-form" style="display:none;"></div>
@@ -11655,7 +11656,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 858;  // always = HTML footer version number
+const CODE_BUILD = 860;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '25-Apr-2026', time: '11:30', full: '25-Apr-2026 11:30 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
@@ -19806,7 +19807,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#c8cdd8">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #7a8494; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">858</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">860</span></span>
       &nbsp;·&nbsp;
       Updated: <span id="footer-date">09 Apr 2026</span>, <span id="footer-time">14:00</span> IST
       &nbsp;·&nbsp;
@@ -20005,6 +20006,8 @@ function updateDataStrip() {
 const HTML_CHANGELOG = [
   { v: 'v856', date: '25-Apr-2026 IST', note: 'Fix: Subject dropdown options invisible on dark background — browser does not inherit select text colour into option elements. Fix: added explicit style background:#1e293b;color:#e2e8f0 on every option element in intBuildTimeRow. Custom option styled amber. Subjects now visible.' },
   { v: 'v856', date: '25-Apr-2026 IST', note: 'Fix: Rebuild showed same subjects on all dates because existingSlots (from previously saved wrong data) marked all cells as alreadyFilled, blocking template merge. Added intRefillFromTemplate() — ignores existingSlots entirely, re-pulls subjects from INT_TEMPLATE_SLOTS by date index. Added amber Re-fill from Template button next to Rebuild button. User confirms before overwrite.' },
+  { v: 'v860', date: '27-Apr-2026 IST', note: 'Fix: intEditLoad now always fetches fresh from Firestore on every dropdown switch instead of relying on INT_DATA cache — fixes stale/missing data when switching between 1st and 2nd internal without re-login. Falls back to cache only if Firestore call fails. Added ↻ Refresh button beside dropdown (calls intEditLoad(true)) as manual override. Refresh button shows … spinner while loading.' },
+  { v: 'v859', date: '27-Apr-2026 IST', note: 'Fix: intRebuildSlotsGrid AND intRefillFromTemplate — session guard now applied to BOTH inheritTimes AND per-date prevTimes entries. Previously, if a Rebuild had already run and stored morning-only times in INT_EDIT_TIMES, subsequent Rebuilds would use those stored values directly and bypass the guard. Now every per-date time array is checked and afternoon/morning slots are merged in if missing but batches need them.' },
   { v: 'v858', date: '25-Apr-2026 IST', note: 'Feat: Internal slot subject strikethrough is now cross-date — usedSubs spans ALL dates of the internal for each batch (not just same-date). Custom subjects (Type custom...) now stored in INT_CUSTOM_SUBJECTS per batch and appear in every slot dropdown for that batch across all dates. Typed custom subjects shown as amber chip tags below each dropdown with a red ✕ to remove them globally; removal also clears any slot currently using that subject. INT_CUSTOM_SUBJECTS resets on intEditLoad/intEditNew. intSyncSlotInput now accepts safeBatch param; new helpers: intRemoveCustomSubject, intRefreshAllDates.' },
   { v: 'v857', date: '25-Apr-2026 IST', note: 'Feat: Internal slot subject dropdowns now show already-used subjects (same batch, same date) as struck-through disabled options at the bottom of the list — visible as used but not selectable. intGetSubjectsForBatch now returns {available,used} instead of a flat array; intBuildTimeRow renders used entries with line-through style.' },
   { v: 'v856', date: '25-Apr-2026 IST', note: 'Fix: 1st internal actually has 3 dates (2026-04-01: 16 slots, 2026-04-02: 16 slots, 2026-04-03: 15 slots) — v853 assumption of 1 date was wrong. Date-index mapping is correct: new date 1→template date 1, date 2→template date 2, date 3→template date 3. Each new date now pre-fills with the correct different subjects from its matching template date.' },
@@ -34319,33 +34322,46 @@ function intEditPopulateSelect() {
   intPopulateSelects(list);
 }
 
-async function intEditLoad() {
+async function intEditLoad(forceRefresh=false) {
   const docId = document.getElementById('int-edit-select')?.value;
   const form  = document.getElementById('int-edit-form');
   if (!form) return;
   if (!docId) { form.style.display='none'; return; }
 
-  // Fix 4: if user switched tabs while a new-internal draft was open,
+  // Show spinner on refresh button while loading
+  const refreshBtn = document.getElementById('int-edit-refresh-btn');
+  if (refreshBtn) { refreshBtn.textContent='…'; refreshBtn.disabled=true; }
+  const resetBtn = () => { if (refreshBtn) { refreshBtn.textContent='↻'; refreshBtn.disabled=false; } };
+
+  // If user switched tabs while a new-internal draft was open,
   // restore from the draft instead of trying to fetch from Firestore
-  if (INT_NEW_DRAFT && INT_NEW_DRAFT.id === docId) {
+  if (!forceRefresh && INT_NEW_DRAFT && INT_NEW_DRAFT.id === docId) {
     const data = INT_NEW_DRAFT.data;
     form.style.display = '';
     form.innerHTML = intBuildEditForm(docId, data, true);
     const grid = document.getElementById('ie-slots-grid');
     if (grid) grid.innerHTML = intBuildSlotsGrid(data.batches||[], data.slots||[]);
     intLoadInchargeDropdowns(data.meta);
-    return;
+    resetBtn(); return;
   }
 
-  let data = INT_DATA[docId];
-  if (!data && docId !== 'int_default_1') {
+  // Always fetch fresh from Firestore on every switch — cache caused stale data
+  // when switching between 1st and 2nd internal without re-login.
+  let data = null;
+  if (docId !== 'int_default_1') {
     try {
       const doc = await db.collection('internals').doc(docId).get();
       data = doc.exists ? doc.data() : null;
-      if (data) INT_DATA[docId] = data;
-    } catch(e) {}
+      if (data) INT_DATA[docId] = data; // update cache
+    } catch(e) {
+      // Firestore failed — fall back to cache if available
+      data = INT_DATA[docId] || null;
+      dvToast('Firestore error — showing cached data', 'warn', 3000);
+    }
+  } else {
+    data = INT_DATA[docId] || null;
   }
-  if (!data) return;
+  if (!data) { resetBtn(); return; }
   // Set INT_TEMPLATE_SLOTS so Rebuild can pre-fill subjects from a reference internal.
   // Use the last internal (other than this one) that has saved slots.
   const refEntry = [...INT_LIST].reverse().find(x => x.id !== docId && (x.slots||[]).length > 0);
@@ -34357,6 +34373,7 @@ async function intEditLoad() {
   const grid = document.getElementById('ie-slots-grid');
   if (grid) grid.innerHTML = intBuildSlotsGrid(data.batches||[], data.slots||[]);
   intLoadInchargeDropdowns(data.meta);
+  resetBtn();
 }
 
 async function intEditNew() {
@@ -34951,12 +34968,36 @@ function intRebuildSlotsGrid() {
   const prevTimes = {...(INT_EDIT_TIMES||{})};
   // Find the best time pattern to inherit: last date that had custom times
   const existingDateTimes = Object.values(prevTimes);
-  const inheritTimes = existingDateTimes.length
+  let inheritTimes = existingDateTimes.length
     ? existingDateTimes[existingDateTimes.length - 1]
     : INT_DEFAULT_TIMES.map(t=>t.start);
+  // If batches include afternoon-session batches but inheritTimes has no afternoon slots,
+  // merge in the default afternoon times — prevents morning-only template starving afternoon batches.
+  const needsAfternoon = batches.some(b => b.session === 'afternoon');
+  const hasAfternoon   = inheritTimes.some(t => parseInt(t.split(':')[0]) >= 13);
+  if (needsAfternoon && !hasAfternoon) {
+    const defaultAft = INT_DEFAULT_TIMES.filter(t=>t.session==='afternoon').map(t=>t.start);
+    inheritTimes = [...inheritTimes, ...defaultAft].sort((a,b)=>a.localeCompare(b));
+  }
+  // Similarly ensure morning times are present when morning batches exist
+  const needsMorning = batches.some(b => b.session === 'morning');
+  const hasMorning   = inheritTimes.some(t => parseInt(t.split(':')[0]) < 13);
+  if (needsMorning && !hasMorning) {
+    const defaultMorn = INT_DEFAULT_TIMES.filter(t=>t.session==='morning').map(t=>t.start);
+    inheritTimes = [...defaultMorn, ...inheritTimes].sort((a,b)=>a.localeCompare(b));
+  }
   INT_EDIT_TIMES = {};
   dates.forEach(date => {
-    INT_EDIT_TIMES[date] = prevTimes[date] || inheritTimes.slice();
+    let dateTimes = prevTimes[date] ? prevTimes[date].slice() : inheritTimes.slice();
+    // Also apply session guard to already-stored per-date times in case a previous
+    // Rebuild ran before the guard existed and saved only morning slots.
+    if (batches.some(b=>b.session==='afternoon') && !dateTimes.some(t=>parseInt(t.split(':')[0])>=13)) {
+      dateTimes = [...dateTimes, ...INT_DEFAULT_TIMES.filter(t=>t.session==='afternoon').map(t=>t.start)].sort((a,b)=>a.localeCompare(b));
+    }
+    if (batches.some(b=>b.session==='morning') && !dateTimes.some(t=>parseInt(t.split(':')[0])<13)) {
+      dateTimes = [...INT_DEFAULT_TIMES.filter(t=>t.session==='morning').map(t=>t.start), ...dateTimes].sort((a,b)=>a.localeCompare(b));
+    }
+    INT_EDIT_TIMES[date] = dateTimes;
   });
   // Pre-fill subjects from template for empty cells.
   // Match by DATE INDEX: new date 1 → template date 1, new date 2 → template date 2, etc.
@@ -35010,9 +35051,25 @@ function intRefillFromTemplate() {
   if (!grid || !batches.length || !dates.length) return;
   // Rebuild INT_EDIT_TIMES
   const prevTimes = {...(INT_EDIT_TIMES||{})};
-  const inheritTimes = Object.values(prevTimes).slice(-1)[0] || INT_DEFAULT_TIMES.map(t=>t.start);
+  let inheritTimes = Object.values(prevTimes).slice(-1)[0] || INT_DEFAULT_TIMES.map(t=>t.start);
+  // Same session-aware guard as intRebuildSlotsGrid
+  if (batches.some(b=>b.session==='afternoon') && !inheritTimes.some(t=>parseInt(t.split(':')[0])>=13)) {
+    inheritTimes = [...inheritTimes, ...INT_DEFAULT_TIMES.filter(t=>t.session==='afternoon').map(t=>t.start)].sort((a,b)=>a.localeCompare(b));
+  }
+  if (batches.some(b=>b.session==='morning') && !inheritTimes.some(t=>parseInt(t.split(':')[0])<13)) {
+    inheritTimes = [...INT_DEFAULT_TIMES.filter(t=>t.session==='morning').map(t=>t.start), ...inheritTimes].sort((a,b)=>a.localeCompare(b));
+  }
   INT_EDIT_TIMES = {};
-  dates.forEach(date => { INT_EDIT_TIMES[date] = prevTimes[date] || inheritTimes.slice(); });
+  dates.forEach(date => {
+    let dateTimes = prevTimes[date] ? prevTimes[date].slice() : inheritTimes.slice();
+    if (batches.some(b=>b.session==='afternoon') && !dateTimes.some(t=>parseInt(t.split(':')[0])>=13)) {
+      dateTimes = [...dateTimes, ...INT_DEFAULT_TIMES.filter(t=>t.session==='afternoon').map(t=>t.start)].sort((a,b)=>a.localeCompare(b));
+    }
+    if (batches.some(b=>b.session==='morning') && !dateTimes.some(t=>parseInt(t.split(':')[0])<13)) {
+      dateTimes = [...INT_DEFAULT_TIMES.filter(t=>t.session==='morning').map(t=>t.start), ...dateTimes].sort((a,b)=>a.localeCompare(b));
+    }
+    INT_EDIT_TIMES[date] = dateTimes;
+  });
   // Build mergedSlots purely from template — ignore existingSlots entirely
   const tmplDates = [...new Set(INT_TEMPLATE_SLOTS.map(s=>s.date))].sort();
   const newDates  = dates.slice().sort();
