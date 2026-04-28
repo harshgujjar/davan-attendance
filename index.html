@@ -84,12 +84,13 @@
      "✅ Working from: index_vXXX.html"
 
   ── SESSION HANDOFF (update on every build) ──────────────────────
-  Version    : v856
-  Date       : 25-Apr-2026 IST
-  Last change: Fix: Subject dropdown options invisible on dark background.
-               Browser does not inherit select text colour into <option> elements.
-               Fix: explicit style background:#1e293b;color:#e2e8f0 on every
-               option in intBuildTimeRow. Custom option styled amber.
+  Version    : v877
+  Date       : 28-Apr-2026 IST
+  Last change: Fix: _sanitizeRtdbKeys and _sanKeys both bailed out on arrays (Array.isArray check
+               returned early), so nested subject keys like "B.COM-3.2" inside the "regular" array
+               of student objects were never sanitized. Firebase threw "invalid key" on RTDB write,
+               aborting the results sync and leaving Total Students / Avg / Shortage / Critical as
+               "No data". Fix: both functions now recurse into arrays with .map().
 
   ── INTERNALS SYSTEM STATE ───────────────────────────────────────
   Firestore            : internals collection
@@ -142,7 +143,7 @@
   <meta name="description" content="Attendance and result analytics for Davan &amp; Nutana Institutions, Davangere. Developed by Harsha Gujjar, Director.">
   <meta name="application-name" content="Attendance Result Analyzer">
   <meta name="generator" content="Developed by Harsha Gujjar — Davan Institute of Advanced Management Studies">
-  <meta name="version" content="v874" id="meta-version">
+  <meta name="version" content="v879" id="meta-version">
 
   <!-- Favicon & App Icons -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -1315,7 +1316,7 @@
       font-size:11px;font-weight:700;font-family:var(--mono);
       background:var(--accent);color:#000;transition:all 0.2s;">
     </button>
-    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v874 · Last Updated: 28-Apr-2026 IST</span>
+    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v879 · Last Updated: 28-Apr-2026 IST</span>
   </div>
 </div>
 
@@ -8448,12 +8449,20 @@ async function loadFirestoreData() {
 
   // studentsDoc is null only if the Firestore doc genuinely doesn't exist (admin never saved data)
   // Errors are thrown by fsGet now and caught above — so null here is not a permissions issue
-  if (!studentsDoc) {
+  // Also fall through to RTDB if data array exists but is empty (doc was saved with 0 students)
+  if (!studentsDoc || !studentsDoc.data?.length) {
+    if (!studentsDoc) {
+      console.warn('[loadFirestoreData] app_data/students doc not found in Firestore — trying RTDB fallback');
+    } else {
+      console.warn('[loadFirestoreData] app_data/students.data[] is empty (0 students) — trying RTDB fallback');
+    }
     await _loadFromRTDB();
     return;
   }
 
-  if (studentsDoc?.data) { allStudents = studentsDoc.data; try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch(e){} }
+  allStudents = studentsDoc.data;
+  console.log('[loadFirestoreData] ✅ Loaded', allStudents.length, 'students from Firestore app_data/students');
+  try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch(e){}
   // v772: LM_TT_DEFAULT is authoritative. Never overwrite from Firebase —
   // Firebase timetable is stale (wrong classLabels, missing entries).
   // ttDoc is intentionally ignored for timetable; LM_TT_DEFAULT set by lmLoadData().
@@ -8517,6 +8526,7 @@ async function _loadFromRTDB() {
     const val  = snap.val();
     if (val?.data?.length) {
       allStudents = val.data;
+      console.log('[_loadFromRTDB] ✅ Loaded', allStudents.length, 'students from RTDB path:', path);
       try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch(e) {}
       // Also load meta from RTDB — use davan_pub/meta (readable by all auth'd users)
       // davan_meta is admin-only; davan_pub/meta is mirrored by admin on sync
@@ -8583,6 +8593,7 @@ async function _loadFromRTDB() {
     } else {
       // RTDB empty — admin hasn't synced yet. Try localStorage before giving up.
       // Don't fall back to localStorage yet — try the next path in the loop first
+      console.warn('[_loadFromRTDB] path', path, 'is empty (val?.data?.length = 0 or missing) — trying next path');
       continue;
     }
   } catch(e) {
@@ -9445,8 +9456,23 @@ async function onLoginSuccess() {
       try {
         const resultsSnap = await db.collection('results').get();
         if (!resultsSnap.empty) {
+          // RTDB keys cannot contain ".", "#", "$", "/", "[", "]"
+          // Results docs have subject keys like "B.COM-3.3" — sanitize all keys recursively
+          // NOTE: must recurse into arrays too — "regular" is an array of student objects,
+          // each containing a "subjects" object keyed by subject code (e.g. "B.COM-3.2")
+          const _sanitizeRtdbKeys = (obj) => {
+            if (obj === null || obj === undefined) return obj;
+            if (Array.isArray(obj)) return obj.map(item => _sanitizeRtdbKeys(item));
+            if (typeof obj !== 'object') return obj;
+            const out = {};
+            Object.entries(obj).forEach(([k, v]) => {
+              const safeKey = k.replace(/\./g,'_').replace(/[#$\/\[\]]/g,'_');
+              out[safeKey] = _sanitizeRtdbKeys(v);
+            });
+            return out;
+          };
           const resultsObj = {};
-          resultsSnap.forEach(doc => { resultsObj[doc.id] = doc.data(); });
+          resultsSnap.forEach(doc => { resultsObj[doc.id] = _sanitizeRtdbKeys(doc.data()); });
           await rtdb.ref('davan_pub/results').set(resultsObj);
         }
       } catch(e) { console.warn('[Admin auto-sync] Results failed:', e.message); }
@@ -15084,8 +15110,16 @@ async function syncStudentsToFirestore() {
         try {
           const resultsSnap = await db.collection('results').get();
           if (!resultsSnap.empty) {
+            const _sanKeys = (obj) => {
+              if (obj === null || obj === undefined) return obj;
+              if (Array.isArray(obj)) return obj.map(item => _sanKeys(item));
+              if (typeof obj !== 'object') return obj;
+              const out = {};
+              Object.entries(obj).forEach(([k,v]) => { out[k.replace(/\./g,'_').replace(/[#$\/\[\]]/g,'_')] = _sanKeys(v); });
+              return out;
+            };
             const resultsObj = {};
-            resultsSnap.forEach(doc => { resultsObj[doc.id] = doc.data(); });
+            resultsSnap.forEach(doc => { resultsObj[doc.id] = _sanKeys(doc.data()); });
             await rtdb.ref('davan_pub/results').set(resultsObj);
           }
         } catch(re) { console.warn('[Sync] Results mirror failed (non-critical):', re.message); }
@@ -20307,6 +20341,11 @@ const HTML_CHANGELOG = [
   { v: 'v671', date: '07-Apr-2026', note: 'Fix: facAlertRenderSubs passes rawFac (not alias-resolved fac) to facAlertGetSubs — Smitha and Akshata P K subscriptions now show correctly; alias for display only, GetSubs does full scan internally' },
   { v: 'v857', date: '25-Apr-2026 IST', note: 'Feat: Internal slot subject dropdowns now show already-used subjects (same batch, same date) as struck-through disabled options at the bottom of the list — visible as used but not selectable. intGetSubjectsForBatch now returns {available,used} instead of a flat array; intBuildTimeRow renders used entries with line-through style.' },
   { v: 'v858', date: '25-Apr-2026 IST', note: 'Feat: Internal slot subject strikethrough is now cross-date — usedSubs spans ALL dates of the internal for each batch (not just same-date). Custom subjects (Type custom...) now stored in INT_CUSTOM_SUBJECTS per batch and appear in every slot dropdown for that batch across all dates. Typed custom subjects shown as amber chip tags below each dropdown with a red ✕ to remove them globally; removal also clears any slot currently using that subject. INT_CUSTOM_SUBJECTS resets on intEditLoad/intEditNew. intSyncSlotInput now accepts safeBatch param; new helpers: intRemoveCustomSubject, intRefreshAllDates.' },
+  { v: 'v879', date: '28-Apr-2026 IST', note: 'Fix: Root cause of No data on dashboard finally confirmed via v878 diagnostics — app_data/students Firestore doc EXISTS but data[] array is empty (0 students). loadFirestoreData checked studentsDoc?.data which is truthy for an empty array [], so it set allStudents=[] and returned without trying RTDB fallback. Fix: condition changed to !studentsDoc || !studentsDoc.data?.length — empty array now falls through to _loadFromRTDB() which correctly loads students from davan_pub/students in RTDB.' },
+  { v: 'v878', date: '28-Apr-2026 IST', note: 'Diagnostics: Added console.log to loadFirestoreData and _loadFromRTDB at every branch (doc not found, doc found with N students, RTDB path empty, all paths exhausted) so admin can see exactly why dashboard shows No data. This identifies whether app_data/students is missing in Firestore (needs portal scrape) vs RTDB empty (needs Sync to Cloud) vs localStorage cleared. No logic changes.' },
+  { v: 'v877', date: '28-Apr-2026 IST', note: 'Fix: Dashboard Total Students / Avg Attendance / Shortage / Critical still showing "No data" after v875/v876. Root cause: both _sanitizeRtdbKeys (auto-sync) and _sanKeys (manual Sync button) bailed out early on arrays — "if Array.isArray(obj) return obj" — so the "regular" array of student objects was returned unsanitized, leaving subject keys like "B.COM-3.2" (with dot) intact and causing Firebase RTDB to throw "invalid key". Fix: both functions now recurse into arrays with .map(), ensuring every nested object at any depth has its keys sanitized before writing to RTDB.' },
+  { v: 'v876', date: '28-Apr-2026 IST', note: 'Fix: B.COM-3.3 key error still thrown in v875 — a second copy of the results-to-RTDB sync (inside the manual Sync to Cloud button handler at line ~15096) was missed in the v875 fix. Both copies now use _sanKeys() to sanitize dots and illegal chars in all Firestore result doc keys before writing to RTDB.' },
+  { v: 'v875', date: '28-Apr-2026 IST', note: 'Fix: Admin auto-sync Results step was throwing "invalid key (B.COM-3.3)" because Firebase RTDB disallows dots in keys. Results Firestore docs use subject keys like B.COM-3.3, B.COM-3.4.M etc. Added _sanitizeRtdbKeys() recursive helper that replaces . # $ / [ ] with _ before writing to davan_pub/results. This was causing the auto-sync to abort early, leaving dashboard stats as No data on login.' },
   { v: 'v874', date: '28-Apr-2026 IST', note: 'Fix: Re-fill from Template and Rebuild both filled only morning slots (09:30, 11:30) and left all afternoon slots as — select —. Root cause: template matching used time_label equality (e.g. "01:15pm to 02:15pm") — when 2nd internal has different afternoon times than 1st internal, no template slot matched. Fix: both intRefillFromTemplate and intRebuildSlotsGrid now match by SLOT POSITION within session (slot 0, 1, 2…) not by time_label. Template slot 0 afternoon → fills slot 0 afternoon of 2nd internal regardless of actual time.' },
   { v: 'v873', date: '28-Apr-2026 IST', note: 'Fix (Bug 1): usedSubs in intSlotBatchChange still showed already-used subjects as selectable. Root cause: intCollectSlots was looking up slot IDs by default batch name (b.name) not the overridden batch name — so overridden slots were invisible to usedSubs computation. Fix: intCollectSlots now reads INT_SLOT_BATCH_OVERRIDE per column index to resolve the effective batch name before building the slot ID. Fix (Bug 2): intRefillFromTemplate produced wrong layout when called — it was rebuilding the grid ignoring all batch overrides and showing scrambled data. Fix: now resets INT_SLOT_BATCH_OVERRIDE before rebuilding so the grid starts clean from the template.' },
   { v: 'v872', date: '28-Apr-2026 IST', note: 'Fix: After switching batch in a slot cell, the subject dropdown showed already-used subjects as selectable instead of struck-through. Root cause: intSlotBatchChange used an empty usedSubs Set. Fix: now calls intCollectSlots from the live DOM to compute usedSubs cross-date for the new batch — same logic as intBuildSlotCell at render time.' },
