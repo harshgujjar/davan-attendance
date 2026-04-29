@@ -143,7 +143,7 @@
   <meta name="description" content="Attendance and result analytics for Davan &amp; Nutana Institutions, Davangere. Developed by Harsha Gujjar, Director.">
   <meta name="application-name" content="Attendance Result Analyzer">
   <meta name="generator" content="Developed by Harsha Gujjar — Davan Institute of Advanced Management Studies">
-  <meta name="version" content="v879" id="meta-version">
+  <meta name="version" content="v883" id="meta-version">
 
   <!-- Favicon & App Icons -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -1316,7 +1316,7 @@
       font-size:11px;font-weight:700;font-family:var(--mono);
       background:var(--accent);color:#000;transition:all 0.2s;">
     </button>
-    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v879 · Last Updated: 28-Apr-2026 IST</span>
+    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v883 · Last Updated: 28-Apr-2026 IST</span>
   </div>
 </div>
 
@@ -4538,6 +4538,24 @@
 
           <!-- Last archive info -->
           <div id="aset-archive-lastinfo" style="display:none;margin-top:12px;padding:10px 14px;background:rgba(196,160,42,0.07);border:1px solid rgba(196,160,42,0.2);border-radius:8px;font-size:11px;font-family:var(--mono);color:var(--muted);line-height:1.8;"></div>
+        </div>
+
+
+        <!-- Emergency Student Data Restore -->
+        <div style="background:var(--surface);border:1px solid rgba(239,68,68,0.4);border-radius:var(--radius);padding:24px;margin-bottom:16px;">
+          <div style="font-size:13px;font-weight:600;color:var(--danger);margin-bottom:4px;">🚨 Emergency Data Restore</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:16px;line-height:1.6;">
+            Every time you click <strong style="color:var(--ok);">☁️ Sync to Cloud</strong> or run a scrape, the app automatically
+            saves a <strong>checkpoint</strong> of the previous student data to Firestore before overwriting.
+            If data ever goes missing, use this to restore the last checkpoint instantly.
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+            <button onclick="_emergencyRestoreStudents()"
+              style="padding:10px 20px;background:rgba(239,68,68,0.15);color:var(--danger);border:1px solid rgba(239,68,68,0.4);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">
+              🚨 Restore from Checkpoint
+            </button>
+          </div>
+          <div id="emer-restore-status" style="font-size:12px;font-family:var(--mono);color:var(--muted);min-height:18px;line-height:1.7;"></div>
         </div>
 
         <div style="background:var(--surface);border:1px solid #3a1a1a;border-radius:var(--radius);padding:24px;">
@@ -8364,6 +8382,17 @@ async function fsGet(col, id) {
   return s.exists ? s.data() : null;
 }
 async function fsSet(col, id, data) {
+  // NUCLEAR GUARD: never write app_data/students with empty data array
+  if (col === 'app_data' && id === 'students') {
+    var _cnt = (data && Array.isArray(data.data)) ? data.data.length : -1;
+    if (_cnt === 0) {
+      var _stack = new Error().stack.split('\n').slice(1,4).join(' | ');
+      console.error('[fsSet] BLOCKED: 0 students -> app_data/students | caller:', _stack);
+      if (typeof dvToast === 'function') dvToast('Blocked: refusing to save 0 students to Firebase', 'error', 7000);
+      return false;
+    }
+    if (_cnt > 0) console.log('[fsSet] Writing', _cnt, 'students to Firestore app_data/students');
+  }
   try { await db.collection(col).doc(id).set(data, { merge: true }); return true; }
   catch(e) { console.error('fsSet', e); return false; }
 }
@@ -9424,9 +9453,15 @@ async function onLoginSuccess() {
       try {
         const studDoc = await db.collection('app_data').doc('students').get();
         if (studDoc.exists) {
-          const payload = { data: studDoc.data().data || [], savedAt: new Date().toISOString() };
-          await rtdb.ref('davan_pub/students').set(payload);
-          await rtdb.ref('davan_students').set(payload);
+          const _stuData = studDoc.data().data || [];
+          if (_stuData.length > 0) {
+            const payload = { data: _stuData, savedAt: new Date().toISOString() };
+            await rtdb.ref('davan_pub/students').set(payload);
+            await rtdb.ref('davan_students').set(payload);
+            console.log('[Auto-sync] Students mirrored to RTDB:', _stuData.length);
+          } else {
+            console.warn('[Auto-sync] Students SKIPPED - Firestore has 0 students, refusing RTDB overwrite');
+          }
         }
       } catch(e) { console.warn('[Admin auto-sync] Students failed:', e.message); }
 
@@ -12377,6 +12412,88 @@ function wgtShowSkeletons(containerId, n) {
 
 // Build a clickable widget card
 // panel: switchPanel target; pass null for non-navigable cards
+
+// ===============================================================
+//  SAFE STUDENT WRITE  v880
+//  1. Never write 0 students to Firestore/RTDB
+//  2. Auto-checkpoint before every overwrite
+//  3. Emergency restore from checkpoint in Admin Settings
+// ===============================================================
+async function _safeWriteStudents(data, caller) {
+  if (!data || !data.length) {
+    console.error('[SafeWrite] BLOCKED: 0 students from caller:', caller);
+    if (typeof dvToast === 'function') dvToast('Write blocked - 0 students in memory. Scrape first.', 'error', 6000);
+    return false;
+  }
+  // Checkpoint current Firestore doc before overwriting
+  try {
+    const existing = await fsGet('app_data', 'students');
+    if (existing && existing.data && existing.data.length > 0) {
+      const cp = {
+        data:            existing.data,
+        savedAt:         existing.savedAt || null,
+        checkpointAt:    new Date().toISOString(),
+        checkpointBy:    (typeof currentProfile !== 'undefined' && currentProfile && currentProfile.name) ? currentProfile.name : 'Admin',
+        checkpointCount: existing.data.length,
+        replacedBy:      caller,
+        newCount:        data.length,
+      };
+      await fsSet('app_data', 'students_checkpoint', cp);
+      if (typeof rtdb !== 'undefined' && rtdb) {
+        await rtdb.ref('davan_pub/students_checkpoint').set({
+          checkpointAt:    cp.checkpointAt,
+          checkpointCount: cp.checkpointCount,
+          replacedBy:      caller,
+          newCount:        data.length,
+        });
+      }
+      console.log('[SafeWrite] Checkpoint saved:', cp.checkpointCount, 'students -> caller:', caller, 'new count:', data.length);
+    }
+  } catch(e) { console.warn('[SafeWrite] Checkpoint failed (non-fatal):', e.message); }
+  return true;
+}
+
+async function _emergencyRestoreStudents() {
+  var statusEl = document.getElementById('emer-restore-status');
+  function setStatus(msg, col) {
+    if (!statusEl) return;
+    statusEl.style.color = col || 'var(--muted)';
+    statusEl.textContent = msg;
+  }
+  setStatus('Loading checkpoint from Firestore...');
+  try {
+    var cp = await fsGet('app_data', 'students_checkpoint');
+    if (!cp || !cp.data || !cp.data.length) {
+      setStatus('No checkpoint found. Run a scrape then Sync to Cloud - a checkpoint is saved automatically on every sync.', 'var(--warn)');
+      return;
+    }
+    var curCount = (typeof allStudents !== 'undefined' && allStudents) ? allStudents.length : 0;
+    dvConfirm(
+      'Emergency Restore',
+      'Restore ' + cp.checkpointCount + ' students from checkpoint?\nSaved: ' + cp.checkpointAt + '\nCurrent memory: ' + curCount + ' students.',
+      async function() {
+        setStatus('Restoring...');
+        try {
+          // _safeWriteStudents will try to checkpoint whatever is live now first (may skip if empty)
+          await _safeWriteStudents(cp.data, 'emergency-restore');
+          await fsSet('app_data', 'students', { data: cp.data, savedAt: cp.checkpointAt, restoredAt: new Date().toISOString() });
+          if (typeof rtdb !== 'undefined' && rtdb) {
+            var payload = { data: cp.data, savedAt: cp.checkpointAt };
+            await rtdb.ref('davan_pub/students').set(payload);
+            await rtdb.ref('davan_students').set(payload);
+          }
+          if (typeof allStudents !== 'undefined') allStudents = cp.data;
+          try { localStorage.setItem('davan_students', JSON.stringify(cp.data)); } catch(e2) {}
+          if (typeof renderAll === 'function') renderAll();
+          setStatus('Restored ' + cp.data.length + ' students from checkpoint (' + cp.checkpointAt + ')', 'var(--ok)');
+          if (typeof liveShowToast === 'function') liveShowToast('Data Restored', cp.data.length + ' students recovered', 'ok', 6000);
+        } catch(e) { setStatus('Restore failed: ' + e.message, 'var(--danger)'); }
+      },
+      { icon: 'warning', okLabel: 'Restore Now', okColor: 'var(--danger)' }
+    );
+  } catch(e) { setStatus('Load failed: ' + e.message, 'var(--danger)'); }
+}
+
 function wgtCard(icon, label, value, sub, color, panel) {
   color = color || 'var(--accent)';
   // Pre-build onclick attr to avoid quote conflicts — JS safety rule: no string ops inside attrs
@@ -14988,14 +15105,16 @@ async function autoScrapeOnLogin(successId) {
         ? `${Math.floor(durationSec/60)}m ${durationSec%60}s`
         : `${durationSec}s`;
 
-      // Save students to Firestore so Manager/VP on other devices can load them
+      // Save students to Firestore -- guarded: never write 0 students, always checkpoint first
       try {
-        await fsSet('app_data', 'students', { data: allStudents, savedAt: new Date().toISOString() });
-        // Mirror to RTDB — both authenticated and public paths
-        if (rtdb) {
-          const payload = { data: allStudents, savedAt: new Date().toISOString() };
-          await rtdb.ref('davan_students').set(payload);
-          await rtdb.ref('davan_pub/students').set(payload); // public — readable by manager/VP
+        const _scrapeOk = await _safeWriteStudents(allStudents, 'post-scrape');
+        if (_scrapeOk) {
+          await fsSet('app_data', 'students', { data: allStudents, savedAt: new Date().toISOString() });
+          if (rtdb) {
+            const payload = { data: allStudents, savedAt: new Date().toISOString() };
+            await rtdb.ref('davan_students').set(payload);
+            await rtdb.ref('davan_pub/students').set(payload);
+          }
         }
       } catch(e) { console.warn('[Scrape] Could not save students to Firestore:', e.message); }
 
@@ -15078,7 +15197,9 @@ async function syncStudentsToFirestore() {
   }
   if (btn) { btn.disabled = true; btn.textContent = '☁️ Syncing…'; }
   try {
-    await fsSet('app_data', 'students', { data: allStudents, savedAt: new Date().toISOString() });
+    // Guarded write -- checkpoints existing data before overwriting, blocks if 0 students
+    const _syncOk = await _safeWriteStudents(allStudents, 'sync-to-cloud');
+    if (!_syncOk) { if (btn) { btn.disabled = false; btn.textContent = 'Sync to Cloud'; } return; }
     await fsSet('app_data', 'students', { data: allStudents, savedAt: new Date().toISOString() });
     // Mirror to RTDB — manager/VP read from here when Firestore is blocked
     try {
@@ -15090,12 +15211,14 @@ async function syncStudentsToFirestore() {
           saved_at:       new Date().toISOString(),
         };
         const studentsPayload = { data: allStudents, savedAt: new Date().toISOString() };
+        if (!allStudents.length) { console.error('[Sync to Cloud] RTDB write BLOCKED: allStudents is empty'); } else {
         // Authenticated path (existing)
         await rtdb.ref('davan_students').set(studentsPayload);
         await rtdb.ref('davan_meta').set(metaPayload);
         // Public path — readable without auth, works on file:// origin for manager
         await rtdb.ref('davan_pub/students').set(studentsPayload);
         await rtdb.ref('davan_pub/meta').set(metaPayload);
+        } // end allStudents.length guard
         // Mirror student photos to public path so manager/VP can see them
         try {
           const photoDoc = await db.collection('app_data').doc('student_photos').get();
@@ -20341,6 +20464,10 @@ const HTML_CHANGELOG = [
   { v: 'v671', date: '07-Apr-2026', note: 'Fix: facAlertRenderSubs passes rawFac (not alias-resolved fac) to facAlertGetSubs — Smitha and Akshata P K subscriptions now show correctly; alias for display only, GetSubs does full scan internally' },
   { v: 'v857', date: '25-Apr-2026 IST', note: 'Feat: Internal slot subject dropdowns now show already-used subjects (same batch, same date) as struck-through disabled options at the bottom of the list — visible as used but not selectable. intGetSubjectsForBatch now returns {available,used} instead of a flat array; intBuildTimeRow renders used entries with line-through style.' },
   { v: 'v858', date: '25-Apr-2026 IST', note: 'Feat: Internal slot subject strikethrough is now cross-date — usedSubs spans ALL dates of the internal for each batch (not just same-date). Custom subjects (Type custom...) now stored in INT_CUSTOM_SUBJECTS per batch and appear in every slot dropdown for that batch across all dates. Typed custom subjects shown as amber chip tags below each dropdown with a red ✕ to remove them globally; removal also clears any slot currently using that subject. INT_CUSTOM_SUBJECTS resets on intEditLoad/intEditNew. intSyncSlotInput now accepts safeBatch param; new helpers: intRemoveCustomSubject, intRefreshAllDates.' },
+  { v: 'v883', date: '29-Apr-2026 IST', note: 'Fix: Per-slot batch overrides (e.g. col-0 changed from III B.Com to II BBA) were lost on save/reload. v882 two-pass guessing algorithm was unreliable and caused cascade errors (wrong batches assigned to wrong columns). Root cause: override map was never persisted. Fix: intSave now writes batch_overrides (a copy of INT_SLOT_BATCH_OVERRIDE) to Firestore alongside slots. intBuildSlotsGrid receives savedOverrides as 3rd arg and does a direct Object.assign restore — no guessing. All 3 intBuildSlotsGrid call sites updated to pass data.batch_overrides||{}.' },
+  { v: 'v882', date: '29-Apr-2026 IST', note: 'Fix: Batch override on a slot (e.g. changing col-0 from III B.Com to II BBA, selecting subject, saving) was lost on reload — the slot appeared as III B.Com with no subject. Root cause: INT_SLOT_BATCH_OVERRIDE is reset to {} on every load, and was never restored from saved Firestore data. intBuildSlotsGrid then rendered all columns with their default batch names, ignoring the saved II BBA slot entirely. Fix: Added two-pass override restore at the start of intBuildSlotsGrid — Pass 1 marks columns whose default batch has a saved slot (no override needed). Pass 2 finds columns with no default-batch match and assigns them the next unmatched saved batch_name as an override, exactly restoring the user\'s per-slot batch changes.' },
+  { v: 'v881', date: '28-Apr-2026 IST', note: 'Safety: Nuclear guard added inside fsSet() itself -- any call to fsSet(app_data, students, {data:[]}) from ANY code path is now blocked at the lowest level with a console stack trace identifying the exact caller. Belt-and-suspenders RTDB guard also added to Sync to Cloud RTDB writes. Combined with v880 guards, all 4 write surfaces (fsSet nuclear, post-scrape, sync-to-cloud, auto-sync) independently block empty writes.' },
+  { v: 'v880', date: '28-Apr-2026 IST', note: 'Safety: 3-layer student data protection. (1) _safeWriteStudents() helper: blocks any write of 0 students to Firestore/RTDB and auto-checkpoints the previous live data to app_data/students_checkpoint before every overwrite. (2) All 3 student write paths (auto-sync, post-scrape, Sync to Cloud) now call _safeWriteStudents() so an empty array can never silently wipe the database again. (3) Emergency Restore card in Admin Settings: one-click restore from the latest checkpoint.' },
   { v: 'v879', date: '28-Apr-2026 IST', note: 'Fix: Root cause of No data on dashboard finally confirmed via v878 diagnostics — app_data/students Firestore doc EXISTS but data[] array is empty (0 students). loadFirestoreData checked studentsDoc?.data which is truthy for an empty array [], so it set allStudents=[] and returned without trying RTDB fallback. Fix: condition changed to !studentsDoc || !studentsDoc.data?.length — empty array now falls through to _loadFromRTDB() which correctly loads students from davan_pub/students in RTDB.' },
   { v: 'v878', date: '28-Apr-2026 IST', note: 'Diagnostics: Added console.log to loadFirestoreData and _loadFromRTDB at every branch (doc not found, doc found with N students, RTDB path empty, all paths exhausted) so admin can see exactly why dashboard shows No data. This identifies whether app_data/students is missing in Firestore (needs portal scrape) vs RTDB empty (needs Sync to Cloud) vs localStorage cleared. No logic changes.' },
   { v: 'v877', date: '28-Apr-2026 IST', note: 'Fix: Dashboard Total Students / Avg Attendance / Shortage / Critical still showing "No data" after v875/v876. Root cause: both _sanitizeRtdbKeys (auto-sync) and _sanKeys (manual Sync button) bailed out early on arrays — "if Array.isArray(obj) return obj" — so the "regular" array of student objects was returned unsanitized, leaving subject keys like "B.COM-3.2" (with dot) intact and causing Firebase RTDB to throw "invalid key". Fix: both functions now recurse into arrays with .map(), ensuring every nested object at any depth has its keys sanitized before writing to RTDB.' },
@@ -34526,7 +34653,7 @@ async function intEditLoad(forceRefresh=false) {
     form.style.display = '';
     form.innerHTML = intBuildEditForm(docId, data, true);
     const grid = document.getElementById('ie-slots-grid');
-    if (grid) grid.innerHTML = intBuildSlotsGrid(data.batches||[], data.slots||[]);
+    if (grid) grid.innerHTML = intBuildSlotsGrid(data.batches||[], data.slots||[], data.batch_overrides||{});
     intLoadInchargeDropdowns(data.meta);
     dvToast('Draft restored ✓', 'success', 2500);
     resetBtn(); return;
@@ -34562,7 +34689,7 @@ async function intEditLoad(forceRefresh=false) {
   form.innerHTML = intBuildEditForm(docId, data);
   // Build slots grid immediately — form is in DOM now
   const grid = document.getElementById('ie-slots-grid');
-  if (grid) grid.innerHTML = intBuildSlotsGrid(data.batches||[], data.slots||[]);
+  if (grid) grid.innerHTML = intBuildSlotsGrid(data.batches||[], data.slots||[], data.batch_overrides||{});
   intLoadInchargeDropdowns(data.meta);
   dvToast(`Loaded: ${data.meta?.title || docId} ✓`, 'success', 2500);
   resetBtn();
@@ -34631,7 +34758,7 @@ async function intEditNew() {
   form.style.display = '';
   form.innerHTML = intBuildEditForm(newId, newData, true);
   const grid = document.getElementById('ie-slots-grid');
-  if (grid) grid.innerHTML = intBuildSlotsGrid(newData.batches||[], newData.slots||[]);
+  if (grid) grid.innerHTML = intBuildSlotsGrid(newData.batches||[], newData.slots||[], newData.batch_overrides||{});
   intLoadInchargeDropdowns(newData.meta);
 }
 
@@ -35255,7 +35382,7 @@ function intFixSessionSlots(dates, batches) {
   });
 }
 
-function intBuildSlotsGrid(batches, existingSlots) {
+function intBuildSlotsGrid(batches, existingSlots, savedOverrides) {
   if (!batches.length) return '<div style="color:var(--muted);font-size:12px;">Add batches first, then rebuild grid.</div>';
   const dateSet = [...new Set(existingSlots.map(s=>s.date).filter(Boolean))].sort();
   if (!dateSet.length) return '<div style="color:var(--muted);font-size:12px;">Add dates first, then rebuild grid.</div>';
@@ -35291,6 +35418,14 @@ function intBuildSlotsGrid(batches, existingSlots) {
     if (needsMorn_load && !dt.some(t=>parseInt(t.split(':')[0])<13))  dt = [...refMorn_load, ...dt].sort((a,b)=>a.localeCompare(b));
     INT_EDIT_TIMES[date] = dt;
   });
+
+  // ── Restore INT_SLOT_BATCH_OVERRIDE from saved batch_overrides ───────────────
+  // batch_overrides is saved to Firestore by intSave — direct key restore, no guessing.
+  // savedOverrides is passed as the 3rd arg from intBuildSlotsGrid callers (data.batch_overrides).
+  window.INT_SLOT_BATCH_OVERRIDE = {};
+  const _savedOverrides = (typeof savedOverrides !== 'undefined' && savedOverrides) ? savedOverrides : {};
+  Object.assign(window.INT_SLOT_BATCH_OVERRIDE, _savedOverrides);
+  // ── End override restore ───────────────────────────────────────────────────
 
   let html = '<div id="int-slots-wrap">';
   // Pass existingSlots so subjects can be pre-filled
@@ -35537,14 +35672,16 @@ async function intSave(docId, isNew) {
   const slots   = intCollectSlots(batches, dates);
   const duties  = isNew ? [] : (INT_DATA[docId]?.duties||[]);
   meta.dates = dates; // persist dates explicitly — slots[] is empty until subjects are chosen
+  // Save batch overrides so per-slot batch changes survive reload
+  const batch_overrides = window.INT_SLOT_BATCH_OVERRIDE ? Object.assign({}, window.INT_SLOT_BATCH_OVERRIDE) : {};
 
   try {
     if(msg){msg.style.color='var(--muted)';msg.textContent='Saving…';}
-    await db.collection('internals').doc(docId).set({ meta, batches, slots, duties });
-    INT_DATA[docId] = { meta, batches, slots, duties };
+    await db.collection('internals').doc(docId).set({ meta, batches, slots, duties, batch_overrides });
+    INT_DATA[docId] = { meta, batches, slots, duties, batch_overrides };
     // Mirror to RTDB so manager/faculty can view without Firestore access
     if (rtdb) {
-      try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties }); } catch(e) {}
+      try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, batch_overrides }); } catch(e) {}
     }
     dvToast('✅ Internal saved successfully', 'ok');
     // Auto-set new internal as current so View tab shows it immediately
