@@ -968,6 +968,8 @@ body {
         <div id="dl-chips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;"></div>
         <!-- Class table -->
         <div id="dl-class-table"></div>
+        <!-- Orphan section -->
+        <div id="dl-orphan-section" style="display:none;margin-top:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;"></div>
       </div>
     </div>
 
@@ -2098,7 +2100,7 @@ async function pucPreloadPhotos() {
 }
 
 async function _pucSavePhotoToFirebase(urn, url) {
-  const cleanUrn = urn.trim();
+  const cleanUrn = urn.trim().toLowerCase(); // Always save lowercase so delete keys match
   try {
     await db.collection('app_data').doc('puc_photos').set({ [cleanUrn]: url }, { merge: true });
   } catch(e) { console.warn('[pucSave] Firestore write failed:', e.message); }
@@ -3541,6 +3543,7 @@ async function dlRunPhotoReport() {
   dlRenderStatCards(_dlPhotoData);
   dlRenderChips(_dlPhotoData);
   dlRenderClassTable(_dlPhotoData, 'ALL');
+  dlRenderOrphans(_dlPhotoData);
 }
 
 function dlBuildPhotoData() {
@@ -3651,6 +3654,35 @@ function dlRenderClassTable(d, courseFilter) {
     html += '<div style="font-size:10px;color:var(--muted);margin-left:4px;">▼</div>';
     html += '</div>';
     html += '<div id="dl-cls-' + idx + '" style="display:none;border-top:1px solid var(--border);padding:12px 18px;">';
+    // ── UPLOADED students (with delete button) ──────────────────────
+    if (c.uploaded.length) {
+      const clsId = 'dlup' + idx;
+      const btnBase2 = 'font-family:var(--mono);font-size:10px;border-radius:5px;padding:2px 8px;cursor:pointer;border:1px solid;line-height:1.6;';
+      html += '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">';
+      html += '<div style="font-family:var(--mono);font-size:10px;color:var(--ok);letter-spacing:1px;">UPLOADED PHOTOS (' + c.uploaded.length + ')</div>';
+      html += '<button onclick="dlUpSelectAll(\'' + clsId + '\')" style="' + btnBase2 + 'background:var(--surface2);border-color:var(--ok);color:var(--ok);">☑ All</button>';
+      html += '<button onclick="dlUpSelectNone(\'' + clsId + '\')" style="' + btnBase2 + 'background:var(--surface2);border-color:var(--border);color:var(--muted);">☐ None</button>';
+      html += '<button id="' + clsId + '-bulk" onclick="dlUpBulkDelete(\'' + clsId + '\')" style="' + btnBase2 + 'background:var(--danger);border-color:var(--danger);color:#fff;display:none;">🗑 Delete (<span id="' + clsId + '-cnt">0</span>)</button>';
+      html += '</div>';
+      html += '<div id="' + clsId + '-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">';
+      c.uploaded.forEach(s => {
+        const nameEsc  = (s.name || '').replace(/'/g, '&#39;');
+        const urnEsc   = (s.urn  || '').replace(/'/g, '&#39;');
+        const photoUrl = _dlPhotoData && _dlPhotoData.photoMap ? (_dlPhotoData.photoMap[s.urn.toLowerCase()] || '') : '';
+        const photoEsc = photoUrl.replace(/'/g, '&#39;');
+        html += '<div class="dlup-chip" data-cls="' + clsId + '" data-urn="' + urnEsc + '" data-name="' + nameEsc + '" onclick="dlUpChipToggle(this)" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;font-family:var(--mono);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">';
+        if (photoUrl) {
+          html += '<img src="' + photoEsc + '" style="width:22px;height:22px;border-radius:50%;object-fit:cover;border:1px solid var(--border);flex-shrink:0;" onerror="this.style.display=\'none\'">';
+        }
+        html += '<span class="dlup-chk" style="font-size:11px;color:var(--muted);">☐</span>';
+        html += '<span style="color:var(--muted);">' + urnEsc + '</span> <span style="color:var(--text);">' + nameEsc + '</span>';
+        html += '<button onclick="event.stopPropagation();dlDeletePhoto(\'' + urnEsc + '\',\'' + nameEsc + '\',this)" title="Delete photo" '
+          + 'style="background:transparent;border:none;color:var(--danger);cursor:pointer;font-size:13px;padding:0 2px;line-height:1;flex-shrink:0;">🗑</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    // ── MISSING students ─────────────────────────────────────────────
     if (c.missing.length) {
       html += '<div style="font-family:var(--mono);font-size:10px;color:var(--warn);letter-spacing:1px;margin-bottom:8px;">MISSING PHOTOS (' + c.missing.length + ')</div>';
       html += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
@@ -3661,7 +3693,8 @@ function dlRenderClassTable(d, courseFilter) {
         html += '</div>';
       });
       html += '</div>';
-    } else {
+    }
+    if (!c.missing.length && !c.uploaded.length) {
       html += '<div style="color:var(--ok);font-family:var(--mono);font-size:11px;">✅ All photos uploaded for this class.</div>';
     }
     html += '</div>';
@@ -3674,6 +3707,231 @@ function dlToggleClass(idx) {
   const el = document.getElementById('dl-cls-' + idx);
   if (!el) return;
   el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function dlUpChipToggle(el) {
+  const checked = el.dataset.checked === '1';
+  el.dataset.checked = checked ? '0' : '1';
+  el.querySelector('.dlup-chk').textContent = checked ? '☐' : '☑';
+  el.style.background = checked ? 'var(--surface2)' : 'rgba(var(--danger-rgb,220,53,69),0.15)';
+  el.style.borderColor = checked ? 'var(--border)' : 'var(--danger)';
+  dlUpUpdateBulkBtn(el.dataset.cls);
+}
+function dlUpSelectAll(clsId) {
+  document.querySelectorAll('.dlup-chip[data-cls="' + clsId + '"]').forEach(el => {
+    el.dataset.checked = '1';
+    el.querySelector('.dlup-chk').textContent = '☑';
+    el.style.background = 'rgba(var(--danger-rgb,220,53,69),0.15)';
+    el.style.borderColor = 'var(--danger)';
+  });
+  dlUpUpdateBulkBtn(clsId);
+}
+function dlUpSelectNone(clsId) {
+  document.querySelectorAll('.dlup-chip[data-cls="' + clsId + '"]').forEach(el => {
+    el.dataset.checked = '0';
+    el.querySelector('.dlup-chk').textContent = '☐';
+    el.style.background = 'var(--surface2)';
+    el.style.borderColor = 'var(--border)';
+  });
+  dlUpUpdateBulkBtn(clsId);
+}
+function dlUpUpdateBulkBtn(clsId) {
+  const sel = document.querySelectorAll('.dlup-chip[data-cls="' + clsId + '"][data-checked="1"]').length;
+  const btn = document.getElementById(clsId + '-bulk');
+  const cnt = document.getElementById(clsId + '-cnt');
+  if (btn) btn.style.display = sel > 0 ? '' : 'none';
+  if (cnt) cnt.textContent = sel;
+}
+async function dlUpBulkDelete(clsId) {
+  const chips = [...document.querySelectorAll('.dlup-chip[data-cls="' + clsId + '"][data-checked="1"]')];
+  if (!chips.length) return;
+  const entries = chips.map(el => ({ urn: el.dataset.urn, name: el.dataset.name }));
+  if (!confirm('Delete ' + entries.length + ' uploaded photo entr' + (entries.length === 1 ? 'y' : 'ies') + ' from Firebase?\n\n' + entries.map(e => e.urn + ' ' + e.name).join('\n'))) return;
+  const btn = document.getElementById(clsId + '-bulk');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Deleting…'; }
+  for (const { urn, name } of entries) {
+    const cleanUrn = urn.trim().toLowerCase();
+    const origUrn  = urn.trim();
+    // Delete both lowercase AND original-case keys — Firestore is case-sensitive
+    // Photos were saved with urn.trim() (original case), but delete used toLowerCase() — mismatch
+    const fsDelBatch = {};
+    fsDelBatch[cleanUrn] = firebase.firestore.FieldValue.delete();
+    if (origUrn !== cleanUrn) fsDelBatch[origUrn] = firebase.firestore.FieldValue.delete();
+    try { await db.collection('app_data').doc('puc_photos').update(fsDelBatch); } catch(e) { console.warn('[bulkDelete] Firestore:', e.message); }
+    try { if (rtdb) await rtdb.ref('davan_pub/puc_photos/' + cleanUrn).remove(); } catch(e) {}
+    try { if (rtdb) await rtdb.ref('davan_pub/puc_photos/' + encodeURIComponent(origUrn)).remove(); } catch(e) {}
+    try { if (rtdb) await rtdb.ref('davan_puc_photos/' + cleanUrn).remove(); } catch(e) {}
+    try { if (rtdb) await rtdb.ref('davan_puc_photos/' + encodeURIComponent(origUrn)).remove(); } catch(e) {}
+    delete pucPhotos[cleanUrn]; delete pucPhotos[origUrn];
+  }
+  dvToast('\U0001f5d1 Deleted ' + entries.length + ' photo(s) from Firebase', 'ok', 3500);
+  await dlRunPhotoReport();
+}
+
+function dlRenderOrphans(d) {
+  const sec = document.getElementById('dl-orphan-section');
+  if (!sec) return;
+  if (!d.orphans.length) { sec.style.display = 'none'; return; }
+  sec.style.display = '';
+  const btnBase = 'font-family:var(--mono);font-size:10px;border-radius:5px;padding:3px 9px;cursor:pointer;border:1px solid;line-height:1.6;';
+  let html = '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">';
+  html += '<div style="font-family:var(--mono);font-size:10px;color:var(--warn);letter-spacing:1px;">⚠ ORPHAN URLs (' + d.orphans.length + ') — URNs in Firebase with no matching student.</div>';
+  html += '<button onclick="dlOrphanSelectAll()" style="' + btnBase + 'background:var(--surface2);border-color:var(--warn);color:var(--warn);">☑ Select All</button>';
+  html += '<button onclick="dlOrphanSelectNone()" style="' + btnBase + 'background:var(--surface2);border-color:var(--border);color:var(--muted);">☐ None</button>';
+  html += '<button id="dl-orphan-bulk-btn" onclick="dlOrphanBulkDelete()" style="' + btnBase + 'background:var(--danger);border-color:var(--danger);color:#fff;display:none;">🗑 Delete Selected (<span id="dl-orphan-sel-count">0</span>)</button>';
+  html += '</div>';
+  html += '<div id="dl-orphan-chips" style="display:flex;flex-wrap:wrap;gap:6px;">';
+  d.orphans.forEach(urn => {
+    const urnEsc = urn.replace(/'/g, '&#39;');
+    const photoUrl = d.photoMap[urn.toLowerCase()] || '';
+    const photoEsc = photoUrl.replace(/'/g, '&#39;');
+    html += '<div class="dl-orphan-chip" data-urn="' + urnEsc + '" onclick="dlOrphanChipToggle(this)" style="background:var(--surface2);border:1px solid var(--warn);border-radius:6px;padding:4px 8px;font-size:11px;font-family:var(--mono);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">';
+    if (photoUrl) {
+      html += '<img src="' + photoEsc + '" style="width:22px;height:22px;border-radius:50%;object-fit:cover;border:1px solid var(--border);flex-shrink:0;" onerror="this.style.display=\'none\'">';
+    }
+    html += '<span class="dl-orphan-chk" style="font-size:11px;color:var(--muted);">☐</span>';
+    html += '<span style="color:var(--warn);">' + urnEsc + '</span>';
+    html += '<button onclick="event.stopPropagation();dlDeletePhoto(\'' + urnEsc + '\',\'(orphan)\',this)" title="Delete orphan" '
+      + 'style="background:transparent;border:none;color:var(--danger);cursor:pointer;font-size:13px;padding:0 2px;line-height:1;flex-shrink:0;">🗑</button>';
+    html += '</div>';
+  });
+  html += '</div>';
+  sec.innerHTML = html;
+}
+function dlOrphanChipToggle(el) {
+  const checked = el.dataset.checked === '1';
+  el.dataset.checked = checked ? '0' : '1';
+  el.querySelector('.dl-orphan-chk').textContent = checked ? '☐' : '☑';
+  el.style.background = checked ? 'var(--surface2)' : 'rgba(var(--danger-rgb,220,53,69),0.15)';
+  el.style.borderColor = checked ? 'var(--warn)' : 'var(--danger)';
+  dlOrphanUpdateBulkBtn();
+}
+function dlOrphanSelectAll() {
+  document.querySelectorAll('.dl-orphan-chip').forEach(el => {
+    el.dataset.checked = '1';
+    el.querySelector('.dl-orphan-chk').textContent = '☑';
+    el.style.background = 'rgba(var(--danger-rgb,220,53,69),0.15)';
+    el.style.borderColor = 'var(--danger)';
+  });
+  dlOrphanUpdateBulkBtn();
+}
+function dlOrphanSelectNone() {
+  document.querySelectorAll('.dl-orphan-chip').forEach(el => {
+    el.dataset.checked = '0';
+    el.querySelector('.dl-orphan-chk').textContent = '☐';
+    el.style.background = 'var(--surface2)';
+    el.style.borderColor = 'var(--warn)';
+  });
+  dlOrphanUpdateBulkBtn();
+}
+function dlOrphanUpdateBulkBtn() {
+  const sel = document.querySelectorAll('.dl-orphan-chip[data-checked="1"]').length;
+  const btn = document.getElementById('dl-orphan-bulk-btn');
+  const cnt = document.getElementById('dl-orphan-sel-count');
+  if (btn) btn.style.display = sel > 0 ? '' : 'none';
+  if (cnt) cnt.textContent = sel;
+}
+async function dlOrphanBulkDelete() {
+  const chips = [...document.querySelectorAll('.dl-orphan-chip[data-checked="1"]')];
+  if (!chips.length) return;
+  const urns = chips.map(el => el.dataset.urn);
+  if (!confirm('Delete ' + urns.length + ' orphan entr' + (urns.length === 1 ? 'y' : 'ies') + ' from Firebase?\n\n' + urns.join('\n'))) return;
+  const btn = document.getElementById('dl-orphan-bulk-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Deleting…'; }
+  for (const urn of urns) {
+    const cleanUrn = urn.trim().toLowerCase();
+    const origUrn  = urn.trim();
+    const fsDelBatch = {};
+    fsDelBatch[cleanUrn] = firebase.firestore.FieldValue.delete();
+    if (origUrn !== cleanUrn) fsDelBatch[origUrn] = firebase.firestore.FieldValue.delete();
+    try { await db.collection('app_data').doc('puc_photos').update(fsDelBatch); } catch(e) { console.warn('[orphanBulkDelete] Firestore:', e.message); }
+    try { if (rtdb) await rtdb.ref('davan_pub/puc_photos/' + cleanUrn).remove(); } catch(e) {}
+    try { if (rtdb) await rtdb.ref('davan_pub/puc_photos/' + encodeURIComponent(origUrn)).remove(); } catch(e) {}
+    try { if (rtdb) await rtdb.ref('davan_puc_photos/' + cleanUrn).remove(); } catch(e) {}
+    try { if (rtdb) await rtdb.ref('davan_puc_photos/' + encodeURIComponent(origUrn)).remove(); } catch(e) {}
+    delete pucPhotos[cleanUrn]; delete pucPhotos[origUrn];
+  }
+  dvToast('🗑 Deleted ' + urns.length + ' orphan(s) from Firebase', 'ok', 3500);
+  await dlRunPhotoReport();
+}
+
+async function dlDeletePhoto(urn, name, btnEl) {
+  if (!urn) return;
+  const label = urn + (name && name !== '(orphan)' ? ' (' + name + ')' : ' (orphan)');
+  const cleanUrn   = urn.trim().toLowerCase();
+  const publicId   = 'davan_puc_students/' + cleanUrn; // Cloudinary public_id
+
+  // Check if Cloudinary credentials are available
+  const apiKey = (document.getElementById('dl-sync-apikey') && document.getElementById('dl-sync-apikey').value || '').trim();
+  const secret = (document.getElementById('dl-sync-secret') && document.getElementById('dl-sync-secret').value || '').trim();
+  const hasCloudinaryCreds = !!(apiKey && secret);
+
+  const confirmMsg = 'Delete photo for ' + label + '?\n\n'
+    + '✅ Firebase (Firestore + RTDB) entry will be deleted.\n'
+    + (hasCloudinaryCreds
+        ? '✅ Cloudinary image (davan_puc_students/' + cleanUrn + ') will also be deleted.'
+        : '⚠ Cloudinary image will NOT be deleted (open Sync/Recover panel and enter API Key + Secret to enable Cloudinary deletion).');
+  if (!confirm(confirmMsg)) return;
+
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳'; }
+
+  // ── 1. Cloudinary destroy ─────────────────────────────────────────
+  if (hasCloudinaryCreds) {
+    try {
+      const ts  = Math.round(Date.now() / 1000);
+      // Signature string for destroy: public_id=...&timestamp=...{secret}
+      const sigStr = 'public_id=' + publicId + '&timestamp=' + ts + secret;
+      const msgBuf = new TextEncoder().encode(sigStr);
+      const hashBuf = await crypto.subtle.digest('SHA-1', msgBuf);
+      const sig = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+
+      const fd = new FormData();
+      fd.append('public_id', publicId);
+      fd.append('api_key',   apiKey);
+      fd.append('timestamp', ts);
+      fd.append('signature', sig);
+
+      const res  = await fetch('https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD + '/image/destroy', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.result === 'ok' || data.result === 'not found') {
+        console.log('[dlDeletePhoto] Cloudinary destroy:', data.result, publicId);
+      } else {
+        console.warn('[dlDeletePhoto] Cloudinary destroy unexpected result:', data);
+        dvToast('⚠ Cloudinary: ' + (data.result || 'unexpected response'), 'warn', 4000);
+      }
+    } catch(e) {
+      console.warn('[dlDeletePhoto] Cloudinary destroy error:', e.message);
+      dvToast('⚠ Cloudinary delete failed: ' + e.message, 'warn', 4000);
+    }
+  }
+
+  // ── 2. Firestore — delete both lowercase and original-case keys ──
+  const origUrn2 = urn.trim();
+  const fsDelSingle = {};
+  fsDelSingle[cleanUrn] = firebase.firestore.FieldValue.delete();
+  if (origUrn2 !== cleanUrn) fsDelSingle[origUrn2] = firebase.firestore.FieldValue.delete();
+  try {
+    await db.collection('app_data').doc('puc_photos').update(fsDelSingle);
+  } catch(e) { console.warn('[dlDeletePhoto] Firestore delete warn:', e.message); }
+
+  // ── 3. RTDB public mirror ─────────────────────────────────────────
+  try {
+    if (rtdb) await rtdb.ref('davan_pub/puc_photos/' + cleanUrn).remove();
+    if (rtdb && origUrn2 !== cleanUrn) await rtdb.ref('davan_pub/puc_photos/' + encodeURIComponent(origUrn2)).remove();
+  } catch(e) { console.warn('[dlDeletePhoto] RTDB pub delete warn:', e.message); }
+
+  // ── 4. RTDB legacy path ───────────────────────────────────────────
+  try {
+    if (rtdb) await rtdb.ref('davan_puc_photos/' + cleanUrn).remove();
+    if (rtdb && origUrn2 !== cleanUrn) await rtdb.ref('davan_puc_photos/' + encodeURIComponent(origUrn2)).remove();
+  } catch(e) { console.warn('[dlDeletePhoto] RTDB legacy delete warn:', e.message); }
+
+  // ── 5. In-memory cleanup ──────────────────────────────────────────
+  delete pucPhotos[cleanUrn];
+  delete pucPhotos[urn.trim()];
+
+  dvToast('🗑 Deleted: ' + urn + (hasCloudinaryCreds ? ' (Firebase + Cloudinary)' : ' (Firebase only)'), 'ok', 3500);
+  await dlRunPhotoReport();
 }
 
 function dlExportExcel() {
