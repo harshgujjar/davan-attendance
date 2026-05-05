@@ -611,6 +611,12 @@ body {
       <div class="sidebar-item" id="nav-report-card" onclick="switchPanel('report-card')">
         <span class="icon">📋</span> Report Card
       </div>
+      <div class="sidebar-item" id="nav-absent-report" onclick="switchPanel('absent-report')">
+        <span class="icon">📊</span> Absent Report
+      </div>
+      <div class="sidebar-item" id="nav-date-report" onclick="switchPanel('date-report')">
+        <span class="icon">📅</span> Date Report
+      </div>
     </div>
 
     <div class="sidebar-card" style="margin-top:8px;">
@@ -795,6 +801,70 @@ body {
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- ABSENT REPORT PANEL -->
+    <div class="panel" id="panel-absent-report">
+      <div class="page-title">ABSENT REPORT</div>
+      <div class="page-sub">All classes — students with attendance shortage · uses last scraped data</div>
+
+      <!-- Controls -->
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:12px;color:var(--muted);font-family:var(--mono);">Threshold</label>
+          <input type="number" id="ar-threshold" value="75" min="1" max="100"
+            style="width:64px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                   padding:6px 10px;color:var(--text);font-family:var(--mono);font-size:13px;text-align:center;outline:none;">
+          <span style="font-size:12px;color:var(--muted);font-family:var(--mono);">%</span>
+        </div>
+        <button class="btn" onclick="arRunCumulative()" style="background:var(--accent);color:#000;">▶ Run Report</button>
+        <button class="btn btn-ghost" onclick="arExportPDF()" id="ar-pdf-btn" style="display:none;">🖨 PDF</button>
+        <button class="btn btn-ghost" onclick="arExportExcel()" id="ar-excel-btn" style="display:none;">📊 Excel</button>
+      </div>
+
+      <!-- Summary strip -->
+      <div id="ar-summary" style="display:none;font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:16px;"></div>
+
+      <!-- Cards grid -->
+      <div id="ar-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;"></div>
+    </div>
+
+    <!-- DATE REPORT PANEL -->
+    <div class="panel" id="panel-date-report">
+      <div class="page-title">DATE REPORT</div>
+      <div class="page-sub">Who was absent on a specific date · reads from Firebase daily snapshots</div>
+
+      <!-- Controls -->
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:12px;color:var(--muted);font-family:var(--mono);">Date</label>
+          <input type="date" id="dr-date"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                   padding:6px 10px;color:var(--text);font-family:var(--mono);font-size:13px;outline:none;">
+        </div>
+        <button class="btn" onclick="drRun()" style="background:var(--accent);color:#000;">▶ Fetch Report</button>
+        <button class="btn btn-ghost" onclick="drExportPDF()" id="dr-pdf-btn" style="display:none;">🖨 PDF</button>
+        <button class="btn btn-ghost" onclick="drExportExcel()" id="dr-excel-btn" style="display:none;">📊 Excel</button>
+      </div>
+
+      <!-- Summary -->
+      <div id="dr-summary" style="display:none;font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:16px;"></div>
+
+      <!-- Tabs -->
+      <div id="dr-tabs" style="display:none;margin-bottom:16px;">
+        <div class="filter-tabs">
+          <div class="filter-tab active" id="dr-tab-subject" onclick="drSwitchTab('subject')">📚 Subject-wise Absent</div>
+          <div class="filter-tab" id="dr-tab-day" onclick="drSwitchTab('day')">🚫 Whole Day Absent</div>
+        </div>
+      </div>
+
+      <!-- Subject-wise grid -->
+      <div id="dr-grid-subject" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;"></div>
+      <!-- Whole day grid -->
+      <div id="dr-grid-day" style="display:none;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;"></div>
+
+      <!-- Status message -->
+      <div id="dr-status" style="font-family:var(--mono);font-size:13px;color:var(--muted);padding:32px 0;text-align:center;"></div>
     </div>
 
     <!-- REPORT CARD PANEL -->
@@ -2488,7 +2558,7 @@ async function spDoScrape() {
 
   if (fbOk) {
     spSetPill('sp-scrapePill','Done ✓ Firebase updated','green');
-    spLog('🎉 puc_students · puc_classes · puc_meta updated','ok');
+    spLog('🎉 puc_students · puc_classes · puc_meta · puc_daily updated','ok');
     document.getElementById('sp-scrapeLastTime').textContent = 'Last: '+new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
     // Reload PUC data so dashboard reflects new scrape
     dvToast('✅ Scrape complete! Reloading data…', 'ok');
@@ -2561,11 +2631,24 @@ async function spPushFB(all, total) {
   const meta = { scraped_at:ist, academic_year:SP_AY, classes:Object.keys(all), total_students:total };
   const FB_URL = 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app';
 
+  // Build daily snapshot — slim version (only fields needed for date report)
+  const todayIST = new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',year:'numeric'})
+    .replace(/ /g,'-').replace(/\//g,'-'); // "05-May-2026"
+  const dailyByClass = {};
+  Object.values(all).forEach(d => {
+    dailyByClass[d.label] = d.students.map(s => ({
+      usn: s.urn || '',
+      name: s.name || '',
+      contact: s.contact || '',
+      courses: (s.subjects || []).map(sub => ({ code: sub.subject, ca: sub.ca, ch: sub.ct })),
+    }));
+  });
+
   let ok=true;
   for (const [path,data] of [
     [`puc_students/${SP_AY_KEY}`, byClass],
     [`puc_classes/${SP_AY_KEY}`,  summary],
-    [`puc_meta/${SP_AY_KEY}`,     meta]
+    [`puc_meta/${SP_AY_KEY}`,     meta],
   ]) {
     spLog(`  Firebase /${path} — writing…`,'dbg');
     try {
@@ -2576,6 +2659,15 @@ async function spPushFB(all, total) {
       else { spLog(`  ✗ /${path} — ${r.status}: ${await r.text()}`,'err'); ok=false; }
     } catch(e) { spLog(`  ✗ /${path} — ${e.message}`,'err'); ok=false; }
   }
+
+  // puc_daily uses SDK (authenticated) — raw REST is blocked by RTDB rules
+  const dailyPath = `puc_daily/${SP_AY_KEY}/${todayIST}`;
+  spLog(`  Firebase /${dailyPath} — writing…`,'dbg');
+  try {
+    await rtdb.ref(dailyPath).set(dailyByClass);
+    spLog(`  ✓ /${dailyPath}`,'fire');
+  } catch(e) { spLog(`  ✗ /${dailyPath} — ${e.message}`,'err'); ok=false; }
+
   return ok;
 }
 
@@ -3642,7 +3734,467 @@ function dlExportExcel() {
   dvToast('📊 Excel downloaded', 'ok', 3000);
 }
 
-// Keyboard close
+// ═══════════════════════════════════════════════════════════════
+// ABSENT REPORT — cumulative shortage, card layout
+// ═══════════════════════════════════════════════════════════════
+let _arData = null; // { threshold, classes:[ {label, students:[...]} ] }
+
+function arRunCumulative() {
+  const threshold = parseFloat(document.getElementById('ar-threshold').value) || 75;
+  if (!allPucStudents.length) { dvToast('⚠ No data — scrape first', 'warn', 3000); return; }
+
+  // Group by class, filter shortage
+  const byClass = {};
+  SP_CLASSES.forEach(c => { byClass[c.label] = []; });
+  allPucStudents.forEach(s => {
+    const subs = (s.subjects || []).filter(sub => sub.pct !== null && sub.pct !== undefined && parseFloat(sub.pct) < threshold);
+    if (!subs.length) return;
+    const label = s.class || 'Unknown';
+    if (!byClass[label]) byClass[label] = [];
+    // shortage score = subjects below threshold count
+    byClass[label].push({ ...s, _shortSubs: subs });
+  });
+
+  // Sort students within each class: most shortages first
+  const classes = Object.entries(byClass)
+    .map(([label, students]) => ({ label, students: students.slice().sort((a,b)=>b._shortSubs.length-a._shortSubs.length) }))
+    .filter(c => c.students.length);
+
+  _arData = { threshold, classes, scraped_at: pucMeta.scraped_at || '—', ay: SP_AY };
+
+  arRenderCards();
+  document.getElementById('ar-pdf-btn').style.display = '';
+  document.getElementById('ar-excel-btn').style.display = '';
+
+  const total = classes.reduce((a,c)=>a+c.students.length,0);
+  document.getElementById('ar-summary').style.display = '';
+  document.getElementById('ar-summary').innerHTML =
+    `Threshold: below ${threshold}% &nbsp;·&nbsp; Total students in shortage: <strong style="color:var(--warn)">${total}</strong> &nbsp;·&nbsp; Total classes: <strong>${classes.length}</strong> &nbsp;·&nbsp; Last scraped: ${_arData.scraped_at}`;
+}
+
+function arRenderCards() {
+  if (!_arData) return;
+  const grid = document.getElementById('ar-grid');
+  grid.innerHTML = '';
+  _arData.classes.forEach(cls => {
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;';
+    // Header
+    let html = `<div style="background:var(--surface2);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-family:var(--head);font-size:15px;letter-spacing:1px;color:var(--accent);">${cls.label}</span>
+      <span style="font-family:var(--mono);font-size:12px;color:var(--warn);font-weight:700;">${cls.students.length}</span>
+    </div>`;
+    // Student rows
+    html += '<div style="padding:8px 0;">';
+    cls.students.forEach((s, i) => {
+      const totalSubs = (s.subjects || []).filter(sub=>sub.pct!==null&&sub.pct!==undefined).length;
+      const shortCount = s._shortSubs.length;
+      const urnSafe = (s.urn||'').replace(/'/g,"&#39;");
+      const nameSafe = (s.name||'?').replace(/'/g,"&#39;");
+      const color = shortCount >= totalSubs ? 'var(--danger)' : shortCount >= Math.ceil(totalSubs/2) ? 'var(--warn)' : 'var(--text)';
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 14px;border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer;" onclick="scOpen('${urnSafe}')">
+        <span style="font-size:12px;color:var(--muted);font-family:var(--mono);margin-right:8px;min-width:18px;">${i+1}.</span>
+        <span style="font-size:12px;flex:1;color:var(--text);">${nameSafe}</span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:${color};">${shortCount}/${totalSubs}</span>
+      </div>`;
+    });
+    html += '</div>';
+    card.innerHTML = html;
+    grid.appendChild(card);
+  });
+}
+
+function arExportPDF() {
+  if (!_arData) return;
+  const d = _arData;
+  const dateStr = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
+  const fromDate = '05.02.2026'; // session start — adjust as needed
+  const toDate = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\//g,'.');
+
+  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; color: #000; }
+    h2 { text-align:center; font-size:13px; margin:0 0 2px; }
+    h3 { text-align:center; font-size:12px; margin:0 0 10px; }
+    .meta { font-size:10px; color:#555; margin-bottom:4px; }
+    .summary { font-size:10px; color:#333; margin-bottom:12px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; }
+    .cls-card { border:1px solid #ccc; border-radius:6px; overflow:hidden; break-inside:avoid; }
+    .cls-head { background:#f5f5f5; padding:6px 10px; display:flex; justify-content:space-between; border-bottom:1px solid #ccc; }
+    .cls-name { font-weight:700; font-size:11px; }
+    .cls-count { font-weight:700; font-size:11px; color:#c00; }
+    .stu-row { display:flex; justify-content:space-between; padding:3px 10px; border-bottom:1px solid #f0f0f0; font-size:10px; }
+    .stu-num { color:#888; min-width:18px; }
+    .stu-ratio { font-weight:700; font-family:monospace; }
+    @media print { body { margin:8px; } }
+  </style></head><body>
+  <h2>DAVAN INSTITUTE OF ADVANCED MANAGEMENT STUDIES</h2>
+  <h3>ALL CLASS ABSENT REPORT</h3>
+  <div class="meta">Session: ${fromDate} – ${toDate} &nbsp;&nbsp; Generated: ${dateStr}</div>
+  <div class="meta">Threshold: below ${d.threshold}%</div>
+  <div class="summary">Total students in shortage: <strong>${d.classes.reduce((a,c)=>a+c.students.length,0)}</strong> &nbsp;&nbsp; Total classes: <strong>${d.classes.length}</strong></div>
+  <div class="grid">`;
+
+  d.classes.forEach(cls => {
+    html += `<div class="cls-card"><div class="cls-head"><span class="cls-name">${cls.label}</span><span class="cls-count">${cls.students.length}</span></div>`;
+    cls.students.forEach((s,i) => {
+      const totalSubs = (s.subjects||[]).filter(sub=>sub.pct!==null&&sub.pct!==undefined).length;
+      html += `<div class="stu-row"><span class="stu-num">${i+1}.</span><span style="flex:1">${s.name||'?'}</span><span class="stu-ratio">${s._shortSubs.length}/${totalSubs}</span></div>`;
+    });
+    html += '</div>';
+  });
+
+  html += `</div></body></html>`;
+
+  const win = window.open('','_blank');
+  win.document.write(html);
+  win.document.close();
+  setTimeout(()=>win.print(), 600);
+}
+
+function arExportExcel() {
+  if (!_arData) return;
+  const d = _arData;
+  const dateStr = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+  const wb = XLSX.utils.book_new();
+
+  // Summary sheet
+  const totalStudents = d.classes.reduce((a,c)=>a+c.students.length,0);
+  const summaryRows = [
+    ['DAVAN INSTITUTE OF ADVANCED MANAGEMENT STUDIES'],
+    ['All Class Absent Report'],
+    [`Session: 05.02.2026 – ${dateStr}   Generated: ${dateStr}`],
+    [`Threshold: below ${d.threshold}%`],
+    [`Total students in shortage: ${totalStudents}   Total classes: ${d.classes.length}`],
+    [],
+  ];
+
+  // Per-class columns layout (2 cols per class: Student + X/Y)
+  const headerRow = [];
+  const subHeaderRow = [];
+  d.classes.forEach(cls => {
+    headerRow.push(`${cls.label}  ${cls.students.length}`, '');
+    subHeaderRow.push('Student', 'X/Y');
+  });
+  summaryRows.push(headerRow);
+  summaryRows.push(subHeaderRow);
+
+  const maxRows = Math.max(...d.classes.map(c=>c.students.length));
+  for (let r=0; r<maxRows; r++) {
+    const row = [];
+    d.classes.forEach(cls => {
+      const s = cls.students[r];
+      if (s) {
+        const totalSubs = (s.subjects||[]).filter(sub=>sub.pct!==null&&sub.pct!==undefined).length;
+        row.push(`${r+1}. ${s.name||'?'}`, `${s._shortSubs.length}/${totalSubs}`);
+      } else {
+        row.push('','');
+      }
+    });
+    summaryRows.push(row);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(summaryRows);
+  // Column widths: alternate 28, 6
+  ws['!cols'] = d.classes.flatMap(()=>[{wch:28},{wch:6}]);
+  XLSX.utils.book_append_sheet(wb, ws, 'Absent Report');
+
+  XLSX.writeFile(wb, `puc_absent_report_${new Date().toISOString().slice(0,10)}.xlsx`);
+  dvToast('📊 Excel downloaded', 'ok', 3000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DATE REPORT — reads puc_daily from Firebase
+// ═══════════════════════════════════════════════════════════════
+let _drData = null; // { date, classes:[{label, subjectAbsent:[...], wholeDayAbsent:[...]}] }
+let _drTab = 'subject';
+
+// Set today's date as default when panel opens
+document.addEventListener('DOMContentLoaded', () => {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth()+1).padStart(2,'0');
+  const dd = String(today.getDate()).padStart(2,'0');
+  const dateEl = document.getElementById('dr-date');
+  if (dateEl) dateEl.value = `${yyyy}-${mm}-${dd}`;
+});
+
+function drFmtKey(dateStr) {
+  // dateStr = "2026-05-05" → "05-May-2026"
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = String(d.getDate()).padStart(2,'0');
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return `${day}-${mon}-${d.getFullYear()}`;
+}
+
+function drFmtDisplay(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-IN',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+}
+
+async function drRun() {
+  const dateVal = document.getElementById('dr-date').value;
+  if (!dateVal) { dvToast('⚠ Select a date', 'warn', 3000); return; }
+
+  const dateKey = drFmtKey(dateVal); // "05-May-2026"
+  const statusEl = document.getElementById('dr-status');
+  const tabsEl = document.getElementById('dr-tabs');
+  const summaryEl = document.getElementById('dr-summary');
+  document.getElementById('dr-pdf-btn').style.display = 'none';
+  document.getElementById('dr-excel-btn').style.display = 'none';
+  tabsEl.style.display = 'none';
+  summaryEl.style.display = 'none';
+  document.getElementById('dr-grid-subject').innerHTML = '';
+  document.getElementById('dr-grid-day').innerHTML = '';
+  statusEl.innerHTML = `<div class="spinner" style="margin:0 auto 8px;"></div> Loading ${dateKey} from Firebase…`;
+
+  try {
+    const snap = await rtdb.ref(`puc_daily/${SP_AY_KEY}/${dateKey}`).once('value');
+    const raw = snap.val();
+
+    if (!raw) {
+      statusEl.innerHTML = `⚠ No data found for <strong>${dateKey}</strong>.<br><span style="font-size:11px;">Run the scraper on that date to capture daily snapshots.</span>`;
+      return;
+    }
+
+    // raw = { '1PUC-COM-A': [{usn, name, contact, courses:[{code,ca,ch}]}], ... }
+    const classes = [];
+    Object.entries(raw).forEach(([label, students]) => {
+      if (!Array.isArray(students)) return;
+      const subjectAbsent = []; // students absent in ≥1 subject
+      const wholeDayAbsent = []; // students absent in ALL subjects
+
+      students.forEach(s => {
+        const courses = s.courses || [];
+        const absentCourses = courses.filter(c => c.ca === 0 && c.ch > 0);
+        const heldCourses = courses.filter(c => c.ch > 0);
+        if (!absentCourses.length) return; // present everywhere
+        subjectAbsent.push({ ...s, absentCourses, totalCourses: heldCourses.length });
+        if (absentCourses.length === heldCourses.length) wholeDayAbsent.push(s);
+      });
+
+      if (subjectAbsent.length || wholeDayAbsent.length) {
+        classes.push({ label, subjectAbsent, wholeDayAbsent });
+      }
+    });
+
+    // Sort by SP_CLASSES order
+    const order = SP_CLASSES.map(c=>c.label);
+    classes.sort((a,b)=>(order.indexOf(a.label)||99)-(order.indexOf(b.label)||99));
+
+    _drData = { dateKey, dateDisplay: drFmtDisplay(dateVal), classes };
+    statusEl.innerHTML = '';
+
+    const totalSub = classes.reduce((a,c)=>a+c.subjectAbsent.length,0);
+    const totalDay = classes.reduce((a,c)=>a+c.wholeDayAbsent.length,0);
+
+    summaryEl.style.display = '';
+    summaryEl.innerHTML = `Date: <strong style="color:var(--text)">${_drData.dateDisplay}</strong> &nbsp;·&nbsp; Subject-wise absent: <strong style="color:var(--warn)">${totalSub}</strong> &nbsp;·&nbsp; Whole day absent: <strong style="color:var(--danger)">${totalDay}</strong>`;
+
+    tabsEl.style.display = '';
+    document.getElementById('dr-pdf-btn').style.display = '';
+    document.getElementById('dr-excel-btn').style.display = '';
+    drSwitchTab('subject');
+
+  } catch(e) {
+    statusEl.innerHTML = `❌ Error: ${e.message}`;
+  }
+}
+
+function drSwitchTab(tab) {
+  _drTab = tab;
+  document.getElementById('dr-tab-subject').classList.toggle('active', tab==='subject');
+  document.getElementById('dr-tab-day').classList.toggle('active', tab==='day');
+  document.getElementById('dr-grid-subject').style.display = tab==='subject'?'grid':'none';
+  document.getElementById('dr-grid-day').style.display = tab==='day'?'grid':'none';
+  if (tab==='subject') drRenderSubject();
+  else drRenderDay();
+}
+
+function drRenderSubject() {
+  if (!_drData) return;
+  const grid = document.getElementById('dr-grid-subject');
+  grid.innerHTML = '';
+  _drData.classes.forEach(cls => {
+    if (!cls.subjectAbsent.length) return;
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;';
+    let html = `<div style="background:var(--surface2);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-family:var(--head);font-size:15px;letter-spacing:1px;color:var(--accent);">${cls.label}</span>
+      <span style="font-family:var(--mono);font-size:12px;color:var(--warn);font-weight:700;">${cls.subjectAbsent.length}</span>
+    </div><div style="padding:8px 0;">`;
+
+    cls.subjectAbsent.forEach((s,i) => {
+      const urnSafe = (s.urn||s.usn||'').replace(/'/g,"&#39;");
+      const nameSafe = (s.name||'?').replace(/</g,'&lt;');
+      const subCodes = s.absentCourses.map(c=>{
+        const entry = subjectMap[(c.code||'').toUpperCase()] || {};
+        const label = entry.name || c.code;
+        const tip   = entry.faculty ? `${c.code} · ${entry.faculty}` : c.code;
+        return `<span title="${tip}" style="font-size:9px;background:rgba(239,68,68,0.15);color:var(--danger);border-radius:3px;padding:1px 5px;margin-right:3px;white-space:nowrap;">${label}</span>`;
+      }).join('');
+      const isFullDay = s.absentCourses.length === s.totalCourses;
+      html += `<div style="padding:5px 12px;border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer;" onclick="scOpen('${urnSafe||nameSafe}')">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:var(--muted);font-family:var(--mono);margin-right:6px;">${i+1}.</span>
+          <span style="font-size:12px;flex:1;color:${isFullDay?'var(--danger)':'var(--text)'};">${nameSafe}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--danger);">${s.absentCourses.length}/${s.totalCourses}</span>
+        </div>
+        <div style="padding-left:22px;margin-top:2px;">${subCodes}</div>
+      </div>`;
+    });
+
+    html += '</div>';
+    card.innerHTML = html;
+    grid.appendChild(card);
+  });
+}
+
+function drRenderDay() {
+  if (!_drData) return;
+  const grid = document.getElementById('dr-grid-day');
+  grid.innerHTML = '';
+  _drData.classes.forEach(cls => {
+    if (!cls.wholeDayAbsent.length) return;
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;';
+    let html = `<div style="background:var(--surface2);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-family:var(--head);font-size:15px;letter-spacing:1px;color:var(--accent);">${cls.label}</span>
+      <span style="font-family:var(--mono);font-size:12px;color:var(--danger);font-weight:700;">${cls.wholeDayAbsent.length}</span>
+    </div><div style="padding:8px 0;">`;
+
+    cls.wholeDayAbsent.forEach((s,i) => {
+      const urnSafe = (s.urn||s.usn||'').replace(/'/g,"&#39;");
+      const nameSafe = (s.name||'?').replace(/</g,'&lt;');
+      html += `<div style="display:flex;align-items:center;padding:5px 14px;border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer;" onclick="scOpen('${urnSafe||nameSafe}')">
+        <span style="font-size:12px;color:var(--muted);font-family:var(--mono);margin-right:8px;min-width:18px;">${i+1}.</span>
+        <span style="font-size:12px;color:var(--danger);">🚫 ${nameSafe}</span>
+      </div>`;
+    });
+
+    html += '</div>';
+    card.innerHTML = html;
+    grid.appendChild(card);
+  });
+
+  if (!_drData.classes.some(c=>c.wholeDayAbsent.length)) {
+    grid.innerHTML = '<div style="color:var(--ok);font-family:var(--mono);font-size:12px;padding:20px;">✅ No students absent the whole day on this date.</div>';
+  }
+}
+
+function drExportPDF() {
+  if (!_drData) return;
+  const d = _drData;
+  const genDate = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
+
+  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body { font-family:Arial,sans-serif; font-size:11px; margin:20px; color:#000; }
+    h2,h3 { text-align:center; margin:0 0 3px; }
+    h2 { font-size:13px; } h3 { font-size:12px; }
+    .meta { font-size:10px; color:#555; margin-bottom:3px; }
+    .tabs { margin:10px 0 6px; font-size:11px; font-weight:700; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:10px; margin-bottom:20px; }
+    .cls-card { border:1px solid #ccc; border-radius:6px; overflow:hidden; break-inside:avoid; }
+    .cls-head { background:#f5f5f5; padding:6px 10px; display:flex; justify-content:space-between; border-bottom:1px solid #ccc; font-weight:700; font-size:11px; }
+    .stu-row { padding:3px 10px; border-bottom:1px solid #f0f0f0; font-size:10px; }
+    .sub-codes { font-size:8px; color:#c00; margin-top:1px; }
+    @media print { body { margin:8px; } }
+  </style></head><body>
+  <h2>DAVAN INSTITUTE OF ADVANCED MANAGEMENT STUDIES</h2>
+  <h3>DATE ABSENT REPORT — ${d.dateDisplay}</h3>
+  <div class="meta">Generated: ${genDate}</div>`;
+
+  // Subject-wise section
+  const totalSub = d.classes.reduce((a,c)=>a+c.subjectAbsent.length,0);
+  const totalDay = d.classes.reduce((a,c)=>a+c.wholeDayAbsent.length,0);
+  html += `<div class="meta">Subject-wise absent: <strong>${totalSub}</strong> &nbsp; Whole day absent: <strong>${totalDay}</strong></div>`;
+
+  html += `<div class="tabs">📚 SUBJECT-WISE ABSENT</div><div class="grid">`;
+  d.classes.forEach(cls => {
+    if (!cls.subjectAbsent.length) return;
+    html += `<div class="cls-card"><div class="cls-head"><span>${cls.label}</span><span style="color:#c00">${cls.subjectAbsent.length}</span></div>`;
+    cls.subjectAbsent.forEach((s,i) => {
+      html += `<div class="stu-row">${i+1}. ${s.name||'?'}<div class="sub-codes">${s.absentCourses.map(c=>c.code).join(', ')}</div></div>`;
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+
+  html += `<div class="tabs">🚫 WHOLE DAY ABSENT</div><div class="grid">`;
+  d.classes.forEach(cls => {
+    if (!cls.wholeDayAbsent.length) return;
+    html += `<div class="cls-card"><div class="cls-head"><span>${cls.label}</span><span style="color:#c00">${cls.wholeDayAbsent.length}</span></div>`;
+    cls.wholeDayAbsent.forEach((s,i) => {
+      html += `<div class="stu-row">${i+1}. ${s.name||'?'}</div>`;
+    });
+    html += '</div>';
+  });
+  html += `</div></body></html>`;
+
+  const win = window.open('','_blank');
+  win.document.write(html);
+  win.document.close();
+  setTimeout(()=>win.print(), 600);
+}
+
+function drExportExcel() {
+  if (!_drData) return;
+  const d = _drData;
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Subject-wise
+  const subRows = [
+    ['DAVAN INSTITUTE OF ADVANCED MANAGEMENT STUDIES'],
+    [`Date Absent Report — ${d.dateDisplay}`],
+    ['Subject-wise Absent (students absent in ≥1 subject)'],
+    [],
+  ];
+  const subHeader = [];
+  const subSubHeader = [];
+  const subClasses = d.classes.filter(c=>c.subjectAbsent.length);
+  subClasses.forEach(cls => { subHeader.push(`${cls.label}  ${cls.subjectAbsent.length}`,''); subSubHeader.push('Student','Absent Subjects'); });
+  subRows.push(subHeader, subSubHeader);
+  const maxSubRows = Math.max(...subClasses.map(c=>c.subjectAbsent.length), 0);
+  for (let r=0; r<maxSubRows; r++) {
+    const row = [];
+    subClasses.forEach(cls => {
+      const s = cls.subjectAbsent[r];
+      row.push(s ? `${r+1}. ${s.name||'?'}` : '', s ? s.absentCourses.map(c=>c.code).join(', ') : '');
+    });
+    subRows.push(row);
+  }
+  const ws1 = XLSX.utils.aoa_to_sheet(subRows);
+  ws1['!cols'] = subClasses.flatMap(()=>[{wch:28},{wch:30}]);
+  XLSX.utils.book_append_sheet(wb, ws1, 'Subject-wise Absent');
+
+  // Sheet 2: Whole day
+  const dayRows = [
+    ['DAVAN INSTITUTE OF ADVANCED MANAGEMENT STUDIES'],
+    [`Date Absent Report — ${d.dateDisplay}`],
+    ['Whole Day Absent (absent in all subjects)'],
+    [],
+  ];
+  const dayHeader = [];
+  const dayClasses = d.classes.filter(c=>c.wholeDayAbsent.length);
+  dayClasses.forEach(cls => { dayHeader.push(`${cls.label}  ${cls.wholeDayAbsent.length}`,''); });
+  dayRows.push(dayHeader, dayClasses.map(()=>'Student').flatMap(h=>[h,'']));
+  const maxDayRows = Math.max(...dayClasses.map(c=>c.wholeDayAbsent.length), 0);
+  for (let r=0; r<maxDayRows; r++) {
+    const row = [];
+    dayClasses.forEach(cls => { const s=cls.wholeDayAbsent[r]; row.push(s?`${r+1}. ${s.name||'?'}`:'',''); });
+    dayRows.push(row);
+  }
+  const ws2 = XLSX.utils.aoa_to_sheet(dayRows);
+  ws2['!cols'] = dayClasses.flatMap(()=>[{wch:28},{wch:6}]);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Whole Day Absent');
+
+  XLSX.writeFile(wb, `puc_date_report_${d.dateKey}.xlsx`);
+  dvToast('📊 Excel downloaded', 'ok', 3000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KEYBOARD close
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     scClose();
