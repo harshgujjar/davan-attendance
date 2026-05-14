@@ -2009,7 +2009,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v2.48";
+const APP_VERSION = "v2.52";
 
 // =====================
 // FIREBASE INIT
@@ -7780,6 +7780,18 @@ async function spScrapeMarksOne(cls, examFilter) {
   try { json = await resp.json(); } catch(e) { return {ok:false, e:'JSON: '+e.message}; }
   if (json.error) return {ok:false, e:json.error};
 
+  // Debug: log what task/exam names the portal returned for this class
+  // This helps diagnose exam_filter mismatches across sections
+  const _taskNames = new Set();
+  (json.students||[]).forEach(s => (s.courses||[]).forEach(c => {
+    Object.keys(c.marks||{}).forEach(k => _taskNames.add(k));
+  }));
+  if (_taskNames.size) {
+    spLog(`  [debug] ${cls.label} exam keys in marks: ${[..._taskNames].join(' | ')}`, 'dbg');
+  } else {
+    spLog(`  [debug] ${cls.label} — no marks returned (all AB or exam_filter mismatch?)`, 'warn');
+  }
+
   return { ok:true, d:{
     label:cls.label, program:cls.program, stream:cls.stream,
     section:cls.section, term:cls.term, academic_year:SP_MARKS_AY,
@@ -7826,6 +7838,16 @@ async function spDoMarks() {
       all[cls.label] = res.d;
       spMarksTile(cls.label,'done','Done ✓', res.d.students.length+' students');
       spLog(`  ✓ ${cls.label} — ${res.d.students.length} students`,'ok');
+      // Show which subjects got marks vs all-AB (catches B/C section mismatches)
+      const _subStats = {};
+      res.d.students.forEach(s => (s.courses||[]).forEach(c => {
+        if (!_subStats[c.code]) _subStats[c.code] = {got:0, ab:0};
+        const v = c.marks ? Object.values(c.marks)[0] : undefined;
+        if (v !== undefined && v !== null && v !== 'AB' && !isNaN(Number(v))) _subStats[c.code].got++;
+        else _subStats[c.code].ab++;
+      }));
+      const _allAB = Object.entries(_subStats).filter(([k,v])=>v.got===0).map(([k])=>k);
+      if (_allAB.length) spLog(`  [warn] ${cls.label} all-AB subjects: ${_allAB.join(', ')}`, 'warn');
     }
   }
   document.getElementById('sp-marksProgBar').style.width='100%';
@@ -8142,19 +8164,22 @@ function mrRenderTable(students, exams, container) {
   });
 
   // Build footer rows (inserted at TOP of tbody)
-  let footerHtml = `<tr style="background:rgba(34,197,94,0.08);">
-    <td colspan="5" style="padding:6px 8px;font-size:10px;color:#22c55e;font-weight:700;border:1px solid var(--border);letter-spacing:1px;">PASS</td>`;
-  subCodes.forEach(c=>{ footerHtml+=`<td style="text-align:center;padding:6px 8px;color:#22c55e;font-weight:700;border:1px solid var(--border);">${subPass[c]}</td>`; });
+  // PASS row: blue/teal — distinct from student cell greens
+  let footerHtml = `<tr style="background:rgba(56,189,248,0.08);border-bottom:1px solid rgba(56,189,248,0.2);">
+    <td colspan="5" style="padding:6px 8px;font-size:10px;color:#38bdf8;font-weight:700;border:1px solid var(--border);letter-spacing:1px;">PASS</td>`;
+  subCodes.forEach(c=>{ footerHtml+=`<td style="text-align:center;padding:6px 8px;color:#38bdf8;font-weight:700;border:1px solid var(--border);">${subPass[c]}</td>`; });
+  // FAIL row: red (unchanged — already distinct)
   footerHtml+=`</tr><tr style="background:rgba(239,68,68,0.08);">
     <td colspan="5" style="padding:6px 8px;font-size:10px;color:#ef4444;font-weight:700;border:1px solid var(--border);letter-spacing:1px;">FAIL</td>`;
   subCodes.forEach(c=>{ footerHtml+=`<td style="text-align:center;padding:6px 8px;color:#ef4444;font-weight:700;border:1px solid var(--border);">${subFail[c]}</td>`; });
-  footerHtml+=`</tr><tr style="background:var(--surface2);">
-    <td colspan="5" style="padding:6px 8px;font-size:10px;color:var(--muted);font-weight:700;border:1px solid var(--border);letter-spacing:1px;">PASS %</td>`;
+  // PASS% row: amber label, value colored by threshold
+  footerHtml+=`</tr><tr style="background:rgba(240,165,0,0.06);border-top:1px solid rgba(240,165,0,0.15);">
+    <td colspan="5" style="padding:6px 8px;font-size:10px;color:#f0a500;font-weight:700;border:1px solid var(--border);letter-spacing:1px;">PASS %</td>`;
   subCodes.forEach(c=>{
     const tot=subPass[c]+subFail[c];
     const pct=tot?Math.round(subPass[c]/tot*100):0;
-    const clr=pct>=75?'#22c55e':pct>=50?'#f59e0b':'#ef4444';
-    footerHtml+=`<td style="text-align:center;padding:6px 8px;color:${clr};font-weight:700;border:1px solid var(--border);">${tot?pct+'%':'—'}</td>`;
+    // PASS% cells always white — no green/red so they don't blend with student mark cells
+    footerHtml+=`<td style="text-align:center;padding:6px 8px;color:#e2e8f0;font-weight:700;border:1px solid var(--border);">${tot?pct+'%':'—'}</td>`;
   });
   footerHtml+=`</tr>`;
 
@@ -8337,10 +8362,16 @@ function mrOpenModal(usn) {
   }
 
   document.getElementById('mrm-name').textContent = (s.name||'').toUpperCase();
-  // Build meta: USN · CLASS  📞 phone (if available)
-  const _mrmPucS = allPucStudents.find(x => x.urn===s.usn || (x.name||'').toLowerCase()===(s.name||'').toLowerCase());
-  const _mrmPhone = (_mrmPucS?.contact||s.contact||'').replace(/\D/g,'');
-  const _mrmPhoneFmt = _mrmPhone.length===10 ? _mrmPhone : _mrmPhone.length===12 ? _mrmPhone.slice(2) : '';
+  // Build meta: USN · CLASS  📞 phone
+  // Contact is already on the marks student (from scraper). Fall back to allPucStudents
+  // which stores URN in x.urn — match against both s.usn and s.urn to be safe.
+  const _mrmPucS = allPucStudents.find(x =>
+    x.urn === s.usn || x.usn === s.usn ||
+    x.urn === s.urn || x.usn === s.urn ||
+    (x.name||'').toLowerCase() === (s.name||'').toLowerCase()
+  );
+  const _rawPhone = (s.contact || _mrmPucS?.contact || '').replace(/\D/g,'');
+  const _mrmPhoneFmt = _rawPhone.length===10 ? _rawPhone : _rawPhone.length===12 ? _rawPhone.slice(2) : _rawPhone.length>12 ? _rawPhone.slice(-10) : '';
   document.getElementById('mrm-meta').textContent = (s.usn||'—') + ' · ' + (s.class||'—') + (_mrmPhoneFmt ? '  📞 ' + _mrmPhoneFmt : '');
 
   mrmShowTab('results');
@@ -8434,8 +8465,7 @@ function mrmRenderResults(body) {
 
   courses.forEach((c, idx) => {
     const subName  = getSubName(c.code);
-    const savedFac = (subjectMap[c.code]?.faculty) || c.faculty || '';
-    const ddKey    = 'mrm_'+s.usn+'_'+c.code;
+    const facName  = (subjectMap[c.code]?.faculty) || c.faculty || '—';
     const annualM  = c.marks?.['Annual Examination'];
     const pass     = annualM!==undefined&&annualM!=='AB'&&!isNaN(Number(annualM))&&Number(annualM)>=passMark;
     const passClr  = annualM===undefined||annualM==='AB'?'var(--muted)':pass?'#22c55e':'#ef4444';
@@ -8447,9 +8477,7 @@ function mrmRenderResults(body) {
         <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);">${subName}</div>
         <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:1px;letter-spacing:0.3px;">${c.code||''}</div>
       </td>
-      <td style="padding:4px 8px;border-right:1px solid var(--border);min-width:160px;">
-        <div id="mr-mfac-wrap-${ddKey}">${smFacultyDropdownHTML(ddKey, savedFac)}</div>
-      </td>`;
+      <td style="padding:6px 8px;border-right:1px solid var(--border);color:#f0a500;font-size:11px;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;" title="${facName}">${facName}</td>`;
 
     exams.forEach(e => {
       const v   = c.marks?.[e];
@@ -8464,7 +8492,7 @@ function mrmRenderResults(body) {
   });
 
   html += `</tbody></table></div>
-  <div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-top:8px;">Pass mark: ${passMark} · Faculty assignments saved locally</div>`;
+  <div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-top:8px;">Pass mark: ${passMark}</div>`;
   body.innerHTML = html;
 }
 
@@ -8621,10 +8649,15 @@ function mrmSendWhatsApp() {
   const passMark = mrGetCurrentPassMark();
   const courses  = s.courses||[];
 
-  // Get phone from allPucStudents by USN match
-  const pucS = allPucStudents.find(x => x.urn===s.usn || (x.name||'').toLowerCase()===(s.name||'').toLowerCase());
-  const raw  = (pucS?.contact||'').replace(/\D/g,'');
-  const phone= raw.length===10 ? '91'+raw : raw.length===12 ? raw : raw;
+  // Phone: use contact from marks student directly (scraper populates it),
+  // fall back to allPucStudents matching by urn/usn/name
+  const pucS = allPucStudents.find(x =>
+    x.urn === s.usn || x.usn === s.usn ||
+    x.urn === s.urn || x.usn === s.urn ||
+    (x.name||'').toLowerCase() === (s.name||'').toLowerCase()
+  );
+  const rawP = (s.contact || pucS?.contact || '').replace(/\D/g,'');
+  const phone = rawP.length===10 ? '91'+rawP : rawP.length===12 ? rawP : rawP.length>12 ? '91'+rawP.slice(-10) : '';
 
   if (!phone || phone.length < 10) {
     dvToast('No phone number found for this student','warn',3000); return;
