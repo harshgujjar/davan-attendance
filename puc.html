@@ -4,8 +4,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v2.28                                                      ║
-║  FILE NAME       : puc_v2.28.html                                             ║
+║  CURRENT VERSION : v2.29                                                      ║
+║  FILE NAME       : puc_v2.29.html                                             ║
 ║  LAST UPDATED    : 2026-05-14                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -35,6 +35,11 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v2.29 2026-05-14  Fix: deleted faculty re-appearing on refresh. Root cause    ║
+║                    was subjectMap seeding loop re-creating deleted entries.   ║
+║                    Added _fmDeletedNames Set + puc_faculty_deleted in RTDB    ║
+║                    as persistent blocklist. Seed loop checks blocklist first. ║
 ║                                                                              ║
 ║  v2.28 2026-05-14  Fix SyntaxError: malformed escape in fmRenderList delete    ║
 ║                    button onclick. Now uses _safeName variable instead of     ║
@@ -2004,7 +2009,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v2.43";
+const APP_VERSION = "v2.48";
 
 // =====================
 // FIREBASE INIT
@@ -2207,6 +2212,8 @@ async function loadPucData() {
     if (!entry.faculty) return;
     const name = entry.faculty.trim();
     if (!name) return;
+    // Skip if explicitly deleted by user
+    if (_fmDeletedNames.has(name.toLowerCase())) return;
     // Check if name already exists in facultyMap
     const exists = Object.values(facultyMap).some(function(f) {
       return (f.name || '').trim().toLowerCase() === name.toLowerCase();
@@ -2215,8 +2222,8 @@ async function loadPucData() {
       const id = 'sm_' + name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
       facultyMap[id] = { name: name, phone: '', photo: '', subjects: [], notes: 'Added from Subject Map' };
     }
-    // Also seed the pool
-    smFacultyPool.add(name);
+    // Also seed the pool (only if not deleted)
+    if (!_fmDeletedNames.has(name.toLowerCase())) smFacultyPool.add(name);
   });
 
   // puc_app.py writes to RTDB (not Firestore) — read from RTDB
@@ -3738,7 +3745,7 @@ async function smLoadFromRTDB() {
           // Also write abbr onto the _SEED_ entry if it exists
           if (subjectMap['_SEED_' + abbr]) subjectMap['_SEED_' + abbr].abbr = abbr;
         }
-        if (v.faculty) smFacultyPool.add(v.faculty);
+        if (v.faculty && !_fmDeletedNames.has(v.faculty.toLowerCase())) smFacultyPool.add(v.faculty);
       });
     }
   } catch(e) { console.warn('[subjectMap] load failed:', e.message); }
@@ -3905,11 +3912,24 @@ function smFacultyOptions() {
   return '<option value="">— Select faculty —</option>' + names.map(n => '<option value="' + n.replace(/"/g,'&quot;') + '">' + n + '</option>').join('');
 }
 
-// Returns all known faculty names (from Faculty tab + session-added pool), sorted
+// Returns all known faculty names (from Faculty tab + session-added pool), sorted.
+// Deduplicates case-insensitively: facultyMap casing wins over pool casing.
+// Filters out anything in the deleted blocklist.
 function smAllFacultyNames() {
-  const fromTab = Object.values(facultyMap).map(f => f.name).filter(Boolean);
-  const combined = new Set([...fromTab, ...smFacultyPool]);
-  return [...combined].sort();
+  // Build a map: lowercase → canonical name (facultyMap entries take priority)
+  const canonical = new Map();
+  // Pool first (lower priority)
+  for (const n of smFacultyPool) {
+    if (n) canonical.set(n.toLowerCase(), n);
+  }
+  // facultyMap overwrites pool (higher priority — user-saved casing wins)
+  for (const f of Object.values(facultyMap)) {
+    if (f.name) canonical.set(f.name.toLowerCase(), f.name);
+  }
+  // Filter deleted, return sorted
+  return [...canonical.values()]
+    .filter(n => !_fmDeletedNames.has(n.toLowerCase()))
+    .sort();
 }
 
 // Build the faculty cell HTML for a given code (used in both initial render and refreshes)
@@ -4139,7 +4159,7 @@ function smConfirmFaculty(facKey) {
   subjectMap[facKey].faculty = name;
 
   // 1. Add to smFacultyPool so all other dropdowns in Subject Map see it immediately
-  smFacultyPool.add(name);
+  if (!_fmDeletedNames.has(name.toLowerCase())) smFacultyPool.add(name);
 
   // 2. Add to facultyMap (Faculty tab) if not already there
   const alreadyInTab = Object.values(facultyMap).some(f => f.name === name);
@@ -4338,6 +4358,7 @@ async function smSaveAll() {
 // FACULTY MANAGEMENT
 // =====================
 let facultyMap = {}; // { id: { name, phone, photo, subjects, notes } }
+let _fmDeletedNames = new Set(); // names explicitly deleted — never re-seed
 
 async function fmLoadFromRTDB() {
   try {
@@ -4346,6 +4367,14 @@ async function fmLoadFromRTDB() {
     if (val && typeof val === 'object') facultyMap = val;
     else facultyMap = {};
   } catch(e) { console.warn('[faculty] load failed:', e.message); }
+  // CRITICAL: load blocklist so seed loop doesn't re-create deleted names
+  try {
+    const delSnap = await rtdb.ref('puc_faculty_deleted').once('value');
+    const delVal = delSnap.val();
+    if (Array.isArray(delVal)) {
+      delVal.forEach(n => _fmDeletedNames.add((n||'').toLowerCase()));
+    }
+  } catch(e) { console.warn('[faculty] blocklist load failed:', e.message); }
 }
 
 function fmRenderList() {
@@ -4492,8 +4521,18 @@ async function fmSave() {
 async function fmDeleteConfirm(id, name) {
   if (!confirm('Delete "' + name + '" from Faculty list?\nThis cannot be undone.')) return;
   delete facultyMap[id];
+  const nameLower = (name||'').toLowerCase();
+  _fmDeletedNames.add(nameLower);
+  // Remove ALL case variants from session pool so dropdowns update immediately
+  for (const poolName of [...smFacultyPool]) {
+    if (poolName.toLowerCase() === nameLower) smFacultyPool.delete(poolName);
+  }
   try {
+    // Remove from faculty node
     await rtdb.ref('puc_faculty/' + id).remove();
+    // Persist to blocklist so seeding never re-creates this name
+    const blocklist = [..._fmDeletedNames];
+    await rtdb.ref('puc_faculty_deleted').set(blocklist);
     dvToast('🗑 "' + name + '" deleted', 'ok', 2500);
     fmRenderList();
     smRenderTable(); // refresh dropdowns
@@ -8058,6 +8097,32 @@ function mrRenderTable(students, exams, container) {
     return code;
   }
 
+  // ── Mutually exclusive language pairs (Kannada ↔ Hindi, etc.)
+  // If a student has a numeric mark in one, the other's AB is "not applicable" — not counted.
+  // We match by subject name (case-insensitive) so it works regardless of year-prefix codes.
+  const MX_PAIRS = [
+    ['kannada', 'hindi'],
+    ['kannada', 'sanskrit'],
+    ['hindi',   'sanskrit'],
+  ];
+  function getMxPartner(code, courseMapForStudent) {
+    // Returns the partner code if this code is part of a MX pair AND student has mark in partner
+    const myName = getSubName(code).toLowerCase();
+    for (const [a, b] of MX_PAIRS) {
+      const partnerName = myName === a ? b : (myName === b ? a : null);
+      if (!partnerName) continue;
+      // Find the partner code in subCodes
+      const partnerCode = subCodes.find(c2 => getSubName(c2).toLowerCase() === partnerName);
+      if (!partnerCode) continue;
+      // Check if partner has a numeric mark for this student
+      const pc = courseMapForStudent[partnerCode];
+      const pv = pc ? (Object.values(pc.marks||{})[0]) : undefined;
+      const pNum = pv !== undefined && pv !== null && pv !== 'AB' && !isNaN(Number(pv));
+      if (pNum) return partnerCode; // partner has mark → this subject's AB is N/A
+    }
+    return null;
+  }
+
   // PASS 1: compute subject pass/fail/ab counts
   const subPass={}, subFail={}, subAB={};
   subCodes.forEach(c=>{ subPass[c]=0; subFail[c]=0; subAB[c]=0; });
@@ -8069,6 +8134,8 @@ function mrRenderTable(students, exams, container) {
       const v = c ? (Object.values(c.marks||{})[0]) : undefined;
       const isAB = v===undefined||v===null||v==='AB';
       const num  = !isAB && !isNaN(Number(v)) ? Number(v) : null;
+      // If AB but partner language has a mark → this is N/A, not counted
+      if (isAB && getMxPartner(code, courseMap)) return;
       if (isAB) subAB[code]++;
       else if (num!==null) { if (num<passMark) subFail[code]++; else subPass[code]++; }
     });
@@ -8125,6 +8192,8 @@ function mrRenderTable(students, exams, container) {
       const v = c ? (Object.values(c.marks||{})[0]) : undefined;
       const isAB = v===undefined||v===null||v==='AB';
       const num  = !isAB && !isNaN(Number(v)) ? Number(v) : null;
+      // If AB but partner language has mark → N/A, skip entirely (not absent, not fail)
+      if (isAB && getMxPartner(code, courseMap)) return;
       if (isAB) abCount++;
       else if (num!==null) {
         totalMarks+=num; totalCount++;
@@ -8152,12 +8221,15 @@ function mrRenderTable(students, exams, container) {
       const v   = c ? (Object.values(c.marks||{})[0]) : undefined;
       const isAB= v===undefined||v===null||v==='AB';
       const num = !isAB&&!isNaN(Number(v))?Number(v):null;
+      const isNA = isAB && !!getMxPartner(code, courseMap); // partner language took the exam
       let clr='var(--muted)', bg='transparent';
       if (!isAB&&num!==null) {
         clr=num>=passMark?'#22c55e':'#ef4444';
         bg =num>=passMark?'rgba(34,197,94,0.08)':'rgba(239,68,68,0.08)';
       }
-      html += `<td style="text-align:center;padding:7px 8px;color:${clr};font-weight:600;background:${bg};border:1px solid var(--border);">${isAB?'AB':v}</td>`;
+      const display = isNA ? '—' : (isAB ? 'AB' : v);
+      const cellClr = isNA ? 'rgba(255,255,255,0.15)' : clr;
+      html += `<td style="text-align:center;padding:7px 8px;color:${cellClr};font-weight:600;background:${bg};border:1px solid var(--border);font-style:${isNA?'italic':'normal'};">${display}</td>`;
     });
     html += `</tr>`;
   });
