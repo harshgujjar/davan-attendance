@@ -5,7 +5,7 @@
 ════════════════════════════════════════════════════════════════
   HANDOFF — Student Portal (Davan College)
   File   : student_portal_v6_70.html
-  Updated: 2026-04-27 (v6.70)
+  Updated: 2026-05-16 (v6.74)
   Author : Harsha Gujjar, Director — Davan College
 ════════════════════════════════════════════════════════════════
 
@@ -17,7 +17,7 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v6.70 (2026-04-27)
+VERSION : v6.74 (2026-05-16)
 
 KEY DATA SHAPES (confirmed from live Firebase):
   davan_pub/students        → {data:[{urn, cls, class, subjects:[{subject, ct, ca, pct, enrolled, fine, int1, mc}]}]}
@@ -46,6 +46,10 @@ EXCEPTIONS TAB FLOW:
   Stale entries (in Firebase but not in current attendance) shown in amber for cleanup
 
 LOG (newest first):
+  v6.74 | 2026-05-16 | FIX: fetchAdminCalendar() now normalises Firestore fields (from/to/name/type→date/endDate/event/Type) to match what renderCalendarPanel expects — DATE and DAY columns now show correctly. Ticker also uses normalised data.
+  v6.73 | 2026-05-16 | FEAT: Ticker built dynamically from STATE.calendarData (future dates only). Hides if nothing upcoming.
+  v6.72 | 2026-05-16 | FEAT: Calendar reads directly from admin Firestore (davan-attendance-2026/app_data/academic_calendar) via REST. fetchAdminCalendar() helper; RTDB fallback built-in. Both load paths updated.
+  v6.71 | 2026-05-16 | FEAT: IA1 PASS = green (#22c55e), IA2 PASS = cyan (#06b6d4); FAIL stays red. _portalIntCell takes iaIdx param.
   v6.70 | 2026-04-27 | FIX: _excBuildMap uses fixSubjectName(raw) via SUBJECT_DISPLAY_FIX — resolves truncated
            scraper names ("PHP and"→"PHP and MySQL", "Artificial Intelligence and"→"...Applications",
            "Data Warehouse and Data"→"Data Warehousing and Data Mining"). Removed redundant helpers.
@@ -274,7 +278,7 @@ LOG (newest first):
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v6.70 — Davan &amp; Nutana</title>
+<title>Student Portal v6.74 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -1507,7 +1511,7 @@ body.dash-active .data-strip { display: block; }
         <div id="bell-list" style="max-height:360px;overflow-y:auto;padding:8px 0;"></div>
       </div>
     </div>
-    <span id="topbar-version">Portal v6.70</span>
+    <span id="topbar-version">Portal v6.74</span>
     </div><!-- /topbar-right -->
   </div><!-- /topbar-row1 -->
   <!-- Row 2: Student info — shown after login -->
@@ -2315,7 +2319,7 @@ body.dash-active .data-strip { display: block; }
   <!-- ACADEMIC CALENDAR TAB -->
   <div class="tab-content" id="tab-admincal">
     <div class="section-title">ACADEMIC CALENDAR</div>
-    <div class="section-desc">Full session calendar — fetched from davan_pub/calendar. Session: 05.02.2026 – 24.05.2026</div>
+    <div class="section-desc">Full session calendar — live from admin Firestore (app_data/academic_calendar). Session: 05.02.2026 – 24.05.2026</div>
     <div id="admin-cal-list"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></div>
   </div>
 
@@ -2644,6 +2648,55 @@ async function rtdbGet(path) {
   if (!res.ok) throw new Error('RTDB read error ' + res.status);
   return res.json();
 }
+// Fetch academic calendar directly from admin Firestore (davan-attendance-2026)
+// Normalises to {date, day, type, event, endDate, for} so existing render functions work unchanged.
+// Falls back to RTDB davan_pub/calendar on any error.
+const _ADMIN_FS_CAL = 'https://firestore.googleapis.com/v1/projects/davan-attendance-2026/databases/(default)/documents/app_data/academic_calendar?key=AIzaSyBUuOH-GLPHhcz9a3fIT5ewVcyaZyCguto';
+const _CAL_DAY_N = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const _CAL_MON_N = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// e.g. '2026-05-17' → '17 May 2026'
+function _fmtCalDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso); if (isNaN(d)) return iso;
+  return d.getDate() + ' ' + _CAL_MON_N[d.getMonth()] + ' ' + d.getFullYear();
+}
+async function fetchAdminCalendar() {
+  try {
+    const res = await fetch(_ADMIN_FS_CAL);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const doc = await res.json();
+    const vals = doc?.fields?.events?.arrayValue?.values;
+    if (!Array.isArray(vals) || !vals.length) throw new Error('empty');
+    const TYPE_LABEL = { holiday:'Holiday', event:'Event', exam:'Exam', vacc:'VACC', working:'Working Day', other:'Other' };
+    const events = vals.map(v => {
+      const m   = v.mapValue?.fields || {};
+      const str = k => m[k]?.stringValue || '';
+      const from = str('from'); // ISO '2026-05-17'
+      const to   = str('to');
+      const d    = new Date(from);
+      const type = str('type');
+      return {
+        date:    _fmtCalDate(from),          // '17 May 2026'
+        endDate: to ? _fmtCalDate(to) : '',  // '24 May 2026' or ''
+        day:     isNaN(d) ? '' : _CAL_DAY_N[d.getDay()], // 'Sun'
+        type:    TYPE_LABEL[type] || type,   // 'Holiday' / 'Event' etc
+        event:   str('name'),                // display name
+        for:     str('for'),
+        _from:   from                        // keep ISO for sorting
+      };
+    }).filter(e => e.date && e.event);
+    events.sort((a,b) => (a._from||'').localeCompare(b._from||''));
+    console.log('[calendar] Loaded', events.length, 'events from admin Firestore');
+    return events;
+  } catch(e) {
+    console.warn('[calendar] Admin Firestore failed, trying RTDB:', e.message);
+    try {
+      const raw = await rtdbGet('davan_pub/calendar').catch(()=>null);
+      const arr = (raw && raw.data) ? raw.data : (Array.isArray(raw) ? raw : null);
+      return arr;
+    } catch(e2) { console.warn('[calendar] RTDB fallback failed:', e2.message); return null; }
+  }
+}
 async function rtdbSet(path, data) {
   await getAuthToken();
   const res = await fetch(`${DB_URL}/${path}.json${authSep()}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
@@ -2875,14 +2928,38 @@ async function goToDashboard() {
   // Show bottom nav
   const nav = document.getElementById('stu-bottom-nav');
   if (nav) nav.classList.add('visible');
-  // Show topbar ticker
-  const tTicker = document.getElementById('topbar-ticker');
-  const tInner  = document.getElementById('topbar-ticker-inner');
-  const srcInner = document.getElementById('ticker-inner');
-  if (tTicker && tInner && srcInner) {
-    tInner.innerHTML = srcInner.innerHTML + srcInner.innerHTML;
-    tTicker.style.display = 'block';
-  }
+  // Show topbar ticker — built dynamically from live calendar data (future dates only)
+  (function buildStudentTicker() {
+    const tTicker = document.getElementById('topbar-ticker');
+    const tInner  = document.getElementById('topbar-ticker-inner');
+    const wrap    = document.getElementById('ticker-wrap');
+    const srcInner= document.getElementById('ticker-inner');
+    const TYPE_ICON = { Holiday:'🏖️', Event:'🎉', Exam:'📝', VACC:'🎓', 'Working Day':'✅', Other:'📌' };
+    const TYPE_CLR  = { Holiday:'var(--danger)', Event:'var(--ok)', Exam:'var(--blue)', VACC:'#a855f7', 'Working Day':'var(--ok)', Other:'var(--muted)' };
+    const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
+    const calArr = STATE.calendarData;
+    let items = [];
+    if (Array.isArray(calArr) && calArr.length) {
+      items = calArr
+        .filter(e => { const d = new Date(e._from || e.date || ''); d.setHours(0,0,0,0); return !isNaN(d) && d >= todayMidnight; })
+        .map(e => {
+          const clr = TYPE_CLR[e.type] || 'var(--muted)';
+          const ico = TYPE_ICON[e.type] || '📌';
+          return `<span class="ticker-item">${ico} <strong style="color:${clr};">${e.date}</strong> — ${e.event}</span>`;
+        });
+    }
+    if (!items.length) {
+      if (wrap) wrap.style.display = 'none';
+      if (tTicker) tTicker.style.display = 'none';
+      return;
+    }
+    const sep = '<span class="ticker-sep">◆</span>';
+    const html = items.join(sep) + sep;
+    const doubled = html + html;
+    if (srcInner) srcInner.innerHTML = html;
+    if (wrap) wrap.style.display = '';
+    if (tTicker && tInner) { tInner.innerHTML = doubled; tTicker.style.display = 'block'; }
+  })();
   // Populate topbar row2
   const row2 = document.getElementById('topbar-row2');
   const row2name = document.getElementById('topbar-row2-name');
@@ -3222,7 +3299,7 @@ async function loadAllData() {
       rtdbGet('davan_pub/tt_overrides').catch(()=>null),
       rtdbGet('davan_pub/timetable').catch(()=>null),
       rtdbGet('davan_pub/allocations').catch(()=>null),
-      rtdbGet('davan_pub/calendar').catch(()=>null),
+      fetchAdminCalendar(),                            // direct admin Firestore; RTDB fallback built-in
       rtdbGet('controls/lpExceptions').catch(()=>null),
       rtdbGet('controls/bannedStudents').catch(()=>null),
       rtdbGet('lessonPlan').catch(()=>null),
@@ -3247,7 +3324,7 @@ async function loadAllData() {
       ? (STATE.semConfig.academicYear || '').replace('/','\u002d') + '_' + (STATE.semConfig.semType || 'Odd').toLowerCase()
       : '2025-26_odd';
     STATE.isCurrentSem = STATE.activeSemKey === '2025-26_odd'; // hardcoded allocs only for this sem
-    STATE.calendarData = (calRaw && calRaw.data) ? calRaw.data : (Array.isArray(calRaw) ? calRaw : null);
+    STATE.calendarData = Array.isArray(calRaw) ? calRaw : null;
     STATE.lpExceptions   = excRaw && typeof excRaw === 'object' && !Array.isArray(excRaw)
                            ? Object.keys(excRaw)
                            : (Array.isArray(excRaw) ? excRaw : []);
@@ -4689,7 +4766,7 @@ function addLpSubject() {
   const row2meta = document.getElementById('topbar-row2-meta');
   if (row2 && row2name && row2meta) {
     row2name.textContent = name;
-    row2meta.textContent = ' · ' + urn + ' · ' + (cls || '') + ' · Portal v6.70';
+    row2meta.textContent = ' · ' + urn + ' · ' + (cls || '') + ' · Portal v6.74';
     row2.classList.add('visible');
   }
   showScreen('screen-student-dash');
@@ -4706,10 +4783,10 @@ function addLpSubject() {
   // Init bell badge from localStorage
   updateBellBadge();
   // Update page title
-  document.title = 'Student Portal v6.70 — Davan & Nutana';
+  document.title = 'Student Portal v6.74 — Davan & Nutana';
   // Update version chip
   const vEl = document.getElementById('topbar-version');
-  if (vEl) vEl.textContent = 'Portal v6.70';
+  if (vEl) vEl.textContent = 'Portal v6.74';
 })();
 
 function switchStudentPanel(name) {
@@ -4905,7 +4982,7 @@ async function loadStudentDashboard() {
       rtdbGet('davan_pub/live_banner').catch(() => null),   // never cache — live data
       rtdbGet('davan_pub/live_broadcast').catch(() => null),// never cache — live data
       cachedGet('tt_overrides','davan_pub/tt_overrides'),
-      cachedGet('calendar',    'davan_pub/calendar'),
+      fetchAdminCalendar(),                            // direct admin Firestore; RTDB fallback built-in
       cachedGet('allocEach',   'davan_pub/allocation_each')
     ]);
     const allStudents = (studentsRaw && studentsRaw.data) ? studentsRaw.data : [];
@@ -4927,7 +5004,7 @@ async function loadStudentDashboard() {
     STATE.motherAllocs = (motherAllocsRaw && motherAllocsRaw.data) ? motherAllocsRaw.data : [];
     STATE.metaData     = metaRaw || null;
     STATE.overrides    = ovRaw || {};
-    STATE.calendarData = (calRaw && calRaw.data) ? calRaw.data : (Array.isArray(calRaw) ? calRaw : null);
+    STATE.calendarData = Array.isArray(calRaw) ? calRaw : null;
 
     // Build flat code→{facultyDI,facultyNU} map from allocation_each (covers all sems including Sem 6)
     STATE.allocEachMap = {};
@@ -5829,7 +5906,8 @@ function renderInternals() {
     return;
   }
   const INT_PASS_MIN = 11; // 0–10 = FAIL, 11–30 = PASS
-  const _portalIntCell = (raw, result) => {
+  // iaIdx: 1 = IA1 (green pass), 2 = IA2 (cyan pass), both red on fail
+  const _portalIntCell = (raw, result, iaIdx) => {
     const v = (raw === undefined || raw === null) ? null : String(raw).trim();
     if (!v || v === '—') return { html: '<span style="color:var(--muted);">—</span>', status: null };
     const up = v.toUpperCase();
@@ -5841,7 +5919,8 @@ function renderInternals() {
     if (isNaN(n)) return { html: `<span style="color:var(--muted);">${v}</span>`, status: null };
     const r = (result || '').trim().toUpperCase();
     const isPass = r === 'PASS' ? true : r === 'FAIL' ? false : n >= INT_PASS_MIN;
-    const clr = isPass ? '#22c55e' : '#ef4444';
+    const passClr = iaIdx === 2 ? '#06b6d4' : '#22c55e';
+    const clr = isPass ? passClr : '#ef4444';
     return {
       html: `<span style="font-weight:700;color:${clr};">${n}</span><div style="font-size:9px;color:${clr};line-height:1.2;">${isPass ? 'PASS' : 'FAIL'}</div>`,
       status: isPass ? 'pass' : 'fail'
@@ -5849,8 +5928,8 @@ function renderInternals() {
   };
   const isDI_int = STATE.studentUser && (STATE.studentUser.urn||'').toUpperCase().includes('DI');
   tbody.innerHTML = subs.map(sub => {
-    const ia1Cell = _portalIntCell(sub.int1, sub.int1_result);
-    const ia2Cell = _portalIntCell(sub.int2, sub.int2_result);
+    const ia1Cell = _portalIntCell(sub.int1, sub.int1_result, 1);
+    const ia2Cell = _portalIntCell(sub.int2, sub.int2_result, 2);
     const fac = isDI_int ? (sub.facultyDI || sub.faculty || '') : (sub.facultyNU || sub.faculty || '');
     const subCode = sub.code || '';
     const subName = STU_KNOWN_NAMES[subCode] || fixSubjectName(sub.subject) || subCode || '—';
