@@ -4,9 +4,9 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v3.02                                                      ║
-║  FILE NAME       : puc_v3.02.html                                             ║
-║  LAST UPDATED    : 2026-05-22                                                ║
+║  CURRENT VERSION : v3.15                                                      ║
+║  FILE NAME       : puc_v3.15.html                                             ║
+║  LAST UPDATED    : 2026-05-25                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  RULES FOR CLAUDE — READ BEFORE MAKING ANY CHANGES                          ║
@@ -35,6 +35,62 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v3.15 2026-05-25  Fix: WA subject timing showed only one section's time when  ║
+║                    the same subject has different teachers per section (e.g.   ║
+║                    BS: Ashwini for A/C, Roshan for B). Each teacher's Firebase ║
+║                    code is separate, so drGetSubjectTiming was called with only║
+║                    one section → missed the other section's time entirely.     ║
+║                    Root fix: drGetSubjectTiming now always scans all grid      ║
+║                    sections regardless of the `sections` param. The `seen` Set ║
+║                    already deduplicates identical times. The v3.13 per-section ║
+║                    restriction was incorrect — removed.                        ║
+║                                                                              ║
+║  v3.14 2026-05-25  UX: WA modal now supports Commerce / Science / Both tabs.  ║
+║                    Default: Commerce. Both shows two side-by-side panels with ║
+║                    independent Copy+Send buttons. drBuildWaMessage(showPhone, ║
+║                    stream) filters classes by COM/SCI in label. Stream tab    ║
+║                    selection persists while modal is open; phone checkbox     ║
+║                    applies to both panels.                                    ║
+║                                                                              ║
+║  v3.13 2026-05-25  Fix: WA subject timing now looks up only sections where    ║
+║                    absent students belong, not all sections. Extracts section ║
+║                    letter from classLabel (e.g. 2PUC-COM-A → A), queries     ║
+║                    grid[section][day] only for those sections. Eliminates     ║
+║                    duplicate timings from other sections.                     ║
+║                                                                              ║
+║  v3.12 2026-05-25  UX: WA modal improvements:                                ║
+║                    1) Checkbox to include/exclude phone numbers (default off) ║
+║                    2) Subject headers now include timetable time (12hr format) ║
+║                    3) "Send to WA" button opens wa.me with pre-filled text    ║
+║                    Helper drGetSubjectTiming(code, dateKey) added — looks up  ║
+║                    abbr from subjectMap, scans ttComData/TT_COM_SEED grid for ║
+║                    all sections, returns merged unique period times.          ║
+║                                                                              ║
+║  v3.11 2026-05-25  UX: WA message rows now use serial numbers (1. 2. 3.) instead║
+║                    of dash prefix. No separator dash between fields; format:  ║
+║                    "1. NAME  CLASS  PHONE"                                    ║
+║                                                                              ║
+║  v3.10 2026-05-25  Fix: WA message subject sections now show subject name and  ║
+║                    faculty name instead of raw code (e.g. "ECONOMICS (RAVI)" ║
+║                    instead of "22ECO02"). Reads from global subjectMap loaded  ║
+║                    from Firebase. Falls back to code if name not mapped.      ║
+║                                                                              ║
+║  v3.09 2026-05-25  Fix: WhatsApp button no longer uses postMessage/extension. ║
+║                    Now shows a modal with the plain-text message (no emojis) ║
+║                    and a Copy button. User copies and pastes manually.       ║
+║                    Modal has click-outside-to-close. All emoji chars removed ║
+║                    from message body; section headers use *BOLD* WA markup.  ║
+║                                                                              ║
+║  v3.08 2026-05-25  Add: WhatsApp send button on Date Report page.            ║
+║                    "📱 Send to Faculty WA" appears next to PDF / Excel       ║
+║                    buttons, enabled only after Fetch Report loads data.      ║
+║                    Reads _drData (no re-fetch). Builds a formatted message   ║
+║                    with Whole Day Absent section (count + name·class·phone)  ║
+║                    followed by per-subject absent sections. Dispatches via   ║
+║                    window.postMessage DAVAN_SEND_GROUP to extension v1.2     ║
+║                    targeting "PUC Commerce Faculty Team". Contact pulled     ║
+║                    from s.contact on the RTDB student record.                ║
 ║                                                                              ║
 ║  v2.98 2026-05-22  Fix: Letters tab absent detection broken for students with ║
 ║                    no USN in marks data (e.g. YASHWANTH J). Root cause:      ║
@@ -1459,6 +1515,7 @@ body {
         <button class="btn" onclick="drRun()" style="background:var(--accent);color:#000;">▶ Fetch Report</button>
         <button class="btn btn-ghost" onclick="drExportPDF()" id="dr-pdf-btn" style="display:none;">🖨 PDF</button>
         <button class="btn btn-ghost" onclick="drExportExcel()" id="dr-excel-btn" style="display:none;">📊 Excel</button>
+        <button class="btn btn-ghost" onclick="drSendWhatsApp()" id="dr-wa-btn" style="display:none;">📱 Send to Faculty WA</button>
       </div>
 
       <!-- Summary -->
@@ -2980,7 +3037,19 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v3.02";
+const APP_VERSION = "v3.15";
+
+// ── Extension feedback listener ──────────────────────────────────────────────
+window.addEventListener('message', (e) => {
+  if (!e.data || !e.data._davan) return;
+  if (e.data.type === 'GROUP_SENT') {
+    dvToast('✅ Absent report sent to PUC Commerce Faculty Team!', 'ok');
+    if (typeof spLog === 'function') spLog('✅ Faculty group report delivered successfully', 'ok');
+  } else if (e.data.type === 'GROUP_ERROR') {
+    dvToast('⚠ Could not send report to faculty group: ' + (e.data.reason || 'Unknown error'), 'warn');
+    if (typeof spLog === 'function') spLog('⚠ Faculty group report failed: ' + (e.data.reason || ''), 'warn');
+  }
+});
 
 // =====================
 // FIREBASE INIT
@@ -4512,6 +4581,25 @@ async function spDoScrape() {
     // Reload PUC data so dashboard reflects new scrape
     dvToast('✅ Scrape complete! Reloading data…', 'ok');
     setTimeout(() => pucLoadAll(), 1500);
+
+    // Auto-send faculty group report after randomized delay (115–135 seconds)
+    // Fetch previous snapshot key for diff before sending
+    const _delayMs = (115 + Math.floor(Math.random() * 21)) * 1000;
+    spLog('📨 Faculty report will be sent in ~' + Math.round(_delayMs/1000) + 's…', 'dbg');
+    setTimeout(async () => {
+      try {
+        // Find the most recent previous snapshot key
+        const _snap = await rtdb.ref('puc_daily/' + SP_AY_KEY).once('value');
+        const _keys = Object.keys(_snap.val() || {}).sort();
+        // Remove today's key (last one just written) to get previous
+        const _istNow2 = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
+        const _mon2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_istNow2.getMonth()];
+        const _todayKey = String(_istNow2.getDate()).padStart(2,'0') + '-' + _mon2 + '-' + _istNow2.getFullYear();
+        const _prevKeys = _keys.filter(k => k !== _todayKey);
+        const _prevKey  = _prevKeys.length ? _prevKeys[_prevKeys.length - 1] : null;
+        await spBuildAndSendFacultyReport(all, _prevKey);
+      } catch(e) { spLog('⚠ Faculty report error: ' + e.message, 'warn'); }
+    }, _delayMs);
   } else {
     spSetPill('sp-scrapePill','Scrape OK · Firebase failed ⚠','amber');
   }
@@ -4710,6 +4798,149 @@ async function spScrapeOne(cls) {
     scraped_at:new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}),
     students, courses:rep.courses||[],
   }};
+}
+
+// ── Auto Faculty Group Report — triggered after scrape completes ──────────────
+async function spBuildAndSendFacultyReport(all, prevSnapshotKey) {
+  try {
+    // 1. Fetch previous snapshot from Firebase for diff
+    const FB_URL = 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app';
+    let prevData = {};
+    if (prevSnapshotKey) {
+      try {
+        const r = await fetch(`${FB_URL}/puc_daily/${SP_AY_KEY}/${prevSnapshotKey}.json`);
+        if (r.ok) prevData = await r.json() || {};
+      } catch(e) {}
+    }
+
+    // 2. Build today's snapshot structure (same as dailyByClass in spPushFB)
+    const todayByClass = {};
+    Object.values(all).forEach(d => {
+      todayByClass[d.label] = d.students.map(s => ({
+        usn: s.urn || '',
+        name: s.name || '',
+        contact: s.contact || '',
+        courses: (s.subjects || []).map(sub => ({ code: sub.subject, ca: sub.ca, ch: sub.ct })),
+      }));
+    });
+
+    // 3. Compute absent students per class
+    const wholeDayAbsent = []; // { name, class, contact }
+    const subjectAbsent  = {}; // subjectName -> [{ name, class, contact }]
+
+    // Subject code → name map
+    const getSubName = (code) => {
+      if (typeof subjectMap !== 'undefined' && subjectMap[code]?.name) return subjectMap[code].name;
+      // Fallback: derive from code
+      const known = {
+        'COMEC22':'Economics','COMEN02':'English','COMKA01':'Kannada',
+        'COMBS27':'Business Studies','COMAC30':'Accountancy','COMST31':'Statistics',
+        'COMCS41':'Computer Science','COMHI03':'Hindi',
+        'SCIMA01':'Mathematics','SCIPH01':'Physics','SCICH01':'Chemistry',
+        'SCIBO01':'Biology','SCIEN02':'English','SCIKA01':'Kannada',
+        'SCIIP01':'IP','SCICS01':'Computer Science',
+      };
+      return known[code] || code;
+    };
+
+    for (const [cls, students] of Object.entries(todayByClass)) {
+      const prevStudents = Array.isArray(prevData[cls]) ? prevData[cls] : [];
+      for (const stu of students) {
+        const prev = prevStudents.find(x => x.usn && x.usn === stu.usn)
+                  || prevStudents.find(x => (x.name||'').toLowerCase() === (stu.name||'').toLowerCase());
+        const absentSubjects = [];
+        let totalHeld = 0;
+        for (const c of (stu.courses || [])) {
+          const p = (prev?.courses || []).find(x => x.code === c.code);
+          const chDelta = c.ch - (p ? p.ch : 0);
+          const caDelta = c.ca - (p ? p.ca : 0);
+          if (chDelta > 0) {
+            totalHeld++;
+            if (caDelta === 0) absentSubjects.push(c.code);
+          }
+        }
+        if (absentSubjects.length === 0) continue;
+        const info = { name: stu.name, cls, contact: stu.contact || '' };
+        if (absentSubjects.length === totalHeld && totalHeld > 0) {
+          wholeDayAbsent.push(info);
+        }
+        for (const code of absentSubjects) {
+          const sn = getSubName(code);
+          if (!subjectAbsent[sn]) subjectAbsent[sn] = [];
+          subjectAbsent[sn].push(info);
+        }
+      }
+    }
+
+    // 4. Build message
+    const _istNow = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
+    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const monNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dateStr = dayNames[_istNow.getDay()] + ', ' +
+                    _istNow.getDate() + ' ' + monNames[_istNow.getMonth()] + ' ' + _istNow.getFullYear();
+
+    let msg = '📋 *Davan PUC — Daily Absent Report*\n';
+    msg += '📅 ' + dateStr + '\n';
+    msg += '━━━━━━━━━━━━━━━━━━━━\n\n';
+
+    if (wholeDayAbsent.length > 0) {
+      msg += '🚫 *WHOLE DAY ABSENT (' + wholeDayAbsent.length + ')*\n';
+      for (const s of wholeDayAbsent) {
+        const ph = s.contact ? ' · ' + s.contact : '';
+        msg += '• ' + s.name + ' — ' + s.cls + ph + '\n';
+      }
+      msg += '\n';
+    }
+
+    const subjKeys = Object.keys(subjectAbsent).sort();
+    for (const subj of subjKeys) {
+      const list = subjectAbsent[subj];
+      msg += '📚 *' + subj.toUpperCase() + ' (' + list.length + ')*\n';
+      for (const s of list) {
+        const ph = s.contact ? ' · ' + s.contact : '';
+        msg += '• ' + s.name + ' — ' + s.cls + ph + '\n';
+      }
+      msg += '\n';
+    }
+
+    msg += '━━━━━━━━━━━━━━━━━━━━\n';
+    msg += '_Sent automatically by Davan Attendance System_';
+
+    if (wholeDayAbsent.length === 0 && subjKeys.length === 0) {
+      msg = '✅ *Davan PUC — ' + dateStr + '*\nNo absences recorded today!';
+    }
+
+    // 5. Ping extension and send
+    spLog('📨 Sending absent report to faculty group…', 'dbg');
+    try {
+      // Ping extension via postMessage bridge
+      const ping = await new Promise((res) => {
+        const handler = (e) => {
+          if (e.data && e.data.type === 'DAVAN_PING_RESPONSE' && e.data._davan) {
+            window.removeEventListener('message', handler);
+            res(e.data);
+          }
+        };
+        window.addEventListener('message', handler);
+        window.postMessage({ type: 'DAVAN_PING', _davan: true }, '*');
+        setTimeout(() => { window.removeEventListener('message', handler); res(null); }, 2000);
+      });
+      if (!ping) { spLog('⚠ Extension not detected — report not sent automatically. Install Davan WA Sender v1.2+', 'warn'); return; }
+
+      window.postMessage({
+        type:      'DAVAN_SEND_GROUP',
+        groupName: 'PUC Commerce Faculty Team',
+        message:   msg,
+        _davan:    true,
+      }, '*');
+      spLog('✅ Report dispatched to extension — sending to PUC Commerce Faculty Team', 'ok');
+    } catch(e) {
+      spLog('⚠ Could not send via extension: ' + e.message, 'warn');
+    }
+
+  } catch(e) {
+    spLog('⚠ Faculty report error: ' + e.message, 'warn');
+  }
 }
 
 async function spPushFB(all, total) {
@@ -6820,6 +7051,7 @@ async function drRun() {
   const summaryEl = document.getElementById('dr-summary');
   document.getElementById('dr-pdf-btn').style.display = 'none';
   document.getElementById('dr-excel-btn').style.display = 'none';
+  document.getElementById('dr-wa-btn').style.display = 'none';
   tabsEl.style.display = 'none';
   summaryEl.style.display = 'none';
   document.getElementById('dr-grid-subject').innerHTML = '';
@@ -6920,6 +7152,7 @@ async function drRun() {
     tabsEl.style.display = '';
     document.getElementById('dr-pdf-btn').style.display = '';
     document.getElementById('dr-excel-btn').style.display = '';
+    document.getElementById('dr-wa-btn').style.display = '';
     drSwitchTab('subject');
 
   } catch(e) {
@@ -7119,8 +7352,202 @@ function drExportExcel() {
   dvToast('📊 Excel downloaded', 'ok', 3000);
 }
 
-// ═══════════════════════════════════════════════════════════════
-// COM TIMETABLE MODULE
+// Helper: get timetable time(s) for a subject code on a given dateKey ("23-May-2026")
+// Returns e.g. "9:30 AM-10:30 AM" or "9:30 AM-10:30 AM, 10:30 AM-11:30 AM" or ""
+// Get timing for a subject on a date, restricted to specific sections only.
+// sections = array of section letters e.g. ['A'] or ['A','B']
+// classLabels e.g. ['2PUC-COM-A','2PUC-COM-B'] → extract last char as section key
+function drGetSubjectTiming(code, dateKey, sections) {
+  try {
+    const sm = (typeof subjectMap !== 'undefined') ? subjectMap : {};
+    const upper = (code || '').toUpperCase();
+    const smEntry = sm[upper] || null;
+    let ttAbbr = (smEntry && smEntry.abbr) ? smEntry.abbr.toUpperCase().trim() : '';
+    if (!ttAbbr) {
+      const m = upper.match(/^\d{2}([A-Z]+)\d{2}$/);
+      ttAbbr = m ? m[1] : upper;
+    }
+    if (!ttAbbr) return '';
+
+    const src = (typeof ttComData !== 'undefined' && ttComData) ? ttComData : TT_COM_SEED;
+    const [d, mon, y] = dateKey.split('-');
+    const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(mon + ' ' + d + ' ' + y).getDay()];
+    const periods = (src.periods || TT_DEFAULT_PERIODS).filter(p => p.type === 'period');
+
+    const fmt12 = t => {
+      const [hh, mm] = t.split(':').map(Number);
+      const ampm = hh >= 12 ? 'PM' : 'AM';
+      const h12 = hh % 12 || 12;
+      return h12 + (mm ? ':' + String(mm).padStart(2,'0') : '') + ' ' + ampm;
+    };
+
+    // Scan all grid sections — different sections may have the same subject at
+    // different times (e.g. A=10:30 and B=11:30 for BS on Saturday).
+    // Restricting to only absent-student sections (v3.13 logic) was wrong:
+    // if A-section and B-section absences are under different Firebase codes,
+    // each call only has one section and misses the other's timing entirely.
+    // The `seen` Set already deduplicates identical times, so scanning all
+    // sections is safe and correct.
+    const grid = src.grid || {};
+    const secKeys = Object.keys(grid);
+
+    const seen = new Set();
+    const times = [];
+    secKeys.forEach(sec => {
+      const slots = (grid[sec][dayName] || []);
+      slots.forEach((abbr, idx) => {
+        if ((abbr || '').trim().toUpperCase().split('/').some(a => a.trim() === ttAbbr)) {
+          const p = periods[idx];
+          if (p && p.start && p.end) {
+            const t = fmt12(p.start) + '–' + fmt12(p.end);
+            if (!seen.has(t)) { seen.add(t); times.push(t); }
+          }
+        }
+      });
+    });
+    return times.join(', ');
+  } catch(_) { return ''; }
+}
+
+function drBuildWaMessage(showPhone, stream) {
+  // stream: 'COM' | 'SCI' | 'ALL'
+  const d = _drData;
+  const streamFilter = (stream || 'COM').toUpperCase();
+  const classMatch = cls => streamFilter === 'ALL' || cls.label.toUpperCase().indexOf(streamFilter) !== -1;
+  const dateClean = d.dateDisplay.replace(/\s*\(.*\)$/, '');
+
+  const lines = [];
+  const streamTitle = streamFilter === 'SCI' ? 'Science' : streamFilter === 'COM' ? 'Commerce' : 'All Streams';
+  lines.push('*Davan PUC - ' + streamTitle + ' Absent Report*');
+  lines.push('Date: ' + dateClean);
+  lines.push('--------------------');
+  lines.push('');
+
+  // Section 1: Whole Day Absent
+  const allWhole = [];
+  d.classes.filter(classMatch).forEach(cls => {
+    cls.wholeDayAbsent.forEach(s => allWhole.push({ ...s, classLabel: cls.label }));
+  });
+  if (allWhole.length) {
+    lines.push('*WHOLE DAY ABSENT (' + allWhole.length + ')*');
+    allWhole.forEach((s, i) => {
+      let row = (i+1) + '. ' + (s.name || '?') + '  ' + s.classLabel;
+      if (showPhone) row += '  ' + (s.contact || 'no number');
+      lines.push(row);
+    });
+    lines.push('');
+  }
+
+  // Section 2: Per-subject absent
+  const subGrpMap = {};
+  d.classes.filter(classMatch).forEach(cls => {
+    cls.subjectAbsent.forEach(s => {
+      s.absentCourses.forEach(c => {
+        if (!subGrpMap[c.code]) subGrpMap[c.code] = { entries: [] };
+        subGrpMap[c.code].entries.push({ name: s.name || '?', classLabel: cls.label, contact: s.contact || 'no number' });
+      });
+    });
+  });
+
+  Object.keys(subGrpMap).sort().forEach(code => {
+    const grp = subGrpMap[code];
+    const smEntry = (typeof subjectMap !== 'undefined' && subjectMap[code.toUpperCase()]) || null;
+    const subName = (smEntry && smEntry.name) ? smEntry.name : code;
+    const faculty = (smEntry && smEntry.faculty) ? smEntry.faculty : '';
+    // Extract unique section letters from classLabels (e.g. "2PUC-COM-A" → "A")
+    const secSet = new Set(grp.entries.map(e => e.classLabel.split('-').pop().trim()));
+    const sections = [...secSet];
+    const timing  = drGetSubjectTiming(code, d.dateKey, sections);
+    let header = subName;
+    if (faculty) header += ' (' + faculty + ')';
+    header += ' - ' + grp.entries.length;
+    if (timing) header += '  [' + timing + ']';
+    lines.push('*' + header + '*');
+    grp.entries.forEach((e, i) => {
+      let row = (i+1) + '. ' + e.name + '  ' + e.classLabel;
+      if (showPhone) row += '  ' + e.contact;
+      lines.push(row);
+    });
+    lines.push('');
+  });
+
+  return lines.join('\n').trim();
+}
+
+function drSendWhatsApp() {
+  if (!_drData) return;
+  const modal = document.getElementById('dr-wa-modal');
+  modal.style.display = 'flex';
+  drWaRenderPanels();
+}
+
+function drWaModalClose() {
+  document.getElementById('dr-wa-modal').style.display = 'none';
+}
+
+function drWaGetStream() {
+  const el = document.querySelector('#dr-wa-stream-tabs .dr-wa-tab-active');
+  return el ? el.dataset.stream : 'COM';
+}
+
+function drWaSetStream(stream) {
+  document.querySelectorAll('#dr-wa-stream-tabs .dr-wa-stream-tab').forEach(t => {
+    t.classList.toggle('dr-wa-tab-active', t.dataset.stream === stream);
+    t.style.background   = t.dataset.stream === stream ? 'var(--accent)' : 'var(--surface2)';
+    t.style.color        = t.dataset.stream === stream ? '#000' : 'var(--muted)';
+    t.style.borderColor  = t.dataset.stream === stream ? 'var(--accent)' : 'var(--border)';
+  });
+  drWaRenderPanels();
+}
+
+function drWaRenderPanels() {
+  if (!_drData) return;
+  const stream   = drWaGetStream();
+  const showPhone = document.getElementById('dr-wa-phone-chk').checked;
+  const bothWrap  = document.getElementById('dr-wa-both-wrap');
+  const singleWrap = document.getElementById('dr-wa-single-wrap');
+
+  if (stream === 'BOTH') {
+    singleWrap.style.display = 'none';
+    bothWrap.style.display   = 'flex';
+    document.getElementById('dr-wa-text-com').value = drBuildWaMessage(showPhone, 'COM');
+    document.getElementById('dr-wa-text-sci').value = drBuildWaMessage(showPhone, 'SCI');
+    drWaResetCopyBtn('dr-wa-copy-com', 'Copy Commerce');
+    drWaResetCopyBtn('dr-wa-copy-sci', 'Copy Science');
+  } else {
+    bothWrap.style.display   = 'none';
+    singleWrap.style.display = 'flex';
+    document.getElementById('dr-wa-text-single').value = drBuildWaMessage(showPhone, stream);
+    drWaResetCopyBtn('dr-wa-copy-single', 'Copy');
+  }
+}
+
+function drWaRefresh() { drWaRenderPanels(); }
+
+function drWaResetCopyBtn(id, label) {
+  const btn = document.getElementById(id);
+  if (btn) { btn.textContent = label; btn.style.background = ''; }
+}
+
+function drWaCopyById(textareaId, btnId, label) {
+  const txt = document.getElementById(textareaId).value;
+  navigator.clipboard.writeText(txt).then(() => {
+    const btn = document.getElementById(btnId);
+    btn.textContent = 'Copied!';
+    btn.style.background = '#22c55e';
+    setTimeout(() => { btn.textContent = label; btn.style.background = ''; }, 2500);
+  }).catch(() => {
+    document.getElementById(textareaId).select();
+    dvToast('Press Ctrl+C to copy', 'warn', 3000);
+  });
+}
+
+function drWaOpenWA(textareaId) {
+  const txt = document.getElementById(textareaId).value;
+  window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
+}
+
+
 // Firestore collection: puc_timetables_com
 // ═══════════════════════════════════════════════════════════════
 
@@ -10241,7 +10668,16 @@ function mrOpenModal(usn, defaultTab) {
         (x.usn||'').toLowerCase() === _sUsn ||
         (x.name||'').toLowerCase() === (s.name||'').toLowerCase()
       );
-      if (inMem?.contact) { _setMeta(inMem.contact); return; }
+      if (inMem) {
+        // Update class in header if portal has a different (more current) class
+        if (inMem.class && inMem.class !== s.class) {
+          document.getElementById('mrm-meta').textContent =
+            (s.usn||'—') + ' · ' + inMem.class + (inMem.contact ? '  📞 ' + _fmtPhone(inMem.contact) : '');
+        } else if (inMem.contact) {
+          _setMeta(inMem.contact);
+        }
+        return;
+      }
 
       // 2. Direct Firebase fetch — try activeAY first, then both known AY paths
       //    because ayAutoDefault() may return 2026-27 while data lives in 2025-26
@@ -10353,7 +10789,16 @@ function mrmRenderResults(body) {
   const _rankChipBg  = 'rgba(240,165,0,0.12)';
   const _rankChipBrd = 'rgba(240,165,0,0.35)';
 
-  let html = `<div style="display:grid;grid-template-columns:repeat(4,1fr) 1.1fr 1.1fr 1.2fr;gap:6px;margin-bottom:14px;">
+  // Determine exam label from student class in marks data
+  // s.class is from marks scraper — reflects which PUC year the exam belongs to
+  const _pucLabel = (s.class||'').toUpperCase().includes('1PUC') ? '1st PUC' : '2nd PUC';
+  const _examYear = (s.class||'').match(/\d{4}-\d{2}/) ? s.class.match(/\d{4}-\d{2}/)[0] : '';
+
+  let html = `<div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:8px;letter-spacing:0.5px;">
+    📋 <span style="color:#f0a500;font-weight:700;">${_pucLabel} Annual Examination Results</span>
+    <span style="opacity:0.6;margin-left:6px;">(${s.class||'—'})</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr) 1.1fr 1.1fr 1.2fr;gap:6px;margin-bottom:14px;">
     <div style="background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:10px;text-align:center;">
       <div style="font-size:20px;font-weight:700;color:#22c55e;">${passCount}</div>
       <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">PASS</div></div>
@@ -10443,6 +10888,7 @@ function mrmRenderAttendance(body) {
   const _sUsnA   = (s.usn||'').trim().toUpperCase();
   const pucS = _pucAllA.find(x => _sUsnA && (x.urn||'').trim().toUpperCase() === _sUsnA)
             || _pucAllA.find(x => (x.name||'').trim().toLowerCase()===_sNameA && (x.class||'').trim().toUpperCase()===_sClassA)
+            || _pucAllA.find(x => (x.name||'').trim().toLowerCase()===_sNameA) // fallback: name only (handles class mismatch between marks and portal)
             || null;
   if (!pucS) {
     body.innerHTML = ayRow + `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px 0;">
@@ -10479,6 +10925,7 @@ function mrmRenderAttendance(body) {
       <th style="text-align:left;padding:7px 10px;border:1px solid var(--border);color:var(--muted);">Subject</th>
       <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">Attended</th>
       <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">Classes Held</th>
+      <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">Missed</th>
       <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">%</th>
       <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">Status</th>
     </tr></thead><tbody>`;
@@ -10504,6 +10951,7 @@ function mrmRenderAttendance(body) {
       </td>
       <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);">${sub.ca||0}</td>
       <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);">${sub.ct||0}</td>
+      <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:${(sub.ct||0)-(sub.ca||0)>0?'#ef4444':'var(--text)'};font-weight:${(sub.ct||0)-(sub.ca||0)>0?'700':'400'};">${(sub.ct||0)-(sub.ca||0)}</td>
       <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:${clr};font-weight:700;">${pct}%</td>
       <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:${clr};font-weight:600;">${status}</td>
     </tr>`;
@@ -10536,9 +10984,10 @@ async function mrmShowSubjectDrill(code, subjectName) {
   // Match by URN first, then name+class (class-constrained to avoid wrong student), then name alone
   const pucS = _pucAll2.find(x => _sUsnUC2 && (x.urn||'').trim().toUpperCase() === _sUsnUC2)
             || _pucAll2.find(x => (x.name||'').trim().toLowerCase()===_sNameLC2 && (x.class||'').trim().toUpperCase()===_sClassUC2)
+            || _pucAll2.find(x => (x.name||'').trim().toLowerCase()===_sNameLC2) // fallback: name only (handles class mismatch between marks and portal)
             || null;
-  // Always use s.class from _mrmStudent as authoritative class — pucS.class can be wrong
-  const classLabel = (s.class || (pucS && pucS.class) || '').trim();
+  // Prefer pucS.class (current portal class) over s.class (may be stale from marks data)
+  const classLabel = ((pucS && pucS.class) || s.class || '').trim();
   const usn        = (pucS && pucS.urn) ? pucS.urn.trim() : (s.usn || '').trim();
   const ayKey      = (typeof activeAY !== 'undefined') ? activeAY : SP_AY_KEY;
 
@@ -13057,6 +13506,89 @@ async function mrmLetterDelete(usn, dateKey) {
 }
 
 </script>
+
+<!-- ── WhatsApp Message Modal ──────────────────────────────────────────── -->
+<div id="dr-wa-modal" onclick="if(event.target===this)drWaModalClose()"
+  style="display:none;position:fixed;inset:0;z-index:10600;background:rgba(0,0,0,0.82);
+         backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:12px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
+              width:100%;max-width:860px;padding:20px 20px 16px;display:flex;flex-direction:column;gap:12px;
+              max-height:92vh;overflow-y:auto;">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <span style="font-family:var(--head);font-size:14px;letter-spacing:1.5px;color:var(--accent);">WHATSAPP MESSAGE</span>
+      <button onclick="drWaModalClose()"
+        style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;padding:0;">&#x2715;</button>
+    </div>
+
+    <!-- Controls row: stream tabs + phone checkbox -->
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;flex-shrink:0;">
+      <div id="dr-wa-stream-tabs" style="display:flex;gap:6px;">
+        <button class="btn dr-wa-stream-tab dr-wa-tab-active" data-stream="COM" onclick="drWaSetStream('COM')"
+          style="font-size:12px;padding:5px 14px;background:var(--accent);color:#000;border:1px solid var(--accent);border-radius:6px;cursor:pointer;">Commerce</button>
+        <button class="btn dr-wa-stream-tab" data-stream="SCI" onclick="drWaSetStream('SCI')"
+          style="font-size:12px;padding:5px 14px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;cursor:pointer;">Science</button>
+        <button class="btn dr-wa-stream-tab" data-stream="BOTH" onclick="drWaSetStream('BOTH')"
+          style="font-size:12px;padding:5px 14px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;cursor:pointer;">Both</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;margin-left:auto;">
+        <input type="checkbox" id="dr-wa-phone-chk" onchange="drWaRefresh()"
+          style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;">
+        <span style="font-family:var(--mono);font-size:12px;color:var(--muted);">Include phone numbers</span>
+      </label>
+    </div>
+
+    <!-- SINGLE panel (Commerce or Science) -->
+    <div id="dr-wa-single-wrap" style="display:flex;flex-direction:column;gap:8px;">
+      <textarea id="dr-wa-text-single" readonly
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+               color:var(--text);font-family:var(--mono);font-size:12px;line-height:1.6;
+               padding:12px;width:100%;box-sizing:border-box;resize:none;height:310px;outline:none;white-space:pre;"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+        <span style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-right:auto;">Opens WhatsApp — select the faculty group</span>
+        <button onclick="drWaModalClose()" class="btn btn-ghost" style="font-size:12px;">Close</button>
+        <button id="dr-wa-copy-single" onclick="drWaCopyById('dr-wa-text-single','dr-wa-copy-single','Copy')"
+          class="btn btn-ghost" style="font-size:12px;">Copy</button>
+        <button onclick="drWaOpenWA('dr-wa-text-single')"
+          class="btn" style="background:#25d366;color:#000;font-size:12px;font-weight:700;">Send via WA</button>
+      </div>
+    </div>
+
+    <!-- BOTH panel (side by side) -->
+    <div id="dr-wa-both-wrap" style="display:none;gap:14px;">
+      <!-- Commerce panel -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:1px;">COMMERCE</div>
+        <textarea id="dr-wa-text-com" readonly
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                 color:var(--text);font-family:var(--mono);font-size:11px;line-height:1.55;
+                 padding:10px;width:100%;box-sizing:border-box;resize:none;height:290px;outline:none;white-space:pre;"></textarea>
+        <div style="display:flex;gap:6px;justify-content:flex-end;">
+          <button id="dr-wa-copy-com" onclick="drWaCopyById('dr-wa-text-com','dr-wa-copy-com','Copy Commerce')"
+            class="btn btn-ghost" style="font-size:11px;">Copy Commerce</button>
+          <button onclick="drWaOpenWA('dr-wa-text-com')"
+            class="btn" style="background:#25d366;color:#000;font-size:11px;font-weight:700;">Send via WA</button>
+        </div>
+      </div>
+      <!-- Science panel -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:1px;">SCIENCE</div>
+        <textarea id="dr-wa-text-sci" readonly
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                 color:var(--text);font-family:var(--mono);font-size:11px;line-height:1.55;
+                 padding:10px;width:100%;box-sizing:border-box;resize:none;height:290px;outline:none;white-space:pre;"></textarea>
+        <div style="display:flex;gap:6px;justify-content:flex-end;">
+          <button id="dr-wa-copy-sci" onclick="drWaCopyById('dr-wa-text-sci','dr-wa-copy-sci','Copy Science')"
+            class="btn btn-ghost" style="font-size:11px;">Copy Science</button>
+          <button onclick="drWaOpenWA('dr-wa-text-sci')"
+            class="btn" style="background:#25d366;color:#000;font-size:11px;font-weight:700;">Send via WA</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
 
 </body>
 </html>
