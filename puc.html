@@ -4,8 +4,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v3.16                                                      ║
-║  FILE NAME       : puc_v3.16.html                                             ║
+║  CURRENT VERSION : v3.24                                                      ║
+║  FILE NAME       : puc_v3.24.html                                             ║
 ║  LAST UPDATED    : 2026-05-25                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -35,6 +35,60 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v3.24 2026-05-27  UX: Students panel — all 7 columns now sortable by clicking ║
+║                    their header (↑↓ toggle). Status filter dropdown (All /    ║
+║                    OK / Border / Critical / No Data). Sort indicator chip      ║
+║                    shows current sort col+dir. Reset button restores default. ║
+║                    Avg and Subjects default to descending (highest first).    ║
+║                                                                              ║
+║  v3.23 2026-05-27  Fix+UX: Letters Hub — (1) removed 60-row cap, all students ║
+║                    now shown; (2) "ALL RECEIVED" card renamed "HAS RECEIVED"  ║
+║                    and counts any student with ≥1 letter (not fully cleared); ║
+║                    (3) stronger row highlighting: blue bg+border for partial, ║
+║                    green bg+border for fully cleared; PENDING and RECEIVED     ║
+║                    cells now show badge pills (⚠ amber / 📄 blue / ✅ green). ║
+║                                                                              ║
+║  v3.22 2026-05-27  UX: Letters Hub — rows with any received letters are now    ║
+║                    highlighted: blue left-border for partial (some pending),   ║
+║                    green left-border+tint for fully cleared. Debug console.log ║
+║                    added to trace pending/received counts after fetch.         ║
+║                                                                              ║
+║  v3.21 2026-05-27  Fix: Letters Hub "ALL RECEIVED" card always showed 0.      ║
+║                    Was counting r.pending===0 (includes no-letter students);   ║
+║                    fixed to r.pending===0 && r.received>0 (fully cleared).    ║
+║                                                                              ║
+║  v3.20 2026-05-27  Fix: Letters Hub "Received" filter showed no results.      ║
+║                    Bug: filter required r.pending===0 (fully cleared), so any ║
+║                    student with mixed pending+received was excluded. Fixed to  ║
+║                    r.received>0 (has ≥1 received letter, regardless of pending)║
+║                    Added a 4th status option "Fully Cleared" (pending===0 &&  ║
+║                    received>0) to distinguish partial vs complete.             ║
+║                                                                              ║
+║  v3.19 2026-05-27  Fix: Letters Hub showed 0 for all counts. Root cause:      ║
+║                    ltHubRefresh was reading s.subjects[].absent_dates which    ║
+║                    doesn't exist — absent dates live in puc_daily RTDB, not   ║
+║                    on student objects. Rewrote ltHubRefresh to use the same    ║
+║                    puc_daily diff algorithm as mrmRenderLetters: fetch all     ║
+║                    daily snapshots once, walk each student's cumulative         ║
+║                    courses across consecutive snapshots (chDelta>0 & caDelta=0 ║
+║                    = absent), build absentByUsn map, then fetch Firestore      ║
+║                    leave_letters in batches of 10. Counts now match the modal. ║
+║                                                                              ║
+║  v3.18 2026-05-27  Add: Letters Hub — new side panel for managing leave       ║
+║                    letters across all students from one place. Shows 5 summary ║
+║                    cards (total students, pending students, pending dates, all  ║
+║                    received, total absent dates). Class breakdown chips with    ║
+║                    pending counts, clickable as quick filters synced with       ║
+║                    dropdown. Search by name/URN, filter by status + class.     ║
+║                    Table sorted pending-first; row click → modal LETTERS tab;  ║
+║                    '+ Add Letter' opens same mrmLetterEdit flow then refreshes ║
+║                    hub. Sidebar badge shows pending-student count.             ║
+║                                                                              ║
+║  v3.17 2026-05-27  UX: Dashboard — added stream/section breakdown chip row    ║
+║                    below the main stat cards. Shows Commerce total + each     ║
+║                    section (1PUC-COM A/B/C, 2PUC-COM A/B/C) and Science      ║
+║                    total + 1PUC-SCI-A, 2PUC-SCI-A with live student counts.  ║
 ║                                                                              ║
 ║  v3.16 2026-05-25  Fix: Whole-day-absent students no longer appear in per-     ║
 ║                    subject absent sections of the WA message. A Set of         ║
@@ -1200,6 +1254,10 @@ body {
       <div class="sidebar-item" id="nav-absentees" onclick="switchPanel('absentees')">
         <span class="icon">⚠️</span> Absentees
       </div>
+      <div class="sidebar-item" id="nav-letters-hub" onclick="switchPanel('letters-hub');ltHubInit()">
+        <span class="icon">📄</span> Letters
+        <span id="lt-hub-badge" style="display:none;background:#f59e0b;color:#000;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;margin-left:auto;"></span>
+      </div>
       <div class="sidebar-item" id="nav-report-card" onclick="switchPanel('report-card')">
         <span class="icon">📋</span> Report Card
       </div>
@@ -1301,6 +1359,9 @@ body {
         <div class="stat-box"><div class="stat-label">Last Scraped</div><div class="stat-value" id="db-scraped" style="font-size:14px;padding-top:6px;">—</div></div>
       </div>
 
+      <!-- Stream / section breakdown chips -->
+      <div id="db-stream-chips" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:4px;"></div>
+
       <!-- Per-class summary grid -->
       <div class="card">
         <div class="card-title">Class Overview</div>
@@ -1354,8 +1415,26 @@ body {
     <div class="panel" id="panel-students">
       <div class="page-title">STUDENTS</div>
       <div class="page-sub">Search and view individual attendance records</div>
-      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
-        <input type="text" class="search-input" id="student-search" placeholder="🔍  Search by name or URN…" oninput="renderStudentList()">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+        <input type="text" class="search-input" id="student-search" placeholder="🔍  Search by name or URN…"
+          oninput="renderStudentList()" style="flex:1;min-width:200px;">
+        <select id="student-status-filter" onchange="renderStudentList()"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);
+                 font-family:var(--mono);font-size:11px;padding:8px 10px;outline:none;cursor:pointer;">
+          <option value="all">All Status</option>
+          <option value="ok">✅ OK (≥75%)</option>
+          <option value="border">⚠ Border (65–75%)</option>
+          <option value="critical">🔴 Critical (&lt;65%)</option>
+          <option value="nodata">— No Data</option>
+        </select>
+        <div id="student-sort-indicator"
+          style="font-family:var(--mono);font-size:10px;color:var(--muted);padding:6px 10px;
+                 background:var(--surface2);border:1px solid var(--border);border-radius:7px;white-space:nowrap;">
+          Sort: # ↑
+        </div>
+        <button onclick="studentSortReset()" title="Reset sort"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;
+                 font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--muted);">↺ Reset</button>
       </div>
       <div class="filter-tabs" id="student-class-tabs">
         <div class="filter-tab active" data-cls="ALL" onclick="setStudentClassFilter(this,'ALL')">ALL</div>
@@ -1371,15 +1450,15 @@ body {
       <div class="card" style="padding:0;overflow:hidden;">
         <div id="student-list-wrap" style="overflow-x:auto;">
           <table class="puc-table">
-            <thead>
+            <thead id="student-thead">
               <tr>
-                <th style="width:44px;">#</th>
-                <th>Name</th>
-                <th>URN</th>
-                <th>Class</th>
-                <th>Avg %</th>
-                <th>Subjects</th>
-                <th>Status</th>
+                <th style="width:44px;cursor:pointer;user-select:none;" onclick="studentSortBy('idx')"  id="sth-idx">  # <span id="sth-idx-icon">↑</span></th>
+                <th style="cursor:pointer;user-select:none;"             onclick="studentSortBy('name')" id="sth-name"> Name <span id="sth-name-icon"></span></th>
+                <th style="cursor:pointer;user-select:none;"             onclick="studentSortBy('urn')"  id="sth-urn">  URN <span id="sth-urn-icon"></span></th>
+                <th style="cursor:pointer;user-select:none;"             onclick="studentSortBy('cls')"  id="sth-cls">  Class <span id="sth-cls-icon"></span></th>
+                <th style="cursor:pointer;user-select:none;"             onclick="studentSortBy('avg')"  id="sth-avg">  Avg % <span id="sth-avg-icon"></span></th>
+                <th style="cursor:pointer;user-select:none;"             onclick="studentSortBy('subs')" id="sth-subs"> Subjects <span id="sth-subs-icon"></span></th>
+                <th style="cursor:pointer;user-select:none;"             onclick="studentSortBy('stat')" id="sth-stat"> Status <span id="sth-stat-icon"></span></th>
               </tr>
             </thead>
             <tbody id="student-tbody">
@@ -1471,6 +1550,72 @@ body {
               </tr>
             </thead>
             <tbody id="absentees-tbody">
+              <tr><td colspan="7" class="loading-state"><div class="spinner"></div> Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- LETTERS HUB PANEL -->
+    <div class="panel" id="panel-letters-hub">
+      <div class="page-title">📄 LETTERS HUB</div>
+      <div class="page-sub">All students with pending leave letters · manage from one place</div>
+
+      <!-- Summary cards -->
+      <div id="lt-hub-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px;"></div>
+
+      <!-- Class chips -->
+      <div id="lt-hub-chips" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"></div>
+
+      <!-- Search + filters -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+        <input id="lt-hub-search" type="text" placeholder="Search student name or URN…"
+          oninput="ltHubRender()"
+          style="flex:1;min-width:180px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;
+                 color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 12px;outline:none;" />
+        <select id="lt-hub-status" onchange="ltHubRender()"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);
+                 font-family:var(--mono);font-size:11px;padding:8px 10px;outline:none;cursor:pointer;">
+          <option value="all">All Status</option>
+          <option value="pending">⚠ Has Pending</option>
+          <option value="received">📄 Has Received (any)</option>
+          <option value="alldone">✅ Fully Cleared</option>
+        </select>
+        <select id="lt-hub-class" onchange="ltHubClassDropdownChange()"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);
+                 font-family:var(--mono);font-size:11px;padding:8px 10px;outline:none;cursor:pointer;">
+          <option value="ALL">All Classes</option>
+          <option value="1PUC-COM-A">1PUC-COM-A</option>
+          <option value="1PUC-COM-B">1PUC-COM-B</option>
+          <option value="1PUC-COM-C">1PUC-COM-C</option>
+          <option value="2PUC-COM-A">2PUC-COM-A</option>
+          <option value="2PUC-COM-B">2PUC-COM-B</option>
+          <option value="2PUC-COM-C">2PUC-COM-C</option>
+          <option value="1PUC-SCI-A">1PUC-SCI-A</option>
+          <option value="2PUC-SCI-A">2PUC-SCI-A</option>
+        </select>
+        <button onclick="ltHubRefresh()" title="Refresh"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 12px;
+                 font-size:13px;cursor:pointer;color:var(--muted);">🔄</button>
+      </div>
+
+      <!-- Table -->
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="overflow-x:auto;">
+          <table class="puc-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Student</th>
+                <th>Class</th>
+                <th style="text-align:center;">Absent Dates</th>
+                <th style="text-align:center;">⚠ Pending</th>
+                <th style="text-align:center;">✅ Received</th>
+                <th style="text-align:center;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="lt-hub-tbody">
               <tr><td colspan="7" class="loading-state"><div class="spinner"></div> Loading…</td></tr>
             </tbody>
           </table>
@@ -3042,7 +3187,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v3.16";
+const APP_VERSION = "v3.24";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -3498,6 +3643,38 @@ function renderDashboard() {
   document.getElementById('db-sub').textContent = total + ' students across 8 PUC classes · AY ' + activeAY;
   dvUpdateFooter();
 
+  // ── Stream / section breakdown chips ──────────────────────────────────────
+  // Groups: Commerce total, 1PUC-COM (A/B/C), 2PUC-COM (A/B/C),
+  //         Science total, 1PUC-SCI-A, 2PUC-SCI-A
+  const streamGroups = [
+    { label: '📘 COM TOTAL',   keys: ['1PUC-COM-A','1PUC-COM-B','1PUC-COM-C','2PUC-COM-A','2PUC-COM-B','2PUC-COM-C'], color: '#4ea8de' },
+    { label: '1PUC-COM-A',     keys: ['1PUC-COM-A'],   color: 'var(--muted)' },
+    { label: '1PUC-COM-B',     keys: ['1PUC-COM-B'],   color: 'var(--muted)' },
+    { label: '1PUC-COM-C',     keys: ['1PUC-COM-C'],   color: 'var(--muted)' },
+    { label: '2PUC-COM-A',     keys: ['2PUC-COM-A'],   color: 'var(--muted)' },
+    { label: '2PUC-COM-B',     keys: ['2PUC-COM-B'],   color: 'var(--muted)' },
+    { label: '2PUC-COM-C',     keys: ['2PUC-COM-C'],   color: 'var(--muted)' },
+    { label: '🔬 SCI TOTAL',   keys: ['1PUC-SCI-A','2PUC-SCI-A'], color: '#69db7c' },
+    { label: '1PUC-SCI-A',     keys: ['1PUC-SCI-A'],   color: 'var(--muted)' },
+    { label: '2PUC-SCI-A',     keys: ['2PUC-SCI-A'],   color: 'var(--muted)' },
+  ];
+  const chipWrap = document.getElementById('db-stream-chips');
+  chipWrap.innerHTML = streamGroups.map(g => {
+    const cnt = g.keys.reduce((acc, k) => acc + (pucClassMap[k] ? pucClassMap[k].length : 0), 0);
+    const isGroup = g.keys.length > 1;
+    return '<div style="'
+      + 'display:inline-flex;align-items:center;gap:6px;'
+      + 'background:var(--surface2);border:1px solid var(--border);border-radius:20px;'
+      + 'padding:5px 12px;font-family:var(--mono);font-size:11px;letter-spacing:0.5px;'
+      + (isGroup ? 'font-weight:700;border-color:var(--border2,#444);' : '')
+      + '">'
+      + '<span style="color:' + g.color + ';">' + g.label + '</span>'
+      + '<span style="background:var(--surface3,#2a2a2a);color:var(--fg);border-radius:10px;'
+      + 'padding:1px 7px;font-size:12px;font-weight:600;">' + cnt + '</span>'
+      + '</div>';
+  }).join('');
+  // ──────────────────────────────────────────────────────────────────────────
+
   // Class grid
   let gridHtml = '';
   for (const label of PUC_CLASSES) {
@@ -3540,26 +3717,103 @@ function setStudentClassFilter(el, cls) {
   renderStudentList();
 }
 
+// ── Student list sort state ──────────────────────────────────────────────────
+let _stuSortCol = 'idx';   // idx|name|urn|cls|avg|subs|stat
+let _stuSortDir = 1;       // 1=asc, -1=desc
+
+function studentSortBy(col) {
+  if (_stuSortCol === col) _stuSortDir = -_stuSortDir;
+  else { _stuSortCol = col; _stuSortDir = col === 'avg' || col === 'subs' ? -1 : 1; }
+  renderStudentList();
+}
+
+function studentSortReset() {
+  _stuSortCol = 'idx'; _stuSortDir = 1;
+  renderStudentList();
+}
+
+function _stuSortKey(s, col, avg, subs) {
+  switch(col) {
+    case 'name': return (s.name||'').toLowerCase();
+    case 'urn':  return (s.urn||'').toLowerCase();
+    case 'cls':  return (s.class||'').toLowerCase();
+    case 'avg':  return avg === null ? -999 : avg;
+    case 'subs': return subs;
+    case 'stat': {
+      if (avg === null) return 3;
+      if (avg >= 75) return 0;
+      if (avg >= 65) return 1;
+      return 2;
+    }
+    default: return 0; // idx — preserve original order, handled below
+  }
+}
+
 function renderStudentList() {
-  const q   = (document.getElementById('student-search').value || '').toLowerCase().trim();
-  let list  = _studentClassFilter === 'ALL' ? allPucStudents : (pucClassMap[_studentClassFilter] || []);
-  if (q) list = list.filter(s => (s.name||'').toLowerCase().includes(q) || (s.urn||'').toLowerCase().includes(q));
+  const q          = (document.getElementById('student-search').value || '').toLowerCase().trim();
+  const statusF    = document.getElementById('student-status-filter')?.value || 'all';
+  let list         = _studentClassFilter === 'ALL' ? allPucStudents : (pucClassMap[_studentClassFilter] || []);
+
+  // Annotate with computed values first so we can filter + sort on them
+  let annotated = list.map((s, origIdx) => {
+    const avg  = studentAvg(s);
+    const subs = (s.subjects || []).filter(sub=>sub.subject).length;
+    return { s, avg, subs, origIdx };
+  });
+
+  // Text search
+  if (q) annotated = annotated.filter(({s}) =>
+    (s.name||'').toLowerCase().includes(q) || (s.urn||'').toLowerCase().includes(q)
+  );
+
+  // Status filter
+  if (statusF !== 'all') {
+    annotated = annotated.filter(({avg}) => {
+      if (statusF === 'ok')       return avg !== null && avg >= 75;
+      if (statusF === 'border')   return avg !== null && avg >= 65 && avg < 75;
+      if (statusF === 'critical') return avg !== null && avg < 65;
+      if (statusF === 'nodata')   return avg === null;
+      return true;
+    });
+  }
+
+  // Sort
+  if (_stuSortCol !== 'idx') {
+    annotated.sort((a, b) => {
+      const ka = _stuSortKey(a.s, _stuSortCol, a.avg, a.subs);
+      const kb = _stuSortKey(b.s, _stuSortCol, b.avg, b.subs);
+      if (ka < kb) return -_stuSortDir;
+      if (ka > kb) return  _stuSortDir;
+      return 0;
+    });
+  } else {
+    if (_stuSortDir === -1) annotated.reverse();
+  }
+
+  // Update sort indicator + header icons
+  const cols = ['idx','name','urn','cls','avg','subs','stat'];
+  const labels = { idx:'#', name:'Name', urn:'URN', cls:'Class', avg:'Avg %', subs:'Subjects', stat:'Status' };
+  cols.forEach(c => {
+    const icon = document.getElementById('sth-' + c + '-icon');
+    if (icon) icon.textContent = c === _stuSortCol ? (_stuSortDir === 1 ? ' ↑' : ' ↓') : '';
+  });
+  const ind = document.getElementById('student-sort-indicator');
+  if (ind) ind.textContent = 'Sort: ' + labels[_stuSortCol] + (_stuSortDir === 1 ? ' ↑' : ' ↓');
 
   const tbody = document.getElementById('student-tbody');
-  if (!list.length) {
+  if (!annotated.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted);font-family:var(--mono);font-size:12px;">No students found.</td></tr>';
     return;
   }
 
   let html = '';
-  list.forEach((s, i) => {
-    const avg  = studentAvg(s);
-    const subs = (s.subjects || []).filter(sub=>sub.subject).length;
-    const safe = (s.name||'').replace(/'/g,"&#39;").replace(/"/g,'&quot;');
+  annotated.forEach(({s, avg, subs}, i) => {
+    const safe    = (s.name||'').replace(/'/g,"&#39;").replace(/"/g,'&quot;');
     const urnSafe = (s.urn||s.name||'').replace(/'/g,"&#39;");
-    const status = avg===null ? '<span class="badge" style="background:var(--surface2);color:var(--muted);">NO DATA</span>'
-      : avg>=75 ? '<span class="badge badge-ok">OK</span>'
-      : avg>=65 ? '<span class="badge badge-warn">BORDER</span>'
+    const statusBadge = avg===null
+      ? '<span class="badge" style="background:var(--surface2);color:var(--muted);">NO DATA</span>'
+      : avg>=75  ? '<span class="badge badge-ok">OK</span>'
+      : avg>=65  ? '<span class="badge badge-warn">BORDER</span>'
       : '<span class="badge badge-danger">CRITICAL</span>';
     html += '<tr style="cursor:pointer;" onclick="scOpen(' + "'" + urnSafe + "'" + ')">';
     html += '<td style="color:var(--muted);font-family:var(--mono);font-size:11px;">' + (i+1) + '</td>';
@@ -3567,8 +3821,8 @@ function renderStudentList() {
     html += '<td style="font-family:var(--mono);font-size:11px;color:var(--muted);">' + (s.urn||'—') + '</td>';
     html += '<td style="font-family:var(--mono);font-size:11px;">' + (s.class||'—') + '</td>';
     html += '<td>' + pctBadge(avg) + '</td>';
-    html += '<td style="font-family:var(--mono);font-size:12px;color:var(--muted);">' + subs + '</td>';
-    html += '<td>' + status + '</td>';
+    html += '<td style="font-family:var(--mono);font-size:12px;color:var(--muted);text-align:center;">' + subs + '</td>';
+    html += '<td>' + statusBadge + '</td>';
     html += '</tr>';
   });
   tbody.innerHTML = html;
@@ -13517,90 +13771,314 @@ async function mrmLetterDelete(usn, dateKey) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// LETTERS HUB — v3.18
+// Central panel for managing leave letters across all students & classes.
+// ══════════════════════════════════════════════════════════════════════════════
+let _ltHubData   = [];   // [{urn, name, class, absentDates, letterMap, pending, received}]
+let _ltHubLoaded = false;
+let _ltHubClassFilter = 'ALL';  // synced between chips and dropdown
+
+// ── Entry point ──────────────────────────────────────────────────────────────
+async function ltHubInit() {
+  if (!_ltHubLoaded) await ltHubRefresh();
+  else ltHubRenderAll();
+}
+
+// ── Fetch all data ────────────────────────────────────────────────────────────
+// Uses the same puc_daily RTDB diff algorithm as mrmRenderLetters / Date Report.
+// allPucStudents[].subjects does NOT have absent_dates — absent dates are derived
+// by diffing consecutive puc_daily snapshots for each student.
+async function ltHubRefresh() {
+  document.getElementById('lt-hub-tbody').innerHTML =
+    '<tr><td colspan="7" class="loading-state"><div class="spinner"></div> Fetching letter data…</td></tr>';
+  document.getElementById('lt-hub-cards').innerHTML = '';
+  document.getElementById('lt-hub-chips').innerHTML = '';
+
+  try {
+    const ayKey     = (typeof activeAY !== 'undefined') ? activeAY : SP_AY_KEY;
+    const parseKey  = k => { const [d,m,y]=k.split('-'); return new Date(`${m} ${d} ${y}`); };
+
+    // 1. Fetch puc_daily once for all students
+    const allSnap = await rtdb.ref(`puc_daily/${ayKey}`).once('value');
+    const allRaw  = allSnap.val() || {};
+    const sortedKeys = Object.keys(allRaw).sort((a,b) => parseKey(a)-parseKey(b));
+
+    // 2. Build per-USN absent date set using the same diff algorithm as mrmRenderLetters
+    //    Key: USN (uppercase) → Set of dateKeys
+    const absentByUsn = {}; // urnUC -> Set<dateKey>
+    const usnToMeta   = {}; // urnUC -> {name, cls, urn}
+
+    // Index each student by URN
+    allPucStudents.forEach(s => {
+      const urnUC = (s.urn || s.usn || '').trim().toUpperCase();
+      if (!urnUC) return;
+      usnToMeta[urnUC] = { name: s.name||'?', cls: s.class||'—', urn: s.urn||s.usn||'' };
+      absentByUsn[urnUC] = new Set();
+    });
+
+    // Walk every daily snapshot — diff each student against their previous snapshot
+    // prevLookup: urnUC -> prevStu (the last snapshot where this student appeared)
+    const prevLookup = {}; // urnUC -> { courses: [] }
+
+    for (const key of sortedKeys) {
+      const dayData = allRaw[key];
+      if (!dayData || typeof dayData !== 'object') continue;
+
+      // Collect all students in this day snapshot
+      const dayStudents = []; // [{urnUC, courses}]
+      Object.values(dayData).forEach(classArr => {
+        if (!Array.isArray(classArr)) return;
+        classArr.forEach(stu => {
+          if (!stu) return;
+          const urnUC = (stu.usn||stu.urn||'').trim().toUpperCase();
+          if (!urnUC) return;
+          dayStudents.push({ urnUC, courses: stu.courses||[] });
+        });
+      });
+
+      // Diff each student against previous
+      dayStudents.forEach(({ urnUC, courses }) => {
+        const prev = prevLookup[urnUC];
+        const prevMap = {};
+        if (prev) {
+          (prev.courses||[]).forEach(c => {
+            prevMap[(c.code||'').toUpperCase()] = { ca: c.ca||0, ch: c.ch||0 };
+          });
+        }
+        let wasAbsent = false;
+        courses.forEach(course => {
+          const code    = (course.code||'').toUpperCase();
+          const curCh   = course.ch||0;
+          const curCa   = course.ca||0;
+          const p       = prevMap[code] || { ca:0, ch:0 };
+          const chDelta = curCh - p.ch;
+          const caDelta = curCa - p.ca;
+          if (chDelta > 0 && caDelta === 0) wasAbsent = true;
+        });
+        if (wasAbsent && absentByUsn[urnUC]) absentByUsn[urnUC].add(key);
+        prevLookup[urnUC] = { courses };
+      });
+    }
+
+    // 3. Filter to students with at least one absent date
+    const urnsWithAbsences = Object.keys(absentByUsn).filter(u => absentByUsn[u].size > 0);
+
+    // 4. Fetch leave_letters from Firestore in batches of 10
+    const fetchLetterMap = async (urn) => {
+      try {
+        const snap = await db.collection('leave_letters').doc(urn).collection('dates').get();
+        const map = {};
+        snap.forEach(d => { map[d.id] = d.data(); });
+        return map;
+      } catch(_) { return {}; }
+    };
+
+    const rows = [];
+    const BATCH = 10;
+    for (let i = 0; i < urnsWithAbsences.length; i += BATCH) {
+      const batch = urnsWithAbsences.slice(i, i + BATCH);
+      const letterMaps = await Promise.all(batch.map(u => fetchLetterMap(usnToMeta[u]?.urn || u)));
+      batch.forEach((urnUC, idx) => {
+        const meta        = usnToMeta[urnUC] || {};
+        const absentDates = [...absentByUsn[urnUC]].sort((a,b) => parseKey(a)-parseKey(b));
+        const letterMap   = letterMaps[idx];
+        const pending     = absentDates.filter(dk => !letterMap[dk]?.reason).length;
+        const received    = absentDates.filter(dk =>  letterMap[dk]?.reason).length;
+        rows.push({ urn: meta.urn || urnUC, name: meta.name, cls: meta.cls, absentDates, letterMap, pending, received });
+      });
+    }
+
+    rows.sort((a,b) => {
+      if (b.pending !== a.pending) return b.pending - a.pending;
+      return (a.name||'').localeCompare(b.name||'');
+    });
+
+    // Debug: log first few rows so we can verify pending/received counts
+    console.log('[ltHub] rows sample:', rows.slice(0,5).map(r=>({name:r.name,pending:r.pending,received:r.received,dates:r.absentDates.length,letterKeys:Object.keys(r.letterMap)})));
+    console.log('[ltHub] allReceived:', rows.filter(r=>r.pending===0&&r.received>0).length, 'anyReceived:', rows.filter(r=>r.received>0).length);
+
+    _ltHubData   = rows;
+    _ltHubLoaded = true;
+    ltHubRenderAll();
+  } catch(e) {
+    document.getElementById('lt-hub-tbody').innerHTML =
+      `<tr><td colspan="7" style="color:#ef4444;font-family:var(--mono);font-size:11px;padding:20px;">❌ Error: ${e.message}</td></tr>`;
+  }
+}
+
+// ── Render everything ─────────────────────────────────────────────────────────
+function ltHubRenderAll() {
+  ltHubRenderCards();
+  ltHubRenderChips();
+  ltHubRender();
+}
+
+// ── Summary cards ─────────────────────────────────────────────────────────────
+function ltHubRenderCards() {
+  const d = _ltHubData;
+  const totalStudents  = d.length;
+  const noPending      = d.filter(r => r.pending > 0).length;
+  const allReceived    = d.filter(r => r.received > 0).length;  // any student with ≥1 letter
+  const totalDates     = d.reduce((a,r) => a + r.absentDates.length, 0);
+  const totalPending   = d.reduce((a,r) => a + r.pending, 0);
+
+  // Update sidebar badge
+  const badge = document.getElementById('lt-hub-badge');
+  if (badge) {
+    if (noPending > 0) { badge.textContent = noPending; badge.style.display = ''; }
+    else badge.style.display = 'none';
+  }
+
+  const card = (val, label, color) =>
+    `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+      <div style="font-size:26px;font-weight:700;font-family:var(--head);color:${color};">${val}</div>
+      <div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:3px;letter-spacing:0.5px;">${label}</div>
+    </div>`;
+
+  document.getElementById('lt-hub-cards').innerHTML =
+    card(totalStudents, 'STUDENTS WITH ABSENCES', 'var(--text)') +
+    card(noPending,     '⚠ PENDING (STUDENTS)',   '#f59e0b') +
+    card(totalPending,  '⚠ PENDING (DATES)',      '#ef4444') +
+    card(allReceived,   '📄 HAS RECEIVED',         '#22c55e') +
+    card(totalDates,    'TOTAL ABSENT DATES',      'var(--muted)');
+}
+
+// ── Class chips ───────────────────────────────────────────────────────────────
+function ltHubRenderChips() {
+  const classes = ['ALL','1PUC-COM-A','1PUC-COM-B','1PUC-COM-C','2PUC-COM-A','2PUC-COM-B','2PUC-COM-C','1PUC-SCI-A','2PUC-SCI-A'];
+  const pendingByCls = {};
+  _ltHubData.forEach(r => {
+    pendingByCls[r.cls] = (pendingByCls[r.cls]||0) + (r.pending > 0 ? 1 : 0);
+  });
+  const totalPending = _ltHubData.filter(r => r.pending > 0).length;
+
+  document.getElementById('lt-hub-chips').innerHTML = classes.map(cls => {
+    const isAll    = cls === 'ALL';
+    const cnt      = isAll ? totalPending : (pendingByCls[cls]||0);
+    const isActive = _ltHubClassFilter === cls;
+    const baseStyle = 'cursor:pointer;display:inline-flex;align-items:center;gap:5px;border-radius:20px;padding:5px 12px;'
+      + 'font-family:var(--mono);font-size:11px;letter-spacing:0.5px;border:1px solid;transition:all 0.15s;';
+    const activeStyle = 'background:var(--accent);border-color:var(--accent);color:#000;font-weight:700;';
+    const inactiveStyle = 'background:var(--surface2);border-color:var(--border);color:var(--muted);';
+    return `<span onclick="ltHubChipClick('${cls}')" style="${baseStyle}${isActive?activeStyle:inactiveStyle}">
+      ${isAll ? 'ALL' : cls}
+      ${cnt > 0 ? `<span style="background:${isActive?'rgba(0,0,0,0.25)':'rgba(245,158,11,0.2)'};color:${isActive?'#000':'#f59e0b'};border-radius:10px;padding:0 6px;font-size:11px;font-weight:700;">${cnt}</span>` : ''}
+    </span>`;
+  }).join('');
+}
+
+function ltHubChipClick(cls) {
+  _ltHubClassFilter = cls;
+  // Sync dropdown
+  const dd = document.getElementById('lt-hub-class');
+  if (dd) dd.value = cls;
+  ltHubRenderChips();
+  ltHubRender();
+}
+
+function ltHubClassDropdownChange() {
+  const dd = document.getElementById('lt-hub-class');
+  if (!dd) return;
+  _ltHubClassFilter = dd.value;
+  ltHubRenderChips();
+  ltHubRender();
+}
+
+// ── Table render ──────────────────────────────────────────────────────────────
+function ltHubRender() {
+  const q      = (document.getElementById('lt-hub-search')?.value || '').toLowerCase().trim();
+  const status = document.getElementById('lt-hub-status')?.value || 'all';
+
+  let rows = _ltHubData;
+
+  // Class filter
+  if (_ltHubClassFilter !== 'ALL') rows = rows.filter(r => r.cls === _ltHubClassFilter);
+
+  // Status filter
+  if (status === 'pending')   rows = rows.filter(r => r.pending > 0);
+  if (status === 'received')  rows = rows.filter(r => r.received > 0);   // has ≥1 received (may still have pending)
+  if (status === 'alldone')   rows = rows.filter(r => r.pending === 0 && r.received > 0); // fully cleared
+
+  // Text search
+  if (q) rows = rows.filter(r =>
+    r.name.toLowerCase().includes(q) || (r.urn||'').toLowerCase().includes(q)
+  );
+
+  const tbody = document.getElementById('lt-hub-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted);font-family:var(--mono);font-size:12px;">No students match the current filters.</td></tr>';
+    return;
+  }
+
+  // Show all rows — no artificial cap
+  let html = '';
+  rows.forEach((r, i) => {
+    const hasPending = r.pending > 0;
+    const pendingClr = hasPending ? '#f59e0b' : 'var(--muted)';
+    const rcvClr     = r.received > 0 ? '#22c55e' : 'var(--muted)';
+    // Find most recent pending date for quick Add Letter
+    const nextPending = r.absentDates.find(dk => !r.letterMap[dk]?.reason);
+
+    // Row styling: strong visual distinction
+    // Fully cleared  → solid green left bar + green tinted bg
+    // Partial (some) → solid blue left bar + blue tinted bg  
+    // No letters yet → red left bar (faint)
+    const rowStyle = r.received > 0 && r.pending === 0
+      ? 'cursor:pointer;background:rgba(34,197,94,0.12);border-left:4px solid #22c55e;outline:1px solid rgba(34,197,94,0.2);'
+      : r.received > 0
+        ? 'cursor:pointer;background:rgba(96,165,250,0.10);border-left:4px solid #60a5fa;outline:1px solid rgba(96,165,250,0.18);'
+        : 'cursor:pointer;border-left:4px solid transparent;';
+    html += `<tr style="${rowStyle}" onclick="mrOpenModal('${r.urn}','letters')">`;
+    html += `<td style="color:var(--muted);font-family:var(--mono);font-size:11px;">${i+1}</td>`;
+    html += `<td style="font-weight:600;">${r.name}</td>`;
+    html += `<td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${r.cls}</td>`;
+    html += `<td style="text-align:center;font-family:var(--mono);font-size:13px;">${r.absentDates.length}</td>`;
+    const pendDisplay = r.pending > 0
+      ? `<span style="display:inline-block;background:rgba(245,158,11,0.15);color:#f59e0b;border-radius:12px;padding:2px 10px;font-weight:700;font-size:12px;font-family:var(--mono);">⚠ ${r.pending}</span>`
+      : `<span style="display:inline-block;background:rgba(34,197,94,0.15);color:#22c55e;border-radius:12px;padding:2px 10px;font-weight:700;font-size:12px;font-family:var(--mono);">✅ 0</span>`;
+    html += `<td style="text-align:center;">${pendDisplay}</td>`;
+    const rcvDisplay = r.received > 0
+      ? `<span style="display:inline-block;background:rgba(96,165,250,0.18);color:#60a5fa;border-radius:12px;padding:2px 10px;font-weight:700;font-size:12px;font-family:var(--mono);">📄 ${r.received}</span>`
+      : `<span style="color:var(--muted);font-family:var(--mono);font-size:12px;">0</span>`;
+    html += `<td style="text-align:center;">${rcvDisplay}</td>`;
+    html += `<td style="text-align:center;">`;
+    if (hasPending && nextPending) {
+      html += `<button onclick="event.stopPropagation();ltHubAddLetter('${r.urn}','${nextPending}')"
+        style="background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.35);border-radius:5px;
+               padding:4px 10px;font-size:10px;font-family:var(--mono);color:#60a5fa;cursor:pointer;white-space:nowrap;">
+        + Add Letter
+      </button>`;
+    } else {
+      html += `<span style="font-size:10px;font-family:var(--mono);color:var(--muted);">✅ All done</span>`;
+    }
+    html += `</td></tr>`;
+  });
+
+  tbody.innerHTML = html;
+}
+
+// ── Add Letter from table — opens editor then refreshes hub on save ───────────
+async function ltHubAddLetter(usn, dateKey) {
+  // Patch mrmLetterSave to also refresh hub after saving
+  const _origSave = window.mrmLetterSave;
+  window._ltHubPostSave = async () => {
+    _ltHubLoaded = false;
+    await ltHubRefresh();
+    window._ltHubPostSave = null;
+  };
+  await mrmLetterEdit(usn, dateKey, null);
+  // Hook into save: patch the overlay's Save button after it's rendered
+  setTimeout(() => {
+    const ov = document.getElementById('mrmLetterOverlay');
+    if (!ov) return;
+    const saveBtn = ov.querySelector('button[onclick*="mrmLetterSave"]');
+    if (saveBtn) {
+      const origOnclick = saveBtn.getAttribute('onclick');
+      saveBtn.setAttribute('onclick', origOnclick + ';if(window._ltHubPostSave)window._ltHubPostSave();');
+    }
+  }, 100);
+}
+// ══════════════════════════════════════════════════════════════════════════════
+
 </script>
-
-<!-- ── WhatsApp Message Modal ──────────────────────────────────────────── -->
-<div id="dr-wa-modal" onclick="if(event.target===this)drWaModalClose()"
-  style="display:none;position:fixed;inset:0;z-index:10600;background:rgba(0,0,0,0.82);
-         backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:12px;">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
-              width:100%;max-width:860px;padding:20px 20px 16px;display:flex;flex-direction:column;gap:12px;
-              max-height:92vh;overflow-y:auto;">
-
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
-      <span style="font-family:var(--head);font-size:14px;letter-spacing:1.5px;color:var(--accent);">WHATSAPP MESSAGE</span>
-      <button onclick="drWaModalClose()"
-        style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;padding:0;">&#x2715;</button>
-    </div>
-
-    <!-- Controls row: stream tabs + phone checkbox -->
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;flex-shrink:0;">
-      <div id="dr-wa-stream-tabs" style="display:flex;gap:6px;">
-        <button class="btn dr-wa-stream-tab dr-wa-tab-active" data-stream="COM" onclick="drWaSetStream('COM')"
-          style="font-size:12px;padding:5px 14px;background:var(--accent);color:#000;border:1px solid var(--accent);border-radius:6px;cursor:pointer;">Commerce</button>
-        <button class="btn dr-wa-stream-tab" data-stream="SCI" onclick="drWaSetStream('SCI')"
-          style="font-size:12px;padding:5px 14px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;cursor:pointer;">Science</button>
-        <button class="btn dr-wa-stream-tab" data-stream="BOTH" onclick="drWaSetStream('BOTH')"
-          style="font-size:12px;padding:5px 14px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;cursor:pointer;">Both</button>
-      </div>
-      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;margin-left:auto;">
-        <input type="checkbox" id="dr-wa-phone-chk" onchange="drWaRefresh()"
-          style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;">
-        <span style="font-family:var(--mono);font-size:12px;color:var(--muted);">Include phone numbers</span>
-      </label>
-    </div>
-
-    <!-- SINGLE panel (Commerce or Science) -->
-    <div id="dr-wa-single-wrap" style="display:flex;flex-direction:column;gap:8px;">
-      <textarea id="dr-wa-text-single" readonly
-        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-               color:var(--text);font-family:var(--mono);font-size:12px;line-height:1.6;
-               padding:12px;width:100%;box-sizing:border-box;resize:none;height:310px;outline:none;white-space:pre;"></textarea>
-      <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;">
-        <span style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-right:auto;">Opens WhatsApp — select the faculty group</span>
-        <button onclick="drWaModalClose()" class="btn btn-ghost" style="font-size:12px;">Close</button>
-        <button id="dr-wa-copy-single" onclick="drWaCopyById('dr-wa-text-single','dr-wa-copy-single','Copy')"
-          class="btn btn-ghost" style="font-size:12px;">Copy</button>
-        <button onclick="drWaOpenWA('dr-wa-text-single')"
-          class="btn" style="background:#25d366;color:#000;font-size:12px;font-weight:700;">Send via WA</button>
-      </div>
-    </div>
-
-    <!-- BOTH panel (side by side) -->
-    <div id="dr-wa-both-wrap" style="display:none;gap:14px;">
-      <!-- Commerce panel -->
-      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">
-        <div style="font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:1px;">COMMERCE</div>
-        <textarea id="dr-wa-text-com" readonly
-          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                 color:var(--text);font-family:var(--mono);font-size:11px;line-height:1.55;
-                 padding:10px;width:100%;box-sizing:border-box;resize:none;height:290px;outline:none;white-space:pre;"></textarea>
-        <div style="display:flex;gap:6px;justify-content:flex-end;">
-          <button id="dr-wa-copy-com" onclick="drWaCopyById('dr-wa-text-com','dr-wa-copy-com','Copy Commerce')"
-            class="btn btn-ghost" style="font-size:11px;">Copy Commerce</button>
-          <button onclick="drWaOpenWA('dr-wa-text-com')"
-            class="btn" style="background:#25d366;color:#000;font-size:11px;font-weight:700;">Send via WA</button>
-        </div>
-      </div>
-      <!-- Science panel -->
-      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">
-        <div style="font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:1px;">SCIENCE</div>
-        <textarea id="dr-wa-text-sci" readonly
-          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                 color:var(--text);font-family:var(--mono);font-size:11px;line-height:1.55;
-                 padding:10px;width:100%;box-sizing:border-box;resize:none;height:290px;outline:none;white-space:pre;"></textarea>
-        <div style="display:flex;gap:6px;justify-content:flex-end;">
-          <button id="dr-wa-copy-sci" onclick="drWaCopyById('dr-wa-text-sci','dr-wa-copy-sci','Copy Science')"
-            class="btn btn-ghost" style="font-size:11px;">Copy Science</button>
-          <button onclick="drWaOpenWA('dr-wa-text-sci')"
-            class="btn" style="background:#25d366;color:#000;font-size:11px;font-weight:700;">Send via WA</button>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-</body>
-</html>
