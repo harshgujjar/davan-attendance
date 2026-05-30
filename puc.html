@@ -7,8 +7,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v4.18                                                      ║
-║  FILE NAME       : puc_v4.18.html                                             ║
+║  CURRENT VERSION : v4.22                                                      ║
+║  FILE NAME       : puc_v4.22.html                                             ║
 ║  LAST UPDATED    : 2026-05-30                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v4.18";                                            ║
+║     const APP_VERSION = "v4.22";                                            ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -39,6 +39,30 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v4.22 2026-05-30  Fix: v4.20/v4.21 language filter checked raw code (KAN/HIN)║
+║                    but portal codes are year-prefixed (23KAN01, 22HIN03) so   ║
+║                    filter never matched. Fix: resolve each code to display    ║
+║                    name via subjectMap then smAutoName(), check against name   ║
+║                    set {Kannada, Hindi, Sanskrit}. Hindi stub now correctly    ║
+║                    dropped when Kannada has ct>0, and vice versa.             ║
+║                                                                                  ║
+║  v4.21 2026-05-30  Fix: v4.20 language filter didn't remove Hindi stub because ║
+║                    guard "if length > subs.length" failed when filtering       ║
+║                    reduced the list. Fix: apply _filteredMerged whenever      ║
+║                    _hasLangData is true, regardless of length comparison.     ║
+║                                                                                  ║
+║  v4.20 2026-05-30  Fix: ATTEND overview showed both Kannada and Hindi rows     ║
+║                    when only one was the student's actual language subject.    ║
+║                    Root: zero-padding pulled all codes from classmates,        ║
+║                    including both KAN and HIN from different students.         ║
+║                    Fix: after merge+sort, if any language in the optional      ║
+║                    group (KAN/HIN/SAN) has ct>0, drop all zero-ct stubs from  ║
+║                    that same group. Student who takes Kannada → Hindi stub    ║
+║                    removed. Both shown only if both have real data (ct>0).    ║
+║                                                                                  ║
+║  v4.19 2026-05-30  Feat: Serial number column (#) added to ATTEND drill-down  ║
+║                    date log table. Rows numbered 1..N in order.               ║
+║                                                                                  ║
 ║  v4.18 2026-05-30  Fix: Overview "Classes Held" showed portal ct=8 for BS     ║
 ║                    while drill-down showed 7 — because portal ct includes     ║
 ║                    the baseline class (ch=1 before first snapshot). Fix:      ║
@@ -4272,7 +4296,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v4.18";
+const APP_VERSION = "v4.22";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -13139,7 +13163,23 @@ async function mrmRenderAttendance(body) {
       if ((b.ct||0) !== (a.ct||0)) return (b.ct||0) - (a.ct||0);
       return (a.subject||'').localeCompare(b.subject||'');
     });
-    if (merged.length > subs.length) subs = merged; // only replace if we actually added subjects
+    // Drop zero-ct stubs for optional language subjects (Kannada/Hindi/Sanskrit) when
+    // the student already has real data (ct>0) for any language in that group.
+    // Use resolved name (not raw code) because portal codes are like 23KAN01, 22HIN03.
+    const _langNames = new Set(['Kannada','Hindi','Sanskrit']);
+    const _resolveName = code => {
+      if (typeof subjectMap !== 'undefined') {
+        const e = subjectMap[code] || subjectMap[(code||'').toUpperCase()];
+        if (e && e.name) return e.name;
+      }
+      return (typeof smAutoName === 'function') ? smAutoName(code) : '';
+    };
+    const _isLang = code => _langNames.has(_resolveName(code));
+    const _hasLangData = merged.some(x => _isLang(x.subject||'') && (x.ct||0) > 0);
+    const _filteredMerged = _hasLangData
+      ? merged.filter(x => !(_isLang(x.subject||'') && (x.ct||0) === 0))
+      : merged;
+    if (_hasLangData || _filteredMerged.length > subs.length) subs = _filteredMerged;
   } catch(e) { /* keep original subs on error */ }
 
   // Correct sub.ct by subtracting baseline ch (classes that existed in portal before
@@ -13562,7 +13602,9 @@ async function mrmShowSubjectDrill(code, subjectName, portalCt) {
       const _occIdx = {};
       rows.sort((a,b) => parseKey(a.dateKey) - parseKey(b.dateKey));
       let _rowsHtml = '';
+      let _rowNum = 0;
       rows.forEach(r => {
+        _rowNum++;
         const dk = r.dateKey;
         if (_occIdx[dk] === undefined) _occIdx[dk] = 0;
         const occN = _occIdx[dk]++;
@@ -13581,6 +13623,7 @@ async function mrmShowSubjectDrill(code, subjectName, portalCt) {
           }
         }
         _rowsHtml += `<tr data-present="${absent?'0':'1'}" style="display:${absent?'':'none'};">\
+          <td style="text-align:center;padding:5px 6px;border:1px solid var(--border);color:var(--muted);font-size:10px;">${_rowNum}</td>\
           <td style="padding:5px 10px;border:1px solid var(--border);color:var(--text);">${fmtDate(dk)}${_slotTime ? ` <span style="font-size:9px;color:var(--muted);font-family:var(--mono);opacity:0.7;">(${_slotTime})</span>` : ''}</td>\
           <td style="text-align:center;padding:5px 8px;border:1px solid var(--border);color:${statusClr};font-weight:700;">${statusLbl}</td>\
           <td style="text-align:center;padding:5px 8px;border:1px solid var(--border);color:#22c55e;font-weight:700;">${r.attended ? '1' : '—'}</td>\
@@ -13601,6 +13644,7 @@ async function mrmShowSubjectDrill(code, subjectName, portalCt) {
       </div>
       <table id="mrm-drill-table" style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono);">
         <thead><tr style="background:var(--surface2);">
+          <th style="text-align:center;padding:6px 6px;border:1px solid var(--border);color:var(--muted);">#</th>
           <th style="text-align:left;padding:6px 10px;border:1px solid var(--border);color:var(--muted);">Date</th>
           <th style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:var(--muted);">Status</th>
           <th style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:var(--muted);">Present</th>
