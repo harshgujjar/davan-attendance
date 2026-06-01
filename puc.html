@@ -7,8 +7,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v4.28                                                      ║
-║  FILE NAME       : puc_v4.28.html                                             ║
+║  CURRENT VERSION : v4.30                                                      ║
+║  FILE NAME       : puc_v4.30.html                                             ║
 ║  LAST UPDATED    : 2026-05-30                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v4.28";                                            ║
+║     const APP_VERSION = "v4.30";                                            ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -39,6 +39,17 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v4.30 2026-06-01  UX: LCB card stats always show full labels (Strength/≥75%/Classes) ║
+║  v4.29 2026-06-01  Feat: LCB (Live Class Board) now syncs with Academic        ║
+║                    Calendar. On holiday/exam/event/sports/internal days,      ║
+║                    timetable is replaced by a banner showing event name+type. ║
+║                    working-day type overrides and shows timetable normally.   ║
+║                    pucCalPreload() loads both COM+SCI calendars at startup.   ║
+║                    pucCalStartLiveSync() attaches Firestore onSnapshot to     ║
+║                    both calendars — new/edited events instantly update LCB    ║
+║                    without page reload. Only blocks in live view (today);     ║
+║                    manual day/slot selection always shows timetable.          ║
+║                                                                                  ║
 ║  v4.28 2026-06-01  Feat: Scraper panel card 04 "Snapshot Key Fix" — move a    ║
 ║                    snapshot from wrong date key to correct one safely. Checks ║
 ║                    target key is empty before writing; refuses to overwrite   ║
@@ -4347,7 +4358,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v4.28";
+const APP_VERSION = "v4.30";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -4654,6 +4665,10 @@ function renderAll() {
     });
   }
   if (typeof pucLcbStart === 'function') pucLcbStart();
+  // Preload academic calendars for LCB blocking, then start live Firestore sync
+  if (typeof pucCalPreload === 'function') pucCalPreload().then(() => {
+    if (typeof pucCalStartLiveSync === 'function') pucCalStartLiveSync();
+  });
 }
 
 // =====================
@@ -11724,10 +11739,10 @@ function pucLcbBuildPanel(slotIdx) {
     } else {
       html += `<span></span>`;
     }
-    html += `<span style="font-size:10px;font-family:var(--mono);color:var(--muted);flex-shrink:0;display:inline-flex;gap:3px;">`;
-    html += `<span style="background:rgba(255,255,255,0.07);border-radius:3px;padding:0 4px;" title="Total students">S:${hasStudents?ct:'–'}</span>`;
-    html += `<span style="background:rgba(255,255,255,0.07);border-radius:3px;padding:0 4px;color:${hasStudents?'var(--ok)':'var(--muted)'};" title="Students >=75% avg">A:${hasStudents?sc:'–'}</span>`;
-    html += `<span style="background:rgba(255,255,255,0.07);border-radius:3px;padding:0 4px;color:${subjCt!==null?'var(--accent)':'var(--muted)'};" title="${subCode2} classes held">C:${subjCt!==null?subjCt:'–'}</span>`;
+    html += `<span style="font-size:9px;font-family:var(--mono);color:var(--muted);flex-shrink:0;display:inline-flex;gap:3px;">`;
+    html += `<span style="background:rgba(255,255,255,0.07);border-radius:3px;padding:1px 5px;display:inline-flex;gap:2px;align-items:center;" title="Total students in this section"><span style="opacity:0.5;">Strength</span><span style="color:var(--text);font-weight:700;">${hasStudents?ct:'–'}</span></span>`;
+    html += `<span style="background:rgba(255,255,255,0.07);border-radius:3px;padding:1px 5px;display:inline-flex;gap:2px;align-items:center;color:${hasStudents?'var(--ok)':'var(--muted)'};" title="Students with >=75% attendance average"><span style="opacity:0.6;">≥75%</span><span style="font-weight:700;">${hasStudents?sc:'–'}</span></span>`;
+    html += `<span style="background:rgba(255,255,255,0.07);border-radius:3px;padding:1px 5px;display:inline-flex;gap:2px;align-items:center;color:${subjCt!==null?'var(--accent)':'var(--muted)'};" title="${subCode2} total classes held so far"><span style="opacity:0.6;">Classes</span><span style="font-weight:700;">${subjCt!==null?subjCt:'–'}</span></span>`;
     html += `</span>`;
     html += `</div>`;
     html += '</div>';
@@ -11748,7 +11763,34 @@ function pucLcbRender() {
   const rightEl = document.getElementById('puc-lcb-right');
   const leftHdr = document.getElementById('puc-lcb-left-header');
   const rightHdr= document.getElementById('puc-lcb-right-header');
+  const wrapEl  = document.getElementById('puc-lcb-wrap');
   if (!leftEl || !rightEl) return;
+
+  // ── Check academic calendar for today ──────────────────────────
+  // Only block when viewing TODAY (not when user manually selected another day)
+  const isLiveView = _pucLcbSelected === -1 && _pucLcbDay === -1;
+  if (isLiveView) {
+    const stream = (_pucLcbStream||'COM').toLowerCase() === 'sci' ? 'sci' : 'com';
+    const todayEvt = pucCalTodayStatus(stream);
+    if (todayEvt) {
+      const _typeIcon  = { holiday:'🏖', exam:'📝', event:'📅', sports:'🏅', internal:'📋' };
+      const _typeColor = { holiday:'#f59e0b', exam:'#a78bfa', event:'#60a5fa', sports:'#34d399', internal:'#fb923c' };
+      const icon  = _typeIcon[todayEvt.type]  || '📅';
+      const color = _typeColor[todayEvt.type] || '#60a5fa';
+      if (leftHdr)  leftHdr.innerHTML  = `${icon} Today · <span style="color:${color};text-transform:capitalize;">${todayEvt.type}</span>`;
+      if (rightHdr) rightHdr.innerHTML = '';
+      leftEl.innerHTML = `
+        <div style="background:var(--surface2);border:1px solid ${color}33;border-radius:10px;padding:20px 18px;text-align:center;">
+          <div style="font-size:28px;margin-bottom:8px;">${icon}</div>
+          <div style="font-size:15px;font-weight:700;color:${color};font-family:var(--head);letter-spacing:1px;margin-bottom:4px;">${todayEvt.name}</div>
+          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;">${todayEvt.type} · No regular classes</div>
+        </div>`;
+      rightEl.innerHTML = '';
+      pucLcbRenderChips();
+      pucLcbPopulateFacultySelect();
+      return;
+    }
+  }
 
   const slots    = pucLcbSlots();
   const leftIdx  = _pucLcbSelected===-1 ? pucLcbLiveIdx() : _pucLcbSelected;
@@ -17085,6 +17127,49 @@ function pucCalIsHoliday(stream, dateStr) {
     else       { if (dateStr === e.from) return e.name; }
   }
   return null;
+}
+
+// ── Public helper: returns blocking event for today (holiday/exam/event/sports/internal) ──
+// Returns { type, name } or null if regular teaching day
+function pucCalTodayStatus(stream) {
+  const today = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+  const BLOCK_TYPES = new Set(['holiday','exam','event','sports','internal','working-day']);
+  for (const e of (_pucCalEvents[stream] || [])) {
+    if (!BLOCK_TYPES.has(e.type)) continue;
+    const inRange = e.to ? (today >= e.from && today <= e.to) : (today === e.from);
+    if (!inRange) continue;
+    // working-day means classes DO happen (overrides holiday) — don't block
+    if (e.type === 'working-day') return null;
+    return { type: e.type, name: e.name };
+  }
+  return null;
+}
+
+// ── Auto-load both calendars at startup so LCB can use them immediately ──
+async function pucCalPreload() {
+  await Promise.all(['com','sci'].map(async stream => {
+    if (_pucCalEvents[stream].length) return; // already loaded
+    try {
+      const doc = await db.collection('app_data').doc(PUC_CAL_DOCS[stream]).get();
+      _pucCalEvents[stream] = (doc.exists && doc.data().events) ? doc.data().events : PUC_CAL_DEFAULTS[stream];
+      _pucCalEvents[stream].sort((a,b) => a.from.localeCompare(b.from));
+    } catch(e) {
+      _pucCalEvents[stream] = PUC_CAL_DEFAULTS[stream];
+    }
+  }));
+  // Re-render LCB with fresh calendar data
+  if (typeof pucLcbRender === 'function') pucLcbRender();
+}
+
+// ── Firestore live listener — re-render LCB instantly when calendar changes ──
+function pucCalStartLiveSync() {
+  ['com','sci'].forEach(stream => {
+    db.collection('app_data').doc(PUC_CAL_DOCS[stream]).onSnapshot(doc => {
+      _pucCalEvents[stream] = (doc.exists && doc.data().events) ? doc.data().events : PUC_CAL_DEFAULTS[stream];
+      _pucCalEvents[stream].sort((a,b) => a.from.localeCompare(b.from));
+      if (typeof pucLcbRender === 'function') pucLcbRender();
+    }, () => {});
+  });
 }
 
 
