@@ -7,8 +7,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v4.24                                                      ║
-║  FILE NAME       : puc_v4.24.html                                             ║
+║  CURRENT VERSION : v4.28                                                      ║
+║  FILE NAME       : puc_v4.28.html                                             ║
 ║  LAST UPDATED    : 2026-05-30                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v4.24";                                            ║
+║     const APP_VERSION = "v4.28";                                            ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -39,6 +39,32 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v4.28 2026-06-01  Feat: Scraper panel card 04 "Snapshot Key Fix" — move a    ║
+║                    snapshot from wrong date key to correct one safely. Checks ║
+║                    target key is empty before writing; refuses to overwrite   ║
+║                    existing data. spMigrateSnapshot() function added.         ║
+║                                                                                  ║
+║  v4.27 2026-06-01  Fix: Scraper midnight rollover bug — spPushFB generated    ║
+║                    todayIST at push time, not scrape-start time. If scrape    ║
+║                    started at 11:45 PM Saturday and finished after midnight,  ║
+║                    snapshot was stored under Sunday key (31-May) instead of   ║
+║                    Saturday key (30-May). Fix: capture _scrapeStartKey in IST ║
+║                    at the very start of the scrape loop, pass it to spPushFB  ║
+║                    as parameter. spPushFB uses passed key; falls back to      ║
+║                    new Date() only if called directly without key.            ║
+║                                                                                  ║
+║  v4.26 2026-06-01  Revert: Sunday block removed — scraper only runs on class  ║
+║                    days so "No data found" already handles non-teaching days. ║
+║                    Sunday classes are possible; blocking by day-of-week is    ║
+║                    wrong. Root cause of 31-May false data was scraper running ║
+║                    past midnight storing Saturday data under Sunday key.      ║
+║                                                                                  ║
+║  v4.25 2026-05-31  Fix: Absentees (and student list, report card, class view)  ║
+║                    showed initials instead of photos — pucPhotosReady was     ║
+║                    async but renderAll() ran synchronously before photos       ║
+║                    loaded. Fix: chain .then() on pucPhotosReady to re-render  ║
+║                    all photo-dependent panels once photos are available.       ║
+║                                                                                  ║
 ║  v4.24 2026-05-30  Feat: Class attendance matrix now sorted by student name    ║
 ║                    (alphabetical) instead of USN order.                       ║
 ║                                                                                  ║
@@ -4216,10 +4242,26 @@ body {
       </div>
     </div>
 
+    <!-- 04 SNAPSHOT MIGRATION -->
+    <div class="sp-card">
+      <div class="sp-card-title">04 · Snapshot Key Fix</div>
+      <div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-bottom:10px;">Move a snapshot stored under the wrong date key (e.g. midnight rollover bug)</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:10px;color:var(--muted);font-family:var(--mono);">FROM</span>
+          <input id="sp-migFrom" type="text" placeholder="31-May-2026" style="width:110px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-family:var(--mono);font-size:11px;">
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:10px;color:var(--muted);font-family:var(--mono);">TO</span>
+          <input id="sp-migTo" type="text" placeholder="30-May-2026" style="width:110px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-family:var(--mono);font-size:11px;">
+        </div>
+        <button onclick="spMigrateSnapshot()" style="background:var(--accent);color:#000;border:none;border-radius:4px;padding:5px 14px;font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer;">▶ Move</button>
+      </div>
+      <div id="sp-migLog" style="font-family:var(--mono);font-size:10px;color:var(--muted);min-height:18px;"></div>
+    </div>
+
   </div>
 </div>
-
-<!-- STUDENT CARD OVERLAY -->
 <div id="sc-overlay" onclick="scCloseOnBg(event)">
   <div id="sc-modal">
     <div id="sc-header">
@@ -4305,7 +4347,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v4.24";
+const APP_VERSION = "v4.28";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -4512,8 +4554,14 @@ async function loadPucData() {
   pucClassMap    = {};
   pucMeta        = {};
 
-  // Load photos async
+  // Load photos async — re-render photo-dependent panels once ready
   pucPhotosReady = pucPreloadPhotos();
+  pucPhotosReady.then(() => {
+    renderAbsentees();
+    renderStudentList();
+    renderReportCard();
+    renderClasses();
+  }).catch(() => {});
 
   // Load subject map
   await smLoadFromRTDB();
@@ -6534,6 +6582,12 @@ async function spDoScrape() {
   spLog(`▶ Scraping ${toScrape.length} classes — ${SP_AY}`, 'info');
 
   const t0=Date.now(); const all={}; let total=0, errs=0, done=0;
+  // Capture IST date at scrape-START — not at push time — to avoid midnight rollover bug
+  const _scrapeStartIST = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
+  const _scrapeStartKey = String(_scrapeStartIST.getDate()).padStart(2,'0') + '-' +
+    ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_scrapeStartIST.getMonth()] + '-' +
+    _scrapeStartIST.getFullYear();
+  spLog('📅 Scrape date key: ' + _scrapeStartKey + ' (captured at start)', 'dbg');
 
   for (const cls of toScrape) {
     spTile(cls.label,'active','Scraping…','—');
@@ -6569,7 +6623,7 @@ async function spDoScrape() {
 
   spLog('▶ Pushing to Firebase…','fire');
   spSetPill('sp-scrapePill','Pushing to Firebase…','blue');
-  const fbOk = await spPushFB(all, total);
+  const fbOk = await spPushFB(all, total, _scrapeStartKey);
 
   if (fbOk) {
     spSetPill('sp-scrapePill','Done ✓ Firebase updated','green');
@@ -6603,7 +6657,31 @@ async function spDoScrape() {
   btn.disabled=false; btn.textContent='▶ Scrape & Push to Firebase';
 }
 
-// ── Auto-Schedule ──────────────────────────────────────────────────────────
+// ── Snapshot Key Migration ──────────────────────────────────────────────────
+async function spMigrateSnapshot() {
+  const fromKey = (document.getElementById('sp-migFrom').value||'').trim();
+  const toKey   = (document.getElementById('sp-migTo').value||'').trim();
+  const log     = s => document.getElementById('sp-migLog').textContent = s;
+  if (!fromKey || !toKey) { log('⚠ Enter both FROM and TO keys'); return; }
+  if (fromKey === toKey)  { log('⚠ FROM and TO are the same'); return; }
+  log('Checking…');
+  try {
+    const [fromSnap, toSnap] = await Promise.all([
+      rtdb.ref(`puc_daily/${SP_AY_KEY}/${fromKey}`).once('value'),
+      rtdb.ref(`puc_daily/${SP_AY_KEY}/${toKey}`).once('value'),
+    ]);
+    if (!fromSnap.val()) { log(`⚠ No data found for ${fromKey}`); return; }
+    if (toSnap.val()) {
+      log(`⚠ ${toKey} already has data — delete it first or choose a different target`);
+      return;
+    }
+    await rtdb.ref(`puc_daily/${SP_AY_KEY}/${toKey}`).set(fromSnap.val());
+    await rtdb.ref(`puc_daily/${SP_AY_KEY}/${fromKey}`).remove();
+    log(`✅ Moved ${fromKey} → ${toKey} successfully`);
+  } catch(e) { log('✗ Error: ' + e.message); }
+}
+
+
 let _spSchedTimers = [];
 
 function spSchedMsUntil(hhmm) {
@@ -6940,7 +7018,7 @@ async function spBuildAndSendFacultyReport(all, prevSnapshotKey) {
   }
 }
 
-async function spPushFB(all, total) {
+async function spPushFB(all, total, scrapeStartKey) {
   const ist = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
   const byClass={}, summary={};
   Object.values(all).forEach(d => {
@@ -6950,12 +7028,12 @@ async function spPushFB(all, total) {
   const meta = { scraped_at:ist, academic_year:SP_AY, classes:Object.keys(all), total_students:total };
   const FB_URL = 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app';
 
-  // Build daily snapshot — slim version (only fields needed for date report)
-  // Build todayIST key manually (matches drFmtKey format: "05-May-2026")
-  // DO NOT use toLocaleDateString — en-IN output is browser-dependent and breaks key matching
-  const _istNow = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
-  const _mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_istNow.getMonth()];
-  const todayIST = String(_istNow.getDate()).padStart(2,'0') + '-' + _mon + '-' + _istNow.getFullYear();
+  // Use scrapeStartKey passed from caller (captured at scrape-start to avoid midnight rollover)
+  const todayIST = scrapeStartKey || (() => {
+    const _istNow = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
+    const _mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_istNow.getMonth()];
+    return String(_istNow.getDate()).padStart(2,'0') + '-' + _mon + '-' + _istNow.getFullYear();
+  })();
   const dailyByClass = {};
   Object.values(all).forEach(d => {
     dailyByClass[d.label] = d.students.map(s => ({
