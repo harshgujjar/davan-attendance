@@ -7,8 +7,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v4.87                                                      ║
-║  FILE NAME       : puc_v4.87.html                                             ║
+║  CURRENT VERSION : v4.90                                                      ║
+║  FILE NAME       : puc_v4.90.html                                             ║
 ║  LAST UPDATED    : 2026-06-05                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v4.87";                                            ║
+║     const APP_VERSION = "v4.90";                                            ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -54,6 +54,22 @@
 ║  v4.53 2026-06-02  Fix: Summary table column order — "Attended" and          ║
 ║                    "Classes Held" headers were swapped. Both <th> headers     ║
 ║                    and <td> data cells reordered to Classes Held | Attended.  ║
+║                                                                              ║
+║  v4.89 2026-06-06  Fix: CRITICAL — spIsoToKey() used getUTCDate/Month/Year ║
+║                    so midnight IST class_date (e.g. 05-Jun 00:00 IST =    ║
+║                    04-Jun 18:30 UTC) was written to the PREVIOUS day key  ║
+║                    in Firebase. Date Report showed "No data" for the       ║
+║                    actual date. Fix: parse YYYY-MM-DD prefix directly      ║
+║                    (no timezone math needed); IST fallback for other forms.║
+║                                                                              ║
+║  v4.88 2026-06-06  Fix: Auto-schedule 3 bugs fixed —                     ║
+║                    (1) Default enabled=ON on fresh load (no localStorage) ║
+║                    (2) 4-min window check replaces exact-minute match;    ║
+║                        _spSchedFired prevents double-fire same slot.      ║
+║                    (3) Auto-logins before scrape if token missing/expired ║
+║                        using creds saved to localStorage (SP_CRED_KEY).  ║
+║                    spSaveCreds() called on manual login & schedule save;  ║
+║                    spLoadCreds() called on page load & auto-restore.      ║
 ║                                                                              ║
 ║  v4.87 2026-06-05  UX: Absence report cards now show circular photo      ║
 ║                    avatar (28px) beside each student name. Uses           ║
@@ -4983,7 +4999,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v4.87";
+const APP_VERSION = "v4.90";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -7409,6 +7425,7 @@ async function spDoLogin() {
     spLog('✅ Logged in — token valid ' + Math.round(expiresIn/60) + ' min', 'ok');
     spUpdateLoginUI(true);
     spSaveSession();
+    spSaveCreds(); // save for auto-login during scheduled scrapes
     // Auto-refresh at 90% of expiry
     if (spRefreshTimer) clearTimeout(spRefreshTimer);
     spRefreshTimer = setTimeout(spDoLogin, expiresIn * 900);
@@ -7459,6 +7476,7 @@ function spSaveSession() {
 }
 function spAutoRestoreSession() {
   try {
+    spLoadCreds(); // pre-fill email/pass from localStorage for auto-login
     const raw = sessionStorage.getItem(SP_SESSION_KEY);
     if (!raw) return;
     const s = JSON.parse(raw);
@@ -7477,28 +7495,62 @@ function spAutoRestoreSession() {
 }
 
 // ── Auto-schedule ─────────────────────────────────────────────────────────────
+// ── Credential save/restore (for auto-login during scheduled scrape) ──────────
+const SP_CRED_KEY = 'puc_sp_cred';
+function spSaveCreds() {
+  try {
+    const email = (document.getElementById('sp-email')?.value || '').trim();
+    const pass  = document.getElementById('sp-pass')?.value || '';
+    if (email && pass) localStorage.setItem(SP_CRED_KEY, JSON.stringify({ email, pass }));
+  } catch(e) {}
+}
+function spLoadCreds() {
+  try {
+    const raw = localStorage.getItem(SP_CRED_KEY);
+    if (!raw) return false;
+    const c = JSON.parse(raw);
+    const eEl = document.getElementById('sp-email');
+    const pEl = document.getElementById('sp-pass');
+    if (eEl && c.email) eEl.value = c.email;
+    if (pEl && c.pass)  pEl.value = c.pass;
+    return !!(c.email && c.pass);
+  } catch(e) { return false; }
+}
+
 function spSchedSave() {
   const enabled = document.getElementById('sp-autoEnabled')?.checked;
   const t1 = document.getElementById('sp-sched1')?.value;
   const t2 = document.getElementById('sp-sched2')?.value;
   localStorage.setItem(SP_SCHED_KEY, JSON.stringify({ enabled: !!enabled, t1: t1||'13:00', t2: t2||'17:34' }));
+  spSaveCreds(); // always save latest creds so auto-login works
   spSchedArm();
 }
 function spSchedToggle() { spSchedSave(); }
 function spSchedLoad() {
   try {
     const raw = localStorage.getItem(SP_SCHED_KEY);
-    if (!raw) return;
-    const s = JSON.parse(raw);
     const cb = document.getElementById('sp-autoEnabled');
-    const t1 = document.getElementById('sp-sched1');
-    const t2 = document.getElementById('sp-sched2');
-    if (cb) cb.checked = !!s.enabled;
-    if (t1 && s.t1) t1.value = s.t1;
-    if (t2 && s.t2) t2.value = s.t2;
-    if (s.enabled) spSchedArm();
+    const t1El = document.getElementById('sp-sched1');
+    const t2El = document.getElementById('sp-sched2');
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (cb) cb.checked = !!s.enabled;
+      if (t1El && s.t1) t1El.value = s.t1;
+      if (t2El && s.t2) t2El.value = s.t2;
+    } else {
+      // Default: enabled ON, times 13:00 & 17:34
+      if (cb) cb.checked = true;
+      if (t1El) t1El.value = '13:00';
+      if (t2El) t2El.value = '17:34';
+    }
+    spLoadCreds();
+    // Arm if enabled (default = true when no saved state)
+    const shouldArm = raw ? JSON.parse(raw).enabled : true;
+    if (shouldArm) spSchedArm();
   } catch(e) {}
 }
+// Tracks which schedule slot already fired today to avoid double-fire
+let _spSchedFired = {};
 function spSchedArm() {
   if (spSchedTimer) clearInterval(spSchedTimer);
   const enabled = document.getElementById('sp-autoEnabled')?.checked;
@@ -7508,22 +7560,49 @@ function spSchedArm() {
   const t2 = document.getElementById('sp-sched2')?.value || '17:34';
   if (statusEl) statusEl.textContent = `⏰ Armed — ${t1} & ${t2}`;
   spLog(`⏰ Auto-schedule ARMED — will scrape at ${t1} and ${t2} IST (checks every 60s)`, 'info');
-  spSchedTimer = setInterval(() => {
+  spSchedTimer = setInterval(async () => {
     const now = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Kolkata'}));
-    const hm = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
-    if (hm === t1 || hm === t2) {
-      if (spToken) { spLog(`⏰ Auto-scrape triggered at ${hm} IST`, 'info'); spDoScrape('auto'); }
-      else spLog(`⏰ Auto-scrape at ${hm} IST — ✗ NOT logged in, skipping`, 'warn');
+    const hm  = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+    const todayKey = hm.slice(0,2) + '-' + String(now.getDate()).padStart(2,'0'); // "HH-DD" reset key
+    // Check each target: fire if within 4-minute window and not already fired this slot today
+    for (const target of [t1, t2]) {
+      const slotKey = target + '-' + String(now.getDate()).padStart(2,'0');
+      if (_spSchedFired[slotKey]) continue; // already fired this slot today
+      // Compare minutes: fire if now is ≥ target and < target+4min
+      const [th, tm] = target.split(':').map(Number);
+      const nowMin = now.getHours()*60 + now.getMinutes();
+      const tgtMin = th*60 + tm;
+      if (nowMin >= tgtMin && nowMin < tgtMin + 4) {
+        _spSchedFired[slotKey] = true;
+        spLog(`⏰ Auto-scrape triggered at ${hm} IST (target ${target})`, 'info');
+        // Auto-login if token missing or expired
+        if (!spToken || (spTokenExpiry && Date.now() > spTokenExpiry - 30000)) {
+          spLog('⏰ No valid session — auto-logging in before scrape…', 'info');
+          if (!spLoadCreds()) { spLog('⏰ No saved credentials — cannot auto-login. Please login manually.', 'err'); continue; }
+          await spDoLogin();
+          await new Promise(r => setTimeout(r, 2000)); // wait for login to complete
+        }
+        if (spToken) { spDoScrape('auto'); }
+        else spLog(`⏰ Auto-scrape at ${hm} IST — login failed, scrape skipped`, 'err');
+      }
     }
   }, 60000);
 }
 
 // ── Helper: IST date key from ISO string ──────────────────────────────────────
 function spIsoToKey(isoStr) {
-  // "2026-06-01T00:00:00.000Z" → "01-Jun-2026"
-  const d = new Date(isoStr);
+  // "2026-06-05T00:00:00+05:30" → "05-Jun-2026" (IST date, NOT UTC)
+  // BUG WAS: getUTC*() shifted midnight IST to previous UTC date (e.g. 05-Jun → 04-Jun)
   const MONS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return String(d.getUTCDate()).padStart(2,'0') + '-' + MONS[d.getUTCMonth()] + '-' + d.getUTCFullYear();
+  // If string has YYYY-MM-DD prefix, parse date part directly — avoids all timezone issues
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoStr);
+  if (m) {
+    const yr = m[1], mo = parseInt(m[2],10)-1, dy = parseInt(m[3],10);
+    return String(dy).padStart(2,'0') + '-' + MONS[mo] + '-' + yr;
+  }
+  // Fallback: convert to IST
+  const d = new Date(new Date(isoStr).toLocaleString('en-US', {timeZone:'Asia/Kolkata'}));
+  return String(d.getDate()).padStart(2,'0') + '-' + MONS[d.getMonth()] + '-' + d.getFullYear();
 }
 
 // ── Helper: today's IST key ───────────────────────────────────────────────────
@@ -7887,7 +7966,8 @@ async function spBfScan() {
       document.getElementById('sp-bfRunBtn').style.display = 'none';
     } else {
       document.getElementById('sp-bfRunBtn').style.display = '';
-      lbl.textContent = _bfMissing.length + ' missing date(s) — click to select/deselect:';
+      lbl.innerHTML = _bfMissing.length + ' missing date(s) — click to select/deselect:'
+        + (_bfMissing.length ? '<br><span style="font-size:10px;color:var(--muted);font-family:var(--mono);">Tip: If a date just before the missing one shows in Re-scrape, its data may contain the missing day\'s data (old timezone bug — now fixed in v4.89). Re-scrape today to get correct data.</span>' : '');
       spSetPill('sp-bfPill', _bfMissing.length + ' missing', 'amber');
       _bfMissing.forEach(function(dk) {
         var chip = document.createElement('div');
@@ -7907,7 +7987,13 @@ async function spBfScan() {
     }
 
     // Populate Re-scrape section with existing dates
-    _bfExisting = existing.sort();
+    // Sort chronologically (DD-Mon-YYYY doesn't sort right alphabetically)
+    const MONS_ORD = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+    function bfKeyToDate(k) {
+      const [dd,mm,yyyy] = k.split('-');
+      return new Date(+yyyy, (MONS_ORD[mm]||1)-1, +dd);
+    }
+    _bfExisting = existing.slice().sort((a,b) => bfKeyToDate(a) - bfKeyToDate(b));
     var rsWrap  = document.getElementById('sp-rsWrap');
     var rsLbl   = document.getElementById('sp-rsLbl');
     var rsChips = document.getElementById('sp-rsChips');
