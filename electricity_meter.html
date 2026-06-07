@@ -453,9 +453,91 @@
   .year-bar-label { display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px; }
   .year-bar-track { height:10px; background:#1e2d45; border-radius:5px; overflow:hidden; }
   .year-bar-fill  { height:100%; border-radius:5px; background: linear-gradient(90deg, var(--accent), var(--green)); transition: width 0.6s ease; }
+
+  /* SYNC BADGE */
+  .sync-badge {
+    position: fixed; bottom: 60px; right: 12px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 5px 12px;
+    font-size: 10px; font-family: 'JetBrains Mono', monospace;
+    color: var(--muted); z-index: 500; display: flex; align-items: center; gap: 6px;
+    transition: all 0.3s; cursor: default;
+  }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .sync-badge.synced  { border-color: #00ff9d44; color: var(--green); }
+  .sync-badge.synced  .sync-dot { background: var(--green); animation: blink 2s ease-in-out infinite; }
+  .sync-badge.saving  { border-color: #ffd16644; color: var(--yellow); }
+  .sync-badge.saving  .sync-dot { background: var(--yellow); animation: blink 0.5s ease-in-out infinite; }
+  .sync-badge.error   { border-color: #ff4d6d44; color: var(--red); }
+  .sync-badge.error   .sync-dot { background: var(--red); }
+  .sync-badge.loading { border-color: #00d4ff44; color: var(--accent); }
+  .sync-badge.loading .sync-dot { background: var(--accent); animation: blink 0.8s ease-in-out infinite; }
 </style>
+
+<!-- Firebase v9 compat SDK (no login required) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+  // ── Same Firebase project as PUC app ──
+  const firebaseConfig = {
+    apiKey:            "AIzaSyBUuOH-GLPHhcz9a3fIT5ewVcyaZyCguto",
+    authDomain:        "davan-attendance-2026.firebaseapp.com",
+    projectId:         "davan-attendance-2026",
+    storageBucket:     "davan-attendance-2026.firebasestorage.app",
+    messagingSenderId: "1022644498921",
+    appId:             "1:1022644498921:web:734eea6c99b5ad04351b78",
+    databaseURL:       "https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app"
+  };
+
+  // ── Firebase path structure ──
+  // harsha_home_bills/
+  //   electric/  ← electricity readings, settings, bill cycle, payments
+  //   water/     ← water readings, payments
+  // (future: harsha_home_bills/gas/, harsha_home_bills/internet/, etc.)
+  const FB_ROOT = 'harsha_home_bills';
+  const FB_ELECTRIC = FB_ROOT + '/electric';
+  const FB_WATER    = FB_ROOT + '/water';
+
+  let _app, _db;
+  try {
+    _app = firebase.app('harsha_home');
+  } catch(e) {
+    _app = firebase.initializeApp(firebaseConfig, 'harsha_home');
+  }
+  _db = firebase.database(_app);
+
+  // ── Sync status ──
+  function setSyncStatus(state, extra) {
+    const badge = document.getElementById('syncBadge');
+    if (!badge) return;
+    const label = document.getElementById('syncLabel');
+    badge.className = 'sync-badge ' + state;
+    const labels = { synced:'Synced', saving:'Saving…', error:'Sync error', loading:'Loading…' };
+    label.textContent = extra || labels[state] || state;
+  }
+
+  // ── Write helper ──
+  function fbSet(path, value) {
+    setSyncStatus('saving');
+    return _db.ref(path).set(value)
+      .then(() => setSyncStatus('synced'))
+      .catch(e => { console.error('fbSet', path, e); setSyncStatus('error'); showToast('Save failed: ' + e.message, true); });
+  }
+
+  // ── Read helper ──
+  function fbGet(path) {
+    return _db.ref(path).once('value')
+      .then(snap => snap.exists() ? snap.val() : null)
+      .catch(e => { console.error('fbGet', path, e); return null; });
+  }
+</script>
 </head>
 <body>
+<!-- SYNC STATUS BADGE -->
+<div class="sync-badge loading" id="syncBadge">
+  <div class="sync-dot"></div>
+  <span id="syncLabel">Connecting…</span>
+</div>
 
 <div class="header">
   <div class="header-top">
@@ -872,7 +954,8 @@
     <div style="font-size:11px;color:var(--muted);line-height:1.8">
       ⚡ Electricity Meter Tracker<br>
       Karnataka • Gruha Jyothi Scheme<br>
-      All data stored locally on your device<br>
+      Firebase path: <span style="color:var(--accent)">harsha_home_bills/electric</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--accent)">harsha_home_bills/water</span><br>
       <br>
       <span style="color:var(--green)">✓ 200 units free subsidy</span><br>
       <span style="color:var(--accent)">✓ Bill cycle tracking</span><br>
@@ -886,9 +969,25 @@
 
 <script>
 // =================== DATA ===================
-const STORAGE_KEY = 'meter_data_v2';
-const SETTINGS_KEY = 'meter_settings_v2';
-
+const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
+const SETTINGS_KEY = 'meter_settings_v2'; // kept for compat only
+function fmt12h(t24) {
+  // t24 = "HH:MM" string → "h:MM am/pm"
+  if (!t24 || t24 === '00:00') return '';
+  const [hh, mm] = t24.split(':').map(Number);
+  const ampm = hh < 12 ? 'am' : 'pm';
+  const h = hh % 12 || 12;
+  return h + ':' + mm.toString().padStart(2,'0') + ' ' + ampm;
+}
+function fmt12hDT(dt) {
+  // Date object → "DD Mon YY @ h:MM am/pm"
+  const date = dt.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'});
+  const hh = dt.getHours(), mm = dt.getMinutes();
+  const ampm = hh < 12 ? 'am' : 'pm';
+  const h = hh % 12 || 12;
+  return date + ' @ ' + h + ':' + mm.toString().padStart(2,'0') + ' ' + ampm;
+}
+// =================== TIME FORMAT ===================
 const HISTORICAL_DATA = [
   // ── 2022 monthly bill readings ──
   {u:996,  d:'2022-01-09',t:'00:00',type:'bill',notes:'113 units'},
@@ -1098,35 +1197,32 @@ let settings = {
 let billCycle = { units: 10482, date: '2026-05-09' };
 let historyFilter = 'all';
 
-function loadData() {
+async function loadData() {
+  setSyncStatus('loading');
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const savedSettings = localStorage.getItem(SETTINGS_KEY);
-    const savedBill = localStorage.getItem('meter_bill_cycle');
-    const initialized = localStorage.getItem('meter_initialized');
-
-    if (savedSettings) settings = { ...settings, ...JSON.parse(savedSettings) };
-    if (savedBill) billCycle = JSON.parse(savedBill);
-
-    if (!initialized) {
-      readings = HISTORICAL_DATA.map((r, i) => ({ ...r, id: 'h' + i }));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(readings));
-      localStorage.setItem('meter_initialized', '1');
-      if (!savedBill) {
-        billCycle = { units: 10482, date: '2026-05-09' };
-        localStorage.setItem('meter_bill_cycle', JSON.stringify(billCycle));
-      }
-    } else if (saved) {
-      readings = JSON.parse(saved);
+    const data = await fbGet(FB_ELECTRIC);
+    if (!data) {
+      // First time — seed with historical data and push to Firebase
+      readings  = HISTORICAL_DATA.map((r, i) => ({ ...r, id: 'h' + i }));
+      billCycle = { units: 10482, date: '2026-05-09' };
+      await fbSet(FB_ELECTRIC + '/readings',  readings);
+      await fbSet(FB_ELECTRIC + '/settings',  settings);
+      await fbSet(FB_ELECTRIC + '/billCycle', billCycle);
+    } else {
+      if (data.readings)  readings  = Array.isArray(data.readings)  ? data.readings  : Object.values(data.readings);
+      if (data.settings)  settings  = { ...settings, ...data.settings };
+      if (data.billCycle) billCycle = data.billCycle;
     }
   } catch(e) {
+    console.error('loadData failed', e);
     readings = HISTORICAL_DATA.map((r, i) => ({ ...r, id: 'h' + i }));
+    setSyncStatus('error');
   }
   applySettingsToUI();
 }
 
 function saveData() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(readings));
+  fbSet(FB_ELECTRIC + '/readings', readings);
 }
 
 function applySettingsToUI() {
@@ -1163,6 +1259,8 @@ function getStats() {
   today.setHours(0,0,0,0);
 
   const unitsUsed = latestUnits - billUnits;
+
+  // daysSinceBill for display = bill date → today (calendar days in cycle so far)
   const daysSinceBill = Math.max(1, Math.round((today - billDate) / 86400000));
 
   // Next bill date = next occurrence of billDay after today
@@ -1174,9 +1272,16 @@ function getStats() {
   // Total cycle days = from last bill date to next bill date
   const totalCycleDays = Math.round((nextBill - billDate) / 86400000);
 
-  const dailyAvg = unitsUsed / daysSinceBill;
+  // Daily avg = units used ÷ (latest reading date − bill date − 1)
+  // Excludes both the bill day itself and the reading day (counts only full days between)
+  // e.g. bill 9 May, reading 6 Jun → (28 days apart) - 1 = 27 days of actual consumption
+  const latestReadingDT = new Date(latest.d + 'T' + (latest.t || '00:00'));
+  const latestReadingDT0 = new Date(latestReadingDT); latestReadingDT0.setHours(0,0,0,0);
+  const daysToLatest = Math.max(1, Math.round((latestReadingDT0 - billDate) / 86400000) - 1);
+  const dailyAvg = unitsUsed / daysToLatest;
+  // Project using dailyAvg × 30 (standard monthly basis, matches your bill calculation)
   const projected30 = dailyAvg * 30;
-  const projectedAtBill = unitsUsed + (dailyAvg * daysToBill);
+  const projectedAtBill = dailyAvg * 30;
 
   // How many units safe to use per day remaining to stay under 164 / 200
   const unitsRemainingFor164 = Math.max(0, settings.freeUnits - unitsUsed);
@@ -1200,7 +1305,7 @@ function getStats() {
 
   return {
     latestUnits, billUnits, unitsUsed, daysSinceBill, totalCycleDays,
-    dailyAvg, projected30, daysToBill, projectedAtBill,
+    daysToLatest, dailyAvg, projected30, daysToBill, projectedAtBill,
     overFree, estimatedBill, billMode, nextBill, billDate,
     safePerDay, maxPerDay,
     unitsRemainingFor164, unitsRemainingFor200
@@ -1221,7 +1326,7 @@ function renderDashboard() {
 
   document.getElementById('statDaily').textContent = s.dailyAvg.toFixed(2);
   document.getElementById('statProjected').textContent = s.projected30.toFixed(0);
-  document.getElementById('statDaysLeft').textContent = s.daysSinceBill + 'd';
+  document.getElementById('statDaysLeft').textContent = s.daysToLatest + 'd';
   document.getElementById('statDaysLeftLbl').innerHTML = 'Days in Cycle<br><span style="font-size:8px;color:var(--muted)">' + fmtMed(s.billDate) + ' → today</span>';
   document.getElementById('statTillBill').textContent = s.daysToBill + 'd';
   document.getElementById('statTillBillLbl').innerHTML = 'Days to Bill<br><span style="font-size:8px;color:var(--muted)">Bill: ' + fmtMed(s.nextBill) + '</span>';
@@ -1359,7 +1464,7 @@ function renderDashboard() {
       '</div>' +
       '<div class="calc-row">' +
         '<span class="calc-sign plus">+</span>' +
-        '<span class="calc-label">Latest Reading <span style="font-size:9px;color:var(--muted)">' + formatDate(latest.d) + (latest.t?' @ '+latest.t:'') + '</span>' + daysSincePrevLabel + '</span>' +
+        '<span class="calc-label">Latest Reading <span style="font-size:9px;color:var(--muted)">' + formatDate(latest.d) + (latest.t && latest.t!=='00:00' ? ' @ '+fmt12h(latest.t) : '') + '</span>' + daysSincePrevLabel + '</span>' +
         '<span class="calc-value white">' + s.latestUnits.toLocaleString('en-IN',{minimumFractionDigits:2}) + '</span>' +
       '</div>' +
       '<div class="calc-row">' +
@@ -1375,8 +1480,8 @@ function renderDashboard() {
       '</div>' +
       '<div class="calc-row">' +
         '<span class="calc-sign div">÷</span>' +
-        '<span class="calc-label">Days in Cycle <span style="font-size:9px;color:var(--muted)">(' + fmtMed(s.billDate) + ' → today)</span></span>' +
-        '<span class="calc-value accent">' + s.daysSinceBill + ' of ' + s.totalCycleDays + 'd</span>' +
+        '<span class="calc-label">Days Measured <span style="font-size:9px;color:var(--muted)">' + fmtMed(s.billDate) + ' → ' + formatDate(latest.d) + ' (not today)</span></span>' +
+        '<span class="calc-value accent">' + s.daysToLatest + 'd <span style="font-size:9px;color:var(--muted)">(' + s.daysSinceBill + 'd to today, cycle ' + s.totalCycleDays + 'd)</span></span>' +
       '</div>' +
       '<div class="calc-row">' +
         '<span class="calc-sign plus">+</span>' +
@@ -1487,7 +1592,7 @@ function renderHistory() {
         <div class="reading-icon">${icon}</div>
         <div class="reading-info">
           <div class="reading-val">${r.u.toLocaleString('en-IN',{minimumFractionDigits:2})}</div>
-          <div class="reading-date">${formatDate(r.d)} ${r.t ? '@ '+r.t : ''}${r.notes ? ' · '+r.notes : ''}</div>
+          <div class="reading-date">${formatDate(r.d)}${r.t && r.t!=='00:00' ? ' @ '+fmt12h(r.t) : ''}${r.notes ? ' · '+r.notes : ''}</div>
         </div>
         ${diffHTML}
         <button class="delete-btn" onclick="deleteReading('${r.id}')">🗑</button>
@@ -1624,61 +1729,62 @@ function setBillCycle() {
   const d = document.getElementById('billDate').value;
   if (!u || !d) { showToast('Enter bill reading and date', true); return; }
   billCycle = { units: u, date: d };
-  localStorage.setItem('meter_bill_cycle', JSON.stringify(billCycle));
+  fbSet(FB_ELECTRIC + '/billCycle', billCycle);
   showToast('✅ Bill cycle updated!');
   renderDashboard();
 }
 
 // =================== SETTINGS ===================
 function saveSettings() {
-  settings.subsidy = parseFloat(document.getElementById('setSubsidy').value) || 200;
-  settings.freeUnits = parseFloat(document.getElementById('setFreeUnits').value) || 164;
-  settings.rate = parseFloat(document.getElementById('setRate').value) || 7.86;
-  settings.billDay = parseInt(document.getElementById('setBillDay').value) || 10;
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  settings.subsidy   = parseFloat(document.getElementById('setSubsidy').value)   || 200;
+  settings.freeUnits = parseFloat(document.getElementById('setFreeUnits').value)  || 164;
+  settings.rate      = parseFloat(document.getElementById('setRate').value)       || 7.86;
+  settings.billDay   = parseInt(document.getElementById('setBillDay').value)      || 10;
+  fbSet(FB_ELECTRIC + '/settings', settings);
   showToast('✅ Settings saved!');
   renderDashboard();
 }
 
 // =================== EXPORT / IMPORT ===================
 function exportData() {
-  const data = { readings, settings, billCycle, exported: new Date().toISOString() };
+  const data = { readings, settings, billCycle, payments, waterReadings, waterPayments, exported: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'meter_backup_' + new Date().toISOString().slice(0,10) + '.json';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'harsha_home_bills_backup_' + new Date().toISOString().slice(0,10) + '.json';
   a.click();
 }
 
 function importPrompt() { document.getElementById('importFile').click(); }
 
 function importData(event) {
-  const file = event.target.files[0];
-  if (!file) return;
+  const file = event.target.files[0]; if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     try {
       const data = JSON.parse(e.target.result);
-      if (data.readings) readings = data.readings;
-      if (data.settings) settings = data.settings;
-      if (data.billCycle) billCycle = data.billCycle;
-      saveData();
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-      localStorage.setItem('meter_bill_cycle', JSON.stringify(billCycle));
-      applySettingsToUI();
-      renderAll();
-      showToast('✅ Data imported!');
+      if (data.readings)      readings      = data.readings;
+      if (data.settings)      settings      = data.settings;
+      if (data.billCycle)     billCycle     = data.billCycle;
+      if (data.payments)      payments      = data.payments;
+      if (data.waterReadings) waterReadings = data.waterReadings;
+      if (data.waterPayments) waterPayments = data.waterPayments;
+      await fbSet(FB_ELECTRIC + '/readings',      readings);
+      await fbSet(FB_ELECTRIC + '/settings',      settings);
+      await fbSet(FB_ELECTRIC + '/billCycle',     billCycle);
+      await fbSet(FB_ELECTRIC + '/payments',      payments);
+      await fbSet(FB_WATER    + '/readings',      waterReadings);
+      await fbSet(FB_WATER    + '/payments',      waterPayments);
+      applySettingsToUI(); renderAll();
+      showToast('✅ Data imported to Firebase!');
     } catch { showToast('Invalid file', true); }
   };
   reader.readAsText(file);
 }
 
 function clearAllData() {
-  if (!confirm('Clear ALL data? This cannot be undone!')) return;
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(SETTINGS_KEY);
-  localStorage.removeItem('meter_bill_cycle');
-  localStorage.removeItem('meter_initialized');
+  if (!confirm('Clear ALL electricity & water data from Firebase? Cannot be undone!')) return;
+  _db.ref(FB_ELECTRIC).remove();
+  _db.ref(FB_WATER).remove();
   location.reload();
 }
 
@@ -1741,11 +1847,7 @@ function renderTicker() {
     return mins + 'm';
   }
 
-  function fmtDateTime(dt) {
-    const pad = n => n.toString().padStart(2,'0');
-    return pad(dt.getDate()) + '/' + pad(dt.getMonth()+1) + '/' + dt.getFullYear()
-      + ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
-  }
+  function fmtDateTime(dt) { return fmt12hDT(dt); }
 
   const gapDuration  = fmtDuration(msPrevToLatest);
   const sinceLatest  = fmtDuration(msLatestToNow);
@@ -1810,10 +1912,7 @@ function updateTickerPanel() {
     if (h > 0) return h + 'h ' + (m%60) + 'm';
     return m + 'm';
   }
-  function fmtDT(dt) {
-    const p = n => n.toString().padStart(2,'0');
-    return p(dt.getDate())+'/'+p(dt.getMonth()+1)+'/'+dt.getFullYear()+' '+p(dt.getHours())+':'+p(dt.getMinutes());
-  }
+  function fmtDT(dt) { return fmt12hDT(dt); }
 
   const dc = unitsBetween > 6.67 ? 'var(--red)' : unitsBetween > 5.47 ? 'var(--yellow)' : 'var(--green)';
 
@@ -1850,15 +1949,15 @@ function updateTickerPanel() {
 }
 
 // =================== PAYMENTS ===================
-const PAY_KEY = 'meter_payments_v1';
+const PAY_KEY = 'meter_payments_v1'; // compat only
 let payments = [];
 
 function loadPayments() {
-  try { payments = JSON.parse(localStorage.getItem(PAY_KEY) || '[]'); } catch { payments = []; }
+  // payments already loaded in loadData → renderPayments uses the in-memory array
 }
 
 function savePayments() {
-  localStorage.setItem(PAY_KEY, JSON.stringify(payments));
+  fbSet(FB_ELECTRIC + '/payments', payments);
 }
 
 function addPayment() {
@@ -1944,8 +2043,8 @@ function renderPayments() {
 
 
 // =================== WATER METER ===================
-const WATER_KEY     = 'water_readings_v1';
-const WATER_PAY_KEY = 'water_payments_v1';
+const WATER_KEY     = 'water_readings_v1'; // compat
+const WATER_PAY_KEY = 'water_payments_v1'; // compat
 
 const WATER_HISTORICAL = [
   // ── Electricity-meter style readings, type='reading' unless noted ──
@@ -2077,31 +2176,20 @@ let waterPayments  = [];
 let waterFilter    = 'all';
 
 function loadWaterData() {
-  try {
-    const s = localStorage.getItem(WATER_KEY);
-    waterReadings = s ? JSON.parse(s) : null;
-    if (!waterReadings || !waterReadings.length) {
-      // seed with historical
-      waterReadings = WATER_HISTORICAL.map((r, i) => ({...r, id: 'wh_' + i}));
-      localStorage.setItem(WATER_KEY, JSON.stringify(waterReadings));
-    }
-  } catch { waterReadings = WATER_HISTORICAL.map((r,i) => ({...r, id:'wh_'+i})); }
-
-  try {
-    const p = localStorage.getItem(WATER_PAY_KEY);
-    waterPayments = p ? JSON.parse(p) : null;
-    if (!waterPayments || !waterPayments.length) {
-      waterPayments = WATER_HIST_PAYMENTS.map((r,i) => ({...r, id:'wp_'+i}));
-      localStorage.setItem(WATER_PAY_KEY, JSON.stringify(waterPayments));
-    }
-  } catch { waterPayments = WATER_HIST_PAYMENTS.map((r,i) => ({...r, id:'wp_'+i})); }
+  // Water data already loaded in the main init. If arrays are empty, seed from historical.
+  if (!waterReadings || !waterReadings.length) {
+    waterReadings = WATER_HISTORICAL.map((r, i) => ({...r, id: 'wh_' + i}));
+  }
+  if (!waterPayments || !waterPayments.length) {
+    waterPayments = WATER_HIST_PAYMENTS.map((r, i) => ({...r, id: 'wp_' + i}));
+  }
 }
 
 function saveWaterData() {
-  localStorage.setItem(WATER_KEY, JSON.stringify(waterReadings));
+  fbSet(FB_WATER + '/readings', waterReadings);
 }
 function saveWaterPayments() {
-  localStorage.setItem(WATER_PAY_KEY, JSON.stringify(waterPayments));
+  fbSet(FB_WATER + '/payments', waterPayments);
 }
 
 function getWaterSorted() {
@@ -2173,7 +2261,7 @@ function renderWater() {
   const fmtDT  = r => {
     try {
       const dt = new Date(r.d+'T12:00:00');
-      return dt.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'}) + (r.t && r.t!=='00:00' ? ' @ '+r.t : '');
+      return dt.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'}) + (r.t && r.t!=='00:00' ? ' @ '+fmt12h(r.t) : '');
     } catch { return r.d; }
   };
 
@@ -2270,19 +2358,42 @@ function renderWater() {
 }
 
 // =================== INIT ===================
-window.onload = () => {
+window.onload = async () => {
   const now = new Date();
   const pad = n => n.toString().padStart(2, '0');
-  document.getElementById('inputDate').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-  document.getElementById('inputTime').value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  document.getElementById('payMonth').value  = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+  document.getElementById('inputDate').value  = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  document.getElementById('inputTime').value  = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  document.getElementById('payMonth').value   = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
   document.getElementById('wInputDate').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
   document.getElementById('wInputTime').value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   document.getElementById('wPayMonth').value  = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
 
-  loadData();
-  loadPayments();
-  loadWaterData();
+  // ── Load electric data ──
+  setSyncStatus('loading', 'Loading electric…');
+  await loadData();
+
+  // ── Load payments ──
+  try {
+    const payData = await fbGet(FB_ELECTRIC + '/payments');
+    if (payData) payments = Array.isArray(payData) ? payData : Object.values(payData);
+  } catch(e) { console.error('payments load', e); }
+
+  // ── Load water data ──
+  setSyncStatus('loading', 'Loading water…');
+  try {
+    const wData = await fbGet(FB_WATER);
+    if (!wData) {
+      waterReadings = WATER_HISTORICAL.map((r, i) => ({...r, id: 'wh_' + i}));
+      waterPayments = WATER_HIST_PAYMENTS.map((r, i) => ({...r, id: 'wp_' + i}));
+      await fbSet(FB_WATER + '/readings', waterReadings);
+      await fbSet(FB_WATER + '/payments', waterPayments);
+    } else {
+      if (wData.readings) waterReadings = Array.isArray(wData.readings) ? wData.readings : Object.values(wData.readings);
+      if (wData.payments) waterPayments = Array.isArray(wData.payments) ? wData.payments : Object.values(wData.payments);
+    }
+  } catch(e) { console.error('water load', e); loadWaterData(); }
+
+  setSyncStatus('synced');
   renderAll();
   setInterval(() => { renderTicker(); updateTickerPanel(); }, 60000);
 };
