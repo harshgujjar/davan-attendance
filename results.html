@@ -263,6 +263,10 @@
  r416 | 30-Mar-2026 21:35 IST | Bottom 10: replace total-across-subjects with worst failed subject marks + subject name; show fail count if multiple fails
  r417 | 30-Mar-2026 21:50 IST | Bottom 10: also catch below-35%-threshold subjects as effective fails; fallback to lowest subject when no fail; photo adds console debug + RTDB flat-object fallback
  r419 | 14-Apr-2026 IST | Remove inline ⚙ Sec C button+panel from dashboard — sidebar entry is the correct one
+ r424 | 07-Jun-2026 IST | Fix: DI vs NU Section Comparison cards missing topper photo. Added 32px avatar in mkCard topper row — one fix covers all 3 section cards (DI, NU-B, NU-C).
+ r423 | 07-Jun-2026 IST | Fix: Highlight stat cards (College Topper, DI Topper, NU Topper) missing photos. Added 38px avatar beside name in all three topper cards with _resAvatarInject after render.
+ r422 | 07-Jun-2026 IST | Fix: 2 more panels missing photos — Perfect Scores celebration section (both faculty card view and admin row view) and faculty subject pass/fail/absent student chips. Added 18px avatar inside each chip, 32-34px beside perfect scorer names. _resAvatarInject() wired to both.
+ r421 | 06-Jun-2026 IST | Feat: Student photos beside all student names across all panels — Rankings cards, search results, main results grid, faculty section table, perfect scorers, failed subjects, medals cards, top/bottom 10 cards, excellence chips. New helpers: _resAvatar(urn,name,size), _resAvatarInject() (lazy DOM swap), _resPreloadPhotos() (bulk Firestore+RTDB load on login), resZoomPhoto() (click to zoom lightbox).
  r420 | 14-Apr-2026 IST | Rankings Refresh button: also call resRenderRanksChips() so chips rebuild correctly
  ═══════════════════════════════════════════════════
        RESET & TOKENS
@@ -1170,7 +1174,7 @@
     <div id="topbar-meta"></div>
     <div class="topbar-right">
       <div id="status-dot"></div>
-      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r420</span>
+      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r424</span>
       <button id="vp-toggle-btn" onclick="resVPToggle()" style="display:none;font-size:11px;font-family:var(--mono);font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;">👁 My Subjects</button>
       <span id="topbar-user" style="font-size:12px;font-family:var(--mono);color:var(--text);"></span>
     </div>
@@ -2259,7 +2263,7 @@
     <div class="res-footer">
       <div style="margin-bottom:4px;font-size:11px;color:var(--text);">© 2026 Davan Institute of Advanced Management Studies</div>
       <div style="margin-bottom:4px;"><span id="footer-desc">Top 10: summary banner above list + best/lowest subject on each card</span></div>
-      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r420</span> &nbsp;·&nbsp; Updated: 14-Apr-2026 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
+      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r424</span> &nbsp;·&nbsp; Updated: 07-Jun-2026 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
     </div>
       </div><!-- /.main-wrap -->
     </div><!-- /.app-body -->
@@ -2694,6 +2698,7 @@ function handleTopperQuery(match, query) {
         html += `
           <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:8px;">
             <span style="font-size:24px;">${medal}</span>
+            ${_resAvatar(s.urn||s.seat_no, s.name, 36)}
             <div style="flex:1;">
               <div style="font-weight:700;font-size:14px;">${s.name}</div>
               <div style="font-size:11px;color:var(--muted);">${s.urn || s.seat_no} • ${s.class}</div>
@@ -3347,6 +3352,96 @@ if (STANDALONE) {
   });
 }
 
+// ── Student photo cache for lists/tables ─────────────────────────────────
+let resPhotos = {};
+let resPhotosReady = new Promise(() => {}); // replaced on login
+
+function _resPreloadPhotos() {
+  let _resolve;
+  resPhotosReady = new Promise(r => { _resolve = r; });
+  (async () => {
+    try {
+      if (typeof db !== 'undefined' && db) {
+        const doc = await db.collection('app_data').doc('student_photos').get();
+        if (doc.exists) {
+          const raw = doc.data();
+          Object.entries(raw).forEach(([k,v]) => { resPhotos[k.toUpperCase()] = v; });
+          console.log('[resPhotos] loaded', Object.keys(resPhotos).length, 'photos from Firestore');
+          _resolve(resPhotos); return;
+        }
+      }
+    } catch(e) { console.warn('[resPhotos] Firestore error:', e); }
+    try {
+      if (typeof rtdb !== 'undefined' && rtdb) {
+        const snap = await rtdb.ref('davan_pub/student_photos').once('value');
+        const raw = snap.val() || {};
+        Object.entries(raw).forEach(([k,v]) => { resPhotos[k.toUpperCase()] = v; });
+        console.log('[resPhotos] loaded', Object.keys(resPhotos).length, 'photos from RTDB');
+      }
+    } catch(e) { console.warn('[resPhotos] RTDB error:', e); }
+    _resolve(resPhotos);
+  })();
+}
+
+// Returns circular avatar HTML — initials first, lazy-swapped to photo via _resAvatarInject()
+function _resAvatar(urn, name, size) {
+  size = size || 36;
+  const parts = (name || '').trim().split(/\s+/);
+  const initials = parts.length >= 2
+    ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    : (parts[0] || '?')[0].toUpperCase();
+  const urnKey = (urn || '').toUpperCase();
+  const fs = Math.round(size * 0.35);
+  const base = `width:${size}px;height:${size}px;border-radius:50%;flex-shrink:0;border:1.5px solid var(--border);background:var(--surface2);`;
+  const initStyle = `${base}display:inline-flex;align-items:center;justify-content:center;font-size:${fs}px;font-weight:700;color:var(--accent);font-family:var(--mono);`;
+  const photoUrl = resPhotos[urnKey] || null;
+  if (photoUrl) {
+    return `<img src="${photoUrl}" alt="${initials}" data-res-urn="${urnKey}" data-res-size="${size}" style="${base}object-fit:cover;cursor:zoom-in;" onclick="resZoomPhoto(this.src)" title="Click to zoom" onerror="this.style.display='none'">`;
+  }
+  return `<span data-res-urn="${urnKey}" data-res-size="${size}" style="${initStyle}">${initials}</span>`;
+}
+
+// Swaps initials spans → real <img> once resPhotosReady resolves
+function _resAvatarInject() {
+  resPhotosReady.then(() => {
+    document.querySelectorAll('span[data-res-urn]').forEach(el => {
+      const urnKey   = el.getAttribute('data-res-urn');
+      const size     = parseInt(el.getAttribute('data-res-size') || '36', 10);
+      const photoUrl = resPhotos[urnKey] || null;
+      if (!photoUrl) return;
+      const base = `width:${size}px;height:${size}px;border-radius:50%;flex-shrink:0;border:1.5px solid var(--border);background:var(--surface2);object-fit:cover;`;
+      const img  = document.createElement('img');
+      img.src    = photoUrl;
+      img.alt    = el.textContent.trim();
+      img.setAttribute('data-res-urn',  urnKey);
+      img.setAttribute('data-res-size', String(size));
+      img.style.cssText = base + 'cursor:zoom-in;';
+      img.title   = 'Click to zoom';
+      img.onclick = () => resZoomPhoto(img.src);
+      img.onerror = () => { img.style.display = 'none'; };
+      if (el.parentNode) el.parentNode.replaceChild(img, el);
+    });
+  }).catch(() => {});
+}
+
+// Zoom lightbox for avatar photos
+function resZoomPhoto(src) {
+  let lb = document.getElementById('_res-photo-lb');
+  if (!lb) {
+    lb = document.createElement('div');
+    lb.id = '_res-photo-lb';
+    lb.onclick = () => { lb.style.display = 'none'; };
+    lb.style.cssText = 'display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.88);align-items:center;justify-content:center;cursor:zoom-out;';
+    const img = document.createElement('img');
+    img.id = '_res-photo-lb-img';
+    img.style.cssText = 'max-width:90vw;max-height:90vh;border-radius:12px;box-shadow:0 8px 40px #0007;object-fit:contain;';
+    lb.appendChild(img);
+    document.body.appendChild(lb);
+  }
+  document.getElementById('_res-photo-lb-img').src = src;
+  lb.style.display = 'flex';
+}
+
 async function onAuthReady() {
   RES_LOGIN_TIME = new Date(); // set immediately before anything else
   const roleLabel = { admin:'Admin', manager:'Manager', vp:'VP', fulltime:'Faculty', visiting:'Faculty' };
@@ -3362,6 +3457,9 @@ async function onAuthReady() {
       console.warn('[onAuthReady] No students data — davan_pub/students is empty. Admin must run ☁️ Sync to Cloud.');
     }
   } catch(e){ console.error('[onAuthReady] students load error:', e); }
+
+  // Preload student photos for list views
+  _resPreloadPhotos();
 
   // Hide admin-only UI for faculty
   const isFac = resIsFaculty();
@@ -3681,7 +3779,7 @@ function resRenderMerit() {
       return `<tr onclick="resShowStudentModal('${urn}')" style="cursor:pointer;">
         <td style="color:var(--muted);font-family:var(--mono);font-size:11px;">${i+1}</td>
         <td style="font-family:var(--mono);font-size:10px;color:var(--muted);">${urn}</td>
-        <td style="font-weight:600;">${s.name||''}</td>
+        <td style="font-weight:600;"><div style="display:flex;align-items:center;gap:7px;">${_resAvatar(urn,s.name,28)}<span>${s.name||''}</span></div></td>
         <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${s._course||''} ${s._sem?'Sem '+s._sem:''}</td>
         <td class="col-sgpa" style="font-family:var(--mono);">${s.sgpa||'—'}</td>
         <td style="font-family:var(--mono);font-weight:700;color:var(--ok);">${pct.toFixed(1)}%</td>
@@ -3839,7 +3937,7 @@ function resRenderFacultyExcellence() {
           const isSent = _waSentUrns.has(urn);
           return `<div style="display:flex;align-items:center;gap:6px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.25);border-radius:6px;padding:4px 10px;">
             <div onclick="resShowStudentModal('${urn}')" style="cursor:pointer;font-size:11px;font-family:var(--mono);color:#f0a500;">
-              🌟 ${s.name} <span style="font-size:10px;opacity:.7;">${urn}</span>
+              ${_resAvatar(urn,s.name,22)} 🌟 ${s.name} <span style="font-size:10px;opacity:.7;">${urn}</span>
             </div>
             <button id="wa-btn-${urn}" onclick="event.stopPropagation();excellenceWASend('${urn}','${e.subName.replace(/'/g,'\'')}',this)"
               style="font-size:10px;padding:3px 8px;border-radius:5px;cursor:pointer;font-weight:700;white-space:nowrap;transition:all .2s;border:1px solid ${isSent?'var(--ok)':'#25d366'};background:${isSent?'rgba(34,197,94,.15)':'rgba(37,211,102,.1)'};color:${isSent?'var(--ok)':'#25d366'};">
@@ -4200,7 +4298,7 @@ function resRenderRanks() {
       const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
       return `<tr onclick="resShowStudentModal('${s.urn||s.usn}')" style="cursor:pointer;">
         <td style="text-align:center;font-family:var(--mono);font-size:13px;font-weight:700;color:#f0a500;">${medal||('#'+(i+1))}</td>
-        <td style="font-weight:600;">${s.name||'—'}</td>
+        <td style="font-weight:600;"><div style="display:flex;align-items:center;gap:7px;">${_resAvatar(s.urn||s.usn,s.name,28)}<span>${s.name||'—'}</span></div></td>
         <td style="font-family:var(--mono);font-size:10px;color:var(--muted);">${s.urn||''}</td>
         <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${s._course||''}</td>
         <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">Sem ${s._sem||''}</td>
@@ -4314,6 +4412,7 @@ function resRenderRanks() {
     const label=[RES_DASH_COURSE!=='all'?RES_DASH_COURSE:'',RES_DASH_SEM!=='all'?'Sem '+RES_DASH_SEM:'',secLbl].filter(Boolean).join(' · ');
     const col=RES_DASH_SECTION==='DI'?'var(--blue)':RES_DASH_SECTION==='NUC'?'#f59e0b':RES_DASH_SECTION==='NU'?'#a78bfa':'var(--ok)';
     listEl.innerHTML=renderTable(pool,label,col);
+    _resAvatarInject();
   }
 }
 
@@ -4624,7 +4723,7 @@ function resProfRender(name) {
               return {nm:KS2[code]||code, marks:d.total??'—'};
             });
           return `<tr onclick="resShowStudentModal('${s.urn}')" style="cursor:pointer;">
-            <td style="font-weight:600;">${s.name}</td>
+            <td style="font-weight:600;"><div style="display:flex;align-items:center;gap:7px;">${_resAvatar(s.urn,s.name,28)}<span>${s.name}</span></div></td>
             <td style="font-family:var(--mono);font-size:10px;color:var(--muted);">${s.urn||''}</td>
             <td style="color:var(--danger);font-size:11px;">${failedEntries.map(e=>e.nm).join(', ')}</td>
             <td style="font-family:var(--mono);font-size:11px;">${failedEntries.map(e=>e.marks).join(', ')}</td>
@@ -5112,6 +5211,7 @@ async function resRenderAll() {
   resRenderAnalysis();
   resRenderSearch();
   resStripRender();
+  _resAvatarInject();
 }
 
 async function resLoadBatchList() {
@@ -5978,7 +6078,7 @@ function resRenderStudents() {
       return `<tr style="${rowStyle}" onclick="resShowStudentModal('${s.urn}')" style="cursor:pointer;">
         <td style="color:var(--muted);font-family:var(--mono);font-size:11px;">${i+1}</td>
         <td style="font-family:var(--mono);font-size:10px;color:var(--muted);">${s.urn||''}</td>
-        <td style="font-weight:600;">${s.name||''} ${uPct!=null?`<span style="font-size:10px;font-family:var(--mono);font-weight:700;color:${(uPct||0)>=60?'var(--ok)':(uPct||0)>=40?'var(--warn)':'var(--danger)'}">${uPct.toFixed(1)}%</span>`:''} ${riskFail?`<span style="font-size:9px;color:var(--danger);">⚠</span>`:''}</td>
+        <td style="font-weight:600;"><div style="display:flex;align-items:center;gap:7px;">${_resAvatar(s.urn,s.name,28)}<div><span>${s.name||''}</span> ${uPct!=null?`<span style="font-size:10px;font-family:var(--mono);font-weight:700;color:${(uPct||0)>=60?'var(--ok)':(uPct||0)>=40?'var(--warn)':'var(--danger)'}">${uPct.toFixed(1)}%</span>`:''} ${riskFail?`<span style="font-size:9px;color:var(--danger);">⚠</span>`:''}</div></div></td>
         <td style="font-family:var(--mono);">${s.sgpa||'—'}</td>
         ${visSubjects.map(sub => markCell(s, sub)).join('')}
         <td style="font-family:var(--mono);font-weight:600;">${uTotal||'—'}</td>
@@ -7642,7 +7742,9 @@ function resShowUploadPreview(parsed) {
       return `<tr style="${isTop?'background:rgba(240,165,0,0.08);':''}">
         <td style="color:var(--muted);font-family:var(--mono);font-size:11px;">${i+1}</td>
         <td style="color:var(--muted);font-family:var(--mono);font-size:11px;">${s.urn||'—'}</td>
-        <td style="font-weight:${isTop?'700':'400'};color:${isTop?'#f0a500':'var(--text)'};">${s.name||'—'}${isTop?' ★':''}</td>
+        <td style="font-weight:${isTop?'700':'400'};color:${isTop?'#f0a500':'var(--text)'};">
+          <div style="display:flex;align-items:center;gap:7px;">${_resAvatar(s.urn,s.name,28)}<span>${s.name||'—'}${isTop?' ★':''}</span></div>
+        </td>
         <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${s.sgpa||'—'}</td>
         ${subOrder.map(sub=>markCell(s,sub)).join('')}
         <td style="font-family:var(--mono);">${s.total??'—'}</td>
@@ -8333,7 +8435,7 @@ function resCelebrationRender() {
       return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(250,204,21,.06);border-radius:8px;margin-top:8px;">
         <span style="font-size:20px;">🎓</span>
         <div style="flex:1;">
-          <span style="font-weight:700;color:var(--text);cursor:pointer;text-decoration:underline dotted;" onclick="resShowStudentModal('${p.student.urn}')">${p.student.name}</span>${secTag}
+          ${_resAvatar(p.student.urn,p.student.name,32)}<span style="font-weight:700;color:var(--text);cursor:pointer;text-decoration:underline dotted;" onclick="resShowStudentModal('${p.student.urn}')">${p.student.name}</span>${secTag}
           <span style="font-size:11px;color:var(--muted);margin-left:8px;">${p.subName}</span>
         </div>
         <span class="celeb-score">${p.score}/${p.max}</span>
@@ -8374,6 +8476,7 @@ function resCelebrationRender() {
       }).join(' &nbsp;·&nbsp; ');
       return '<div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:rgba(250,204,21,.04);border-radius:8px;margin-top:6px;flex-wrap:wrap;cursor:pointer;" onclick="resShowStudentModal(\''+p.student.urn+'\')">'+
         '<span style="font-size:18px;">&#127775;</span>'+
+        _resAvatar(p.student.urn,p.student.name,34)+
         '<div style="min-width:160px;">'+
           '<span style="font-weight:700;color:var(--text);text-decoration:underline dotted;">'+p.student.name+'</span> '+
           '<span style="font-size:10px;color:var(--muted);font-family:var(--mono);">'+p.student.urn+'</span>'+
@@ -8396,6 +8499,7 @@ function resCelebrationRender() {
       '</div>';
   }
   sec.style.display = 'block';
+  _resAvatarInject();
 }
 
 
@@ -8700,7 +8804,7 @@ function resRenderOverview() {
         <div class="dinu-big" style="color:${col};">${pct}%</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;">Pass rate · ${pass}/${students.length} students</div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;">Avg SGPA: <strong style="color:var(--text);">${sgpa}</strong></div>
-        ${topr?`<div style="font-size:11px;color:#f0a500;margin-top:4px;">🏆 ${topr.name?.split(' ').slice(0,2).join(' ')} — ${resFmtPct(topr.pct)}</div>`:''}
+        ${topr?`<div style="display:flex;align-items:center;gap:7px;margin-top:6px;">${_resAvatar(topr.urn,topr.name,32)}<span style="font-size:11px;color:#f0a500;">🏆 ${topr.name?.split(' ').slice(0,2).join(' ')} — ${resFmtPct(topr.pct)}</span></div>`:''}
       </div>`;
     // Find top subject for section (highest pass %)
     const topSubjectFor = (pool) => {
@@ -8747,6 +8851,7 @@ function resRenderOverview() {
         cards += mkCard('Section C — Nutana (NU-2)', nucReg, p, nucReg.length?(p/nucReg.length*100).toFixed(1):'—', t, sg, '#f59e0b');
       }
       document.getElementById('res-di-nu-cards').innerHTML = cards || '<div style="color:var(--muted);font-size:12px;padding:10px;">No section data available</div>';
+      _resAvatarInject();
     } else {
       // Admin: show all sections
       let cards = mkCard('Davan (DI) — Section A', diReg, diPass, diPct, diTopR, diSGPA, 'var(--blue)');
@@ -8763,6 +8868,7 @@ function resRenderOverview() {
         cards += mkCard('Nutana (NU) — Section B', nuReg, nuPass, nuPct, nuTopR, nuSGPA, '#a78bfa');
       }
       document.getElementById('res-di-nu-cards').innerHTML = cards;
+      _resAvatarInject();
     }
   } else {
     diNuSection.style.display = 'none';
@@ -8886,6 +8992,7 @@ function resRenderOverview() {
         <div onclick="resShowStudentModal('${s.urn}')" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;transition:.15s;background:${i===0?'rgba(240,165,0,.08)':'transparent'};" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='${i===0?'rgba(240,165,0,.08)':'transparent'}'">
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted);min-width:16px;">${i+1}</span>
           <span style="font-size:13px;">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'📌'}</span>
+          ${_resAvatar(s.urn,s.name,32)}
           <div style="flex:1;min-width:0;">
             <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.name}</div>
             <div style="font-size:10px;color:var(--muted);font-family:var(--mono);">${s.urn||''}</div>
@@ -8975,15 +9082,15 @@ function resRenderOverview() {
     if (topperReg) hlCards.push(`
       <div class="highlight-card" onclick="resShowStudentModal('${topperReg.urn}')" style="cursor:pointer;">
         <div class="hl-label">🏆 College Topper</div>
-        <div class="hl-name">${topperReg.name||'—'}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin:4px 0;">${_resAvatar(topperReg.urn,topperReg.name,38)}<div class="hl-name">${topperReg.name||'—'}</div></div>
         <div class="hl-val" style="color:#f0a500;">${resFmtPct(topperReg.pct)}</div>
         <div class="hl-sub">${topperReg.urn||''} · SGPA ${topperReg.sgpa||'—'}</div>
       </div>`);
     if (isBCA) {
       const diTop = regular.filter(isDI).filter(s=>s.result==='PASS').sort((a,b)=>(b.pct||0)-(a.pct||0))[0];
       const nuTop = regular.filter(isNU).filter(s=>s.result==='PASS').sort((a,b)=>(b.pct||0)-(a.pct||0))[0];
-      if (diTop) hlCards.push(`<div class="highlight-card" onclick="resShowStudentModal('${diTop.urn}')" style="cursor:pointer;"><div class="hl-label">🏆 Davan (DI) Topper</div><div class="hl-name">${diTop.name}</div><div class="hl-val" style="color:var(--blue);">${resFmtPct(diTop.pct)}</div><div class="hl-sub">${diTop.urn}</div></div>`);
-      if (nuTop) hlCards.push(`<div class="highlight-card" onclick="resShowStudentModal('${nuTop.urn}')" style="cursor:pointer;"><div class="hl-label">🏆 Nutana (NU) Topper</div><div class="hl-name">${nuTop.name}</div><div class="hl-val" style="color:#a78bfa;">${resFmtPct(nuTop.pct)}</div><div class="hl-sub">${nuTop.urn}</div></div>`);
+      if (diTop) hlCards.push(`<div class="highlight-card" onclick="resShowStudentModal('${diTop.urn}')" style="cursor:pointer;"><div class="hl-label">🏆 Davan (DI) Topper</div><div style="display:flex;align-items:center;gap:8px;margin:4px 0;">${_resAvatar(diTop.urn,diTop.name,38)}<div class="hl-name">${diTop.name}</div></div><div class="hl-val" style="color:var(--blue);">${resFmtPct(diTop.pct)}</div><div class="hl-sub">${diTop.urn}</div></div>`);
+      if (nuTop) hlCards.push(`<div class="highlight-card" onclick="resShowStudentModal('${nuTop.urn}')" style="cursor:pointer;"><div class="hl-label">🏆 Nutana (NU) Topper</div><div style="display:flex;align-items:center;gap:8px;margin:4px 0;">${_resAvatar(nuTop.urn,nuTop.name,38)}<div class="hl-name">${nuTop.name}</div></div><div class="hl-val" style="color:#a78bfa;">${resFmtPct(nuTop.pct)}</div><div class="hl-sub">${nuTop.urn}</div></div>`);
     }
     if (worstSub) {
       const app=all.filter(s=>s.subjects?.[worstSub.code]);
@@ -9007,6 +9114,7 @@ function resRenderOverview() {
     return true;
   });
   document.getElementById('res-highlight-cards').innerHTML = hlCardsDeduped.join('');
+  _resAvatarInject();
   // Only show celebrations for specific batch view (not combined all-batches)
   if (!RES_DATA._combined || RES_DASH_COURSE !== 'all' || RES_DASH_SEM !== 'all') {
     resCelebrationRender();
@@ -9063,7 +9171,7 @@ function resRenderOverview() {
               return sub?.short||sub?.name||code;
             });
             return `<tr>
-              <td style="font-weight:600;">${s.name}</td>
+              <td style="font-weight:600;"><div style="display:flex;align-items:center;gap:7px;">${_resAvatar(s.urn,s.name,28)}<span>${s.name}</span></div></td>
               <td style="font-family:var(--mono);font-size:10px;color:var(--muted);">${s.urn}</td>
               <td style="font-family:var(--mono);color:var(--danger);">${resFmtPct(s.pct)}</td>
               <td><span class="result-badge result-fail">FAIL</span></td>
@@ -9448,6 +9556,7 @@ function resRenderAnalysis() {
     return `<div class="rank-row" onclick="resShowStudentModal('${s.urn}')">
       <div class="rank-num">${i+1}</div>
       <div style="font-size:16px;">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'  '}</div>
+      ${_resAvatar(s.urn,s.name,38)}
       <div style="flex:1;">
         <div class="rank-name">${s.name}</div>
         <div class="rank-urn">${s.urn||''}${_clsT?` · <span style="color:var(--accent);">${_clsT}</span>`:''}${_secT?` · <span style="color:#a78bfa;">${_secT}</span>`:''}</div>
@@ -9505,6 +9614,7 @@ function resRenderAnalysis() {
     return `<div class="rank-row" onclick="resShowStudentModal('${s.urn}')">
       <div class="rank-num">${i+1}</div>
       <div style="font-size:16px;">${isRisk?'🚨':'⚠️'}</div>
+      ${_resAvatar(s.urn,s.name,38)}
       <div style="flex:1;">
         <div class="rank-name">${s.name}</div>
         <div class="rank-urn">${s.urn||''}${_clsB?` · <span style="color:var(--accent);">${_clsB}</span>`:''}${_secB?` · <span style="color:#a78bfa;">${_secB}</span>`:''}${att!==null?' · Att: '+att.toFixed(1)+'%':''}</div>
@@ -10252,7 +10362,7 @@ async function resRenderFaculty() {
           const d = s.subjects?.[sd.sub.code] || {};
           const bg  = res==='pass'?'rgba(34,197,94,.15)':res==='fail'?'rgba(239,68,68,.15)':'rgba(245,158,11,.15)';
           const col = res==='pass'?'var(--ok)':res==='fail'?'var(--danger)':'var(--warn)';
-          return `<div onclick="resShowStudentModal('${s.urn}')" style="cursor:pointer;background:${bg};border-radius:6px;padding:4px 8px;font-size:10px;font-family:var(--mono);color:${col};" title="${s.name}">${s.name} ${d.total??'—'}</div>`;
+          return `<div onclick="resShowStudentModal('${s.urn}')" style="cursor:pointer;background:${bg};border-radius:6px;padding:4px 8px;font-size:10px;font-family:var(--mono);color:${col};display:inline-flex;align-items:center;gap:5px;" title="${s.name}">${_resAvatar(s.urn,s.name,18)}<span>${s.name} ${d.total??'—'}</span></div>`;
         };
         const row = (sts, res, label, col) => !sts.length ? '' : `
           <div>
@@ -10276,6 +10386,7 @@ async function resRenderFaculty() {
       }).join('')}
     </div>`;
   }).join('');
+  _resAvatarInject();
 }
 
 
@@ -10470,7 +10581,7 @@ function resRenderSearch() {
     const dispIcon  = i===0?'🥇':i===1?'🥈':i===2?'🥉':dispResult==='PASS'?'✅':'❌';
 
     return `<div class="search-result-row" onclick="resShowStudentModal('${s.urn}')">
-      <div style="font-size:16px;padding-top:2px;">${dispIcon}</div>
+      ${_resAvatar(s.urn,s.name,38)}
       <div style="flex:1;">
         <div style="font-weight:600;">${s.name}${secTag}${backlogTag}</div>
         <div style="font-size:11px;color:var(--muted);font-family:var(--mono);">${s.urn} · ${isReg?'Regular':'Backlog'}</div>
@@ -10702,6 +10813,7 @@ async function resShowStudentModal(urn) {
     ${backlogCards?`<div style="font-size:11px;color:#a78bfa;margin:12px 0 8px;font-weight:600;">📋 Backlog Subjects:</div><div class="subject-card-grid">${backlogCards}</div>`:''}`;
 
   document.getElementById('res-student-modal').style.display = 'flex';
+  _resAvatarInject();
 }
 
 
