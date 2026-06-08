@@ -911,9 +911,9 @@
     <!-- Tips -->
     <div style="font-size:10px;color:var(--muted);background:var(--bg);border-radius:6px;padding:8px 10px;margin-bottom:10px;line-height:1.6">
       📌 <b style="color:var(--accent)">Tips for your BESCOM orange LCD meter:</b><br>
-      • Hold phone <b>steady, 15–20 cm</b> from display<br>
-      • Avoid glare — slight angle helps<br>
-      • Fill the purple box with just the digits row<br>
+      • Position so <b>only the digit row</b> fills the purple box — not the "Ph kW" row above<br>
+      • Hold phone <b>steady, 10–15 cm</b> from display, slight angle to avoid glare<br>
+      • The preview below should show <b>black digits on white</b> — if all black, move closer<br>
       • If OCR shows wrong number, tap ✏️ and enter manually
     </div>
 
@@ -3304,81 +3304,92 @@ window.onload = async () => {
 // =================== OCR METER SCAN ===================
 let ocrStream = null, ocrWorker = null, ocrRunning = false, ocrDetectedNum = null;
 
-// Pre-process canvas for orange/amber 7-segment LCD meter display.
-// Strategy: extract ROI from the guide box, isolate the bright orange channel,
-// threshold to B&W, upscale 3x, invert to dark-on-white for Tesseract.
+// Pre-process canvas for Landis+Gyr orange LCD meter (BESCOM).
+// Segments glow orange-amber (R≈200-255 G≈80-160 B≈0-50) on near-black bg.
 function preprocessLCDCanvas(srcCanvas, srcVideo) {
   const vw = srcVideo.videoWidth  || 640;
   const vh = srcVideo.videoHeight || 480;
 
-  // The guide overlay box is 80% wide, 22% tall, centred vertically at 55%
+  // ROI matches guide box: 80% wide, 22% tall, top-left at (10%,44%)
   const rx = Math.round(vw * 0.10);
   const rw = Math.round(vw * 0.80);
   const ry = Math.round(vh * 0.44);
   const rh = Math.round(vh * 0.22);
 
-  // --- Step 1: grab full frame ---
+  // Step 1: grab full frame
   const full = document.createElement('canvas');
   full.width = vw; full.height = vh;
   full.getContext('2d').drawImage(srcVideo, 0, 0);
 
-  // --- Step 2: crop ROI ---
+  // Step 2: crop ROI
   const roi = document.createElement('canvas');
   roi.width = rw; roi.height = rh;
   roi.getContext('2d').drawImage(full, rx, ry, rw, rh, 0, 0, rw, rh);
 
-  // --- Step 3: pixel-level orange isolation + threshold ---
   const ctx2 = roi.getContext('2d');
   const imgd = ctx2.getImageData(0, 0, rw, rh);
   const d = imgd.data;
+  const n = rw * rh;
 
-  // Pass 1: Find the brightest orange pixels to calibrate threshold dynamically
-  let maxOrangeScore = 0;
+  // Step 3a: calibrate — find the brightest orange pixel in the ROI
+  let peakR = 0, peakOrange = 0;
   for (let i = 0; i < d.length; i += 4) {
     const r = d[i], g = d[i+1], b = d[i+2];
-    // Orange score: red dominance + green suppression + blue suppression
-    const score = r - b * 0.8 - Math.abs(g - r * 0.55) * 0.5;
-    if (score > maxOrangeScore) maxOrangeScore = score;
+    // "orange score" = R dominance over B, with G in middle range
+    if (r > g && g > b) {
+      const score = r - b;
+      if (score > peakOrange) { peakOrange = score; peakR = r; }
+    }
   }
-  // Adaptive threshold: use 35% of peak orange score (works for dim/bright LCDs)
-  const orangeThresh = Math.max(60, maxOrangeScore * 0.35);
+  // Accept pixels that are at least 40% as orange as the peak
+  const minOrange = Math.max(40, peakOrange * 0.40);
+  const minR      = Math.max(60, peakR      * 0.40);
 
-  // Pass 2: isolate digits — dark on white output
+  // Step 3b: binarize — orange → black digit, rest → white background
+  const bw = new Uint8Array(n);
   for (let i = 0; i < d.length; i += 4) {
     const r = d[i], g = d[i+1], b = d[i+2];
-    // Orange/amber LCD segment: R dominant, G moderate, B low
-    const orangeScore = r - b * 0.8 - Math.abs(g - r * 0.55) * 0.5;
-    // Also catch bright/white glare (full brightness blowout)
+    const orangeScore = (r > g && g >= b) ? (r - b) : 0;
+    // Catch overexposed/glare centres (very bright, low saturation)
     const brightness = (r + g + b) / 3;
-    const isGlare = brightness > 210 && Math.max(r,g,b) - Math.min(r,g,b) < 40;
-    const isOrange = orangeScore > orangeThresh && r > 100;
-    const keep = isOrange || isGlare;
-    d[i] = d[i+1] = d[i+2] = keep ? 0 : 255;  // black digit on white bg
-    d[i+3] = 255;
+    const saturation = brightness > 0 ? (Math.max(r,g,b) - Math.min(r,g,b)) / Math.max(r,g,b) : 0;
+    const isGlare = brightness > 200 && saturation < 0.25;
+    const isOrange = orangeScore >= minOrange && r >= minR;
+    bw[i >> 2] = (isOrange || isGlare) ? 1 : 0;
+  }
+
+  // Step 3c: 1-pixel dilation to reconnect broken 7-segment strokes
+  const bw2 = new Uint8Array(bw);
+  for (let y = 1; y < rh - 1; y++) {
+    for (let x = 1; x < rw - 1; x++) {
+      if (bw[y*rw+x] || bw[(y-1)*rw+x] || bw[(y+1)*rw+x] ||
+          bw[y*rw+x-1] || bw[y*rw+x+1]) {
+        bw2[y*rw+x] = 1;
+      }
+    }
+  }
+
+  // Write back to imageData
+  for (let i = 0; i < n; i++) {
+    const v = bw2[i] ? 0 : 255;
+    d[i*4] = d[i*4+1] = d[i*4+2] = v;
+    d[i*4+3] = 255;
   }
   ctx2.putImageData(imgd, 0, 0);
 
-  // --- Step 4: upscale 3x for better Tesseract accuracy ---
+  // Step 4: upscale 4× (nearest-neighbour) for Tesseract
   const out = document.createElement('canvas');
-  out.width  = rw * 3;
-  out.height = rh * 3;
+  out.width = rw * 4; out.height = rh * 4;
   const octx = out.getContext('2d');
   octx.imageSmoothingEnabled = false;
   octx.drawImage(roi, 0, 0, out.width, out.height);
 
-  // Copy processed result to the visible preview canvas
+  // Show preview
   const prev = document.getElementById('ocrProcessedPreview');
-  if (prev) {
-    prev.width  = out.width;
-    prev.height = out.height;
-    prev.getContext('2d').drawImage(out, 0, 0);
-  }
+  if (prev) { prev.width = out.width; prev.height = out.height; prev.getContext('2d').drawImage(out, 0, 0); }
 
-  // Also copy to the srcCanvas parameter (for backward compat)
-  srcCanvas.width  = out.width;
-  srcCanvas.height = out.height;
+  srcCanvas.width = out.width; srcCanvas.height = out.height;
   srcCanvas.getContext('2d').drawImage(out, 0, 0);
-
   return out;
 }
 
@@ -3422,11 +3433,13 @@ async function runOCRLoop() {
     let raw = data.text.replace(/[^0-9.]/g, '').trim();
     // Remove leading zeros that aren't part of decimal
     raw = raw.replace(/^0+(\d)/, '$1');
+    // Remove trailing dots
+    raw = raw.replace(/\.$/, '');
     const num = parseFloat(raw);
     const conf = Math.round(data.confidence);
 
     if (!isNaN(num) && num >= 100 && num < 999999) {
-      document.getElementById('ocrStatus').textContent = 'Reading: ' + num.toFixed(1) + ' · conf ' + conf + '%';
+      document.getElementById('ocrStatus').textContent = '✅ Reading: ' + num.toFixed(1) + ' · conf ' + conf + '%';
       if (raw === ocrLastVal) {
         ocrConsecutive++;
         if (ocrConsecutive >= 2) {
@@ -3895,15 +3908,18 @@ function renderAnalysis() {
     const mStart = (yr === startYear) ? firstDt.getMonth() : 0;
     const mEnd   = (yr === endYear)   ? nowDt.getMonth()   : 11;
 
-    // Count how many months have data this year
-    let hasAny = false;
-    for (let mo = mEnd; mo >= mStart; mo--) {
-      const key = yr + '-' + String(mo+1).padStart(2,'0');
-      if (dataMap[key]) { hasAny = true; break; }
-    }
-    // Skip years with no data at all and not current year
-    const hasSomeInRange = [...Array(mEnd-mStart+1).keys()].some(i => dataMap[yr+'-'+String(mStart+i+1).padStart(2,'0')]);
-    if (!hasSomeInRange && yr !== endYear) continue;
+    // Check if ANY month in this year has data OR has a missing slot worth showing
+    // Fix: always include the year if it falls within our date range — 
+    // years with no bill readings still show "missing" rows so user can add them
+    const hasSomeInRange = (() => {
+      for (let mo = mStart; mo <= mEnd; mo++) {
+        const key = yr + '-' + String(mo + 1).padStart(2, '0');
+        if (dataMap[key]) return true;
+      }
+      // Still show year if it's not the start year (missing data is informative)
+      return yr !== startYear && (mEnd - mStart) >= 0;
+    })();
+    if (!hasSomeInRange) continue;
 
     // Year header
     const isCurrentYear = yr === endYear;
