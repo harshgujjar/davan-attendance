@@ -1190,7 +1190,7 @@
     </div>
     <div style="padding:0 16px 10px;font-size:10px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap;align-items:center">
       <span>imp/kWh: <select id="impPerKwh" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;font-size:10px" onchange="resetWattMeter()"><option value="1000">1000 (standard)</option><option value="3200" selected>3200 (Landis+Gyr)</option></select></span>
-      <span>Sensitivity: <input type="range" id="wattSensSlider" min="5" max="80" value="30" step="1" style="width:70px;vertical-align:middle" oninput="wattThreshold=parseInt(this.value);document.getElementById('wattSensVal').textContent=this.value"> <span id="wattSensVal" style="color:var(--accent)">30</span></span>
+      <span>Sensitivity: <input type="range" id="wattSensSlider" min="5" max="80" value="30" step="1" style="width:70px;vertical-align:middle" oninput="wattThreshold=parseInt(this.value);document.getElementById('wattSensVal').textContent=this.value"> <span id="wattSensVal" style="color:var(--accent)">30</span> <span style="font-size:9px;color:var(--muted)">(Δ above baseline)</span></span>
     </div>
   </div>
 
@@ -1555,6 +1555,9 @@
 ║                    10s timeout on reads. Add version system + header        ║
 ║                    display. Fix "since prev" → dynamic "Xh Xm ago".        ║
 ║                    Add ✏️ edit button on all readings (electric + water).   ║
+║  v1.3  2026-06-08  Fix "missing · tap to add" navigates to Cycles + pre-fills║
+║                    bill date. Improve OCR: adaptive orange threshold + psm13. ║
+║                    Fix watt blink: baseline-delta method avoids false triggers.║
 ║  v1.2  2026-06-08  Add sync badge, fix badge position (bottom:80px).       ║
 ║                    Fix ticker labels: GAP PREV→LAST vs SINCE LAST ENTRY.   ║
 ║  v1.1  2026-06-07  Firebase migration from localStorage. Path structure:    ║
@@ -1565,7 +1568,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.5.8";
+const APP_VERSION = "v2.5.9";
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -2645,6 +2648,32 @@ function jumpToCycle(toId) {
   }, 120);
 }
 
+function jumpToAddMissingCycle(yearMonth) {
+  // yearMonth = "YYYY-MM" e.g. "2025-08"
+  switchTab('cycles');
+  setTimeout(() => {
+    // Pre-fill the bill reading form with a date in the middle of that month (10th = typical bill date)
+    const [yr, mo] = yearMonth.split('-');
+    const dateStr = yr + '-' + mo + '-10';
+    const dateEl = document.getElementById('cycleAddDate');
+    const unitsEl = document.getElementById('cycleAddUnits');
+    const notesEl = document.getElementById('cycleAddNotes');
+    if (dateEl) dateEl.value = dateStr;
+    if (unitsEl) { unitsEl.value = ''; unitsEl.focus(); }
+    if (notesEl) notesEl.value = 'Bill reading – ' + dateStr.replace(/-/g, ' ');
+    // Scroll the add form into view
+    const form = dateEl ? dateEl.closest('.add-form') : null;
+    if (form) {
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Flash highlight on the form
+      form.style.transition = 'box-shadow 0.3s';
+      form.style.boxShadow = '0 0 0 2px var(--red)';
+      setTimeout(() => { form.style.boxShadow = ''; }, 1500);
+    }
+    showToast('📅 Fill in the missing reading for ' + yr + '-' + mo);
+  }, 120);
+}
+
 // =================== TOAST ===================
 function showToast(msg, isError = false) {
   const t = document.getElementById('toast');
@@ -2655,6 +2684,8 @@ function showToast(msg, isError = false) {
 
 // =================== RENDER ALL ===================
 function renderAll() {
+  const track = document.getElementById('tickerTrack');
+  if (track) track.dataset.built = '';  // force ticker rebuild when data changes
   renderDashboard();
   renderTicker();
 }
@@ -2671,7 +2702,7 @@ function renderTicker() {
   const prevDT   = new Date(prev.d   + 'T' + (prev.t   || '00:00'));
   const now      = new Date();
 
-  const msLatestToNow = now - latestDT;
+  const msLatestToNow  = now - latestDT;
   const msPrevToLatest = latestDT - prevDT;
 
   const unitsBetween = latest.u - prev.u;
@@ -2693,24 +2724,30 @@ function renderTicker() {
 
   function fmtDateTime(dt) { return fmt12hDT(dt); }
 
-  const gapDuration  = fmtDuration(msPrevToLatest);
-  const sinceLatest  = fmtDuration(msLatestToNow);
+  const gapDuration  = fmtDuration(msPrevToLatest);   // fixed: gap between 2 entries
+  const sinceLatest  = fmtDuration(msLatestToNow);    // live: time since last entry
   const unitsColor   = unitsBetween > 6.67 ? 'red' : unitsBetween > 5.47 ? 'yellow' : 'green';
 
-  const items = [
-    `<div class="ticker-item"><div class="ticker-dot"></div><span class="t-label">LAST READING</span>&nbsp;<span class="t-val accent">${latest.u.toLocaleString('en-IN',{minimumFractionDigits:2})}</span>&nbsp;<span class="t-label">on ${fmtDateTime(latestDT)}</span></div>`,
-    `<div class="ticker-item"><span class="t-label">PREV READING</span>&nbsp;<span class="t-val">${prev.u.toLocaleString('en-IN',{minimumFractionDigits:2})}</span>&nbsp;<span class="t-label">on ${fmtDateTime(prevDT)}</span></div>`,
-    `<div class="ticker-item"><span class="t-label">GAP PREV→LAST</span>&nbsp;<span class="t-val yellow">${gapDuration}</span>&nbsp;<span class="t-label">between those two entries</span></div>`,
-    `<div class="ticker-item"><span class="t-label">UNITS IN THAT PERIOD</span>&nbsp;<span class="t-val ${unitsColor}">${unitsBetween.toFixed(2)}</span>&nbsp;<span class="t-label">units</span></div>`,
-    `<div class="ticker-item"><span class="t-label">AVG THAT PERIOD</span>&nbsp;<span class="t-val ${unitsColor}">${(unitsBetween / Math.max(1, msPrevToLatest/86400000)).toFixed(2)}</span>&nbsp;<span class="t-label">units/day</span></div>`,
-    `<div class="ticker-item"><span class="t-label">SINCE LAST ENTRY</span>&nbsp;<span class="t-val accent">${sinceLatest}</span>&nbsp;<span class="t-label">ago (from now)</span></div>`,
-    `<div class="ticker-item"><span class="t-label">EST. METER NOW ≈</span>&nbsp;<span class="t-val green">${approxNow.toFixed(1)}</span>&nbsp;<span class="t-label">units</span></div>`,
-    `<div class="ticker-item"><span class="t-label">EST. USED SINCE LAST</span>&nbsp;<span class="t-val yellow">${projectedSinceLatest.toFixed(2)}</span>&nbsp;<span class="t-label">units (proj)</span></div>`,
-  ];
-
-  // Duplicate for seamless loop
-  const html = items.join('') + items.join('');
-  document.getElementById('tickerTrack').innerHTML = html;
+  const track = document.getElementById('tickerTrack');
+  // Build once; update live values via IDs on subsequent calls
+  if (!track.dataset.built) {
+    const items = [
+      `<div class="ticker-item"><div class="ticker-dot"></div><span class="t-label">LAST READING</span>&nbsp;<span class="t-val accent">${latest.u.toLocaleString('en-IN',{minimumFractionDigits:2})}</span>&nbsp;<span class="t-label">on ${fmtDateTime(latestDT)}</span></div>`,
+      `<div class="ticker-item"><span class="t-label">PREV READING</span>&nbsp;<span class="t-val">${prev.u.toLocaleString('en-IN',{minimumFractionDigits:2})}</span>&nbsp;<span class="t-label">on ${fmtDateTime(prevDT)}</span></div>`,
+      `<div class="ticker-item"><span class="t-label">UNITS IN THAT PERIOD</span>&nbsp;<span class="t-val ${unitsColor}">${unitsBetween.toFixed(2)}</span>&nbsp;<span class="t-label">units</span></div>`,
+      `<div class="ticker-item"><span class="t-label">AVG THAT PERIOD</span>&nbsp;<span class="t-val ${unitsColor}">${(unitsBetween / Math.max(1, msPrevToLatest/86400000)).toFixed(2)}</span>&nbsp;<span class="t-label">units/day</span></div>`,
+      `<div class="ticker-item"><div class="ticker-dot"></div><span class="t-label">TIME SINCE LAST ENTRY</span>&nbsp;<span class="t-val accent" id="tkSince">${sinceLatest}</span>&nbsp;<span class="t-label">ago (live)</span></div>`,
+      `<div class="ticker-item"><span class="t-label">EST. METER NOW ≈</span>&nbsp;<span class="t-val green" id="tkEstNow">${approxNow.toFixed(1)}</span>&nbsp;<span class="t-label">units (live)</span></div>`,
+      `<div class="ticker-item"><span class="t-label">EST. USED SINCE LAST</span>&nbsp;<span class="t-val yellow" id="tkEstUsed">${projectedSinceLatest.toFixed(2)}</span>&nbsp;<span class="t-label">units (live)</span></div>`,
+    ];
+    track.innerHTML = items.join('') + items.join('');
+    track.dataset.built = '1';
+  } else {
+    // Just update the live values — no HTML rebuild = no animation stutter
+    const s = document.getElementById('tkSince');    if (s) s.textContent = sinceLatest;
+    const e = document.getElementById('tkEstNow');   if (e) e.textContent = approxNow.toFixed(1);
+    const u = document.getElementById('tkEstUsed');  if (u) u.textContent = projectedSinceLatest.toFixed(2);
+  }
 }
 
 
@@ -3249,7 +3286,8 @@ window.onload = async () => {
 
   setSyncStatus('synced');
   renderAll();
-  setInterval(() => { renderTicker(); updateTickerPanel(); }, 60000);
+  // Update live ticker values every 30s (no HTML rebuild — just text node updates)
+  setInterval(() => { renderTicker(); updateTickerPanel(); }, 30000);
 };
 
 // =================== OCR METER SCAN ===================
@@ -3282,13 +3320,28 @@ function preprocessLCDCanvas(srcCanvas, srcVideo) {
   const ctx2 = roi.getContext('2d');
   const imgd = ctx2.getImageData(0, 0, rw, rh);
   const d = imgd.data;
+
+  // Pass 1: Find the brightest orange pixels to calibrate threshold dynamically
+  let maxOrangeScore = 0;
   for (let i = 0; i < d.length; i += 4) {
     const r = d[i], g = d[i+1], b = d[i+2];
-    // Orange LCD: high R, moderate G, low B — R > 160, R > G*1.3, B < 100
-    const isOrange = r > 140 && r > g * 1.2 && b < 120;
-    // Also catch bright white/yellow glare areas
-    const isBright = r > 200 && g > 200 && b > 150;
-    const keep = isOrange || isBright;
+    // Orange score: red dominance + green suppression + blue suppression
+    const score = r - b * 0.8 - Math.abs(g - r * 0.55) * 0.5;
+    if (score > maxOrangeScore) maxOrangeScore = score;
+  }
+  // Adaptive threshold: use 35% of peak orange score (works for dim/bright LCDs)
+  const orangeThresh = Math.max(60, maxOrangeScore * 0.35);
+
+  // Pass 2: isolate digits — dark on white output
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i+1], b = d[i+2];
+    // Orange/amber LCD segment: R dominant, G moderate, B low
+    const orangeScore = r - b * 0.8 - Math.abs(g - r * 0.55) * 0.5;
+    // Also catch bright/white glare (full brightness blowout)
+    const brightness = (r + g + b) / 3;
+    const isGlare = brightness > 210 && Math.max(r,g,b) - Math.min(r,g,b) < 40;
+    const isOrange = orangeScore > orangeThresh && r > 100;
+    const keep = isOrange || isGlare;
     d[i] = d[i+1] = d[i+2] = keep ? 0 : 255;  // black digit on white bg
     d[i+3] = 255;
   }
@@ -3325,8 +3378,8 @@ async function startOCR() {
     ocrWorker = await Tesseract.createWorker('eng');
     await ocrWorker.setParameters({
       tessedit_char_whitelist: '0123456789.',
-      tessedit_pageseg_mode:   '7',   // treat as single line
-      user_defined_dpi:        '150',
+      tessedit_pageseg_mode:   '13',  // raw line — best for isolated digit rows
+      user_defined_dpi:        '300', // higher DPI for upscaled image
     });
     document.getElementById('ocrStatus').textContent = 'Starting camera...';
     ocrStream = await navigator.mediaDevices.getUserMedia({
@@ -3524,23 +3577,62 @@ function runWattLoop() {
   // Draw full frame into 32x32
   ctx.drawImage(video, 0, 0, 32, 32);
 
-  // Sample center 16x16 region (pixels 8..23 in both axes) — where LED likely is
-  const px = ctx.getImageData(8, 8, 16, 16).data;
+  // ── IMPROVED BLINK DETECTION ──
+  // The red LED is a TINY dot that flashes ON briefly then goes OFF.
+  // Problem with area sampling: if the whole meter face is reddish/orange,
+  // the center patch always reads "red" → false triggers.
+  //
+  // Better approach:
+  //   1. Sample 9 small non-overlapping patches across the frame
+  //   2. Find the PEAK red patch (most red-dominant region)
+  //   3. Look for a SUDDEN increase vs recent average → that's the blink
+  //
+  // This filters out the ambient reddish LCD body which stays constant.
 
-  let r=0, g=0, b=0, n=0;
-  for (let i = 0; i < px.length; i += 4) {
-    r += px[i]; g += px[i+1]; b += px[i+2]; n++;
-  }
-  r/=n; g/=n; b/=n;
+  const patches = [
+    {x:6,  y:6,  w:4, h:4},
+    {x:14, y:6,  w:4, h:4},
+    {x:22, y:6,  w:4, h:4},
+    {x:6,  y:14, w:4, h:4},
+    {x:14, y:14, w:4, h:4},  // center
+    {x:22, y:14, w:4, h:4},
+    {x:6,  y:22, w:4, h:4},
+    {x:14, y:22, w:4, h:4},
+    {x:22, y:22, w:4, h:4},
+  ];
 
-  // redScore: how much more red than other channels (orange LED = high R, medium G, low B)
-  const redScore = r - Math.max(g, b);
-  const brightness = (r + g + b) / 3;
+  let patchScores = patches.map(p => {
+    const px = ctx.getImageData(p.x, p.y, p.w, p.h).data;
+    let r=0, g=0, b=0, n=0;
+    for (let i=0; i<px.length; i+=4) { r+=px[i]; g+=px[i+1]; b+=px[i+2]; n++; }
+    r/=n; g/=n; b/=n;
+    // Red score: how RED vs everything else (orange = high R, med G, low B)
+    return r - Math.max(g, b) * 0.9;
+  });
+
+  // Peak patch score
+  const peakScore = Math.max(...patchScores);
+  const peakIdx   = patchScores.indexOf(peakScore);
+
+  // Track rolling baseline (average of last 8 frames) for the peak patch region
+  if (!runWattLoop._history) runWattLoop._history = [];
+  runWattLoop._history.push(peakScore);
+  if (runWattLoop._history.length > 8) runWattLoop._history.shift();
+  const baseline = runWattLoop._history.reduce((a,b)=>a+b,0) / runWattLoop._history.length;
+
+  // A blink = peak score suddenly MUCH higher than recent baseline
+  // This ignores the constant reddish ambient level
+  const wattThreshDyn = wattThreshold; // user slider: default 30 = "30 units above baseline"
+  const isLit = (peakScore - baseline) > wattThreshDyn && peakScore > 40;
+
+  // Also get brightness of the peak patch for debug
+  const peakPatch = patches[peakIdx];
+  const px2 = ctx.getImageData(peakPatch.x, peakPatch.y, peakPatch.w, peakPatch.h).data;
+  let r2=0, g2=0, b2=0, n2=0;
+  for (let i=0;i<px2.length;i+=4){r2+=px2[i];g2+=px2[i+1];b2+=px2[i+2];n2++;}
+  const brightness = (r2/n2+g2/n2+b2/n2)/3;
 
   const ind = document.getElementById('wattBlinkIndicator');
-
-  // Rising-edge detection: transition from NOT-lit to LIT state
-  const isLit = redScore > wattThreshold && brightness > 60 && r > 120;
 
   if (isLit && !wattLedWasLit) {
     // Rising edge — this is a new blink
@@ -3561,7 +3653,7 @@ function runWattLoop() {
 
   // Show live red score in debug label when idle
   if (!isLit && wattBlinkTimes.length === 0) {
-    document.getElementById('wattBlinkLabel').textContent = 'Watching… red=' + redScore.toFixed(0) + ' brt=' + brightness.toFixed(0);
+    document.getElementById('wattBlinkLabel').textContent = 'Watching… peak=' + peakScore.toFixed(0) + ' base=' + baseline.toFixed(0) + ' Δ=' + (peakScore-baseline).toFixed(0);
   }
 
   wattLedWasLit = isLit;
@@ -3827,7 +3919,7 @@ function renderAnalysis() {
         '</div>';
       } else {
         // Missing month — grey dashed row with "Add" hint
-        chartHtml += '<div class="month-bar-row" style="cursor:pointer;opacity:0.45" onclick="switchTab(\'cycles\')" title="No reading — tap to add">' +
+        chartHtml += '<div class="month-bar-row" style="cursor:pointer;opacity:0.65" onclick="jumpToAddMissingCycle(\'' + key + '\')" title="No reading — tap to add">' +
           '<div class="month-bar-label" style="color:#4a5f7a">' + mLabel + '</div>' +
           '<div class="month-bar-track" style="border:1px dashed #2a3f5a;background:transparent">' +
             '<div style="font-size:9px;color:#4a5f7a;padding:2px 6px">— missing · tap to add</div>' +
