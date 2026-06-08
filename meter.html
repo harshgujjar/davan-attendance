@@ -1652,7 +1652,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.8.2";
+const APP_VERSION = "v2.8.3";
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -3445,19 +3445,15 @@ function preprocessLCDCanvas(srcCanvas, srcVideo) {
   const effectiveThresh = orangeFrac > 0.10 ? avgLum * 0.75 : 0; // 0 = nothing fires
 
   // Step 3b: binarize
-  // The "Ph" and "kW h" labels are in the TOP ~30% of the LCD area
-  // The digits fill the bottom 70% nearly edge-to-edge
-  const maskRowsTop = Math.round(rh * 0.28); // mask top 28% — cuts "Ph kW h" row
-  const maskRowsBot = Math.round(rh * 0.10); // mask bottom 10% — orange border
-  const maskLeftCols = Math.round(rw * 0.05); // mask left 5% — frame edge only
-  const maskRightCols = Math.round(rw * 0.18); // mask right 18% — kWh symbol + green button
+  // Top mask cuts the "Ph kW h" small-label row; bottom mask cuts orange border
+  // NO left/right masks — blob height filtering in decoder handles label noise
+  const maskRowsTop = Math.round(rh * 0.28);
+  const maskRowsBot = Math.round(rh * 0.08);
   const bw = new Uint8Array(n);
   for (let i = 0; i < d.length; i += 4) {
     const idx = i >> 2;
     const row = Math.floor(idx / rw);
-    const col = idx % rw;
-    if (row < maskRowsTop || row >= rh - maskRowsBot ||
-        col < maskLeftCols || col >= rw - maskRightCols) { bw[idx] = 0; continue; }
+    if (row < maskRowsTop || row >= rh - maskRowsBot) { bw[idx] = 0; continue; }
     const lum = (d[i]+d[i+1]+d[i+2])/3;
     bw[idx] = lum < effectiveThresh ? 1 : 0;
   }
@@ -3571,10 +3567,14 @@ function sevenSegDecode(bw, w, h) {
     }
     const bh = yMax - yMin + 1;
 
-    // Decimal point: much narrower AND shorter than digits, appears low in frame
-    // Use stricter check — must be BOTH narrow (< 35% of medW) AND short (< 30% of h)
-    // This prevents the last digit (if slightly narrow) being eaten as a dot
-    if (bw2 < medW * 0.35 && bh < h * 0.30) {
+    // ── Height filter: real 7-seg digits are tall ──
+    // kWh label, Ph text, green button noise = short blobs (< 30% of ROI height)
+    // Real digits = tall blobs (> 30% of ROI height)
+    // Skip short blobs entirely — they are labels, not digits
+    if (bh < h * 0.30) continue;
+
+    // Decimal point: narrow AND short AND appears in lower 60% of ROI
+    if (bw2 < medW * 0.35 && bh < h * 0.25 && yMin > h * 0.40) {
       dotPending = true;
       continue;
     }
@@ -3783,17 +3783,13 @@ async function ocrTestFromPhoto(event) {
     const darkThresh = orangeFrac2 > 0.10 ? avgLum * 0.75 : 0;
 
     // Binarize: dark pixels = digit segments
-    const maskRows = Math.round(rh2 * 0.28);    // top 28% — Ph/kWh row
-    const maskRowsBot = Math.round(rh2 * 0.10); // bottom 10% — border
-    const maskLeftCols2 = Math.round(rw2 * 0.05);  // left 5% — frame
-    const maskRightCols = Math.round(rw2 * 0.18);  // right 18% — kWh symbol
+    const maskRows = Math.round(rh2 * 0.28);
+    const maskRowsBot = Math.round(rh2 * 0.08);
     const bw = new Uint8Array(n);
     for (let i = 0; i < d.length; i += 4) {
       const idx = i >> 2;
       const row = Math.floor(idx / rw2);
-      const col = idx % rw2;
-      if (row < maskRows || row >= rh2 - maskRowsBot ||
-          col < maskLeftCols2 || col >= rw2 - maskRightCols) { bw[idx] = 0; continue; }
+      if (row < maskRows || row >= rh2 - maskRowsBot) { bw[idx] = 0; continue; }
       const lum2 = (d[i]+d[i+1]+d[i+2])/3;
       bw[idx] = lum2 < darkThresh ? 1 : 0;
     }
