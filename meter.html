@@ -861,12 +861,36 @@
   <div class="progress-section">
     <div class="progress-label">
       <span style="color:var(--muted);font-size:11px">Units Used This Cycle</span>
-      <span id="progressText" style="font-size:11px">0 / 200</span>
+      <span id="progressText" style="font-size:11px;font-weight:700">0 used / 200 cap</span>
     </div>
-    <div class="progress-bar">
-      <div class="progress-fill" id="progressFill" style="width:0%;background:var(--green)"></div>
+    <!-- Bar with 164 free-limit and 200 subsidy-cap markers -->
+    <div style="position:relative;height:20px;margin-bottom:2px">
+      <div style="position:absolute;top:6px;left:0;right:0;height:8px;background:#1e2d45;border-radius:4px;overflow:visible">
+        <!-- Actual used fill -->
+        <div id="progressFill" style="height:100%;width:0%;background:var(--green);border-radius:4px;transition:width 0.5s ease;position:relative;z-index:1"></div>
+      </div>
+      <!-- 164 marker -->
+      <div id="marker164" style="position:absolute;top:0;width:2px;height:100%;background:var(--yellow);border-radius:1px;z-index:2"></div>
+      <!-- 200 marker (right edge) -->
+      <div style="position:absolute;top:0;right:0;width:2px;height:100%;background:var(--red);border-radius:1px;z-index:2"></div>
     </div>
-    <div style="margin-top:8px;font-size:10px;color:var(--muted)" id="subsidyStatus">Calculating...</div>
+    <!-- Marker labels row -->
+    <div style="position:relative;height:13px;font-size:9px;margin-bottom:8px">
+      <span id="label164" style="position:absolute;color:var(--yellow);transform:translateX(-50%)">164</span>
+      <span style="position:absolute;right:0;color:var(--red);transform:translateX(50%)">200</span>
+    </div>
+    <!-- Legend -->
+    <div style="display:flex;gap:12px;font-size:9px;color:var(--muted);margin-bottom:6px">
+      <span><span style="color:var(--green)">█</span> Actual used</span>
+      <span><span style="color:var(--yellow)">│</span> Free limit (164)</span>
+      <span><span style="color:var(--red)">│</span> Subsidy cap (200)</span>
+    </div>
+    <!-- Projected line -->
+    <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:4px">
+      <span style="color:var(--muted)">Projected (<span id="progDailyLbl">—</span>/day × 30d)</span>
+      <span id="progressProjected" style="font-weight:700;color:var(--yellow)">—</span>
+    </div>
+    <div style="font-size:10px;color:var(--muted)" id="subsidyStatus">Calculating...</div>
   </div>
 
   <!-- STATIC TICKER DATA PANEL -->
@@ -2385,8 +2409,14 @@ function getStats() {
   if (!latest) return null;
 
   const latestUnits = latest.u;
-  const billUnits = parseFloat(billCycle.units) || 0;
-  const billDate = new Date(billCycle.date + 'T00:00:00');
+  // Auto-derive cycle start from latest bill-date reading (type=bill or meter)
+  // that is strictly before the latest regular reading — falls back to manual billCycle
+  const billRdgsSorted = [...readings]
+    .filter(r => r.type === "bill" || r.type === "meter")
+    .sort((a, b) => new Date(b.d + "T" + (b.t||"00:00")) - new Date(a.d + "T" + (a.t||"00:00")));
+  const latestBillRdg = billRdgsSorted.find(r => r.u < latestUnits) || billRdgsSorted[0];
+  const billUnits = latestBillRdg ? latestBillRdg.u : (parseFloat(billCycle.units) || 0);
+  const billDate  = new Date((latestBillRdg ? latestBillRdg.d : billCycle.date) + "T00:00:00");
   const today = new Date();
   today.setHours(0,0,0,0);
 
@@ -2404,14 +2434,12 @@ function getStats() {
   // Total cycle days = from last bill date to next bill date
   const totalCycleDays = Math.round((nextBill - billDate) / 86400000);
 
-  // Daily avg = units used ÷ (latest reading date − bill date − 1)
-  // Excludes both the bill day itself and the reading day (counts only full days between)
-  // e.g. bill 9 May, reading 6 Jun → (28 days apart) - 1 = 27 days of actual consumption
   const latestReadingDT = new Date(latest.d + 'T' + (latest.t || '00:00'));
   const latestReadingDT0 = new Date(latestReadingDT); latestReadingDT0.setHours(0,0,0,0);
   const daysToLatest = Math.max(1, Math.round((latestReadingDT0 - billDate) / 86400000) - 1);
-  const dailyAvg = unitsUsed / daysToLatest;
-  // Project using dailyAvg × 30 (standard monthly basis, matches your bill calculation)
+  // Daily avg: use weighted rate (w×6) — same as ticker, reliable across multiple days
+  const _wr = getWeightedRate();
+  const dailyAvg = _wr ? _wr.unitsPerDay : (unitsUsed / daysToLatest);
   const projected30 = dailyAvg * 30;
   const projectedAtBill = dailyAvg * 30;
 
@@ -2729,12 +2757,27 @@ function renderDashboard() {
   document.getElementById('statTillBill').textContent = s.daysToBill + 'd';
   document.getElementById('statTillBillLbl').innerHTML = 'Days to Bill<br><span style="font-size:8px;color:var(--muted)">Bill: ' + fmtMed(s.nextBill) + '</span>';
 
-  const pct = Math.min(100, (s.projectedAtBill / settings.subsidy) * 100);
+  // Bar = actual units used (not projected) out of 200 cap
+  const pct = Math.min(100, (s.unitsUsed / settings.subsidy) * 100);
   document.getElementById('progressFill').style.width = pct + '%';
   document.getElementById('progressFill').style.background =
-    pct < 70 ? 'var(--green)' : pct < 100 ? 'var(--yellow)' : 'var(--red)';
+    s.unitsUsed <= settings.freeUnits ? 'var(--green)' : s.unitsUsed < settings.subsidy ? 'var(--yellow)' : 'var(--red)';
   document.getElementById('progressText').textContent =
-    s.unitsUsed.toFixed(0) + ' used / ' + settings.subsidy + ' free';
+    s.unitsUsed.toFixed(1) + ' used / 164 free / 200 cap';
+  // Position 164 marker
+  const m164 = document.getElementById('marker164');
+  if (m164) m164.style.left = (settings.freeUnits / settings.subsidy * 100).toFixed(1) + '%';
+  const l164 = document.getElementById('label164');
+  if (l164) l164.style.left = (settings.freeUnits / settings.subsidy * 100).toFixed(1) + '%';
+  // Projected
+  const projEl = document.getElementById('progressProjected');
+  if (projEl) {
+    const proj = s.projected30;
+    projEl.textContent = proj.toFixed(1) + ' units';
+    projEl.style.color = proj >= settings.subsidy ? 'var(--red)' : proj > settings.freeUnits ? 'var(--yellow)' : 'var(--green)';
+    const dLbl = document.getElementById('progDailyLbl');
+    if (dLbl) dLbl.textContent = s.dailyAvg.toFixed(2);
+  }
   const statusEl = document.getElementById('subsidyStatus');
   if (s.billMode === 'zero') {
     statusEl.textContent = '✅ Within your free limit (' + settings.freeUnits + ' units) — Zero Bill';
@@ -2879,7 +2922,7 @@ function renderDashboard() {
       '<div class="calc-row divider"><div class="hr"></div></div>' +
       '<div class="calc-row">' +
         '<span class="calc-sign plus">+</span>' +
-        '<span class="calc-label">Units Used So Far <span style="font-size:9px;color:var(--muted)">' + fmtMed(s.billDate) + ' → ' + formatDate(latest.d) + '</span></span>' +
+        '<span class="calc-label">Units Used So Far <span style="font-size:9px;color:var(--muted)">' + fmtMed(s.billDate) + ' → ' + formatDate(latest.d) + (latest.t && latest.t !== '00:00' ? ' ' + fmt12h(latest.t) : '') + '</span></span>' +
         '<span class="calc-value green">' + s.unitsUsed.toFixed(2) + '</span>' +
       '</div>' +
       '<div class="calc-row">' +
