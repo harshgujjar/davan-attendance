@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v5.15";                                             ║
+║     const APP_VERSION = "v5.17";                                             ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -40,7 +40,27 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  v5.15 2026-06-15  SCRAPE 2 default changed 22:00 → 13:00 (1:00 pm) in       ║
+║  v5.17 2026-06-15  Fix: v5.16's PNG icon rendering broke the favicon/       ║
+║                    apple-touch-icon too (showed blank tab icon). Cause: the  ║
+║                    SVG template already escapes # as %23 (e.g.              ║
+║                    fill='%230b0d11'), but svgToPng() additionally wrapped    ║
+║                    it in encodeURIComponent(), double-encoding %23 →        ║
+║                    %2523 — so after URI-decoding, fill='%230b0d11' is an    ║
+║                    invalid CSS color and the rect/text render invisible.    ║
+║                    Removed the extra encodeURIComponent() (matches the      ║
+║                    pre-v5.16 favicon code's working pattern). SW cache       ║
+║                    bumped to puc-dash-v5.17.                                 ║
+║                    blank/black. Cause: manifest icons used                   ║
+║                    data:image/svg+xml URIs with purpose "any maskable" —     ║
+║                    Android's installer often can't rasterize these for the  ║
+║                    home-screen/splash icon (desktop favicon worked because  ║
+║                    it's set via a separate <link> PNG). Fix: render the 'P'  ║
+║                    logo to PNG via canvas at 180/192/512px and use those     ║
+║                    PNG data URIs for manifest icons (separate "any" and      ║
+║                    "maskable" entries), apple-touch-icon, and favicon.       ║
+║                    SW cache bumped to puc-dash-v5.16 so the new manifest is  ║
+║                    picked up — re-install ("Add to Home Screen") needed for  ║
+║                    existing home-screen shortcuts to get the new icon.       ║
 ║                    SP_SCHED_DEFAULT + HTML input default. One-time          ║
 ║                    migration in spSchedLoad(): if a saved schedule still     ║
 ║                    has t2==="22:00" (old default), it's rewritten to        ║
@@ -1917,61 +1937,71 @@
 <!-- PWA Manifest injected via blob URL at runtime (see script below) -->
 <script>
 (function(){
-  // ── Manifest ──────────────────────────────────────────────────────────────
-  const manifest = {
-    name: "PUC Dashboard — Davan",
-    short_name: "PUC Dash",
-    description: "DAVAN PUC Attendance & Marks Dashboard",
-    start_url: "./",
-    display: "standalone",
-    background_color: "#0b0d11",
-    theme_color: "#f0a500",
-    orientation: "portrait-primary",
-    icons: [
-      {
-        src: "data:image/svg+xml," + encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='28' fill='%230b0d11'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' font-family='Arial Black,sans-serif' font-size='110' font-weight='900' fill='%23f0a500'>P</text></svg>`),
-        sizes: "192x192",
-        type: "image/svg+xml",
-        purpose: "any maskable"
-      },
-      {
-        src: "data:image/svg+xml," + encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='72' fill='%230b0d11'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' font-family='Arial Black,sans-serif' font-size='300' font-weight='900' fill='%23f0a500'>P</text></svg>`),
-        sizes: "512x512",
-        type: "image/svg+xml",
-        purpose: "any maskable"
-      }
-    ],
-    categories: ["education", "productivity"],
-    shortcuts: [
-      { name: "Students", short_name: "Students", url: "./#students", description: "View attendance" },
-      { name: "Date Report", short_name: "Date", url: "./#date-report", description: "Daily report" }
-    ]
-  };
+  // ── Icon generation: render SVG → PNG via canvas ─────────────────────────
+  // Android's "Add to Home screen" installer has poor/inconsistent support
+  // for data:image/svg+xml icons in the manifest (often falls back to a
+  // blank/generic icon), even though the same SVG works fine as a favicon
+  // via <link>. PNG data URIs are reliably accepted for the home-screen
+  // icon, splash screen, and apple-touch-icon, so render everything to PNG.
+  function svgToPng(size, cb) {
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${size} ${size}'><rect width='${size}' height='${size}' rx='${Math.round(size*0.156)}' fill='%230b0d11'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' font-family='Arial Black,sans-serif' font-size='${Math.round(size*0.585)}' font-weight='900' fill='%23f0a500'>P</text></svg>`;
+    const img = new Image();
+    img.onload = function(){
+      const c = document.createElement('canvas'); c.width = c.height = size;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, size, size);
+      cb(c.toDataURL('image/png'));
+    };
+    img.src = 'data:image/svg+xml,' + svg;
+  }
 
-  const blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
-  const link = document.createElement('link');
-  link.rel = 'manifest';
-  link.href = URL.createObjectURL(blob);
-  document.currentScript.parentNode.appendChild(link);
+  // ── Manifest (built once PNG icons are ready) ────────────────────────────
+  function buildManifest(png192, png512, png180) {
+    const manifest = {
+      name: "PUC Dashboard — Davan",
+      short_name: "PUC Dash",
+      description: "DAVAN PUC Attendance & Marks Dashboard",
+      start_url: "./",
+      display: "standalone",
+      background_color: "#0b0d11",
+      theme_color: "#f0a500",
+      orientation: "portrait-primary",
+      icons: [
+        { src: png192, sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: png192, sizes: "192x192", type: "image/png", purpose: "maskable" },
+        { src: png512, sizes: "512x512", type: "image/png", purpose: "any" },
+        { src: png512, sizes: "512x512", type: "image/png", purpose: "maskable" }
+      ],
+      categories: ["education", "productivity"],
+      shortcuts: [
+        { name: "Students", short_name: "Students", url: "./#students", description: "View attendance" },
+        { name: "Date Report", short_name: "Date", url: "./#date-report", description: "Daily report" }
+      ]
+    };
 
-  // ── Apple Touch Icon (inline SVG → PNG via canvas) ─────────────────────
-  const iconSvg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%230b0d11'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' font-family='Arial Black,sans-serif' font-size='105' font-weight='900' fill='%23f0a500'>P</text></svg>`;
-  const img = new Image();
-  img.onload = function(){
-    const c = document.createElement('canvas'); c.width = c.height = 180;
-    c.getContext('2d').drawImage(img,0,0,180,180);
+    const blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = URL.createObjectURL(blob);
+    document.currentScript ? document.currentScript.parentNode.appendChild(link) : document.head.appendChild(link);
+
+    // ── Apple Touch Icon + favicon (PNG) ───────────────────────────────────
     const apple = document.createElement('link');
-    apple.rel = 'apple-touch-icon'; apple.href = c.toDataURL('image/png');
+    apple.rel = 'apple-touch-icon'; apple.href = png180;
     document.head.appendChild(apple);
     const favicon = document.createElement('link');
-    favicon.rel = 'icon'; favicon.type = 'image/png'; favicon.href = c.toDataURL('image/png');
+    favicon.rel = 'icon'; favicon.type = 'image/png'; favicon.href = png192;
     document.head.appendChild(favicon);
-  };
-  img.src = 'data:image/svg+xml,' + iconSvg;
+  }
+
+  let png192, png512, png180, ready = 0;
+  svgToPng(192, (d) => { png192 = d; if (++ready === 3) buildManifest(png192, png512, png180); });
+  svgToPng(512, (d) => { png512 = d; if (++ready === 3) buildManifest(png192, png512, png180); });
+  svgToPng(180, (d) => { png180 = d; if (++ready === 3) buildManifest(png192, png512, png180); });
 
   // ── Service Worker ────────────────────────────────────────────────────────
   if ('serviceWorker' in navigator) {
-    const CACHE = 'puc-dash-v4.91';
+    const CACHE = 'puc-dash-v5.17';
     const NETWORK_FIRST = [
       'firebaseapp.com','firebaseio.com','googleapis.com',
       'gstatic.com','anthropic.com','rovelabs'
@@ -5584,7 +5614,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.15";
+const APP_VERSION = "v5.17";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
