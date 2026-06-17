@@ -7,9 +7,9 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.37                                                       ║
-║  FILE NAME       : puc_v5.37.html                                              ║
-║  LAST UPDATED    : 2026-06-16                                                ║
+║  CURRENT VERSION : v5.40                                                       ║
+║  FILE NAME       : puc_v5.40.html                                              ║
+║  LAST UPDATED    : 2026-06-17                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  RULES FOR CLAUDE — READ BEFORE MAKING ANY CHANGES                          ║
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v5.37";                                             ║
+║     const APP_VERSION = "v5.40";                                             ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -39,6 +39,33 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v5.40 2026-06-17  Feature: Student Results modal now has an ANNUAL EXAM /     ║
+║          INTERNALS toggle. Previously the summary stats (PASS/FAIL/ABSENT/    ║
+║          rank/result) were hardcoded to 'Annual Examination' marks even when  ║
+║          the table showed IA columns, causing a confusing mismatch where the  ║
+║          title said "Annual Examination Results" while every stat showed AB. ║
+║          Now: ANNUAL mode shows Annual exam stats + single Annual column;     ║
+║          INTERNALS mode reveals a dropdown (IA-1..IA-5, only those with data) ║
+║          and recomputes stats + table column for whichever IA is selected.    ║
+║          Toggle resets to Annual whenever a new student's modal is opened.    ║
+║                                                                              ║
+║  v5.39 2026-06-17  Fix: Added grid-key integrity guard for 2PUC COM. Bug:      ║
+║          a one-off manual data fix had written subject rows under short day   ║
+║          keys (Mon/Tue/...) instead of the canonical TT_DAYS keys (Monday/    ║
+║          Tuesday/...) that the renderer reads, leaving the grid blank          ║
+║          despite Firestore having the data. ttComLoadById() now rebuilds      ║
+║          each section's grid using ONLY TT_DAYS keys on load (display-only,   ║
+║          no extra write), and ttComSave() normalizes/strips stray keys and    ║
+║          pads rows to the current period count before every save, so this    ║
+║          class of bug self-heals and can't silently recur.                    ║
+║                                                                              ║
+║  v5.38 2026-06-17  Fix: 2PUC COM "New Timetable" now inherits periods from     ║
+║          the currently loaded timetable instead of resetting to TT_DEFAULT_  ║
+║          PERIODS seed. Previously clicking New TT always defaulted to old    ║
+║          9:30–4:15 period timings even after you had manually configured the  ║
+║          active timetable with correct 1:15 PM start / 5:30 end timings.     ║
+║          ttComNewTT() now copies periods from ttComData if present.           ║
 ║                                                                              ║
 ║  v5.37 2026-06-17  Fix: §INTERN subjects where ENTIRE class is AB (faculty not  ║
 ║          submitted) are excluded from pass/fail check per student; absentAll   ║
@@ -5838,7 +5865,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.37";
+const APP_VERSION = "v5.40";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -12293,6 +12320,25 @@ async function ttComLoadById(id) {
       periods:   fbData.periods   ? JSON.parse(JSON.stringify(fbData.periods))   : JSON.parse(JSON.stringify(TT_DEFAULT_PERIODS)),
       grid:      fbData.grid      ? JSON.parse(JSON.stringify(fbData.grid))      : JSON.parse(JSON.stringify(TT_COM_SEED.grid)),
     };
+    // ── Grid integrity guard (display-only, no extra Firestore write) ──
+    // Some grids may contain stray/legacy day keys (e.g. short names like
+    // "Mon" from an old manual edit) alongside the canonical TT_DAYS keys.
+    // Rebuild each section's grid using ONLY TT_DAYS so the renderer always
+    // reads the right row, regardless of what extra keys exist in Firestore.
+    (function ttComNormalizeLoadedGrid() {
+      const periodCount = (ttComData.periods || []).filter(p => p.type === 'period').length;
+      const cleanGrid = {};
+      (ttComData.sections || []).forEach(sec => {
+        cleanGrid[sec] = {};
+        const srcSec = (ttComData.grid || {})[sec] || {};
+        TT_DAYS.forEach(day => {
+          let row = Array.isArray(srcSec[day]) ? srcSec[day].slice(0, periodCount) : [];
+          while (row.length < periodCount) row.push('');
+          cleanGrid[sec][day] = row;
+        });
+      });
+      ttComData.grid = cleanGrid;
+    })();
     // If Firebase had no periods, write the seed periods back NOW so they persist
     if (!fbData.periods) {
       try {
@@ -12312,6 +12358,13 @@ async function ttComLoadById(id) {
 
 // ── New / Clone ─────────────────────────────────────────────────
 function ttComNewTT() {
+  // Inherit periods from the currently loaded timetable (so new TTs keep the
+  // same period timings you just configured), falling back to the built-in seed.
+  const inheritedPeriods = (ttComData && ttComData.periods && ttComData.periods.length)
+    ? JSON.parse(JSON.stringify(ttComData.periods))
+    : JSON.parse(JSON.stringify(TT_DEFAULT_PERIODS));
+  const periodCount = inheritedPeriods.filter(p => p.type === 'period').length;
+
   ttComData = {
     label: '',
     stream: '2PUC COMMERCE',
@@ -12319,14 +12372,14 @@ function ttComNewTT() {
     validTo: '',
     sections: [...TT_DEFAULT_SECTIONS],
     rooms: { ...TT_DEFAULT_ROOMS },
-    periods: JSON.parse(JSON.stringify(TT_DEFAULT_PERIODS)),
+    periods: inheritedPeriods,
     grid: {},
   };
-  // Init empty grid
+  // Init empty grid sized to match inherited period count
   TT_DEFAULT_SECTIONS.forEach(sec => {
     ttComData.grid[sec] = {};
     TT_DAYS.forEach(day => {
-      ttComData.grid[sec][day] = new Array(TT_DEFAULT_PERIODS.filter(p=>p.type==='period').length).fill('');
+      ttComData.grid[sec][day] = new Array(periodCount).fill('');
     });
   });
   ttComIsEdit = true;
@@ -12364,6 +12417,28 @@ async function ttComSave() {
     dvToast('⚠ Fill Label, Valid From, and Valid To', 'warn', 3000); return;
   }
 
+  // ── Grid integrity guard ──
+  // Ensures every section's grid uses ONLY the canonical TT_DAYS keys
+  // (Monday..Saturday) and has a row sized to the current period count.
+  // Strips any stray/legacy keys (e.g. short day names like "Mon") that a
+  // manual data edit or older code path may have introduced, so the saved
+  // document always matches what the renderer expects.
+  (function ttComNormalizeGridBeforeSave() {
+    const periodCount = (ttComData.periods || []).filter(p => p.type === 'period').length;
+    const sections = ttComData.sections || [];
+    const cleanGrid = {};
+    sections.forEach(sec => {
+      cleanGrid[sec] = {};
+      const srcSec = (ttComData.grid || {})[sec] || {};
+      TT_DAYS.forEach(day => {
+        let row = Array.isArray(srcSec[day]) ? srcSec[day].slice(0, periodCount) : [];
+        while (row.length < periodCount) row.push('');
+        cleanGrid[sec][day] = row;
+      });
+    });
+    ttComData.grid = cleanGrid;
+  })();
+
   const btn = document.getElementById('tt-save-btn');
   btn.disabled = true; btn.textContent = '⏳ Saving…';
   try {
@@ -12384,6 +12459,7 @@ async function ttComSave() {
     document.getElementById('tt-history-sel').value = ttComData.id;
     ttComIsEdit = false;
     ttComShowViewMode();
+
   } catch(e) {
     dvToast('❌ Save failed: ' + e.message, 'warn', 4000);
   }
@@ -15081,6 +15157,8 @@ let _mrView    = 'table'; // 'table' | 'card'
 let _mrSort    = { col: 'rank', dir: 'asc' }; // sort state for table view — default: rank
 let _mrmStudent = null;   // currently open modal student
 let mrmFacultyEdits = {}; // usn:code → faculty name (in-memory, persists per session)
+let _mrmResultMode = 'annual'; // 'annual' | 'internals' — which results view is showing in the modal
+let _mrmSelectedIA = '';       // selected IA key when in internals mode (e.g. 'IA - 1')
 
 // ── Faculty grid (assign once per subject, not per student) ──
 function mrBuildFacGrid() {
@@ -15922,6 +16000,9 @@ function mrOpenModal(usn, defaultTab) {
   console.log('[mrOpenModal] Matched student:', s.name, s.usn, s.class, 'courses:', s.courses?.length);
   // Filter exception subjects from modal view too
   _mrmStudent = {...s, courses: (s.courses||[]).filter(c => !excSubjects.has(c.code))};
+  // Reset Results view toggle to default (Annual) for each newly opened student
+  _mrmResultMode = 'annual';
+  _mrmSelectedIA = '';
 
   const parts    = (s.name||'').trim().split(/\s+/);
   const initials = parts.length>=2 ? (parts[0][0]+parts[parts.length-1][0]).toUpperCase() : (s.name||'?')[0].toUpperCase();
@@ -16072,6 +16153,25 @@ function mrmShowTab(tab) {
   else if (tab==='letters')    mrmRenderLetters(body);
 }
 
+function mrmResultModeSwitch(mode) {
+  _mrmResultMode = mode;
+  if (mode === 'internals' && !_mrmSelectedIA) {
+    // Auto-pick the first IA that actually has data for this student
+    const s = _mrmStudent;
+    const courses = s?.courses || [];
+    const examKeys = new Set();
+    courses.forEach(c => Object.keys(c.marks||{}).forEach(k=>examKeys.add(k)));
+    const availableIAs = MR_EXAM_ORDER.filter(e => examKeys.has(e));
+    _mrmSelectedIA = availableIAs[0] || '';
+  }
+  mrmShowTab('results');
+}
+
+function mrmIASelect(val) {
+  _mrmSelectedIA = val;
+  mrmShowTab('results');
+}
+
 function mrmRenderResults(body) {
   const s        = _mrmStudent;
   const passMark = mrGetCurrentPassMark();
@@ -16080,11 +16180,21 @@ function mrmRenderResults(body) {
 
   const examKeys = new Set();
   courses.forEach(c => Object.keys(c.marks||{}).forEach(k=>examKeys.add(k)));
-  const exams = MR_EXAM_ORDER.filter(e=>examKeys.has(e));
+  const availableIAs = MR_EXAM_ORDER.filter(e=>examKeys.has(e));
+  const hasAnnual = courses.some(c => c.marks && Object.prototype.hasOwnProperty.call(c.marks, 'Annual Examination'));
+
+  // -- Mode/IA bookkeeping --
+  if (_mrmResultMode === 'internals' && (!_mrmSelectedIA || !availableIAs.includes(_mrmSelectedIA))) {
+    _mrmSelectedIA = availableIAs[0] || '';
+  }
+  const examKey   = _mrmResultMode === 'annual' ? 'Annual Examination' : _mrmSelectedIA;
+  const examLabel = _mrmResultMode === 'annual' ? 'Annual Examination' : (MR_EXAM_SHORT[_mrmSelectedIA] || _mrmSelectedIA || 'Internals');
+  // Which exam column(s) the table itself shows
+  const exams = examKey ? [examKey] : [];
 
   let passCount=0, failCount=0, abCount=0, grandTotal=0, grandCount=0;
   courses.forEach(c => {
-    const v = c.marks?.['Annual Examination'];
+    const v = examKey ? c.marks?.[examKey] : undefined;
     if (v===undefined||v===null||v==='AB') abCount++;
     else if (Number(v)>=passMark) { passCount++; grandTotal+=Number(v); grandCount++; }
     else { failCount++; grandTotal+=Number(v); grandCount++; }
@@ -16092,33 +16202,58 @@ function mrmRenderResults(body) {
 
   // Summary chips
   // Class result chip: overall PASS only if all subjects pass (no fail, no AB)
-  const _overallResult = passCount===courses.length ? 'PASS' : failCount>0 ? 'FAIL' : 'AB';
+  const _overallResult = courses.length && passCount===courses.length ? 'PASS' : failCount>0 ? 'FAIL' : 'AB';
   const _resultClr = _overallResult==='PASS' ? '#22c55e' : _overallResult==='FAIL' ? '#ef4444' : '#f59e0b';
 
-  // Rank chips — look up from window maps set by mrRender()
+  // Rank chips -- look up from window maps set by mrRender()
   const _sUsnLow = (s.usn||'').toLowerCase();
   const _classRank   = window._mrClassRankMap   ? window._mrClassRankMap.get(_sUsnLow)   : undefined;
   const _collegeRank = window._mrCollegeRankMap ? window._mrCollegeRankMap.get(_sUsnLow) : undefined;
 
   function _rankOrdinal(n) {
-    if (!n) return '—';
+    if (!n) return '\u2014';
     const s2 = String(n), last2 = n % 100;
     if (last2 >= 11 && last2 <= 13) return n + 'th';
     return n + (['th','st','nd','rd','th','th','th','th','th','th'][n % 10] || 'th');
   }
-  const _classRankStr   = _classRank   !== undefined ? _rankOrdinal(_classRank)   : '—';
-  const _collegeRankStr = _collegeRank !== undefined ? _rankOrdinal(_collegeRank) : '—';
+  const _classRankStr   = _classRank   !== undefined ? _rankOrdinal(_classRank)   : '\u2014';
+  const _collegeRankStr = _collegeRank !== undefined ? _rankOrdinal(_collegeRank) : '\u2014';
   const _rankChipBg  = 'rgba(240,165,0,0.12)';
   const _rankChipBrd = 'rgba(240,165,0,0.35)';
 
   // Determine exam label from student class in marks data
-  // s.class is from marks scraper — reflects which PUC year the exam belongs to
+  // s.class is from marks scraper -- reflects which PUC year the exam belongs to
   const _pucLabel = (s.class||'').toUpperCase().includes('1PUC') ? '1st PUC' : '2nd PUC';
   const _examYear = (s.class||'').match(/\d{4}-\d{2}/) ? s.class.match(/\d{4}-\d{2}/)[0] : '';
 
-  let html = `<div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:8px;letter-spacing:0.5px;">
-    📋 <span style="color:#f0a500;font-weight:700;">${_pucLabel} Annual Examination Results</span>
-    <span style="opacity:0.6;margin-left:6px;">(${s.class||'—'})</span>
+  // -- Mode toggle + IA dropdown bar --
+  const _annualActive    = _mrmResultMode === 'annual';
+  const _internalsActive = _mrmResultMode === 'internals';
+  let html = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+    <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+      <button onclick="mrmResultModeSwitch('annual')" style="padding:6px 14px;font-size:10px;font-family:var(--mono);font-weight:700;letter-spacing:0.5px;border:none;cursor:pointer;
+        background:${_annualActive?'var(--accent)':'transparent'};color:${_annualActive?'#000':'var(--muted)'};">ANNUAL EXAM</button>
+      <button onclick="mrmResultModeSwitch('internals')" style="padding:6px 14px;font-size:10px;font-family:var(--mono);font-weight:700;letter-spacing:0.5px;border:none;cursor:pointer;
+        background:${_internalsActive?'var(--accent)':'transparent'};color:${_internalsActive?'#000':'var(--muted)'};">INTERNALS</button>
+    </div>`;
+  if (_internalsActive) {
+    if (availableIAs.length) {
+      html += `<select onchange="mrmIASelect(this.value)" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;padding:5px 8px;">`;
+      availableIAs.forEach(ia => {
+        html += `<option value="${ia}" ${ia===_mrmSelectedIA?'selected':''}>${MR_EXAM_SHORT[ia]||ia}</option>`;
+      });
+      html += `</select>`;
+    } else {
+      html += `<span style="font-family:var(--mono);font-size:10px;color:var(--muted);">No internal assessments recorded yet</span>`;
+    }
+  } else if (!hasAnnual) {
+    html += `<span style="font-family:var(--mono);font-size:10px;color:var(--muted);">No annual exam marks recorded yet</span>`;
+  }
+  html += `</div>`;
+
+  html += `<div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:8px;letter-spacing:0.5px;">
+    \ud83d\udccb <span style="color:#f0a500;font-weight:700;">${_pucLabel} ${examLabel} Results</span>
+    <span style="opacity:0.6;margin-left:6px;">(${s.class||'\u2014'})</span>
   </div>
   <div style="display:grid;grid-template-columns:repeat(4,1fr) 1.1fr 1.1fr 1.2fr;gap:6px;margin-bottom:14px;">
     <div style="background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:10px;text-align:center;">
@@ -16131,7 +16266,7 @@ function mrmRenderResults(body) {
       <div style="font-size:20px;font-weight:700;color:var(--muted);">${abCount}</div>
       <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">ABSENT</div></div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;">
-      <div style="font-size:20px;font-weight:700;color:var(--text);">${grandCount?grandTotal:'—'}</div>
+      <div style="font-size:20px;font-weight:700;color:var(--text);">${grandCount?grandTotal:'\u2014'}</div>
       <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">TOTAL</div></div>
     <div style="background:${_rankChipBg};border:1px solid ${_rankChipBrd};border-radius:8px;padding:10px;text-align:center;">
       <div style="font-size:16px;font-weight:700;color:#f0a500;letter-spacing:0.5px;">${_classRankStr}</div>
@@ -16144,7 +16279,7 @@ function mrmRenderResults(body) {
       <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">CLASS RESULT</div></div>
   </div>`;
 
-  // Compact table — Subject | Faculty (editable) | exam cols | Result
+  // Compact table -- Subject | Faculty (editable) | exam col | Result
   html += `<div style="overflow-x:auto;">
   <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono);">
     <thead>
@@ -16158,11 +16293,11 @@ function mrmRenderResults(body) {
 
   courses.forEach((c, idx) => {
     const subName  = getSubName(c.code);
-    const facName  = _resolveSubjectFaculty(_mrmStudent?.class||'', c.code) || c.faculty || '—';
-    const annualM  = c.marks?.['Annual Examination'];
-    const pass     = annualM!==undefined&&annualM!=='AB'&&!isNaN(Number(annualM))&&Number(annualM)>=passMark;
-    const passClr  = annualM===undefined||annualM==='AB'?'var(--muted)':pass?'#22c55e':'#ef4444';
-    const passLbl  = annualM===undefined||annualM==='AB'?'AB':pass?'PASS':'FAIL';
+    const facName  = _resolveSubjectFaculty(_mrmStudent?.class||'', c.code) || c.faculty || '\u2014';
+    const curM     = examKey ? c.marks?.[examKey] : undefined;
+    const pass     = curM!==undefined&&curM!=='AB'&&!isNaN(Number(curM))&&Number(curM)>=passMark;
+    const passClr  = curM===undefined||curM==='AB'?'var(--muted)':pass?'#22c55e':'#ef4444';
+    const passLbl  = curM===undefined||curM==='AB'?'AB':pass?'PASS':'FAIL';
     const rowBg    = idx%2===0?'transparent':'rgba(255,255,255,0.02)';
 
     html += `<tr style="background:${rowBg};border-bottom:1px solid var(--border);">
