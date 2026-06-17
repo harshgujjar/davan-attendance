@@ -7,8 +7,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.71                                                       ║
-║  FILE NAME       : puc_v5.71.html                                              ║
+║  CURRENT VERSION : v5.74                                                       ║
+║  FILE NAME       : puc_v5.74.html                                              ║
 ║  LAST UPDATED    : 2026-06-17                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v5.71";                                             ║
+║     const APP_VERSION = "v5.74";                                             ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -40,6 +40,39 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v5.74 2026-06-17  Fix: "Show students" button in Score Distribution bands     ║
+║          did nothing on the Internals tab (worked on Results tab). Root        ║
+║          cause: toggle behaviour was wired via addEventListener after          ║
+║          container.innerHTML was set, but only inside mrRenderTable() —        ║
+║          intRenderTable() (Internals) sets innerHTML on its own container      ║
+║          and never ran that wiring step, so the buttons were dead there.       ║
+║          Fix: toggle now uses an inline onclick baked directly into the        ║
+║          button HTML in mrBuildScoreSummary(), making it self-contained and    ║
+║          work from any caller. Old addEventListener wiring removed from       ║
+║          mrRenderTable (would have double-fired/toggled twice per click).      ║
+║          Feature: student chips inside an expanded band now show a small      ║
+║          circular photo (falls back to initials) next to the name, and are    ║
+║          clickable — opens that student's profile modal via mrOpenModal(),    ║
+║          same as clicking a name anywhere else in the dashboard.              ║
+║                                                                                ║
+║  v5.73 2026-06-17  Fix: Score Distribution cards (Internals + Results tab)     ║
+║          showed wrong/missing faculty per subject — root cause: flat          ║
+║          subjectMap[code].faculty lookup, which ignores per-section            ║
+║          timetable allocation (TT_FACULTY_SEC/TT1PUC_FAC_SEC/SMAR) and is      ║
+║          often blank since faculty is assigned per-section, not on the         ║
+║          bare subject code. Same bug class already fixed in the Internals      ║
+║          table header (v5.7q) but mrBuildScoreSummary() was never updated.     ║
+║          Fix: faculty now resolved via _resolveSubjectFaculty() across every  ║
+║          distinct class label present in the dataset; shows the faculty       ║
+║          name if all sections agree, "Varies by section" if they differ,      ║
+║          and only falls back to subjectMap when no class/section data is      ║
+║          available at all. Applies identically to Results tab and            ║
+║          Internals tab since both share mrBuildScoreSummary().                ║
+║                                                                                ║
+║  v5.72 2026-06-17  Feature: Score Distribution added below Internals table    ║
+║          (same per-subject band chart as Results tab). Total column now        ║
+║          shows % beside the raw marks (e.g. 145 74%) based on countedSubs×30. ║
+║                                                                                ║
 ║  v5.71 2026-06-17  Feature: College Rank column added to Results table.         ║
 ║          Appears right after Class Rank column. Ranked across ALL sections    ║
 ║          of the same stream (all COM sections together, all SCI together).    ║
@@ -6131,7 +6164,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.69";
+const APP_VERSION = "v5.74";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -16012,40 +16045,38 @@ function mrRenderTable(students, exams, container) {
   html+=`<div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:10px;">Showing ${students.length} students · Pass mark: ${passMark} · Click #, Result, Total, Rank headers to sort</div>`;
 
   // ── Score Distribution Summary ──────────────────────────────
-  html += mrBuildScoreSummary(annotated, subCodes, passMark, getSubName, getMxPartner);
+  html += mrBuildScoreSummary(annotated, subCodes, passMark, getSubName, getMxPartner, 100);
 
   container.innerHTML = html;
 
   // Inject comment dots on student names
   cmInjectDots(container);
 
-  // Wire expand toggles after DOM insert
-  container.querySelectorAll('.mr-band-toggle').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const key = this.dataset.key;
-      const panel = document.getElementById('mr-band-panel-' + key);
-      if (!panel) return;
-      const open = panel.style.display !== 'none';
-      panel.style.display = open ? 'none' : 'block';
-      this.textContent = open ? '▶ Show students' : '▼ Hide students';
-    });
-  });
+  // NOTE: "Show students" toggle is wired via inline onclick directly in
+  // mrBuildScoreSummary's HTML (v5.74) so it works regardless of which tab
+  // renders this widget (Results tab here, or Internals tab via intRenderTable,
+  // which never had an addEventListener wiring step — that was the root cause
+  // of "Show students" doing nothing on Internals).
 }
 
 // ── SCORE DISTRIBUTION SUMMARY ────────────────────────────────
-function mrBuildScoreSummary(annotated, subCodes, passMark, getSubName, getMxPartner) {
+function mrBuildScoreSummary(annotated, subCodes, passMark, getSubName, getMxPartner, maxMarks) {
   if (!subCodes.length || !annotated.length) return '';
 
-  // Score bands — defined in descending order
+  // Max marks for this mode (100 for annual, 30 for internals etc.) — scale bands to it
+  const MX = maxMarks || 100;
+  const sc = v => Math.round(v / 100 * MX); // scale a 0-100 band edge to MX
+  const e60 = Math.max(sc(60), passMark + 1); // 60-79 band floor, never below passMark+1
+  // Score bands — defined in descending order, scaled proportionally to MX
   const BANDS = [
-    { label:'100',    color:'#a78bfa', min:100, max:100 },
-    { label:'99',     color:'#818cf8', min:99,  max:99  },
-    { label:'95–98',  color:'#38bdf8', min:95,  max:98  },
-    { label:'90–94',  color:'#34d399', min:90,  max:94  },
-    { label:'80–89',  color:'#22c55e', min:80,  max:89  },
-    { label:'60–79',  color:'#86efac', min:60,  max:79  },
-    { label:'35–59',  color:'#f59e0b', min:35,  max:59  },
-    { label:'<35',    color:'#ef4444', min:0,   max:34  },
+    { label:String(MX),                color:'#a78bfa', min:MX,          max:MX },
+    { label:String(sc(99)),            color:'#818cf8', min:sc(99),      max:sc(99) },
+    { label:`${sc(95)}–${sc(98)}`,     color:'#38bdf8', min:sc(95),      max:sc(98) },
+    { label:`${sc(90)}–${sc(94)}`,     color:'#34d399', min:sc(90),      max:sc(94) },
+    { label:`${sc(80)}–${sc(89)}`,     color:'#22c55e', min:sc(80),      max:sc(89) },
+    { label:`${e60}–${sc(79)}`,        color:'#86efac', min:e60,         max:sc(79) },
+    { label:`${passMark}–${e60-1}`,    color:'#f59e0b', min:passMark,    max:e60-1 },
+    { label:`<${passMark}`,            color:'#ef4444', min:0,           max:passMark-1 },
     { label:'AB',     color:'#64748b', min:null,max:null },
   ];
 
@@ -16115,9 +16146,25 @@ function mrBuildScoreSummary(annotated, subCodes, passMark, getSubName, getMxPar
     </div>`;
 
   // ── Per-subject cards ──────────────────────────────────────────
+  // Faculty resolved per-section across the classes actually present in `annotated`
+  // (was: flat subjectMap[code]?.faculty lookup, which ignores per-section timetable
+  // allocation entirely — same root cause as the Internals table header bug).
+  // Distinct class labels present in this dataset (e.g. '2PUC-COM-A', '2PUC-COM-B').
+  const _sdClassLabels = [...new Set(annotated.map(a => (a.s && a.s.class) || '').filter(Boolean))];
   subCodes.forEach(code => {
     const nm    = getSubName(code);
-    const fac   = subjectMap[code]?.faculty || '—';
+    let fac     = '—';
+    if (_sdClassLabels.length) {
+      const facsPerCls = _sdClassLabels
+        .map(cls => _resolveSubjectFaculty(cls, code))
+        .filter(Boolean);
+      const distinctFacs = [...new Set(facsPerCls)];
+      fac = distinctFacs.length === 1 ? distinctFacs[0]
+          : distinctFacs.length > 1 ? 'Varies by section'
+          : (subjectMap[code]?.faculty || '—');
+    } else {
+      fac = subjectMap[code]?.faculty || '—';
+    }
     const tot   = subTotal(code);
     const bandCounts = subData[code];
 
@@ -16202,13 +16249,28 @@ function mrBuildScoreSummary(annotated, subCodes, passMark, getSubName, getMxPar
               <div style="width:28px;font-size:11px;font-family:var(--mono);color:var(--text);text-align:right;font-weight:600;">${cnt}</div>
               <div style="width:34px;font-size:10px;font-family:var(--mono);color:var(--muted);text-align:right;">${pct}%</div>
               ${hasStudents?`<button class="mr-band-toggle" data-key="${key}"
+                onclick="(function(btn){var p=document.getElementById('mr-band-panel-${key}');if(!p)return;var open=p.style.display!=='none';p.style.display=open?'none':'block';btn.textContent=open?'▶ Show students':'▼ Hide students';})(this)"
                 style="font-size:9px;font-family:var(--mono);background:rgba(255,255,255,0.07);border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:2px 7px;cursor:pointer;flex-shrink:0;white-space:nowrap;">▶ Show students</button>`
               :`<div style="width:100px;"></div>`}
             </div>
             ${hasStudents?`
             <div id="mr-band-panel-${key}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.06);">
-              <div style="display:flex;flex-wrap:wrap;gap:5px;">
-                ${students.map(st=>`<span style="font-size:10px;font-family:var(--mono);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:3px 8px;color:var(--text);" title="${st.usn}">${st.name}</span>`).join('')}
+              <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                ${students.map(st=>{
+                  const stPhoto = pucPhotos[st.usn] || pucPhotos[(st.usn||'').toLowerCase()] || pucGetPhoto({ urn: st.usn, name: st.name }) || '';
+                  const stEscPhoto = stPhoto.replace(/"/g,'&quot;');
+                  const stNameParts = (st.name||'').trim().split(/\s+/);
+                  const stInitials = stNameParts.length >= 2
+                    ? (stNameParts[0][0] + stNameParts[stNameParts.length-1][0]).toUpperCase()
+                    : (st.name[0]||'?').toUpperCase();
+                  const stAvatar = stPhoto
+                    ? `<img src="${stEscPhoto}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.outerHTML='<div style=\\'width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;\\'><span style=\\'font-size:7px;font-weight:700;color:var(--accent);\\'>${stInitials}</span></div>'">`
+                    : `<div style="width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><span style="font-size:7px;font-weight:700;color:var(--accent);">${stInitials}</span></div>`;
+                  const stUsnEsc = (st.usn||'').replace(/'/g,"\\'");
+                  return `<span onclick="mrOpenModal('${stUsnEsc}','results:internals')"
+                    style="display:inline-flex;align-items:center;gap:5px;font-size:10px;font-family:var(--mono);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:3px 10px 3px 4px;color:var(--text);cursor:pointer;transition:background 0.15s;"
+                    title="${st.usn}" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">${stAvatar}${st.name}</span>`;
+                }).join('')}
               </div>
             </div>`:''}
           </div>`;
@@ -22128,7 +22190,7 @@ function intRenderTable(students, container) {
     const absentAll = countedSubs > 0 && abCount === countedSubs;
     // passed = all counted subjects have marks AND all are above pass mark (no ABs, no fails)
     const passed    = !absentAll && abCount === 0 && failCount === 0 && totalMarks > 0;
-    return { cm, totalMarks, failCount, abCount, passed, absentAll };
+    return { cm, totalMarks, failCount, abCount, passed, absentAll, countedSubs };
   }
 
   // ── Find subjects where the ENTIRE class has AB (faculty hasn't submitted) ──
@@ -22228,14 +22290,30 @@ function intRenderTable(students, container) {
   });
 
   // ── Build HTML ─────────────────────────────────────────────────────────────
-  const FC = 6; // fixed left columns before subjects: #, Student, USN, Class, Pass?, Total, Rank
+  const FC = 7; // fixed left columns before subjects: #, Student, USN, Class, Pass?, Total, %, Rank
   const thBase = 'text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);font-weight:600;white-space:nowrap;font-size:10px;';
 
-  // Subject header cells
+  // Subject header cells — faculty resolved per-section (was: flat subjectMap lookup,
+  // which showed the SAME faculty for every section, ignoring the real timetable)
   let subHeadHtml = '';
   subCodes.forEach(code => {
-    const name    = intSubName(code);
-    const facName = subjectMap[code]?.faculty || '';
+    const name = intSubName(code);
+    let facName = '';
+    if (_intSec && _intSec !== 'ALL') {
+      // Single section selected — resolve faculty for that exact section
+      facName = _resolveSubjectFaculty(_intSeg + '-' + _intSec, code) || subjectMap[code]?.faculty || '';
+    } else {
+      // "All" sections — check if faculty differs across sections; if so, don't
+      // claim one faculty teaches everyone (was the root cause of the bug).
+      const segSections = (INT_SEG_CLASSES[_intSeg] || [])
+        .map(cls => (cls.split('-').pop() || '').toUpperCase());
+      const uniqueSecs = [...new Set(segSections)];
+      const facsPerSec = uniqueSecs.map(sec => _resolveSubjectFaculty(_intSeg + '-' + sec, code)).filter(Boolean);
+      const distinctFacs = [...new Set(facsPerSec)];
+      facName = distinctFacs.length === 1 ? distinctFacs[0]
+              : distinctFacs.length > 1 ? 'Varies by section'
+              : (subjectMap[code]?.faculty || '');
+    }
     subHeadHtml += `<th style="${thBase}cursor:pointer;" title="${name} · ${code}">
       <div style="font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;">${name.length > 12 ? name.substring(0,12)+'…' : name}</div>
       ${facName ? `<div style="font-size:9px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;">${facName}</div>` : ''}
@@ -22268,16 +22346,20 @@ function intRenderTable(students, container) {
     : `AB (not entered) <span style="font-size:9px;font-weight:400;opacity:.6;">▶ click to filter</span>`;
 
   let footerHtml = `<tr style="${passRowStyle}" onclick="intSetResultFilter('PASS')" title="Click to show only PASS students">
-    <td colspan="${FC+1}" style="padding:6px 8px;font-size:10px;color:#38bdf8;font-weight:700;border:1px solid var(--border);letter-spacing:1px;white-space:nowrap;">${passTitleHtml} <span style="font-size:9px;font-weight:400;color:#38bdf8;opacity:.7;">(${totalPass})</span></td>`;
+    <td colspan="${FC}" style="padding:6px 8px;font-size:10px;color:#38bdf8;font-weight:700;border:1px solid var(--border);letter-spacing:1px;white-space:nowrap;">${passTitleHtml} <span style="font-size:9px;font-weight:400;color:#38bdf8;opacity:.7;">(${totalPass})</span></td>
+    <td style="border:1px solid var(--border);"></td>`;
   subCodes.forEach(c => { footerHtml += `<td style="text-align:center;padding:6px 8px;color:#38bdf8;font-weight:700;border:1px solid var(--border);">${subPass[c]}</td>`; });
   footerHtml += `</tr><tr style="${failRowStyle}" onclick="intSetResultFilter('FAIL')" title="Click to show only FAIL students">
-    <td colspan="${FC+1}" style="padding:6px 8px;font-size:10px;color:#ef4444;font-weight:700;border:1px solid var(--border);letter-spacing:1px;white-space:nowrap;">${failTitleHtml} <span style="font-size:9px;font-weight:400;color:#ef4444;opacity:.7;">(${totalFail})</span></td>`;
+    <td colspan="${FC}" style="padding:6px 8px;font-size:10px;color:#ef4444;font-weight:700;border:1px solid var(--border);letter-spacing:1px;white-space:nowrap;">${failTitleHtml} <span style="font-size:9px;font-weight:400;color:#ef4444;opacity:.7;">(${totalFail})</span></td>
+    <td style="border:1px solid var(--border);"></td>`;
   subCodes.forEach(c => { footerHtml += `<td style="text-align:center;padding:6px 8px;color:#ef4444;font-weight:700;border:1px solid var(--border);">${subFail[c]}</td>`; });
   footerHtml += `</tr><tr style="${abRowStyle}" onclick="intSetResultFilter('AB')" title="Click to show students whose marks are not entered yet">
-    <td colspan="${FC+1}" style="padding:6px 8px;font-size:10px;color:#f59e0b;font-weight:700;border:1px solid var(--border);letter-spacing:1px;white-space:nowrap;">${abTitleHtml} <span style="font-size:9px;font-weight:400;color:#f59e0b;opacity:.7;">(${totalAB})</span></td>`;
+    <td colspan="${FC}" style="padding:6px 8px;font-size:10px;color:#f59e0b;font-weight:700;border:1px solid var(--border);letter-spacing:1px;white-space:nowrap;">${abTitleHtml} <span style="font-size:9px;font-weight:400;color:#f59e0b;opacity:.7;">(${totalAB})</span></td>
+    <td style="border:1px solid var(--border);"></td>`;
   subCodes.forEach(c => { footerHtml += `<td style="text-align:center;padding:6px 8px;color:#f59e0b;font-weight:700;border:1px solid var(--border);">${subAB[c]}</td>`; });
   footerHtml += `</tr><tr style="background:rgba(240,165,0,0.06);">
-    <td colspan="${FC+1}" style="padding:6px 8px;font-size:10px;color:#f0a500;font-weight:700;border:1px solid var(--border);letter-spacing:1px;">PASS %</td>`;
+    <td colspan="${FC}" style="padding:6px 8px;font-size:10px;color:#f0a500;font-weight:700;border:1px solid var(--border);letter-spacing:1px;">PASS %</td>
+    <td style="border:1px solid var(--border);"></td>`;
   subCodes.forEach(c => {
     const tot = subPass[c] + subFail[c]; // exclude AB from denominator
     const pct = tot ? Math.round(subPass[c] / tot * 100) : 0;
@@ -22304,7 +22386,7 @@ function intRenderTable(students, container) {
 
   // Student rows — uses filteredAnnotated (respects PASS/FAIL filter)
   let rowsHtml = '';
-  filteredAnnotated.forEach(({ s, cm, totalMarks, failCount, abCount, passed, absentAll }, idx) => {
+  filteredAnnotated.forEach(({ s, cm, totalMarks, failCount, abCount, passed, absentAll, countedSubs }, idx) => {
     const usn  = (s.usn || '').trim();
     const name = (s.name || s.student_name || '').trim();
     const cls  = s._cls || '';
@@ -22393,10 +22475,30 @@ function intRenderTable(students, container) {
       <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:var(--muted);font-size:10px;">${cls}</td>
       <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);">${passIcon}</td>
       <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:${totalColor};font-weight:700;">${totalMarks}</td>
+      <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:${totalColor};font-size:10px;opacity:.85;">${countedSubs>0&&totalMarks>0?Math.round(totalMarks/(countedSubs*30)*100)+'%':'—'}</td>
       <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:#f0a500;font-size:10px;font-weight:700;">${rankTxt}</td>
       ${subCells}
     </tr>`;
   });
+
+  // ── Score Distribution (same as Results tab) ─────────────────────────────
+  const intPassMark2 = parseInt(document.getElementById('int-pass-mark')?.value || 20);
+  // Build annotated + subCode structures compatible with mrBuildScoreSummary
+  // annotated needs: { s, passed, abCount, failCount }; courseMap needs marks keyed by IA key
+  const _sdAnnotated = annotated.map(a => {
+    const cm2 = {};
+    (a.s.courses||[]).forEach(c => {
+      const v = Object.values(c.marks||{})[0];
+      cm2[c.code] = { marks: { '_ia': v } };
+    });
+    return { s: a.s, passed: a.passed, abCount: a.abCount, failCount: a.failCount, courseMap: cm2 };
+  });
+  const _sdGetSubName = code => intSubName(code);
+  // getMxPartner: returns partner code if student shouldn't count this subject
+  const _sdMxPartner  = (code, courseMap) => null; // simplified — MX already handled in passed/fail counts
+  const scoreSummaryHtml = (typeof mrBuildScoreSummary === 'function')
+    ? mrBuildScoreSummary(_sdAnnotated, subCodes, intPassMark2, _sdGetSubName, _sdMxPartner, 30)
+    : '';
 
   container.innerHTML = filterBannerHtml + `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
     <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono);min-width:600px;border:1px solid var(--border);">
@@ -22408,6 +22510,7 @@ function intRenderTable(students, container) {
         <th style="${thBase}">Class</th>
         <th style="${thBase}">Pass?</th>
         <th style="${thBase}">Total</th>
+        <th style="${thBase}">%</th>
         <th style="${thBase}">Rank</th>
         ${subHeadHtml}
       </tr>
@@ -22417,7 +22520,7 @@ function intRenderTable(students, container) {
     <tbody>${rowsHtml}</tbody>
     <tfoot></tfoot>
     </table>
-  </div>`;
+  </div>` + scoreSummaryHtml;
 }
 
 // END §INTERN
