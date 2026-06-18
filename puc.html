@@ -7,8 +7,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.84                                                       ║
-║  FILE NAME       : puc_v5.84.html                                              ║
+║  CURRENT VERSION : v5.86                                                       ║
+║  FILE NAME       : puc_v5.86.html                                              ║
 ║  LAST UPDATED    : 2026-06-18                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v5.84";                                             ║
+║     const APP_VERSION = "v5.86";                                             ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -39,6 +39,27 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v5.86 2026-06-18  Fix: Auto-schedule catch-up scrape fired on every app       ║
+║          open/refresh even when already scraped, and all open browsers       ║
+║          triggered simultaneously. Root cause: _spSchedFired and             ║
+║          SP_LAST_SCRAPE_KEY were localStorage-only (per-browser/device).     ║
+║          Fix: spSchedArm() is now async; on arm it reads                     ║
+║          puc_sp_scrape_log/{ay}/ from Firebase RTDB via _spLoadFiredFb()     ║
+║          and pre-populates _spSchedFired for any slot already recorded       ║
+║          there. _spFireScrape() writes the slotKey to Firebase via           ║
+║          _spMarkScrapedFb() immediately on trigger (before the scrape        ║
+║          starts), so any other browser/device that arms seconds later        ║
+║          sees the slot as already fired and skips. On successful scrape      ║
+║          completion, _last_scrape_ts is also written to Firebase so the      ║
+║          5-minute recent-scrape guard works cross-device.                    ║
+║                                                                              ║
+║  v5.85 2026-06-18  Fix: Faculty timetable slot cells and summary footer were   ║
+║          showing "COM-A" / "SCI-A" instead of "2COM-A" / "2SCI-A". Root     ║
+║          cause: _ttScanGrid called with stream='COM' and stream='SCI' for   ║
+║          the 2PUC streams — only 1PUC COM correctly passed '1COM'. Fixed    ║
+║          by passing '2COM' and '2SCI' to the scan calls, and updating       ║
+║          _ttStreamToBucket to match '2SCI' instead of 'SCI'.                ║
 ║                                                                              ║
 ║  v5.84 2026-06-18  UX: Faculty Timetable (Weekly Timetable) mobile fix.      ║
 ║          Session banner cards: min-width 200px→140px, smaller padding/font. ║
@@ -6313,7 +6334,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.84";
+const APP_VERSION = "v5.86";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -7177,8 +7198,8 @@ function pucDashRenderFacultyReport() {
     });
   }
 
-  _ttScanGrid(_ttComSrc,  'COM',  false);
-  _ttScanGrid(_ttSciSrc,  'SCI',  false);
+  _ttScanGrid(_ttComSrc,  '2COM', false);
+  _ttScanGrid(_ttSciSrc,  '2SCI', false);
   _ttScanGrid(_tt1pucSrc, '1COM', true);
 
   if (!facSlots.length) {
@@ -7251,7 +7272,7 @@ function pucDashRenderFacultyReport() {
     // Helper: stream code → smarGetCt bucket
     function _ttStreamToBucket(stream) {
       if (stream === '1COM') return '1COM';
-      if (stream === 'SCI')  return '2SCI';
+      if (stream === '2SCI') return '2SCI';
       return '2COM';
     }
     const _ctScrapedAt = (typeof pucMeta !== 'undefined' && pucMeta.scraped_at) ? pucMeta.scraped_at : '';
@@ -8777,6 +8798,9 @@ const SP_SCHED_KEY   = 'puc_sp_sched';
 const SP_FIRED_KEY   = 'puc_sp_fired'; // persisted "already scraped this slot today" record
 const SP_SESSION_KEY = 'puc_sp_session';
 const SP_LAST_SCRAPE_KEY = 'puc_sp_lastScrape'; // ms timestamp of last successful scrape (any trigger)
+// Firebase RTDB path where scrape completions are recorded (shared across all browsers/devices)
+// puc_sp_scrape_log/{ay}/{slotKey} = { ts: <epoch ms>, by: <UA hint> }
+const SP_SCRAPE_LOG_PATH = `puc_sp_scrape_log/${SP_AY_KEY}`;
 // Hardcoded fallback schedule — used when nothing is saved yet, and as the
 // "empty form" baseline that _spSchedSaveNow() refuses to silently overwrite
 // a real saved config with (see anti-clobber guard below).
@@ -9264,6 +9288,46 @@ function _spSaveFired() {
   } catch(e) {}
 }
 
+// ── Firebase scrape-log helpers (shared across all browsers/devices) ──────────
+// Write to RTDB: puc_sp_scrape_log/{ay}/{slotKey} = { ts, by }
+// Safe slotKey for RTDB: replace ':' and '-' separators → '_'
+function _spSlotKeyFb(slotKey) { return slotKey.replace(/[:.]/g, '_').replace(/-/g, '_'); }
+
+async function _spMarkScrapedFb(slotKey) {
+  try {
+    const fbKey = _spSlotKeyFb(slotKey);
+    await rtdb.ref(`${SP_SCRAPE_LOG_PATH}/${fbKey}`).set({
+      ts: Date.now(),
+      by: navigator.userAgent.slice(0, 60)
+    });
+  } catch(e) { spLog('⏰ Firebase scrape-log write failed: ' + e.message, 'warn'); }
+}
+
+// Returns a set of today's slotKeys that are already recorded in Firebase.
+// Called once at arm-time to pre-populate _spSchedFired from the shared log.
+async function _spLoadFiredFb() {
+  try {
+    const todayKey = spTodayKey(); // e.g. "18-Jun-2026"
+    const snap = await rtdb.ref(SP_SCRAPE_LOG_PATH).once('value');
+    if (!snap.exists()) return;
+    const data = snap.val();
+    for (const fbKey in data) {
+      // fbKey format: HH_MM_DD_Mon_YYYY (converted from HH:MM-DD-Mon-YYYY)
+      // Reconstruct original slotKey: first 5 chars are HH_MM → HH:MM, rest → -DD-Mon-YYYY
+      // Pattern: HHMM_DDMONYYYY — just check if it ends with today encoded
+      const todayEncoded = todayKey.replace(/-/g, '_'); // "18_Jun_2026"
+      if (fbKey.endsWith('_' + todayEncoded)) {
+        // Decode back: "10_34_18_Jun_2026" → "10:34-18-Jun-2026"
+        // Time part is always first 5 chars: HH_MM
+        const timeStr = fbKey.slice(0, 5).replace('_', ':'); // "10:34"
+        const originalKey = `${timeStr}-${todayKey}`; // "10:34-18-Jun-2026"
+        _spSchedFired[originalKey] = true;
+        spLog(`⏰ Firebase log: slot ${originalKey} already scraped today — skipping`, 'info');
+      }
+    }
+  } catch(e) { spLog('⏰ Firebase scrape-log read failed: ' + e.message, 'warn'); }
+}
+
 // ── Helper: get active scrape targets (non-blank slots) ───────────────────────
 function _spGetTargets() {
   const t1 = document.getElementById('sp-sched1')?.value || SP_SCHED_DEFAULT.t1;
@@ -9277,6 +9341,7 @@ function _spGetTargets() {
 async function _spFireScrape(slotKey, label) {
   _spSchedFired[slotKey] = true;
   _spSaveFired();
+  _spMarkScrapedFb(slotKey); // write to Firebase so other browsers/devices skip this slot
   spLog(`⏰ Auto-scrape triggered — ${label}`, 'info');
   if (!spToken || (spTokenExpiry && Date.now() > spTokenExpiry - 30000)) {
     spLog('⏰ No valid session — auto-logging in before scrape…', 'info');
@@ -9291,7 +9356,7 @@ async function _spFireScrape(slotKey, label) {
   else spLog(`⏰ Auto-scrape (${label}) — login failed, scrape skipped`, 'err');
 }
 
-function spSchedArm() {
+async function spSchedArm() {
   if (spSchedTimer) clearInterval(spSchedTimer);
   const enabled = document.getElementById('sp-autoEnabled')?.checked;
   const statusEl = document.getElementById('sp-schedStatus');
@@ -9304,6 +9369,13 @@ function spSchedArm() {
 
   // ── Missed-scrape catch-up: fire immediately for any slot already passed today ──
   _spLoadFired(); // restore today's already-fired slots from localStorage (survives refresh)
+
+  // ── Sync fired slots from Firebase (shared across all browsers/devices) ──────
+  // This is the key fix: if another browser/device already scraped a slot today,
+  // its slotKey will be in Firebase and we mark it fired here — preventing
+  // redundant catch-up scrapes on every open/refresh.
+  await _spLoadFiredFb();
+
   const nowIST = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Kolkata'}));
   const nowMin = nowIST.getHours() * 60 + nowIST.getMinutes();
   const todayKey = spTodayKey(); // e.g. "13-Jun-2026"
@@ -9314,6 +9386,12 @@ function spSchedArm() {
   // immediately fires a redundant "missed slot" catch-up scrape.
   let recentScrapeMs = 0;
   try { recentScrapeMs = parseInt(localStorage.getItem(SP_LAST_SCRAPE_KEY) || '0', 10); } catch(e) {}
+  // Also check Firebase for the last scrape timestamp (covers other browsers)
+  try {
+    const fbSnap = await rtdb.ref(`${SP_SCRAPE_LOG_PATH}/_last_scrape_ts`).once('value');
+    const fbTs = fbSnap.exists() ? (fbSnap.val() || 0) : 0;
+    if (fbTs > recentScrapeMs) recentScrapeMs = fbTs;
+  } catch(e) {}
   const scrapedRecently = recentScrapeMs && (Date.now() - recentScrapeMs < 5 * 60000);
   if (scrapedRecently) {
     spLog(`⏰ Skipping missed-slot catch-up — a scrape already ran ${Math.round((Date.now()-recentScrapeMs)/1000)}s ago`, 'info');
@@ -9595,7 +9673,11 @@ async function spDoScrape(trigger, reason) {
 
   btn.disabled = false;
   if (fbOk) {
-    try { localStorage.setItem(SP_LAST_SCRAPE_KEY, String(Date.now())); } catch(e) {}
+    const nowMs = Date.now();
+    try { localStorage.setItem(SP_LAST_SCRAPE_KEY, String(nowMs)); } catch(e) {}
+    // Also persist scrape completion time to Firebase so other browsers/devices
+    // know a scrape was done and won't trigger a redundant catch-up.
+    try { await rtdb.ref(`${SP_SCRAPE_LOG_PATH}/_last_scrape_ts`).set(nowMs); } catch(e) {}
     spSetPill('sp-scrapePill', 'Done ✓', 'green');
     const _endIST = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Kolkata'}));
     const _endStr = String(_endIST.getHours()).padStart(2,'0') + ':' + String(_endIST.getMinutes()).padStart(2,'0') + ':' + String(_endIST.getSeconds()).padStart(2,'0');
