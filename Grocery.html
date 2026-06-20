@@ -3,8 +3,71 @@
 <head>
 <!--
   GROCERY TRACKER — grocery.html
-  v1.7 — 2026-06-20
+  v2.3 — 2026-06-20
   CHANGELOG:
+  v2.3 — Fix: quantity inputs for "pcs"/"packet"/"bunch" items (soap, eggs, etc.)
+          allowed fractional values (step=0.5 was hardcoded everywhere, so the
+          spinner arrows or a stray edit could land on values like 1.6 pieces,
+          which makes no sense for counted items). Added qtyAttrs()/clampQty()
+          helpers — pcs/packet/bunch are now whole numbers only (min=1, step=1)
+          everywhere a quantity is entered: checklist, bill modal (existing rows
+          + newly added rows), add-item-to-bill. kg/g/L/ml/etc. keep their
+          existing 0.5-step behavior since fractional weight/volume is normal.
+          Also clamps at save time (saveBill/saveEditedBill) to catch any
+          manually-typed fractional value the HTML step attribute alone wouldn't
+          block, and clamps pre-filled quantities so old fractional pcs values
+          from before this fix get corrected automatically the next time they're
+          pre-filled.
+  v2.2 — Fix: auto pre-fill (v2.1) never fires when the selected month already HAS
+          a delivered order for that shop (getLastOrder only matches STRICTLY
+          earlier months) — this was the actual cause of "still not showing,"
+          not a regression of the v2.1 fix. Added opt-in same-month prefill: if
+          an order already exists for the exact shop+month being built, show a
+          Yes/No card ("You already have a [status] order this month — pre-fill
+          with the same items?") instead of silently auto-applying — avoids
+          surprising overwrites on a month you're actively topping up.
+          Added: price-change flag on checklist ("was ₹X before" next to the
+          existing "₹Y last time" hint, red if price rose, green if it dropped) —
+          buildRateMap now also returns the rate before the most recent one.
+          Phase 4 Analytics expanded: Spend-by-Shop bar chart (latest month,
+          shops side by side, distinct from the existing per-shop trend-over-time
+          sparkline), Item Price Trend line-style chart (top 5 most-bought items,
+          cheapest-shop-per-month merged series, reuses Phase 3's
+          buildItemShopRateHistory — no new Firestore reads), Savings Insight
+          list ("Save ₹X/unit at [shop]" for the biggest cheapest-vs-priciest
+          gaps among items actually bought from 2+ shops).
+  v2.1 — Bug fix: "↩ Pre-fill from last order" button lived on the shop-select
+          screen inside #last-order-banner, which gets hidden the moment Build
+          Checklist is tapped — so the button was unreachable from the checklist
+          screen itself, making pre-fill effectively dead. Replaced with automatic
+          pre-fill: startChecklist() now applies last order's checked items +
+          quantities itself, no button needed. Pre-filled quantities shown in a
+          dashed grey input (.chk-qty-prefilled) until the person edits the value,
+          at which point it switches to a normal solid input. Skipped items from
+          last month correctly remain unchecked (this was already true — the
+          checklist is always built from the full active item master, only
+          matched items get checked). Removed now-dead prefillFromLast() function
+          and the manual button.
+  v2.0 — PHASE 4: Budget Analytics modal ("📈 Analytics" button in History) —
+          monthly spend vs settings.budget with over/under flagging, gated to
+          ≥3 months of delivered data; spend-by-category breakdown (bar list,
+          no charting lib) for the most recent qualifying month. Shop Spend
+          Trend: hand-rolled inline SVG sparkline per shop, last 6 months,
+          isOnline shops excluded from trending (consistent with Phase 3 rule),
+          each shop individually gated to its own ≥3-month minimum, tapping a
+          shop name deep-links into the existing Compare modal. All new reads
+          use single where() + client-side sort — no new composite indexes.
+  v1.9 — Fix: removed ALL where+orderBy composite-index dependencies app-wide
+          (getLastOrder, buildRateMap, getShopPerfTag, openSummaryModal) 2014 each was
+          silently failing or showing 'Error loading' because Firestore needs a
+          manually-created composite index per distinct where+orderBy field combo,
+          and several were never created. All now sort client-side instead; single-
+          field orderBy (items by category, orders by month alone) left untouched
+          since those don't need composite indexes.
+  v1.8 — Fix: Monthly Summary 'Error loading' — snapshot query's orderBy(month) had
+          no composite index (status==snapshot is a new where+orderBy combo Firestore
+          hadn't indexed); removed orderBy, sort client-side instead. Added console.error
+          so future failures are visible, not just shown as a generic toast.
   v1.7 — PHASE 3: Cross-shop comparison ("📊 Compare" modal in History — per-item
           rate side-by-side across shops, current vs previous month, cheaper shop
           flagged, gated behind data-maturity check). Split Order suggestion on
@@ -140,7 +203,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .chk-en{font-size:13px;color:var(--text);font-weight:500}
 .chk-kn{font-size:11px;color:var(--text-2);font-family:'Noto Serif Kannada',serif}
 .chk-hint{font-size:10px;color:var(--muted);margin-top:1px}
+.chk-price-change{font-size:9px;padding:1px 5px;border-radius:6px;margin-left:4px}
+.chk-price-change.up{background:#e8503a18;color:var(--red)}
+.chk-price-change.down{background:#7ec85018;color:var(--green)}
 .chk-qty{width:60px;text-align:center;flex-shrink:0}
+.chk-qty-prefilled{color:var(--muted);background:var(--card2);border-style:dashed}
 .chk-unit{font-size:11px;color:var(--muted);width:28px;flex-shrink:0}
 /* CATEGORY GROUP */
 .cat-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 4px 6px;cursor:pointer;user-select:none}
@@ -259,6 +326,23 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .perf-good{background:#7ec85022;color:#7ec850;border:1px solid #7ec85044}
 .perf-bad{background:#e8503a22;color:#e8503a;border:1px solid #e8503a44}
 
+/* BUDGET ANALYTICS (Phase 4) */
+.analytics-section-title{font-size:11px;font-weight:700;color:var(--accent);margin:14px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+.analytics-section-title:first-child{margin-top:0}
+.budget-month-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:11px}
+.budget-month-row:last-child{border-bottom:none}
+.budget-month-amt{font-weight:700}
+.budget-month-amt.over{color:var(--red)}
+.budget-month-amt.under{color:var(--green)}
+.budget-over-tag{font-size:9px;color:var(--red);margin-left:6px}
+.cat-bar-row{margin-bottom:8px}
+.cat-bar-label{display:flex;justify-content:space-between;font-size:10px;color:var(--text-2);margin-bottom:3px}
+.cat-bar-track{background:var(--card2);border-radius:4px;height:6px;overflow:hidden}
+.cat-bar-fill{height:100%;border-radius:4px;background:var(--accent)}
+.shop-trend-card{background:var(--card2);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.shop-trend-name{font-size:12px;font-weight:700;margin-bottom:6px;cursor:pointer}
+.shop-trend-name:active{opacity:.7}
+
 /* MISC */
 .section-gap{margin-top:14px}
 .text-muted{color:var(--muted);font-size:11px}
@@ -282,7 +366,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   <div class="hdr-row">
     <div>
       <div class="app-title">🛒 Grocery Tracker</div>
-      <div class="app-ver">v1.7 — Davangere</div>
+      <div class="app-ver">v2.3 — Davangere</div>
     </div>
     <div class="hdr-actions">
       <div class="theme-switch" id="theme-switch" onclick="toggleTheme()" role="button" aria-label="Toggle dark mode"></div>
@@ -317,7 +401,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       </div>
       <div id="last-order-banner" style="display:none" class="card" style="background:var(--card2);margin-top:8px">
         <div id="last-order-text" class="text-muted"></div>
-        <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="prefillFromLast()">↩ Pre-fill from last order</button>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">↩ Checklist will auto pre-fill from this when you tap Build Checklist</div>
       </div>
       <button class="btn btn-primary btn-full" id="build-checklist-btn" style="margin-top:10px" onclick="startChecklist()">Build Checklist →</button>
     </div>
@@ -338,6 +422,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <span id="budget-total-label"></span>
       </div>
     </div>
+
+    <!-- Same-month re-order prefill prompt (opt-in, not automatic) -->
+    <div id="same-month-prefill-wrap"></div>
 
     <!-- Seasonal banner -->
     <div id="seasonal-banner-wrap"></div>
@@ -398,9 +485,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 
 <!-- ========== HISTORY VIEW ========== -->
 <div class="view" id="view-history">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:6px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:6px;flex-wrap:wrap">
     <div id="maturity-wrap"></div>
-    <div style="display:flex;gap:6px;flex-shrink:0">
+    <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="openAnalyticsModal()">📈 Analytics</button>
       <button class="btn btn-outline btn-sm" onclick="openCompareModal()">📊 Compare</button>
       <button class="btn btn-outline btn-sm" onclick="openSummaryModal()">📋 Summary</button>
     </div>
@@ -554,6 +642,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   </div>
 </div>
 
+<!-- ========== MODAL: BUDGET ANALYTICS (Phase 4) ========== -->
+<div class="modal-overlay" id="modal-analytics">
+  <div class="modal">
+    <div class="modal-title">
+      <span>📈 Budget Analytics</span>
+      <span class="modal-close" onclick="closeModal('modal-analytics')">✕</span>
+    </div>
+    <div id="analytics-body"><div class="loading">Loading...</div></div>
+  </div>
+</div>
+
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
@@ -608,6 +707,7 @@ let orderLang = 'en';
 let editingShopId = null;
 let currentOrder = { shopId: null, month: null, items: [] };
 let lastOrderData = null;
+let _sameMonthPrefillCandidate = null; // pending same-month order awaiting Yes/No on the checklist screen
 
 // ─── SEED DATA ───────────────────────────────────────────────────────────────
 const SEED_ITEMS = [
@@ -868,21 +968,76 @@ async function getLastOrder(shopId, beforeMonth) {
     const snap = await db.collection(COL.orders)
       .where('shopId','==',shopId)
       .where('status','==','delivered')
-      .orderBy('month','desc')
-      .limit(5).get();
-    for (const d of snap.docs) {
-      if (d.data().month < beforeMonth) return { id: d.id, ...d.data() };
+      .limit(20).get();
+    const docs = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.month.localeCompare(a.month));
+    for (const d of docs) {
+      if (d.month < beforeMonth) return d;
     }
     // also try any order before this month
     const snap2 = await db.collection(COL.orders)
       .where('shopId','==',shopId)
-      .orderBy('month','desc')
-      .limit(5).get();
-    for (const d of snap2.docs) {
-      if (d.data().month < beforeMonth) return { id: d.id, ...d.data() };
+      .limit(20).get();
+    const docs2 = snap2.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.month.localeCompare(a.month));
+    for (const d of docs2) {
+      if (d.month < beforeMonth) return d;
     }
   } catch(e) { console.error('getLastOrder failed:', e); }
   return null;
+}
+
+// Looks for an existing order (any status) for this exact shop+month — the
+// doc-id convention is always `${month}_${shopId}`, so this is a direct get(),
+// not a query (no index concerns at all).
+async function getSameMonthOrder(shopId, month) {
+  try {
+    const doc = await db.collection(COL.orders).doc(`${month}_${shopId}`).get();
+    if (doc.exists) return { id: doc.id, ...doc.data() };
+  } catch(e) { console.error('getSameMonthOrder failed:', e); }
+  return null;
+}
+
+// Applies a previous order's checked items + quantities onto the freshly-built
+// checklistItems array. Shared by the automatic (earlier-month) and opt-in
+// (same-month) pre-fill paths.
+function applyPrefillItems(items) {
+  const lastMap = {};
+  items.forEach(it=>{ lastMap[it.itemId] = it; });
+  checklistItems.forEach(ci=>{
+    if (lastMap[ci.itemId]) {
+      ci.checked = true;
+      ci.qty = clampQty(lastMap[ci.itemId].qty || 1, ci.unit);
+      ci.prefilled = true; // grey-styled qty until person edits it — see renderChecklist/updateQty
+    }
+  });
+}
+
+function renderSameMonthPrefillPrompt() {
+  const wrap = document.getElementById('same-month-prefill-wrap');
+  if (!_sameMonthPrefillCandidate) { wrap.innerHTML = ''; return; }
+  const itemCount = (_sameMonthPrefillCandidate.items||[]).length;
+  wrap.innerHTML = `<div id="same-month-prefill-card" class="card" style="background:var(--card2);margin-bottom:10px">
+    <div style="font-size:11px;font-weight:700;margin-bottom:4px">↩ You already have a ${_sameMonthPrefillCandidate.status} order for this shop this month</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Pre-fill this checklist with the same ${itemCount} item${itemCount===1?'':'s'} and quantities?</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="dismissSameMonthPrefill()">No, start blank</button>
+      <button class="btn btn-primary btn-sm" style="flex:1" onclick="applySameMonthPrefill()">Yes, pre-fill</button>
+    </div>
+  </div>`;
+}
+
+function applySameMonthPrefill() {
+  if (!_sameMonthPrefillCandidate?.items) return;
+  applyPrefillItems(_sameMonthPrefillCandidate.items);
+  _sameMonthPrefillCandidate = null;
+  renderChecklist();
+  updateWaPreview();
+  updateBudgetBar();
+  document.getElementById('same-month-prefill-wrap').innerHTML = '';
+}
+
+function dismissSameMonthPrefill() {
+  _sameMonthPrefillCandidate = null;
+  document.getElementById('same-month-prefill-wrap').innerHTML = '';
 }
 
 // ─── CHECKLIST ───────────────────────────────────────────────────────────────
@@ -907,7 +1062,7 @@ async function startChecklist() {
   document.getElementById('split-suggestion-wrap').innerHTML = '';
 
   // Build rate map from last delivered order for this shop (any month)
-  const rateMap = await buildRateMap(shopId);
+  const { map: rateMap, prevMap: prevRateMap } = await buildRateMap(shopId);
 
   // Build checklist from active items
   checklistItems = Object.values(allItems)
@@ -922,8 +1077,26 @@ async function startChecklist() {
       variant: i.variant||'',
       checked: false,
       qty: 1,
-      estRate: rateMap[i.id] || null
+      estRate: rateMap[i.id] || null,
+      prevRate: prevRateMap[i.id] || null // for "price changed since last time" flag
     }));
+
+  // Pre-fill from last order for this shop.
+  // - Earlier month with data: auto pre-fills, no prompt (the common "new month" case).
+  // - SAME month already has a delivered order (e.g. topping up June while still in
+  //   June): don't auto-overwrite silently — show an opt-in card instead, person
+  //   chooses Yes/No. See applySameMonthPrefill() / dismissSameMonthPrefill().
+  _sameMonthPrefillCandidate = null;
+  if (!lastOrderData || lastOrderData.shopId !== shopId) {
+    lastOrderData = await getLastOrder(shopId, month);
+  }
+  const sameMonthOrder = await getSameMonthOrder(shopId, month);
+
+  if (sameMonthOrder?.items) {
+    _sameMonthPrefillCandidate = sameMonthOrder;
+  } else if (lastOrderData?.items) {
+    applyPrefillItems(lastOrderData.items);
+  }
 
   document.getElementById('checklist-shop-label').textContent =
     (allShops[shopId]?.name||'') + ' — ' + formatMonth(month);
@@ -933,6 +1106,7 @@ async function startChecklist() {
   document.getElementById('order-cust-phone').value = settings.customerPhone || '';
 
   renderChecklist();
+  renderSameMonthPrefillPrompt();
   updateWaPreview();
   document.getElementById('step-shopselect').style.display = 'none';
   document.getElementById('step-checklist').style.display = 'block';
@@ -940,36 +1114,24 @@ async function startChecklist() {
 }
 
 async function buildRateMap(shopId) {
-  const map = {};
+  const map = {};      // itemId -> most recent actualRate
+  const prevMap = {};  // itemId -> the rate before that (for price-change flag)
   try {
     const snap = await db.collection(COL.orders)
       .where('shopId','==',shopId)
       .where('status','==','delivered')
-      .orderBy('month','desc')
-      .limit(10).get();
-    snap.forEach(d=>{
-      const items = d.data().items||[];
+      .limit(40).get();
+    const docs = snap.docs.map(d=>d.data()).sort((a,b)=>b.month.localeCompare(a.month)).slice(0,10);
+    docs.forEach(data=>{
+      const items = data.items||[];
       items.forEach(it=>{
-        if (!map[it.itemId] && it.actualRate != null) map[it.itemId] = it.actualRate;
+        if (it.actualRate == null) return;
+        if (!map[it.itemId]) { map[it.itemId] = it.actualRate; return; }
+        if (!prevMap[it.itemId] && it.actualRate !== map[it.itemId]) prevMap[it.itemId] = it.actualRate;
       });
     });
   } catch(e) { console.error('buildRateMap failed:', e); }
-  return map;
-}
-
-function prefillFromLast() {
-  if (!lastOrderData?.items) return;
-  const lastMap = {};
-  (lastOrderData.items||[]).forEach(it=>{ lastMap[it.itemId] = it; });
-  checklistItems.forEach(ci=>{
-    if (lastMap[ci.itemId]) {
-      ci.checked = true;
-      ci.qty = lastMap[ci.itemId].qty || 1;
-    }
-  });
-  renderChecklist();
-  updateWaPreview();
-  updateBudgetBar();
+  return { map, prevMap };
 }
 
 function renderChecklist() {
@@ -992,6 +1154,8 @@ function renderChecklist() {
       const dispName = it.name + (it.variant ? ` (${it.variant})` : '');
       const dispKn = it.nameKn + (it.variant ? ` (${it.variant})` : '');
       const rateHint = it.estRate != null ? `₹${it.estRate}/${it.unit} last time` : '';
+      const priceChangeHint = (it.estRate != null && it.prevRate != null && it.estRate !== it.prevRate)
+        ? `<span class="chk-price-change ${it.estRate > it.prevRate ? 'up' : 'down'}">was ₹${it.prevRate} before</span>` : '';
       html += `<div class="chk-row" id="row-${it.itemId}">
         <div class="chk-box ${it.checked?'checked':''}" onclick="toggleItem('${it.itemId}')">
           ${it.checked?'✓':''}
@@ -999,9 +1163,9 @@ function renderChecklist() {
         <div class="chk-name">
           <div class="chk-en">${dispName}</div>
           ${it.nameKn?`<div class="chk-kn">${dispKn}</div>`:''}
-          ${rateHint?`<div class="chk-hint">${rateHint}</div>`:''}
+          ${rateHint?`<div class="chk-hint">${rateHint} ${priceChangeHint}</div>`:''}
         </div>
-        <input class="chk-qty" type="number" value="${it.qty}" min="0.1" step="0.5"
+        <input class="chk-qty${it.prefilled?' chk-qty-prefilled':''}" type="number" value="${it.qty}" ${qtyAttrs(it.unit)}
           onchange="updateQty('${it.itemId}',this.value)"
           ${it.checked?'':'style="opacity:.4"'}>
         <div class="chk-unit">${it.unit}</div>
@@ -1037,7 +1201,16 @@ function toggleItem(itemId) {
 
 function updateQty(itemId, val) {
   const it = checklistItems.find(i=>i.itemId===itemId);
-  if (it) { it.qty = parseFloat(val)||1; updateWaPreview(); updateBudgetBar(); triggerSplitEval(); }
+  if (it) {
+    it.qty = clampQty(val, it.unit);
+    const input = document.querySelector(`#row-${itemId} .chk-qty`);
+    if (input && parseFloat(val) !== it.qty) input.value = it.qty;
+    if (it.prefilled) {
+      it.prefilled = false;
+      if (input) input.classList.remove('chk-qty-prefilled');
+    }
+    updateWaPreview(); updateBudgetBar(); triggerSplitEval();
+  }
 }
 
 // Debounced so rapid checkbox taps / qty edits don't fire a Firestore read each time
@@ -1051,6 +1224,7 @@ function backToShopSelect() {
   document.getElementById('step-shopselect').style.display = 'block';
   document.getElementById('step-checklist').style.display = 'none';
   document.getElementById('step-snapshot').style.display = 'none';
+  _sameMonthPrefillCandidate = null;
 }
 
 // ─── BUDGET BAR ──────────────────────────────────────────────────────────────
@@ -1304,7 +1478,7 @@ function renderOrderDetailView(orderId, order, editMode) {
       const amtVal = it.actualAmt!=null ? it.actualAmt : '';
       html += `<tr id="bill-row-${i}">
         <td style="font-size:11px">${dispName}<br><span style="font-size:9px;color:var(--muted)">${it.nameKn||''}</span></td>
-        <td><input type="number" class="bill-qty-input" id="qty-${i}" value="${it.qty}" min="0.1" step="0.5"
+        <td><input type="number" class="bill-qty-input" id="qty-${i}" value="${it.qty}" ${qtyAttrs(it.unit)}
           oninput="recalcBillRow(${i})"></td>
         <td><input type="number" id="rate-${i}" placeholder="—" min="0" step="0.5" value="${rateVal}"
           oninput="calcAmt(${i}, parseFloat(document.getElementById('qty-${i}').value)||${it.qty})"
@@ -1460,7 +1634,7 @@ function addItemToBill() {
   if (!itemId) { showToast('Select an item first','warn'); return; }
   const item = allItems[itemId];
   if (!item) return;
-  const qty = parseFloat(qtyEl.value)||1;
+  const qty = clampQty(qtyEl.value, item.unit);
 
   // Add to _currentBillOrder.items in memory
   const order = window._currentBillOrder;
@@ -1480,7 +1654,7 @@ function addItemToBill() {
   tr.id = 'bill-row-'+newIdx;
   tr.innerHTML = `
     <td style="font-size:11px">${dispName}<br><span style="font-size:9px;color:var(--muted)">${item.nameKn||''}</span></td>
-    <td><input type="number" class="bill-qty-input" id="qty-${newIdx}" value="${qty}" min="0.1" step="0.5"
+    <td><input type="number" class="bill-qty-input" id="qty-${newIdx}" value="${qty}" ${qtyAttrs(item.unit)}
       oninput="recalcBillRow(${newIdx})"></td>
     <td><input type="number" id="rate-${newIdx}" placeholder="—" min="0" step="0.5"
       oninput="calcAmt(${newIdx}, ${qty})" style="width:64px"></td>
@@ -1526,7 +1700,7 @@ async function saveBill(orderId) {
     const qtyEl = document.getElementById('qty-'+i);
     const rateEl = document.getElementById('rate-'+i);
     const amtEl = document.getElementById('amt-'+i);
-    const qty = parseFloat(qtyEl?.value)||it.qty;
+    const qty = clampQty(qtyEl?.value || it.qty, it.unit);
     let rate = parseFloat(rateEl?.value)||null;
     let amt = parseFloat(amtEl?.value)||null;
     if (amt!=null && rate==null && qty) rate = parseFloat((amt/qty).toFixed(2));
@@ -1538,7 +1712,7 @@ async function saveBill(orderId) {
 
   // Spike check
   const spikes = [];
-  const rateMap = await buildRateMap(order.shopId);
+  const { map: rateMap } = await buildRateMap(order.shopId);
   updatedItems.forEach(it=>{
     if (it.actualRate==null) return;
     const prev = rateMap[it.itemId];
@@ -1585,7 +1759,7 @@ async function saveEditedBill(orderId) {
     const qtyEl = document.getElementById('qty-'+i);
     const rateEl = document.getElementById('rate-'+i);
     const amtEl = document.getElementById('amt-'+i);
-    const qty = parseFloat(qtyEl?.value)||it.qty;
+    const qty = clampQty(qtyEl?.value || it.qty, it.unit);
     let rate = parseFloat(rateEl?.value)||null;
     let amt = parseFloat(amtEl?.value)||null;
     if (amt!=null && rate==null && qty) rate = parseFloat((amt/qty).toFixed(2));
@@ -1789,6 +1963,17 @@ document.querySelectorAll('.modal-overlay').forEach(ov=>{
 });
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
+// pcs/packet/bunch are counted items — no fractional quantities allowed.
+// kg/g/L/ml/tsp/tbsp etc. stay at half-unit steps since that's normal for weight/volume.
+function qtyAttrs(unit) {
+  return (unit === 'pcs' || unit === 'packet' || unit === 'bunch')
+    ? 'min="1" step="1"' : 'min="0.1" step="0.5"';
+}
+function clampQty(val, unit) {
+  const n = parseFloat(val) || 1;
+  return (unit === 'pcs' || unit === 'packet' || unit === 'bunch') ? Math.max(1, Math.round(n)) : Math.max(0.1, n);
+}
+
 function formatMonth(m) {
   if (!m) return '';
   const [yr,mo] = m.split('-');
@@ -1844,10 +2029,10 @@ async function openSummaryModal() {
   chipsEl.innerHTML = '<span class="text-muted" style="font-size:11px">Loading...</span>';
   bodyEl.innerHTML = '';
   try {
-    const snap = await db.collection(COL.orders).where('status','==','delivered').orderBy('month','desc').get();
-    _summaryOrders = snap.docs.map(d=>({id:d.id,...d.data()}));
-    const snapSnap = await db.collection(COL.orders).where('status','==','snapshot').orderBy('month','desc').get();
-    _summarySnapshots = snapSnap.docs.map(d=>({id:d.id,...d.data()}));
+    const snap = await db.collection(COL.orders).where('status','==','delivered').get();
+    _summaryOrders = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.month.localeCompare(a.month));
+    const snapSnap = await db.collection(COL.orders).where('status','==','snapshot').get();
+    _summarySnapshots = snapSnap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.month.localeCompare(a.month));
     const months = [...new Set([..._summaryOrders, ..._summarySnapshots].map(o=>o.month))].sort((a,b)=>b.localeCompare(a));
     if (!months.length) { chipsEl.innerHTML='<span class="text-muted" style="font-size:11px">No delivered orders yet</span>'; return; }
     chipsEl.innerHTML = months.map((m,i)=>
@@ -1855,6 +2040,7 @@ async function openSummaryModal() {
     ).join('');
     renderSummaryMonth(months[0]);
   } catch(e) {
+    console.error('openSummaryModal failed:', e);
     chipsEl.innerHTML='<span class="text-muted">Error loading</span>';
   }
 }
@@ -1944,8 +2130,9 @@ async function getShopPerfTag(shopId) {
   try {
     const snap = await db.collection(COL.orders)
       .where('shopId','==',shopId).where('status','==','delivered')
-      .orderBy('month','desc').limit(6).get();
-    const ratings = snap.docs.map(d=>d.data().deliveryRating).filter(Boolean);
+      .limit(20).get();
+    const ratings = snap.docs.map(d=>d.data()).sort((a,b)=>b.month.localeCompare(a.month))
+      .slice(0,6).map(d=>d.deliveryRating).filter(Boolean);
     if (!ratings.length) return '';
     const good = ratings.filter(r=>r==='good').length;
     const pct = Math.round((good/ratings.length)*100);
@@ -2306,6 +2493,204 @@ async function saveSnapshot() {
   }
 }
 
+// ─── PHASE 4: BUDGET ANALYTICS & SHOP TREND CHART ────────────────────────────
+// Pulls all delivered orders once, builds monthly totals + per-shop monthly
+// totals client-side. No .where().orderBy() composite chains (Golden Rule).
+async function openAnalyticsModal() {
+  openModal('modal-analytics');
+  const body = document.getElementById('analytics-body');
+  body.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const snap = await db.collection(COL.orders).where('status','==','delivered').get();
+    const orders = snap.docs.map(d=>({id:d.id,...d.data()}));
+
+    const monthsWithData = new Set(orders.map(o=>o.month));
+    if (monthsWithData.size < 3) {
+      body.innerHTML = `<div class="compare-gate-msg">📈 Not enough data yet — need at least 3 months.<br>Keep recording delivered bills to unlock budget analytics.</div>`;
+      return;
+    }
+
+    // ── Monthly total vs budget ──
+    const byMonth = {};
+    orders.forEach(o=>{
+      const t = (o.items||[]).reduce((s,i)=>s+(i.actualAmt||0),0);
+      byMonth[o.month] = (byMonth[o.month]||0) + t;
+    });
+    const months = Object.keys(byMonth).sort((a,b)=>b.localeCompare(a));
+    const budget = settings.budget || 0;
+
+    let html = `<div class="analytics-section-title">Monthly Spend${budget?` vs Budget (₹${budget.toLocaleString()})`:''}</div>`;
+    months.forEach(m=>{
+      const total = byMonth[m];
+      const isOver = budget>0 && total>budget;
+      html += `<div class="budget-month-row">
+        <span>${formatMonth(m)}</span>
+        <span>
+          <span class="budget-month-amt ${budget?(isOver?'over':'under'):''}">₹${total.toLocaleString()}</span>
+          ${isOver?`<span class="budget-over-tag">over by ₹${(total-budget).toLocaleString()}</span>`:''}
+        </span>
+      </div>`;
+    });
+
+    // ── Category breakdown for most recent qualifying month ──
+    const latestMonth = months[0];
+    const catTotals = {};
+    let catGrand = 0;
+    orders.filter(o=>o.month===latestMonth).forEach(o=>{
+      (o.items||[]).forEach(it=>{
+        const amt = it.actualAmt||0;
+        const cat = it.category||'Other';
+        catTotals[cat] = (catTotals[cat]||0) + amt;
+        catGrand += amt;
+      });
+    });
+    const catEntries = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
+    if (catEntries.length && catGrand>0) {
+      html += `<div class="analytics-section-title">Spend by Category — ${formatMonth(latestMonth)}</div>`;
+      catEntries.forEach(([cat, amt])=>{
+        const pct = Math.round((amt/catGrand)*100);
+        html += `<div class="cat-bar-row">
+          <div class="cat-bar-label"><span>${cat}</span><span>₹${amt.toLocaleString()} (${pct}%)</span></div>
+          <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${pct}%"></div></div>
+        </div>`;
+      });
+    }
+
+    // ── Monthly spend per shop (bar chart) — latest qualifying month ──
+    const shopTotalsLatest = {};
+    orders.filter(o=>o.month===latestMonth).forEach(o=>{
+      const t = (o.items||[]).reduce((s,i)=>s+(i.actualAmt||0),0);
+      shopTotalsLatest[o.shopId] = (shopTotalsLatest[o.shopId]||0) + t;
+    });
+    const shopEntries = Object.entries(shopTotalsLatest).sort((a,b)=>b[1]-a[1]);
+    if (shopEntries.length) {
+      const maxShopTotal = Math.max(...shopEntries.map(e=>e[1]), 1);
+      html += `<div class="analytics-section-title">Spend by Shop — ${formatMonth(latestMonth)}</div>`;
+      shopEntries.forEach(([sid, amt])=>{
+        const pct = Math.round((amt/maxShopTotal)*100);
+        html += `<div class="cat-bar-row">
+          <div class="cat-bar-label"><span>${allShops[sid]?.name||'Unknown shop'}</span><span>₹${amt.toLocaleString()}</span></div>
+          <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${pct}%;background:var(--green)"></div></div>
+        </div>`;
+      });
+    }
+
+    // ── Per-shop trend sparkline (last 6 months, local shops only) ──
+    const byShopMonth = {}; // shopId -> month -> total
+    orders.forEach(o=>{
+      if (allShops[o.shopId]?.isOnline) return; // online shops excluded from trending
+      const t = (o.items||[]).reduce((s,i)=>s+(i.actualAmt||0),0);
+      if (!byShopMonth[o.shopId]) byShopMonth[o.shopId] = {};
+      byShopMonth[o.shopId][o.month] = (byShopMonth[o.shopId][o.month]||0) + t;
+    });
+
+    const shopIds = Object.keys(byShopMonth);
+    if (shopIds.length) {
+      html += `<div class="analytics-section-title">Shop Spend Trend (last 6 months)</div>`;
+      shopIds.forEach(sid=>{
+        const shopMonths = Object.keys(byShopMonth[sid]);
+        if (shopMonths.length < 3) return; // gated, skip shops with too little data
+        const sorted = shopMonths.sort((a,b)=>a.localeCompare(b)).slice(-6);
+        const values = sorted.map(m=>byShopMonth[sid][m]);
+        html += `<div class="shop-trend-card">
+          <div class="shop-trend-name" onclick="openCompareModal()">${allShops[sid]?.name||'Unknown shop'}</div>
+          ${buildSparklineSvg(values)}
+        </div>`;
+      });
+      const skipped = shopIds.filter(sid=>Object.keys(byShopMonth[sid]).length < 3);
+      if (skipped.length === shopIds.length) {
+        html += `<div class="compare-gate-msg">No shop has 3+ months of delivered orders yet.</div>`;
+      }
+    }
+
+    // ── Item-wise price trend (line chart) — top 5 most-bought items, local shops only ──
+    const history = await buildItemShopRateHistory();
+    const itemFrequency = {};
+    orders.forEach(o=>{
+      if (allShops[o.shopId]?.isOnline) return;
+      (o.items||[]).forEach(it=>{ if (it.actualRate!=null) itemFrequency[it.itemId] = (itemFrequency[it.itemId]||0)+1; });
+    });
+    const topItemIds = Object.entries(itemFrequency).sort((a,b)=>b[1]-a[1]).slice(0,5).map(e=>e[0])
+      .filter(id=>{
+        // need ≥3 months of price points (any shop, combined) to be worth a trend line
+        const monthSet = new Set();
+        Object.values(history[id]||{}).forEach(arr=>arr.forEach(e=>monthSet.add(e.month)));
+        return monthSet.size >= 3;
+      });
+
+    if (topItemIds.length) {
+      html += `<div class="analytics-section-title">Item Price Trend (last 6 months)</div>`;
+      topItemIds.forEach(itemId=>{
+        // Merge all shops' price points for this item into one per-month series
+        // (lowest rate that month, across shops, so the trend reflects what you'd
+        // actually pay if always buying from the cheapest option that month)
+        const byMonth = {};
+        Object.values(history[itemId]).forEach(arr=>arr.forEach(e=>{
+          if (byMonth[e.month]==null || e.rate < byMonth[e.month]) byMonth[e.month] = e.rate;
+        }));
+        const sortedMonths = Object.keys(byMonth).sort((a,b)=>a.localeCompare(b)).slice(-6);
+        const values = sortedMonths.map(m=>byMonth[m]);
+        const sample = Object.values(history[itemId])[0][0];
+        const dispName = sample.name + (sample.variant?` (${sample.variant})`:'');
+        html += `<div class="shop-trend-card">
+          <div class="shop-trend-name" style="cursor:default" onclick="openCompareModal()">${dispName} <span style="font-size:9px;color:var(--muted);font-weight:400">₹/${sample.unit}</span></div>
+          ${buildSparklineSvg(values)}
+        </div>`;
+      });
+    }
+
+    // ── Savings insight: cheapest shop per item, for the items you actually buy ──
+    const savingsLines = [];
+    Object.keys(history).forEach(itemId=>{
+      const byShop = history[itemId];
+      const shopIds2 = Object.keys(byShop);
+      if (shopIds2.length < 2) return;
+      let cheapest = null, cheapestRate = Infinity, priciest = null, priciestRate = -Infinity;
+      shopIds2.forEach(sid=>{
+        const r = byShop[sid][0].rate;
+        if (r < cheapestRate) { cheapestRate = r; cheapest = sid; }
+        if (r > priciestRate) { priciestRate = r; priciest = sid; }
+      });
+      if (cheapest && priciest && cheapest !== priciest && priciestRate > cheapestRate) {
+        const sample = byShop[cheapest][0];
+        const saved = priciestRate - cheapestRate;
+        savingsLines.push({ name: sample.name, unit: sample.unit, saved, shopName: allShops[cheapest]?.name||'that shop' });
+      }
+    });
+    savingsLines.sort((a,b)=>b.saved-a.saved);
+    if (savingsLines.length) {
+      html += `<div class="analytics-section-title">Savings Insight</div>`;
+      savingsLines.slice(0,5).forEach(s=>{
+        html += `<div class="budget-month-row">
+          <span>💰 ${s.name}</span>
+          <span class="budget-month-amt under">Save ₹${s.saved.toFixed(0)}/${s.unit} at ${s.shopName}</span>
+        </div>`;
+      });
+    }
+
+    body.innerHTML = html;
+  } catch(e) {
+    console.error('openAnalyticsModal failed:', e);
+    body.innerHTML = '<div class="empty">Error loading analytics</div>';
+  }
+}
+
+// Hand-rolled bar-style sparkline — no charting library (File Size Golden Rule)
+function buildSparklineSvg(values) {
+  const w = 280, h = 50, gap = 4;
+  const max = Math.max(...values, 1);
+  const barW = (w - gap*(values.length-1)) / values.length;
+  let bars = '';
+  values.forEach((v,i)=>{
+    const barH = Math.max(2, (v/max)*h);
+    const x = i*(barW+gap);
+    const y = h - barH;
+    const isLast = i === values.length-1;
+    bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="2" fill="${isLast?'var(--accent)':'var(--border)'}"/>`;
+  });
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block">${bars}</svg>`;
+}
+
 
 // ─── START ───────────────────────────────────────────────────────────────────
 init();
@@ -2388,7 +2773,7 @@ async function requestNotifPermission() {
 
 // ─── PWA: SERVICE WORKER ──────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  const CACHE = 'grocery-v1.7';
+  const CACHE = 'grocery-v2.3';
   const SW_SRC = `
 const CACHE='${CACHE}';
 const SHELL=[
