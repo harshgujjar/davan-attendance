@@ -7,8 +7,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.97                                                       ║
-║  FILE NAME       : puc_v5.97.html                                              ║
+║  CURRENT VERSION : v5.99                                                       ║
+║  FILE NAME       : puc_v5.99.html                                              ║
 ║  LAST UPDATED    : 2026-06-19                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v5.97";                                             ║
+║     const APP_VERSION = "v5.99";                                             ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -40,6 +40,21 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v5.99 2026-06-20  Fix: Auto-scrape catch-up re-firing 10:34 slot on every  ║
+║          version update / page reload. Root cause: _spLoadFiredFb() reads    ║
+║          the full puc_daily node, but Firebase SDK is not yet re-authed on   ║
+║          a hard reload — the .once('value') call throws or returns null,     ║
+║          hasRealData is false, nothing is marked fired, catch-up fires.      ║
+║          Fix: _spLoadFiredFb() now has a two-pass check — (1) read just      ║
+║          _meta_last_scrape_ts first (tiny, auth-independent); if it exists,  ║
+║          mark all slots fired immediately without needing class data to       ║
+║          load. (2) only fall through to full node read if ts absent. This    ║
+║          makes the "already scraped today" guard auth-race-proof.            ║
+║  v5.98 2026-06-20  Fix: Exception Students now correctly hidden from Daily   ║
+║          Report (Subject-wise Absent + Whole Day Absent). Two-part fix:      ║
+║          (1) drRun() now awaits excStudentLoad() if map is empty — handles  ║
+║          direct navigation to the panel before Subject Map is visited.       ║
+║          (2) students.forEach in fetch loop now skips excStudentMap URNs.   ║
 ║  v5.97 2026-06-19  Fix: WhatsApp Results message showing wrong data for     ║
 ║          prior-year Annual results (e.g. viewing a now-2PUC student's       ║
 ║          1PUC results). Two bugs, both because mrmSendWhatsApp() never      ║
@@ -6425,7 +6440,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.97";
+const APP_VERSION = "v5.99";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -9401,25 +9416,54 @@ async function _spMarkScrapedFb(slotKey) {
 // Marks ALL of today's configured slots as fired if puc_daily already has
 // data for today (i.e. a scrape — auto or manual, from any device — already
 // completed today). Called once at arm-time to pre-populate _spSchedFired.
+//
+// v5.99 FIX — two-pass auth-race-proof check:
+// On a hard reload / version update the Firebase SDK re-initialises and
+// .once('value') on the full puc_daily node can throw or return null before
+// auth settles. The old single-pass check (read full node → check hasRealData)
+// silently fell through on that race, leaving _spSchedFired empty, so the
+// missed-slot catch-up fired for the 10:34 slot on every version deploy.
+//
+// Fix: pass 1 reads ONLY _meta_last_scrape_ts (a single scalar — tiny and
+// not blocked by the same auth latency as a full subtree read). If it exists
+// that is definitive proof a scrape already completed today — mark all slots
+// fired immediately. Pass 2 (full node read) is only reached when the
+// timestamp is absent, meaning today genuinely has no data yet.
 async function _spLoadFiredFb() {
   try {
     const todayKey = spTodayKey(); // e.g. "18-Jun-2026"
+
+    // ── Pass 1: fast scalar check — immune to Firebase auth re-init race ──────
+    // _meta_last_scrape_ts is written at the very end of every successful
+    // scrape (spDoScrape), so its presence alone is sufficient proof.
+    const tsSnap = await rtdb.ref(`puc_daily/${SP_AY_KEY}/${todayKey}/_meta_last_scrape_ts`).once('value');
+    if (tsSnap.exists() && tsSnap.val()) {
+      for (const target of _spGetTargets()) {
+        const slotKey = `${target}-${todayKey}`;
+        if (!_spSchedFired[slotKey]) {
+          _spSchedFired[slotKey] = true;
+          spLog(`⏰ Firebase ts: scrape_ts found for ${todayKey} — slot ${target} marked fired`, 'info');
+        }
+      }
+      _spSaveFired();
+      return; // done — no need to read the full node
+    }
+
+    // ── Pass 2: full node check (fallback when ts absent) ────────────────────
+    // Handles the edge case where the ts write failed but class data landed.
     const snap = await rtdb.ref(`puc_daily/${SP_AY_KEY}/${todayKey}`).once('value');
     if (!snap.exists()) return;
     const data = snap.val();
-    // Any REAL class data present means a successful scrape already ran today.
-    // (Ignore the _meta_last_scrape_ts sibling key — that alone isn't proof
-    // of class data, even though in practice it's only ever written right
-    // after class data lands successfully.)
     const hasRealData = data && Object.keys(data).some(k => k !== '_meta_last_scrape_ts');
     if (!hasRealData) return;
     for (const target of _spGetTargets()) {
-      const originalKey = `${target}-${todayKey}`;
-      if (!_spSchedFired[originalKey]) {
-        _spSchedFired[originalKey] = true;
-        spLog(`⏰ Firebase: puc_daily/${todayKey} already has data — slot ${target} marked fired`, 'info');
+      const slotKey = `${target}-${todayKey}`;
+      if (!_spSchedFired[slotKey]) {
+        _spSchedFired[slotKey] = true;
+        spLog(`⏰ Firebase data: puc_daily/${todayKey} has class data — slot ${target} marked fired`, 'info');
       }
     }
+    _spSaveFired();
   } catch(e) { spLog('⏰ Firebase scrape-log read failed: ' + e.message, 'warn'); }
 }
 
@@ -12159,6 +12203,12 @@ async function drRun() {
   const dateVal = document.getElementById('dr-date').value;
   if (!dateVal) { dvToast('⚠ Select a date', 'warn', 3000); return; }
 
+  // Ensure exception students are loaded (may be empty if the user navigated
+  // directly to this panel without visiting Subject Map first)
+  if (!Object.keys(excStudentMap).length) {
+    try { await excStudentLoad(); } catch(e) {}
+  }
+
   const dateKey = drFmtKey(dateVal); // "05-May-2026"
   const statusEl  = document.getElementById('dr-status');
   const tabsEl    = document.getElementById('dr-tabs');
@@ -12190,6 +12240,10 @@ async function drRun() {
       const wholeDayAbsent = [];
 
       students.forEach(s => {
+        // Skip exception students
+        const urnKey = (s.urn || s.usn || '').trim();
+        if (urnKey && excStudentMap[urnKey]) return;
+
         const courses = s.courses || [];
 
         // NEW format only: attended field is 'A' (absent) or 'P' (present)
