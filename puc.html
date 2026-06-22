@@ -7,9 +7,9 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.99                                                       ║
-║  FILE NAME       : puc_v5.99.html                                              ║
-║  LAST UPDATED    : 2026-06-19                                                ║
+║  CURRENT VERSION : v5.114                                                      ║
+║  FILE NAME       : puc_v5.114.html                                             ║
+║  LAST UPDATED    : 2026-06-22                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  RULES FOR CLAUDE — READ BEFORE MAKING ANY CHANGES                          ║
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v5.99";                                             ║
+║     const APP_VERSION = "v5.114";                                            ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -39,6 +39,242 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v5.114 2026-06-22  Fix: Auto-scrape catch-up STILL fired on every page     ║
+║          load despite v5.113 fix. Root cause identified: spSchedLoad() was  ║
+║          called from DOMContentLoaded, which fires BEFORE Firebase auth     ║
+║          settles. Every Firebase read inside spSchedArm() —                ║
+║          _spLoadFiredFb() AND the scrapedRecently check — threw             ║
+║          permission-denied and was swallowed by catch(e){}. Result:        ║
+║          _spSchedFired stayed empty AND scrapedRecently = false on EVERY   ║
+║          page load, so catch-up always fired for 10:34. The v5.113 same-  ║
+║          day check was correct logic but ran in a context where Firebase   ║
+║          always failed. Fix: moved spSchedLoad() from DOMContentLoaded     ║
+║          into onPucLoginSuccess() — which only runs after auth.            ║
+║          onAuthStateChanged confirms the user is authenticated. Firebase   ║
+║          reads now succeed, _spLoadFiredFb marks slots fired, and          ║
+║          scrapedRecently correctly returns true for any scrape today.      ║
+║                                                                              ║
+║  v5.113 2026-06-22  Fix: Auto-scrape catch-up re-firing for 10:34 AM slot    ║
+║          when app re-armed at 10:46 PM (33 min after the 10:13 PM scrape    ║
+║          completed). Root cause: scrapedRecently used a 5-minute window      ║
+║          (Date.now() - ts < 5min). A scrape 33 min ago was outside that      ║
+║          window, so scrapedRecently = false. The _spLoadFiredFb() pass-1     ║
+║          check should have blocked it, but if Firebase auth isn't ready on   ║
+║          a fresh page load the await throws and catch() swallows it,         ║
+║          leaving _spSchedFired empty — catch-up then fires for every         ║
+║          already-passed slot. Fix: replace the 5-minute window with a        ║
+║          same-IST-day check (compare toLocaleDateString in Asia/Kolkata).    ║
+║          Any scrape that ran today blocks all past-slot catch-ups, regardless ║
+║          of how many minutes ago it completed. The original edge case (re-   ║
+║          arm right after manual scrape) is already protected by slotKey      ║
+║          being set in _spSchedFired inside _spFireScrape before the scrape   ║
+║          completes — no separate 5-min check was ever needed for that.       ║
+║                                                                              ║
+║  v5.112 2026-06-22  Fix: SP_TIMEMAP_LOOKBACK_DAYS raised from 7 → 14. The    ║
+║          7-day window meant any date scraped with wrong slot times more      ║
+║          than a week ago (e.g. 13-Jun on 22-Jun) was permanently frozen —   ║
+║          auto-scrapes skipped get_class_dates for it, so the bad stored      ║
+║          times could never self-correct. 14 days covers the typical "I       ║
+║          noticed it late" gap while still capping the max get_class_dates    ║
+║          calls per scrape run (one per distinct date within the window).     ║
+║          NOTE: dates already stored wrong before this deploy still need a    ║
+║          manual fix — open Scraper → Re-scrape existing dates for each       ║
+║          affected date (spBfRescrape bypasses the lookback entirely).        ║
+║                                                                              ║
+║  v5.111 2026-06-22  Fix: Inspect Raw's v5.110 liveMap lookup matched by       ║
+║          `code + '|'` PREFIX searched across the entire liveMap, ignoring    ║
+║          section — so e.g. 1PUC-COM-A's subject could silently match         ║
+║          COM-B's or COM-C's live get_class_dates time for the same           ║
+║          subject code (same subject, different section, different period).  ║
+║          Caught via real output: COM-A/B/C each showed every subject         ║
+║          "stored" at one identical bundled time (the real underlying bug —  ║
+║          stale Firebase data needing a re-scrape) but the live-time          ║
+║          comparison itself was scoped wrong and gave inconsistent/untrust-   ║
+║          worthy MISMATCH verdicts. FIXED: resolves the class label's real    ║
+║          section via SP_CLASSES and builds the exact code|section key —      ║
+║          matching how spFetchClassDateTimes itself keys the map — instead    ║
+║          of a loose cross-section prefix search. Unknown section now says    ║
+║          so explicitly rather than silently mismatching.                     ║
+║                                                                              ║
+║  v5.110 2026-06-22  Fix: 🔍 Inspect Raw on the Period-wise Absent tab was    ║
+║          STALE — it was written in v5.104 to confirm the "bundled session   ║
+║          time" theory, which v5.107–v5.109 already fixed via the            ║
+║          get_class_dates timeMap + 14-day lookback. The old button just      ║
+║          dumped raw courses[].slots[] with zero awareness of that pipeline,  ║
+║          so it couldn't explain a "No data for 1:15 PM" symptom — it'd       ║
+║          show whatever was stored with no indication of WHY a time was      ║
+║          missing or wrong. REWRITTEN: arpInspectRaw() is now async and      ║
+║          makes a LIVE get_class_dates call per inspected date (reusing      ║
+║          spFetchClassDateTimes), then diffs it against what's actually in   ║
+║          Firebase per course code. Output now distinguishes: (1) no scrape  ║
+║          at all for the date, (2) date outside SP_TIMEMAP_LOOKBACK_DAYS —    ║
+║          stored time was never timeMap-corrected, (3) in-window but          ║
+║          get_class_dates has no "completed" entry yet for that course        ║
+║          (period hasn't run/synced) — stored time is the old bundled         ║
+║          fallback, (4) live get_class_dates time disagrees with what's       ║
+║          stored — Firebase is stale, needs spBfRescrape on that date. Ends   ║
+║          with a direct pointer to the "Re-scrape existing dates" button      ║
+║          when a fix is needed. No change to the scraper or render pipeline   ║
+║          — debug tool only.                                                  ║
+║                                                                              ║
+║  v5.109 2026-06-22  Feat: SLOT TIME FIX speed cutoff. v5.108's per-date      ║
+║          get_class_dates fix made scrapes take 1+ hour (40+ historical      ║
+║          dates × 1 timeMap call + 1 diff-read each). Added                   ║
+║          SP_TIMEMAP_LOOKBACK_DAYS = 14 — only dates within the last 14 days   ║
+║          get the real get_class_dates call + diff-log; older dates skip     ║
+║          both (use existing fallback time, untouched — not damaged, just    ║
+║          not auto-corrected by regular scrapes anymore). New helper          ║
+║          spIsWithinTimeMapLookback(). The "Re-scrape existing dates"        ║
+║          button (spScrapeAndWriteDate) is UNCHANGED and NOT subject to       ║
+║          this cutoff — it always calls get_class_dates directly for the      ║
+║          one date selected, so it remains the correct tool to manually       ║
+║          fix any older/already-damaged date.                                ║
+║                                                                              ║
+║          shared timeMap for TODAY's date only, but a live scrape's          ║
+║          student_wise_attendance_detailed response covers 40+ historical    ║
+║          dates per student. Result: today's times got stamped onto ALL      ║
+║          past dates that shared a course+section code (e.g. COMST31|B       ║
+║          showed 1:15-2:15 PM on every date from 04-May to 22-Jun, even       ║
+║          though that's only today's real time). FIXED: timeMap is now       ║
+║          fetched PER DISTINCT DATE, cached in-memory (_timeMapCache) so     ║
+║          each date triggers exactly one get_class_dates call no matter      ║
+║          how many students reference it — applies to spDoScrape() and       ║
+║          spScrapeAndWriteDate(). Also added spLogSlotTimeDiff() — before    ║
+║          any date is written to Firebase, reads the existing data once      ║
+║          and logs ONLY the subjects whose start time actually changed       ║
+║          (e.g. "Δ 2PUC-COM-B | AMRUTHA | COMST31: 15:30→13:15 (CHANGED)"),   ║
+║          purely for visibility — does not affect what gets written.         ║
+║                                                                              ║
+║          in a session with the same bundled start/end time from             ║
+║          student_wise_attendance_detailed (e.g. 4 subjects all showing      ║
+║          15:30 even though only one of them was actually at 3:30 PM).       ║
+║          Added spFetchClassDateTimes() — calls get_class_dates ONCE per     ║
+║          scrape (not per student) to build a course_code|section → real    ║
+║          {start,end} map, used in both spDoScrape() (live scrape) and       ║
+║          spScrapeAndWriteDate() (backfill/re-scrape). Falls back to the     ║
+║          old bundled time if a subject isn't found in the map — nothing    ║
+║          breaks if get_class_dates has no data for a date. Only completed  ║
+║          (attendance_status==="completed") entries are used. Old Firebase  ║
+║          data for past dates is NOT auto-corrected — use the existing      ║
+║          "Re-scrape existing dates" button (spBfRescrape) to fix specific   ║
+║          past dates; it now goes through the same corrected code path.     ║
+║                                                                              ║
+║          (1) 8 fixed hardcoded period chips always shown (8:30, 9:30,         ║
+║          10:45, 11:45, 1:15, 2:15, 3:30, 4:30) instead of dynamic chip       ║
+║          collection that depended on slot times present in the data.           ║
+║          (2) Week mode now shows Mon–Sat day chips; click a day to filter     ║
+║          to just that day, or "All" for the whole week.                       ║
+║          (3) RTDB array/object coercion fix (Array.isArray → arpToArr)        ║
+║          applied everywhere — was the root cause of blank cards.              ║
+║          (4) Student filter view: shows subject-wise miss count at the        ║
+║          selected time across the loaded range.                               ║
+║                                                                               ║
+║  v5.104 2026-06-22 DEBUG TOOL (no functional fix yet — investigating a       ║
+║          suspected data-model issue): Period-wise Absent chips/cards are     ║
+║          still wrong after v5.103 — same ~5 chips, and the 3:30 PM card       ║
+║          showed the exact same ACC/BS/ECO/STATS "- 1" combo for every        ║
+║          student as the full-day Date Report. Root theory: spDoScrape()      ║
+║          reads session.start_time/end_time ONCE per Rovelabs "session" and    ║
+║          stamps that single timestamp onto EVERY course inside that          ║
+║          session's courses[] array (line ~9890). If Rovelabs actually        ║
+║          bundles multiple subjects into one session (rather than one         ║
+║          session per period), every subject in that bundle gets an           ║
+║          identical fake "period time" — which would exactly explain both     ║
+║          symptoms. NOT YET CONFIRMED — added a "🔍 Inspect Raw" button to     ║
+║          the Period-wise tab (new fn arpInspectRaw()) that dumps the          ║
+║          actual stored courses[].slots[] (start/end/attended) for real        ║
+║          students on the loaded date straight into a panel, so the real      ║
+║          data shape can be checked directly without devtools or a script.    ║
+║          Once confirmed, the fix path depends on what's actually in there:    ║
+║          if subjects truly share one timestamp, period-level grouping        ║
+║          isn't reconstructable from this data source alone and the feature   ║
+║          needs a different time source (e.g. timetable-assisted, despite     ║
+║          earlier instruction to avoid that) or a scraper-side fix if         ║
+║          Rovelabs exposes per-period times elsewhere in the API.             ║
+║                                                                              ║
+║  v5.103 2026-06-22 Fix: Period-wise Absent (v5.102) was showing only 5 of 8  ║
+║          Saturday time chips and "Class has not started" for sections that   ║
+║          had genuinely already held class. Two real bugs: (1) NO REFRESH —   ║
+║          arpLoadDay/arpLoadWeek cached each dateKey's puc_daily node          ║
+║          forever for the page session. The auto-scraper writes to TODAY's     ║
+║          node four times a day (10:34/13:00/15:18/17:34) — once the tab was   ║
+║          opened early, later periods' chips/data never appeared even after    ║
+║          a later scrape landed, because the cached copy was never re-read.    ║
+║          Fix: today's date (or any date in an active week range) is now       ║
+║          always re-fetched fresh on every date-change/week-toggle, and a      ║
+║          new "↻ Refresh" button forces a re-fetch of whatever is currently    ║
+║          shown. Past dates remain cached (their data is final, no need to     ║
+║          re-read). (2) MISLEADING LABEL — "Class has not started" previously   ║
+║          fired whenever there was no ABSENT slot record at the selected       ║
+║          time, which is indistinguishable from "everyone was present" or      ║
+║          "this exact slot hasn't been scraped yet" — both look identical to   ║
+║          a class that never ran. arpRenderResults() now tracks two signals    ║
+║          separately: classScrapedAnywhere (any record at all for this class   ║
+║          in range — proves the scraper has touched this class) vs              ║
+║          slotFoundAtThisTime (a slot specifically at the selected time —       ║
+║          proves the class was actually held then). A class only disappears    ║
+║          from the grid if there's truly zero scrape data for it anywhere in   ║
+║          range; if scraped-but-nothing-at-this-time, it now shows "⏳ No        ║
+║          scrape data for [time] yet" instead of the misleading "not started".  ║
+║                                                                              ║
+║  v5.102 2026-06-22 Feat: ABSENT REPORT page is now 2 tabs — "📊 Shortage      ║
+║          Report" (the existing cumulative view, unchanged) and new            ║
+║          "⏰ Period-wise Absent". The new tab reads the REAL scraped slot     ║
+║          times already stored at puc_daily/{ay}/{dateKey}/{class}[].         ║
+║          courses[].slots[].start/end (written by spDoScrape /                ║
+║          spScrapeAndWriteDate from Rovelabs session.start_time/end_time) —   ║
+║          NOT the timetable grid, per explicit instruction. Flow: pick a       ║
+║          date (day name auto-shown) → time chips are built ONLY from times    ║
+║          actually present in that date's scrape (never hardcoded) → click a   ║
+║          chip → class-wise cards list every student absent in a slot          ║
+║          starting at that exact time, with subject abbr + faculty name +      ║
+║          "- N" occurrence count for that subject at that time across the      ║
+║          loaded range (e.g. "ENG (Mr. X) - 2"). A class with zero records at   ║
+║          that time for the loaded range shows "Class has not started"         ║
+║          instead of an empty list. "📅 Week" toggle switches to a Mon–Sat      ║
+║          range (always computed around the selected date — Sunday rolls       ║
+║          back to the prior Monday) and fetches all 6 dates in parallel;        ║
+║          a banner always shows the exact From→To dateKeys being read so       ║
+║          the admin knows the range in view. Student filter (autocomplete       ║
+║          by name) narrows to one student and lists every subject + miss        ║
+║          count for the selected time across the loaded range — built          ║
+║          because subjects rotate day-to-day in the same slot, so the           ║
+║          admin's real question ("who keeps missing 8:30, in what subject")    ║
+║          needs per-student aggregation, not a single day's snapshot. New      ║
+║          fns: arSwitchTopTab, arpDateChange, arpWeekToggle, arpLoadDay,        ║
+║          arpLoadWeek, arpCollectTimes, arpRenderTimeChips, arpSelectTime,      ║
+║          arpStudentFilterInput/Pick/Clear, arpRenderResults,                  ║
+║          arpRenderStudentView, arpStudentRowHtml. Reuses scOpen() for          ║
+║          clickable student names, pucPhotos for avatars, subjectMap for       ║
+║          abbr+faculty, excStudentMap to skip exception students — same        ║
+║          conventions as the existing DATE REPORT tab.                         ║
+║                                                                              ║
+║  v5.101 2026-06-22 UX: Dashboard "Calendar of Events" card header is now     ║
+║          ALWAYS visible (db-cal-events-card no longer display:none when     ║
+║          empty) so it's clear the check ran rather than the card silently    ║
+║          vanishing. Empty state now renders "Nothing today · No events in    ║
+║          the next 10 days" inside the body instead of hiding the whole card. ║
+║                                                                              ║
+║  v5.100 2026-06-22 Fix/Feat: (1) Live Class Board was showing today's        ║
+║          regular timetable on Sundays since no calendar event was marked    ║
+║          "holiday" for Sunday by default — pucLcbRender() now checks         ║
+║          getDay()===0 first and renders the same "no regular classes" panel  ║
+║          used for holidays/exams, before even consulting pucCalTodayStatus().║
+║          Manually browsing to a past/future Sunday via the day picker is     ║
+║          unaffected (block only applies to the live/"today" view).           ║
+║          (2) New Dashboard "Calendar of Events" card (below Session Dates,   ║
+║          above Class Overview): merges COM + SCI academic calendars and      ║
+║          shows (a) any event covering today and (b) events starting within   ║
+║          the next 10 days, each tagged COM / SCI / COM + SCI. Identical      ║
+║          from/to/type/name entries on both calendars are shown as one row    ║
+║          tagged "COM + SCI" instead of duplicating. Card is fully hidden     ║
+║          (display:none, no placeholder) when there is nothing today and      ║
+║          nothing in the next 10 days, so quiet weeks add no dashboard noise. ║
+║          New fn: pucDashCalRender(); wired into pucCalPreload() and          ║
+║          pucCalStartLiveSync() so it loads on dashboard init and updates     ║
+║          instantly if an admin edits the calendar while the dashboard is     ║
+║          open.                                                               ║
 ║                                                                              ║
 ║  v5.99 2026-06-20  Fix: Auto-scrape catch-up re-firing 10:34 slot on every  ║
 ║          version update / page reload. Root cause: _spLoadFiredFb() reads    ║
@@ -3726,6 +3962,12 @@ body {
         <div id="db-session-dates" style="display:none;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:16px;"></div>
       </div>
 
+      <!-- Calendar of Events (today's event + next 10 days, COM + SCI) — header always visible, body shows "nothing" state when empty -->
+      <div class="card" id="db-cal-events-card">
+        <div class="card-title">Calendar of Events</div>
+        <div id="db-cal-events" style="display:flex;flex-direction:column;gap:10px;margin-top:10px;"></div>
+      </div>
+
       <!-- Per-class summary grid -->
       <div class="card">
         <div class="card-title">Class Overview</div>
@@ -3999,25 +4241,78 @@ body {
       <div class="page-title">ABSENT REPORT</div>
       <div class="page-sub">All classes — students with attendance shortage · uses last scraped data</div>
 
-      <!-- Controls -->
-      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <label style="font-size:12px;color:var(--muted);font-family:var(--mono);">Threshold</label>
-          <input type="number" id="ar-threshold" value="75" min="1" max="100"
-            style="width:64px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
-                   padding:6px 10px;color:var(--text);font-family:var(--mono);font-size:13px;text-align:center;outline:none;">
-          <span style="font-size:12px;color:var(--muted);font-family:var(--mono);">%</span>
-        </div>
-        <button class="btn" onclick="arRunCumulative()" style="background:var(--accent);color:#000;">▶ Run Report</button>
-        <button class="btn btn-ghost" onclick="arExportPDF()" id="ar-pdf-btn" style="display:none;">🖨 PDF</button>
-        <button class="btn btn-ghost" onclick="arExportExcel()" id="ar-excel-btn" style="display:none;">📊 Excel</button>
+      <!-- Top-level tabs -->
+      <div class="filter-tabs" style="margin-bottom:20px;">
+        <div class="filter-tab active" id="ar-toptab-shortage" onclick="arSwitchTopTab('shortage')">📊 Shortage Report</div>
+        <div class="filter-tab" id="ar-toptab-period" onclick="arSwitchTopTab('period')">⏰ Period-wise Absent</div>
       </div>
 
-      <!-- Summary strip -->
-      <div id="ar-summary" style="display:none;font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:16px;"></div>
+      <!-- ── TAB 1: SHORTAGE REPORT (existing cumulative view) ── -->
+      <div id="ar-tab-shortage">
+        <!-- Controls -->
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label style="font-size:12px;color:var(--muted);font-family:var(--mono);">Threshold</label>
+            <input type="number" id="ar-threshold" value="75" min="1" max="100"
+              style="width:64px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                     padding:6px 10px;color:var(--text);font-family:var(--mono);font-size:13px;text-align:center;outline:none;">
+            <span style="font-size:12px;color:var(--muted);font-family:var(--mono);">%</span>
+          </div>
+          <button class="btn" onclick="arRunCumulative()" style="background:var(--accent);color:#000;">▶ Run Report</button>
+          <button class="btn btn-ghost" onclick="arExportPDF()" id="ar-pdf-btn" style="display:none;">🖨 PDF</button>
+          <button class="btn btn-ghost" onclick="arExportExcel()" id="ar-excel-btn" style="display:none;">📊 Excel</button>
+        </div>
 
-      <!-- Cards grid -->
-      <div id="ar-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;"></div>
+        <!-- Summary strip -->
+        <div id="ar-summary" style="display:none;font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:16px;"></div>
+
+        <!-- Cards grid -->
+        <div id="ar-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;"></div>
+      </div>
+
+      <!-- ── TAB 2: PERIOD-WISE ABSENT (new) ── -->
+      <div id="ar-tab-period" style="display:none;">
+        <!-- Controls -->
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label style="font-size:12px;color:var(--muted);font-family:var(--mono);">Date</label>
+            <input type="date" id="arp-date" onchange="arpDateChange()"
+              style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                     padding:6px 10px;color:var(--text);font-family:var(--mono);font-size:13px;outline:none;">
+            <span id="arp-dayname" style="font-size:12px;color:var(--accent);font-family:var(--mono);font-weight:700;"></span>
+          </div>
+          <div class="filter-tab" id="arp-week-toggle" onclick="arpWeekToggle()" style="border-radius:20px;">📅 Week</div>
+          <button class="btn btn-ghost" onclick="arpRefresh()" style="padding:5px 12px;font-size:11px;">↻ Refresh</button>
+          <button class="btn btn-ghost" onclick="arpInspectRaw()" style="padding:5px 12px;font-size:11px;">🔍 Inspect Raw</button>
+          <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px;position:relative;">
+            <label style="font-size:12px;color:var(--muted);font-family:var(--mono);">Student</label>
+            <input type="text" id="arp-student-filter" placeholder="Type a name to filter…" oninput="arpStudentFilterInput()" autocomplete="off"
+              style="flex:1;max-width:220px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                     padding:6px 10px;color:var(--text);font-family:var(--mono);font-size:12px;outline:none;">
+            <div id="arp-student-list" style="display:none;position:absolute;z-index:500;top:calc(100% + 4px);left:60px;background:var(--surface2);
+                 border:1px solid var(--border);border-radius:8px;max-height:240px;overflow-y:auto;min-width:220px;
+                 box-shadow:0 8px 24px rgba(0,0,0,0.4);"></div>
+            <button class="btn btn-ghost" id="arp-student-clear" onclick="arpStudentClear()" style="display:none;padding:5px 10px;font-size:11px;">✕ Clear</button>
+          </div>
+        </div>
+
+        <!-- Raw inspect panel (debug) -->
+        <div id="arp-inspect-panel" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:8px;
+             padding:12px 14px;margin-bottom:16px;font-family:var(--mono);font-size:11px;color:var(--text);
+             max-height:360px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;"></div>
+
+        <!-- Day chips — shown in week mode only -->
+        <div id="arp-day-chips" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);"></div>
+
+        <!-- Time chips — 8 fixed period slots -->
+        <div id="arp-time-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px;"></div>
+
+        <!-- Status / loading -->
+        <div id="arp-status" style="font-family:var(--mono);font-size:13px;color:var(--muted);padding:24px 0;text-align:center;"></div>
+
+        <!-- Class-wise result grid -->
+        <div id="arp-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;"></div>
+      </div>
     </div>
 
     <!-- DATE REPORT PANEL -->
@@ -6440,7 +6735,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.99";
+const APP_VERSION = "v5.114";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -6758,6 +7053,8 @@ function onPucLoginSuccess(user, profile) {
   currentProfile = { name: profile.name || profile.displayName || user.email, role: profile.role || 'admin' };
   loadPucData();
   setTimeout(() => flLoadAll(), 3000);
+  // v5.114: arm auto-schedule AFTER auth is ready (Firebase reads now succeed)
+  spSchedLoad();
 }
 
 // =====================
@@ -8821,6 +9118,15 @@ const SP_REPORTS = 'https://reportsapi.rovelabs.com/graphql';
 const SP_AY      = '2026 - 2027';
 const SP_AY_KEY  = '2026-27';
 
+// v5.109: SLOT TIME FIX speed cutoff. A regular scrape sees 40+ historical
+// dates per student; fetching get_class_dates for every one of them (v5.108)
+// made scrapes take 1+ hour. Only dates within this many days of today get
+// the real per-subject timeMap lookup + diff-log; older dates use the
+// existing fallback time untouched (not damaged, just not auto-corrected).
+// To fix older dates, use the "Re-scrape existing dates" button — it targets
+// one date directly and is NOT subject to this cutoff.
+const SP_TIMEMAP_LOOKBACK_DAYS = 14;
+
 // ── MARKS SCRAPER constants (AY 2026-27 — academics portal)
 const SP_MARKS_AY      = '2026 - 2027';
 const SP_MARKS_AY_KEY  = '2026-27';
@@ -9519,10 +9825,16 @@ async function spSchedArm() {
   const nowMin = nowIST.getHours() * 60 + nowIST.getMinutes();
   const todayKey = spTodayKey(); // e.g. "13-Jun-2026"
 
-  // If a scrape (manual or auto) completed within the last 5 minutes, skip
-  // catch-up entirely — today's data is already fresh. Without this, editing
-  // the AUTO SCHEDULE times right after a manual/auto scrape re-arms and
-  // immediately fires a redundant "missed slot" catch-up scrape.
+  // v5.113: "scraped today" check — covers the FULL IST day, not just 5 min.
+  // The old 5-minute window meant a scrape that finished 33+ min ago (e.g.
+  // 10:13 PM) was ignored when the page re-armed at 10:46 PM, leaving
+  // _spSchedFired empty (if _spLoadFiredFb() threw on auth-race), and the
+  // catch-up loop then fired for the 10:34 AM slot as if it were missed.
+  // Fix: compare the stored scrape timestamp against IST midnight of today.
+  // A scrape that ran any time today blocks ALL past-slot catch-ups.
+  // The original edge case (re-arm right after manual scrape re-triggers
+  // catch-up) is already covered by _spSchedFired being set in _spFireScrape
+  // before the scrape even completes — no separate time check needed for that.
   let recentScrapeMs = 0;
   try { recentScrapeMs = parseInt(localStorage.getItem(SP_LAST_SCRAPE_KEY) || '0', 10); } catch(e) {}
   // Also check Firebase for the last scrape timestamp (covers other browsers)
@@ -9533,9 +9845,14 @@ async function spSchedArm() {
     const fbTs = fbSnap.exists() ? (fbSnap.val() || 0) : 0;
     if (fbTs > recentScrapeMs) recentScrapeMs = fbTs;
   } catch(e) {}
-  const scrapedRecently = recentScrapeMs && (Date.now() - recentScrapeMs < 5 * 60000);
+  // "Scraped today" = timestamp falls within today's IST calendar day
+  const _scrapeDate = recentScrapeMs
+    ? new Date(recentScrapeMs).toLocaleDateString('en-IN', {timeZone:'Asia/Kolkata'})
+    : '';
+  const _todayDate = new Date().toLocaleDateString('en-IN', {timeZone:'Asia/Kolkata'});
+  const scrapedRecently = recentScrapeMs && (_scrapeDate === _todayDate);
   if (scrapedRecently) {
-    spLog(`⏰ Skipping missed-slot catch-up — a scrape already ran ${Math.round((Date.now()-recentScrapeMs)/1000)}s ago`, 'info');
+    spLog(`⏰ Skipping missed-slot catch-up — a scrape already ran today (${Math.round((Date.now()-recentScrapeMs)/60000)}min ago)`, 'info');
   }
 
   let missedFired = false;
@@ -9603,6 +9920,121 @@ function spTodayKey() {
   const ist = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Kolkata'}));
   const MONS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return String(ist.getDate()).padStart(2,'0') + '-' + MONS[ist.getMonth()] + '-' + ist.getFullYear();
+}
+
+// ── Helper: reverse of spIsoToKey — "20-Jun-2026" → "2026-06-20" ──────────────
+// v5.107: needed to call get_class_dates (which wants YYYY-MM-DD) using the
+// app's internal DD-Mon-YYYY date keys.
+function spKeyToIso(dateKey) {
+  const MONS = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',
+                Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+  const p = dateKey.split('-');
+  return p[2] + '-' + MONS[p[1]] + '-' + p[0].padStart(2,'0');
+}
+
+// ── Helper: is dateKey within the last SP_TIMEMAP_LOOKBACK_DAYS days? ─────────
+// v5.109: speed cutoff. Dates outside the window skip the get_class_dates call
+// entirely (old fallback time used, untouched). Use the "Re-scrape existing
+// dates" button to force-correct any specific older date — that path calls
+// spFetchClassDateTimes directly and is not subject to this cutoff.
+function spIsWithinTimeMapLookback(dateKey) {
+  const todayIso = spKeyToIso(spTodayKey());
+  const dateIso  = spKeyToIso(dateKey);
+  const diffDays = (new Date(todayIso) - new Date(dateIso)) / 86400000;
+  return diffDays >= 0 && diffDays <= SP_TIMEMAP_LOOKBACK_DAYS;
+}
+
+// ── Helper: fetch get_class_dates and build a course|section → {start,end} map ─
+// v5.107: SLOT TIME FIX. student_wise_attendance_detailed bundles multiple
+// subjects under one session start/end time. get_class_dates returns the real
+// per-subject-per-period time. This is called ONCE per scrape (not per
+// student) and used as a lookup when stamping slot times. On any failure,
+// returns {} so callers fall back to the old bundled session time — nothing
+// breaks if this API call fails.
+async function spFetchClassDateTimes(dateKey) {
+  const map = {};
+  const iso = spKeyToIso(dateKey);
+  try {
+    const resp = await fetch('https://academicapi.rovelabs.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': spToken,
+        'Content-Type': 'application/json',
+        'Accept': '*/*',
+        'Origin': 'https://academics.rovelabs.com',
+        'Referer': 'https://academics.rovelabs.com/',
+      },
+      body: JSON.stringify({
+        operationName: 'MyQuery',
+        query: `query MyQuery($academic_year:String!,$term_type:String!,$program:String,$from_date:String,$to_date:String,$page_no:Int!,$limit:Int!,$name_sort:Int,$program_sort:Int,$filter_status:String,$attendance_status:String,$class_status:String,$class_type:String,$search_value:String){
+          get_class_dates(academic_year:$academic_year term_type:$term_type program:$program from_date:$from_date to_date:$to_date page_no:$page_no limit:$limit name_sort:$name_sort program_sort:$program_sort filter_status:$filter_status attendance_status:$attendance_status class_status:$class_status class_type:$class_type search_value:$search_value){
+            course_code section start_time end_time attendance_status
+          }
+        }`,
+        variables: {
+          academic_year: SP_AY, term_type: 'all', program: 'all',
+          from_date: iso, to_date: iso,
+          attendance_status: 'all', class_status: 'all', class_type: 'all',
+          filter_status: 'All', page_no: 1, limit: 100,
+          name_sort: 1, program_sort: 1, search_value: '',
+        },
+      }),
+    });
+    const json = await resp.json();
+    if (json.errors?.length) throw new Error(json.errors[0].message);
+    for (const entry of (json.data?.get_class_dates || [])) {
+      if (entry.attendance_status !== 'completed') continue; // skip pending — time may still change
+      if (!entry.course_code || !entry.section) continue;
+      map[entry.course_code + '|' + entry.section] = { start: entry.start_time, end: entry.end_time };
+    }
+    spLog(`  ✓ timeMap (${dateKey}): ${Object.keys(map).length} subject-section slots`, 'ok');
+  } catch(e) {
+    spLog(`  ⚠ timeMap fetch failed for ${dateKey}: ${e.message} — using bundled session times`, 'warn');
+  }
+  return map;
+}
+
+// ── Helper: log slot-time changes for one date before writing to Firebase ─────
+// v5.108: reads the EXISTING puc_daily/{AY}/{dateKey} node (one read, not per
+// student), compares each student+course's first slot start time against what
+// is about to be written, and logs ONLY the ones that actually changed.
+// Purely for visibility — does not alter what gets written.
+async function spLogSlotTimeDiff(dateKey, newFirebasePayload) {
+  let oldData = null;
+  try {
+    const snap = await rtdb.ref(`puc_daily/${SP_AY_KEY}/${dateKey}`).once('value');
+    oldData = snap.val();
+  } catch(e) {
+    spLog(`  ⚠ diff-log: couldn't read existing ${dateKey} (${e.message}) — skipping diff`, 'warn');
+    return;
+  }
+  if (!oldData) return; // nothing existed before — nothing to diff
+
+  let changedCount = 0, sameCount = 0;
+  for (const [clsLabel, newStudents] of Object.entries(newFirebasePayload)) {
+    const oldStudents = oldData[clsLabel];
+    if (!Array.isArray(oldStudents)) continue;
+    const oldByUsn = {};
+    for (const s of oldStudents) if (s && s.usn) oldByUsn[s.usn] = s;
+
+    for (const ns of newStudents) {
+      const os = oldByUsn[ns.usn];
+      if (!os || !Array.isArray(os.courses)) continue;
+      const oldCourseByCode = {};
+      for (const c of os.courses) if (c && c.code) oldCourseByCode[c.code] = c;
+
+      for (const nc of (ns.courses || [])) {
+        const oc = oldCourseByCode[nc.code];
+        const newStart = nc.slots?.[0]?.start || '';
+        const oldStart = oc?.slots?.[0]?.start || '';
+        if (!oldStart && !newStart) continue; // nothing to compare
+        if (oldStart === newStart) { sameCount++; continue; }
+        changedCount++;
+        spLog(`  Δ ${clsLabel} | ${ns.name} | ${nc.code}: ${oldStart || '—'}→${newStart || '—'} (CHANGED)`, 'warn');
+      }
+    }
+  }
+  spLog(`  ℹ diff (${dateKey}): ${changedCount} changed, ${sameCount} unchanged`, changedCount ? 'warn' : 'dbg');
 }
 
 // ── Step 1: fetch student list for one class ──────────────────────────────────
@@ -9689,6 +10121,27 @@ async function spDoScrape(trigger, reason) {
   // Notify: scrape started
   spScrapeNotify('start', trigger, { classes: toScrape.length, reason });
 
+  // v5.108: PER-DATE timeMap fix. A live scrape's student_wise_attendance_detailed
+  // response contains sessions from MANY past dates, not just today — so a single
+  // shared timeMap (v5.107 bug) stamped TODAY's times onto ALL those old dates.
+  // Fix: cache one timeMap per distinct dateKey, fetched lazily on first encounter
+  // (so each date triggers exactly one get_class_dates call, however many students
+  // reference it).
+  // v5.109: SPEED CUTOFF — only dates within SP_TIMEMAP_LOOKBACK_DAYS get the
+  // real get_class_dates call; older dates skip it (cache {} — old fallback
+  // time used, untouched) so a regular scrape doesn't make 40+ calls every run.
+  const _timeMapCache = {};
+  async function getTimeMapFor(dateKey) {
+    if (!(dateKey in _timeMapCache)) {
+      if (spIsWithinTimeMapLookback(dateKey)) {
+        _timeMapCache[dateKey] = await spFetchClassDateTimes(dateKey);
+      } else {
+        _timeMapCache[dateKey] = {}; // outside lookback window — skip API call, use fallback
+      }
+    }
+    return _timeMapCache[dateKey];
+  }
+
   // dailySnapshot[dateKey][classLabel] = { students: [{usn,name,contact,courses:[{code,attended}]}], summary:{...} }
   const dailySnapshot = {};
   let totalStudents = 0;
@@ -9751,11 +10204,18 @@ async function spDoScrape(trigger, reason) {
           // Record each course in this session.
           // Store {attended, slots:[{attended,start,end}]} so multi-period days
           // keep real start/end times per period. P beats A on the top-level attended.
-          const _st = session.start_time || '';
-          const _et = session.end_time   || '';
+          // v5.108: look up real per-subject time from THIS DATE's timeMap (fetched
+          // and cached per dateKey, not a single shared map); falls back to the old
+          // bundled session time if not found.
+          const _dateTimeMap = await getTimeMapFor(dateKey);
+          const _stFallback = session.start_time || '';
+          const _etFallback = session.end_time   || '';
           for (const course of (session.courses || [])) {
             const code = course.course_code;
             if (!code) continue;
+            const _tm = _dateTimeMap[code + '|' + cls.section];
+            const _st = (_tm && _tm.start) || _stFallback;
+            const _et = (_tm && _tm.end)   || _etFallback;
             const existing = dailySnapshot[dateKey][cls.label][usn].courses[code];
             const att = course.attended || 'A';
             if (!existing) {
@@ -9808,6 +10268,11 @@ async function spDoScrape(trigger, reason) {
   }
 
   spProgress(toScrape.length, toScrape.length, 'done');
+
+  // v5.108: summarize how many distinct dates got their own timeMap fetched
+  const _tmDates = Object.keys(_timeMapCache);
+  const _tmHits = _tmDates.filter(k => Object.keys(_timeMapCache[k]).length > 0).length;
+  spLog(`  ℹ timeMap: ${_tmDates.length} date(s) checked, ${_tmHits} had get_class_dates data`, 'info');
 
   // Push to Firebase
   const fbOk = await spPushFB(dailySnapshot, totalStudents, _scrapeStartKey, classesOk);
@@ -9878,6 +10343,13 @@ async function spPushFB(dailySnapshot, totalStudents, scrapeKey, classesOk) {
     }
 
     try {
+      // v5.108: log what's actually changing for this date BEFORE the write
+      // (read-only — does not affect what gets written).
+      // v5.109: skip for dates outside the lookback window — those didn't get
+      // a fresh timeMap, so there's nothing new to diff against.
+      if (spIsWithinTimeMapLookback(dateKey)) {
+        await spLogSlotTimeDiff(dateKey, firebasePayload);
+      }
       // Use update() — only overwrites classes present in this scrape, preserves others
       await rtdb.ref(`puc_daily/${SP_AY_KEY}/${dateKey}`).update(firebasePayload);
       spLog(`  ✓ Firebase puc_daily/${SP_AY_KEY}/${dateKey} — ${Object.keys(firebasePayload).length} classes`, 'fire');
@@ -10152,6 +10624,11 @@ async function spScrapeAndWriteDate(dateKey) {
   const activeClasses = SP_CLASSES;
   const firebasePayload = {};
 
+  // v5.107: fetch real per-subject slot times for this specific dateKey ONCE,
+  // before the class loop. Safe fallback to {} if get_class_dates has no data
+  // for this date (e.g. too far in the past) — old bundled time is then used.
+  const timeMap = await spFetchClassDateTimes(dateKey);
+
   for (const cls of activeClasses) {
     spLog('  Fetching ' + cls.label + '…', 'dbg');
     try {
@@ -10176,10 +10653,13 @@ async function spScrapeAndWriteDate(dateKey) {
         for (const session of sessions) {
           if (!session.class_date) continue;
           if (spIsoToKey(session.class_date) !== dateKey) continue;
-          const _bfSt = session.start_time || '';
-          const _bfEt = session.end_time   || '';
+          const _bfStFallback = session.start_time || '';
+          const _bfEtFallback = session.end_time   || '';
           for (const course of (session.courses || [])) {
             if (!course.course_code) continue;
+            const _tm = timeMap[course.course_code + '|' + cls.section];
+            const _bfSt = (_tm && _tm.start) || _bfStFallback;
+            const _bfEt = (_tm && _tm.end)   || _bfEtFallback;
             const att = course.attended || 'A';
             if (!dayCourses[course.course_code]) {
               dayCourses[course.course_code] = { attended: att, slots: [{ attended: att, start: _bfSt, end: _bfEt }] };
@@ -10228,6 +10708,8 @@ async function spScrapeAndWriteDate(dateKey) {
   }
 
   try {
+    // v5.108: log what's actually changing for this date BEFORE the write.
+    await spLogSlotTimeDiff(dateKey, firebasePayload);
     await rtdb.ref('puc_daily/' + SP_AY_KEY + '/' + dateKey).update(firebasePayload);
     spLog('  ✓ Firebase OK: ' + dateKey + ' (' + Object.keys(firebasePayload).length + ' classes)', 'ok');
     if (typeof pucSessAutoSetOnScrape === 'function') {
@@ -12156,6 +12638,565 @@ function arExportExcel() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ABSENT REPORT — TOP-LEVEL TAB SWITCH (Shortage Report / Period-wise)
+// ═══════════════════════════════════════════════════════════════
+function arSwitchTopTab(tab) {
+  document.getElementById('ar-toptab-shortage').classList.toggle('active', tab === 'shortage');
+  document.getElementById('ar-toptab-period').classList.toggle('active', tab === 'period');
+  document.getElementById('ar-tab-shortage').style.display = tab === 'shortage' ? '' : 'none';
+  document.getElementById('ar-tab-period').style.display   = tab === 'period'   ? '' : 'none';
+  if (tab === 'period' && !document.getElementById('arp-date').value) {
+    // Default to today on first open
+    const today = new Date();
+    document.getElementById('arp-date').value = today.toISOString().slice(0,10);
+    arpDateChange();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ABSENT REPORT — TAB 2: PERIOD-WISE ABSENT
+// ═══════════════════════════════════════════════════════════════
+// Design: 8 fixed period-time chips always shown. In Week mode,
+// day chips (Mon–Sat) filter to a single day within the week.
+// Class cards show each absent student and which subject(s) they
+// missed at the selected time — with a count of how many times
+// across the loaded date range. Student filter shows one student's
+// subject-wise misses at the selected time.
+// ═══════════════════════════════════════════════════════════════
+
+let _arpMode      = 'day';   // 'day' | 'week'
+let _arpDayCache  = {};      // dateKey -> raw puc_daily node
+let _arpRangeKeys = [];      // all loaded dateKeys (1 for day, 6 for week)
+let _arpViewKeys  = [];      // keys currently displayed (filtered by day chip in week mode)
+let _arpSelTime   = '08:30'; // selected period start (24-hr "HH:MM")
+let _arpSelDay    = null;    // selected day label in week mode, e.g. "Mon", or null = all
+let _arpStudentSel= null;    // { urn, name, class } or null
+
+// 8 fixed periods matching the school timetable
+const ARP_PERIODS = [
+  { start:'08:30', label:'8:30 AM'  },
+  { start:'09:30', label:'9:30 AM'  },
+  { start:'10:45', label:'10:45 AM' },
+  { start:'11:45', label:'11:45 AM' },
+  { start:'13:15', label:'1:15 PM'  },
+  { start:'14:15', label:'2:15 PM'  },
+  { start:'15:30', label:'3:30 PM'  },
+  { start:'16:30', label:'4:30 PM'  },
+];
+
+const ARP_DAY_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const ARP_DAY_LONG  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// ── Helper: coerce RTDB value (array or object) to array of students ──
+function arpToArr(v) {
+  if (!v || typeof v !== 'object') return [];
+  return Array.isArray(v) ? v : Object.values(v);
+}
+
+// ── Tab open ─────────────────────────────────────────────────────────
+// (called by arSwitchTopTab — just sets default date if none yet)
+
+// ── Date changed ─────────────────────────────────────────────────────
+async function arpDateChange() {
+  const val = document.getElementById('arp-date').value;
+  if (!val) return;
+  const d = new Date(val + 'T00:00:00');
+  document.getElementById('arp-dayname').textContent = ARP_DAY_LONG[d.getDay()];
+  document.getElementById('arp-week-toggle').classList.toggle('active', _arpMode === 'week');
+  if (_arpMode === 'week') await arpLoadWeek(val, false);
+  else await arpLoadDay(val, false);
+}
+
+// ── Week toggle ───────────────────────────────────────────────────────
+async function arpWeekToggle() {
+  _arpMode = (_arpMode === 'week') ? 'day' : 'week';
+  _arpSelDay = null;
+  document.getElementById('arp-week-toggle').classList.toggle('active', _arpMode === 'week');
+  const val = document.getElementById('arp-date').value;
+  if (!val) return;
+  if (_arpMode === 'week') await arpLoadWeek(val, false);
+  else await arpLoadDay(val, false);
+}
+
+// ── Load single day ───────────────────────────────────────────────────
+async function arpLoadDay(dateVal, forceRefresh) {
+  const statusEl = document.getElementById('arp-status');
+  document.getElementById('arp-grid').innerHTML = '';
+  statusEl.innerHTML = '<div class="spinner" style="margin:0 auto 8px;"></div> Loading…';
+
+  const dateKey = drFmtKey(dateVal);
+  const todayKey = drFmtKey(new Date().toISOString().slice(0,10));
+  try {
+    if (!Object.keys(excStudentMap).length) { try { await excStudentLoad(); } catch(e) {} }
+    if (forceRefresh || dateKey === todayKey || !_arpDayCache[dateKey]) {
+      const snap = await rtdb.ref(`puc_daily/${SP_AY_KEY}/${dateKey}`).once('value');
+      _arpDayCache[dateKey] = snap.val() || null;
+    }
+    _arpRangeKeys = [dateKey];
+    _arpViewKeys  = [dateKey];
+    _arpSelDay    = null;
+    statusEl.innerHTML = '';
+    document.getElementById('arp-day-chips').style.display = 'none';
+    arpRenderTimeChips();
+  } catch(e) {
+    statusEl.innerHTML = `❌ Error: ${e.message}`;
+  }
+}
+
+// ── Load Mon–Sat week ─────────────────────────────────────────────────
+async function arpLoadWeek(dateVal, forceRefresh) {
+  const statusEl = document.getElementById('arp-status');
+  document.getElementById('arp-grid').innerHTML = '';
+  statusEl.innerHTML = '<div class="spinner" style="margin:0 auto 8px;"></div> Loading week…';
+
+  const d = new Date(dateVal + 'T00:00:00');
+  const dow = d.getDay();
+  const mon = new Date(d);
+  mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+  const weekDates = [];
+  for (let i = 0; i < 6; i++) {
+    const wd = new Date(mon);
+    wd.setDate(mon.getDate() + i);
+    weekDates.push(wd);
+  }
+  const weekKeys = weekDates.map(wd => drFmtKey(wd.toISOString().slice(0,10)));
+  const todayKey = drFmtKey(new Date().toISOString().slice(0,10));
+
+  try {
+    if (!Object.keys(excStudentMap).length) { try { await excStudentLoad(); } catch(e) {} }
+    await Promise.all(weekKeys.map(async key => {
+      if (!forceRefresh && key !== todayKey && _arpDayCache[key] !== undefined) return;
+      const snap = await rtdb.ref(`puc_daily/${SP_AY_KEY}/${key}`).once('value');
+      _arpDayCache[key] = snap.val() || null;
+    }));
+    _arpRangeKeys = weekKeys;
+    _arpViewKeys  = weekKeys.slice(); // start with all days
+    _arpSelDay    = null;
+    statusEl.innerHTML = '';
+    arpRenderDayChips(weekDates, weekKeys);
+    arpRenderTimeChips();
+  } catch(e) {
+    statusEl.innerHTML = `❌ Error: ${e.message}`;
+  }
+}
+
+// ── Manual refresh ────────────────────────────────────────────────────
+async function arpRefresh() {
+  const val = document.getElementById('arp-date').value;
+  if (!val) return;
+  if (_arpMode === 'week') await arpLoadWeek(val, true);
+  else await arpLoadDay(val, true);
+}
+
+// ── Day chips (week mode only) ────────────────────────────────────────
+function arpRenderDayChips(weekDates, weekKeys) {
+  const bar = document.getElementById('arp-day-chips');
+  // "All" chip + Mon–Sat chips
+  const allActive = !_arpSelDay;
+  let html = `<span style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-right:4px;align-self:center;">Day:</span>`;
+  html += `<div class="filter-tab${allActive?' active':''}" onclick="arpDaySelect(null)" style="border-radius:20px;font-size:11px;">All</div>`;
+  weekDates.forEach((wd, i) => {
+    const dayLabel = ARP_DAY_SHORT[wd.getDay()];
+    const active = _arpSelDay === weekKeys[i];
+    const dateDisp = wd.getDate() + '/' + (wd.getMonth()+1);
+    html += `<div class="filter-tab${active?' active':''}" onclick="arpDaySelect('${weekKeys[i]}')" style="border-radius:20px;font-size:11px;">${dayLabel} <span style="opacity:0.6;">${dateDisp}</span></div>`;
+  });
+  bar.innerHTML = html;
+  bar.style.display = 'flex';
+}
+
+function arpDaySelect(dateKey) {
+  _arpSelDay   = dateKey;
+  _arpViewKeys = dateKey ? [dateKey] : _arpRangeKeys.slice();
+  // Re-render day chips with new active state
+  if (_arpMode === 'week') {
+    const val = document.getElementById('arp-date').value;
+    const d   = new Date(val + 'T00:00:00');
+    const dow = d.getDay();
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+    const weekDates = [];
+    for (let i = 0; i < 6; i++) {
+      const wd = new Date(mon); wd.setDate(mon.getDate() + i); weekDates.push(wd);
+    }
+    const weekKeys = weekDates.map(wd => drFmtKey(wd.toISOString().slice(0,10)));
+    arpRenderDayChips(weekDates, weekKeys);
+  }
+  arpRenderResults();
+}
+
+// ── Time chips — always 8 fixed periods ──────────────────────────────
+function arpRenderTimeChips() {
+  const bar = document.getElementById('arp-time-chips');
+  bar.innerHTML = ARP_PERIODS.map(p => {
+    const active = p.start === _arpSelTime;
+    return `<div class="filter-tab${active?' active':''}" onclick="arpSelectTime('${p.start}')" style="border-radius:20px;">${p.label}</div>`;
+  }).join('');
+  arpRenderResults();
+}
+
+function arpSelectTime(t) {
+  _arpSelTime = t;
+  arpRenderTimeChips();
+}
+
+// ── Student filter autocomplete ───────────────────────────────────────
+function arpStudentFilterInput() {
+  const q = document.getElementById('arp-student-filter').value.trim().toLowerCase();
+  const list = document.getElementById('arp-student-list');
+  if (!q) { list.style.display = 'none'; list.innerHTML = ''; return; }
+  const matches = allPucStudents.filter(s => (s.name||'').toLowerCase().includes(q)).slice(0, 20);
+  if (!matches.length) { list.style.display = 'none'; list.innerHTML = ''; return; }
+  list.style.display = 'block';
+  list.innerHTML = matches.map(s => {
+    const urnSafe = (s.urn||s.usn||'').replace(/'/g,"&#39;");
+    const nameSafe = (s.name||'?').replace(/</g,'&lt;');
+    return `<div style="padding:7px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04);"
+      onmousedown="arpStudentPick('${urnSafe}')">${nameSafe} <span style="color:var(--muted);font-size:10px;">(${s.class||'—'})</span></div>`;
+  }).join('');
+}
+
+function arpStudentPick(urn) {
+  const s = allPucStudents.find(x => (x.urn||x.usn||'') === urn);
+  if (!s) return;
+  _arpStudentSel = { urn: s.urn||s.usn||'', name: s.name||'?', class: s.class||'—' };
+  document.getElementById('arp-student-filter').value = s.name||'?';
+  document.getElementById('arp-student-list').style.display = 'none';
+  document.getElementById('arp-student-clear').style.display = '';
+  arpRenderResults();
+}
+
+function arpStudentClear() {
+  _arpStudentSel = null;
+  document.getElementById('arp-student-filter').value = '';
+  document.getElementById('arp-student-clear').style.display = 'none';
+  arpRenderResults();
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#arp-student-filter') && !e.target.closest('#arp-student-list')) {
+    const list = document.getElementById('arp-student-list');
+    if (list) list.style.display = 'none';
+  }
+}, true);
+
+// ── Inspect Raw (debug) ───────────────────────────────────────────────
+// v5.111: SECTION-BLEED FIX. The v5.110 liveMap lookup matched by
+// `code + '|'` prefix searched across the ENTIRE liveMap, ignoring section —
+// so e.g. 1PUC-COM-A's 23COMKA01 could match COM-B's or COM-C's live
+// get_class_dates entry for the same subject code (the same subject is
+// taught to all sections, at different times, so this produced wrong/
+// inconsistent MISMATCH verdicts — confirmed live: COM-A/B/C each showed
+// one single bundled time for EVERY subject, which is the real symptom —
+// stale Firebase data — but the live-time comparison itself was unreliable
+// because it could silently grab another section's time). FIXED: now looks
+// up the inspected class's actual `section` from SP_CLASSES and builds the
+// exact `code + '|' + section` key, matching how spFetchClassDateTimes
+// itself keys the map. If section can't be resolved for a label, the line
+// says so explicitly instead of silently mismatching.
+// v5.110: REWRITTEN for the v5.107–v5.109 timeMap pipeline. The old version
+// (v5.104) just dumped courses[].slots[] from Firebase — that was written to
+// confirm the "bundled session time" theory, which is now FIXED and obsolete.
+// Post-fix, "no data at 13:15" can mean several different things depending on
+// the timeMap/lookback pipeline, and the old dump gave zero visibility into
+// any of them:
+//   1. Firebase has genuinely no scrape for this date at all (scraper hasn't
+//      fired yet today).
+//   2. Firebase has data, but get_class_dates never returned a "completed"
+//      entry for that course|section at the time of the scrape (period hadn't
+//      happened yet when the scraper ran) — so it fell back to the OLD bundled
+//      session start/end time, which may not be "13:15" at all.
+//   3. The date is outside SP_TIMEMAP_LOOKBACK_DAYS (14 days) — timeMap is
+//      skipped entirely for it and it's running on whatever time was stamped
+//      whenever it was last (re)scraped — could be stale/bundled.
+//   4. get_class_dates has an entry, it says "completed", but the live
+//      start_time it returns right now doesn't match what's stored in
+//      Firebase — meaning Firebase is stale and needs a re-scrape
+//      (spBfRescrape / spScrapeAndWriteDate) to pick up the corrected time.
+// This version makes a LIVE get_class_dates call per inspected date (same
+// call spFetchClassDateTimes uses) and diffs it against what's actually
+// stored, so the real cause is visible immediately instead of guessed at.
+async function arpInspectRaw() {
+  const panel = document.getElementById('arp-inspect-panel');
+  if (!_arpRangeKeys.length) {
+    panel.style.display = '';
+    panel.textContent = 'No date loaded yet — pick a date first.';
+    return;
+  }
+  const opening = panel.style.display === 'none' || !panel.style.display;
+  panel.style.display = opening ? '' : 'none';
+  if (!opening) return;
+
+  panel.textContent = 'Inspecting… (live get_class_dates call per date, please wait)';
+
+  const lines = [];
+  lines.push('LIVE INSPECTOR — Firebase storage vs. live get_class_dates, for the selected time chip');
+  lines.push('Dates: ' + _arpRangeKeys.join(', ') + '   |   Selected time chip: ' + (_arpSelTime || '(none)'));
+  lines.push('Lookback window: ' + SP_TIMEMAP_LOOKBACK_DAYS + ' days (dates older than this never get a live get_class_dates correction on regular scrapes)');
+  lines.push('═'.repeat(78));
+
+  for (const key of _arpRangeKeys) {
+    const raw = _arpDayCache[key];
+    const inWindow = spIsWithinTimeMapLookback(key);
+    lines.push(`\n[${key}]  ${inWindow ? '✓ within lookback window' : '✗ OUTSIDE lookback window — get_class_dates skipped on auto-scrape'}`);
+
+    if (!raw) {
+      lines.push('  Firebase: NO DATA AT ALL for this date. The scraper has not written ' + `puc_daily/${SP_AY_KEY}/${key}` + ' yet.');
+      continue;
+    }
+
+    // Live get_class_dates call for this exact date — ground truth.
+    let liveMap = {};
+    let liveErr = null;
+    try {
+      liveMap = await spFetchClassDateTimes(key);
+    } catch(e) {
+      liveErr = e.message;
+    }
+    const liveCount = Object.keys(liveMap).length;
+    lines.push(`  Live get_class_dates: ${liveErr ? '❌ ' + liveErr : liveCount + ' completed course|section entr' + (liveCount===1?'y':'ies') + ' returned'}`);
+
+    let shownForDate = 0;
+    for (const [label, val] of Object.entries(raw)) {
+      if (label.startsWith('_meta')) continue;
+      const stuArr = arpToArr(val);
+      if (!stuArr.length) continue;
+
+      // v5.111: section-aware lookup. liveMap keys are "code|section" — the
+      // v5.110 version matched by code-prefix ONLY across the WHOLE map,
+      // so e.g. 1PUC-COM-A's 23COMKA01 could silently match COM-B's or
+      // COM-C's live entry for the same subject code (same subject taught
+      // to multiple sections at different times). Must scope to THIS
+      // class's actual section from SP_CLASSES before comparing.
+      const clsDef = SP_CLASSES.find(c => c.label === label);
+      const section = clsDef ? clsDef.section : null;
+
+      // Aggregate per-class: which course|section codes exist in Firebase for
+      // this class, what times they're stored at, and whether that matches
+      // what get_class_dates says RIGHT NOW.
+      const codesSeen = {}; // code -> Set of stored start times
+      stuArr.forEach(s => {
+        (s.courses || []).forEach(c => {
+          if (!codesSeen[c.code]) codesSeen[c.code] = new Set();
+          (c.slots || []).forEach(sl => codesSeen[c.code].add(sl.start || '(blank)'));
+        });
+      });
+      if (!Object.keys(codesSeen).length) continue;
+
+      lines.push(`\n  [${key}] ${label} — ${stuArr.length} student(s) on file${section ? ' (section '+section+')' : ' ⚠ section unknown — can\'t scope live match'}`);
+      let classHasSelTime = false;
+      Object.entries(codesSeen).forEach(([code, timesSet]) => {
+        const storedTimes = Array.from(timesSet);
+        if (storedTimes.includes(_arpSelTime)) classHasSelTime = true;
+        // Exact code|section match only — no cross-section bleed.
+        const liveEntry = section ? liveMap[code + '|' + section] : null;
+        const liveStart = liveEntry ? liveEntry.start : null;
+        let note = '';
+        if (!section) {
+          note = '  ⚠ unknown section for this class label — skipped live comparison';
+        } else if (liveStart && !storedTimes.includes(liveStart)) {
+          note = `  ⚠ MISMATCH — get_class_dates says ${liveStart} NOW, Firebase has ${storedTimes.join('/')} — re-scrape this date to correct`;
+        } else if (!liveEntry && inWindow) {
+          note = '  ⚠ no "completed" get_class_dates entry for this exact course+section right now — period may not have run/synced yet; stored time is the OLD bundled fallback';
+        } else if (!inWindow) {
+          note = '  (outside lookback — stored time was never timeMap-corrected, may be the old bundled session time)';
+        }
+        lines.push(`    ${code}: stored=[${storedTimes.join(', ')}]${liveStart ? ', live='+liveStart : ''}${note}`);
+        if (++shownForDate >= 12) return;
+      });
+      if (_arpSelTime && !classHasSelTime) {
+        lines.push(`    ↳ No subject is stored at ${_arpSelTime} for this class on ${key}. See per-subject lines above for why.`);
+      }
+      if (shownForDate >= 12) { lines.push('    … (truncated)'); break; }
+    }
+    if (!shownForDate) lines.push('  (no per-subject slot data found for any class on this date)');
+  }
+
+  lines.push('\n' + '═'.repeat(78));
+  lines.push('If "stored" never shows ' + (_arpSelTime||'the selected time') + ' but a subject genuinely meets then, the likely fix is: open Scraper → "Re-scrape existing dates" for ' + _arpRangeKeys[_arpRangeKeys.length-1] + ' (spBfRescrape), which always calls get_class_dates fresh regardless of the lookback window.');
+  panel.textContent = lines.join('\n');
+}
+
+// ── Main renderer ─────────────────────────────────────────────────────
+// For each class in SP_CLASSES, scan _arpViewKeys for students who have
+// a slot with start === _arpSelTime and attended === 'A'.
+// Aggregate per student: { subjectCode -> count } across all view dates.
+// Show count = how many days in the range that student missed that subject
+// at the selected time.
+function arpRenderResults() {
+  const grid = document.getElementById('arp-grid');
+  grid.innerHTML = '';
+  if (!_arpSelTime || !_arpViewKeys.length) return;
+
+  if (_arpStudentSel) { arpRenderStudentView(); return; }
+
+  SP_CLASSES.forEach(clsDef => {
+    const label = clsDef.label;
+
+    // absentMap: urnKey -> { name, urn, subjects: { code: count } }
+    const absentMap = {};
+    let anyDataForClass = false;
+    let slotExistsForTime = false;
+
+    _arpViewKeys.forEach(key => {
+      const raw = _arpDayCache[key];
+      if (!raw || !raw[label]) return;
+      const stuArr = arpToArr(raw[label]);
+      if (stuArr.length) anyDataForClass = true;
+
+      stuArr.forEach(s => {
+        const urnKey = (s.urn || s.usn || '').trim();
+        if (urnKey && excStudentMap[urnKey]) return;
+
+        (s.courses || []).forEach(c => {
+          (c.slots || []).forEach(sl => {
+            if (sl.start !== _arpSelTime) return;
+            slotExistsForTime = true;
+            if (sl.attended !== 'A') return;
+            const k = urnKey || s.name;
+            if (!absentMap[k]) absentMap[k] = { name: s.name||'?', urn: urnKey, subjects: {} };
+            absentMap[k].subjects[c.code] = (absentMap[k].subjects[c.code] || 0) + 1;
+          });
+        });
+      });
+    });
+
+    if (!anyDataForClass) return; // no scrape for this class at all — skip
+
+    const rows = Object.values(absentMap).sort((a, b) => (a.name||'').localeCompare(b.name||''));
+
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;';
+
+    const periodLabel = (ARP_PERIODS.find(p => p.start === _arpSelTime) || {}).label || _arpSelTime;
+    let html = `<div style="background:var(--surface2);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-family:var(--head);font-size:15px;letter-spacing:1px;color:var(--accent);">${label}</span>
+      <span style="font-family:var(--mono);font-size:12px;color:${rows.length?'var(--warn)':'var(--ok)'};font-weight:700;">${rows.length}</span>
+    </div>`;
+
+    if (!slotExistsForTime) {
+      html += `<div style="padding:16px 14px;font-family:var(--mono);font-size:12px;color:var(--muted);text-align:center;">
+        ⏳ No data for ${periodLabel}<br>
+        <span style="font-size:10px;opacity:0.6;">(period not scraped yet, or no class at this time)</span>
+      </div>`;
+    } else if (!rows.length) {
+      html += `<div style="padding:16px 14px;font-family:var(--mono);font-size:12px;color:var(--ok);text-align:center;">✅ All present at ${periodLabel}</div>`;
+    } else {
+      html += '<div style="padding:8px 0;">';
+      rows.forEach((s, i) => { html += arpStudentRowHtml(s, i); });
+      html += '</div>';
+    }
+
+    card.innerHTML = html;
+    cmInjectDots(card);
+    grid.appendChild(card);
+  });
+
+  if (!grid.children.length) {
+    grid.innerHTML = '<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px;text-align:center;">No class data found for this selection.</div>';
+  }
+}
+
+// ── Single student row ────────────────────────────────────────────────
+// Shows name + photo + subject chips (each subject they missed, with count)
+function arpStudentRowHtml(s, i) {
+  const urnSafe  = (s.urn||'').replace(/'/g,"&#39;");
+  const nameSafe = (s.name||'?').replace(/</g,'&lt;');
+  const urnKey   = s.urn || '';
+  const photoUrl = (typeof pucPhotos !== 'undefined') ? (pucPhotos[urnKey] || pucPhotos[urnKey.toLowerCase()] || '') : '';
+  const inits    = (s.name||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+  const avatar   = photoUrl
+    ? `<img src="${photoUrl}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid var(--border);flex-shrink:0;cursor:zoom-in;" onclick="event.stopPropagation();zoomPhotoUrl(this.src)" onerror="this.style.display='none'">`
+    : `<span style="width:28px;height:28px;border-radius:50%;background:var(--surface2);border:1.5px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--accent);flex-shrink:0;">${inits}</span>`;
+
+  const chips = Object.entries(s.subjects).map(([code, cnt]) => {
+    const entry   = subjectMap[(code||'').toUpperCase()] || {};
+    const abbr    = entry.abbr || entry.name || code;
+    const faculty = entry.faculty || '';
+    return `<span title="${code}${entry.name?' · '+entry.name:''}${faculty?' · '+faculty:''}"
+      style="font-size:9px;background:rgba(239,68,68,0.15);color:var(--danger);border-radius:3px;
+             padding:2px 6px;font-family:var(--mono);">${abbr}${faculty?' ('+faculty+')':''} - ${cnt}</span>`;
+  }).join('');
+
+  return `<div data-urn="${urnSafe}" style="padding:5px 12px;border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer;" onclick="scOpen('${urnSafe||nameSafe}')">
+    <div style="display:flex;align-items:center;gap:7px;">
+      <span style="font-size:12px;color:var(--muted);font-family:var(--mono);min-width:16px;">${i+1}.</span>
+      ${avatar}
+      <span style="font-size:12px;flex:1;color:var(--text);">${nameSafe}</span>
+    </div>
+    <div style="padding-left:50px;margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${chips}</div>
+  </div>`;
+}
+
+// ── Single-student view ───────────────────────────────────────────────
+// Shows one card: at the selected time, which subjects did this student
+// miss and how many times across _arpViewKeys?
+function arpRenderStudentView() {
+  const grid = document.getElementById('arp-grid');
+  grid.innerHTML = '';
+  const sel    = _arpStudentSel;
+  const urnUC  = (sel.urn||'').trim().toUpperCase();
+  const nameLC = (sel.name||'').trim().toLowerCase();
+
+  // subjects: code -> count of absences at _arpSelTime
+  const subjects = {};
+  let foundSlot = false;
+
+  _arpViewKeys.forEach(key => {
+    const raw = _arpDayCache[key];
+    if (!raw || !raw[sel.class]) return;
+    const stuArr = arpToArr(raw[sel.class]);
+    let stu = urnUC ? stuArr.find(x => (x.urn||x.usn||'').trim().toUpperCase() === urnUC) : null;
+    if (!stu && nameLC) stu = stuArr.find(x => (x.name||'').trim().toLowerCase() === nameLC);
+    if (!stu) return;
+
+    (stu.courses||[]).forEach(c => {
+      (c.slots||[]).forEach(sl => {
+        if (sl.start !== _arpSelTime) return;
+        foundSlot = true;
+        if (sl.attended !== 'A') return;
+        subjects[c.code] = (subjects[c.code] || 0) + 1;
+      });
+    });
+  });
+
+  const periodLabel = (ARP_PERIODS.find(p => p.start === _arpSelTime) || {}).label || _arpSelTime;
+  const modeDesc = _arpMode === 'week'
+    ? (_arpSelDay ? 'on ' + _arpSelDay : 'this week')
+    : 'on this date';
+
+  const card = document.createElement('div');
+  card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;grid-column:1/-1;max-width:440px;';
+  const nameSafe = (sel.name||'?').replace(/</g,'&lt;');
+
+  let html = `<div style="background:var(--surface2);border-bottom:1px solid var(--border);padding:10px 14px;">
+    <span style="font-family:var(--head);font-size:15px;letter-spacing:1px;color:var(--accent);">${nameSafe}</span>
+    <span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px;">${sel.class} · ${periodLabel} ${modeDesc}</span>
+  </div>`;
+
+  if (!foundSlot) {
+    html += `<div style="padding:16px 14px;font-family:var(--mono);font-size:12px;color:var(--muted);text-align:center;">No class at ${periodLabel} found for this student.</div>`;
+  } else if (!Object.keys(subjects).length) {
+    html += `<div style="padding:16px 14px;font-family:var(--mono);font-size:12px;color:var(--ok);text-align:center;">✅ No absences at ${periodLabel}</div>`;
+  } else {
+    html += '<div style="padding:12px 14px;display:flex;flex-wrap:wrap;gap:6px;">';
+    Object.entries(subjects).forEach(([code, cnt]) => {
+      const entry   = subjectMap[(code||'').toUpperCase()] || {};
+      const abbr    = entry.abbr || entry.name || code;
+      const faculty = entry.faculty || '';
+      html += `<span title="${code}${entry.name?' · '+entry.name:''}${faculty?' · '+faculty:''}"
+        style="font-size:11px;background:rgba(239,68,68,0.15);color:var(--danger);border-radius:4px;
+               padding:5px 10px;font-family:var(--mono);">${abbr}${faculty?' ('+faculty+')':''} - ${cnt}</span>`;
+    });
+    html += '</div>';
+  }
+
+  card.innerHTML = html;
+  grid.appendChild(card);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // DATE REPORT — reads puc_daily from Firebase
 // ═══════════════════════════════════════════════════════════════
 let _drData = null; // { date, classes:[{label, subjectAbsent:[...], wholeDayAbsent:[...]}] }
@@ -12175,8 +13216,11 @@ document.addEventListener('DOMContentLoaded', () => {
       res.style.display = 'none';
     }
   });
-  // Silently restore scraper session & arm auto-schedule without opening panel
-  spSchedLoad();
+  // spSchedLoad() moved to onPucLoginSuccess() — must run AFTER Firebase auth
+  // is confirmed ready. Calling it here (DOMContentLoaded) causes all Firebase
+  // reads inside spSchedArm() to fail silently — catch-up fires every reload. (v5.114)
+
+
   spAutoRestoreSession();
   const today = new Date();
   const yyyy = today.getFullYear();
@@ -15480,7 +16524,8 @@ function pucLcbRender() {
   const isLiveView = _pucLcbSelected === -1 && _pucLcbDay === -1;
   if (isLiveView) {
     const stream = (_pucLcbStream||'COM').toLowerCase() === 'sci' ? 'sci' : 'com';
-    const todayEvt = pucCalTodayStatus(stream);
+    const isSunday = new Date().getDay() === 0;
+    const todayEvt = isSunday ? { type:'holiday', name:'Sunday' } : pucCalTodayStatus(stream);
     if (todayEvt) {
       const _typeIcon  = { holiday:'🏖', exam:'📝', event:'📅', sports:'🏅', internal:'📋' };
       const _typeColor = { holiday:'#f59e0b', exam:'#a78bfa', event:'#60a5fa', sports:'#34d399', internal:'#fb923c' };
@@ -22356,6 +23401,81 @@ function pucCalRenderUpcoming(stream) {
   }).join('');
 }
 
+// ── Dashboard "Calendar of Events" card ─────────────────────────
+// Shows: (a) today's event, if any, on either calendar, and
+//        (b) events starting within the next 10 days on either calendar.
+// Merges COM + SCI, tagging each row with which stream(s) it's for.
+// Card is fully hidden if nothing qualifies (no noise on quiet days).
+function pucDashCalRender() {
+  const card = document.getElementById('db-cal-events-card');
+  const wrap = document.getElementById('db-cal-events');
+  if (!card || !wrap) return;
+
+  const todayD = new Date();
+  const today  = todayD.toISOString().slice(0,10);
+  const horizonD = new Date(todayD);
+  horizonD.setDate(horizonD.getDate() + 10);
+  const horizon  = horizonD.toISOString().slice(0,10);
+
+  // Merge COM + SCI events, deduping identical (from/to/type/name) entries
+  // across the two calendars into one row tagged with both stream labels.
+  const merged = {}; // key -> { e, streams:Set }
+  ['com','sci'].forEach(stream => {
+    (_pucCalEvents[stream] || []).forEach(e => {
+      const key = e.from + '|' + (e.to||'') + '|' + e.type + '|' + e.name;
+      if (!merged[key]) merged[key] = { e, streams: new Set() };
+      merged[key].streams.add(stream);
+    });
+  });
+
+  const todayRows = [];
+  const upcomingRows = [];
+  Object.values(merged).forEach(({ e, streams }) => {
+    const isToday    = e.to ? (today >= e.from && today <= e.to) : (today === e.from);
+    const startsSoon = !isToday && e.from > today && e.from <= horizon;
+    if (isToday)    todayRows.push({ e, streams });
+    else if (startsSoon) upcomingRows.push({ e, streams });
+  });
+  upcomingRows.sort((a,b) => a.e.from.localeCompare(b.e.from));
+
+  if (!todayRows.length && !upcomingRows.length) {
+    card.style.display = '';
+    wrap.innerHTML = '<div style="font-size:12px;color:var(--muted);font-family:var(--mono);padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;text-align:center;">'
+      + 'Nothing today · No events in the next 10 days</div>';
+    return;
+  }
+
+  function streamBadge(streams) {
+    const lbl = (streams.has('com') && streams.has('sci')) ? 'COM + SCI'
+              : streams.has('com') ? 'COM' : 'SCI';
+    return '<span style="font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(156,163,175,.12);color:var(--muted);letter-spacing:0.5px;margin-left:8px;">' + lbl + '</span>';
+  }
+
+  function rowHtml({ e, streams }, isToday) {
+    const meta = PUC_CAL_TYPE_META[e.type] || PUC_CAL_TYPE_META.other;
+    const dateTxt = e.to && e.to !== e.from
+      ? pucFmtCalDate(e.from) + ' → ' + pucFmtCalDate(e.to)
+      : pucFmtCalDate(e.from);
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:' + meta.bg + ';border:1px solid ' + meta.color + '33;border-radius:8px;padding:10px 14px;flex-wrap:wrap;">'
+      + '<div style="display:flex;align-items:center;gap:10px;min-width:0;">'
+      +   '<span style="font-family:var(--mono);font-size:10px;font-weight:700;color:' + meta.color + ';text-transform:uppercase;letter-spacing:0.5px;flex-shrink:0;">' + (isToday ? 'TODAY' : dateTxt) + '</span>'
+      +   '<span style="font-size:13px;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;">' + e.name + (e.for ? ' <span style="color:var(--muted);font-weight:400;">(' + e.for + ')</span>' : '') + '</span>'
+      + '</div>'
+      + '<div style="display:flex;align-items:center;flex-shrink:0;">'
+      +   '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:4px;background:' + meta.color + '22;color:' + meta.color + ';text-transform:uppercase;letter-spacing:0.5px;">' + meta.label + '</span>'
+      +   streamBadge(streams)
+      + '</div>'
+      + '</div>';
+  }
+
+  let html = '';
+  todayRows.forEach(r => html += rowHtml(r, true));
+  upcomingRows.forEach(r => html += rowHtml(r, false));
+
+  card.style.display = '';
+  wrap.innerHTML = html;
+}
+
 // ── Stats row ─────────────────────────────────────────────────
 function pucCalRenderStats(stream) {
   const el = document.getElementById('puc-cal-' + stream + '-stats');
@@ -22537,6 +23657,7 @@ async function pucCalPreload() {
   }));
   // Re-render LCB with fresh calendar data
   if (typeof pucLcbRender === 'function') pucLcbRender();
+  if (typeof pucDashCalRender === 'function') pucDashCalRender();
 }
 
 // ── Firestore live listener — re-render LCB instantly when calendar changes ──
@@ -22546,6 +23667,7 @@ function pucCalStartLiveSync() {
       _pucCalEvents[stream] = (doc.exists && doc.data().events) ? doc.data().events : PUC_CAL_DEFAULTS[stream];
       _pucCalEvents[stream].sort((a,b) => a.from.localeCompare(b.from));
       if (typeof pucLcbRender === 'function') pucLcbRender();
+      if (typeof pucDashCalRender === 'function') pucDashCalRender();
     }, () => {});
   });
 }
