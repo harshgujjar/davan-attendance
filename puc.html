@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v5.157";                                            ║
+║     const APP_VERSION = "v5.158";                                            ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -80,6 +80,15 @@
 ║          spBfScan, run automatically first if needed) so no new date-listing  ║
 ║          logic was needed. Note: this makes one API call per existing date,  ║
 ║          so a full-semester scan takes a while — that's stated in the UI.    ║
+║                                                                              ║
+║  v5.158 2026-06-25  Auto Schedule times now synced across all browsers     ║
+║          via Firebase (puc_sp_config/schedule). Previously saved to        ║
+║          localStorage only — changing in one browser had no effect on      ║
+║          others. Now: save writes to both localStorage + Firebase RTDB.    ║
+║          Load attaches a live rtdb.on('value') listener — any change from  ║
+║          any browser instantly updates all other open browsers and re-arms  ║
+║          the schedule. Falls back to localStorage then defaults if Firebase ║
+║          has no data yet (first load migration: localStorage → Firebase).  ║
 ║                                                                              ║
 ║  v5.157 2026-06-25  Fix false "Slot time missing" banner in Period-wise     ║
 ║          Absent tab. v5.156 flagged courses with slots at a DIFFERENT       ║
@@ -7269,7 +7278,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.157";
+const APP_VERSION = "v5.158";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -9754,7 +9763,8 @@ let spSchedTimer   = null;
 let _scrapeStartKey = null;
 
 const SP_SCHED_KEY   = 'puc_sp_sched';
-const SP_FIRED_KEY   = 'puc_sp_fired'; // persisted "already scraped this slot today" record
+const SP_FIRED_KEY   = 'puc_sp_fired';
+const SP_SCHED_FB    = 'puc_sp_config/schedule'; // Firebase RTDB path — synced across all browsers // persisted "already scraped this slot today" record
 const SP_SESSION_KEY = 'puc_sp_session';
 const SP_LAST_SCRAPE_KEY = 'puc_sp_lastScrape'; // ms timestamp of last successful scrape (any trigger)
 // Hardcoded fallback schedule — used when nothing is saved yet, and as the
@@ -10192,46 +10202,66 @@ function _spSchedSaveNow() {
     spSchedArm();
     return;
   }
+  if (allBlank) return; // nothing to save at all
 
   localStorage.setItem(SP_SCHED_KEY, JSON.stringify(next));
+  // v5.158: also write to Firebase so all browsers/devices stay in sync
+  if (typeof rtdb !== 'undefined' && rtdb) {
+    rtdb.ref(SP_SCHED_FB).set(next).catch(e => spLog('⏰ Schedule Firebase save failed: ' + e.message, 'warn'));
+  }
   spSaveCreds(); // always save latest creds so auto-login works
   spSchedArm();
 }
 function spSchedToggle() { spSchedSave(); }
-function spSchedLoad() {
+// v5.158: apply a schedule object to the UI + localStorage + arm
+function _spSchedApply(s) {
   try {
-    const raw = localStorage.getItem(SP_SCHED_KEY);
-    const cb = document.getElementById('sp-autoEnabled');
+    // One-time migration: SCRAPE 2 default changed from 22:00 → 13:00.
+    if (s.t2 === '22:00') s.t2 = SP_SCHED_DEFAULT.t2;
+    const cb   = document.getElementById('sp-autoEnabled');
     const t1El = document.getElementById('sp-sched1');
     const t2El = document.getElementById('sp-sched2');
     const t3El = document.getElementById('sp-sched3');
     const t4El = document.getElementById('sp-sched4');
-    if (raw) {
-      const s = JSON.parse(raw);
-      // One-time migration: SCRAPE 2 default changed from 22:00 → 13:00.
-      // If the saved value still matches the old default, update it so the
-      // new default takes effect without the user re-entering it.
-      if (s.t2 === '22:00') s.t2 = SP_SCHED_DEFAULT.t2;
-      if (cb) cb.checked = !!s.enabled;
-      if (t1El) t1El.value = s.t1 || SP_SCHED_DEFAULT.t1;
-      if (t2El) t2El.value = s.t2 || SP_SCHED_DEFAULT.t2;
-      if (t3El) t3El.value = s.t3 || SP_SCHED_DEFAULT.t3;
-      if (t4El) t4El.value = s.t4 || SP_SCHED_DEFAULT.t4;
-      // Persist the migrated value
-      try { localStorage.setItem(SP_SCHED_KEY, JSON.stringify(s)); } catch(e) {}
-    } else {
-      // Default: enabled ON, hardcoded fallback slots
-      if (cb) cb.checked = SP_SCHED_DEFAULT.enabled;
-      if (t1El) t1El.value = SP_SCHED_DEFAULT.t1;
-      if (t2El) t2El.value = SP_SCHED_DEFAULT.t2;
-      if (t3El) t3El.value = SP_SCHED_DEFAULT.t3;
-      if (t4El) t4El.value = SP_SCHED_DEFAULT.t4;
-    }
-    spLoadCreds();
-    // Arm if enabled (default = true when no saved state)
-    const shouldArm = raw ? JSON.parse(raw).enabled : true;
-    if (shouldArm) spSchedArm();
+    if (cb)   cb.checked  = !!s.enabled;
+    if (t1El) t1El.value  = s.t1 || SP_SCHED_DEFAULT.t1;
+    if (t2El) t2El.value  = s.t2 || SP_SCHED_DEFAULT.t2;
+    if (t3El) t3El.value  = s.t3 || SP_SCHED_DEFAULT.t3;
+    if (t4El) t4El.value  = s.t4 || SP_SCHED_DEFAULT.t4;
+    try { localStorage.setItem(SP_SCHED_KEY, JSON.stringify(s)); } catch(e) {}
+    if (s.enabled) spSchedArm(); else { clearTimeout(spSchedTimer); spSchedTimer = null; }
   } catch(e) {}
+}
+
+function spSchedLoad() {
+  // v5.158: load from Firebase first (cross-browser sync), fall back to localStorage.
+  // Also attach a live listener so any change from another browser updates this one instantly.
+  spLoadCreds();
+  if (typeof rtdb !== 'undefined' && rtdb) {
+    rtdb.ref(SP_SCHED_FB).on('value', snap => {
+      const fbVal = snap.val();
+      if (fbVal && fbVal.t1) {
+        // Firebase has a saved schedule — apply it and mirror to localStorage
+        _spSchedApply(fbVal);
+      } else {
+        // Firebase empty — fall back to localStorage or defaults
+        try {
+          const raw = localStorage.getItem(SP_SCHED_KEY);
+          const s = raw ? JSON.parse(raw) : SP_SCHED_DEFAULT;
+          _spSchedApply(s);
+          // Migrate to Firebase so other browsers pick it up
+          if (raw) rtdb.ref(SP_SCHED_FB).set(s).catch(() => {});
+        } catch(e) { _spSchedApply(SP_SCHED_DEFAULT); }
+      }
+    });
+  } else {
+    // No Firebase yet — use localStorage/defaults
+    try {
+      const raw = localStorage.getItem(SP_SCHED_KEY);
+      const s = raw ? JSON.parse(raw) : SP_SCHED_DEFAULT;
+      _spSchedApply(s);
+    } catch(e) { _spSchedApply(SP_SCHED_DEFAULT); }
+  }
 }
 // Tracks which schedule slot already fired today to avoid double-fire
 // Key format: "HH:MM-DD-Mon-YYYY" e.g. "13:00-13-Jun-2026" (full date avoids
