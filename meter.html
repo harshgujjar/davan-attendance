@@ -1019,9 +1019,15 @@
       <span>Each point = est. bill if cycle ended that day (starts at ₹0 on bill date)</span>
       <span id="billChartRange">—</span>
     </div>
-    <div id="billChartWrap" style="position:relative;width:100%;overflow:visible">
+    <div id="billChartWrap" style="position:relative;width:100%;overflow:hidden;touch-action:pan-y pinch-zoom">
       <svg id="billChartSvg" viewBox="0 0 600 280" style="width:100%;height:auto;display:block" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="billChartZoomCtl" style="position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:5">
+        <button type="button" data-zoom="out" style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:rgba(17,24,39,0.85);color:var(--accent);font-size:16px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">−</button>
+        <button type="button" data-zoom="in" style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:rgba(17,24,39,0.85);color:var(--accent);font-size:16px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">+</button>
+        <button type="button" data-zoom="reset" style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:rgba(17,24,39,0.85);color:var(--muted);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">⟲</button>
+      </div>
     </div>
+    <div style="font-size:9px;color:var(--muted);margin-top:4px;text-align:center;opacity:0.7">Pinch or use +/− to zoom · drag to pan · ⟲ to reset</div>
     <div style="display:flex;gap:14px;font-size:9px;color:var(--muted);margin-top:6px;flex-wrap:wrap">
       <span><span style="color:var(--accent)">●</span>&nbsp;Actual</span>
       <span><span style="color:var(--yellow)">●</span>&nbsp;Projected</span>
@@ -2049,6 +2055,9 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v2.9.59 2026-06-30 Bill chart: enlarged axis/value label fonts so they     ║
+║                    stay readable when the SVG scales to phone width; added   ║
+║                    pinch/pan zoom with +/−/reset buttons & double-tap reset. ║
 ║  v2.9.12 2026-06-11 Water pay form: bill hint now detects already-paid       ║
 ║                    month and shows "✅ Already paid ₹X" in green instead   ║
 ║                    of re-showing the computed amount with "Use ↑" button.  ║
@@ -2152,7 +2161,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.9.58"; // fix: ₹ labels on the bill chart sat ON TOP of the line at peaks/valleys (blind idx%2 alternation didn't account for line direction). Now label placement is based on local peak/valley/monotonic-run direction so each label clears the line on the side it's not occupying
+const APP_VERSION = "v2.9.59"; // bill chart mobile readability + zoom: bumped axis/value label font sizes (8/9px→12/13px in SVG units) so numbers are legible when the 600-unit viewBox scales down to a ~360px phone; chart H 240→280 with more padding for the taller labels. Added self-contained pinch/pan zoom (inner <g> transform, works under user-scalable=no PWA lock) with +/−/reset buttons, drag-to-pan, double-tap reset, and desktop wheel zoom
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -3324,6 +3333,151 @@ function renderDashboard() {
   renderBillProjectionChart(s, latest);
 }
 
+// =================== BILL CHART PINCH/PAN ZOOM ===================
+// Self-contained zoom controller for the bill projection SVG. Works inside a PWA
+// where the page itself is locked (user-scalable=no): we transform an inner <g>
+// rather than relying on browser page zoom. Supports two-finger pinch, drag-to-pan,
+// +/−/reset buttons, and double-tap to reset.
+const _billChartZoom = {
+  scale: 1, tx: 0, ty: 0,
+  minScale: 1, maxScale: 8,
+  W: 600, H: 280,
+  _wired: false,
+  matrix() {
+    return `translate(${this.tx.toFixed(2)},${this.ty.toFixed(2)}) scale(${this.scale.toFixed(4)})`;
+  },
+  _apply() {
+    const layer = document.getElementById('billChartZoomLayer');
+    if (layer) layer.setAttribute('transform', this.matrix());
+  },
+  _clamp() {
+    this.scale = Math.max(this.minScale, Math.min(this.maxScale, this.scale));
+    // Keep content from drifting fully out of view: limit pan so the scaled
+    // canvas edges can't move past the viewBox bounds.
+    const maxX = 0, minX = this.W - this.W * this.scale;
+    const maxY = 0, minY = this.H - this.H * this.scale;
+    this.tx = Math.max(minX, Math.min(maxX, this.tx));
+    this.ty = Math.max(minY, Math.min(maxY, this.ty));
+  },
+  reset() { this.scale = 1; this.tx = 0; this.ty = 0; this._apply(); },
+  // Zoom toward a focal point given in SVG user units (fx,fy).
+  zoomAt(factor, fx, fy) {
+    const prev = this.scale;
+    this.scale *= factor;
+    this._clampScaleOnly();
+    const applied = this.scale / prev;
+    // Keep the focal point stationary on screen.
+    this.tx = fx - (fx - this.tx) * applied;
+    this.ty = fy - (fy - this.ty) * applied;
+    this._clamp();
+    this._apply();
+  },
+  _clampScaleOnly() {
+    this.scale = Math.max(this.minScale, Math.min(this.maxScale, this.scale));
+  },
+  // Convert a client (screen) coordinate to SVG user-space coordinate.
+  _toSvg(svg, clientX, clientY) {
+    const rect = svg.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * this.W;
+    const y = ((clientY - rect.top) / rect.height) * this.H;
+    return { x, y };
+  },
+  attach(svg) {
+    if (this._wired) return; // wire DOM listeners only once
+    this._wired = true;
+    const wrap = document.getElementById('billChartWrap');
+
+    // ── Buttons ──
+    const ctl = document.getElementById('billChartZoomCtl');
+    if (ctl) ctl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-zoom]');
+      if (!btn) return;
+      const mode = btn.dataset.zoom;
+      const cx = this.W / 2, cy = this.H / 2;
+      if (mode === 'in') this.zoomAt(1.4, cx, cy);
+      else if (mode === 'out') this.zoomAt(1 / 1.4, cx, cy);
+      else this.reset();
+    });
+
+    // ── Pointer-based drag pan (mouse + single touch) ──
+    let dragging = false, lastX = 0, lastY = 0, moved = false;
+    const onDown = (e) => {
+      if (e.touches && e.touches.length > 1) return; // pinch handles multi-touch
+      dragging = true; moved = false;
+      const p = e.touches ? e.touches[0] : e;
+      lastX = p.clientX; lastY = p.clientY;
+    };
+    const onMove = (e) => {
+      if (!dragging) return;
+      if (e.touches && e.touches.length > 1) return;
+      const p = e.touches ? e.touches[0] : e;
+      const rect = svg.getBoundingClientRect();
+      const dx = ((p.clientX - lastX) / rect.width) * this.W;
+      const dy = ((p.clientY - lastY) / rect.height) * this.H;
+      if (Math.abs(p.clientX - lastX) + Math.abs(p.clientY - lastY) > 2) moved = true;
+      lastX = p.clientX; lastY = p.clientY;
+      if (this.scale > 1) {
+        // Only when zoomed do we pan and prevent the page from scrolling.
+        if (e.cancelable) e.preventDefault();
+        this.tx += dx; this.ty += dy; this._clamp(); this._apply();
+      }
+    };
+    const onUp = () => { dragging = false; };
+
+    svg.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    svg.addEventListener('touchstart', onDown, { passive: true });
+    svg.addEventListener('touchmove', onMove, { passive: false });
+    svg.addEventListener('touchend', onUp);
+
+    // ── Two-finger pinch ──
+    let pinchStartDist = 0, pinchStartScale = 1, pinchFocal = null;
+    svg.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        const [a, b] = e.touches;
+        pinchStartDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        pinchStartScale = this.scale;
+        const midX = (a.clientX + b.clientX) / 2, midY = (a.clientY + b.clientY) / 2;
+        pinchFocal = this._toSvg(svg, midX, midY);
+      }
+    }, { passive: true });
+    svg.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2 && pinchStartDist > 0) {
+        e.preventDefault();
+        const [a, b] = e.touches;
+        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        const target = pinchStartScale * (dist / pinchStartDist);
+        const prev = this.scale;
+        this.scale = target; this._clampScaleOnly();
+        const applied = this.scale / prev;
+        this.tx = pinchFocal.x - (pinchFocal.x - this.tx) * applied;
+        this.ty = pinchFocal.y - (pinchFocal.y - this.ty) * applied;
+        this._clamp(); this._apply();
+      }
+    }, { passive: false });
+    svg.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) pinchStartDist = 0;
+    });
+
+    // ── Double-tap / double-click to reset ──
+    let lastTap = 0;
+    svg.addEventListener('touchend', () => {
+      const now = Date.now();
+      if (now - lastTap < 300 && !moved) this.reset();
+      lastTap = now;
+    });
+    svg.addEventListener('dblclick', () => this.reset());
+
+    // ── Desktop wheel zoom (ctrl/trackpad pinch maps to wheel) ──
+    svg.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const f = this._toSvg(svg, e.clientX, e.clientY);
+      this.zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, f.x, f.y);
+    }, { passive: false });
+  }
+};
+
 // =================== BILL PROJECTION CHART (day-by-day, current cycle) ===================
 function renderBillProjectionChart(s, latest) {
   const svg = document.getElementById('billChartSvg');
@@ -3413,6 +3567,7 @@ function renderBillProjectionChart(s, latest) {
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  _billChartZoom.W = W; _billChartZoom.H = H;
 
   const maxBill = Math.max(...validPoints.map(p => p.bill), 50);
   const yMax = Math.ceil(maxBill / 50) * 50 || 50;
@@ -3525,7 +3680,9 @@ function renderBillProjectionChart(s, latest) {
 
   // Free-limit / subsidy reference lines (₹0 region under 164u is just y=0, skip extra lines for simplicity)
 
-  svg.innerHTML = svgParts.join('');
+  // Wrap all content in a <g> so pinch/pan zoom can transform it as one unit.
+  svg.innerHTML = `<g id="billChartZoomLayer" transform="${_billChartZoom.matrix()}">` + svgParts.join('') + '</g>';
+  _billChartZoom.attach(svg);
 
   // ── Calculation breakdown below chart ──
   const breakdownEl = document.getElementById('billChartCalcBreakdown');
@@ -7822,7 +7979,7 @@ function clearDriftLog() {
   // Caches the page shell for offline use
   if ('serviceWorker' in navigator) {
     const swCode = `
-const CACHE = 'meter-tracker-v1';
+const CACHE = 'meter-tracker-v2';
 const URLS  = [self.location.href.replace('/sw.js','/')];
 
 self.addEventListener('install', e => {
