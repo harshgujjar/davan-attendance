@@ -4204,11 +4204,6 @@
             style="accent-color:#60a5fa;width:14px;height:14px;">
           👤 Show faculty name
         </label>
-        <span style="font-size:11px;color:#555;font-family:var(--mono);padding:4px 0;white-space:nowrap;">
-          💡 Lab format: <span style="color:#a78bfa;">CODE B1·Lab ROOM</span>
-          <span style="color:#444;"> — e.g. </span>
-          <span style="color:#c4a02a;">DBMS B1·Lab 3</span>
-        </span>
       </div>
 
       <!-- Grid view -->
@@ -12235,8 +12230,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 951;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '06-Jul-2026', time: '00:00', full: '06-Jul-2026 00:00 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 953;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '06-Jul-2026', time: '02:00', full: '06-Jul-2026 02:00 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -21394,6 +21389,8 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v953', date: '06-Jul-2026 IST', note: 'Removed the stale Lab format: CODE B1 Lab ROOM hint text next to the Edit Timetable checkboxes. It described the old manual-typing lab format from before the custom subject picker (v949) started auto-generating lab options with batch/room/faculty already filled in, so the hint no longer matched how labs are actually placed and only caused confusion. CODE_BUILD=953.' },
+  { v: 'v952', date: '06-Jul-2026 IST', note: 'Subject picker dropdown now shows a live HOURS-CHECK badge on each option, same colour code as the Hours Check bar: green tick exact, orange down-arrow under, red up-arrow over, e.g. a subject taught by Vijayalakshmi P S shows 2/4 down-arrow (2 placed of 4). Refactored the counting out of _ttHoursSummaryHtml into a shared _ttComputeHours(cls) helper (used by both the summary chips and the picker) plus _ttHoursStatusFor(cls, base) which returns got/tgt/mark/colour for one base. Labs use the per-batch rule (max batch, not summed) so a 2-hr lab across two batches still reads correctly. The badge reads LIVE grid inputs, so after you place a subject and reopen the picker the count reflects it (2/4 becomes 3/4 as you add toward the target). Badge is placed/target to match the Hours Check bar; hidden when the subject has no hrs/wk target or the Hours check toggle is off. CODE_BUILD=952.' },
   { v: 'v951', date: '06-Jul-2026 IST', note: 'Fixed lab variants showing no faculty for multi-word lab codes like OA - Lab. Root cause: the friendly-lab parser regex required the base to be a single alnum word ([A-Z][A-Z0-9]*), so OA - Lab A1 Lab 1 (base has spaces + a hyphen + the word Lab) failed to parse as a lab and lmBaseCode returned the whole string, so no allocation matched. Fixes: (1) lmParseCode friendly-lab regex now accepts ANY base before the batch token, so OA - Lab A1 Lab 1 parses to base OA - Lab, batch A1, lab 1. (2) tteGetPickerOptions, _ttCellFacName and lmAllocMatchesCode now use parsed.base (not lmBaseCode) for lab slots and also compare against the raw allocation code, so a lab slot matches an allocation whose code is literally OA - Lab. Result: every OA - Lab A1/A2 x Lab 1/2 option shows the correct faculty (with photo) in the dropdown, the under-cell name label fills in, and the SAME faculty sees each lab slot at its time in their own faculty schedule. Since one teacher handles all batches/rooms, allocating that single OA - Lab row is enough - all four variants inherit that faculty automatically. Non-lab and K/H matching unchanged. CODE_BUILD=951.' },
   { v: 'v950', date: '05-Jul-2026 IST', note: 'Fixed the K/H cell showing ?/? again on the current AY timetable view. The non-split CT branch already hid its ? placeholder when legacy attendance data is out of scope (current AY, nothing recorded yet) via _hideCt = !_legacyDataInScope(), but the K/H split branch never checked that flag, so it always rendered ?/? even when there was no CT data to show. Now the split branch reads the same _hideCt flag: if both the Kannada and Hindi CT are null AND legacy data is out of scope, it renders nothing (matching regular subjects); once real CT data exists for either language, it shows kanCT/hinCT as before. CODE_BUILD=950.' },
   { v: 'v949', date: '05-Jul-2026 IST', note: 'Edit Timetable subject dropdown was a native HTML datalist, which truncates long option labels (INPRO - Lab ..., Priya.., Hema..) and cannot show photos. Replaced it on the timetable grid cells with a custom photo-dropdown (same idea as the Edit Allocation faculty picker from v904). Now focusing a cell opens a full-width popup listing each option with a round FACULTY PHOTO (via _facAvatar, initials fallback), the full code, the full subject text (labs show Batch A1 / Lab 1 (2 hr), K/H shows Kannada + Hindi with both teachers), and the faculty name on a second line - nothing is cut off. Typing in the cell filters the list live (matches code, subject or faculty); clicking a row writes the code into the same input and fires the existing tteOnGridInput so faculty label, lab next-slot auto-fill, duplicate/blue scan and hours check all still run. Escape or an outside click closes it. Turning the Subject picker checkbox off falls back to a plain free-text cell. Applies to both the normal and transposed editable grids. CODE_BUILD=949.' },
@@ -24955,11 +24952,11 @@ function ttGetCt(ttClass, code) {
 }
 
 // ── Hours check: compare each subject's placed slots vs its hours/week target ──
-// Target comes from allocation (a.hoursPerWeek) matched to the class + code.
-// Green = exact, Orange = under, Red = over. Returns HTML chips, or '' if off/none.
-function _ttHoursSummaryHtml(cls) {
-  if (!tteHoursCheck) return '';
-  // Map allocation target hours for this class: code -> hoursPerWeek
+// Compute per-class hours status: returns { targets, placed, labByBatch }.
+// Shared by the Hours-check summary chips AND the subject picker dropdown so both show the
+// same live counts. `placed[base]` = hours placed toward that base (labs use the max batch
+// count so parallel batches don't double); `labByBatch[base]` = { batch -> count }.
+function _ttComputeHours(cls) {
   const targets = {};   // baseCode -> { hours, subject }
   (LM_ALLOCATIONS || []).forEach(a => {
     if (a.hoursPerWeek == null) return;
@@ -24968,29 +24965,22 @@ function _ttHoursSummaryHtml(cls) {
     const base = (typeof lmBaseCode === 'function') ? lmBaseCode(a.code || '') : (a.code || '');
     if (base) targets[base] = { hours: a.hoursPerWeek, subject: a.subject || '' };
   });
-  if (!Object.keys(targets).length) return '';
-  // Count placed slots for this class per base code. Prefer LIVE grid inputs (what the
-  // admin is currently typing) so the count updates before saving; fall back to saved
-  // LM_TIMETABLE only if the grid for this class isn't currently rendered.
   const placed = {};        // non-lab: base -> raw cell count
-  const labByBatch = {};    // lab base -> { batch -> count } (A1, A2 counted separately)
+  const labByBatch = {};    // lab base -> { batch -> count }
   const _tallyCode = (raw) => {
     if (!raw) return;
-    const base = (typeof lmBaseCode === 'function') ? lmBaseCode(raw) : raw;
-    if (!base) return;
     const parsed = (typeof lmParseCode === 'function') ? lmParseCode(raw) : null;
+    // Lab base uses parsed.base (handles multi-word bases like "OA - Lab").
+    const base = (parsed && parsed.isLab && parsed.base)
+      ? parsed.base
+      : ((typeof lmBaseCode === 'function') ? lmBaseCode(raw) : raw);
+    if (!base) return;
     if (parsed && parsed.isLab) {
-      // Labs: tally per batch (A1/A2). A 2-hour lab fills 2 slots per batch, and two batches
-      // running the same lab (in parallel or on different days) must EACH reach the target —
-      // they do NOT sum together. So the lab's "hours" = the per-batch count, checked for
-      // every batch, not the total number of lab cells.
       const batch = parsed.batch || '?';
       if (!labByBatch[base]) labByBatch[base] = {};
       labByBatch[base][batch] = (labByBatch[base][batch] || 0) + 1;
     } else {
       placed[base] = (placed[base] || 0) + 1;
-      // A combined K/H slot runs Kannada + Hindi together, so it counts one hour toward
-      // BOTH the Kannada (KAN) and Hindi (K/H) weekly targets.
       if (base === 'K/H') placed['KAN'] = (placed['KAN'] || 0) + 1;
     }
   };
@@ -24998,7 +24988,6 @@ function _ttHoursSummaryHtml(cls) {
   try {
     const wrap = document.getElementById('tte-grid-view');
     if (wrap) {
-      // Find the section for this class (All Classes view) or the whole wrap (single class).
       const section = wrap.querySelector('[data-cls-section="' + cls.replace(/"/g,'\\"') + '"]') || (document.getElementById('tte-class')?.value === cls ? wrap : null);
       if (section) {
         section.querySelectorAll('input[data-day]').forEach(inp => _tallyCode((inp.value || '').trim()));
@@ -25009,15 +24998,47 @@ function _ttHoursSummaryHtml(cls) {
   if (!counted) {
     (LM_TIMETABLE || []).filter(t => t.class === cls).forEach(t => _tallyCode((t.code || '').trim()));
   }
-  // Fold lab per-batch counts into the `placed` map. For a lab, the representative weekly
-  // hours is the per-batch count (all batches should match); we use the MAX batch count as
-  // "got" and remember whether any present batch is still short of the target.
-  const labBatchShort = {};   // base -> array of "A1 (1/2)" strings for batches under target
+  // Fold lab per-batch counts into placed (max batch = representative per-batch hours).
   Object.keys(labByBatch).forEach(base => {
-    const batches = labByBatch[base];
-    const counts = Object.values(batches);
+    const counts = Object.values(labByBatch[base]);
     placed[base] = counts.length ? Math.max(...counts) : 0;
   });
+  return { targets, placed, labByBatch };
+}
+
+// Return the hours status for a single base code: { got, tgt, mark, color } or null if the
+// base has no target. Used by the picker to show e.g. "2/4 ↓" on each option.
+function _ttHoursStatusFor(cls, base) {
+  if (!base) return null;
+  const { targets, placed, labByBatch } = _ttComputeHours(cls);
+  const t = targets[base];
+  if (!t) return null;
+  const tgt = t.hours;
+  const batches = labByBatch[base];
+  let color, mark, got;
+  if (batches) {
+    const entries = Object.entries(batches);
+    got = entries.length ? Math.max(...entries.map(([,n]) => n)) : 0;
+    const allMet  = entries.length > 0 && entries.every(([,n]) => n >= tgt);
+    const anyOver = entries.some(([,n]) => n > tgt);
+    if (allMet && !anyOver) { color = '#4ade80'; mark = '✓'; }
+    else if (anyOver)       { color = '#f87171'; mark = '↑'; }
+    else                    { color = '#fb923c'; mark = '↓'; }
+  } else {
+    got = placed[base] || 0;
+    if (got === tgt)     { color = '#4ade80'; mark = '✓'; }
+    else if (got < tgt)  { color = '#fb923c'; mark = '↓'; }
+    else                 { color = '#f87171'; mark = '↑'; }
+  }
+  return { got, tgt, mark, color, batches };
+}
+
+// Target comes from allocation (a.hoursPerWeek) matched to the class + code.
+// Green = exact, Orange = under, Red = over. Returns HTML chips, or '' if off/none.
+function _ttHoursSummaryHtml(cls) {
+  if (!tteHoursCheck) return '';
+  const { targets, placed, labByBatch } = _ttComputeHours(cls);
+  if (!Object.keys(targets).length) return '';
   const chips = Object.keys(targets).sort().map(base => {
     const tgt = targets[base].hours;
     const got = placed[base] || 0;
@@ -26181,13 +26202,19 @@ function _ttEnsurePickerEl() {
   return el;
 }
 
-function _ttPickerRowHtml(opt, active) {
+function _ttPickerRowHtml(opt, active, hours) {
   const avatar = (typeof _facAvatar === 'function' && opt.facForAvatar)
     ? _facAvatar(opt.facForAvatar, 30)
     : `<span style="width:30px;height:30px;border-radius:50%;flex-shrink:0;background:var(--surface2,#20252e);display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);">${opt.isKH?'K/H':(opt.isLab?'🧪':'—')}</span>`;
   const codeTag = `<span style="font-family:var(--mono);font-weight:700;color:var(--accent);font-size:12px;">${opt.code.replace(/</g,'&lt;')}</span>`;
   const subj = opt.subject ? `<span style="font-size:11px;color:var(--text);">${opt.subject.replace(/</g,'&lt;')}</span>` : '';
   const fac  = opt.faculty ? `<span style="font-size:10px;color:#7c8698;">${opt.faculty.replace(/</g,'&lt;')}</span>` : '<span style="font-size:10px;color:#556;">— no faculty —</span>';
+  // Hours-check badge (e.g. "2/4 ↓") coloured green/orange/red, mirroring the summary chips.
+  let hoursBadge = '';
+  if (hours) {
+    const bg = hours.color + '22';
+    hoursBadge = `<span title="hours placed / target" style="flex-shrink:0;margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:700;color:${hours.color};background:${bg};border:1px solid ${hours.color}55;border-radius:6px;padding:2px 7px;">${hours.got}/${hours.tgt} ${hours.mark}</span>`;
+  }
   const bgActive = active ? 'background:rgba(196,160,42,0.14);' : '';
   return `<div class="tte-pick-row" data-code="${opt.code.replace(/"/g,'&quot;')}" style="display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;cursor:pointer;${bgActive}">
     ${avatar}
@@ -26195,6 +26222,7 @@ function _ttPickerRowHtml(opt, active) {
       <div style="display:flex;align-items:center;gap:7px;">${codeTag}${subj}</div>
       ${fac}
     </div>
+    ${hoursBadge}
   </div>`;
 }
 
@@ -26207,6 +26235,7 @@ function _ttOpenPicker(inp) {
   if (!cls || cls === '__ALL__' && !section) { el.style.display = 'none'; return; }
   const all = tteGetPickerOptions(cls);
   el._allOpts = all;
+  el._cls = cls;
   _ttRenderPicker(inp.value || '');
   // Position under the input.
   const r = inp.getBoundingClientRect();
@@ -26227,7 +26256,16 @@ function _ttRenderPicker(filterText) {
     el.innerHTML = `<div style="padding:10px 12px;font-size:12px;color:var(--muted);">No match — type any code freely.</div>`;
     return;
   }
-  el.innerHTML = opts.map((o,i) => _ttPickerRowHtml(o, false)).join('');
+  const cls = el._cls || '';
+  el.innerHTML = opts.map((o,i) => {
+    // Live hours status for this option's base (null if the base has no target set, or the
+    // hours-check toggle is off).
+    let hrs = null;
+    if (tteHoursCheck && cls && typeof _ttHoursStatusFor === 'function') {
+      try { hrs = _ttHoursStatusFor(cls, o.base); } catch(e) { hrs = null; }
+    }
+    return _ttPickerRowHtml(o, false, hrs);
+  }).join('');
   // Wire row clicks.
   el.querySelectorAll('.tte-pick-row').forEach(row => {
     row.addEventListener('mouseenter', () => {
