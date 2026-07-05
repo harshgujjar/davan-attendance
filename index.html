@@ -12313,8 +12313,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 956;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '05-Jul-2026', time: '20:00', full: '05-Jul-2026 20:00 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 958;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '05-Jul-2026', time: '22:00', full: '05-Jul-2026 22:00 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -21472,6 +21472,8 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v958', date: '05-Jul-2026 IST', note: 'Fix: Dr. Shilpa R Y (and any other faculty in FACULTY_NAME_ALIASES) photo not showing anywhere despite a successful upload. Root cause: facPhotos is keyed by exact normalized name text; Staff Directory has her as "Dr. Shilpa R Y" (upload key "dr. shilpa r y") but other surfaces (allocation/timetable-driven screens) reference her via the aliased legacy form "Shilpa R Y" (key "shilpa r y") — two different keys pointing at the same person, so the photo saved under one was invisible under the other. Fix: new _facPhotoUrl(key) helper (built on a lazily-built normalized _facAliasKeyMap from FACULTY_NAME_ALIASES) tries the exact key, then its alias, before falling back to initials. Wired into both _facAvatar() (initial render) and _facAvatarInject() (swap-in once photos load) so every existing call site benefits automatically — Staff Directory, Faculty Dashboard, sidebar avatar, Edit Allocation faculty picker, Live Class Board. CODE_BUILD=958.' },
+  { v: 'v957', date: '05-Jul-2026 IST', note: 'Fix (real root cause): facUploadPhoto REUSED the same Cloudinary public_id (built from the faculty name) on every upload. First-ever photo for a faculty always worked (nothing to collide with); CHANGING an existing photo repeatedly failed with no error message — because unsigned upload presets cannot overwrite an existing asset at the same public_id, so Cloudinary silently rejected/ignored the replacement. Confirmed via user report: "only when it comes to change the photo I have prob" (first upload fine, re-upload stuck on old photo, no toast at all). Fix: public_id now includes a timestamp (name + Date.now()) so every upload — first OR replacement — always creates a brand-new distinct Cloudinary asset and can never collide. v955/v956 fixes (cache-busting URL, honest DB-save error reporting) both still apply on top of this. CODE_BUILD=957.' },
   { v: 'v956', date: '05-Jul-2026 IST', note: 'Fix: facUploadPhoto() showed "✅ Photo saved." even when the Firestore write (app_data/faculty_photos) failed — the failure was only console.warn-logged, not surfaced. This meant a faculty photo re-upload (e.g. Hemavati Desai, reported still showing old photo after v955 cache-bust fix) could succeed on Cloudinary + show briefly in the current tab (facPhotos[key] updated in memory), but silently fail to persist — so the OLD photo came back on next login/reload via facPreloadPhotos() re-reading the un-updated Firestore doc. Now a DB save failure returns null and shows the real error message (e.g. permission-denied) instead of a false success toast, so the actual cause is visible instead of looking like a caching problem. CODE_BUILD=956.' },
   { v: 'v955', date: '05-Jul-2026 IST', note: 'Fix: Staff Directory photo upload appeared to do nothing — re-uploading a faculty photo (e.g. Hemavati Desai) kept showing the OLD image. Root cause: facUploadPhoto() saved Cloudinary secure_url as-is; since uploads always target the same public_id per faculty (built from their name), the browser cached the image by that URL and never re-fetched after a new upload. Fix: facUploadPhoto() now appends a cache-busting ?v=<timestamp> to the stored URL on every successful upload, forcing a fresh fetch. CODE_BUILD=955.' },
   { v: 'v954', date: '05-Jul-2026 IST', note: 'Feat: Faculty Allocation Guard. Fulltime/visiting faculty with ZERO subjects allocated in LM_ALLOCATIONS for the current AY/sem now see a full-screen blocking overlay on login ("Not Allocated Any Subject — contact admin"). New: facCheckAllocation() (called once LM_ALLOCATIONS is fresh from Firestore/RTDB inside onLoginSuccess -> loadFirestoreData().then(), so it never false-flags during the async load window), facApplyAllocLock(locked) which shows/hides #fac-unalloc-overlay and hides nav-dashboard-faculty/nav-tt-viewer/nav-classes/nav-classview (redirects them to leave-myrecords if they were sitting on one of those panels), and facDismissAllocOverlay() which only closes the popup — the hidden panels stay hidden until the admin allocates a subject and the faculty logs in again. Faculty key resolution mirrors the existing ownKey + FACULTY_NAME_ALIASES + LM_ALLOCATIONS.filter pattern used elsewhere (e.g. fdbRenderTT). Leave, Follow-up Log, Report Card, Internal Marks, Results, Academic Calendar stay usable — per admin instruction, this only locks the subject-teaching surfaces. CODE_BUILD=954.' },
@@ -32601,6 +32603,22 @@ async function facPreloadPhotos() {
   return merged;
 }
 
+// v958: normalized (lowercased) alias key-map, built once, so photo lookups can go both
+// "dr. shilpa r y" <-> "shilpa r y" etc. without re-scanning FACULTY_NAME_ALIASES each time.
+let _facAliasKeyMap = null;
+function _facAliasKey(key) {
+  if (!_facAliasKeyMap) {
+    _facAliasKeyMap = {};
+    const src = (typeof FACULTY_NAME_ALIASES !== 'undefined') ? FACULTY_NAME_ALIASES : {};
+    Object.entries(src).forEach(([a, b]) => { _facAliasKeyMap[_facKey(a)] = _facKey(b); });
+  }
+  return _facAliasKeyMap[key] || null;
+}
+// Alias-aware photo lookup: tries the exact normalized key first, then its alias.
+function _facPhotoUrl(key) {
+  return facPhotos[key] || (function(){ const ak = _facAliasKey(key); return ak ? facPhotos[ak] : null; })() || null;
+}
+
 // Inline faculty avatar (photo or initials fallback). Mirrors _stuAvatar.
 function _facAvatar(name, size) {
   size = size || 32;
@@ -32612,7 +32630,11 @@ function _facAvatar(name, size) {
   const fs = Math.round(size * 0.38);
   const base = `width:${size}px;height:${size}px;border-radius:50%;flex-shrink:0;border:1.5px solid var(--border);background:var(--surface2);`;
   const initStyle = `${base}display:inline-flex;align-items:center;justify-content:center;font-size:${fs}px;font-weight:700;color:var(--accent);font-family:var(--head);`;
-  const url = facPhotos[key] || null;
+  // v958: a photo uploaded under ONE name variant (e.g. Staff Directory's "Dr. Shilpa R Y")
+  // was invisible everywhere the app looks her up under an aliased variant (e.g. "Shilpa R Y"
+  // in allocation/timetable data) — facPhotos is keyed by exact name text only, with no
+  // knowledge of FACULTY_NAME_ALIASES. Now also try the alias key before falling back to initials.
+  const url = _facPhotoUrl(key);
   if (url) {
     return `<img src="${url}" alt="${initials}" data-fac-key="${key}" data-fac-size="${size}" style="${base}object-fit:cover;" onerror="this.style.display='none'">`;
   }
@@ -32625,7 +32647,7 @@ function _facAvatarInject() {
     document.querySelectorAll('span[data-fac-key]').forEach(el => {
       const key  = el.getAttribute('data-fac-key');
       const size = parseInt(el.getAttribute('data-fac-size') || '32', 10);
-      const url  = facPhotos[key] || null;
+      const url  = _facPhotoUrl(key); // v958: alias-aware, mirrors _facAvatar
       if (!url) return;
       const base = `width:${size}px;height:${size}px;border-radius:50%;flex-shrink:0;border:1.5px solid var(--border);background:var(--surface2);object-fit:cover;`;
       const img = document.createElement('img');
@@ -32649,7 +32671,14 @@ async function facUploadPhoto(name, file, statusCb) {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('upload_preset', CLOUDINARY_PRESET);
-    fd.append('public_id', key.replace(/[^a-z0-9]+/g, '_'));
+    // v957: give every upload a UNIQUE public_id (name + timestamp) instead of reusing the
+    // same one every time. Unsigned upload presets usually cannot overwrite an existing
+    // asset at the same public_id — so a faculty's FIRST photo upload succeeds (nothing to
+    // collide with), but every subsequent "change photo" collides with that same asset and
+    // Cloudinary silently refuses to replace it. A unique id per upload sidesteps this
+    // entirely: every upload always creates a brand-new asset, so "change photo" can never
+    // silently fail to take effect. The old asset is simply left unused in Cloudinary.
+    fd.append('public_id', key.replace(/[^a-z0-9]+/g, '_') + '_' + Date.now());
     fd.append('folder', 'davan_faculty');
     const res  = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, { method:'POST', body:fd });
     const data = await res.json();
