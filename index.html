@@ -1510,6 +1510,27 @@
   </div>
 </div>
 
+<!-- ── Faculty Not-Allocated Overlay (v954) ── -->
+<div id="fac-unalloc-overlay" style="display:none;position:fixed;inset:0;z-index:20600;
+  background:rgba(0,0,0,0.82);align-items:center;justify-content:center;padding:20px;">
+  <div style="background:var(--surface);border:1px solid var(--danger);border-radius:20px;
+    padding:32px 28px;box-shadow:0 24px 64px rgba(0,0,0,0.8);max-width:380px;width:100%;
+    text-align:center;">
+    <div style="font-size:44px;margin-bottom:14px;">⚠️</div>
+    <div style="font-size:19px;font-weight:800;color:var(--danger);margin-bottom:10px;">Not Allocated Any Subject</div>
+    <div style="font-size:13.5px;color:var(--text);line-height:1.6;margin-bottom:8px;">
+      You have not been allocated any subject for the <strong>current academic year / semester</strong>.
+    </div>
+    <div style="font-size:13.5px;color:var(--muted);line-height:1.6;margin-bottom:22px;">
+      Please contact the admin to get your subject allocation updated. Some sections (Faculty Dashboard, Timetable, Classes) will stay hidden until this is resolved.
+    </div>
+    <button onclick="facDismissAllocOverlay()" style="width:100%;padding:13px;background:var(--accent);color:#000;
+      border:none;border-radius:12px;font-weight:800;font-size:14px;cursor:pointer;">
+      I Understand
+    </button>
+  </div>
+</div>
+
 <!-- ── Universal Confirm Modal ── -->
 <div id="dv-confirm-modal">
   <div id="dv-confirm-box">
@@ -9701,6 +9722,9 @@ async function onLoginSuccess() {
       allocRenderEditor();
       console.log('[onLoginSuccess] Re-rendered alloc editor after Firestore load');
     }
+    // v954: LM_ALLOCATIONS is now fresh from the server — safe to check whether this
+    // faculty has been allocated any subject this AY/sem.
+    if (typeof facCheckAllocation === 'function') facCheckAllocation();
   }).catch(e => {
     console.error('[onLoginSuccess] loadFirestoreData failed:', e);
   });
@@ -11038,6 +11062,65 @@ function applySidebarForRole(role) {
 }
 
 
+// ═══════════════════════════════════════════════════════════════
+//  FACULTY ALLOCATION GUARD (v954) — notifies + locks out
+//  fulltime/visiting faculty who have NO subject allocated in the
+//  current AY/sem, until admin allocates one.
+// ═══════════════════════════════════════════════════════════════
+
+let facAllocLocked = false;
+
+// Call after LM_ALLOCATIONS has loaded fresh from Firestore/RTDB (NOT immediately
+// on login — LM_ALLOCATIONS is empty for a moment while the async load is in flight,
+// which would false-flag every faculty as unallocated).
+function facCheckAllocation() {
+  if (!currentProfile) return;
+  if (![ROLE_FULLTIME, ROLE_VISITING].includes(currentProfile.role)) return;
+  // Guard: only evaluate once real data is present. An empty LM_ALLOCATIONS could mean
+  // "not loaded yet" rather than "genuinely nobody is allocated" — skip in that case.
+  if (!LM_ALLOCATIONS || !LM_ALLOCATIONS.length) return;
+  const ownKey = currentProfile.facultyKey || currentProfile.name;
+  if (!ownKey) return;
+  const allKeys = [...new Set([ownKey, FACULTY_NAME_ALIASES?.[ownKey]].filter(Boolean))];
+  const myAllocs = LM_ALLOCATIONS.filter(a => allKeys.includes(a.faculty));
+  facApplyAllocLock(myAllocs.length === 0);
+}
+
+// restrictedNavIds/Panels: hidden/redirected while locked. Leave, Follow-up, Report Card,
+// Internal Marks, Results, Academic Calendar etc. stay usable per admin's instruction.
+const FAC_ALLOC_RESTRICTED_NAV    = ['nav-dashboard-faculty','nav-tt-viewer','nav-classes','nav-classview'];
+const FAC_ALLOC_RESTRICTED_PANELS = ['dashboard-faculty','tt-viewer','classes','classview'];
+
+function facApplyAllocLock(locked) {
+  facAllocLocked = locked;
+  const overlay = document.getElementById('fac-unalloc-overlay');
+  FAC_ALLOC_RESTRICTED_NAV.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = locked ? 'none' : '';
+  });
+  if (locked) {
+    if (overlay) overlay.style.display = 'flex';
+    // If the faculty is currently sitting on a panel that just got hidden, move them
+    // somewhere still accessible instead of leaving a blank/dead panel behind the overlay.
+    const activePanelEl = document.querySelector('.panel.active');
+    const activeId = activePanelEl ? activePanelEl.id.replace('panel-', '') : '';
+    if (FAC_ALLOC_RESTRICTED_PANELS.includes(activeId) && typeof switchPanel === 'function') {
+      switchPanel('leave-myrecords');
+    }
+  } else if (overlay) {
+    overlay.style.display = 'none';
+  }
+}
+
+// Dismissing only hides the popup — it does NOT unlock the restricted panels.
+// Those stay hidden until facCheckAllocation() runs again (next login/reload) and
+// finds a real allocation for this faculty.
+function facDismissAllocOverlay() {
+  const overlay = document.getElementById('fac-unalloc-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+
 
 // ╔══════════════════════════════════════════════════════════════════╗
 // ║  SECTION: §06 USER MANAGEMENT & STAFF DIRECTORY                  ║
@@ -12230,8 +12313,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 953;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '06-Jul-2026', time: '02:00', full: '06-Jul-2026 02:00 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 956;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '05-Jul-2026', time: '20:00', full: '05-Jul-2026 20:00 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -21389,6 +21472,9 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v956', date: '05-Jul-2026 IST', note: 'Fix: facUploadPhoto() showed "✅ Photo saved." even when the Firestore write (app_data/faculty_photos) failed — the failure was only console.warn-logged, not surfaced. This meant a faculty photo re-upload (e.g. Hemavati Desai, reported still showing old photo after v955 cache-bust fix) could succeed on Cloudinary + show briefly in the current tab (facPhotos[key] updated in memory), but silently fail to persist — so the OLD photo came back on next login/reload via facPreloadPhotos() re-reading the un-updated Firestore doc. Now a DB save failure returns null and shows the real error message (e.g. permission-denied) instead of a false success toast, so the actual cause is visible instead of looking like a caching problem. CODE_BUILD=956.' },
+  { v: 'v955', date: '05-Jul-2026 IST', note: 'Fix: Staff Directory photo upload appeared to do nothing — re-uploading a faculty photo (e.g. Hemavati Desai) kept showing the OLD image. Root cause: facUploadPhoto() saved Cloudinary secure_url as-is; since uploads always target the same public_id per faculty (built from their name), the browser cached the image by that URL and never re-fetched after a new upload. Fix: facUploadPhoto() now appends a cache-busting ?v=<timestamp> to the stored URL on every successful upload, forcing a fresh fetch. CODE_BUILD=955.' },
+  { v: 'v954', date: '05-Jul-2026 IST', note: 'Feat: Faculty Allocation Guard. Fulltime/visiting faculty with ZERO subjects allocated in LM_ALLOCATIONS for the current AY/sem now see a full-screen blocking overlay on login ("Not Allocated Any Subject — contact admin"). New: facCheckAllocation() (called once LM_ALLOCATIONS is fresh from Firestore/RTDB inside onLoginSuccess -> loadFirestoreData().then(), so it never false-flags during the async load window), facApplyAllocLock(locked) which shows/hides #fac-unalloc-overlay and hides nav-dashboard-faculty/nav-tt-viewer/nav-classes/nav-classview (redirects them to leave-myrecords if they were sitting on one of those panels), and facDismissAllocOverlay() which only closes the popup — the hidden panels stay hidden until the admin allocates a subject and the faculty logs in again. Faculty key resolution mirrors the existing ownKey + FACULTY_NAME_ALIASES + LM_ALLOCATIONS.filter pattern used elsewhere (e.g. fdbRenderTT). Leave, Follow-up Log, Report Card, Internal Marks, Results, Academic Calendar stay usable — per admin instruction, this only locks the subject-teaching surfaces. CODE_BUILD=954.' },
   { v: 'v953', date: '06-Jul-2026 IST', note: 'Removed the stale Lab format: CODE B1 Lab ROOM hint text next to the Edit Timetable checkboxes. It described the old manual-typing lab format from before the custom subject picker (v949) started auto-generating lab options with batch/room/faculty already filled in, so the hint no longer matched how labs are actually placed and only caused confusion. CODE_BUILD=953.' },
   { v: 'v952', date: '06-Jul-2026 IST', note: 'Subject picker dropdown now shows a live HOURS-CHECK badge on each option, same colour code as the Hours Check bar: green tick exact, orange down-arrow under, red up-arrow over, e.g. a subject taught by Vijayalakshmi P S shows 2/4 down-arrow (2 placed of 4). Refactored the counting out of _ttHoursSummaryHtml into a shared _ttComputeHours(cls) helper (used by both the summary chips and the picker) plus _ttHoursStatusFor(cls, base) which returns got/tgt/mark/colour for one base. Labs use the per-batch rule (max batch, not summed) so a 2-hr lab across two batches still reads correctly. The badge reads LIVE grid inputs, so after you place a subject and reopen the picker the count reflects it (2/4 becomes 3/4 as you add toward the target). Badge is placed/target to match the Hours Check bar; hidden when the subject has no hrs/wk target or the Hours check toggle is off. CODE_BUILD=952.' },
   { v: 'v951', date: '06-Jul-2026 IST', note: 'Fixed lab variants showing no faculty for multi-word lab codes like OA - Lab. Root cause: the friendly-lab parser regex required the base to be a single alnum word ([A-Z][A-Z0-9]*), so OA - Lab A1 Lab 1 (base has spaces + a hyphen + the word Lab) failed to parse as a lab and lmBaseCode returned the whole string, so no allocation matched. Fixes: (1) lmParseCode friendly-lab regex now accepts ANY base before the batch token, so OA - Lab A1 Lab 1 parses to base OA - Lab, batch A1, lab 1. (2) tteGetPickerOptions, _ttCellFacName and lmAllocMatchesCode now use parsed.base (not lmBaseCode) for lab slots and also compare against the raw allocation code, so a lab slot matches an allocation whose code is literally OA - Lab. Result: every OA - Lab A1/A2 x Lab 1/2 option shows the correct faculty (with photo) in the dropdown, the under-cell name label fills in, and the SAME faculty sees each lab slot at its time in their own faculty schedule. Since one teacher handles all batches/rooms, allocating that single OA - Lab row is enough - all four variants inherit that faculty automatically. Non-lab and K/H matching unchanged. CODE_BUILD=951.' },
@@ -32568,12 +32654,21 @@ async function facUploadPhoto(name, file, statusCb) {
     const res  = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, { method:'POST', body:fd });
     const data = await res.json();
     if (data.error || !data.secure_url) { statusCb && statusCb('❌ Upload failed.', 'danger'); return null; }
-    const url = data.secure_url;
+    // v954a: append a cache-busting version so browsers don't keep showing the OLD cached
+    // image when a faculty's photo is re-uploaded to the same Cloudinary public_id/URL.
+    const url = data.secure_url + (data.secure_url.includes('?') ? '&' : '?') + 'v=' + Date.now();
     facPhotos[key] = url;
     try {
       await db.collection('app_data').doc('faculty_photos').set({ [key]: url }, { merge: true });
       if (rtdb) rtdb.ref('davan_pub/faculty_photos').update({ [key]: url }).catch(()=>{});
-    } catch(e) { console.warn('[facPhoto] save failed', e.message); }
+    } catch(e) {
+      // v955a: a failed DB save must NOT be reported as success — otherwise the photo
+      // looks "saved" (toast + this render) but reverts to the OLD photo on next
+      // login/reload because facPreloadPhotos() re-reads the un-updated Firestore doc.
+      console.warn('[facPhoto] save failed', e.message);
+      statusCb && statusCb('❌ Upload OK but save failed: ' + (e.message || 'unknown error') + ' — refresh and retry.', 'danger');
+      return null;
+    }
     statusCb && statusCb('✅ Photo saved.', 'ok');
     return url;
   } catch(e) {
