@@ -135,16 +135,16 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Davan &amp; Nutana Attendance Analyzer v976</title>
+  <title>Davan &amp; Nutana Attendance Analyzer v980</title>
 
   <!-- Windows File Explorer Properties (Tags / Authors / Title) -->
   <meta name="title" content="Davan &amp; Nutana Attendance Analyzer">
   <meta name="author" content="Harsha Gujjar">
-  <meta name="keywords" content="v976, Attendance, Analyzer, Davan, Nutana, Davangere">
+  <meta name="keywords" content="v980, Attendance, Analyzer, Davan, Nutana, Davangere">
   <meta name="description" content="Attendance and result analytics for Davan &amp; Nutana Institutions, Davangere. Developed by Harsha Gujjar, Director.">
   <meta name="application-name" content="Attendance Result Analyzer">
   <meta name="generator" content="Developed by Harsha Gujjar — Davan Institute of Advanced Management Studies">
-  <meta name="version" content="v976" id="meta-version">
+  <meta name="version" content="v980" id="meta-version">
 
   <!-- Favicon & App Icons -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -4164,6 +4164,14 @@
           style="font-size:12px;font-family:var(--mono);padding:7px 16px;
           background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;
           border-radius:6px;cursor:pointer;margin-left:8px;font-weight:700;">🖨 Print Master Timetable</button>
+        <button id="push-tt-db2-btn" onclick="pushTimetableToPortalDB2()" title="Push the current timetable directly to the Student Portal (DB2) — no scrape needed"
+          style="font-size:12px;font-family:var(--mono);padding:7px 16px;
+          background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.45);color:#60a5fa;
+          border-radius:6px;cursor:pointer;margin-left:8px;font-weight:700;">📲 Push Timetable to Portal</button>
+        <button id="arch-tt-db2-btn" onclick="archiveTimetableToPortalDB2()" title="Archive the CURRENTLY-LOADED timetable to the portal as the PAST year (2025-26) — do this with the OLD timetable loaded, before pushing the new one"
+          style="font-size:12px;font-family:var(--mono);padding:7px 16px;
+          background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.45);color:#f59e0b;
+          border-radius:6px;cursor:pointer;margin-left:8px;font-weight:700;">📦 Archive TT as 2025-26</button>
         </div><!-- /ttv-tab-row -->
       </div>
 
@@ -8692,6 +8700,183 @@ async function lpDb2Get(path) {
     return data;
   } catch(e) { console.warn('[LP db2] failed:', e.message); return null; }
 }
+
+// Write to DB2 (student portal) via REST PUT using the anon-auth token. Mirrors lpDb2Get.
+async function lpDb2Set(path, value) {
+  const token = await _lpGetPortalToken();
+  const auth  = token ? ('?auth=' + token) : '';
+  const url   = LP_PORTAL_URL + '/' + path + '.json' + auth;
+  const res   = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value)
+  });
+  if (!res.ok) { const b = await res.text(); throw new Error('DB2 write ' + res.status + ': ' + b); }
+  return await res.json();
+}
+
+// Push ONLY the current timetable from this (mother) app straight to the student portal's
+// DB2 — no scrape, no full sync. Reads live LM_TIMETABLE and writes davan_pub/timetable in DB2.
+// Auto-push current timetable + allocations to the portal DB2. Called automatically after
+// any timetable save so the student portal always mirrors the mother app — no manual button.
+// Silent (no confirm/alert); logs to console. Safe to call often.
+let _autoPushBusy = false;
+async function _autoPushTimetableToPortal(opts) {
+  opts = opts || {};
+  if (_autoPushBusy) return;
+  if (!Array.isArray(LM_TIMETABLE)) return;
+  _autoPushBusy = true;
+  try {
+    const _ttk = (typeof _ttActiveSemKey === 'function') ? _ttActiveSemKey() : '';
+    const classes = [...new Set(LM_TIMETABLE.map(r => r.class || r.cls).filter(Boolean))];
+    await lpDb2Set('davan_pub/timetable', { data: LM_TIMETABLE, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'auto', classes });
+    if (Array.isArray(LM_ALLOCATIONS) && LM_ALLOCATIONS.length) {
+      await lpDb2Set('davan_pub/allocations', { data: LM_ALLOCATIONS, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'auto' });
+    }
+    console.log('[AutoPush] timetable+allocations → portal DB2 (' + LM_TIMETABLE.length + ' slots)');
+    const badge = document.getElementById('push-tt-db2-btn');
+    if (badge) { const o = badge.textContent; badge.textContent = '✅ Auto-synced'; setTimeout(() => { badge.textContent = '📲 Push Timetable to Portal'; }, 2500); }
+  } catch(e) { console.warn('[AutoPush] failed:', e && e.message); }
+  finally { _autoPushBusy = false; }
+}
+
+// Normalize + FILTER to the current session window so stale out-of-window events (last
+// year's Jan–May holidays still sitting in calEvents defaults) don't reach the portal.
+function _normCalForPortal(events) {
+  if (!Array.isArray(events)) return [];
+  // Session window from SESSION_CONFIG (fallback: none = no filtering).
+  let ws = null, we = null;
+  try {
+    const sc = (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG) ? SESSION_CONFIG : {};
+    const s = sc.startDate || sc.start || '', e = sc.endDate || sc.end || '';
+    if (s) ws = new Date(String(s).replace(/\//g,'-')+'T00:00:00');
+    if (e) we = new Date(String(e).replace(/\//g,'-')+'T23:59:59');
+  } catch(x) {}
+  const fmt = s => {
+    if (!s) return '';
+    const d = new Date(String(s).replace(/\//g,'-') + 'T00:00:00');
+    if (isNaN(d)) return String(s);
+    return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+  };
+  const dayOf = s => { const d = new Date(String(s).replace(/\//g,'-')+'T00:00:00'); return isNaN(d)?'':['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]; };
+  return events
+    .filter(e => {
+      if (!ws || !we) return true; // no window → keep all
+      const d = new Date(String(e.from || e.date || '').replace(/\//g,'-')+'T00:00:00');
+      return !isNaN(d) && d >= ws && d <= we;
+    })
+    .map(e => ({
+      date:    fmt(e.from || e.date),
+      endDate: fmt(e.to || e.endDate),
+      day:     e.day || dayOf(e.from || e.date),
+      Type:    e.type || e.Type || '',
+      type:    e.type || e.Type || '',
+      event:   e.name || e.event || '',
+      for:     e.for || ''
+    }));
+}
+
+// Auto-push the academic calendar + session_config to DB2 (called after calendar saves).
+async function _autoPushCalendarToPortal() {
+  try {
+    if (typeof calEvents !== 'undefined' && Array.isArray(calEvents)) {
+      await lpDb2Set('davan_pub/calendar', _normCalForPortal(calEvents));
+    }
+    if (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG) {
+      await lpDb2Set('davan_pub/session_config', SESSION_CONFIG);
+    }
+    console.log('[AutoPush] calendar+session_config → portal DB2');
+  } catch(e) { console.warn('[AutoPush cal] failed:', e && e.message); }
+}
+
+async function pushTimetableToPortalDB2() {
+  const btn = document.getElementById('push-tt-db2-btn');
+  const setB = (t, dis) => { if (btn) { btn.textContent = t; btn.disabled = !!dis; } };
+  if (!Array.isArray(LM_TIMETABLE) || !LM_TIMETABLE.length) {
+    alert('No timetable loaded (LM_TIMETABLE is empty).'); return;
+  }
+  const classes = [...new Set(LM_TIMETABLE.map(r => r.class || r.cls).filter(Boolean))];
+  if (!confirm('Push the CURRENT timetable (' + LM_TIMETABLE.length + ' slots, ' + classes.length +
+      ' classes) directly to the Student Portal (DB2)?\n\nThis updates only davan_pub/timetable in the portal — nothing else.')) return;
+  setB('⏳ Pushing…', true);
+  try {
+    const _ttk = (typeof _ttActiveSemKey === 'function') ? _ttActiveSemKey() : '';
+    await lpDb2Set('davan_pub/timetable', {
+      data: LM_TIMETABLE, ttSemKey: _ttk, pushedAt: Date.now(),
+      pushedFrom: 'mother-app-direct', classes
+    });
+    // Also push allocations so the portal can resolve code → full subject name + faculty
+    // (without these the portal timetable shows the raw code twice and no teacher).
+    let allocN = 0;
+    if (Array.isArray(LM_ALLOCATIONS) && LM_ALLOCATIONS.length) {
+      await lpDb2Set('davan_pub/allocations', {
+        data: LM_ALLOCATIONS, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'mother-app-direct'
+      });
+      allocN = LM_ALLOCATIONS.length;
+    }
+    // Also push the academic calendar (current 2026-27 events) + session_config so the
+    // portal's calendar and dashboard sentence show current data, not last-year's.
+    let calN = 0;
+    try {
+      if (typeof calEvents !== 'undefined' && Array.isArray(calEvents) && calEvents.length) {
+        await lpDb2Set('davan_pub/calendar', _normCalForPortal(calEvents));
+        calN = calEvents.length;
+      }
+      // Session config (dates) — mirror what the mother app has so the portal sentence/session
+      // line shows 13 Jul–31 Oct instead of the old Feb dates.
+      if (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG) {
+        await lpDb2Set('davan_pub/session_config', SESSION_CONFIG);
+      }
+    } catch(e) { console.warn('[push] calendar/session_config failed:', e && e.message); }
+    // Verify.
+    const chk = await lpDb2Get('davan_pub/timetable');
+    const n = chk && chk.data ? chk.data.length : 0;
+    if (n >= LM_TIMETABLE.length) {
+      setB('✅ Pushed ' + n + ' slots', false);
+      alert('✅ Pushed to Student Portal (DB2):\n• Timetable: ' + n + ' slots, ' + classes.length + ' classes\n• Allocations: ' + allocN + ' (for subject names + faculty)\n• Calendar: ' + calN + ' events + session dates\n\nNow open the portal admin → Timetable and it will show the current classes with faculty.');
+    } else {
+      setB('⚠ Verify failed', false);
+      alert('⚠ Wrote but verify returned ' + n + ' slots — please retry.');
+    }
+  } catch(e) {
+    setB('❌ Failed', false);
+    alert('❌ Push failed: ' + (e && e.message ? e.message : e));
+  }
+}
+
+// Archive the CURRENTLY-LOADED timetable + allocations to the portal as the PAST year
+// (davan_pub/archive/2025-26/{timetable,allocations}) so students can view it via the
+// 2025-26 dropdown. Load the OLD timetable in the mother app, then click this — before
+// pushing the new one live.
+const PORTAL_ARCHIVE_AY = '2025-26';
+async function archiveTimetableToPortalDB2() {
+  const btn = document.getElementById('arch-tt-db2-btn');
+  const setB = (t, dis) => { if (btn) { btn.textContent = t; btn.disabled = !!dis; } };
+  if (!Array.isArray(LM_TIMETABLE) || !LM_TIMETABLE.length) { alert('No timetable loaded.'); return; }
+  const classes = [...new Set(LM_TIMETABLE.map(r => r.class || r.cls).filter(Boolean))];
+  if (!confirm('Archive the CURRENTLY-LOADED timetable (' + LM_TIMETABLE.length + ' slots, ' + classes.length +
+      ' classes) to the portal as PAST year ' + PORTAL_ARCHIVE_AY + '?\n\n' +
+      'Make sure the OLD timetable is what is loaded right now. Students will see this under the ' +
+      PORTAL_ARCHIVE_AY + ' dropdown option.')) return;
+  setB('⏳ Archiving…', true);
+  try {
+    const base = 'davan_pub/archive/' + PORTAL_ARCHIVE_AY;
+    await lpDb2Set(base + '/timetable', { data: LM_TIMETABLE, ay: PORTAL_ARCHIVE_AY, archivedAt: Date.now(), classes });
+    if (Array.isArray(LM_ALLOCATIONS) && LM_ALLOCATIONS.length) {
+      await lpDb2Set(base + '/allocations', { data: LM_ALLOCATIONS, ay: PORTAL_ARCHIVE_AY, archivedAt: Date.now() });
+    }
+    const chk = await lpDb2Get(base + '/timetable');
+    const n = chk && chk.data ? chk.data.length : 0;
+    if (n >= LM_TIMETABLE.length) {
+      setB('✅ Archived ' + n, false);
+      alert('✅ Archived ' + n + ' slots as ' + PORTAL_ARCHIVE_AY + '. Students can now view this under the ' +
+        PORTAL_ARCHIVE_AY + ' dropdown.\n\nNow load your CURRENT timetable and click “📲 Push Timetable to Portal”.');
+    } else { setB('⚠ Verify failed', false); alert('⚠ Verify returned ' + n + ' — retry.'); }
+  } catch(e) {
+    setB('❌ Failed', false);
+    alert('❌ Archive failed: ' + (e && e.message ? e.message : e));
+  }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 let currentUser    = null;
@@ -12581,7 +12766,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 976;  // always = HTML footer version number
+const CODE_BUILD = 980;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '06-Jul-2026', time: '14:15', full: '06-Jul-2026 14:15 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
@@ -28174,6 +28359,7 @@ async function ttSave() {
     msg.textContent = ok
       ? `✅ Saved all classes (${totalEntries} entries, Firestore synced).`
       : `✅ Saved locally (${totalEntries} entries) — Firestore sync failed.`;
+    if (ok) _autoPushTimetableToPortal();  // auto-mirror to student portal DB2
     return;
   }
 
@@ -28203,6 +28389,7 @@ async function ttSave() {
   msg.textContent = ok
     ? `✅ Saved ${newEntries.length} entries for ${cls} (Firestore synced).`
     : `✅ Saved locally (${newEntries.length} entries) — Firestore sync failed.`;
+  if (ok) _autoPushTimetableToPortal();  // auto-mirror to student portal DB2
 }
 
 function ttReset() {
@@ -42641,6 +42828,7 @@ async function calSaveEvent() {
   try {
     await db.collection('app_data').doc(CAL_DOC).set({ events: calEvents });
     dvToast('✅ Calendar event saved', 'ok');
+    if (typeof _autoPushCalendarToPortal === 'function') _autoPushCalendarToPortal();  // auto-mirror to portal
     calCancelEdit();
     calRenderUpcoming(); calRenderStats(); calRenderTable();
     if (typeof lb2Build === 'function') lb2Build();
@@ -42656,6 +42844,7 @@ async function calDeleteEvent(id) {
     try {
       await db.collection('app_data').doc(CAL_DOC).set({ events: calEvents });
       dvToast('✅ Event deleted', 'ok');
+      if (typeof _autoPushCalendarToPortal === 'function') _autoPushCalendarToPortal();  // auto-mirror to portal
       calRenderUpcoming(); calRenderStats(); calRenderTable();
       if (typeof lb2Build === 'function') lb2Build();
       if (typeof scfgSmartDays === 'function' && document.getElementById('scfg-days-breakdown')) scfgSmartDays();
