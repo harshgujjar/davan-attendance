@@ -2114,6 +2114,9 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v2.9.64 2026-07-07 Charging: mid-session checkpoints (%, time, TTC) that     ║
+║                    recalibrate live ETA from measured rate — power-cut safe.  ║
+║                    Cost/units math untouched (checkpoints = timing only).     ║
 ║  v2.9.63 2026-07-07 Charging: 80/100% alerts now fire (sound+vibrate+notif)  ║
 ║                    at predicted ETA; ⏰ .ics phone-alarm handoff; progress    ║
 ║                    bar; editable units/% + rated-cycles with calibration.     ║
@@ -2231,7 +2234,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.9.63"; // Charging alerts + calibration completed: 80%/100% now actually FIRE at predicted ETA while app open (WebAudio beep + vibrate + Notification + toast, once each via fired80/fired100 flags); '⏰ Alarm' buttons generate a downloadable .ics that adds a real phone-clock alarm for the predicted time (works when app closed); live progress bar; editable units-per-% and rated-cycles in Config with auto-calibration hint from metered sessions
+const APP_VERSION = "v2.9.64"; // Charging mid-session checkpoints: optional '＋ Update now' logs (current %, auto-time, optional scooter TTC) during a charge. Live ETA/rate recalibrate from the recent-segment measured rate (last checkpoint→now), so a power cut self-heals once you log a fresh point after power returns. Shows measured-vs-spec rate and scooter-TTC-vs-app-ETA side by side. HARD BOUNDARY: checkpoints feed ONLY live prediction — endCharge() cost/units/cycles/duration still derive solely from start%/end%/meters, unchanged and verified
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -7603,6 +7606,60 @@ function renderChgRollup() {
     (n === 0 ? '<div style="color:var(--muted);font-size:11px;margin-top:4px">Start a charge below to begin tracking.</div>' : '');
 }
 
+// ── Checkpoint model ──────────────────────────────────────────────────────
+// Checkpoints are optional mid-session (%, time, optional dashboard TTC) readings.
+// HARD BOUNDARY: they feed ONLY the live ETA/rate prediction below. They are NEVER
+// read by endCharge()'s units/cost/cycles/duration math — those still use start%/end%
+// and start→end time exactly as before. Remove checkpoints and every logged number is identical.
+//
+// Returns the live prediction anchor: the most recent known (pct, elapsedMin) point and the
+// measured rate of the latest segment (recent-segment rate, so a power cut self-heals once
+// a fresh checkpoint is logged after power returns).
+function chgLiveAnchor(a) {
+  const startElapsed = 0;
+  let anchorPct = a.startPct, anchorElapsed = 0, rate = null;
+  const cps = (a.checkpoints || []).slice().sort((x, y) => x.elapsed - y.elapsed);
+  if (cps.length) {
+    const last = cps[cps.length - 1];
+    anchorPct = last.pct;
+    anchorElapsed = last.elapsed;
+    // recent-segment rate: from the previous point (start or prior checkpoint) to last
+    const prev = cps.length >= 2 ? cps[cps.length - 2] : { pct: a.startPct, elapsed: 0 };
+    const dPct = last.pct - prev.pct, dMin = last.elapsed - prev.elapsed;
+    if (dPct > 0 && dMin > 0) rate = dMin / dPct; // min per % measured
+  }
+  return { anchorPct, anchorElapsed, rate };
+}
+
+// Predict remaining minutes from an anchor point up to targetPct, using measured rate if we
+// have one (with the >80% tail slowdown still applied proportionally), else the spec model.
+function chgPredictFromAnchor(anchorPct, targetPct, measuredRate) {
+  if (!measuredRate || measuredRate <= 0) {
+    return chgPredictMinutes(anchorPct, targetPct, null);
+  }
+  let mins = 0;
+  for (let p = Math.floor(anchorPct); p < targetPct; p++) {
+    mins += (p >= 80) ? measuredRate * CHG.tailFactor : measuredRate;
+  }
+  return Math.round(mins);
+}
+
+function addCheckpoint() {
+  const a = chgActive; if (!a) return;
+  const pct = parseFloat(document.getElementById('chgCpPct').value);
+  if (isNaN(pct) || pct < a.startPct || pct > 100) { showToast('Enter current % (≥ start)', true); return; }
+  const ttc = chgParseTTC(document.getElementById('chgCpTTC').value);
+  const elapsed = chgElapsed(a.startTime);
+  a.checkpoints = a.checkpoints || [];
+  a.checkpoints.push({ pct, elapsed, time: chgNowHM(), ttc });
+  // A new checkpoint can move the thresholds, so re-arm alerts that are still ahead of us.
+  if (pct < 80) a.fired80 = false;
+  if (pct < a.targetPct) a.fired100 = false;
+  chgSave();
+  renderChgLive();
+  showToast('✓ Checkpoint: ' + pct + '% — prediction recalibrated');
+}
+
 function renderChgLive() {
   const form = document.getElementById('chgStartForm');
   const view = document.getElementById('chgLiveView');
@@ -7627,15 +7684,31 @@ function renderChgLive() {
   const paint = () => {
     const a = chgActive; if (!a) return;
     const elapsed = chgElapsed(a.startTime);
-    const to80 = a.startPct < 80 ? chgPredictMinutes(a.startPct, 80, null) : 0;
-    const toFull = chgPredictMinutes(a.startPct, a.targetPct, null);
-    const rem80 = Math.max(0, to80 - elapsed);
-    const remFull = Math.max(0, toFull - elapsed);
     const eta = (mins) => { const d = new Date(Date.now() + mins * 60000); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
-    const ttcTxt = a.ttcAssumed != null ? chgFmtDur(a.ttcAssumed) + ' (dash)' : '—';
+
+    // Prediction anchor: latest checkpoint (or start) + measured recent-segment rate.
+    const { anchorPct, anchorElapsed, rate } = chgLiveAnchor(a);
+    const usingMeasured = rate && rate > 0;
+    // Remaining time = predicted-from-anchor minus time already spent since the anchor.
+    const sinceAnchor = Math.max(0, elapsed - anchorElapsed);
+    const predTo80  = anchorPct < 80 ? chgPredictFromAnchor(anchorPct, 80, rate) : 0;
+    const predToFull = chgPredictFromAnchor(anchorPct, a.targetPct, rate);
+    const rem80  = anchorPct >= 80 ? 0 : Math.max(0, predTo80 - sinceAnchor);
+    const remFull = Math.max(0, predToFull - sinceAnchor);
+
+    // Latest known % (from checkpoint if any, else start) and estimated live % between points.
+    const lastCp = (a.checkpoints && a.checkpoints.length) ? a.checkpoints[a.checkpoints.length-1] : null;
+    const liveRate = usingMeasured ? rate : CHG.fastMinPerPct;
+    const estPct = Math.min(a.targetPct, Math.round(anchorPct + sinceAnchor / (liveRate || CHG.fastMinPerPct)));
+    const barPct = Math.min(100, Math.max(0, (estPct - a.startPct) / Math.max(1, a.targetPct - a.startPct) * 100));
+
+    // Dashboard TTC comparison: newest TTC we have (checkpoint TTC preferred, else start TTC).
+    const ttcMin = (lastCp && lastCp.ttc != null) ? lastCp.ttc : a.ttcAssumed;
+    const ttcEta = ttcMin != null ? eta(ttcMin) : null;
+    const ttcTxt = ttcMin != null ? chgFmtDur(ttcMin) + ' → ~' + ttcEta : '—';
 
     // ── Fire alerts once when predicted threshold time is reached (app open) ──
-    if (a.startPct < 80 && rem80 <= 0 && !a.fired80) {
+    if (anchorPct < 80 && rem80 <= 0 && !a.fired80) {
       a.fired80 = true; chgSave();
       chgFireAlert('🔋 ~80% reached', 'Predicted 80% charge point hit. Fast-charge zone done.');
     }
@@ -7644,25 +7717,41 @@ function renderChgLive() {
       chgFireAlert('✅ ~' + a.targetPct + '% reached', 'Predicted target hit — unplug and log the session.', true);
     }
 
-    // progress % (predicted, from elapsed vs total) — visual only
-    const prog = Math.min(100, Math.round((elapsed / Math.max(1, toFull)) * (a.targetPct - a.startPct) + a.startPct));
-    const barPct = Math.min(100, Math.max(0, (prog - a.startPct) / Math.max(1, a.targetPct - a.startPct) * 100));
+    const rateTxt = usingMeasured
+      ? '<span style="color:var(--green)">measured ' + rate.toFixed(2) + ' min/%</span>'
+      : '<span style="color:var(--muted)">spec ' + CHG.fastMinPerPct.toFixed(2) + ' min/% (add a checkpoint to calibrate)</span>';
+
+    const cpHist = (a.checkpoints && a.checkpoints.length)
+      ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">checkpoints: ' +
+        a.checkpoints.map(c => c.pct + '% @' + c.time + (c.ttc!=null?' (ttc '+chgFmtDur(c.ttc)+')':'')).join(' · ') + '</div>'
+      : '';
 
     view.innerHTML =
       `<div style="font-size:12px;line-height:2">
-        <div>⏱ Elapsed: <b style="color:var(--accent)">${chgFmtDur(elapsed)}</b> · started ${a.startTime}</div>
+        <div>⏱ Elapsed: <b style="color:var(--accent)">${chgFmtDur(elapsed)}</b> · started ${a.startPct}% @${a.startTime}</div>
         <div style="margin:6px 0">
           <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden">
-            <div style="height:100%;width:${barPct.toFixed(0)}%;background:${prog>=80?'#ef9f27':'#1d9e75'};border-radius:4px;transition:width .4s"></div>
+            <div style="height:100%;width:${barPct.toFixed(0)}%;background:${estPct>=80?'#ef9f27':'#1d9e75'};border-radius:4px;transition:width .4s"></div>
           </div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">est ~${prog}% now (predicted from time — correct by stopping &amp; logging)</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">est ~${estPct}% now · rate: ${rateTxt}</div>
         </div>
-        <div>🎯 To 80%: <b style="color:var(--green)">${a.startPct>=80?'done':chgFmtDur(rem80)}</b> ${a.startPct>=80?'':'→ ~'+eta(rem80)} ${a.fired80?'🔔':''}</div>
+        <div>🎯 To 80%: <b style="color:var(--green)">${anchorPct>=80?'done':chgFmtDur(rem80)}</b> ${anchorPct>=80?'':'→ ~'+eta(rem80)} ${a.fired80?'🔔':''}</div>
         <div>🔋 To ${a.targetPct}%: <b style="color:var(--accent)">${chgFmtDur(remFull)}</b> → ~${eta(remFull)} ${a.fired100?'🔔':''}</div>
-        <div>📟 Dashboard TTC assumed: <b style="color:var(--yellow)">${ttcTxt}</b></div>
+        <div>📟 Scooter TTC: <b style="color:var(--yellow)">${ttcTxt}</b>${ttcMin!=null?' <span style="color:var(--muted);font-size:10px">(vs app ~'+eta(remFull)+')</span>':''}</div>
+        ${cpHist}
       </div>
+
+      <div style="background:#141c2e;border-radius:8px;padding:10px 12px;margin-top:10px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">＋ Update now (optional — recalibrates time after a power cut etc.)</div>
+        <div style="display:flex;gap:8px">
+          <input type="number" id="chgCpPct" placeholder="current %" min="${a.startPct}" max="100" style="flex:1;padding:8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:12px">
+          <input type="text" id="chgCpTTC" placeholder="TTC (opt)" style="flex:1;padding:8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:12px">
+          <button class="btn" style="flex:0 0 auto;margin-top:0;padding:8px 14px;background:#00d4ff22;color:var(--accent);border:1px solid #00d4ff44;font-size:12px" onclick="addCheckpoint()">＋</button>
+        </div>
+      </div>
+
       <div style="display:flex;gap:8px;margin-top:8px">
-        ${a.startPct<80?`<button class="btn" style="flex:1;background:#1d9e7522;color:var(--green);border:1px solid #1d9e7544;margin-top:0;font-size:11px" onclick="chgSetPhoneAlarm(80)">⏰ Alarm @80% (${eta(rem80)})</button>`:''}
+        ${anchorPct<80?`<button class="btn" style="flex:1;background:#1d9e7522;color:var(--green);border:1px solid #1d9e7544;margin-top:0;font-size:11px" onclick="chgSetPhoneAlarm(80)">⏰ Alarm @80% (${eta(rem80)})</button>`:''}
         <button class="btn" style="flex:1;background:#00d4ff22;color:var(--accent);border:1px solid #00d4ff44;margin-top:0;font-size:11px" onclick="chgSetPhoneAlarm(100)">⏰ Alarm @${a.targetPct}% (${eta(remFull)})</button>
       </div>
       <div style="color:var(--muted);font-size:10px;margin-top:6px">🔔 In-app sound+buzz fires at predicted times while open. ⏰ buttons add a real alarm to your phone for when it's closed.</div>
@@ -8504,7 +8593,7 @@ function clearDriftLog() {
   // Caches the page shell for offline use
   if ('serviceWorker' in navigator) {
     const swCode = `
-const CACHE = 'meter-tracker-v6';
+const CACHE = 'meter-tracker-v7';
 const URLS  = [self.location.href.replace('/sw.js','/')];
 
 self.addEventListener('install', e => {
