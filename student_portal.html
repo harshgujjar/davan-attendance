@@ -17,11 +17,7 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v6.79z (2026-07-07)
-  v6.75 (badge) | 2026-07-07 | FIX: cachedGet() 30-min sessionStorage cache was only purging
-  'motherTT' on load, so students/allocations/controls/notices/lessonPlan/tt_overrides/allocEach
-  could still serve a stale semester's data on GitHub Pages within the 30-min TTL. Now purges
-  ALL cachedGet() keys (incl. per-class davan_sc_tt_* keys) on every dashboard load.
+VERSION : v6.79z3 (2026-07-08)
 
 KEY DATA SHAPES (confirmed from live Firebase):
   davan_pub/students        → {data:[{urn, cls, class, subjects:[{subject, ct, ca, pct, enrolled, fine, int1, mc}]}]}
@@ -284,7 +280,7 @@ LOG (newest first):
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v6.75 — Davan &amp; Nutana</title>
+<title>Student Portal v6.74 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -1517,7 +1513,7 @@ body.dash-active .data-strip { display: block; }
         <div id="bell-list" style="max-height:360px;overflow-y:auto;padding:8px 0;"></div>
       </div>
     </div>
-    <span id="topbar-version">Portal v6.75</span>
+    <span id="topbar-version">Portal v6.74</span>
     </div><!-- /topbar-right -->
   </div><!-- /topbar-row1 -->
   <!-- Row 2: Student info — shown after login -->
@@ -5220,7 +5216,28 @@ function addLpSubject() {
   if (!urn || !name) return;
   // Don't restore if admin session already active
   if (STATE.adminUser) return;
+  // Build from sessionStorage first (fast paint), then refresh the promotion fields
+  // (ay/promotedAt/status) from Firebase — sessionStorage doesn't store them, and without
+  // them stuAYState() wrongly returns 'current' and shows last-year attendance.
   STATE.studentUser = { urn, name, class: cls, semester: sem, passwordChanged: true };
+  (async () => {
+    try {
+      const rec = await rtdbGet('davan_pub/portal_students/' + urn).catch(() => null);
+      if (rec) {
+        STATE.studentUser = Object.assign({}, STATE.studentUser, {
+          class:     rec.class    || cls,
+          semester:  rec.semester || sem,
+          ay:        rec.ay || '',
+          promotedAt: rec.promotedAt || '',
+          status:    rec.status || '',
+          passoutAY: rec.passoutAY || ''
+        });
+        // Re-render now that promotion state is known (fixes old-data-on-refresh).
+        if (typeof renderStudentDashboard === 'function') { try { renderStudentDashboard(); } catch(e) {} }
+        if (typeof updateSidebarProfile === 'function') updateSidebarProfile();
+      }
+    } catch(e) { console.warn('[restoreStudentSession] field refresh failed', e); }
+  })();
   updateSidebarProfile();
   // Show bottom nav
   const nav = document.getElementById('stu-bottom-nav');
@@ -5231,7 +5248,7 @@ function addLpSubject() {
   const row2meta = document.getElementById('topbar-row2-meta');
   if (row2 && row2name && row2meta) {
     row2name.textContent = name;
-    row2meta.textContent = ' · ' + urn + ' · ' + (cls || '') + ' · Portal v6.75';
+    row2meta.textContent = ' · ' + urn + ' · ' + (cls || '') + ' · Portal v6.79z3';
     row2.classList.add('visible');
   }
   showScreen('screen-student-dash');
@@ -5248,10 +5265,10 @@ function addLpSubject() {
   // Init bell badge from localStorage
   updateBellBadge();
   // Update page title
-  document.title = 'Student Portal v6.75 — Davan & Nutana';
+  document.title = 'Student Portal v6.74 — Davan & Nutana';
   // Update version chip
   const vEl = document.getElementById('topbar-version');
-  if (vEl) vEl.textContent = 'Portal v6.75';
+  if (vEl) vEl.textContent = 'Portal v6.74';
 })();
 
 function switchStudentPanel(name) {
@@ -5440,17 +5457,9 @@ async function loadStudentDashboard() {
     return val;
   }
   // ── End cache helpers ────────────────────────────────────────────
-  // v6.79z: purge ALL cachedGet() session caches so returning students on GitHub Pages
-  // (or anyone reopening a tab within the 30-min TTL) never see stale semester data —
-  // previously only 'motherTT' was purged, leaving students/allocations/etc. stale.
-  try {
-    ['motherTT','students','controls','notices','lessonPlan','motherAlloc','tt_overrides','allocEach']
-      .forEach(k => sessionStorage.removeItem('davan_sc_' + k));
-    // also purge any per-class timetable keys (davan_sc_tt_<class>)
-    Object.keys(sessionStorage).forEach(k => {
-      if (k.indexOf('davan_sc_tt_') === 0) sessionStorage.removeItem(k);
-    });
-  } catch(e) {}
+  // v6.79h: purge any previously-cached motherTT (timetable) so returning students
+  // with a stale 30-min cache from before the semester change get the fresh timetable.
+  try { sessionStorage.removeItem('davan_sc_motherTT'); } catch(e) {}
   try {
     const [studentsRaw, controls, notices, timetable, lessonPlan, motherTTRaw, motherAllocsRaw, metaRaw, bannerRaw, broadcastRaw, ovRaw, calRaw, allocEachRaw] = await Promise.all([
       cachedGet('students',    'davan_pub/students'),
@@ -5863,6 +5872,7 @@ function stuAYState() {
 }
 
 function renderStudentDashboard() {
+  if (typeof stuDebugState === 'function') { try { stuDebugState(); } catch(e) {} }
   renderStudentDashboard_router();
 }
 
@@ -6683,7 +6693,36 @@ function attColor(pct) {
 // rendering last-year data. Only when viewing CURRENT AY and student is in fresh state.
 function stuFreshGuard() {
   if (STATE._viewAY === STU_AY_ARCHIVE.key) return false; // archive view shows real past data
-  return (typeof stuAYState === 'function') && stuAYState() === 'fresh';
+  const fresh = (typeof stuAYState === 'function') && stuAYState() === 'fresh';
+  return fresh;
+}
+
+// Debug helper — call stuDebugState() in the browser console (or it auto-logs on dashboard
+// render) to see exactly why panels show fresh vs old data.
+function stuDebugState() {
+  const u = STATE.studentUser || {};
+  const scraped = (typeof stuLastScrapeMs === 'function') ? stuLastScrapeMs() : null;
+  const yr = parseInt((STU_TARGET_AY || '2026-27').slice(0,4),10) || 2026;
+  const boundary = new Date(yr + '-07-01T00:00:00').getTime();
+  const info = {
+    urn: u.urn,
+    class: u.class,
+    semester: u.semester,
+    ay: u.ay,
+    promotedAt: u.promotedAt,
+    status: u.status,
+    STU_TARGET_AY: (typeof STU_TARGET_AY !== 'undefined') ? STU_TARGET_AY : 'UNDEFINED',
+    promoted_check: (u.ay === STU_TARGET_AY || u.promotedAt === STU_TARGET_AY),
+    lastScrapeMs: scraped,
+    lastScrapeDate: scraped ? new Date(scraped).toISOString() : 'none',
+    julyBoundary: new Date(boundary).toISOString(),
+    scrapeBeforeBoundary: scraped ? (scraped < boundary) : 'no-scrape',
+    stuAYState: (typeof stuAYState === 'function') ? stuAYState() : 'N/A',
+    viewAY: STATE._viewAY || 'current'
+  };
+  console.log('%c[DAVAN DEBUG] Student fresh-state decision:', 'color:#f0a500;font-weight:bold;', info);
+  console.table(info);
+  return info;
 }
 
 function renderAttendance() {
@@ -6975,6 +7014,18 @@ function renderStudentLessonPlan() {
   const hidEl   = document.getElementById('stu-lp-hidden');
   const emptyEl = document.getElementById('stu-lp-empty');
   if (loadEl) loadEl.style.display = 'none';
+  // v6.79z2: fresh state — in current AY before 2026-27 lesson-plan scrape, show a fresh
+  // box instead of last-year's syllabus progress.
+  if (stuFreshGuard()) {
+    if (hidEl) hidEl.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (cardsEl) {
+      cardsEl.style.display = 'block';
+      cardsEl.innerHTML = stuFreshBox('🆕', 'New semester — no lesson plan yet',
+        'Syllabus progress for ' + STU_TARGET_AY + ' will appear here once classes begin and topics are covered.');
+    }
+    return;
+  }
   if (!canShow('lessonPlan')) {
     if (cardsEl) cardsEl.style.display = 'none';
     if (hidEl)   hidEl.style.display   = 'block';
