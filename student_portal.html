@@ -26,6 +26,19 @@ VERSION : v6.88 (2026-07-10) — Added admin-controlled global app theme (Odd/Ev
   stored at controls/theme ('odd'|'even', defaults to 'odd' if unset) and read back inside the
   existing loadAllData() controls fetch on every session boot (student + admin alike) — no extra
   network round trip. saveTheme()/applyTheme() added near saveGlobal(), same rtdbPatch pattern.
+VERSION : v6.96 (2026-07-10) — Fixed the student dashboard's semester-dates note only showing
+  real dates after visiting admin first in the same browser session. Root cause: STATE.semConfig
+  was ONLY ever populated by loadAllData(), which is admin-only (called from
+  enterAdminDashboard()) — the student's own load path (loadStudentDashboard) never fetched
+  davan_pub/session_config at all. So a student logging in fresh always got STATE.semConfig ===
+  null/undefined and stuRenderSemStartNote() fell back to the guessed 13-Jul date; the only
+  reason it ever showed correctly was if the SAME browser tab had triggered an admin load
+  earlier, leaving STATE.semConfig populated from that unrelated session. Added session_config
+  to loadStudentDashboard()'s own Promise.all (cached with the same 30-min TTL as other
+  slow-changing values), so every student session fetches it independently — no admin detour
+  needed. Confirmed via user's own screenshots: admin-set values (20 Jul 2026, 116 days, 16
+  Sundays, 100 working days) were correct in DB2, they just weren't reaching a fresh student
+  session before this fix.
 VERSION : v6.95 (2026-07-10) — Found the actual reason the Semester Dates control (v6.92)
   wasn't visible under Controls: it was never broken, it was in the WRONG TAB. The v6.92
   str_replace insertion matched STEP 3 text that exists inside tab-archives, not tab-controls,
@@ -439,7 +452,7 @@ LOG (newest first):
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v6.95 — Davan &amp; Nutana</title>
+<title>Student Portal v6.96 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -1685,7 +1698,7 @@ body.dash-active .data-strip { display: block; }
         <div id="bell-list" style="max-height:360px;overflow-y:auto;padding:8px 0;"></div>
       </div>
     </div>
-    <span id="topbar-version">Portal v6.95</span>
+    <span id="topbar-version">Portal v6.96</span>
     </div><!-- /topbar-right -->
   </div><!-- /topbar-row1 -->
   <!-- Row 2: Student info — shown after login -->
@@ -1809,7 +1822,7 @@ body.dash-active .data-strip { display: block; }
   <footer>
     <div class="footer-inner">
       <div class="footer-copy">© 2026 <strong>Davan Institute of Advanced Management Studies</strong></div>
-      <div class="footer-meta" id="login-footer-meta-1">Version: v6.95 &nbsp;·&nbsp; Updated: 10 Jul 2026, 02:25 AM IST</div>
+      <div class="footer-meta" id="login-footer-meta-1">Version: v6.96 &nbsp;·&nbsp; Updated: 10 Jul 2026, 02:45 AM IST</div>
       <div class="footer-built">Built by <strong style="color:#f0a500;">Harsha Gujjar</strong>, Director — Davan College</div>
     </div>
   </footer>
@@ -1893,7 +1906,7 @@ body.dash-active .data-strip { display: block; }
   <footer>
     <div class="footer-inner">
       <div class="footer-copy">© 2026 <strong>Davan Institute of Advanced Management Studies</strong></div>
-      <div class="footer-meta" id="login-footer-meta-2">Version: v6.95 &nbsp;·&nbsp; Updated: 10 Jul 2026, 02:25 AM IST</div>
+      <div class="footer-meta" id="login-footer-meta-2">Version: v6.96 &nbsp;·&nbsp; Updated: 10 Jul 2026, 02:45 AM IST</div>
       <div class="footer-built">Built by <strong style="color:#f0a500;">Harsha Gujjar</strong>, Director — Davan College</div>
     </div>
   </footer>
@@ -2201,7 +2214,7 @@ body.dash-active .data-strip { display: block; }
 
     <div class="portal-footer">
       <div class="footer-copy">© 2026 <strong>Davan Institute of Advanced Management Studies</strong></div>
-      <div class="footer-meta" id="stu-footer-meta">Version: v6.95 &nbsp;·&nbsp; Updated: 10 Jul 2026, 02:25 AM IST</div>
+      <div class="footer-meta" id="stu-footer-meta">Version: v6.96 &nbsp;·&nbsp; Updated: 10 Jul 2026, 02:45 AM IST</div>
       <div class="footer-meta" id="stu-footer-scrape">🕐 Data last scraped: —</div>
       <div class="footer-built">Built by <strong style="color:#f0a500;">Harsha Gujjar</strong>, Director — Davan College</div>
     </div>
@@ -2981,8 +2994,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v6.95';
-const BUILD_DATE   = '10 Jul 2026, 02:25 AM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v6.96';
+const BUILD_DATE   = '10 Jul 2026, 02:45 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -6432,7 +6445,7 @@ async function loadStudentDashboard() {
   // with a stale 30-min cache from before the semester change get the fresh timetable.
   try { sessionStorage.removeItem('davan_sc_motherTT'); } catch(e) {}
   try {
-    const [studentsRaw, controls, notices, timetable, lessonPlan, motherTTRaw, motherAllocsRaw, metaRaw, bannerRaw, broadcastRaw, ovRaw, calRaw, allocEachRaw] = await Promise.all([
+    const [studentsRaw, controls, notices, timetable, lessonPlan, motherTTRaw, motherAllocsRaw, metaRaw, bannerRaw, broadcastRaw, ovRaw, calRaw, allocEachRaw, semCfgRaw] = await Promise.all([
       cachedGet('students',    'davan_pub/students'),
       cachedGet('controls',    'controls'),
       cachedGet('notices',     'notices'),
@@ -6445,7 +6458,12 @@ async function loadStudentDashboard() {
       rtdbGet('davan_pub/live_broadcast').catch(() => null),// never cache — live data
       cachedGet('tt_overrides','davan_pub/tt_overrides'),
       rtdbGet('davan_pub/calendar').catch(() => null),                            // v6.79u: pushed current calendar
-      cachedGet('allocEach',   'davan_pub/allocation_each')
+      cachedGet('allocEach',   'davan_pub/allocation_each'),
+      // v6.96: session_config was NEVER fetched on the student's own load path — only
+      // admin's loadAllData() populated STATE.semConfig, which is why the "Classes start..."
+      // note only showed real dates after visiting admin in the same browser session first.
+      // Cached like the other slow-changing values (30-min TTL) since it rarely changes.
+      cachedGet('semConfig',   'davan_pub/session_config')
     ]);
     const allStudents = (studentsRaw && studentsRaw.data) ? studentsRaw.data : [];
     STATE.studentData = allStudents.find(s => s.urn === urn) || null;
@@ -6473,6 +6491,7 @@ async function loadStudentDashboard() {
     STATE.metaData     = metaRaw || null;
     STATE.overrides    = ovRaw || {};
     STATE.calendarData = Array.isArray(calRaw) ? calRaw : (calRaw && calRaw.data ? calRaw.data : null);
+    STATE.semConfig    = semCfgRaw || STATE.semConfig || null; // v6.96: fetched fresh above; keep prior value only if this read failed
     STATE.allocEachMap = {};
     if (allocEachRaw && typeof allocEachRaw === 'object') {
       Object.values(allocEachRaw).forEach(doc => {
