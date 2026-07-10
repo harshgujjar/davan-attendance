@@ -429,6 +429,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     <!-- Seasonal banner -->
     <div id="seasonal-banner-wrap"></div>
 
+    <!-- Search -->
+    <div class="field" style="margin-bottom:10px">
+      <input type="text" id="chk-search" placeholder="🔍 Search items..." oninput="filterChecklist(this.value)" style="width:100%">
+    </div>
+
     <!-- Item list -->
     <div id="checklist-body"></div>
 
@@ -1160,19 +1165,26 @@ function renderChecklist() {
   let html = '';
   Object.entries(cats).forEach(([cat, items])=>{
     const catId = 'cat-'+cat.replace(/\W/g,'_');
-    html += `<div class="card" style="padding:8px 12px;margin-bottom:8px">
+    // Start collapsed by default, UNLESS this category already has a checked
+    // item in it (e.g. re-opening a prefilled checklist) — keep that visible
+    // so the person isn't hunting through a collapsed pile for what's already selected.
+    const hasChecked = items.some(it=>it.checked);
+    const startOpen = hasChecked;
+    html += `<div class="card chk-cat-card" id="${catId}-card" style="padding:8px 12px;margin-bottom:8px">
       <div class="cat-hdr" onclick="toggleCat('${catId}')">
         <span class="cat-label">${cat}</span>
-        <span class="cat-toggle" id="${catId}-icon">▾</span>
+        <span class="cat-count" id="${catId}-count" style="font-size:11px;color:var(--muted);margin-left:6px"></span>
+        <span class="cat-toggle" id="${catId}-icon" style="margin-left:auto">${startOpen?'▾':'▸'}</span>
       </div>
-      <div class="cat-body" id="${catId}">`;
+      <div class="cat-body" id="${catId}" style="display:${startOpen?'':'none'}">`;
     items.forEach(it=>{
       const dispName = it.name + (it.variant ? ` (${it.variant})` : '');
       const dispKn = it.nameKn + (it.variant ? ` (${it.variant})` : '');
       const rateHint = it.estRate != null ? `₹${it.estRate}/${it.unit} last time` : '';
       const priceChangeHint = (it.estRate != null && it.prevRate != null && it.estRate !== it.prevRate)
         ? `<span class="chk-price-change ${it.estRate > it.prevRate ? 'up' : 'down'}">was ₹${it.prevRate} before</span>` : '';
-      html += `<div class="chk-row" id="row-${it.itemId}">
+      const searchBlob = `${it.name} ${it.nameKn||''} ${it.variant||''} ${it.category}`.toLowerCase();
+      html += `<div class="chk-row" id="row-${it.itemId}" data-search="${searchBlob.replace(/"/g,'')}" data-cat="${catId}">
         <div class="chk-box ${it.checked?'checked':''}" onclick="toggleItem('${it.itemId}')">
           ${it.checked?'✓':''}
         </div>
@@ -1191,6 +1203,58 @@ function renderChecklist() {
   });
 
   document.getElementById('checklist-body').innerHTML = html;
+  updateCatCheckedCounts();
+  const search = document.getElementById('chk-search');
+  if (search && search.value) filterChecklist(search.value); // re-apply active search after a re-render
+}
+
+// Shows "2 selected" next to a category label when it's collapsed and has
+// checked items inside, so nothing feels hidden/lost.
+function updateCatCheckedCounts() {
+  const cats = {};
+  checklistItems.forEach(it=>{ (cats[it.category] = cats[it.category]||[]).push(it); });
+  Object.entries(cats).forEach(([cat, items])=>{
+    const catId = 'cat-'+cat.replace(/\W/g,'_');
+    const countEl = document.getElementById(catId+'-count');
+    if (!countEl) return;
+    const checkedCount = items.filter(i=>i.checked).length;
+    countEl.textContent = checkedCount ? `· ${checkedCount} selected` : '';
+  });
+}
+
+// Live search across name / Kannada name / variant / category. Matching
+// categories auto-expand so results are never hidden behind a collapsed
+// header; clearing the search restores each category to its prior state
+// (open if it has checked items, collapsed otherwise).
+function filterChecklist(query) {
+  const q = query.trim().toLowerCase();
+  const rows = document.querySelectorAll('#checklist-body .chk-row');
+  const catsWithMatch = new Set();
+
+  rows.forEach(row=>{
+    const matches = !q || (row.dataset.search||'').includes(q);
+    row.style.display = matches ? '' : 'none';
+    if (matches) catsWithMatch.add(row.dataset.cat);
+  });
+
+  document.querySelectorAll('#checklist-body .chk-cat-card').forEach(card=>{
+    const catId = card.id.replace(/-card$/,'');
+    const body = document.getElementById(catId);
+    const icon = document.getElementById(catId+'-icon');
+    if (!body || !icon) return;
+    if (q) {
+      // While searching: show only categories with a match, force them open
+      const hasMatch = catsWithMatch.has(catId);
+      card.style.display = hasMatch ? '' : 'none';
+      if (hasMatch) { body.style.display = ''; icon.textContent = '▾'; }
+    } else {
+      // Search cleared: restore normal state (open only if it has a checked item)
+      card.style.display = '';
+      const hasChecked = checklistItems.some(it=>it.category && ('cat-'+it.category.replace(/\W/g,'_'))===catId && it.checked);
+      body.style.display = hasChecked ? '' : 'none';
+      icon.textContent = hasChecked ? '▾' : '▸';
+    }
+  });
 }
 
 function toggleCat(catId) {
@@ -1210,6 +1274,7 @@ function toggleItem(itemId) {
   box.classList.toggle('checked', it.checked);
   box.textContent = it.checked ? '✓' : '';
   if (qtyInput) qtyInput.style.opacity = it.checked ? '1' : '0.4';
+  updateCatCheckedCounts();
   updateWaPreview();
   updateBudgetBar();
   triggerSplitEval();
@@ -2820,7 +2885,7 @@ async function requestNotifPermission() {
 
 // ─── PWA: SERVICE WORKER ──────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  const CACHE = 'grocery-v2.3';
+  const CACHE = 'grocery-v2.4';
   const SW_SRC = `
 const CACHE='${CACHE}';
 const SHELL=[
