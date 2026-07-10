@@ -959,6 +959,13 @@ function populateShopSelect() {
     const tag = s.isOnline ? ' 🌐' : '';
     sel.innerHTML += `<option value="${s.id}">${s.name}${s.nameKn?' ('+s.nameKn+')':''}${tag}</option>`;
   });
+  // Pre-select whichever shop was used last time, so the person doesn't have
+  // to reselect it on every visit — only if that shop still exists & is active.
+  const lastShopId = localStorage.getItem('grocery_last_shop');
+  if (lastShopId && allShops[lastShopId] && allShops[lastShopId].active) {
+    sel.value = lastShopId;
+    onShopChange(); // populate last-order banner / button label for the pre-selected shop
+  }
 }
 
 async function onShopChange() {
@@ -967,6 +974,9 @@ async function onShopChange() {
   const btn = document.getElementById('build-checklist-btn');
   const isOnline = allShops[shopId]?.isOnline;
   if (btn) btn.textContent = isOnline ? '🌐 Start Price Snapshot →' : 'Build Checklist →';
+
+  // Remember this choice so next time the app opens, this shop is pre-selected.
+  if (shopId) localStorage.setItem('grocery_last_shop', shopId);
 
   if (!shopId || !month) return;
 
@@ -1737,12 +1747,43 @@ function recalcBillRow(i) {
   updateBillTotal();
 }
 
-function removeBillRow(i) {
+async function removeBillRow(i) {
   const row = document.getElementById('bill-row-'+i);
   if (row) { row.style.display='none'; }
   if (!window._billRemovedRows) window._billRemovedRows = new Set();
   window._billRemovedRows.add(i);
   updateBillTotal();
+
+  // Auto-save the removal right away so it's never lost if the person closes
+  // the modal without tapping "Save Changes" — qty/rate/amount edits still
+  // require that button, but a deletion is a decisive, low-risk action that
+  // shouldn't depend on remembering to hit save afterward.
+  const orderId = window._currentBillOrder?.id;
+  if (orderId) {
+    try {
+      await autosaveRemovedRow(orderId);
+      showToast('Item removed ✓','success');
+    } catch(e) {
+      console.error('autosaveRemovedRow failed:', e);
+      showToast('Removed here, but could not save yet — tap Save Changes','warn');
+    }
+  }
+}
+
+// Persists the current set of removed rows to Firestore without touching
+// qty/rate/amount fields still being edited — keeps those untouched until
+// the person explicitly taps "Save Changes".
+async function autosaveRemovedRow(orderId) {
+  await authReady;
+  const order = window._currentBillOrder;
+  if (!order) return;
+  const removed = window._billRemovedRows || new Set();
+  const updatedItems = (order.items||[]).filter((_,i)=>!removed.has(i));
+  const actualTotal = updatedItems.reduce((s,i)=>s+(i.actualAmt||0),0);
+  await db.collection(COL.orders).doc(orderId).update({
+    items: updatedItems,
+    actualTotal: parseFloat(actualTotal.toFixed(2))
+  });
 }
 
 function addItemToBill() {
@@ -2944,7 +2985,7 @@ async function requestNotifPermission() {
 
 // ─── PWA: SERVICE WORKER ──────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  const CACHE = 'grocery-v2.5';
+  const CACHE = 'grocery-v2.6';
   const SW_SRC = `
 const CACHE='${CACHE}';
 const SHELL=[
