@@ -471,6 +471,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     </div>
   </div>
 
+  <!-- Floating Save Draft button — fixed position so it's always reachable
+       without scrolling, regardless of how long the checklist is. Only
+       shown while the checklist step is actually open (toggled in JS). -->
+  <div id="floating-save-draft" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:90px;z-index:500;flex-direction:column;align-items:center;gap:4px">
+    <button class="btn btn-primary" style="border-radius:999px;padding:12px 22px;box-shadow:var(--shadow-md);display:flex;align-items:center;gap:6px" onclick="saveChecklistDraft()">💾 Save Draft</button>
+    <div id="draft-save-status" style="font-size:11px;color:var(--muted);background:var(--card);padding:2px 10px;border-radius:8px;box-shadow:var(--shadow)"></div>
+  </div>
+
   <!-- Online Snapshot (Phase 3) -->
   <div id="step-snapshot" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -544,6 +552,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     <input type="text" id="items-search" placeholder="Search items..." oninput="renderAdminItems()" style="margin-bottom:10px">
     <div id="admin-items-list" style="max-height:300px;overflow-y:auto"></div>
     <button class="btn btn-outline btn-full" style="margin-top:10px" onclick="openAddItemModal()">➕ Add New Item</button>
+    <button class="btn btn-outline btn-full" style="margin-top:8px" onclick="cleanupDuplicateItems()">🧹 Remove Duplicate Items</button>
   </div>
 
 
@@ -914,8 +923,20 @@ async function loadShops() {
 
 async function seedItemsIfEmpty() {
   try {
-    const snap = await db.collection(COL.items).limit(1).get();
-    if (!snap.empty) return;
+    // A plain "is the collection empty?" check has a race: two devices can
+    // both see it as empty at the same moment and both write the full seed
+    // set, producing exactly the multiplied-item problem this was causing.
+    // A transaction on a dedicated marker doc makes the check-and-set atomic
+    // across devices — only one writer can ever win the race.
+    const seedMarkerRef = db.collection(COL.settings).doc('_seedMarker');
+    const alreadySeeded = await db.runTransaction(async (tx) => {
+      const markerDoc = await tx.get(seedMarkerRef);
+      if (markerDoc.exists) return true;
+      tx.set(seedMarkerRef, { seededAt: firebase.firestore.FieldValue.serverTimestamp() });
+      return false;
+    });
+    if (alreadySeeded) return;
+
     const batch = db.batch();
     SEED_ITEMS.forEach(item => {
       const ref = db.collection(COL.items).doc();
@@ -1146,6 +1167,8 @@ async function startChecklist() {
   updateWaPreview();
   document.getElementById('step-shopselect').style.display = 'none';
   document.getElementById('step-checklist').style.display = 'block';
+  const fab = document.getElementById('floating-save-draft');
+  if (fab) { fab.style.display = 'flex'; document.getElementById('draft-save-status').textContent = ''; }
   updateBudgetBar();
 }
 
@@ -1352,6 +1375,8 @@ function backToShopSelect() {
   document.getElementById('step-shopselect').style.display = 'block';
   document.getElementById('step-checklist').style.display = 'none';
   document.getElementById('step-snapshot').style.display = 'none';
+  const fab = document.getElementById('floating-save-draft');
+  if (fab) fab.style.display = 'none';
   _sameMonthPrefillCandidate = null;
 }
 
@@ -1429,6 +1454,59 @@ function buildWaMessage() {
     return msg;
   }
 }
+
+// Saves the current checklist (checked items + quantities + notes) to
+// Firestore as a draft, so progress isn't lost if the person has to leave
+// before reaching "Send Order". Uses the same orderId scheme as a real
+// order — sendWhatsApp() later overwrites this same doc with status:'ordered'.
+async function saveChecklistDraft() {
+  await authReady;
+  const shop = allShops[currentOrder.shopId];
+  if (!shop) { showToast('Select a shop first','warn'); return; }
+  const selected = checklistItems.filter(i=>i.checked);
+  if (selected.length===0) { showToast('No items selected to save','warn'); return; }
+
+  const hasEst = selected.some(i=>i.estRate!=null);
+  const estTotal = hasEst ? selected.reduce((s,i)=>s+(i.estRate!=null?i.estRate*i.qty:0),0) : null;
+
+  const orderId = `${currentOrder.month}_${currentOrder.shopId}`;
+  const draftData = {
+    orderId,
+    shopId: currentOrder.shopId,
+    shopName: shop.name,
+    month: currentOrder.month,
+    status: 'draft',
+    lang: orderLang,
+    items: selected.map(i=>({
+      itemId: i.itemId,
+      name: i.name,
+      nameKn: i.nameKn||'',
+      unit: i.unit,
+      qty: i.qty,
+      category: i.category,
+      brand: i.brand||'',
+      variant: i.variant||'',
+      estRate: i.estRate||null,
+      actualRate: null,
+      actualAmt: null
+    })),
+    estimatedTotal: estTotal,
+    actualTotal: null,
+    notes: document.getElementById('order-notes').value||'',
+    draftSavedAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  try {
+    await db.collection(COL.orders).doc(orderId).set(draftData, { merge:true });
+    const statusEl = document.getElementById('draft-save-status');
+    if (statusEl) statusEl.textContent = `Saved as draft · ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`;
+    showToast('Draft saved ✓','success');
+  } catch(e) {
+    console.error('saveChecklistDraft failed:', e);
+    showToast('Could not save draft','error');
+  }
+}
+
 
 async function sendWhatsApp() {
   await authReady;
@@ -1979,6 +2057,74 @@ function renderAdminItems() {
     </div>`).join('');
 }
 
+// Two items are considered "the same" if name + variant + unit match, once
+// trimmed and lowercased (brand is deliberately excluded — "Lux Soap (100g)"
+// is the same item whether or not a brand field happens to be filled in).
+function itemDupeKey(it) {
+  return [
+    (it.name||'').trim().toLowerCase(),
+    (it.variant||'').trim().toLowerCase(),
+    (it.unit||'').trim().toLowerCase()
+  ].join('|');
+}
+
+// One-time cleanup: groups all items in the master by itemDupeKey(), keeps
+// the OLDEST doc in each group (safest choice — older items are more likely
+// to be the ones referenced by past order history, since order docs store
+// item details by value rather than a live lookup, but keeping the original
+// ID avoids unnecessarily breaking prefill-matching against old orders where
+// possible), and deletes the rest. Confirms with a summary before deleting
+// anything, since this can't be undone.
+async function cleanupDuplicateItems() {
+  await authReady;
+  const groups = {};
+  Object.values(allItems).forEach(it=>{
+    const key = itemDupeKey(it);
+    (groups[key] = groups[key]||[]).push(it);
+  });
+
+  const dupeGroups = Object.values(groups).filter(g=>g.length>1);
+  if (!dupeGroups.length) { showToast('No duplicates found ✓','success'); return; }
+
+  const toDelete = [];
+  dupeGroups.forEach(group=>{
+    // Firestore doc IDs are auto-generated and not strictly time-ordered by
+    // value, so sort by whichever has a createdAt if present; otherwise fall
+    // back to keeping the first one encountered (still deterministic, since
+    // allItems iteration order matches Firestore's own snapshot order).
+    const sorted = [...group].sort((a,b)=>{
+      if (a.createdAt && b.createdAt) return (a.createdAt.seconds||0)-(b.createdAt.seconds||0);
+      return 0;
+    });
+    const [keep, ...remove] = sorted;
+    remove.forEach(it=>toDelete.push(it));
+  });
+
+  const totalItems = Object.keys(allItems).length;
+  const confirmed = confirm(
+    `Found ${dupeGroups.length} item(s) with duplicates, ${toDelete.length} duplicate cop${toDelete.length===1?'y':'ies'} out of ${totalItems} total items.\n\n` +
+    `One copy of each will be kept, the rest removed. This cannot be undone. Continue?`
+  );
+  if (!confirmed) return;
+
+  try {
+    // Firestore batches cap at 500 writes — chunk just in case a master list is huge.
+    const chunks = [];
+    for (let i=0; i<toDelete.length; i+=450) chunks.push(toDelete.slice(i, i+450));
+    for (const chunk of chunks) {
+      const batch = db.batch();
+      chunk.forEach(it => batch.delete(db.collection(COL.items).doc(it.id)));
+      await batch.commit();
+    }
+    toDelete.forEach(it => delete allItems[it.id]);
+    renderAdminItems();
+    showToast(`Removed ${toDelete.length} duplicate item(s) ✓`,'success');
+  } catch(e) {
+    console.error('cleanupDuplicateItems failed:', e);
+    showToast('Could not remove duplicates','error');
+  }
+}
+
 async function toggleShopActive(id, val) {
   await authReady;
   await db.collection(COL.shops).doc(id).update({ active: val });
@@ -2087,6 +2233,17 @@ async function saveNewItem() {
     category,
     active: true, seasonal: false, seasonMonths: []
   };
+
+  // Block creating a duplicate of an item that already exists (same name +
+  // variant + unit) — surfaces the existing one instead of silently adding
+  // another copy that would clutter the checklist.
+  const key = itemDupeKey(data);
+  const existing = Object.values(allItems).find(it=>itemDupeKey(it)===key);
+  if (existing) {
+    showToast(`${existing.name}${existing.variant?' ('+existing.variant+')':''} already exists`,'warn');
+    return;
+  }
+
   const ref = await db.collection(COL.items).add(data);
   allItems[ref.id] = { id:ref.id, ...data };
   closeModal('modal-additem');
@@ -2985,7 +3142,7 @@ async function requestNotifPermission() {
 
 // ─── PWA: SERVICE WORKER ──────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  const CACHE = 'grocery-v2.6';
+  const CACHE = 'grocery-v2.8';
   const SW_SRC = `
 const CACHE='${CACHE}';
 const SHELL=[
