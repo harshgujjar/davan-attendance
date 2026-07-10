@@ -619,14 +619,19 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       </div>
       <div class="field">
         <label>Category *</label>
-        <select id="ai-category">
+        <select id="ai-category" onchange="onAiCategoryChange()">
           <option>Staples</option><option>Pulses</option><option>Oils & Fats</option>
           <option>Spices</option><option>Salt & Sugar</option><option>Dairy</option>
           <option>Dry Fruits</option><option>Bathing Soap</option><option>Laundry</option>
           <option>Dishwash</option><option>Shampoo</option><option>Oral Care</option>
           <option>Floor & Toilet</option><option>Household</option><option>Packaged Food</option>
+          <option value="__new__">➕ New Category...</option>
         </select>
       </div>
+    </div>
+    <div class="field" id="ai-new-category-wrap" style="display:none">
+      <label>New Category Name</label>
+      <input id="ai-new-category" placeholder="e.g. Baby Care">
     </div>
     <button class="btn btn-primary btn-full" onclick="saveNewItem()">Save Item</button>
   </div>
@@ -1165,18 +1170,17 @@ function renderChecklist() {
   let html = '';
   Object.entries(cats).forEach(([cat, items])=>{
     const catId = 'cat-'+cat.replace(/\W/g,'_');
-    // Start collapsed by default, UNLESS this category already has a checked
-    // item in it (e.g. re-opening a prefilled checklist) — keep that visible
-    // so the person isn't hunting through a collapsed pile for what's already selected.
-    const hasChecked = items.some(it=>it.checked);
-    const startOpen = hasChecked;
-    html += `<div class="card chk-cat-card" id="${catId}-card" style="padding:8px 12px;margin-bottom:8px">
+    // Every category starts collapsed. "Collapsed" doesn't mean hidden though —
+    // it means only the checked items in it are shown inline, so a selection
+    // never disappears from view. Tapping the header expands to reveal the
+    // rest of the category's items too.
+    html += `<div class="card chk-cat-card" id="${catId}-card" data-expanded="false" style="padding:8px 12px;margin-bottom:8px">
       <div class="cat-hdr" onclick="toggleCat('${catId}')">
         <span class="cat-label">${cat}</span>
         <span class="cat-count" id="${catId}-count" style="font-size:11px;color:var(--muted);margin-left:6px"></span>
-        <span class="cat-toggle" id="${catId}-icon" style="margin-left:auto">${startOpen?'▾':'▸'}</span>
+        <span class="cat-toggle" id="${catId}-icon" style="margin-left:auto">▸</span>
       </div>
-      <div class="cat-body" id="${catId}" style="display:${startOpen?'':'none'}">`;
+      <div class="cat-body" id="${catId}">`;
     items.forEach(it=>{
       const dispName = it.name + (it.variant ? ` (${it.variant})` : '');
       const dispKn = it.nameKn + (it.variant ? ` (${it.variant})` : '');
@@ -1184,7 +1188,7 @@ function renderChecklist() {
       const priceChangeHint = (it.estRate != null && it.prevRate != null && it.estRate !== it.prevRate)
         ? `<span class="chk-price-change ${it.estRate > it.prevRate ? 'up' : 'down'}">was ₹${it.prevRate} before</span>` : '';
       const searchBlob = `${it.name} ${it.nameKn||''} ${it.variant||''} ${it.category}`.toLowerCase();
-      html += `<div class="chk-row" id="row-${it.itemId}" data-search="${searchBlob.replace(/"/g,'')}" data-cat="${catId}">
+      html += `<div class="chk-row" id="row-${it.itemId}" data-search="${searchBlob.replace(/"/g,'')}" data-cat="${catId}" data-checked="${it.checked?'true':'false'}">
         <div class="chk-box ${it.checked?'checked':''}" onclick="toggleItem('${it.itemId}')">
           ${it.checked?'✓':''}
         </div>
@@ -1204,12 +1208,13 @@ function renderChecklist() {
 
   document.getElementById('checklist-body').innerHTML = html;
   updateCatCheckedCounts();
+  applyRowVisibility();
   const search = document.getElementById('chk-search');
   if (search && search.value) filterChecklist(search.value); // re-apply active search after a re-render
 }
 
-// Shows "2 selected" next to a category label when it's collapsed and has
-// checked items inside, so nothing feels hidden/lost.
+// Shows "2 selected" next to a category label, always — whether expanded or
+// collapsed — so it's clear at a glance what's chosen in that category.
 function updateCatCheckedCounts() {
   const cats = {};
   checklistItems.forEach(it=>{ (cats[it.category] = cats[it.category]||[]).push(it); });
@@ -1222,59 +1227,91 @@ function updateCatCheckedCounts() {
   });
 }
 
-// Live search across name / Kannada name / variant / category. Matching
-// categories auto-expand so results are never hidden behind a collapsed
-// header; clearing the search restores each category to its prior state
-// (open if it has checked items, collapsed otherwise).
+// Row-level visibility: a collapsed category shows only its checked rows;
+// an expanded category shows all of its rows. Runs after render, after any
+// toggle, and after expand/collapse — the single source of truth for which
+// rows are visible, so it never fights with the search filter's own logic.
+function applyRowVisibility() {
+  document.querySelectorAll('#checklist-body .chk-cat-card').forEach(card=>{
+    const expanded = card.dataset.expanded === 'true';
+    const catId = card.id.replace(/-card$/,'');
+    const body = document.getElementById(catId);
+    if (!body) return;
+    body.querySelectorAll('.chk-row').forEach(row=>{
+      const isChecked = row.dataset.checked === 'true';
+      row.style.display = (expanded || isChecked) ? '' : 'none';
+    });
+    // If a collapsed category has nothing checked, show a small hint instead
+    // of an empty-looking body.
+    let emptyHint = body.querySelector('.chk-empty-hint');
+    if (!expanded && !body.querySelector('.chk-row[data-checked="true"]')) {
+      if (!emptyHint) {
+        emptyHint = document.createElement('div');
+        emptyHint.className = 'chk-empty-hint';
+        emptyHint.style.cssText = 'padding:8px 4px;font-size:12px;color:var(--muted)';
+        emptyHint.textContent = 'Nothing selected — tap category name to browse items';
+        body.appendChild(emptyHint);
+      }
+      emptyHint.style.display = '';
+    } else if (emptyHint) {
+      emptyHint.style.display = 'none';
+    }
+  });
+}
+
+// Live search across name / Kannada name / variant / category. While
+// searching, matching categories force-expand to show every match (not just
+// checked ones); clearing the search restores normal collapsed/checked-only
+// behavior via applyRowVisibility().
 function filterChecklist(query) {
   const q = query.trim().toLowerCase();
   const rows = document.querySelectorAll('#checklist-body .chk-row');
   const catsWithMatch = new Set();
 
+  if (!q) {
+    // Search cleared — restore each category to its own collapsed/expanded state
+    document.querySelectorAll('#checklist-body .chk-cat-card').forEach(card=>{ card.style.display=''; });
+    applyRowVisibility();
+    return;
+  }
+
   rows.forEach(row=>{
-    const matches = !q || (row.dataset.search||'').includes(q);
+    const matches = (row.dataset.search||'').includes(q);
     row.style.display = matches ? '' : 'none';
     if (matches) catsWithMatch.add(row.dataset.cat);
   });
 
   document.querySelectorAll('#checklist-body .chk-cat-card').forEach(card=>{
     const catId = card.id.replace(/-card$/,'');
-    const body = document.getElementById(catId);
-    const icon = document.getElementById(catId+'-icon');
-    if (!body || !icon) return;
-    if (q) {
-      // While searching: show only categories with a match, force them open
-      const hasMatch = catsWithMatch.has(catId);
-      card.style.display = hasMatch ? '' : 'none';
-      if (hasMatch) { body.style.display = ''; icon.textContent = '▾'; }
-    } else {
-      // Search cleared: restore normal state (open only if it has a checked item)
-      card.style.display = '';
-      const hasChecked = checklistItems.some(it=>it.category && ('cat-'+it.category.replace(/\W/g,'_'))===catId && it.checked);
-      body.style.display = hasChecked ? '' : 'none';
-      icon.textContent = hasChecked ? '▾' : '▸';
-    }
+    const hasMatch = catsWithMatch.has(catId);
+    card.style.display = hasMatch ? '' : 'none';
+    const hint = document.getElementById(catId)?.querySelector('.chk-empty-hint');
+    if (hint) hint.style.display = 'none';
   });
 }
 
 function toggleCat(catId) {
-  const body = document.getElementById(catId);
+  const card = document.getElementById(catId+'-card');
   const icon = document.getElementById(catId+'-icon');
-  const hidden = body.style.display==='none';
-  body.style.display = hidden?'':'none';
-  icon.textContent = hidden?'▾':'▸';
+  const expanded = card.dataset.expanded === 'true';
+  card.dataset.expanded = expanded ? 'false' : 'true';
+  icon.textContent = expanded ? '▸' : '▾';
+  applyRowVisibility();
 }
 
 function toggleItem(itemId) {
   const it = checklistItems.find(i=>i.itemId===itemId);
   if (!it) return;
   it.checked = !it.checked;
+  const row = document.getElementById(`row-${itemId}`);
   const box = document.querySelector(`#row-${itemId} .chk-box`);
   const qtyInput = document.querySelector(`#row-${itemId} .chk-qty`);
   box.classList.toggle('checked', it.checked);
   box.textContent = it.checked ? '✓' : '';
+  if (row) row.dataset.checked = it.checked ? 'true' : 'false';
   if (qtyInput) qtyInput.style.opacity = it.checked ? '1' : '0.4';
   updateCatCheckedCounts();
+  applyRowVisibility(); // unchecking in a collapsed category should hide that row again
   updateWaPreview();
   updateBudgetBar();
   triggerSplitEval();
@@ -1995,13 +2032,18 @@ async function saveNewItem() {
   await authReady;
   const name = document.getElementById('ai-name').value.trim();
   if (!name) { showToast('Item name is required','warn'); return; }
+  let category = document.getElementById('ai-category').value;
+  if (category === '__new__') {
+    category = document.getElementById('ai-new-category').value.trim();
+    if (!category) { showToast('Enter a name for the new category','warn'); return; }
+  }
   const data = {
     name,
     nameKn: document.getElementById('ai-name-kn').value.trim(),
     brand: document.getElementById('ai-brand').value.trim(),
     variant: document.getElementById('ai-variant').value.trim(),
     unit: document.getElementById('ai-unit').value,
-    category: document.getElementById('ai-category').value,
+    category,
     active: true, seasonal: false, seasonMonths: []
   };
   const ref = await db.collection(COL.items).add(data);
@@ -2064,7 +2106,24 @@ function updateCustomerDetailsDisplay() {
   }
 }
 
-function openAddItemModal() { openModal('modal-additem'); }
+function openAddItemModal() {
+  // Reset custom-category field each time, so a leftover value from a
+  // previous add doesn't silently carry over.
+  const sel = document.getElementById('ai-category');
+  if (sel) sel.value = 'Staples';
+  const newWrap = document.getElementById('ai-new-category-wrap');
+  const newInput = document.getElementById('ai-new-category');
+  if (newWrap) newWrap.style.display = 'none';
+  if (newInput) newInput.value = '';
+  openModal('modal-additem');
+}
+
+function onAiCategoryChange() {
+  const sel = document.getElementById('ai-category');
+  const wrap = document.getElementById('ai-new-category-wrap');
+  if (!sel || !wrap) return;
+  wrap.style.display = sel.value === '__new__' ? 'block' : 'none';
+}
 
 // ─── MODAL HELPERS ───────────────────────────────────────────────────────────
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -2885,7 +2944,7 @@ async function requestNotifPermission() {
 
 // ─── PWA: SERVICE WORKER ──────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  const CACHE = 'grocery-v2.4';
+  const CACHE = 'grocery-v2.5';
   const SW_SRC = `
 const CACHE='${CACHE}';
 const SHELL=[
