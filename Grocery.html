@@ -611,11 +611,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   </div>
 </div>
 
-<!-- ========== MODAL: ADD ITEM ========== -->
+<!-- ========== MODAL: ADD/EDIT ITEM ========== -->
 <div class="modal-overlay" id="modal-additem">
   <div class="modal">
     <div class="modal-title">
-      <span>Add Item to Master</span>
+      <span id="modal-additem-title">Add Item to Master</span>
       <span class="modal-close" onclick="closeModal('modal-additem')">✕</span>
     </div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">
@@ -642,7 +642,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <label>New Category Name</label>
       <input id="ai-new-category" placeholder="e.g. Baby Care">
     </div>
-    <button class="btn btn-primary btn-full" onclick="saveNewItem()">Save Item</button>
+    <button class="btn btn-primary btn-full" id="ai-save-btn" onclick="saveNewItem()">Save Item</button>
+    <button class="btn btn-red btn-full" id="ai-delete-btn" style="display:none;margin-top:10px" onclick="confirmDeleteItem()">🗑️ Delete Item</button>
+    <div id="ai-delete-confirm-panel" style="display:none;margin-top:10px;padding:12px;background:var(--red-soft);border-radius:10px">
+      <div style="font-size:12px;color:var(--red-text);font-weight:600;margin-bottom:10px">
+        ⚠️ Delete this item permanently? Past orders that included it will keep showing it in History, but it won't appear as an option going forward.
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline" style="flex:1" onclick="cancelDeleteItem()">Cancel</button>
+        <button class="btn btn-red" style="flex:1" onclick="deleteItemFinal()">Yes, Delete</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -694,7 +704,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.3';
+const APP_VERSION = '3.4';
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -742,6 +752,7 @@ let allItems = {};
 let settings = { budget: 0, customerName:'', customerPhone:'', theme:'light' };
 let orderLang = 'en';
 let editingShopId = null;
+let editingItemId = null;
 let currentOrder = { shopId: null, month: null, items: [] };
 let lastOrderData = null;
 let _sameMonthPrefillCandidate = null; // pending same-month order awaiting Yes/No on the checklist screen
@@ -2122,7 +2133,7 @@ function renderAdminItems() {
   if (!items.length) { list.innerHTML='<div class="empty" style="padding:10px">No items found</div>'; return; }
   list.innerHTML = items.map(it=>`
     <div class="admin-row">
-      <div style="min-width:0">
+      <div style="min-width:0;cursor:pointer" onclick="openEditItemModal('${it.id}')">
         <div style="font-size:12px">${it.name}${it.variant?' ('+it.variant+')':''}</div>
         <div style="font-size:10px;color:var(--muted)">${it.nameKn||''} · ${it.unit} · ${it.category}</div>
       </div>
@@ -2304,28 +2315,56 @@ async function saveNewItem() {
     variant: document.getElementById('ai-variant').value.trim(),
     unit: document.getElementById('ai-unit').value,
     category,
-    active: true, seasonal: false, seasonMonths: []
   };
 
-  // Block creating a duplicate of an item that already exists (same name +
-  // variant + unit) — surfaces the existing one instead of silently adding
-  // another copy that would clutter the checklist.
+  // Block creating/renaming into a duplicate of a DIFFERENT existing item
+  // (same name + variant + unit). When editing, the item's own unchanged
+  // key is excluded from this check — otherwise saving with no changes
+  // would falsely flag itself as a duplicate of itself.
   const key = itemDupeKey(data);
-  const existing = Object.values(allItems).find(it=>itemDupeKey(it)===key);
+  const existing = Object.values(allItems).find(it=>itemDupeKey(it)===key && it.id!==editingItemId);
   if (existing) {
     showToast(`${existing.name}${existing.variant?' ('+existing.variant+')':''} already exists`,'warn');
     return;
   }
 
-  const ref = await db.collection(COL.items).add(data);
-  allItems[ref.id] = { id:ref.id, ...data };
+  if (editingItemId) {
+    // EDIT MODE: update the existing doc in place — preserves its id, so
+    // every past order that referenced it (by value, not live lookup) is
+    // untouched, and price history tied to this item keeps working.
+    try {
+      await db.collection(COL.items).doc(editingItemId).update(data);
+      allItems[editingItemId] = { ...allItems[editingItemId], ...data };
+      // If the checklist is currently open and has this item, update that
+      // entry too — checklistItems is a separate snapshot, not a live
+      // reference into allItems, so it wouldn't otherwise reflect the rename.
+      const ci = checklistItems.find(i=>i.itemId===editingItemId);
+      if (ci) {
+        Object.assign(ci, data);
+        renderChecklist();
+        updateWaPreview();
+      }
+      closeModal('modal-additem');
+      renderAdminItems();
+      showToast('Item updated ✓','success');
+    } catch(e) {
+      console.error('saveNewItem (edit) failed:', e);
+      showToast('Could not save changes','error');
+    }
+    return;
+  }
+
+  // ADD MODE: create a brand new item.
+  const newData = { ...data, active: true, seasonal: false, seasonMonths: [] };
+  const ref = await db.collection(COL.items).add(newData);
+  allItems[ref.id] = { id:ref.id, ...newData };
   closeModal('modal-additem');
   renderAdminItems();
   showToast('Item added ✓','success');
 
   // If checklist is open, add to it
   if (document.getElementById('step-checklist').style.display!=='none') {
-    checklistItems.push({ itemId:ref.id, ...data, checked:true, qty:1, estRate:null });
+    checklistItems.push({ itemId:ref.id, ...newData, checked:true, qty:1, estRate:null });
     renderChecklist();
     updateWaPreview();
   }
@@ -2408,8 +2447,18 @@ function populateCategoryDropdown() {
 }
 
 function openAddItemModal() {
-  // Reset custom-category field each time, so a leftover value from a
-  // previous add doesn't silently carry over.
+  editingItemId = null;
+  document.getElementById('modal-additem-title').textContent = 'Add Item to Master';
+  document.getElementById('ai-save-btn').textContent = 'Save Item';
+  document.getElementById('ai-delete-btn').style.display = 'none';
+  document.getElementById('ai-delete-confirm-panel').style.display = 'none';
+  // Reset all fields, since this modal is shared with edit mode and fields
+  // would otherwise carry over from whatever was last edited.
+  document.getElementById('ai-name').value = '';
+  document.getElementById('ai-name-kn').value = '';
+  document.getElementById('ai-brand').value = '';
+  document.getElementById('ai-variant').value = '';
+  document.getElementById('ai-unit').value = 'kg';
   populateCategoryDropdown();
   const sel = document.getElementById('ai-category');
   if (sel) sel.value = 'Staples';
@@ -2418,6 +2467,56 @@ function openAddItemModal() {
   if (newWrap) newWrap.style.display = 'none';
   if (newInput) newInput.value = '';
   openModal('modal-additem');
+}
+
+// Opens the same Add Item modal pre-filled with an existing item's details,
+// so a typo like "gwy" can be fixed in place instead of deleting and
+// re-adding (which would lose the item's price-history association).
+function openEditItemModal(itemId) {
+  const it = allItems[itemId];
+  if (!it) return;
+  editingItemId = itemId;
+  document.getElementById('modal-additem-title').textContent = 'Edit Item';
+  document.getElementById('ai-save-btn').textContent = 'Save Changes';
+  document.getElementById('ai-delete-btn').style.display = 'block';
+  document.getElementById('ai-delete-confirm-panel').style.display = 'none';
+
+  populateCategoryDropdown();
+  document.getElementById('ai-name').value = it.name || '';
+  document.getElementById('ai-name-kn').value = it.nameKn || '';
+  document.getElementById('ai-brand').value = it.brand || '';
+  document.getElementById('ai-variant').value = it.variant || '';
+  document.getElementById('ai-unit').value = it.unit || 'kg';
+  const sel = document.getElementById('ai-category');
+  if (sel) {
+    // The item's own category is guaranteed to be an option since
+    // populateCategoryDropdown() includes every category currently in use.
+    sel.value = it.category || 'Staples';
+  }
+  document.getElementById('ai-new-category-wrap').style.display = 'none';
+  document.getElementById('ai-new-category').value = '';
+  openModal('modal-additem');
+}
+
+function confirmDeleteItem() {
+  document.getElementById('ai-delete-confirm-panel').style.display = 'block';
+}
+function cancelDeleteItem() {
+  document.getElementById('ai-delete-confirm-panel').style.display = 'none';
+}
+async function deleteItemFinal() {
+  if (!editingItemId) return;
+  await authReady;
+  try {
+    await db.collection(COL.items).doc(editingItemId).delete();
+    delete allItems[editingItemId];
+    closeModal('modal-additem');
+    renderAdminItems();
+    showToast('Item deleted','success');
+  } catch(e) {
+    console.error('deleteItemFinal failed:', e);
+    showToast('Could not delete item','error');
+  }
 }
 
 function onAiCategoryChange() {
