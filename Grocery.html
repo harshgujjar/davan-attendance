@@ -704,7 +704,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.4';
+const APP_VERSION = '3.5';
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -2299,6 +2299,43 @@ async function deleteShopFinal() {
   }
 }
 
+// When an item's name/nameKn/unit/category/brand/variant is edited, every
+// past order that already has this item as a line item still has the OLD
+// values baked in (orders store a value-copy at the time they're placed,
+// not a live reference). This finds every such order and updates just the
+// display fields on the matching line item(s) — qty, actualRate, actualAmt,
+// and everything else about the order is left completely untouched, since
+// those represent what actually happened, not the item's current identity.
+async function cascadeItemRenameToOrders(itemId, newFields) {
+  const snap = await db.collection(COL.orders).get();
+  const batch = db.batch();
+  let touched = 0;
+  snap.forEach(doc=>{
+    const order = doc.data();
+    if (!Array.isArray(order.items)) return;
+    let changed = false;
+    const updatedItems = order.items.map(it=>{
+      if (it.itemId !== itemId) return it;
+      changed = true;
+      return {
+        ...it,
+        name: newFields.name,
+        nameKn: newFields.nameKn,
+        unit: newFields.unit,
+        category: newFields.category,
+        brand: newFields.brand,
+        variant: newFields.variant
+      };
+    });
+    if (changed) {
+      batch.update(doc.ref, { items: updatedItems });
+      touched++;
+    }
+  });
+  if (touched > 0) await batch.commit();
+  return touched;
+}
+
 async function saveNewItem() {
   await authReady;
   const name = document.getElementById('ai-name').value.trim();
@@ -2329,12 +2366,17 @@ async function saveNewItem() {
   }
 
   if (editingItemId) {
-    // EDIT MODE: update the existing doc in place — preserves its id, so
-    // every past order that referenced it (by value, not live lookup) is
-    // untouched, and price history tied to this item keeps working.
+    // EDIT MODE: update the master doc, then cascade the display-field
+    // changes (name, nameKn, unit, category, brand, variant) into every
+    // past order that already has this item as a line item — orders store
+    // a snapshot copy of these fields rather than a live reference, so a
+    // rename here wouldn't otherwise show up in History at all.
     try {
       await db.collection(COL.items).doc(editingItemId).update(data);
       allItems[editingItemId] = { ...allItems[editingItemId], ...data };
+
+      await cascadeItemRenameToOrders(editingItemId, data);
+
       // If the checklist is currently open and has this item, update that
       // entry too — checklistItems is a separate snapshot, not a live
       // reference into allItems, so it wouldn't otherwise reflect the rename.
@@ -2346,7 +2388,7 @@ async function saveNewItem() {
       }
       closeModal('modal-additem');
       renderAdminItems();
-      showToast('Item updated ✓','success');
+      showToast('Item updated ✓ (existing bills updated too)','success');
     } catch(e) {
       console.error('saveNewItem (edit) failed:', e);
       showToast('Could not save changes','error');
