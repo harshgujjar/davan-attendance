@@ -209,6 +209,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .chk-qty{width:60px;text-align:center;flex-shrink:0}
 .chk-qty-prefilled{color:var(--muted);background:var(--card2);border-style:dashed}
 .chk-unit{font-size:11px;color:var(--muted);width:28px;flex-shrink:0}
+.chk-unit-tap{cursor:pointer;color:var(--accent-text);font-weight:600;width:auto;white-space:nowrap}
 /* CATEGORY GROUP */
 .cat-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 4px 6px;cursor:pointer;user-select:none}
 .cat-label{font-family:'Sora',sans-serif;font-size:12px;font-weight:600;color:var(--text-2);letter-spacing:.2px}
@@ -1221,6 +1222,7 @@ function renderChecklist() {
       const priceChangeHint = (it.estRate != null && it.prevRate != null && it.estRate !== it.prevRate)
         ? `<span class="chk-price-change ${it.estRate > it.prevRate ? 'up' : 'down'}">was ₹${it.prevRate} before</span>` : '';
       const searchBlob = `${it.name} ${it.nameKn||''} ${it.variant||''} ${it.category}`.toLowerCase();
+      const canSwitchUnit = ['kg','g','L','ml'].includes(it.unit);
       html += `<div class="chk-row" id="row-${it.itemId}" data-search="${searchBlob.replace(/"/g,'')}" data-cat="${catId}" data-checked="${it.checked?'true':'false'}">
         <div class="chk-box ${it.checked?'checked':''}" onclick="toggleItem('${it.itemId}')">
           ${it.checked?'✓':''}
@@ -1231,9 +1233,10 @@ function renderChecklist() {
           ${rateHint?`<div class="chk-hint">${rateHint} ${priceChangeHint}</div>`:''}
         </div>
         <input class="chk-qty${it.prefilled?' chk-qty-prefilled':''}" type="number" value="${it.qty}" ${qtyAttrs(it.unit)}
+          placeholder="e.g. 0.2"
           onchange="updateQty('${it.itemId}',this.value)"
           ${it.checked?'':'style="opacity:.4"'}>
-        <div class="chk-unit">${it.unit}</div>
+        <div class="chk-unit${canSwitchUnit?' chk-unit-tap':''}" ${canSwitchUnit?`onclick="switchItemUnit('${it.itemId}')" title="Tap to switch unit"`:''}>${it.unit}${canSwitchUnit?' ⇄':''}</div>
       </div>`;
     });
     html += `</div></div>`;
@@ -1349,6 +1352,27 @@ function toggleItem(itemId) {
   updateBudgetBar();
   triggerSplitEval();
 }
+
+// Swaps a checklist item between kg/g or L/ml, converting the quantity so
+// the actual amount stays the same (0.2 kg -> 200 g, not 0.2 g). This only
+// affects THIS checklist/order — it doesn't change the item's unit in the
+// master list, so other months/shops keep using whatever unit is normal
+// for that item unless switched again here.
+const UNIT_PAIRS = { kg:'g', g:'kg', L:'ml', ml:'L' };
+function switchItemUnit(itemId) {
+  const it = checklistItems.find(i=>i.itemId===itemId);
+  if (!it || !UNIT_PAIRS[it.unit]) return;
+  const newUnit = UNIT_PAIRS[it.unit];
+  // kg->g and L->ml: multiply by 1000. g->kg and ml->L: divide by 1000.
+  const goingSmaller = (it.unit==='kg' || it.unit==='L');
+  it.qty = goingSmaller ? it.qty*1000 : it.qty/1000;
+  // Round sensibly — grams/ml as whole numbers, kg/L to 2 decimals
+  it.qty = goingSmaller ? Math.round(it.qty) : Math.round(it.qty*100)/100;
+  it.unit = newUnit;
+  renderChecklist();
+  updateWaPreview(); updateBudgetBar(); triggerSplitEval();
+}
+
 
 function updateQty(itemId, val) {
   const it = checklistItems.find(i=>i.itemId===itemId);
@@ -2324,11 +2348,20 @@ function onAiCategoryChange() {
 }
 
 // ─── MODAL HELPERS ───────────────────────────────────────────────────────────
-function openModal(id) { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+  const fab = document.getElementById('floating-save-draft');
+  if (fab) fab.style.display = 'none'; // keep the modal's own fields reachable, not covered by the FAB
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  const fab = document.getElementById('floating-save-draft');
+  const onChecklist = document.getElementById('step-checklist')?.style.display !== 'none';
+  if (fab && onChecklist) fab.style.display = 'flex';
+}
 // Close on overlay tap
 document.querySelectorAll('.modal-overlay').forEach(ov=>{
-  ov.addEventListener('click', e=>{ if(e.target===ov) ov.classList.remove('open'); });
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeModal(ov.id); });
 });
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
@@ -2336,11 +2369,11 @@ document.querySelectorAll('.modal-overlay').forEach(ov=>{
 // kg/g/L/ml/tsp/tbsp etc. stay at half-unit steps since that's normal for weight/volume.
 function qtyAttrs(unit) {
   return (unit === 'pcs' || unit === 'packet' || unit === 'bunch')
-    ? 'min="1" step="1"' : 'min="0.1" step="0.5"';
+    ? 'min="1" step="1"' : 'min="0.05" step="0.1"';
 }
 function clampQty(val, unit) {
   const n = parseFloat(val) || 1;
-  return (unit === 'pcs' || unit === 'packet' || unit === 'bunch') ? Math.max(1, Math.round(n)) : Math.max(0.1, n);
+  return (unit === 'pcs' || unit === 'packet' || unit === 'bunch') ? Math.max(1, Math.round(n)) : Math.max(0.05, n);
 }
 
 function formatMonth(m) {
@@ -3142,7 +3175,7 @@ async function requestNotifPermission() {
 
 // ─── PWA: SERVICE WORKER ──────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  const CACHE = 'grocery-v2.9';
+  const CACHE = 'grocery-v3.0';
   const SW_SRC = `
 const CACHE='${CACHE}';
 const SHELL=[
