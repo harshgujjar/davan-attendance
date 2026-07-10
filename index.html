@@ -135,16 +135,16 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Davan &amp; Nutana Attendance Analyzer v991</title>
+  <title>Davan &amp; Nutana Attendance Analyzer v994</title>
 
   <!-- Windows File Explorer Properties (Tags / Authors / Title) -->
   <meta name="title" content="Davan &amp; Nutana Attendance Analyzer">
   <meta name="author" content="Harsha Gujjar">
-  <meta name="keywords" content="v991, Attendance, Analyzer, Davan, Nutana, Davangere">
+  <meta name="keywords" content="v994, Attendance, Analyzer, Davan, Nutana, Davangere">
   <meta name="description" content="Attendance and result analytics for Davan &amp; Nutana Institutions, Davangere. Developed by Harsha Gujjar, Director.">
   <meta name="application-name" content="Attendance Result Analyzer">
   <meta name="generator" content="Developed by Harsha Gujjar — Davan Institute of Advanced Management Studies">
-  <meta name="version" content="v991" id="meta-version">
+  <meta name="version" content="v994" id="meta-version">
 
   <!-- Favicon & App Icons -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -4318,7 +4318,7 @@
 
       <div class="tte-save-row" style="display:flex;gap:10px;flex-wrap:wrap;">
         <button onclick="ttSave()" style="padding:10px 20px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">💾 Save Changes</button>
-        <button onclick="ttReset()" style="padding:10px 18px;background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:8px;font-size:13px;cursor:pointer;">↩ Reset to Default</button>
+        <button id="tte-reset-btn" onclick="ttReset()" style="display:none;padding:10px 18px;background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:8px;font-size:13px;cursor:pointer;">↩ Reset to Default</button>
       </div>
       <div id="tte-msg" style="margin-top:10px;font-size:12px;font-family:var(--mono);"></div>
     </div>
@@ -9047,11 +9047,16 @@ async function loadFirestoreData() {
         console.log('[class_notes backfill] SKIPPED — rtdb is not initialized on this page load.');
       } else {
         rtdb.ref('davan_pub/class_notes').once('value').then(s => {
-          const rtdbNotes = s.val();
-          if (!rtdbNotes || typeof rtdbNotes !== 'object') {
+          const _rawRtdbNotes = s.val();
+          if (!_rawRtdbNotes || typeof _rawRtdbNotes !== 'object') {
             console.log('[class_notes backfill] RTDB davan_pub/class_notes is empty or missing — nothing to backfill.');
             return;
           }
+          // v994: RTDB keys are encoded (dots etc. replaced, since RTDB forbids them) —
+          // decode back to real class names before comparing against Firestore/localStorage,
+          // which both use the real (unencoded) class name as the key.
+          const rtdbNotes = {};
+          Object.keys(_rawRtdbNotes).forEach(k => { rtdbNotes[_rtdbUnsafeKey(k)] = _rawRtdbNotes[k]; });
           console.log('[class_notes backfill] RTDB has', Object.keys(rtdbNotes).length, 'class note(s):', Object.keys(rtdbNotes));
           const current = (() => { try { return JSON.parse(localStorage.getItem('davan_class_notes') || '{}'); } catch(e) { return {}; } })();
           console.log('[class_notes backfill] localStorage/Firestore currently has', Object.keys(current).filter(k=>current[k]).length, 'class note(s):', Object.keys(current).filter(k=>current[k]));
@@ -9067,13 +9072,20 @@ async function loadFirestoreData() {
           }
           console.log('[class_notes backfill] FOUND', recoveredClasses.length, 'note(s) in RTDB missing from Firestore:', recoveredClasses, '— backfilling now.');
           try { localStorage.setItem('davan_class_notes', JSON.stringify(backfilled)); } catch(e) { console.warn('[class_notes backfill] localStorage write failed:', e.message); }
-          // Write the backfilled set to Firestore too, so this is a ONE-TIME heal per class —
-          // once it's in Firestore, future admin logins find it there and this branch no-ops.
+          // v993: only write the classes actually recovered (recoveredClasses), via
+          // merge:true, instead of the previous full backfilled .set() — that used to
+          // overwrite the ENTIRE Firestore class_notes doc with this device's merged
+          // local copy, which could silently wipe out a different class's note that
+          // another device had synced moments earlier but this device hadn't pulled yet.
+          // merge:true + only-the-recovered-keys means this can only ever ADD the specific
+          // gaps found, never touch or remove any class this device isn't fixing.
           try {
             if (!db) { console.warn('[class_notes backfill] Firestore db is not initialized — recovered locally only, will re-attempt Firestore write on next login.'); }
             else {
-              db.collection('app_data').doc('class_notes').set(backfilled)
-                .then(() => console.log('[class_notes backfill] Firestore app_data/class_notes updated successfully.'))
+              const _recoveredPatch = {};
+              recoveredClasses.forEach(c => { _recoveredPatch[c] = backfilled[c]; });
+              db.collection('app_data').doc('class_notes').set(_recoveredPatch, { merge: true })
+                .then(() => console.log('[class_notes backfill] Firestore app_data/class_notes updated (merge, recovered keys only).'))
                 .catch(e => console.warn('[class_notes backfill] Firestore write failed:', e.message));
             }
           } catch(e) { console.warn('[class_notes backfill] Firestore write threw:', e.message); }
@@ -9293,7 +9305,12 @@ async function _loadFromRTDB() {
           try {
             const v = s.val();
             if (v && typeof v === 'object') {
-              try { localStorage.setItem(TTE_NOTES_KEY, JSON.stringify(v)); } catch(e){}
+              // v994: RTDB keys are encoded (dots etc. replaced) because RTDB forbids
+              // '.', '#', '$', '[', ']', '/' in key names — decode back to real class
+              // names before caching, so ttGetNote(cls) with the real class name matches.
+              const _decoded = {};
+              Object.keys(v).forEach(k => { _decoded[_rtdbUnsafeKey(k)] = v[k]; });
+              try { localStorage.setItem(TTE_NOTES_KEY, JSON.stringify(_decoded)); } catch(e){}
             }
           } catch(e) {}
         }),
@@ -12885,8 +12902,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 991;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '09-Jul-2026', time: '18:30', full: '09-Jul-2026 18:30 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 994;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '10-Jul-2026', time: '09:15', full: '10-Jul-2026 09:15 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -22170,6 +22187,9 @@ const HTML_CHANGELOG = [
   { v: 'v966', date: '06-Jul-2026 IST', note: 'Feat: (1) Persistent sidebar "📷 Add My Photo" entry (nav-fac-my-photo) for fulltime/visiting/VP faculty with no photo yet — stays available even after the v965 banner is dismissed, so faculty can add their photo any time in-session instead of waiting for next login. Uses the same facBannerAddPhoto() upload path; disappears once a photo exists, same as the banner. (2) Staff Directory admin control: new "PHOTO ✎" checkbox column (all 3 tables — Full Time/Visiting/Non-Teaching), unchecked by default on every row (sdAddRow defaults allowPhotoChange:false). When UNCHECKED (default): faculty can add a photo once (while none exists) but cannot change it themselves afterward — only admin can, from Staff Directory (sdPhotoPick), unchanged from v965. When CHECKED by admin (sdOnPhotoPermChange sets allowPhotoChange:true, saved with the rest of Staff Directory via existing Save All Changes): the sidebar "Add My Photo" entry stays available to that faculty indefinitely, letting them change their own photo any time. New: sdOnPhotoPermChange(), sdFacultyCanChangePhoto(name) (looks up allowPhotoChange from sdData, defaulting false if the faculty or field is not found — so pre-existing rows behave exactly like before this update). facCheckOwnPhoto() now also drives the sidebar entry\'s visibility via this flag; facBannerAddPhoto() re-checks visibility after a successful upload so the entry correctly disappears (locked) or stays (admin-allowed) without needing a reload. CODE_BUILD=966.' },
   { v: 'v965', date: '06-Jul-2026 IST', note: 'Feat: Faculty self-service "Add Photo" banner. Fulltime/visiting/VP faculty who have no photo on file (checked via existing _facPhotoUrl/_facKey lookup against app_data/faculty_photos) now see a dismissible banner below the topbar on login prompting them to add their own photo. "📷 Add Photo" opens a file picker and uploads via the EXISTING facUploadPhoto() Cloudinary+Firestore path (same one Staff Directory uses) — no new storage/backend. "Dismiss for now" just hides the banner for the current session; since there is no persistence flag, it reappears on the NEXT login for as long as no photo exists (added by the faculty here or by the admin in Staff Directory). Once a photo exists — from either path — facCheckOwnPhoto() (called after facPhotosReady resolves in onLoginSuccess) stops showing the banner permanently, and the faculty has no further UI to change it: only the admin can, via the existing Staff Directory 📷 badge (sdPhotoPick). Banner is hidden on logout (doFirebaseLogout) so it never leaks into the next session before that user\'s own check runs. New: fac-photo-banner markup (positioned at top:56px so it sits below the topbar, not over it; 52px on mobile), facCheckOwnPhoto(), facBannerAddPhoto(), facBannerDismiss(). Admin side (Staff Directory) is unchanged — it already showed every faculty\'s current photo/initials with a 📷 upload badge on every row, so admins can already see at a glance who still needs a photo and add it themselves. CODE_BUILD=965.' },
   { v: 'v964', date: '06-Jul-2026 IST', note: 'Print Master Timetable: guarantee 3 classes per A4 page (9 classes = 3 pages, was spilling to 4). Root cause: long lab labels ("ANPG - LAB A2·Lab 2") wrapped to 2 lines, inflating row height and pushing the 3rd class/footer to an extra page. Fixes: (1) codeCell now compacts lab labels to one short token ("ANPG A2/L2"); (2) .pc + table cells set white-space:nowrap so nothing wraps; (3) lowered .sheet min-height 195mm→180mm and tightened .pcol gap / .pblock padding / .pc height. CODE_BUILD=964.' },
+  { v: 'v994', date: '10-Jul-2026 IST', note: 'ROOT CAUSE FOUND for "VP note synced but a class with a dot in its name (e.g. I YEAR B.Com, II YEAR B.Com, III YEAR B.Com) never actually reached RTDB, even on v993": Firebase Realtime Database forbids the characters . # $ [ ] / in key names. v993\'s per-key RTDB write (rtdb.ref("davan_pub/class_notes").update({[cls]: text})) used the raw class name AS the RTDB key — for a class like "I YEAR B.Com", that key contains a literal dot, so the update() call THROWS synchronously (Firebase validates keys client-side before sending anything over the wire). The existing try/catch swallowed this into a console.warn only — completely invisible during a VP\'s mobile session with no console open. Meanwhile the Firestore write for the same note (no such character restriction there) succeeded fine, which is why a class WITHOUT a dot (e.g. "II YEAR BCA (A)", tested live with the note "hello") synced correctly end-to-end while a dotted class silently failed at the RTDB step every single time — 100% reproducible per-class, not random/intermittent as it initially appeared across multiple test rounds. This also explains why davan_pub/class_notes never appeared as a node in the RTDB tree at all in earlier checks: multiple of the college\'s actual class names contain dots (all three B.Com year-classes), so it was entirely plausible for every attempted write up to that point to have hit a dotted class name and failed before the node was ever created. Fix: added _rtdbSafeKey()/_rtdbUnsafeKey() — encodes forbidden characters into a reversible placeholder (e.g. "." → "__DOT__") ONLY at the RTDB read/write boundary, applied in all four RTDB touch-points: ttSetNote()\'s per-key update, ttSyncLocalNotesToCloud()\'s bulk update, the v982 manager/VP login hydration read, and the v990 admin-side RTDB-to-Firestore backfill read. localStorage and Firestore keys are completely unchanged (Firestore has no such restriction, and touching the localStorage key format risks breaking ttGetNote() retroactively for every class) — the raw class name is used everywhere except the literal RTDB key itself, decoded back to the real name immediately after any RTDB read. Verified round-trip correctness against all actual class names in LM_CLASS_META, including all three dotted B.Com classes. CODE_BUILD=994.' },
+  { v: 'v993', date: '10-Jul-2026 IST', note: 'CRITICAL cross-device data-loss fix in Class Notes. Root cause of "VP synced their note, admin still sees a different/old note (e.g. leftover test text like ff)": ttSetNote() and ttSyncLocalNotesToCloud() both did a FULL .set(notes) overwrite of the entire app_data/class_notes doc + davan_pub/class_notes RTDB path, built from THIS DEVICE’s own local copy of ALL classes’ notes. If a device’s local copy was stale for even ONE class it never touched (e.g. leftover test text from an earlier session), saving or syncing a note for ANY OTHER class on that device would silently replace the entire cloud map — including classes it never touched — with its own stale local version, clobbering another user’s just-synced note for that class. This is precisely what happened: VP synced a real note for "I YEAR B.Com", then a save from a device with a stale local "ff" for that same class overwrote it, even though that device only meant to edit a different class. Fix: (1) ttSetNote() now writes ONLY the single changed class key — Firestore via .set({[cls]:val}, {merge:true}) (or FieldValue.delete() when cleared), RTDB via .update({[cls]:val}) (or null to delete a key without touching siblings). (2) ttSyncLocalNotesToCloud() (the manual Sync button) switched from .set(notes) to .update(notes) [RTDB] / .set(notes,{merge:true}) [Firestore] — still pushes everything on this device, but merges key-by-key instead of replacing the whole doc, so it can only ADD/update keys this device has, never silently delete a class note this device doesn’t know about. (3) The v990 RTDB-to-Firestore backfill (loadFirestoreData) now writes ONLY the specific recovered keys via merge:true, not the whole merged map, for the same reason. Net effect: two people can now edit two different classes’ notes at the same time on different devices and NEITHER can ever silently destroy the other’s work — the failure mode that caused this bug is now structurally impossible, not just less likely. CODE_BUILD=993.' },
+  { v: 'v992', date: '09-Jul-2026 IST', note: 'Hid the "↩ Reset to Default" button in Edit Timetable (id="tte-reset-btn", display:none) \u2014 wipes the ENTIRE current-semester timetable in one click (all classes, all slots, K/H combined wiring, lab batches, everything ttReset()/_doResetTT() touch). The equivalent dangerous reset buttons in Edit Allocation and Class Settings were already hidden (v945/v934 respectively, with v947 fixing a re-show-on-render bug in Allocation\u2019s case) \u2014 this Edit Timetable one was the one panel that never got the same treatment; v913 had made its underlying logic AY-aware/safer but never actually hid the button itself, so it stayed live and visible for this long. Verified no render function (ttRenderEditor et al.) sets display on this button ID, so there is no v947-style re-show-on-render risk here \u2014 the inline hide holds across every re-render. Function itself (ttReset/_doResetTT) is UNCHANGED and still callable from console if ever genuinely needed; only the one-click UI trigger is removed, consistent with the other two panels. CODE_BUILD=992.' },
   { v: 'v991', date: '09-Jul-2026 IST', note: 'Diagnostics: ttSetNote() now console.logs every step of a class-note save \\u2014 (1) confirms the note text + class it wrote to localStorage, (2) logs ✅/❌ separately for the RTDB write and the Firestore write, including "not initialized \\u2014 write SKIPPED" if rtdb/db aren\\u2019t ready yet. Previously only failures were logged (via console.warn); a successful save and a save that silently never fired looked IDENTICAL in the console, making it impossible to tell from F12 whether a note actually reached the cloud. Root cause of the specific case that prompted this: RTDB davan_pub/class_notes was confirmed genuinely EMPTY (verified via the v990 backfill\\u2019s own diagnostic log, which correctly reported "nothing to backfill" because there was truly nothing in RTDB to recover) \\u2014 not a permissions issue (RTDB rules only require auth != null, which VP satisfies via normal Firebase Auth sign-in) and not a stale-build issue once redeployed. Most likely explanation: the note was typed and visually present in the textarea but the tab/session ended before the (unlogged, at the time) async write fired, so it was never actually persisted anywhere \\u2014 impossible to confirm after the fact with v990\\u2019s logging alone. This build closes that gap going forward: any future note save\\u2019s success or failure is now immediately visible in F12, so a repeat of this exact ambiguity cannot happen again. CODE_BUILD=991.' },
   { v: 'v990', date: '09-Jul-2026 IST', note: 'Follow-up to v989\\u2019s note-sync fix, for notes that were ALREADY typed on a pre-v989 build before the fix shipped. Scenario hit in practice: VP added a class note while their browser was still running v988 \\u2014 on v988, ttSetNote() wrote ONLY to RTDB (davan_pub/class_notes), so the note reached RTDB but Firestore app_data/class_notes stayed empty for that class. v989\\u2019s admin read only pulls from Firestore, so admin still saw nothing even after upgrading, because Firestore genuinely had nothing to give it \\u2014 the note was RTDB-only from before the fix existed, and there was no automatic way to backfill it. Fix: loadFirestoreData() (admin login) now ALSO does a one-time RTDB read of davan_pub/class_notes on every admin login, merges in any class key that Firestore is missing/blank for (RTDB fills gaps only \\u2014 Firestore still wins if both have a value, since Firestore is the newer authoritative store post-v989), writes the merged result back to Firestore so the gap is healed permanently after the first login, and shows a toast confirming how many notes were recovered. No manual action needed from the VP or admin \\u2014 self-heals automatically the next time admin logs in, and stays self-healing going forward for any future case where a Firestore write silently fails but the RTDB one succeeds. CODE_BUILD=990.' },
   { v: 'v989', date: '09-Jul-2026 IST', note: 'Two fixes. (1) PERMANENT class delete: existing 🗑 (csDeleteClass) only ever HIDES a class — the LM_CLASS_META key stays in the database forever, which is why ghost duplicates like "I BBA" kept silently reappearing after being "removed" (hide is cosmetic, not deletion; only 🔀 Merge actually deletes a key). Added a new ⛔🗑 button per Class Settings row → csHardDeletePrompt()/csHardDeleteClass(): checks LM_TIMETABLE and LM_ALLOCATIONS for any entries belonging to that class first; if either has data, refuses and points to 🔀 Merge instead (so real data can never be silently lost by this button); if genuinely zero timetable + zero allocation entries, deletes the LM_CLASS_META key with a full overwrite to RTDB + Firestore (same durable-delete pattern as csMergeClasses) and cannot be undone. Re-checks data counts again immediately before the actual delete in case something changed between prompt and confirm. (2) Class Notes sync gap: v982 added RTDB note sync but only wired the hydration read into _loadFromRTDB() (the manager/VP login path) — loadFirestoreData() (the ADMIN login path) never fetched app_data/class_notes at all, so a note a VP typed reached RTDB but an admin logging in via Firestore never pulled it into their own localStorage, and ttGetNote() (localStorage-only read) kept returning empty for admin. Also, ttSetNote() only ever wrote to RTDB, never to Firestore, so even the admin path had nothing to read even if wired up. Fixed both: loadFirestoreData() now also fetches app_data/class_notes and merges it into localStorage (merges onto, not overwrites, in case a note was just saved seconds earlier on the same device); ttSetNote() and ttSyncLocalNotesToCloud() now write to BOTH RTDB davan_pub/class_notes AND Firestore app_data/class_notes on every save, so admin and manager/VP logins both read a note regardless of which store the other role wrote it to. CODE_BUILD=989.' },
@@ -27327,6 +27347,29 @@ function ttGetAllNotes() {
   try { return JSON.parse(localStorage.getItem(TTE_NOTES_KEY) || '{}'); } catch { return {}; }
 }
 function ttGetNote(cls) { return ttGetAllNotes()[cls] || ''; }
+// v994: Firebase RTDB forbids '.', '#', '$', '[', ']', '/' in key names — a raw
+// class name is used as an RTDB key (davan_pub/class_notes/{className}), and class
+// names like "I YEAR B.Com" / "II YEAR B.Com" / "III YEAR B.Com" contain a literal
+// dot. rtdb.update({["I YEAR B.Com"]: text}) THROWS synchronously (Firebase validates
+// keys client-side before sending), which our own try/catch swallowed into a
+// console.warn only — completely invisible on a VP's mobile session with no console
+// open, and the RTDB write for ANY dotted class name silently never happened, ever,
+// while the Firestore write (no such restriction) succeeded fine. This is why
+// davan_pub/class_notes never even appeared as a node: if the first-ever note saved
+// happened to be for a dotted class, the RTDB ref was never created at all, and
+// classes without dots (like "II YEAR BCA (A)") worked completely normally, making
+// this look intermittent/random rather than the deterministic per-class bug it is.
+// Fix: encode/decode class names ONLY at the RTDB boundary — replace forbidden chars
+// with a reversible placeholder before writing, decode back to the real name after
+// reading. localStorage and Firestore keys are UNCHANGED (Firestore has no such
+// restriction, and changing the localStorage key format risks breaking ttGetNote()
+// for every class retroactively).
+function _rtdbSafeKey(cls) {
+  return String(cls).replace(/\./g, '__DOT__').replace(/#/g, '__HASH__').replace(/\$/g, '__DOLLAR__').replace(/\[/g, '__LB__').replace(/\]/g, '__RB__').replace(/\//g, '__SLASH__');
+}
+function _rtdbUnsafeKey(key) {
+  return String(key).replace(/__DOT__/g, '.').replace(/__HASH__/g, '#').replace(/__DOLLAR__/g, '$').replace(/__LB__/g, '[').replace(/__RB__/g, ']').replace(/__SLASH__/g, '/');
+}
 function ttSetNote(cls, text) {
   const notes = ttGetAllNotes();
   const trimmed = text.trim();
@@ -27342,10 +27385,25 @@ function ttSetNote(cls, text) {
   // v991: added explicit success/failure logging on both writes — previously only
   // failures logged (via console.warn), so a successful save looked identical to a
   // save that never fired at all when checking the console. Now every outcome logs.
+  // v993: CRITICAL fix — this used to do a FULL .set(notes) overwrite of the whole
+  // class_notes map, built from THIS DEVICE's own local copy. That meant: if this
+  // device's local copy was stale (e.g. still had old test text like "ff" for some
+  // OTHER class from an earlier session that was never cleaned up), saving a note for
+  // ANY class on this device would silently overwrite and destroy every other class's
+  // note in the cloud with this device's stale local version — even classes this
+  // device never touched. This is exactly what happened: VP synced their real note for
+  // "I YEAR B.Com", then a later save from a different device (with stale local "ff"
+  // for that same class) overwrote it. Fix: write ONLY the single changed class key —
+  // Firestore via dot-path field update, RTDB via .update() on the parent ref — so two
+  // people editing different classes' notes around the same time can never stomp each
+  // other's data. Only clears with an explicit FieldValue.delete()/null when the note
+  // is emptied, so an empty save on one class never touches any other class's key.
   try {
     if (typeof rtdb !== 'undefined' && rtdb) {
-      rtdb.ref('davan_pub/class_notes').set(notes)
-        .then(() => console.log('[ttSetNote] ✅ RTDB davan_pub/class_notes write OK for "' + cls + '"'))
+      const _rtdbPatch = {};
+      _rtdbPatch[_rtdbSafeKey(cls)] = trimmed ? trimmed : null; // null in an update() deletes just that key in RTDB
+      rtdb.ref('davan_pub/class_notes').update(_rtdbPatch)
+        .then(() => console.log('[ttSetNote] ✅ RTDB davan_pub/class_notes updated (single key, encoded) for "' + cls + '"'))
         .catch(e => console.warn('[ttSetNote] ❌ RTDB sync failed for "' + cls + '":', e.message));
     } else {
       console.warn('[ttSetNote] ⚠ rtdb not initialized — RTDB write SKIPPED for "' + cls + '"');
@@ -27353,8 +27411,10 @@ function ttSetNote(cls, text) {
   } catch(e) { console.warn('[ttSetNote] RTDB sync error:', e.message); }
   try {
     if (typeof db !== 'undefined' && db) {
-      db.collection('app_data').doc('class_notes').set(notes)
-        .then(() => console.log('[ttSetNote] ✅ Firestore app_data/class_notes write OK for "' + cls + '"'))
+      const _fsPatch = {};
+      _fsPatch[cls] = trimmed ? trimmed : firebase.firestore.FieldValue.delete();
+      db.collection('app_data').doc('class_notes').set(_fsPatch, { merge: true })
+        .then(() => console.log('[ttSetNote] ✅ Firestore app_data/class_notes updated (single key, merge:true) for "' + cls + '"'))
         .catch(e => console.warn('[ttSetNote] ❌ Firestore sync failed for "' + cls + '":', e.message));
     } else {
       console.warn('[ttSetNote] ⚠ db not initialized — Firestore write SKIPPED for "' + cls + '"');
@@ -27372,9 +27432,25 @@ function ttSyncLocalNotesToCloud() {
   const _hasRtdb = (typeof rtdb !== 'undefined' && rtdb);
   const _hasDb   = (typeof db !== 'undefined' && db);
   if (!_hasRtdb && !_hasDb) { dvToast('❌ Cloud not connected — try again after reload', 'error', 4000); return; }
+  // v993: switched from .set(notes) (full overwrite of the whole cloud map with THIS
+  // device's local copy) to .update(notes) / .set(notes, {merge:true}) — same push-what's-
+  // local intent, but merges key-by-key instead of replacing the entire object. A .set()
+  // here would silently delete every class's note that exists in the cloud but isn't in
+  // this device's local copy (e.g. a note another device synced moments ago that this
+  // device hasn't pulled down yet) — exactly the kind of cross-device data loss that
+  // caused a VP's synced note to vanish after another device's stale save. update()/merge
+  // can only ADD or overwrite the keys THIS device actually has locally; it can never
+  // remove a class note this device doesn't know about.
   const _jobs = [];
-  if (_hasRtdb) _jobs.push(rtdb.ref('davan_pub/class_notes').set(notes));
-  if (_hasDb)   _jobs.push(db.collection('app_data').doc('class_notes').set(notes));
+  // v994: RTDB forbids '.' etc. in keys — encode every class name before the RTDB update
+  // (same _rtdbSafeKey used in ttSetNote). Firestore has no such restriction so its keys
+  // stay as the real class names.
+  if (_hasRtdb) {
+    const _rtdbNotes = {};
+    Object.keys(notes).forEach(cls => { _rtdbNotes[_rtdbSafeKey(cls)] = notes[cls]; });
+    _jobs.push(rtdb.ref('davan_pub/class_notes').update(_rtdbNotes));
+  }
+  if (_hasDb)   _jobs.push(db.collection('app_data').doc('class_notes').set(notes, { merge: true }));
   Promise.allSettled(_jobs).then(results => {
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length === _jobs.length) {
