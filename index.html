@@ -4583,6 +4583,22 @@
       <div class="page-sub">Change admin PIN and manage timetable data.</div>
 
       <div style="max-width:720px;">
+        <!-- v1006 ── Login & Session Monitor (admin-only) ── -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:8px;">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">🔐 Login &amp; Session Monitor</div>
+            <button onclick="asmRenderPanel()" style="padding:5px 12px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;">🔄 Refresh</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">
+            Every device that logs in as <strong>admin / manager / VP</strong> is listed here.
+            <span style="color:#34D399;">● online</span> = active in the last 2 min.
+            Because everyone shares one admin password, blocking works <strong>per device</strong>:
+            a blocked device is signed out within ~1 min and can't log back in. To lock out
+            an unknown intruder, block their device here <em>and</em> change the admin PIN below.
+          </div>
+          <div id="asm-panel-body" style="font-size:12px;color:var(--muted);">Click 🔄 Refresh to load sessions.</div>
+        </div>
+
         <!-- ── AI Settings ── -->
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:16px;">
           <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">🤖 Smart Assist — AI Configuration</div>
@@ -9988,6 +10004,193 @@ async function davanWidgetSync(user, profile) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// v1006 — ADMIN SESSION MONITOR (login visibility + per-device block)
+// ───────────────────────────────────────────────────────────────────────────
+// Because the app uses ONE shared admin login, every admin authenticates as the
+// same Firebase uid — so we can't distinguish PEOPLE, but we CAN distinguish
+// DEVICES. Each browser gets a stable random device-id in localStorage. On login
+// (admin/manager/vp) we register that device under davan_pub/admin_sessions/<devId>
+// and heartbeat lastSeen every 60s. The admin panel lists these; a device whose
+// lastSeen is < 2 min old is "active/online". Blocking writes davan_pub/admin_blocklist/<devId>
+// = true; every session checks that flag on login AND on each heartbeat, and any
+// blocked device is force-signed-out within ~60s and cannot log back in.
+// This is device-level control — the realistic ceiling under a shared password.
+// ───────────────────────────────────────────────────────────────────────────
+function _asmDeviceId() {
+  let id = localStorage.getItem('davan_device_id');
+  if (!id) {
+    id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    try { localStorage.setItem('davan_device_id', id); } catch (e) {}
+  }
+  return id;
+}
+let _asmHeartbeatTimer = null;
+// Only privileged roles are registered/monitored (admin surface access).
+function _asmIsMonitoredRole(role) { return role === ROLE_ADMIN || role === ROLE_MANAGER || role === ROLE_VP; }
+
+// Register this device's session + start heartbeat. Called from onLoginSuccess.
+async function asmRegisterSession(profile) {
+  try {
+    if (!rtdb || !profile || !_asmIsMonitoredRole(profile.role)) return;
+    const devId = _asmDeviceId();
+    // Enforce blocklist FIRST — a blocked device must not be allowed to register.
+    if (await asmIsBlocked(devId)) { await asmForceLogout('This device has been blocked by an administrator.'); return; }
+    const now = Date.now();
+    const ua  = navigator.userAgent || '';
+    const isMobile = /mobile|android|iphone|ipad/i.test(ua);
+    // Compact browser/os label so the panel is readable.
+    let browser = 'Browser';
+    if (/edg\//i.test(ua)) browser = 'Edge'; else if (/chrome|crios/i.test(ua)) browser = 'Chrome';
+    else if (/firefox/i.test(ua)) browser = 'Firefox'; else if (/safari/i.test(ua)) browser = 'Safari';
+    let os = 'Unknown';
+    if (/android/i.test(ua)) os = 'Android'; else if (/iphone|ipad|ios/i.test(ua)) os = 'iOS';
+    else if (/windows/i.test(ua)) os = 'Windows'; else if (/mac os/i.test(ua)) os = 'macOS'; else if (/linux/i.test(ua)) os = 'Linux';
+    await rtdb.ref('davan_pub/admin_sessions/' + devId).set({
+      devId, role: profile.role, name: profile.name || '',
+      username: profile.username || '', loginAt: now, lastSeen: now,
+      device: (isMobile ? '📱 ' : '💻 ') + browser + ' · ' + os, ua: ua.slice(0, 160)
+    });
+    // Heartbeat: refresh lastSeen + re-check blocklist every 60s.
+    if (_asmHeartbeatTimer) clearInterval(_asmHeartbeatTimer);
+    _asmHeartbeatTimer = setInterval(async () => {
+      try {
+        if (!currentUser) { clearInterval(_asmHeartbeatTimer); _asmHeartbeatTimer = null; return; }
+        if (await asmIsBlocked(devId)) { await asmForceLogout('This device has been blocked by an administrator.'); return; }
+        await rtdb.ref('davan_pub/admin_sessions/' + devId + '/lastSeen').set(Date.now());
+      } catch (e) { /* silent — transient network */ }
+    }, 60000);
+  } catch (e) { console.warn('[ASM] register failed:', e && e.message); }
+}
+
+async function asmIsBlocked(devId) {
+  try {
+    const snap = await rtdb.ref('davan_pub/admin_blocklist/' + devId).once('value');
+    return snap.exists() && snap.val() === true;
+  } catch (e) { return false; }
+}
+
+async function asmForceLogout(msg) {
+  try {
+    if (_asmHeartbeatTimer) { clearInterval(_asmHeartbeatTimer); _asmHeartbeatTimer = null; }
+    // Clear remembered credentials so it can't silently auto-login again.
+    try {
+      localStorage.removeItem('_davanAuthEmail'); localStorage.removeItem('_davanAuthPw');
+      localStorage.removeItem('davan_remember_admin_pw'); localStorage.removeItem('davan_remember_user');
+    } catch (e) {}
+    try { sessionStorage.setItem('davan_user_logged_out', '1'); } catch (e) {}
+    alert(msg || 'This device has been signed out.');
+    if (typeof doFirebaseLogout === 'function') { await doFirebaseLogout(); }
+    else { _signingOut = true; await auth.signOut(); _signingOut = false; location.reload(); }
+  } catch (e) { try { location.reload(); } catch (_) {} }
+}
+
+// Mark this device's session ended (called from logout).
+async function asmEndSession() {
+  try {
+    if (_asmHeartbeatTimer) { clearInterval(_asmHeartbeatTimer); _asmHeartbeatTimer = null; }
+    if (rtdb) await rtdb.ref('davan_pub/admin_sessions/' + _asmDeviceId() + '/loggedOutAt').set(Date.now());
+  } catch (e) {}
+}
+
+// Render the admin session list into #asm-panel-body.
+async function asmRenderPanel() {
+  const el = document.getElementById('asm-panel-body');
+  if (!el) return;
+  if (!currentProfile || currentProfile.role !== ROLE_ADMIN) { el.innerHTML = '<span style="color:#f87171;">Admin only.</span>'; return; }
+  el.innerHTML = '<span style="color:var(--muted);">Loading sessions…</span>';
+  try {
+    const [sesSnap, blkSnap] = await Promise.all([
+      rtdb.ref('davan_pub/admin_sessions').once('value'),
+      rtdb.ref('davan_pub/admin_blocklist').once('value')
+    ]);
+    const sessions = sesSnap.val() || {};
+    const blocklist = blkSnap.val() || {};
+    const myDev = _asmDeviceId();
+    const now = Date.now();
+    const rows = Object.values(sessions).filter(s => s && s.devId);
+    if (!rows.length) { el.innerHTML = '<span style="color:var(--muted);">No sessions recorded yet. Sessions appear after the next admin/manager/VP login on v1006+.</span>'; return; }
+    // Sort: online first, then most-recent lastSeen.
+    rows.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+    const fmtAgo = ts => { if (!ts) return '—'; const m = Math.round((now - ts) / 60000); return m < 1 ? 'just now' : m < 60 ? m + 'm ago' : m < 1440 ? Math.round(m/60) + 'h ago' : Math.round(m/1440) + 'd ago'; };
+    const fmtWhen = ts => { if (!ts) return '—'; try { return new Date(ts).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); } catch(e) { return '—'; } };
+    let html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;">'
+      + '<tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;">'
+      + '<th style="padding:6px 8px;">STATUS</th><th style="padding:6px 8px;">ROLE / NAME</th>'
+      + '<th style="padding:6px 8px;">DEVICE</th><th style="padding:6px 8px;">LOGIN</th>'
+      + '<th style="padding:6px 8px;">LAST SEEN</th><th style="padding:6px 8px;">ACTION</th></tr>';
+    rows.forEach(s => {
+      const blocked = blocklist[s.devId] === true;
+      const online  = !blocked && s.lastSeen && (now - s.lastSeen) < 120000 && !s.loggedOutAt;
+      const isMe    = s.devId === myDev;
+      const statusHtml = blocked
+        ? '<span style="color:#f87171;font-weight:700;">⛔ BLOCKED</span>'
+        : online ? '<span style="color:#34D399;font-weight:700;">● online</span>'
+                 : '<span style="color:var(--muted);">○ offline</span>';
+      const safeDev = (s.devId || '').replace(/'/g, "");
+      let action;
+      if (isMe) {
+        action = '<span style="color:#60a5fa;font-size:10px;">(this device)</span>';
+      } else if (blocked) {
+        action = `<button onclick="asmUnblock('${safeDev}')" style="padding:3px 9px;background:var(--surface2);color:#34D399;border:1px solid var(--border);border-radius:5px;font-size:10px;cursor:pointer;">✓ Unblock</button>`;
+      } else {
+        action = `<button onclick="asmBlock('${safeDev}')" style="padding:3px 9px;background:#3A1E1E;color:#f87171;border:1px solid #5a2a2a;border-radius:5px;font-size:10px;cursor:pointer;">⛔ Block</button>`;
+      }
+      html += '<tr style="border-bottom:1px solid var(--border);' + (isMe ? 'background:rgba(96,165,250,0.06);' : '') + '">'
+        + '<td style="padding:6px 8px;">' + statusHtml + '</td>'
+        + '<td style="padding:6px 8px;"><strong style="color:var(--text);">' + (s.role || '?') + '</strong>'
+          + (s.name ? '<br><span style="color:var(--muted);font-size:10px;">' + s.name + '</span>' : '') + '</td>'
+        + '<td style="padding:6px 8px;color:var(--muted);">' + (s.device || '—') + '</td>'
+        + '<td style="padding:6px 8px;color:var(--muted);">' + fmtWhen(s.loginAt) + '</td>'
+        + '<td style="padding:6px 8px;color:var(--muted);">' + fmtAgo(s.lastSeen) + '</td>'
+        + '<td style="padding:6px 8px;white-space:nowrap;">' + action + '</td></tr>';
+    });
+    html += '</table></div>';
+    const onlineCount = rows.filter(s => !blocklist[s.devId] && s.lastSeen && (now - s.lastSeen) < 120000 && !s.loggedOutAt).length;
+    html += '<div style="margin-top:10px;font-size:11px;color:var(--muted);">'
+      + rows.length + ' device(s) on record · <span style="color:#34D399;">' + onlineCount + ' online now</span>'
+      + ' · <button onclick="asmClearStale()" style="padding:2px 8px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:5px;font-size:10px;cursor:pointer;">🧹 Remove offline &gt;30d</button></div>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<span style="color:#f87171;">Load failed: ' + (e && e.message) + '</span>';
+  }
+}
+
+async function asmBlock(devId) {
+  if (!currentProfile || currentProfile.role !== ROLE_ADMIN) return;
+  if (devId === _asmDeviceId()) { alert("You can't block the device you're currently using."); return; }
+  if (!confirm('Block this device? It will be signed out within ~1 minute and cannot log back in until unblocked.\n\nTip: also change the admin PIN below if this is an intruder.')) return;
+  try {
+    await rtdb.ref('davan_pub/admin_blocklist/' + devId).set(true);
+    dvToast('⛔ Device blocked. It will be signed out shortly.', 'ok', 4000);
+    asmRenderPanel();
+  } catch (e) { dvToast('❌ Block failed: ' + (e && e.message), 'error', 5000); }
+}
+
+async function asmUnblock(devId) {
+  if (!currentProfile || currentProfile.role !== ROLE_ADMIN) return;
+  try {
+    await rtdb.ref('davan_pub/admin_blocklist/' + devId).remove();
+    dvToast('✓ Device unblocked.', 'ok', 3000);
+    asmRenderPanel();
+  } catch (e) { dvToast('❌ Unblock failed: ' + (e && e.message), 'error', 5000); }
+}
+
+// Housekeeping: drop session records that have been offline > 30 days.
+async function asmClearStale() {
+  if (!currentProfile || currentProfile.role !== ROLE_ADMIN) return;
+  try {
+    const snap = await rtdb.ref('davan_pub/admin_sessions').once('value');
+    const sessions = snap.val() || {};
+    const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+    const updates = {};
+    Object.values(sessions).forEach(s => { if (s && s.devId && (s.lastSeen || 0) < cutoff) updates['davan_pub/admin_sessions/' + s.devId] = null; });
+    if (Object.keys(updates).length) { await rtdb.ref().update(updates); dvToast('🧹 Removed ' + Object.keys(updates).length + ' stale record(s).', 'ok', 3000); }
+    else dvToast('Nothing to clean.', 'info', 2500);
+    asmRenderPanel();
+  } catch (e) { dvToast('❌ Cleanup failed: ' + (e && e.message), 'error', 5000); }
+}
+
 // v998 — Capture the widget pair code from the ?wdev= URL param.
 // APK w92 opens the PWA as index.html?wdev=<6-char code> when the widget is tapped.
 // Store it permanently for this browser/device, clean the URL, and if a session is
@@ -10250,6 +10453,7 @@ async function wcpTestClassNotif() {
 }
 
 async function doFirebaseLogout() {
+  if (typeof asmEndSession === 'function') { try { await asmEndSession(); } catch(e) {} } // v1006
   davanWidgetSync(null, null);
   _signingOut = true;
   await auth.signOut();
@@ -10462,6 +10666,9 @@ async function onLoginSuccess() {
   rcPhotosReady = rcPreloadPhotos(); // preload photos at login — rcRenderCard awaits this promise
   facPhotosReady = facPreloadPhotos(); // preload faculty photos for Staff Directory + allocation dropdown
   facPhotosReady.then(() => { if (typeof facCheckOwnPhoto === 'function') facCheckOwnPhoto(); }).catch(()=>{});
+  // v1006 — register this device in the admin session monitor (privileged roles only)
+  // and enforce the blocklist. Runs async; a blocked device is force-signed-out here.
+  if (typeof asmRegisterSession === 'function') asmRegisterSession(p);
   _shFiltersInited = false; shInitFacultyFilters();
   // Load any scheduled broadcast toasts
   if (typeof cbLoadScheduled === 'function') cbLoadScheduled();
@@ -13170,7 +13377,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1004;  // always = HTML footer version number
+const CODE_BUILD = 1006;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '11-Jul-2026', time: '19:15', full: '11-Jul-2026 19:15 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -22529,6 +22736,8 @@ const HTML_CHANGELOG = [
   { v: 'v966', date: '06-Jul-2026 IST', note: 'Feat: (1) Persistent sidebar "📷 Add My Photo" entry (nav-fac-my-photo) for fulltime/visiting/VP faculty with no photo yet — stays available even after the v965 banner is dismissed, so faculty can add their photo any time in-session instead of waiting for next login. Uses the same facBannerAddPhoto() upload path; disappears once a photo exists, same as the banner. (2) Staff Directory admin control: new "PHOTO ✎" checkbox column (all 3 tables — Full Time/Visiting/Non-Teaching), unchecked by default on every row (sdAddRow defaults allowPhotoChange:false). When UNCHECKED (default): faculty can add a photo once (while none exists) but cannot change it themselves afterward — only admin can, from Staff Directory (sdPhotoPick), unchanged from v965. When CHECKED by admin (sdOnPhotoPermChange sets allowPhotoChange:true, saved with the rest of Staff Directory via existing Save All Changes): the sidebar "Add My Photo" entry stays available to that faculty indefinitely, letting them change their own photo any time. New: sdOnPhotoPermChange(), sdFacultyCanChangePhoto(name) (looks up allowPhotoChange from sdData, defaulting false if the faculty or field is not found — so pre-existing rows behave exactly like before this update). facCheckOwnPhoto() now also drives the sidebar entry\'s visibility via this flag; facBannerAddPhoto() re-checks visibility after a successful upload so the entry correctly disappears (locked) or stays (admin-allowed) without needing a reload. CODE_BUILD=966.' },
   { v: 'v965', date: '06-Jul-2026 IST', note: 'Feat: Faculty self-service "Add Photo" banner. Fulltime/visiting/VP faculty who have no photo on file (checked via existing _facPhotoUrl/_facKey lookup against app_data/faculty_photos) now see a dismissible banner below the topbar on login prompting them to add their own photo. "📷 Add Photo" opens a file picker and uploads via the EXISTING facUploadPhoto() Cloudinary+Firestore path (same one Staff Directory uses) — no new storage/backend. "Dismiss for now" just hides the banner for the current session; since there is no persistence flag, it reappears on the NEXT login for as long as no photo exists (added by the faculty here or by the admin in Staff Directory). Once a photo exists — from either path — facCheckOwnPhoto() (called after facPhotosReady resolves in onLoginSuccess) stops showing the banner permanently, and the faculty has no further UI to change it: only the admin can, via the existing Staff Directory 📷 badge (sdPhotoPick). Banner is hidden on logout (doFirebaseLogout) so it never leaks into the next session before that user\'s own check runs. New: fac-photo-banner markup (positioned at top:56px so it sits below the topbar, not over it; 52px on mobile), facCheckOwnPhoto(), facBannerAddPhoto(), facBannerDismiss(). Admin side (Staff Directory) is unchanged — it already showed every faculty\'s current photo/initials with a 📷 upload badge on every row, so admins can already see at a glance who still needs a photo and add it themselves. CODE_BUILD=965.' },
   { v: 'v964', date: '06-Jul-2026 IST', note: 'Print Master Timetable: guarantee 3 classes per A4 page (9 classes = 3 pages, was spilling to 4). Root cause: long lab labels ("ANPG - LAB A2·Lab 2") wrapped to 2 lines, inflating row height and pushing the 3rd class/footer to an extra page. Fixes: (1) codeCell now compacts lab labels to one short token ("ANPG A2/L2"); (2) .pc + table cells set white-space:nowrap so nothing wraps; (3) lowered .sheet min-height 195mm→180mm and tightened .pcol gap / .pblock padding / .pc height. CODE_BUILD=964.' },
+  { v: 'v1006', date: '11-Jul-2026 IST', note: 'ADMIN LOGIN & SESSION MONITOR (Admin Settings → 🔐 Login & Session Monitor). Because the app uses ONE shared admin password, everyone authenticates as the same Firebase uid — so monitoring/blocking is per-DEVICE, not per-person (the honest ceiling under a shared credential; true per-person control needs separate admin accounts). Each browser gets a stable random davan_device_id in localStorage. On every admin/manager/VP login, asmRegisterSession() writes davan_pub/admin_sessions/<devId>={role,name,device,loginAt,lastSeen,ua} and heartbeats lastSeen every 60s; a device is "online" if lastSeen < 2 min. The panel lists all devices with status/role/device/login-time/last-seen and a per-device Block/Unblock button. BLOCKING: asmBlock() sets davan_pub/admin_blocklist/<devId>=true; every session checks this on login AND on each 60s heartbeat via asmIsBlocked(), and a blocked device is force-signed-out (asmForceLogout: clears stored creds + sets logged-out guard + signs out) within ~1 min and cannot auto-login again. You cannot block the device you are currently on (guard). asmClearStale() prunes records offline >30d. asmEndSession() stamps loggedOutAt on logout. Recommended intruder response: Block the unknown device here AND change the admin PIN below (since the password is shared, blocking one device does not stop someone re-using the password on a NEW device — the PIN change does). All nodes under davan_pub (already client-writable); no security-rule change required, but for hardening consider restricting admin_blocklist writes to admin in Firebase rules later. CODE_BUILD=1006.' },
+  { v: 'v1005', date: '11-Jul-2026 IST', note: 'FACULTY SUBSCRIPTION STATUS — widget version + notif state per faculty. The WIDGET column now shows which APK build each faculty is running, so the admin can see at a glance who is on w97 vs an old build. Data join: davan_pub/widget_apk_report/<pairCode> (={apkVersion,notifOn,ts}, written by APK w95+) is keyed by pairCode, and davan_pub/widget_active_dev/<pairCode> (={name,uid}) maps pairCode→faculty, so facAlertRefreshSubs() now loads both and builds _faWidgetReports[name]={apkVersion,notifOn,ts}. In the cell: green "w97 ✓" when up to date (>= LATEST_APK), amber "w95 ⬆ update" when behind, red "old (pre-w95)" when the widget is active/installed but has never self-reported (pre-w95 builds can\'t report their version). A red "🔕 notif off" flag also shows when the widget\'s OWN Android notifications are disabled — this is the widget-side notif state (distinct from the PWA push column), so the admin can tell exactly why class reminders may not be reaching that faculty. Freshest report wins if a faculty has two paired devices. No writes; read-only join. CODE_BUILD=1005.' },
   { v: 'v1004', date: '11-Jul-2026 IST', note: 'TWO FIXES. (1) INSTALLED WIDGET VERSION shown in the Home Screen Widget control panel: new #wcp-installed-ver line, populated by wcpCheckWidgetHealth() from davan_pub/widget_apk_report/<pairCode>. Three states — has report → "Installed: w96 ✓ up to date" or "w95 — update available" with a download link; PAIRED BUT NO REPORT → "Installed: old version (pre-w95, can\'t self-report) — install the latest APK" (this is the w57/w88 case: those builds never self-report, so the exact number is unknowable, but we KNOW it is old and say so); not paired → "No widget paired on this device yet." Note: a pre-w95 widget genuinely cannot show its exact build number because that reporting did not exist until w95 — the honest signal is "old, please update". (2) PUC FACULTY PHOTOS still-missing cases fixed: the Live Class Board PUC seed uses short name spellings (VIDYA V H, NITHIN KUMAR M B, ROSHAN ZAMEER M) but puc.html\'s puc_faculty store keeps fuller forms (Vidya V Hasbavi, Nithin Kumar M.B, Roshan Zameer.M), so the v1003 name-keyed photo lookup missed exactly those three while Ashwini K M / Trupthi Jannu (identical spellings) worked. Added _LCB_PUC_NAME_ALIASES bridging the differing names; the PUC card photo lookup now tries the alias when the direct key misses. Any PUC teacher whose name matches OR aliases to a puc_faculty record with a photo now shows it. CODE_BUILD=1004.' },
   { v: 'v1003', date: '11-Jul-2026 IST', note: 'LIVE CLASS BOARD — PUC faculty photos now show. ROOT CAUSE: PUC-COM/SCI teachers (Vidya V H, Kotrappa K, Priyanka B P, Nithin Kumar M B, Ashwini K M, Roshan Zameer M, Amrutha A S, Dr. Sumakanthi M, Trupthi Jannu, Sumithra K T) are NOT in the degree Staff Directory / app_data/faculty_photos store that _facAvatar() reads, so the PUC board always fell back to initials while the DEGREE board (whose teachers ARE in that store) showed photos. But the PUC marks app (puc.html) keeps its OWN faculty records on the SAME Firebase at puc_faculty/<id> = {name, phone, photo, subjects, notes}. FIX: lcbPucLoadStudents() now also reads puc_faculty and builds _lcbPucFacPhotos, a normalized name→photo-URL map (keyed lowercased/single-spaced to match _facKey). lcbPucBuildPanel() prefers that photo for the card avatar (22px, click-to-zoom via rcZoomPhoto), falling back to _facAvatar() (degree store) when a PUC teacher has no puc_faculty photo — so a teacher present in either store now resolves. Split names ("A / B") use the first teacher for the lookup. No writes; read-only. DEGREE board unchanged. CODE_BUILD=1003.' },
   { v: 'v1002', date: '11-Jul-2026 IST', note: 'LIVE CLASS BOARD readability: bumped the tiny card fonts to match the rest of the UI. DEGREE (college) cards: subject headline 11→15px, class label 10→12px, faculty name 10→13px (avatar 18→22px), lab/batch line 10→12px, stats badge 10→11px. PUC (COM/SCI) cards: subject 13→15px, subject-abbr chip 9→11px, faculty name 10→13px (avatar 16→22px). Colors/layout/logic all unchanged — pure sizing so the subject and faculty names on the Live Class Board are legible. CODE_BUILD=1002.' },
@@ -37288,6 +37497,7 @@ function urlBase64ToUint8Array(base64String) {
 
 // ── Load subscriptions + widget identities ──────────────────
 let _faWidgetIdentities = {}; // uid→{name,role,updatedAt} of logged-in widget users
+let _faWidgetReports    = {}; // name→{apkVersion,notifOn,ts} from APK w95+ self-reports (v1005)
 
 async function facAlertRefreshSubs() {
   dvToast('🔄 Refreshing subscriptions...', 'info', 8000);
@@ -37314,6 +37524,33 @@ async function facAlertRefreshSubs() {
           }
         });
       } catch(e) { console.warn('[FA] widget_identity fetch failed:', e.message); }
+
+      // v1005 — join APK self-reports (davan_pub/widget_apk_report/<pairCode> =
+      // {apkVersion, notifOn, ts}, written by APK w95+) to faculty by NAME. The
+      // report is keyed by pairCode, and widget_active_dev/<pairCode> = {name,uid}
+      // maps that pairCode to a faculty, so we bridge the two here. Result:
+      // _faWidgetReports[name] = {apkVersion, notifOn, ts}. Pre-w95 widgets never
+      // write a report, so they simply won't appear here (shown as "old" in the UI).
+      _faWidgetReports = {};
+      try {
+        const [devSnap, repSnap] = await Promise.all([
+          rtdb.ref('davan_pub/widget_active_dev').once('value'),
+          rtdb.ref('davan_pub/widget_apk_report').once('value')
+        ]);
+        const devByPair = {};              // pairCode -> name
+        devSnap.forEach(c => { const d = c.val(); if (d && d.name) devByPair[c.key] = d.name; });
+        repSnap.forEach(c => {
+          const r = c.val(); if (!r) return;
+          const nm = devByPair[c.key];      // resolve pairCode -> faculty name
+          if (!nm) return;
+          const key = nm.trim();
+          // Keep the freshest report if a faculty somehow has two paired devices.
+          const prev = _faWidgetReports[key];
+          if (!prev || (r.ts || 0) > (prev.ts || 0)) {
+            _faWidgetReports[key] = { apkVersion: r.apkVersion || 0, notifOn: r.notifOn !== false, ts: r.ts || 0 };
+          }
+        });
+      } catch(e) { console.warn('[FA] widget_apk_report join failed:', e.message); }
     }
     const total = Object.keys(faSubscriptions).length;
     const subbed = Object.values(faSubscriptions).filter(v => Array.isArray(v) && v.length > 0).length;
@@ -37446,14 +37683,33 @@ function facAlertRenderSubs() {
         const m = Math.round((Date.now() - ts) / 60000);
         return m < 60 ? m + 'm ago' : Math.round(m/60) + 'h ago';
       };
+      // v1005 — version + notif badge, joined from _faWidgetReports (APK w95+).
+      // If a report exists → show w<N> with green(up-to-date)/amber(behind) color
+      // and a 🔕 flag when the widget's own notifications are off. If the widget is
+      // active/installed but NO report exists, it's a pre-w95 build that can't
+      // self-report → show "old" so the admin knows it needs updating.
+      const _rep = _faWidgetReports[fac] || _faWidgetReports[rawFac]
+        || Object.entries(_faWidgetReports).find(([k]) => k.toLowerCase().trim() === facLower || k.toLowerCase().trim() === rawFacLower)?.[1]
+        || null;
+      let verLine = '';
+      const _latest = (typeof LATEST_APK !== 'undefined' && LATEST_APK.apkVersion) ? LATEST_APK.apkVersion : 0;
+      if (_rep && _rep.apkVersion > 0) {
+        const upToDate = _latest && _rep.apkVersion >= _latest;
+        const verCol = upToDate ? '#34D399' : '#facc15';
+        const verTxt = 'w' + _rep.apkVersion + (upToDate ? ' ✓' : ' ⬆ update');
+        const notifFlag = _rep.notifOn ? '' : ' · <span style="color:#f87171;">🔕 notif off</span>';
+        verLine = `<br><span style="font-size:9px;font-weight:700;color:${verCol};">${verTxt}</span>${notifFlag}`;
+      } else {
+        verLine = `<br><span style="font-size:9px;font-weight:700;color:#f87171;">old (pre-w95)</span>`;
+      }
       if (widgetEntry.loggedIn) {
         // Currently logged in — green active badge
         const ago = fmtAgo(widgetEntry.updatedAt);
-        widgetStatus = `<span style="color:#34D399;font-weight:700;">📱 Active</span><br><span style="font-size:9px;color:var(--muted);">${ago}</span>`;
+        widgetStatus = `<span style="color:#34D399;font-weight:700;">📱 Active</span><br><span style="font-size:9px;color:var(--muted);">${ago}</span>${verLine}`;
       } else {
         // Installed but logged out — show last seen
         const ago = fmtAgo(widgetEntry.loggedOutAt || widgetEntry.updatedAt);
-        widgetStatus = `<span style="color:#60a5fa;font-weight:600;">📱 Installed</span><br><span style="font-size:9px;color:var(--muted);">last seen ${ago}</span>`;
+        widgetStatus = `<span style="color:#60a5fa;font-weight:600;">📱 Installed</span><br><span style="font-size:9px;color:var(--muted);">last seen ${ago}</span>${verLine}`;
       }
     } else {
       widgetStatus = `<span style="color:var(--muted);font-size:11px;">—</span>`;
