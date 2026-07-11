@@ -9545,21 +9545,29 @@ async function doFacultyLogin() {
   const btn      = document.getElementById('login-btn-faculty');
   const preview  = document.getElementById('faculty-name-preview');
   if (!password) { showAlert('login-error-faculty', '⚠ Please enter your password.'); return; }
+  // v995: set the manual-login guard on the VERY FIRST LINE (before the button-disabled
+  // check even) so the stale-admin-remember-me setTimeout (see DOMContentLoaded) can never
+  // fire doFirebaseLogin() during the gap between "faculty clicked Sign In" and "currentUser
+  // gets set" — that gap is where the async login_index fetch + Firebase Auth round-trip
+  // happens, and it's exactly where the 1200ms timer was winning the race before.
+  _isManualLogin = true;
   hideAlerts('login-error-faculty', 'login-success-faculty');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Signing in…';
   try {
     // Load login_index to find user by password — ONE auth call only, no brute loop
     const doc = await db.collection('app_data').doc('login_index').get();
     if (!doc.exists || !doc.data().users?.length) {
+      _isManualLogin = false; // v995: reset guard on early-exit so a later real auto-login isn't blocked
       showAlert('login-error-faculty', '⚠ Faculty login not set up yet. Contact admin.');
       return;
     }
     // Find the user whose password matches
     const users = doc.data().users.filter(u => u.username);
     const matched = users.find(u => u.password === password || u.username === password);
-    if (!matched) { showAlert('login-error-faculty', '⚠ Incorrect password. Try again.'); return; }
+    if (!matched) { _isManualLogin = false; showAlert('login-error-faculty', '⚠ Incorrect password. Try again.'); return; }
     // Block ADMIN only — managers can log in via Faculty tab with password
     if (matched.role === ROLE_ADMIN) {
+      _isManualLogin = false; // v995: reset — user is being redirected to the Admin tab, not logged in yet
       showAlert('login-error-faculty', '⚠ Admin must use the Admin tab to sign in.');
       loginSwitchTab('admin');
       const adminInp = document.getElementById('login-email');
@@ -9594,6 +9602,7 @@ async function doFacultyLogin() {
         _signingOut = true;
         await auth.signOut();
         _signingOut = false;
+        _isManualLogin = false; // v995: reset guard — login did not succeed
         showAlert('login-error-faculty', '⚠ Account not configured. Contact admin.'); return;
       }
     }
@@ -9603,6 +9612,7 @@ async function doFacultyLogin() {
       _signingOut = true;
       await auth.signOut();
       _signingOut = false;
+      _isManualLogin = false; // v995: reset guard — redirecting to Admin tab, not logged in
       showAlert('login-error-faculty', '⚠ Use the Admin tab to sign in.');
       loginSwitchTab('admin');
       return;
@@ -9643,6 +9653,7 @@ async function doFacultyLogin() {
     onLoginSuccess();
   } catch(err) {
     if (err.code === 'auth/too-many-requests') {
+      _isManualLogin = false; // v995: reset guard — login attempt failed
       // Cooldown — disable button for 30s
       let secs = 30;
       showAlert('login-error-faculty', `⚠ Too many attempts. Please wait ${secs}s.`);
@@ -12902,8 +12913,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 994;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '10-Jul-2026', time: '09:15', full: '10-Jul-2026 09:15 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 995;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '11-Jul-2026', time: '10:30', full: '11-Jul-2026 10:30 IST' }; // hardcoded build time — do NOT use runtime time
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -13240,8 +13251,32 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Auto-login admin/manager tab if credentials are saved
     console.log('[AutoLogin] Admin credentials found, currentUser:', !!currentUser);
     setTimeout(() => {
-      console.log('[AutoLogin] Attempting admin auto-login, currentUser:', !!currentUser);
-      if (!currentUser) doFirebaseLogin();
+      // v995 DEBUG: re-check every guard right before firing, not just at schedule time.
+      // Root cause of "logs in as faculty, bounces to admin after ~2s": this timer is
+      // armed on every page load whenever a stale davan_remember_admin_pw exists in
+      // localStorage (e.g. admin logged in with Remember Me once and never used the
+      // Sign Out button, which is the only place that clears those keys). It used to
+      // only check `!currentUser` — but currentUser can still be null for a split
+      // second while a manual faculty/admin login is mid-flight, so the stale timer
+      // won a race against the real login and silently signed the user back out and
+      // into admin. Now it re-checks currentUser, _isManualLogin, and the logout flag
+      // all at fire-time, and logs exactly which guard stopped it (or didn't).
+      const _stillLoggedOut = (() => { try { return sessionStorage.getItem('davan_user_logged_out') === '1'; } catch(e) { return false; } })();
+      console.log('[AutoLogin] Firing check — currentUser:', !!currentUser, '| currentProfile role:', currentProfile?.role, '| currentProfile name:', currentProfile?.name, '| _isManualLogin:', _isManualLogin, '| loggedOutFlag:', _stillLoggedOut);
+      if (currentUser) {
+        console.log('[AutoLogin] ABORTED — a session already exists (' + (currentProfile?.name||'unknown') + ', role=' + (currentProfile?.role||'?') + '). Stale admin remember-me creds will NOT override it.');
+        return;
+      }
+      if (_isManualLogin) {
+        console.log('[AutoLogin] ABORTED — a manual login is currently in progress.');
+        return;
+      }
+      if (_stillLoggedOut) {
+        console.log('[AutoLogin] ABORTED — user logged out flag set mid-wait.');
+        return;
+      }
+      console.log('[AutoLogin] Proceeding with stale admin auto-login — no active/in-progress session found.');
+      doFirebaseLogin();
     }, 1200);
   }
   // NOTE: applySidebarForRole(null) intentionally removed here.
@@ -22187,6 +22222,7 @@ const HTML_CHANGELOG = [
   { v: 'v966', date: '06-Jul-2026 IST', note: 'Feat: (1) Persistent sidebar "📷 Add My Photo" entry (nav-fac-my-photo) for fulltime/visiting/VP faculty with no photo yet — stays available even after the v965 banner is dismissed, so faculty can add their photo any time in-session instead of waiting for next login. Uses the same facBannerAddPhoto() upload path; disappears once a photo exists, same as the banner. (2) Staff Directory admin control: new "PHOTO ✎" checkbox column (all 3 tables — Full Time/Visiting/Non-Teaching), unchecked by default on every row (sdAddRow defaults allowPhotoChange:false). When UNCHECKED (default): faculty can add a photo once (while none exists) but cannot change it themselves afterward — only admin can, from Staff Directory (sdPhotoPick), unchanged from v965. When CHECKED by admin (sdOnPhotoPermChange sets allowPhotoChange:true, saved with the rest of Staff Directory via existing Save All Changes): the sidebar "Add My Photo" entry stays available to that faculty indefinitely, letting them change their own photo any time. New: sdOnPhotoPermChange(), sdFacultyCanChangePhoto(name) (looks up allowPhotoChange from sdData, defaulting false if the faculty or field is not found — so pre-existing rows behave exactly like before this update). facCheckOwnPhoto() now also drives the sidebar entry\'s visibility via this flag; facBannerAddPhoto() re-checks visibility after a successful upload so the entry correctly disappears (locked) or stays (admin-allowed) without needing a reload. CODE_BUILD=966.' },
   { v: 'v965', date: '06-Jul-2026 IST', note: 'Feat: Faculty self-service "Add Photo" banner. Fulltime/visiting/VP faculty who have no photo on file (checked via existing _facPhotoUrl/_facKey lookup against app_data/faculty_photos) now see a dismissible banner below the topbar on login prompting them to add their own photo. "📷 Add Photo" opens a file picker and uploads via the EXISTING facUploadPhoto() Cloudinary+Firestore path (same one Staff Directory uses) — no new storage/backend. "Dismiss for now" just hides the banner for the current session; since there is no persistence flag, it reappears on the NEXT login for as long as no photo exists (added by the faculty here or by the admin in Staff Directory). Once a photo exists — from either path — facCheckOwnPhoto() (called after facPhotosReady resolves in onLoginSuccess) stops showing the banner permanently, and the faculty has no further UI to change it: only the admin can, via the existing Staff Directory 📷 badge (sdPhotoPick). Banner is hidden on logout (doFirebaseLogout) so it never leaks into the next session before that user\'s own check runs. New: fac-photo-banner markup (positioned at top:56px so it sits below the topbar, not over it; 52px on mobile), facCheckOwnPhoto(), facBannerAddPhoto(), facBannerDismiss(). Admin side (Staff Directory) is unchanged — it already showed every faculty\'s current photo/initials with a 📷 upload badge on every row, so admins can already see at a glance who still needs a photo and add it themselves. CODE_BUILD=965.' },
   { v: 'v964', date: '06-Jul-2026 IST', note: 'Print Master Timetable: guarantee 3 classes per A4 page (9 classes = 3 pages, was spilling to 4). Root cause: long lab labels ("ANPG - LAB A2·Lab 2") wrapped to 2 lines, inflating row height and pushing the 3rd class/footer to an extra page. Fixes: (1) codeCell now compacts lab labels to one short token ("ANPG A2/L2"); (2) .pc + table cells set white-space:nowrap so nothing wraps; (3) lowered .sheet min-height 195mm→180mm and tightened .pcol gap / .pblock padding / .pc height. CODE_BUILD=964.' },
+  { v: 'v995', date: '11-Jul-2026 IST', note: 'ROOT CAUSE FOUND for "faculty logs in successfully, dashboard loads, then ~2s later session silently reverts to admin": a stale davan_remember_admin_pw + davan_remember_user pair left in localStorage from a PAST admin session that was never explicitly signed out via the Sign Out button (only doFirebaseLogout() clears those two keys — closing the tab or navigating away does not) arms a setTimeout(…,1200) on every single page load that calls doFirebaseLogin() if !currentUser. The guard only checked currentUser at fire-time, but doFacultyLogin() did not set the _isManualLogin flag until AFTER its first await (the login_index Firestore fetch) — so during that fetch + the subsequent Firebase Auth round-trip, currentUser was still null and the stale-admin timer could win the race, sign the faculty user back out, and sign in as admin instead, ~1.2s after page load (which typically lands a second or two after a faculty member finishes clicking Sign In and seeing their dashboard). Fix: (1) _isManualLogin = true now set as the FIRST executable line of doFacultyLogin(), before any await, closing the race window entirely. (2) All early-return paths inside doFacultyLogin() (no login_index configured, no password match, admin-blocked-on-faculty-tab ×2, profile-missing, too-many-requests) now explicitly reset _isManualLogin = false so a genuinely stale timer is not permanently blocked after one failed/redirected attempt. (3) The admin auto-login setTimeout itself now re-checks currentUser, _isManualLogin, AND the davan_user_logged_out sessionStorage flag at fire-time (not just currentUser), with a console.log at each abort/proceed branch labeled [AutoLogin] so this exact race is visible in DevTools console if it ever recurs on a device. NOTE: this only fixes the RACE; the underlying stale-credential problem (any device where admin once used "Remember me" and never clicked Sign Out will keep re-arming this 1200ms timer on every load, indefinitely) still exists and is a separate, lower-priority cleanup — consider expiring davan_remember_admin_pw after N days or requiring re-confirmation. CODE_BUILD=995.' },
   { v: 'v994', date: '10-Jul-2026 IST', note: 'ROOT CAUSE FOUND for "VP note synced but a class with a dot in its name (e.g. I YEAR B.Com, II YEAR B.Com, III YEAR B.Com) never actually reached RTDB, even on v993": Firebase Realtime Database forbids the characters . # $ [ ] / in key names. v993\'s per-key RTDB write (rtdb.ref("davan_pub/class_notes").update({[cls]: text})) used the raw class name AS the RTDB key — for a class like "I YEAR B.Com", that key contains a literal dot, so the update() call THROWS synchronously (Firebase validates keys client-side before sending anything over the wire). The existing try/catch swallowed this into a console.warn only — completely invisible during a VP\'s mobile session with no console open. Meanwhile the Firestore write for the same note (no such character restriction there) succeeded fine, which is why a class WITHOUT a dot (e.g. "II YEAR BCA (A)", tested live with the note "hello") synced correctly end-to-end while a dotted class silently failed at the RTDB step every single time — 100% reproducible per-class, not random/intermittent as it initially appeared across multiple test rounds. This also explains why davan_pub/class_notes never appeared as a node in the RTDB tree at all in earlier checks: multiple of the college\'s actual class names contain dots (all three B.Com year-classes), so it was entirely plausible for every attempted write up to that point to have hit a dotted class name and failed before the node was ever created. Fix: added _rtdbSafeKey()/_rtdbUnsafeKey() — encodes forbidden characters into a reversible placeholder (e.g. "." → "__DOT__") ONLY at the RTDB read/write boundary, applied in all four RTDB touch-points: ttSetNote()\'s per-key update, ttSyncLocalNotesToCloud()\'s bulk update, the v982 manager/VP login hydration read, and the v990 admin-side RTDB-to-Firestore backfill read. localStorage and Firestore keys are completely unchanged (Firestore has no such restriction, and touching the localStorage key format risks breaking ttGetNote() retroactively for every class) — the raw class name is used everywhere except the literal RTDB key itself, decoded back to the real name immediately after any RTDB read. Verified round-trip correctness against all actual class names in LM_CLASS_META, including all three dotted B.Com classes. CODE_BUILD=994.' },
   { v: 'v993', date: '10-Jul-2026 IST', note: 'CRITICAL cross-device data-loss fix in Class Notes. Root cause of "VP synced their note, admin still sees a different/old note (e.g. leftover test text like ff)": ttSetNote() and ttSyncLocalNotesToCloud() both did a FULL .set(notes) overwrite of the entire app_data/class_notes doc + davan_pub/class_notes RTDB path, built from THIS DEVICE’s own local copy of ALL classes’ notes. If a device’s local copy was stale for even ONE class it never touched (e.g. leftover test text from an earlier session), saving or syncing a note for ANY OTHER class on that device would silently replace the entire cloud map — including classes it never touched — with its own stale local version, clobbering another user’s just-synced note for that class. This is precisely what happened: VP synced a real note for "I YEAR B.Com", then a save from a device with a stale local "ff" for that same class overwrote it, even though that device only meant to edit a different class. Fix: (1) ttSetNote() now writes ONLY the single changed class key — Firestore via .set({[cls]:val}, {merge:true}) (or FieldValue.delete() when cleared), RTDB via .update({[cls]:val}) (or null to delete a key without touching siblings). (2) ttSyncLocalNotesToCloud() (the manual Sync button) switched from .set(notes) to .update(notes) [RTDB] / .set(notes,{merge:true}) [Firestore] — still pushes everything on this device, but merges key-by-key instead of replacing the whole doc, so it can only ADD/update keys this device has, never silently delete a class note this device doesn’t know about. (3) The v990 RTDB-to-Firestore backfill (loadFirestoreData) now writes ONLY the specific recovered keys via merge:true, not the whole merged map, for the same reason. Net effect: two people can now edit two different classes’ notes at the same time on different devices and NEITHER can ever silently destroy the other’s work — the failure mode that caused this bug is now structurally impossible, not just less likely. CODE_BUILD=993.' },
   { v: 'v992', date: '09-Jul-2026 IST', note: 'Hid the "↩ Reset to Default" button in Edit Timetable (id="tte-reset-btn", display:none) \u2014 wipes the ENTIRE current-semester timetable in one click (all classes, all slots, K/H combined wiring, lab batches, everything ttReset()/_doResetTT() touch). The equivalent dangerous reset buttons in Edit Allocation and Class Settings were already hidden (v945/v934 respectively, with v947 fixing a re-show-on-render bug in Allocation\u2019s case) \u2014 this Edit Timetable one was the one panel that never got the same treatment; v913 had made its underlying logic AY-aware/safer but never actually hid the button itself, so it stayed live and visible for this long. Verified no render function (ttRenderEditor et al.) sets display on this button ID, so there is no v947-style re-show-on-render risk here \u2014 the inline hide holds across every re-render. Function itself (ttReset/_doResetTT) is UNCHANGED and still callable from console if ever genuinely needed; only the one-click UI trigger is removed, consistent with the other two panels. CODE_BUILD=992.' },
