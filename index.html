@@ -2529,6 +2529,10 @@
            border-radius:12px; padding:16px; margin:12px 0; border:1px solid #2A2A4A;position:relative;">
         <button onclick="wcpClose()" title="Close" style="position:absolute;top:10px;right:10px;background:transparent;border:none;color:#6B7280;font-size:15px;cursor:pointer;line-height:1;padding:2px 6px;">✕</button>
         <div style="color:#C4A02A; font-weight:bold; margin-bottom:10px;">📱 Home Screen Widget</div>
+        <!-- v1004: shows which widget build is actually installed on THIS paired
+             device. Populated by wcpCheckWidgetHealth() from widget_apk_report.
+             A pre-w95 widget can't self-report, so it shows "old version". -->
+        <div id="wcp-installed-ver" style="font-size:11px; margin-bottom:10px; font-family:monospace;"></div>
         <button onclick="wcpForceRefresh()" style="background:#1E3A5F; color:#fff;
            border:none; border-radius:8px; padding:8px 14px; margin-right:8px; font-size:12px; cursor:pointer;">
           🔄 Refresh Now
@@ -10092,6 +10096,28 @@ async function wcpCheckWidgetHealth() {
       } catch (e) { console.warn('[WidgetHealth] widget_apk_report read failed:', e && e.message); }
     }
 
+    // v1004 — populate the installed-widget-version line in the control panel.
+    // Three states: (a) has report → show real build + up-to-date/behind; (b)
+    // paired but no report → pre-w95 build that can't self-report, so we KNOW it's
+    // old even though it can't tell us the exact number; (c) not paired → unknown.
+    const _verEl = document.getElementById('wcp-installed-ver');
+    if (_verEl) {
+      if (haveApkReport && apkVersion > 0) {
+        if (apkVersion >= LATEST_APK.apkVersion) {
+          _verEl.innerHTML = '<span style="color:#34D399;">Installed: w' + apkVersion + ' \u2713 up to date</span>';
+        } else {
+          _verEl.innerHTML = '<span style="color:#FDE68A;">Installed: w' + apkVersion +
+            ' \u2014 update available (latest w' + LATEST_APK.apkVersion + '). ' +
+            '<a href="' + LATEST_APK.apkUrl + '" style="color:#FDE68A;text-decoration:underline;font-weight:700;">\u2b07\ufe0f update</a></span>';
+        }
+      } else if (wPair) {
+        _verEl.innerHTML = '<span style="color:#F87171;">Installed: old version (pre-w95, can\'t self-report) \u2014 please ' +
+          '<a href="' + LATEST_APK.apkUrl + '" style="color:#F87171;text-decoration:underline;font-weight:700;">\u2b07\ufe0f install the latest APK</a></span>';
+      } else {
+        _verEl.innerHTML = '<span style="color:#8890A8;">No widget paired on this device yet.</span>';
+      }
+    }
+
     // v1001 — hide the "📲 Install Widget App" card once the widget is CONFIRMED
     // installed. A live widget_apk_report is proof the APK is installed, paired,
     // and actively fetching (w95+ writes it on every fetch). The old wcpInit()
@@ -13144,7 +13170,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1001;  // always = HTML footer version number
+const CODE_BUILD = 1004;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '11-Jul-2026', time: '19:15', full: '11-Jul-2026 19:15 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -14362,6 +14388,18 @@ let _lcbPucSelected  = -1;
 let _lcbPucDay       = -1;
 let _lcbPucClassMap     = {};   // { '2PUC-COM-A': [...students], ... } loaded from RTDB
 let _lcbPucSubjectMap  = {};   // { 'COMKAN27': { abbr:'KAN', ... }, ... } from puc_subject_map
+let _lcbPucFacPhotos   = {};   // { 'vidya v h': 'https://...' } from puc_faculty (puc.html's own store)
+// v1004: the Live Class Board's PUC seed uses short spellings (VIDYA V H, NITHIN
+// KUMAR M B, ROSHAN ZAMEER M) but puc.html's puc_faculty store keeps the fuller
+// forms (Vidya V Hasbavi, Nithin Kumar M.B, Roshan Zameer.M). Without bridging
+// these, the photo lookup misses. Keys/values normalized (lowercase, single-space)
+// at use-time via the same rule as _facKey. Only the names that actually DIFFER
+// need an entry — Ashwini K M / Trupthi Jannu / Priyanka B P already match.
+const _LCB_PUC_NAME_ALIASES = {
+  'vidya v h':         'vidya v hasbavi',
+  'nithin kumar m b':  'nithin kumar m.b',
+  'roshan zameer m':   'roshan zameer.m',
+};
 let _lcbPucClassMapLoaded = false;
 
 // ── Load PUC student data from RTDB (same path as puc.html) ──────
@@ -14388,6 +14426,24 @@ async function lcbPucLoadStudents() {
       const smVal  = smSnap.val() || {};
       _lcbPucSubjectMap = smVal;
     } catch(e) { console.warn('[lcbPuc] subject map load failed:', e.message); }
+
+    // PUC-only faculty (Vidya V H, Kotrappa K, Priyanka B P, …) are NOT in the
+    // degree Staff Directory / app_data/faculty_photos store, so _facAvatar can't
+    // find their photos. But the PUC marks app (puc.html) keeps its OWN faculty
+    // records at puc_faculty/<id> = { name, phone, photo, … } on this SAME Firebase.
+    // Read that node and build a normalized name→photo-URL map so the PUC board can
+    // show those photos. Keyed lowercased-single-spaced to match _facKey().
+    try {
+      const facSnap = await rtdb.ref('puc_faculty').once('value');
+      const facVal  = facSnap.val() || {};
+      const m = {};
+      Object.values(facVal).forEach(f => {
+        if (f && f.name && f.photo) {
+          m[(f.name || '').trim().toLowerCase().replace(/\s+/g, ' ')] = f.photo;
+        }
+      });
+      _lcbPucFacPhotos = m;
+    } catch(e) { console.warn('[lcbPuc] faculty photos load failed:', e.message); }
 
     _lcbPucClassMapLoaded = true;
     // Re-render to show stats now that data is loaded
@@ -14508,13 +14564,26 @@ function lcbPucBuildPanel(slotIdx) {
 
     html += '<div style="background:' + sc.bg + ';border:1px solid ' + sc.brd + ';border-radius:8px;padding:8px 12px;margin-bottom:2px;">';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">';
-    html += '<span style="font-family:var(--mono);font-size:13px;font-weight:700;color:' + sc.col + ';">' + subj + '</span>';
+    html += '<span style="font-family:var(--mono);font-size:15px;font-weight:700;color:' + sc.col + ';">' + subj + '</span>';
     html += '<span style="font-size:9px;font-family:var(--mono);background:' + chipBg + ';color:' + chipColor + ';border:1px solid ' + chipBrd + ';border-radius:4px;padding:1px 7px;">' + stream + '-' + sec + '</span>';
     html += '</div>';
     html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
-    html += '<span style="font-size:9px;font-family:var(--mono);font-weight:600;color:' + sc.col + ';opacity:0.7;background:rgba(255,255,255,0.06);border-radius:3px;padding:0 5px;">' + abbr + '</span>';
-    const _pucFacAv = (fac && fac !== '—' && typeof _facAvatar === 'function') ? _facAvatar(fac, 16, true) : '';
-    html += '<span style="font-size:10px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;">' + (_pucFacAv || '👤') + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + fac + '</span></span>';
+    html += '<span style="font-size:11px;font-family:var(--mono);font-weight:600;color:' + sc.col + ';opacity:0.7;background:rgba(255,255,255,0.06);border-radius:3px;padding:1px 6px;">' + abbr + '</span>';
+    // Avatar: prefer the PUC app's own faculty photo (puc_faculty), else fall
+    // back to the shared degree store via _facAvatar. Handles split names
+    // ("A / B") by using the first teacher for the photo lookup.
+    const _pucFacKey = (fac || '').split('/')[0].trim().toLowerCase().replace(/\s+/g, ' ');
+    const _pucPhotoUrl = _lcbPucFacPhotos[_pucFacKey]
+      || _lcbPucFacPhotos[_LCB_PUC_NAME_ALIASES[_pucFacKey] || ''] || '';
+    let _pucFacAv = '';
+    if (_pucPhotoUrl) {
+      _pucFacAv = '<img src="' + _pucPhotoUrl + '" alt="" onclick="event.stopPropagation();rcZoomPhoto(this.src)" title="Click to zoom" '
+        + 'style="width:22px;height:22px;border-radius:50%;flex-shrink:0;border:1.5px solid var(--border);background:var(--surface2);object-fit:cover;cursor:zoom-in;" '
+        + 'onerror="this.style.display=\'none\'">';
+    } else if (fac && fac !== '—' && typeof _facAvatar === 'function') {
+      _pucFacAv = _facAvatar(fac, 22, true);
+    }
+    html += '<span style="font-size:13px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;">' + (_pucFacAv || '👤') + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + fac + '</span></span>';
     html += '</div>';
     // Student stats from RTDB puc_students
     const classKey      = '2PUC-' + stream + '-' + sec;
@@ -14991,7 +15060,7 @@ function lcbBuildPanel(slotIdx, dayName) {
     html += '<div style="background:' + effectiveBg + ';border:1px solid ' + effectiveBorder + ';border-radius:8px;padding:9px 11px;' + runningStyle + labBorder + cardOpacity + '">';
     // Class name + room row
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">';
-    html += '<span style="font-size:10px;font-weight:700;color:' + accentColor + ';">' + safeClass + '</span>';
+    html += '<span style="font-size:12px;font-weight:700;color:' + accentColor + ';">' + safeClass + '</span>';
     // Room badge — larger, normal weight so it breathes
     if (room) {
       const roomBg  = isLab ? 'rgba(167,139,250,0.15)' : 'rgba(96,165,250,0.12)';
@@ -15001,19 +15070,19 @@ function lcbBuildPanel(slotIdx, dayName) {
     html += '</div>';
     // Lab badge row (batch·lab info)
     if (isLab && parsedCode.batch) {
-      html += '<div style="font-size:10px;color:#a78bfa;font-family:var(--mono);margin-bottom:3px;">🧪 ' + parsedCode.batch + (parsedCode.lab ? ' · Lab ' + parsedCode.lab : '') + '</div>';
+      html += '<div style="font-size:12px;color:#a78bfa;font-family:var(--mono);margin-bottom:3px;">🧪 ' + parsedCode.batch + (parsedCode.lab ? ' · Lab ' + parsedCode.lab : '') + '</div>';
     }
     // Subject + stats
-    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:2px;">' + subjectStr;
+    html += '<div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:3px;line-height:1.3;">' + subjectStr;
     if (statsStr) {
-      html += ' <span style="font-size:10px;font-weight:500;color:#fde68a;font-family:var(--mono);">(' + statsStr + ')</span>';
+      html += ' <span style="font-size:11px;font-weight:500;color:#fde68a;font-family:var(--mono);">(' + statsStr + ')</span>';
     }
     html += '</div>';
     // Faculty — photo avatar (click-to-zoom) beside the name. v970.
     const _facAv = (facStr && facStr !== '—' && typeof _facAvatar === 'function')
-      ? _facAvatar(facStr, 18, true)
+      ? _facAvatar(facStr, 22, true)
       : '';
-    html += '<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#a78bfa;">'
+    html += '<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#a78bfa;">'
           + (_facAv || '👤') + '<span>' + facStr + '</span></div>';
     html += '</div>';
   }
@@ -22460,6 +22529,9 @@ const HTML_CHANGELOG = [
   { v: 'v966', date: '06-Jul-2026 IST', note: 'Feat: (1) Persistent sidebar "📷 Add My Photo" entry (nav-fac-my-photo) for fulltime/visiting/VP faculty with no photo yet — stays available even after the v965 banner is dismissed, so faculty can add their photo any time in-session instead of waiting for next login. Uses the same facBannerAddPhoto() upload path; disappears once a photo exists, same as the banner. (2) Staff Directory admin control: new "PHOTO ✎" checkbox column (all 3 tables — Full Time/Visiting/Non-Teaching), unchecked by default on every row (sdAddRow defaults allowPhotoChange:false). When UNCHECKED (default): faculty can add a photo once (while none exists) but cannot change it themselves afterward — only admin can, from Staff Directory (sdPhotoPick), unchanged from v965. When CHECKED by admin (sdOnPhotoPermChange sets allowPhotoChange:true, saved with the rest of Staff Directory via existing Save All Changes): the sidebar "Add My Photo" entry stays available to that faculty indefinitely, letting them change their own photo any time. New: sdOnPhotoPermChange(), sdFacultyCanChangePhoto(name) (looks up allowPhotoChange from sdData, defaulting false if the faculty or field is not found — so pre-existing rows behave exactly like before this update). facCheckOwnPhoto() now also drives the sidebar entry\'s visibility via this flag; facBannerAddPhoto() re-checks visibility after a successful upload so the entry correctly disappears (locked) or stays (admin-allowed) without needing a reload. CODE_BUILD=966.' },
   { v: 'v965', date: '06-Jul-2026 IST', note: 'Feat: Faculty self-service "Add Photo" banner. Fulltime/visiting/VP faculty who have no photo on file (checked via existing _facPhotoUrl/_facKey lookup against app_data/faculty_photos) now see a dismissible banner below the topbar on login prompting them to add their own photo. "📷 Add Photo" opens a file picker and uploads via the EXISTING facUploadPhoto() Cloudinary+Firestore path (same one Staff Directory uses) — no new storage/backend. "Dismiss for now" just hides the banner for the current session; since there is no persistence flag, it reappears on the NEXT login for as long as no photo exists (added by the faculty here or by the admin in Staff Directory). Once a photo exists — from either path — facCheckOwnPhoto() (called after facPhotosReady resolves in onLoginSuccess) stops showing the banner permanently, and the faculty has no further UI to change it: only the admin can, via the existing Staff Directory 📷 badge (sdPhotoPick). Banner is hidden on logout (doFirebaseLogout) so it never leaks into the next session before that user\'s own check runs. New: fac-photo-banner markup (positioned at top:56px so it sits below the topbar, not over it; 52px on mobile), facCheckOwnPhoto(), facBannerAddPhoto(), facBannerDismiss(). Admin side (Staff Directory) is unchanged — it already showed every faculty\'s current photo/initials with a 📷 upload badge on every row, so admins can already see at a glance who still needs a photo and add it themselves. CODE_BUILD=965.' },
   { v: 'v964', date: '06-Jul-2026 IST', note: 'Print Master Timetable: guarantee 3 classes per A4 page (9 classes = 3 pages, was spilling to 4). Root cause: long lab labels ("ANPG - LAB A2·Lab 2") wrapped to 2 lines, inflating row height and pushing the 3rd class/footer to an extra page. Fixes: (1) codeCell now compacts lab labels to one short token ("ANPG A2/L2"); (2) .pc + table cells set white-space:nowrap so nothing wraps; (3) lowered .sheet min-height 195mm→180mm and tightened .pcol gap / .pblock padding / .pc height. CODE_BUILD=964.' },
+  { v: 'v1004', date: '11-Jul-2026 IST', note: 'TWO FIXES. (1) INSTALLED WIDGET VERSION shown in the Home Screen Widget control panel: new #wcp-installed-ver line, populated by wcpCheckWidgetHealth() from davan_pub/widget_apk_report/<pairCode>. Three states — has report → "Installed: w96 ✓ up to date" or "w95 — update available" with a download link; PAIRED BUT NO REPORT → "Installed: old version (pre-w95, can\'t self-report) — install the latest APK" (this is the w57/w88 case: those builds never self-report, so the exact number is unknowable, but we KNOW it is old and say so); not paired → "No widget paired on this device yet." Note: a pre-w95 widget genuinely cannot show its exact build number because that reporting did not exist until w95 — the honest signal is "old, please update". (2) PUC FACULTY PHOTOS still-missing cases fixed: the Live Class Board PUC seed uses short name spellings (VIDYA V H, NITHIN KUMAR M B, ROSHAN ZAMEER M) but puc.html\'s puc_faculty store keeps fuller forms (Vidya V Hasbavi, Nithin Kumar M.B, Roshan Zameer.M), so the v1003 name-keyed photo lookup missed exactly those three while Ashwini K M / Trupthi Jannu (identical spellings) worked. Added _LCB_PUC_NAME_ALIASES bridging the differing names; the PUC card photo lookup now tries the alias when the direct key misses. Any PUC teacher whose name matches OR aliases to a puc_faculty record with a photo now shows it. CODE_BUILD=1004.' },
+  { v: 'v1003', date: '11-Jul-2026 IST', note: 'LIVE CLASS BOARD — PUC faculty photos now show. ROOT CAUSE: PUC-COM/SCI teachers (Vidya V H, Kotrappa K, Priyanka B P, Nithin Kumar M B, Ashwini K M, Roshan Zameer M, Amrutha A S, Dr. Sumakanthi M, Trupthi Jannu, Sumithra K T) are NOT in the degree Staff Directory / app_data/faculty_photos store that _facAvatar() reads, so the PUC board always fell back to initials while the DEGREE board (whose teachers ARE in that store) showed photos. But the PUC marks app (puc.html) keeps its OWN faculty records on the SAME Firebase at puc_faculty/<id> = {name, phone, photo, subjects, notes}. FIX: lcbPucLoadStudents() now also reads puc_faculty and builds _lcbPucFacPhotos, a normalized name→photo-URL map (keyed lowercased/single-spaced to match _facKey). lcbPucBuildPanel() prefers that photo for the card avatar (22px, click-to-zoom via rcZoomPhoto), falling back to _facAvatar() (degree store) when a PUC teacher has no puc_faculty photo — so a teacher present in either store now resolves. Split names ("A / B") use the first teacher for the lookup. No writes; read-only. DEGREE board unchanged. CODE_BUILD=1003.' },
+  { v: 'v1002', date: '11-Jul-2026 IST', note: 'LIVE CLASS BOARD readability: bumped the tiny card fonts to match the rest of the UI. DEGREE (college) cards: subject headline 11→15px, class label 10→12px, faculty name 10→13px (avatar 18→22px), lab/batch line 10→12px, stats badge 10→11px. PUC (COM/SCI) cards: subject 13→15px, subject-abbr chip 9→11px, faculty name 10→13px (avatar 16→22px). Colors/layout/logic all unchanged — pure sizing so the subject and faculty names on the Live Class Board are legible. CODE_BUILD=1002.' },
   { v: 'v1001', date: '11-Jul-2026 IST', note: 'INSTALL-CARD FIX: the "📲 Install Widget App" card kept showing even for users who already had the home-screen widget installed. ROOT CAUSE: wcpInit() only hid the card when isStandalone (browser running as an installed PWA) was true — but the Android home-screen WIDGET (APK) is a completely separate thing from the browser PWA, so installing the widget never sets standalone display-mode and the card showed forever. FIX: wcpCheckWidgetHealth() now hides #wcp-apk-section whenever a live davan_pub/widget_apk_report/<pairCode> node exists — that report is written by the APK (w95+) on every successful fetch, so its presence is direct proof the widget is installed, paired, and running. Pre-w95 widgets do not self-report and cannot be confirmed this way, so they still see the card (and the separate update nag). NOTE for future: this is also why a working w95/96 widget correctly shows ONLY the "notifications off" nag and NOT the "update available" nag — the notif-off line requires haveApkReport===true, i.e. the widget IS reporting and IS working; the missing update nag just means it is already at/above LATEST_APK. CODE_BUILD=1001.' },
   { v: 'v1000', date: '11-Jul-2026 IST', note: 'WIDGET UPDATE NAG FIX + APK w97 companion. (1) ROOT CAUSE of "update nag never appeared for the w88 widget in the field": wcpCheckWidgetHealth() only nagged when it found a davan_pub/widget_apk_report/<pairCode> node, but APK self-reporting only began at w95 — so any pre-w95 widget (like the live w88) writes NO report, fell into the else branch, and the htmlVersion fallback compared widget_pin.htmlVersion (which mirrors the PWA CODE_BUILD, NOT the APK build) against CODE_BUILD, i.e. always equal, so it never fired. Fixed: if a pair code exists but there is no widget_apk_report node at all, the device is by definition a pre-w95 build and is now flagged outdated=true unconditionally → the "📲 Widget update available" banner now shows for old widgets. (2) LATEST_APK.apkVersion 95→97 to match the new APK build (w95/w96 installs now also get nagged up to 97). (3) APK w97 companion changes shipped alongside: faculty header DAVAN emblem 34→36dp, admin header far-right emblem REMOVED (admin left slot already falls back to the round logo, so it was redundant), refresh icon 20→26dp in both layouts, and the "[w97 · vNNN]" meta line is now itself a refresh tap zone (tapping it forces a fetch instead of opening the PWA). Note: the widget AY badge ("2026-27 Odd" vs "Even") is data-driven from davan_pub/session_config — set the active session to 2026-27 Odd in Admin ▸ Session Config for the badge to read "Odd"; no widget rebuild needed for that. CODE_BUILD=1000.' },
   { v: 'v999', date: '11-Jul-2026 IST', note: 'WIDGET HEALTH NAGS (PWA side) + round logo companion release for APK w95. (1) UPDATE-AVAILABLE + NOTIFICATIONS-OFF NAGS ARE NOW PERSISTENT: renamed wcpCheckWidgetVersion() → wcpCheckWidgetHealth() and rebuilt it to read the new davan_pub/widget_apk_report/<pairCode> node (written by APK w95 on every successful fetch: {apkVersion, notifOn, ts}) instead of only htmlVersion — so the nag reflects the ACTUAL installed APK build, not just the last PWA version the widget happened to sync against. Two independent persistent banners: "📲 Widget update available" (apkVersion behind the LATEST_APK constant below) and "🔕 Widget notifications are off" (notifOn===false) — either or both can show. PROBLEM FIXED: the old banner lived only inside the closeable Widget Control Panel and had a permanent ✕ dismiss. The nags now render as a fixed banner at the TOP of the page (#wcp-health-banner, same fixed-top pattern as fac-photo-banner/live-banner) with only a session-scoped "remind me later" (sessionStorage wcp_health_snoozed) — reappears on next login or page load, never permanently dismissible, exactly per the ASK 1/2 requirement. Re-checked on every onLoginSuccess path (all 3 wcpInit() call sites already cover login + auto-login + the ?wdev= pairing retry, since wcpCheckWidgetHealth() is called from wcpInit()). (2) NEW RTDB NODE davan_pub/widget_latest = {apkVersion:95, apkUrl:"https://harshgujjar.github.io/davan-attendance/DavanWidget.apk"} — PWA-owned, written once on every login by wcpPublishLatestApk() (idempotent set(), cheap) so the APK can read it and self-nag on the widget face too (APK w95 companion change). LATEST_APK constant here MUST be bumped together with the APK versionCode on every future APK release — see comment at declaration. (3) Manual dismiss (✕) removed from the health banner entirely — only "Remind me later" (snoozes for this browser session) remains, so the nag cannot be silenced permanently by mistake. (4) wcpApkClose()/wcp-apk-section UNCHANGED (that is the separate "install the APK for the first time" card, not this health nag). CODE_BUILD=999.' },
