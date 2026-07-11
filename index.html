@@ -1107,6 +1107,7 @@
       /* Topbar */
       .topbar { padding: 0 10px 0 6px; height: 52px; }
       #fac-photo-banner { top: 52px !important; padding: 8px 10px !important; font-size: 12px !important; }
+      #wcp-health-banner { top: 52px !important; padding: 8px 10px !important; font-size: 12px !important; }
       .topbar-logo { font-size: 15px; letter-spacing: 1.5px; gap: 6px; }
       .topbar-logo img { height: 26px; width: 26px; }
       .topbar-logo span { display: none; }
@@ -1565,6 +1566,24 @@
   <button onclick="facBannerDismiss()" style="padding:8px 16px;background:transparent;color:var(--muted);
     border:1px solid var(--border);border-radius:8px;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap;">
     Dismiss for now
+  </button>
+</div>
+
+<!-- ── v999: Widget health nag banner (update available / notifications off) ──
+     Persistent by design (ASK 1/2): only a session "remind me later" snooze via
+     wcpSnoozeHealthBanner() — NO permanent dismiss. Re-checked by
+     wcpCheckWidgetHealth() on every login path (called from wcpInit()). Two
+     independent lines can show at once; each line is built by
+     wcpCheckWidgetHealth() and injected into #wcp-health-banner-body. -->
+<div id="wcp-health-banner" style="display:none;position:fixed;top:56px;left:0;right:0;z-index:5001;
+  background:linear-gradient(90deg,#3d2b00,#4a3300);border-bottom:1px solid #f0a500;
+  padding:10px 16px;align-items:center;gap:14px;box-shadow:0 4px 18px rgba(0,0,0,0.4);
+  flex-wrap:wrap;">
+  <span style="font-size:20px;">⚠️</span>
+  <div id="wcp-health-banner-body" style="flex:1;min-width:220px;font-size:13px;color:#FDE68A;line-height:1.5;"></div>
+  <button onclick="wcpSnoozeHealthBanner()" style="padding:8px 16px;background:transparent;color:#FDE68A;
+    border:1px solid #f0a500;border-radius:8px;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap;">
+    Remind me later
   </button>
 </div>
 
@@ -9985,6 +10004,10 @@ async function davanWidgetSync(user, profile) {
         try {
           if (typeof currentUser !== 'undefined' && currentUser && typeof currentProfile !== 'undefined' && currentProfile) {
             davanWidgetSync(currentUser, currentProfile);
+            // v999: re-run the health nag check now that a pair code just landed —
+            // this is the ASK 1/2 "?wdev= pairing retry path" re-check.
+            if (typeof wcpCheckWidgetHealth === 'function') wcpCheckWidgetHealth();
+            if (typeof wcpPublishLatestApk === 'function') wcpPublishLatestApk();
             clearInterval(t);
           } else if (tries >= 10) clearInterval(t);
         } catch (e) { clearInterval(t); }
@@ -10009,6 +10032,9 @@ function wcpPairCode() {
   localStorage.setItem('davan_widget_pair_code', code);
   if (msg) msg.textContent = '✓ Paired to widget ' + code + ' — syncing…';
   try { if (currentUser && currentProfile) davanWidgetSync(currentUser, currentProfile); } catch (e) {}
+  // v999: fresh pair code — the old apk_report (if any) belongs to whatever was
+  // paired before, so re-check health against the new code right away.
+  try { wcpCheckWidgetHealth(); } catch (e) {}
 }
 
 // === DAVAN WIDGET BRIDGE — Widget Control Panel helpers ===
@@ -10025,34 +10051,99 @@ function wcpInit() {
     apk.style.display = (isStandalone || dismissed) ? 'none' : 'block';
   }
 
-  // Check if installed widget APK is outdated vs current PWA
-  wcpCheckWidgetVersion();
+  // Check if installed widget APK is outdated or has notifications off — persistent
+  // top-of-page nag (ASK 1/2), not just this closeable panel. Also publishes the
+  // latest-known APK version up to RTDB so the APK itself can read it (ASK 1).
+  wcpCheckWidgetHealth();
+  wcpPublishLatestApk();
 }
 
-async function wcpCheckWidgetVersion() {
+// v999 — renamed from wcpCheckWidgetVersion(). Reads the APK's OWN self-report
+// (davan_pub/widget_apk_report/<pairCode> — written by APK w95+ on every fetch:
+// {apkVersion, notifOn, ts}) rather than only htmlVersion off widget_pin, so the
+// nag reflects the actual installed APK build, not just the last PWA build the
+// widget happened to sync against (a widget can be paired but on an old APK that
+// never updated its htmlVersion report). Falls back to the old htmlVersion-only
+// check if no apk report exists yet (pre-w95 widgets, or first fetch not done).
+//
+// PERSISTENT BY DESIGN (ASK 1/2): renders into #wcp-health-banner, a fixed banner
+// at the TOP of the page — not just inside the closeable Widget Control Panel —
+// with no permanent dismiss, only a session "remind me later" snooze
+// (sessionStorage wcp_health_snoozed). Reappears on next login/page load.
+async function wcpCheckWidgetHealth() {
   try {
     if (!rtdb || !currentUser) return;
-    const snap = await rtdb.ref('davan_pub/widget_pin/' + currentUser.uid).once('value');
-    if (!snap.exists()) return;
-    const installedVer = snap.val().htmlVersion || 0;
-    if (installedVer > 0 && installedVer < CODE_BUILD) {
-      const existing = document.getElementById('wcp-update-banner');
-      if (existing) existing.remove();
-      const banner = document.createElement('div');
-      banner.id = 'wcp-update-banner';
-      banner.style.cssText = 'background:#78350F;color:#FDE68A;padding:10px 14px;border-radius:8px;margin-top:10px;font-size:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;';
-      banner.innerHTML =
-        '<span>📲 Widget update available — installed v' + installedVer + ', latest v' + CODE_BUILD + '. Reinstall the APK.</span>' +
-        '<div style="display:flex;gap:8px;align-items:center;">' +
-        '<a href="https://harshgujjar.github.io/davan-attendance/DavanWidget.apk" ' +
-        'style="background:#FDE68A;color:#78350F;padding:5px 12px;border-radius:6px;font-weight:bold;text-decoration:none;font-size:12px;white-space:nowrap;">⬇️ Update</a>' +
-        '<span onclick="document.getElementById(\'wcp-update-banner\').remove()" ' +
-        'style="cursor:pointer;opacity:0.6;font-size:15px;padding:0 4px;">✕</span>' +
-        '</div>';
-      const panel = document.getElementById('widget-control-panel');
-      if (panel) panel.appendChild(banner);
+    const banner = document.getElementById('wcp-health-banner');
+    const body   = document.getElementById('wcp-health-banner-body');
+    if (!banner || !body) return;
+
+    const snoozed = sessionStorage.getItem('wcp_health_snoozed') === '1';
+
+    const wPair = (localStorage.getItem('davan_widget_pair_code') || '').trim();
+    let apkVersion = 0, notifOn = true, haveApkReport = false;
+    if (wPair) {
+      try {
+        const repSnap = await rtdb.ref('davan_pub/widget_apk_report/' + wPair).once('value');
+        if (repSnap.exists()) {
+          haveApkReport = true;
+          apkVersion = repSnap.val().apkVersion || 0;
+          notifOn    = repSnap.val().notifOn !== false; // default true (unknown = assume on)
+        }
+      } catch (e) { console.warn('[WidgetHealth] widget_apk_report read failed:', e && e.message); }
     }
-  } catch(e) { /* silent */ }
+
+    const lines = [];
+    let outdated = false;
+    if (haveApkReport) {
+      outdated = apkVersion > 0 && apkVersion < LATEST_APK.apkVersion;
+    } else if (wPair) {
+      // Paired device but NO widget_apk_report node exists. APK self-reporting
+      // only started at w95, so a paired widget that has never written a report
+      // is a pre-w95 build (e.g. the w88 seen in the field) — it can never match
+      // LATEST_APK, so it is by definition outdated. The old htmlVersion fallback
+      // could never detect this: htmlVersion mirrors the PWA CODE_BUILD, not the
+      // APK build, so it always compared equal and never nagged.
+      outdated = true;
+    }
+    if (outdated) {
+      lines.push('<div><strong>📲 Widget update available.</strong> Open your widget once to refresh, then ' +
+        '<a href="' + LATEST_APK.apkUrl + '" style="color:#FDE68A;text-decoration:underline;font-weight:700;">⬇️ install the latest APK</a>.</div>');
+    }
+    if (haveApkReport && !notifOn) {
+      lines.push('<div><strong>🔕 Widget notifications are off.</strong> Class reminders will not appear until you enable them: ' +
+        'Settings ▸ Apps ▸ DavanWidget ▸ Notifications.</div>');
+    }
+
+    if (lines.length && !snoozed) {
+      body.innerHTML = lines.join('');
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+  } catch (e) { /* silent */ }
+}
+
+// v999 — "Remind me later": snoozes the persistent health banner for THIS browser
+// session only (sessionStorage, not localStorage) — it reappears on the next login
+// or page load, per the ASK 1/2 requirement that this nag must never be permanently
+// silenced. There is deliberately no other dismiss control on this banner.
+function wcpSnoozeHealthBanner() {
+  sessionStorage.setItem('wcp_health_snoozed', '1');
+  const banner = document.getElementById('wcp-health-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+// v999 — publishes the current LATEST_APK constant to davan_pub/widget_latest so
+// the APK (w95+) can read it directly and nag on the widget face when it's behind.
+// Cheap idempotent set() on every login; harmless if called repeatedly.
+async function wcpPublishLatestApk() {
+  try {
+    if (!rtdb) return;
+    await rtdb.ref('davan_pub/widget_latest').set({
+      apkVersion: LATEST_APK.apkVersion,
+      apkUrl:     LATEST_APK.apkUrl
+    });
+  } catch (e) { console.warn('[WidgetHealth] widget_latest publish failed:', e && e.message); }
 }
 function wcpClose() {
   // Close Home Screen Widget panel for this session only — reappears on refresh
@@ -10151,6 +10242,8 @@ async function doFirebaseLogout() {
   if (_semBanner) _semBanner.style.display = 'none';
   const _facPhotoBanner = document.getElementById('fac-photo-banner');
   if (_facPhotoBanner) _facPhotoBanner.style.display = 'none';
+  const _wcpHealthBanner = document.getElementById('wcp-health-banner');
+  if (_wcpHealthBanner) _wcpHealthBanner.style.display = 'none';
   const _facPhotoNav = document.getElementById('nav-fac-my-photo');
   if (_facPhotoNav) _facPhotoNav.style.display = 'none';
   applySidebarForRole(null);
@@ -13038,8 +13131,15 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 998;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '11-Jul-2026', time: '18:30', full: '11-Jul-2026 18:30 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1000;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '11-Jul-2026', time: '19:15', full: '11-Jul-2026 19:15 IST' }; // hardcoded build time — do NOT use runtime time
+// v999: the latest published APK versionCode + download URL — PWA-owned, written to
+// davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
+// nag "update available" against the widget's SELF-REPORTED apkVersion (see
+// wcpCheckWidgetHealth), and (b) the APK itself (w95+) can read this node directly and
+// nag on the widget face too. RULE: bump LATEST_APK here in lockstep with every APK
+// build.gradle versionCode bump — they must always match on release.
+const LATEST_APK = { apkVersion: 97, apkUrl: 'https://harshgujjar.github.io/davan-attendance/DavanWidget.apk' };
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -22347,6 +22447,8 @@ const HTML_CHANGELOG = [
   { v: 'v966', date: '06-Jul-2026 IST', note: 'Feat: (1) Persistent sidebar "📷 Add My Photo" entry (nav-fac-my-photo) for fulltime/visiting/VP faculty with no photo yet — stays available even after the v965 banner is dismissed, so faculty can add their photo any time in-session instead of waiting for next login. Uses the same facBannerAddPhoto() upload path; disappears once a photo exists, same as the banner. (2) Staff Directory admin control: new "PHOTO ✎" checkbox column (all 3 tables — Full Time/Visiting/Non-Teaching), unchecked by default on every row (sdAddRow defaults allowPhotoChange:false). When UNCHECKED (default): faculty can add a photo once (while none exists) but cannot change it themselves afterward — only admin can, from Staff Directory (sdPhotoPick), unchanged from v965. When CHECKED by admin (sdOnPhotoPermChange sets allowPhotoChange:true, saved with the rest of Staff Directory via existing Save All Changes): the sidebar "Add My Photo" entry stays available to that faculty indefinitely, letting them change their own photo any time. New: sdOnPhotoPermChange(), sdFacultyCanChangePhoto(name) (looks up allowPhotoChange from sdData, defaulting false if the faculty or field is not found — so pre-existing rows behave exactly like before this update). facCheckOwnPhoto() now also drives the sidebar entry\'s visibility via this flag; facBannerAddPhoto() re-checks visibility after a successful upload so the entry correctly disappears (locked) or stays (admin-allowed) without needing a reload. CODE_BUILD=966.' },
   { v: 'v965', date: '06-Jul-2026 IST', note: 'Feat: Faculty self-service "Add Photo" banner. Fulltime/visiting/VP faculty who have no photo on file (checked via existing _facPhotoUrl/_facKey lookup against app_data/faculty_photos) now see a dismissible banner below the topbar on login prompting them to add their own photo. "📷 Add Photo" opens a file picker and uploads via the EXISTING facUploadPhoto() Cloudinary+Firestore path (same one Staff Directory uses) — no new storage/backend. "Dismiss for now" just hides the banner for the current session; since there is no persistence flag, it reappears on the NEXT login for as long as no photo exists (added by the faculty here or by the admin in Staff Directory). Once a photo exists — from either path — facCheckOwnPhoto() (called after facPhotosReady resolves in onLoginSuccess) stops showing the banner permanently, and the faculty has no further UI to change it: only the admin can, via the existing Staff Directory 📷 badge (sdPhotoPick). Banner is hidden on logout (doFirebaseLogout) so it never leaks into the next session before that user\'s own check runs. New: fac-photo-banner markup (positioned at top:56px so it sits below the topbar, not over it; 52px on mobile), facCheckOwnPhoto(), facBannerAddPhoto(), facBannerDismiss(). Admin side (Staff Directory) is unchanged — it already showed every faculty\'s current photo/initials with a 📷 upload badge on every row, so admins can already see at a glance who still needs a photo and add it themselves. CODE_BUILD=965.' },
   { v: 'v964', date: '06-Jul-2026 IST', note: 'Print Master Timetable: guarantee 3 classes per A4 page (9 classes = 3 pages, was spilling to 4). Root cause: long lab labels ("ANPG - LAB A2·Lab 2") wrapped to 2 lines, inflating row height and pushing the 3rd class/footer to an extra page. Fixes: (1) codeCell now compacts lab labels to one short token ("ANPG A2/L2"); (2) .pc + table cells set white-space:nowrap so nothing wraps; (3) lowered .sheet min-height 195mm→180mm and tightened .pcol gap / .pblock padding / .pc height. CODE_BUILD=964.' },
+  { v: 'v1000', date: '11-Jul-2026 IST', note: 'WIDGET UPDATE NAG FIX + APK w97 companion. (1) ROOT CAUSE of "update nag never appeared for the w88 widget in the field": wcpCheckWidgetHealth() only nagged when it found a davan_pub/widget_apk_report/<pairCode> node, but APK self-reporting only began at w95 — so any pre-w95 widget (like the live w88) writes NO report, fell into the else branch, and the htmlVersion fallback compared widget_pin.htmlVersion (which mirrors the PWA CODE_BUILD, NOT the APK build) against CODE_BUILD, i.e. always equal, so it never fired. Fixed: if a pair code exists but there is no widget_apk_report node at all, the device is by definition a pre-w95 build and is now flagged outdated=true unconditionally → the "📲 Widget update available" banner now shows for old widgets. (2) LATEST_APK.apkVersion 95→97 to match the new APK build (w95/w96 installs now also get nagged up to 97). (3) APK w97 companion changes shipped alongside: faculty header DAVAN emblem 34→36dp, admin header far-right emblem REMOVED (admin left slot already falls back to the round logo, so it was redundant), refresh icon 20→26dp in both layouts, and the "[w97 · vNNN]" meta line is now itself a refresh tap zone (tapping it forces a fetch instead of opening the PWA). Note: the widget AY badge ("2026-27 Odd" vs "Even") is data-driven from davan_pub/session_config — set the active session to 2026-27 Odd in Admin ▸ Session Config for the badge to read "Odd"; no widget rebuild needed for that. CODE_BUILD=1000.' },
+  { v: 'v999', date: '11-Jul-2026 IST', note: 'WIDGET HEALTH NAGS (PWA side) + round logo companion release for APK w95. (1) UPDATE-AVAILABLE + NOTIFICATIONS-OFF NAGS ARE NOW PERSISTENT: renamed wcpCheckWidgetVersion() → wcpCheckWidgetHealth() and rebuilt it to read the new davan_pub/widget_apk_report/<pairCode> node (written by APK w95 on every successful fetch: {apkVersion, notifOn, ts}) instead of only htmlVersion — so the nag reflects the ACTUAL installed APK build, not just the last PWA version the widget happened to sync against. Two independent persistent banners: "📲 Widget update available" (apkVersion behind the LATEST_APK constant below) and "🔕 Widget notifications are off" (notifOn===false) — either or both can show. PROBLEM FIXED: the old banner lived only inside the closeable Widget Control Panel and had a permanent ✕ dismiss. The nags now render as a fixed banner at the TOP of the page (#wcp-health-banner, same fixed-top pattern as fac-photo-banner/live-banner) with only a session-scoped "remind me later" (sessionStorage wcp_health_snoozed) — reappears on next login or page load, never permanently dismissible, exactly per the ASK 1/2 requirement. Re-checked on every onLoginSuccess path (all 3 wcpInit() call sites already cover login + auto-login + the ?wdev= pairing retry, since wcpCheckWidgetHealth() is called from wcpInit()). (2) NEW RTDB NODE davan_pub/widget_latest = {apkVersion:95, apkUrl:"https://harshgujjar.github.io/davan-attendance/DavanWidget.apk"} — PWA-owned, written once on every login by wcpPublishLatestApk() (idempotent set(), cheap) so the APK can read it and self-nag on the widget face too (APK w95 companion change). LATEST_APK constant here MUST be bumped together with the APK versionCode on every future APK release — see comment at declaration. (3) Manual dismiss (✕) removed from the health banner entirely — only "Remind me later" (snoozes for this browser session) remains, so the nag cannot be silenced permanently by mistake. (4) wcpApkClose()/wcp-apk-section UNCHANGED (that is the separate "install the APK for the first time" card, not this health nag). CODE_BUILD=999.' },
   { v: 'v998', date: '11-Jul-2026 IST', note: 'WIDGET PER-DEVICE PAIRING — the coordinated PWA+APK fix promised in the v896 audit note for \"widget shifts to whoever logged in last / goes back to Admin\". ROOT CAUSE (re-confirmed): davan_pub/widget_active_user is a SINGLE GLOBAL RTDB node — every login from any phone anywhere overwrites it, so all widgets followed the last person to log in. FIX (needs APK w92, shipped together): the widget now owns a permanent 6-char pair code; tapping the widget opens the PWA as index.html?wdev=<code>. New page-load IIFE captures ?wdev=, stores localStorage davan_widget_pair_code, cleans the URL (history.replaceState), and if a session is already restored calls davanWidgetSync so the widget flips immediately. davanWidgetSync() login branch now ALSO writes davan_pub/widget_active_dev/<pairCode>={uid,name,updatedAt}; logout removes only that same node. The w92 APK reads ONLY widget_active_dev/<its own code> — no scan, no global node — so other people\'s logins can never move this phone\'s widget again. Legacy widget_active_user write/remove KEPT unchanged so phones still on APK ≤ w91 keep working until updated. Manual fallback: new 🔗 Pair Widget button in the widget control panel (wcpPairCode) accepts the code shown on the widget\'s new PAIR THIS WIDGET card. Also in APK w92 (companion, this file unaffected): header now shows academicYear+semType from davan_pub/session_config (e.g. 2025-26 Ev) answering \"which AY is the widget showing\"; and a 🔕 Notifications OFF hint appears on the widget when Android 13+ POST_NOTIFICATIONS is not granted (APK has no Activity so it can never request it — enable once via Settings ▸ Apps ▸ DavanWidget ▸ Notifications). CODE_BUILD=998.' },
   { v: 'v997', date: '11-Jul-2026 IST', note: 'ROOT CAUSE CONFIRMED (via v996 debug instrumentation, live device log) for the admin-session-bounce: it is CROSS-TAB CONTAMINATION, not a race condition in this tab. Firebase Auth LOCAL persistence (kept intentionally — needed so "Remember me" survives closing the whole browser, per requirement) broadcasts sign-in state to every tab of the same origin via a storage event. Proof from the v996 log: fire #4 (uid→null) and fire #5 (uid→admin, email=admin@davan.local) both arrived with document.visibilityState=hidden — this tab was in the background — and fire #5 had ZERO local signInWithEmailAndPassword call in its stack (the wrapper added in v996 logs every local call; none fired for admin in that session). This means a SEPARATE tab/window on the same device, already signed in as Admin, was open at the same time as Priyanka login; that other tab own Firebase Auth activity (e.g. periodic token refresh) rebroadcast "admin is signed in" to all tabs, and onAuthStateChanged in Priyanka tab applied it unconditionally, overwriting her live session ~30s in. Fix: onAuthStateChanged now checks — if a DIFFERENT user is already actively signed in in THIS tab (currentUser set, uid differs from the incoming broadcast, and this is not an in-progress manual login in this tab) — the incoming broadcast is ignored and logged as [AuthDebug] ... IGNORED — cross-tab broadcast. A session already active in a given tab now always wins over a signal arriving from another tab/window; deliberate account-switching within the SAME tab (sign out, then manually log in as someone else) is unaffected because doFacultyLogin()/doFirebaseLogin() set _isManualLogin=true before signing in, which the new guard explicitly allows through. LOCAL persistence itself was deliberately left unchanged — switching to SESSION persistence would have also fixed the symptom but would break multi-day "stay logged in after closing browser," which is required. Debug instrumentation from v996 (the [AuthDebug] fire-log and signInWithEmailAndPassword stack-trace wrapper) is left in place, harmless and useful if any related issue resurfaces. CODE_BUILD=997.' },
   { v: 'v996', date: '11-Jul-2026 IST', note: 'DEBUG BUILD — v995 shipped but the admin-session-bounce still reproduced on live test (Priyanka V → Admin, ~2s after successful login), and critically the console log showed ZERO [AutoLogin] lines, which rules out the setTimeout race v995 fixed as the cause THIS time — something else is calling auth.signInWithEmailAndPassword() with valid admin credentials and we have not found the call site by reading source (checked all 3 _ensureAuth() call sites — all admin-only bulk-photo-upload functions, not triggered by a faculty login; checked for duplicate Firebase app instances — none share auth state in SDK 10.12.0 compat). Added two non-behavioral diagnostic instruments to actually observe it instead of guessing further: (1) auth.signInWithEmailAndPassword is now wrapped at the point auth is created — every call logs the target email AND a full stack trace as [AuthDebug] auth.signInWithEmailAndPassword CALLED, which will show the exact function that triggered the admin re-login even if it is somewhere not yet grepped. (2) onAuthStateChanged now logs every single fire as [AuthDebug] fire #N with incoming uid/email, the PRIOR currentUser/currentProfile before this fire overwrites them, _isManualLogin, _signingOut, tab visibility state, and a performance.now() timestamp — so if the bounce is coming from a second browser tab or a delayed background call, this will show it clearly. NEXT STEP: reproduce the bug again, then copy every console line containing [AuthDebug] (both the stack trace and the fire log) so the real trigger can be pinpointed instead of patched blind. CODE_BUILD=996.' },
