@@ -927,6 +927,24 @@
     </div>
   </div>
 
+  <!-- THIS CYCLE vs PREVIOUS CYCLE — day-by-day comparison chart -->
+  <div class="calc-card" style="margin-bottom:14px">
+    <div class="calc-header"><span>This cycle vs previous cycle</span><span id="cycleCompareRange" style="font-size:9px;color:var(--muted);font-weight:400">—</span></div>
+    <div style="padding:8px;overflow-x:auto">
+      <svg id="cycleCompareSvg" style="width:100%;height:auto;display:block"></svg>
+      <div id="cycleCompareLegend" style="display:flex;gap:14px;font-size:9px;color:var(--muted);margin-top:6px;flex-wrap:wrap"></div>
+    </div>
+  </div>
+
+  <!-- PREVIOUS CYCLE ONLY — full month, today's day-of-cycle marked -->
+  <div class="calc-card" style="margin-bottom:14px">
+    <div class="calc-header"><span>Previous cycle — on today's date</span><span id="prevCycleOnlyRange" style="font-size:9px;color:var(--muted);font-weight:400">—</span></div>
+    <div style="padding:8px;overflow-x:auto">
+      <svg id="prevCycleOnlySvg" style="width:100%;height:auto;display:block"></svg>
+      <div id="prevCycleOnlyLegend" style="display:flex;gap:14px;font-size:9px;color:var(--muted);margin-top:6px;flex-wrap:wrap"></div>
+    </div>
+  </div>
+
   <!-- STATIC TICKER DATA PANEL -->
   <div class="section-title">Live Reading Snapshot</div>
   <div class="calc-card" id="tickerStaticPanel">
@@ -1871,7 +1889,7 @@
 
   <div class="section-title">📋 Charge Log</div>
   <div class="calc-card" style="margin-bottom:16px">
-    <div class="calc-header"><span>Assumed vs actual — per session</span><span style="display:flex;gap:8px;align-items:center"><button onclick="importChargesFromRangeLog()" style="cursor:pointer;background:#1d9e7522;color:var(--green);border:1px solid #1d9e7544;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700">⚡ Import from Range log</button><button onclick="openChgAddModal()" style="cursor:pointer;background:#00d4ff22;color:var(--accent);border:1px solid #00d4ff44;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700">➕ Add past charge</button><span id="chgLogCount" class="chip chip-blue">—</span></span></div>
+    <div class="calc-header"><span>Assumed vs actual — per session</span><span style="display:flex;gap:8px;align-items:center"><button onclick="openChgAddModal()" style="cursor:pointer;background:#00d4ff22;color:var(--accent);border:1px solid #00d4ff44;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700">➕ Add past charge</button><span id="chgLogCount" class="chip chip-blue">—</span></span></div>
     <div id="chgLogBody" style="padding:8px;overflow-x:auto"></div>
   </div>
 
@@ -2171,6 +2189,10 @@
     <div class="form-row">
       <label>Start time</label>
       <input type="time" id="chgEditStartTime">
+    </div>
+    <div class="form-row">
+      <label>Dashboard TTC at plug-in (h:mm, blank = none)</label>
+      <input type="text" id="chgEditTTC" placeholder="e.g. 2:02">
     </div>
     <div class="form-row">
       <label>End %</label>
@@ -2525,7 +2547,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.9.88"; // NEW '⚡ Import from Range log' — auto-creates Charge Log sessions from rising-% readings in chgKmLog, deduped. Units/cost estimated.
+const APP_VERSION = "v2.10.4"; // REAL FIX: both cycle-comparison charts used s.daysToLatest for their 'today' marker/lookup, which is off-by-one from s.daysSinceBill (the day-counter the Daily table's DaysSinceBill column and Used M-1/M-2/M-3 values actually use). That's why the chart showed 19.4u (day 3) while the Daily table correctly showed 24.10u (day 4) for the same 'today'. Both charts now use s.daysSinceBill throughout, so they always agree with the Daily table.
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -3721,6 +3743,308 @@ function renderDashboard() {
     '</div>';
 
   renderBillProjectionChart(s, latest);
+  renderCycleCompareChart(s);
+  renderPrevCycleOnlyChart(s);
+}
+
+// ── This cycle vs previous cycle — cumulative units used, by day-of-cycle ──
+// Answers "on this same day, what was my reading/usage last month?" as a line graph:
+// two lines, X = days since bill date, Y = cumulative units used so far. Lets you see
+// at a glance whether this month is running ahead of or behind last month's pace.
+function renderCycleCompareChart(s) {
+  const svg = document.getElementById('cycleCompareSvg');
+  const rangeEl = document.getElementById('cycleCompareRange');
+  const legendEl = document.getElementById('cycleCompareLegend');
+  if (!svg || !s) return;
+
+  function isoKey(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+  function addDaysToISO(iso, n) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return isoKey(d); }
+
+  // Find this cycle's and the previous cycle's bill-date readings
+  const billRdgsAll = [...readings]
+    .filter(r => r.type === 'bill' || r.type === 'meter')
+    .sort((a, b) => new Date(a.d) - new Date(b.d));
+  const curBillISO = isoKey(s.billDate);
+  const curBillIdx = billRdgsAll.findIndex(r => r.d === curBillISO);
+  if (curBillIdx < 1) { svg.innerHTML = ''; if (legendEl) legendEl.innerHTML = '<span style="color:var(--muted)">Not enough billing history yet for a comparison — need at least 2 previous bill-date readings.</span>'; return; }
+
+  const prevBillStart = billRdgsAll[curBillIdx - 1];
+  const prevBillEnd = billRdgsAll[curBillIdx]; // = this cycle's own start (previous cycle's end)
+  const prevBillStartISO = prevBillStart.d;
+  const prevBillEndISO = prevBillEnd.d;
+  const prevCycleDays = Math.max(1, Math.round((new Date(prevBillEndISO+'T00:00:00') - new Date(prevBillStartISO+'T00:00:00')) / 86400000));
+
+  const sortedReadings = [...readings].sort((a,b) => new Date(a.d+'T'+(a.t||'00:00')) - new Date(b.d+'T'+(b.t||'00:00')));
+  function unitsAsOf(dateISO) {
+    let best = null;
+    for (const r of sortedReadings) { if (r.d <= dateISO) { if (!best || r.u > best.u) best = r; } }
+    return best ? best.u : null;
+  }
+
+  const todayISO = isoKey(new Date());
+  const curDays = Math.max(s.totalCycleDays, s.daysSinceBill + 1);
+  const maxDays = Math.max(curDays, prevCycleDays);
+
+  // This cycle: day 0..N, Used = unitsAsOf(day) − billUnits, only up to today (rest is blank/future)
+  const curPoints = [];
+  for (let day = 0; day <= maxDays; day++) {
+    const dISO = addDaysToISO(curBillISO, day);
+    if (dISO > todayISO || day > s.totalCycleDays) { curPoints.push(null); continue; }
+    const u = unitsAsOf(dISO);
+    curPoints.push(u != null ? +(u - s.billUnits).toFixed(1) : (day === 0 ? 0 : null));
+  }
+
+  // Previous cycle: day 0..N, Used = unitsAsOf(day) − prevBillStart.u, full cycle (it's complete)
+  const prevPoints = [];
+  for (let day = 0; day <= maxDays; day++) {
+    const dISO = addDaysToISO(prevBillStartISO, day);
+    if (dISO > prevBillEndISO) { prevPoints.push(null); continue; }
+    const u = unitsAsOf(dISO);
+    prevPoints.push(u != null ? +(u - prevBillStart.u).toFixed(1) : (day === 0 ? 0 : null));
+  }
+
+  if (rangeEl) {
+    const fmtShort = (iso) => { try { return fmtDM(iso); } catch { return iso; } };
+    rangeEl.textContent = fmtShort(prevBillStartISO) + '→' + fmtShort(prevBillEndISO) + ' vs ' + fmtShort(curBillISO) + '→now';
+  }
+
+  // ── SVG geometry (reuses the same layout pattern as the bill chart) ──
+  const W = 600, H = 260;
+  const padL = 46, padR = 16, padT = 20, padB = 34;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  const allVals = [...curPoints, ...prevPoints].filter(v => v != null);
+  const maxU = Math.max(...allVals, 10);
+  const yMax = Math.ceil(maxU / 20) * 20 || 20;
+  const xMax = maxDays || 1;
+  const xPos = (day) => padL + (day / xMax) * plotW;
+  const yPos = (u) => padT + plotH - (u / yMax) * plotH;
+
+  let svgParts = [];
+
+  // Grid lines
+  const gridSteps = 4;
+  for (let i = 0; i <= gridSteps; i++) {
+    const val = (yMax / gridSteps) * i;
+    const y = yPos(val);
+    svgParts.push(`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="#1e2d45" stroke-width="1"/>`);
+    svgParts.push(`<text x="${padL-6}" y="${y+4}" text-anchor="end" font-size="12" fill="#a8b8cc" font-family="JetBrains Mono, monospace">${Math.round(val)}</text>`);
+  }
+
+  // X-axis day labels
+  const labelEvery = Math.max(1, Math.ceil(xMax / 8));
+  for (let day = 0; day <= xMax; day++) {
+    if (day % labelEvery === 0 || day === xMax) {
+      svgParts.push(`<text x="${xPos(day)}" y="${H-padB+16}" text-anchor="middle" font-size="11" fill="#a8b8cc" font-family="JetBrains Mono, monospace">d${day}</text>`);
+    }
+  }
+
+  // Today marker (vertical dashed line at day = s.daysSinceBill, matching the Daily table's
+  // "DaysSinceBill" column exactly — NOT s.daysToLatest, which is off by one from that)
+  if (s.daysSinceBill >= 0 && s.daysSinceBill <= xMax) {
+    const tx = xPos(s.daysSinceBill);
+    svgParts.push(`<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${H-padB}" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.6"/>`);
+    svgParts.push(`<text x="${tx}" y="${padT-6}" text-anchor="middle" font-size="10" fill="var(--green)">today</text>`);
+  }
+
+  function buildPath(pts) {
+    let d = '', started = false;
+    pts.forEach((v, day) => {
+      if (v == null) { started = false; return; }
+      const x = xPos(day), y = yPos(v);
+      d += (started ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+      started = true;
+    });
+    return d.trim();
+  }
+
+  const prevPath = buildPath(prevPoints);
+  const curPath = buildPath(curPoints);
+  if (prevPath) svgParts.push(`<path d="${prevPath}" fill="none" stroke="var(--yellow)" stroke-width="2" stroke-dasharray="4,3" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>`);
+  if (curPath) svgParts.push(`<path d="${curPath}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`);
+
+  // Highlight the previous cycle's value at TODAY's day-offset (not just its final value) —
+  // without this, the yellow line crosses the "today" marker with no visible number there,
+  // which reads as missing/conflicting data rather than an intentional same-day comparison.
+  // Uses s.daysSinceBill — the SAME day-counter as the Daily table's "DaysSinceBill" column
+  // and its "Used M-1/M-2/M-3" values, so this chart always agrees with that table.
+  if (s.daysSinceBill >= 0 && s.daysSinceBill < prevPoints.length && prevPoints[s.daysSinceBill] != null) {
+    const px = xPos(s.daysSinceBill), py = yPos(prevPoints[s.daysSinceBill]);
+    svgParts.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="var(--yellow)" stroke="#0a0f1a" stroke-width="1.5"/>`);
+    svgParts.push(`<text x="${px.toFixed(1)}" y="${(py+16).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--yellow)">${prevPoints[s.daysSinceBill]}u same day</text>`);
+  }
+
+  // End-point dots + value labels
+  function lastValid(pts) {
+    for (let i = pts.length - 1; i >= 0; i--) if (pts[i] != null) return { day: i, v: pts[i] };
+    return null;
+  }
+  const prevEnd = lastValid(prevPoints);
+  const curEnd = lastValid(curPoints);
+  if (prevEnd && prevEnd.day !== s.daysSinceBill) {
+    const x = xPos(prevEnd.day), y = yPos(prevEnd.v);
+    svgParts.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="var(--yellow)"/>`);
+    svgParts.push(`<text x="${x.toFixed(1)}" y="${(y-8).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--yellow)">${prevEnd.v}u (final)</text>`);
+  }
+  if (curEnd) {
+    const x = xPos(curEnd.day), y = yPos(curEnd.v);
+    svgParts.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="var(--accent)"/>`);
+    svgParts.push(`<text x="${x.toFixed(1)}" y="${(y-8).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--accent)">${curEnd.v}u today</text>`);
+  }
+
+  svg.innerHTML = svgParts.join('');
+
+  if (legendEl) {
+    const prevOnSameDay = (curEnd && prevPoints[curEnd.day] != null) ? prevPoints[curEnd.day] : null;
+    let diffHtml = '';
+    if (prevOnSameDay != null && curEnd) {
+      const d2 = +(curEnd.v - prevOnSameDay).toFixed(1);
+      const col = d2 > 0 ? 'var(--red)' : (d2 < 0 ? 'var(--green)' : 'var(--muted)');
+      diffHtml = '<span>Same day (d' + curEnd.day + '): <b style="color:var(--accent)">' + curEnd.v + 'u</b> this cycle vs <b style="color:var(--yellow)">' + prevOnSameDay + 'u</b> last cycle → <b style="color:' + col + '">' + (d2>0?'+':'') + d2 + 'u</b></span>';
+    }
+    legendEl.innerHTML =
+      '<span><span style="color:var(--accent)">●</span> This cycle</span>' +
+      '<span><span style="color:var(--yellow)">●</span> Previous cycle</span>' +
+      diffHtml;
+  }
+}
+
+// ── Previous cycle ONLY — full month line chart, with today's day-of-cycle marked ──
+// A dedicated, uncluttered view of just last month's daily readings (not overlaid with
+// this month), so you can read off exactly what the reading/usage was on the same date.
+function renderPrevCycleOnlyChart(s) {
+  const svg = document.getElementById('prevCycleOnlySvg');
+  const rangeEl = document.getElementById('prevCycleOnlyRange');
+  const legendEl = document.getElementById('prevCycleOnlyLegend');
+  if (!svg || !s) return;
+
+  function isoKey(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+  function addDaysToISO(iso, n) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return isoKey(d); }
+
+  const billRdgsAll = [...readings]
+    .filter(r => r.type === 'bill' || r.type === 'meter')
+    .sort((a, b) => new Date(a.d) - new Date(b.d));
+  const curBillISO = isoKey(s.billDate);
+  const curBillIdx = billRdgsAll.findIndex(r => r.d === curBillISO);
+  if (curBillIdx < 1) {
+    svg.innerHTML = '';
+    if (legendEl) legendEl.innerHTML = '<span style="color:var(--muted)">Not enough billing history yet — need at least 1 previous complete cycle.</span>';
+    if (rangeEl) rangeEl.textContent = '—';
+    return;
+  }
+
+  const prevBillStart = billRdgsAll[curBillIdx - 1];
+  const prevBillEnd = billRdgsAll[curBillIdx];
+  const prevStartISO = prevBillStart.d;
+  const prevEndISO = prevBillEnd.d;
+  const prevCycleDays = Math.max(1, Math.round((new Date(prevEndISO+'T00:00:00') - new Date(prevStartISO+'T00:00:00')) / 86400000));
+
+  const sortedReadings = [...readings].sort((a,b) => new Date(a.d+'T'+(a.t||'00:00')) - new Date(b.d+'T'+(b.t||'00:00')));
+  function unitsAsOf(dateISO) {
+    let best = null;
+    for (const r of sortedReadings) { if (r.d <= dateISO) { if (!best || r.u > best.u) best = r; } }
+    return best ? best.u : null;
+  }
+
+  const points = []; // {day, dateISO, used}
+  for (let day = 0; day <= prevCycleDays; day++) {
+    const dISO = addDaysToISO(prevStartISO, day);
+    const u = unitsAsOf(dISO);
+    points.push({ day, dateISO: dISO, used: u != null ? +(u - prevBillStart.u).toFixed(1) : (day === 0 ? 0 : null) });
+  }
+  const validPoints = points.filter(p => p.used != null);
+  if (validPoints.length < 2) { svg.innerHTML = ''; if (legendEl) legendEl.innerHTML = '<span style="color:var(--muted)">Not enough readings logged in the previous cycle to draw a line.</span>'; return; }
+
+  if (rangeEl) {
+    const fmtShort = (iso) => { try { return fmtDM(iso); } catch { return iso; } };
+    rangeEl.textContent = fmtShort(prevStartISO) + ' → ' + fmtShort(prevEndISO);
+  }
+
+  // "Today" mapped onto the previous cycle = same day-offset as s.daysSinceBill (the SAME
+  // day-counter as the Daily table's "DaysSinceBill" column and its "Used M-1" values —
+  // NOT s.daysToLatest, which is off by one from that and was the source of an earlier bug).
+  const todayOffsetInPrev = Math.min(s.daysSinceBill, prevCycleDays);
+  const todayMatch = points[todayOffsetInPrev];
+
+  // ── SVG geometry ──
+  const W = 600, H = 240;
+  const padL = 46, padR = 16, padT = 20, padB = 34;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  const maxU = Math.max(...validPoints.map(p => p.used), 10);
+  const yMax = Math.ceil(maxU / 20) * 20 || 20;
+  const xMax = prevCycleDays || 1;
+  const xPos = (day) => padL + (day / xMax) * plotW;
+  const yPos = (u) => padT + plotH - (u / yMax) * plotH;
+
+  let svgParts = [];
+
+  const gridSteps = 4;
+  for (let i = 0; i <= gridSteps; i++) {
+    const val = (yMax / gridSteps) * i;
+    const y = yPos(val);
+    svgParts.push(`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="#1e2d45" stroke-width="1"/>`);
+    svgParts.push(`<text x="${padL-6}" y="${y+4}" text-anchor="end" font-size="12" fill="#a8b8cc" font-family="JetBrains Mono, monospace">${Math.round(val)}</text>`);
+  }
+
+  const labelEvery = Math.max(1, Math.ceil(xMax / 8));
+  points.forEach(p => {
+    if (p.day % labelEvery === 0 || p.day === xMax) {
+      const lbl = fmtDM(p.dateISO);
+      svgParts.push(`<text x="${xPos(p.day)}" y="${H-padB+16}" text-anchor="middle" font-size="11" fill="#a8b8cc" font-family="JetBrains Mono, monospace">${lbl}</text>`);
+    }
+  });
+
+  // Marker for "today" mapped onto this previous cycle
+  if (todayMatch) {
+    const tx = xPos(todayMatch.day);
+    svgParts.push(`<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${H-padB}" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.6"/>`);
+    svgParts.push(`<text x="${tx}" y="${padT-6}" text-anchor="middle" font-size="10" fill="var(--green)">today's date</text>`);
+  }
+
+  let path = '', started = false;
+  points.forEach(p => {
+    if (p.used == null) { started = false; return; }
+    const x = xPos(p.day), y = yPos(p.used);
+    path += (started ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+    started = true;
+  });
+  if (path) svgParts.push(`<path d="${path.trim()}" fill="none" stroke="var(--yellow)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`);
+
+  // Dots on every valid point
+  validPoints.forEach(p => {
+    const x = xPos(p.day), y = yPos(p.used);
+    svgParts.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="var(--yellow)"/>`);
+  });
+
+  // Highlighted dot + label at today's mapped date
+  if (todayMatch && todayMatch.used != null) {
+    const x = xPos(todayMatch.day), y = yPos(todayMatch.used);
+    svgParts.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" fill="var(--green)" stroke="#0a0f1a" stroke-width="1.5"/>`);
+    svgParts.push(`<text x="${x.toFixed(1)}" y="${(y-10).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--green)">${todayMatch.used}u</text>`);
+  }
+
+  // Final point label (end of cycle)
+  const lastValid = validPoints[validPoints.length - 1];
+  if (lastValid && lastValid.day !== (todayMatch && todayMatch.day)) {
+    const x = xPos(lastValid.day), y = yPos(lastValid.used);
+    svgParts.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="var(--yellow)"/>`);
+    svgParts.push(`<text x="${x.toFixed(1)}" y="${(y-8).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--yellow)">${lastValid.used}u final</text>`);
+  }
+
+  svg.innerHTML = svgParts.join('');
+
+  if (legendEl) {
+    legendEl.innerHTML =
+      '<span><span style="color:var(--yellow)">●</span> Previous cycle usage</span>' +
+      (todayMatch && todayMatch.used != null
+        ? '<span><span style="color:var(--green)">●</span> On the same date: <b style="color:var(--green)">' + todayMatch.used + ' units used</b></span>'
+        : '<span style="color:var(--muted)">No reading logged on that exact date last cycle</span>');
+  }
 }
 
 // =================== BILL CHART PINCH/PAN ZOOM ===================
@@ -4127,6 +4451,9 @@ const DAILY_COLUMNS = {
   t:              { label: 'Today',          sub: 'rdg < 10am',                 formula: 'Reading logged today before 10:00 AM (value · time)' },
   diff:           { label: 'T-Y',            sub: 'T − Y',                      formula: "Today's reading − Yesterday's reading" },
   usedSoFar:      { label: 'Used',           sub: 'T − bill date rdg',          formula: "Today's reading − Bill date reading = total units consumed so far this cycle" },
+  usedM1:         { label: 'Used M-1',       sub: 'same day, last cycle',       formula: "Previous cycle's Used, on the same DaysSinceBill as this row" },
+  usedM2:         { label: 'Used M-2',       sub: 'same day, 2 cycles ago',     formula: "The cycle before that one's Used, on the same DaysSinceBill as this row" },
+  usedM3:         { label: 'Used M-3',       sub: 'same day, 3 cycles ago',     formula: "Three cycles back's Used, on the same DaysSinceBill as this row" },
   daysSinceBill:  { label: 'DaysSinceBill',  sub: 'day of cycle',               formula: 'This date &minus; Bill date (bill date = 0)' },
   unitsPerDay:    { label: 'Y-Bill',          sub: 'Y − bill rdg',               formula: "Yesterday's reading − Bill date reading (units elapsed through yesterday)" },
   udRate:         { label: 'U/day',           sub: 'T − bill rdg',               formula: "(Today's reading − Bill date reading)" },
@@ -4139,7 +4466,7 @@ const DAILY_COLUMNS = {
   appPredReading: { label: 'AppPredReading', sub: 'final meter (same all rows)', formula: "Bill-start reading + AppPred = predicted final meter value at bill date. Mathematically identical for every row." }
 };
 const DAILY_COL_ORDER_KEY = 'meter_daily_col_order_v2';
-const DAILY_COL_DEFAULT_ORDER = ['sl','date','y','t','diff','usedSoFar','daysSinceBill','udRate','predMonth','appUd','freeRem','billEst','projReading','appPred','appPredReading'];
+const DAILY_COL_DEFAULT_ORDER = ['sl','date','y','t','diff','usedSoFar','usedM1','usedM2','usedM3','daysSinceBill','udRate','predMonth','appUd','freeRem','billEst','projReading','appPred','appPredReading'];
 
 function getDailyColOrder() {
   try {
@@ -4211,6 +4538,15 @@ function showDailyCellInfo(rowKey, colKey, ev) {
     case 'usedSoFar':
       body = r.tRaw.toFixed(2) + ' − ' + r.startUnits.toFixed(2) + ' (bill date) = ' + r.usedSoFar;
       break;
+    case 'usedM1': case 'usedM2': case 'usedM3': {
+      const p = colKey === 'usedM1' ? 1 : colKey === 'usedM2' ? 2 : 3;
+      const lbl = r['usedM' + p + 'Label'];
+      const val = r['usedM' + p];
+      body = val != null
+        ? (lbl || 'Prev cycle') + ', day ' + r.daysSinceBill + ' of that cycle: <b>' + val + ' units used</b>'
+        : (lbl ? 'No reading logged on day ' + r.daysSinceBill + ' of ' + lbl : 'No cycle that far back yet');
+      break;
+    }
     case 'daysSinceBill':
       body = r.date + ' is day ' + r.daysSinceBill + ' of this ' + r.totalDays + '-day cycle';
       break;
@@ -4415,11 +4751,33 @@ function renderDaily() {
     cycleMeta[c.startDate] = { totalDays, loggedCount, isOpenCycle, udRateMin, udRateMax, udRateLatest, cycleWr: isOpenCycle ? _cycleWr : null, headerLabel: fmtMonthYear(c.startDate) + ' (' + fmtCard(c.startDate) + ' → ' + (c.endDate ? fmtCard(c.endDate) : '…') + ')' };
   });
 
+  // ── Second pass: for each row, pull "Used" from the same daysSinceBill in the previous
+  // 3 cycles (M-1, M-2, M-3), so you can compare this cycle's pace against recent months
+  // at the exact same point in the billing cycle. cycles[] is newest-first.
+  cycles.forEach((c, cIdx) => {
+    const rows = cycleRowsMap[c.startDate];
+    rows.forEach(r => {
+      for (let p = 1; p <= 3; p++) {
+        const prevC = cycles[cIdx + p];
+        const key = 'usedM' + p;
+        if (!prevC) { r[key] = null; r[key + 'Label'] = null; continue; }
+        const prevRows = cycleRowsMap[prevC.startDate];
+        const match = prevRows.find(pr => pr.daysSinceBill === r.daysSinceBill);
+        r[key] = (match && match.usedSoFar !== '–') ? match.usedSoFar : null;
+        r[key + 'Label'] = fmtMonthYear(prevC.startDate);
+      }
+    });
+  });
+
   // ── Pre-compute prev-3-cycle Pred30 lookup (for inline pills in each accordion header) ──
   // For any cycle at index i in cycles[] (newest-first), the prev 3 completed cycles are
   // cycles[i+1], cycles[i+2], cycles[i+3] — find each one's Pred30 on todayDateNum.
   function getPrevCyclePills(cycleIdx) {
     const pills = [];
+    // This cycle's Used-so-far on today's day-of-month (the baseline to compare against)
+    const curRows = cycleRowsMap[cycles[cycleIdx].startDate];
+    const curMatch = curRows ? curRows.find(r => new Date(r.dateISO+'T00:00:00').getDate() === todayDateNum) : null;
+    const curUsedNum = (curMatch && curMatch.usedSoFar !== '–') ? parseFloat(curMatch.usedSoFar) : null;
     for (let p = 1; p <= 3; p++) {
       const prevC = cycles[cycleIdx + p];
       if (!prevC || prevC.isOpen) continue;
@@ -4427,7 +4785,12 @@ function renderDaily() {
       if (!prevRows) continue;
       const matchRow = prevRows.find(r => new Date(r.dateISO+'T00:00:00').getDate() === todayDateNum);
       const pred30 = (matchRow && matchRow.predMonth !== '–') ? matchRow.predMonth : '–';
-      pills.push({ label: fmtMonthYear(prevC.startDate), pred30 });
+      // Used = T − bill-date reading (usedSoFar) on the same day-of-month in the prev cycle
+      const used = (matchRow && matchRow.usedSoFar !== '–') ? matchRow.usedSoFar : '–';
+      // diff = this month's Used-so-far − this prev month's Used (same day). +ve = using more this month.
+      let diff = null;
+      if (curUsedNum != null && used !== '–') diff = +(curUsedNum - parseFloat(used)).toFixed(1);
+      pills.push({ label: fmtMonthYear(prevC.startDate), pred30, used, diff });
     }
     return pills;
   }
@@ -4447,12 +4810,22 @@ function renderDaily() {
     let pillsHtml = '';
     if (prevPills.length) {
       pillsHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;align-items:center">';
-      pillsHtml += '<span style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Pred30 on ' + todayDateNum + getOrdinalSuffix(todayDateNum) + ':</span>';
+      pillsHtml += '<span style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">On ' + todayDateNum + getOrdinalSuffix(todayDateNum) + ':</span>';
       prevPills.forEach(p => {
         const valColor = p.pred30 === '–' ? 'var(--muted)' : 'var(--accent)';
-        pillsHtml += '<span style="background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:1px 6px;font-size:9px;white-space:nowrap">';
-        pillsHtml += '<span style="color:var(--muted)">' + p.label + '</span> ';
-        pillsHtml += '<span style="color:' + valColor + ';font-weight:700">' + p.pred30 + '</span>';
+        const usedColor = p.used === '–' ? 'var(--muted)' : 'var(--green)';
+        // diff vs this month's Used-so-far on the same day. +ve = using MORE this month (red), −ve = LESS (green).
+        let diffHtml = '';
+        if (p.diff != null) {
+          const dCol = p.diff > 0 ? 'var(--red)' : (p.diff < 0 ? 'var(--green)' : 'var(--muted)');
+          const word = p.diff > 0 ? 'more' : (p.diff < 0 ? 'less' : 'same');
+          diffHtml = '<span><span style="color:var(--muted);font-size:8px">vs now </span><span style="color:' + dCol + ';font-weight:700">' + (p.diff>0?'+':'') + p.diff + '</span><span style="color:var(--muted);font-size:8px"> ' + word + '</span></span>';
+        }
+        pillsHtml += '<span style="background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:2px 7px;font-size:9px;white-space:nowrap;display:inline-flex;flex-direction:column;gap:1px;text-align:center">';
+        pillsHtml += '<span style="color:var(--muted);font-size:8px">' + p.label + '</span>';
+        pillsHtml += '<span><span style="color:var(--muted);font-size:8px">Pred30 </span><span style="color:' + valColor + ';font-weight:700">' + p.pred30 + '</span></span>';
+        pillsHtml += '<span><span style="color:var(--muted);font-size:8px">Used </span><span style="color:' + usedColor + ';font-weight:700">' + p.used + '</span></span>';
+        pillsHtml += diffHtml;
         pillsHtml += '</span>';
       });
       pillsHtml += '</div>';
@@ -4481,7 +4854,8 @@ function renderDaily() {
     const colOrder = getDailyColOrder();
     const colColors = {
       diff: 'var(--green)', unitsPerDay: 'var(--accent)', appUd: 'var(--yellow)',
-      appPred: 'var(--yellow)', appPredReading: 'var(--yellow)'
+      appPred: 'var(--yellow)', appPredReading: 'var(--yellow)',
+      usedM1: 'var(--muted)', usedM2: 'var(--muted)', usedM3: 'var(--muted)'
     };
     let stickyOffset = 0;
     const stickyLefts = {};
@@ -4498,7 +4872,7 @@ function renderDaily() {
              + '</th>';
     });
     html += '</tr></thead><tbody>';
-    const COMPUTED_KEYS = ['diff','usedSoFar','daysSinceBill','unitsPerDay','udRate','predMonth','appUd','freeRem','billEst','projReading','appPred','appPredReading'];
+    const COMPUTED_KEYS = ['diff','usedSoFar','usedM1','usedM2','usedM3','daysSinceBill','unitsPerDay','udRate','predMonth','appUd','freeRem','billEst','projReading','appPred','appPredReading'];
     // Display newest-first (bill date at the bottom) while keeping each row's
     // original index for its registry key and its stored SL number intact.
     rows.map((r, origIdx) => ({ r, origIdx })).reverse().forEach(({ r, origIdx }) => {
@@ -4509,9 +4883,10 @@ function renderDaily() {
         const isSticky = (key === 'sl' || key === 'date');
         const color = colColors[key] || (key === 'billEst' ? (r.billEst==='₹0'?'var(--green)':'var(--red)') : '');
         const style = 'padding:4px 8px' + (isSticky ? ';text-align:left;position:sticky;left:' + stickyLefts[key] + 'px;background:#0a0f1a' + (key==='sl'?';color:var(--muted)':'') : '') + (color ? ';color:' + color : '');
-        const isComputed = COMPUTED_KEYS.includes(key) && r[key] !== '–';
+        const isComputed = COMPUTED_KEYS.includes(key) && r[key] !== '–' && r[key] != null;
         const tapAttr = isComputed ? ' onclick="showDailyCellInfo(\'' + rowKey + '\',\'' + key + '\',event)" style="' + style + ';cursor:pointer;text-decoration:underline dotted;text-decoration-color:rgba(255,255,255,0.2)"' : ' style="' + style + '"';
-        html += '<td' + tapAttr + '>' + r[key] + '</td>';
+        const dispVal = (r[key] == null) ? '–' : r[key];
+        html += '<td' + tapAttr + '>' + dispVal + '</td>';
       });
       html += '</tr>';
     });
@@ -6820,6 +7195,7 @@ window.onload = async () => {
       if (cData.active)   chgActive   = cData.active;
       if (cData.serviceLog) chgServiceLog = Array.isArray(cData.serviceLog) ? cData.serviceLog : Object.values(cData.serviceLog);
       if (cData.kmLog) chgKmLog = Array.isArray(cData.kmLog) ? cData.kmLog : Object.values(cData.kmLog);
+      chgKmLog.sort((a,b) => (a.ts||0) - (b.ts||0));
     }
   } catch(e) { console.error('charging load', e); }
 
@@ -7887,11 +8263,6 @@ function startCharge() {
   // keep the Service tab's "current odometer" synced whenever a fresh reading comes in here too
   if (!isNaN(odo)) {
     settings.chgOdo = odo; settings.chgOdoTs = Date.now(); saveSettings();
-    // also record this plug-in point in the unified km log so it shows in Between Charges
-    const now = new Date();
-    chgKmLog.push({ km: odo, pct: sp, ts: now.getTime(), date: now.toISOString().slice(0,10), time: chgNowHM(), type: 'charge_start' });
-    chgKmLog.sort((a,b) => a.ts - b.ts);
-    fbSet(FB_CHARGING + '/kmLog', chgKmLog);
   }
   chgSave();
   renderCharging();
@@ -7928,13 +8299,6 @@ function endCharge() {
     unitsEst, unitsMeter, units, cost
   };
   chgSessions.push(s);
-  // record this unplug point in the unified km log so it shows in Between Charges (only if odo known)
-  if (endOdo != null) {
-    const endNow = new Date();
-    chgKmLog.push({ km: endOdo, pct: ep, ts: endNow.getTime(), date: endNow.toISOString().slice(0,10), time: chgNowHM(), type: 'charge_end' });
-    chgKmLog.sort((a,b) => a.ts - b.ts);
-    fbSet(FB_CHARGING + '/kmLog', chgKmLog);
-  }
   chgActive = null;
   chgSave();
   renderCharging();
@@ -8068,7 +8432,7 @@ function renderChgKmLog() {
       const idx = chgKmLog.length - 1 - i;      // real index in chgKmLog
       const prev = idx > 0 ? chgKmLog[idx-1] : null;
       const dKm = prev ? +(r.km - prev.km).toFixed(1) : null;
-      const dPct = (prev && r.pct != null && prev.pct != null) ? (r.pct - prev.pct) : null;
+      const dPct = (prev && r.pct != null && prev.pct != null) ? +(r.pct - prev.pct).toFixed(2) : null;
       const kmPerPct = (dKm != null && dPct != null && dPct < 0 && dKm > 0) ? +(dKm/(-dPct)).toFixed(2) : null;
       const gapH = prev ? ((r.ts - prev.ts)/3600000) : null;
       const gapTxt = gapH == null ? '–' : gapH < 1 ? Math.round(gapH*60)+'m' : gapH.toFixed(1)+'h';
@@ -8098,77 +8462,97 @@ function renderChgKmLog() {
   body.innerHTML =
     `<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace">
       <thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
-     <div style="padding:6px 8px;color:var(--muted);font-size:9px">✎ edit date/time · km/% shown only when km rose &amp; % dropped (real riding) · tap underlined values for the calculation</div>`;
+     <div style="padding:8px;margin-top:6px;border-top:1px solid rgba(255,255,255,0.08)">
+       <div style="color:var(--muted);font-size:9px;margin-bottom:5px;letter-spacing:.5px">WHAT EACH COLUMN MEANS</div>
+       <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:10px;line-height:1.4">
+         <b style="${teal}">#</b><span style="${mut}">Serial number of the reading</span>
+         <b style="${teal}">Date</b><span style="${mut}">Date the reading was taken</span>
+         <b style="${teal}">Time</b><span style="${mut}">Time the reading was taken</span>
+         <b style="${teal}">Tag</b><span style="${mut}">Entry type — ⚡ charge start, 🏁 charge end, · normal reading</span>
+         <b style="${teal}">km</b><span style="${mut}">Odometer reading (total distance on scooter)</span>
+         <b style="${teal}">%</b><span style="${mut}">Battery level at that moment</span>
+         <b style="${teal}">Δkm</b><span style="${mut}">Distance ridden since the previous reading</span>
+         <b style="${teal}">Δ%</b><span style="${mut}">Battery used (drop) since the previous reading</span>
+         <b style="${teal}">km/%</b><span style="${mut}">Range per 1% battery — how far you go on each percent (higher = better efficiency)</span>
+         <b style="${teal}">gap</b><span style="${mut}">Time elapsed since the previous reading</span>
+         <b style="${teal}">✎</b><span style="${mut}">Edit that reading's date/time</span>
+       </div>
+       <div style="color:var(--muted);font-size:9px;margin-top:6px">Note: <b>km/%</b> is shown only when km went up &amp; % went down (real riding). Tap any underlined value to see its calculation.</div>
+     </div>`;
 }
 
-// ── Between-charges table: only the entries tagged ⚡ charge_start / 🏁 charge_end,
-// showing the real segment between each consecutive pair — riding distance between
-// charges, and a sanity-check on the (should-be-zero) km moved during charging itself.
+// ── Between-charges table: km ridden between one charge and the next, computed from the
+// Charge Log's own odometer readings (startOdo, taken at plug-in). No guessing — this is
+// simply this session's Odo minus the previous session's Odo. Efficiency (km/%, km/unit,
+// ₹/km) is attributed to the PREVIOUS session, since that's the charge that powered the ride.
 function renderChgBetweenCharges() {
   const body = document.getElementById('chgBetweenBody');
   const count = document.getElementById('chgBetweenCount');
   if (!body) return;
-  const tagged = chgKmLog.filter(r => r.type === 'charge_start' || r.type === 'charge_end').sort((a,b) => a.ts - b.ts);
-  count.textContent = tagged.length + ' points';
+  const stats = chgKmRideStats();
+  const segs = stats.segs;
+  count.textContent = segs.length + ' rides';
 
-  const mut = 'color:var(--muted)', teal = 'color:#5dcaa5', green = 'color:var(--green)', yellow = 'color:var(--yellow)';
+  const mut = 'color:var(--muted)', teal = 'color:#5dcaa5', green = 'color:var(--green)';
   const cell = (v, st='') => `<td style="padding:4px 8px;text-align:right;white-space:nowrap;${st}">${v}</td>`;
-  const cols = ['#','From','To','Segment','Δkm','Δ%','km/%','check'];
+  const cols = ['#','From (charge)','To (charge)','From Odo','To Odo','Δkm','%used','km/%','km/unit','₹/km','edit'];
   const head = cols.map(h => `<th style="padding:4px 8px;text-align:right;white-space:nowrap;font-size:10px;${mut}">${h}</th>`).join('');
 
   let rows = '';
-  if (tagged.length < 2) {
+  if (!segs.length) {
     rows = `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">` + cols.map(()=>cell('–',mut)).join('') + `</tr>`;
   } else {
-    const segRows = [];
-    for (let i = 1; i < tagged.length; i++) {
-      const prev = tagged[i-1], cur = tagged[i];
-      const dKm = +(cur.km - prev.km).toFixed(1);
-      const dPct = (prev.pct != null && cur.pct != null) ? +(cur.pct - prev.pct).toFixed(1) : null;
-      // Classify by what actually happened to the battery, not just by tag pairing:
-      //   % went UP  → charging  (km should stay ~0 → sanity check)
-      //   % went DOWN → riding    (km rose, battery drained → real range)
-      const isCharge = dPct != null && dPct > 0;
-      const isRide = !isCharge;
-      const label = isRide ? '🛣 ride' : '⚡ charging';
-      const kmPerPct = (isRide && dPct != null && dPct < 0 && dKm > 0) ? +(dKm / (-dPct)).toFixed(2) : null;
-      const checkTxt = isCharge
-        ? (Math.abs(dKm) < 0.15 ? '<span style="'+green+'">✓ ok</span>' : '<span style="color:var(--red)">⚠ moved ' + dKm + ' km while charging?</span>')
-        : '';
-      segRows.push({ prev, cur, dKm, dPct, label, kmPerPct, checkTxt, isRide });
-    }
     const tapCss = 'cursor:pointer;text-decoration:underline dotted;text-decoration-color:rgba(255,255,255,0.2)';
     const exp = (key, dateLbl, html) => 'showChgCellInfo(\'' + key + '\',\'' + dateLbl + '\',' + JSON.stringify(html).replace(/"/g,'&quot;') + ',event)';
-    segRows.slice().reverse().forEach((s, i) => {
-      const sl = segRows.length - i;
-      const dateLbl = (s.cur.date ? fmtDM(s.cur.date) : '–');
-      const fromLbl = (s.prev.date?fmtDM(s.prev.date):'–') + ' ' + (s.prev.time||'');
-      const toLbl = (s.cur.date?fmtDM(s.cur.date):'–') + ' ' + (s.cur.time||'');
+    segs.slice().reverse().forEach((s, i) => {
+      const sl = segs.length - i;
+      const fromLbl = fmtDM(s.fromDate);
+      const toLbl = fmtDM(s.toDate);
 
-      const segExp = exp('Segment', dateLbl, s.isRide
-        ? '\ud83d\udee3 ride \u2014 battery % dropped between these two points, so the km covered is real riding'
-        : '\u26a1 charging \u2014 battery % rose between these two points; km should stay ~0 (sanity check)');
-      const dKmExp = exp('\u0394km', dateLbl, s.cur.km + ' \u2212 ' + s.prev.km + ' (' + fromLbl + ') = <b>' + (s.dKm>0?'+':'')+s.dKm + ' km</b>');
-      const dPctExp = s.dPct != null ? exp('\u0394%', dateLbl, (s.cur.pct!=null?s.cur.pct:'–') + '% \u2212 ' + (s.prev.pct!=null?s.prev.pct:'–') + '% = <b>' + (s.dPct>0?'+':'')+s.dPct + '%</b>') : null;
-      const kmPctExp = s.kmPerPct != null ? exp('km/%', dateLbl, Math.abs(s.dKm) + ' km ridden \u00f7 ' + Math.abs(s.dPct) + '% used = <b>' + s.kmPerPct + ' km per 1%</b><br>(only computed for ride segments where km rose &amp; % dropped)') : null;
-      const checkExp = s.checkTxt ? exp('check', dateLbl, 'Sanity check for same-session start\u2192end: expect ~0 km moved while charging.<br>' + (Math.abs(s.dKm) < 0.15 ? '\u2713 ' + s.dKm + ' km \u2014 within tolerance (&lt;0.15 km)' : '\u26a0 ' + s.dKm + ' km moved \u2014 outside tolerance, check odometer entries')) : null;
+      const dKmExp = exp('\u0394km', toLbl, 'Odometer at ' + toLbl + ' plug-in \u2212 odometer at ' + fromLbl + ' plug-in = <b>' + s.kmRidden + ' km ridden</b><br>(straight from the Charge Log\u2019s Odo column \u2014 the scooter can\u2019t move while charging, so this is exact)');
+      const pctExp = exp('%used', toLbl, 'Battery added by the ' + fromLbl + ' charge, now spent riding to the next charge = <b>' + s.pctUsed + '%</b>');
+      const kmPctExp = exp('km/%', toLbl, s.kmRidden + ' km \u00f7 ' + s.pctUsed + '% used = <b>' + s.kmPerPct.toFixed(2) + ' km per 1%</b>');
+      const kmUnitExp = s.kmPerUnit != null ? exp('km/unit', toLbl, s.kmRidden + ' km \u00f7 units added at ' + fromLbl + ' = <b>' + s.kmPerUnit.toFixed(2) + ' km per unit</b>') : null;
+      const costExp = s.costPerKm != null ? exp('\u20b9/km', toLbl, 'Cost of the ' + fromLbl + ' charge \u00f7 ' + s.kmRidden + ' km ridden on it = <b>\u20b9' + s.costPerKm.toFixed(2) + '/km</b>') : null;
 
       rows += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
         ${cell(sl, mut)}
         ${cell(fromLbl, mut)}
         ${cell(toLbl, mut)}
-        <td style="padding:4px 8px;text-align:right;white-space:nowrap;color:${s.isRide ? 'var(--green)' : 'var(--yellow)'};${tapCss}" onclick="${segExp}">${s.label}</td>
-        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${teal};${tapCss}" onclick="${dKmExp}">${(s.dKm>0?'+':'')+s.dKm}</td>
-        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut}${dPctExp?(';'+tapCss):''}" ${dPctExp?('onclick="'+dPctExp+'"'):''}>${s.dPct != null ? (s.dPct>0?'+':'')+s.dPct : '–'}</td>
-        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${s.kmPerPct!=null?teal:mut}${kmPctExp?(';'+tapCss):''}" ${kmPctExp?('onclick="'+kmPctExp+'"'):''}>${s.kmPerPct != null ? s.kmPerPct : '–'}</td>
-        <td style="padding:4px 8px;text-align:right;white-space:nowrap${checkExp?(';'+tapCss):''}" ${checkExp?('onclick="'+checkExp+'"'):''}>${s.checkTxt || '–'}</td>
+        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut};cursor:pointer;text-decoration:underline dotted;text-decoration-color:rgba(255,255,255,0.15)" onclick="openChgSessionEditModalV2972(${s.prevIdx})" title="Tap to edit ${fromLbl} odometer">${s.fromOdo}</td>
+        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut};cursor:pointer;text-decoration:underline dotted;text-decoration-color:rgba(255,255,255,0.15)" onclick="openChgSessionEditModalV2972(${s.curIdx})" title="Tap to edit ${toLbl} odometer">${s.toOdo}</td>
+        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${teal};${tapCss}" onclick="${dKmExp}">${s.kmRidden}</td>
+        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut};${tapCss}" onclick="${pctExp}">${s.pctUsed}%</td>
+        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${teal};${tapCss}" onclick="${kmPctExp}">${s.kmPerPct.toFixed(2)}</td>
+        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${s.kmPerUnit!=null?teal:mut}${kmUnitExp?(';'+tapCss):''}" ${kmUnitExp?('onclick="'+kmUnitExp+'"'):''}>${s.kmPerUnit != null ? s.kmPerUnit.toFixed(2) : '–'}</td>
+        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${s.costPerKm!=null?green:mut}${costExp?(';'+tapCss):''}" ${costExp?('onclick="'+costExp+'"'):''}>${s.costPerKm != null ? '\u20b9'+s.costPerKm.toFixed(2) : '–'}</td>
+        <td style="padding:4px 8px;text-align:center;white-space:nowrap">
+          ${s.prevIdx > -1 ? '<span onclick="openChgSessionEditModalV2972('+s.prevIdx+')" title="Edit '+fromLbl+' charge (Odo)" style="cursor:pointer;color:var(--muted)">✎from</span>' : ''}
+          ${s.curIdx > -1 ? ' <span onclick="openChgSessionEditModalV2972('+s.curIdx+')" title="Edit '+toLbl+' charge (Odo)" style="cursor:pointer;color:var(--accent)">✎to</span>' : ''}
+        </td>
       </tr>`;
     });
   }
   body.innerHTML =
     `<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace">
       <thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
-     <div style="padding:6px 8px;color:var(--muted);font-size:9px">🛣 ride = % dropped (real riding km) · ⚡ charging = % rose, should read ~0 km moved (sanity check) · tag readings ⚡/🏁 in the form above to populate this · tap underlined values for the calculation</div>`;
+     <div style="padding:8px;margin-top:6px;border-top:1px solid rgba(255,255,255,0.08)">
+       <div style="color:var(--muted);font-size:9px;margin-bottom:5px;letter-spacing:.5px">WHAT EACH COLUMN MEANS</div>
+       <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:10px;line-height:1.4">
+         <b style="${teal}">#</b><span style="${mut}">Serial number of the ride (between two consecutive charges)</span>
+         <b style="${teal}">From (charge)</b><span style="${mut}">Date of the charge you rode away from</span>
+         <b style="${teal}">To (charge)</b><span style="${mut}">Date of the next charge, ending this ride</span>
+         <b style="${teal}">From Odo</b><span style="${mut}">Odometer reading noted when you plugged in for the FROM charge \u2014 tap to edit</span>
+         <b style="${teal}">To Odo</b><span style="${mut}">Odometer reading noted when you plugged in for the TO charge \u2014 tap to edit</span>
+         <b style="${teal}">Δkm</b><span style="${mut}">To Odo \u2212 From Odo \u2014 the actual km ridden, plain subtraction</span>
+         <b style="${teal}">%used</b><span style="${mut}">Battery % that charge added, now spent on this ride</span>
+         <b style="${teal}">km/%</b><span style="${mut}">Real range \u2014 km covered per 1% of that charge</span>
+         <b style="${teal}">km/unit</b><span style="${mut}">Km covered per electricity unit spent on that charge</span>
+         <b style="${teal}">₹/km</b><span style="${mut}">Running cost per km for that ride</span>
+         <b style="${teal}">✎from / ✎to</b><span style="${mut}">Edit the odometer (Odo) of either charge session bounding this ride — fixes Δkm here instantly</span>
+       </div>
+       <div style="color:var(--muted);font-size:9px;margin-top:6px">Source: Charge Log's Odo field (odometer noted at plug-in). One row per completed ride between two charges \u2014 no guesswork. Tap any underlined value for its calculation.</div>
+     </div>`;
 }
 
 function editKmReading(idx) {
@@ -8466,6 +8850,8 @@ function chgKmRideStats() {
       if (kmRidden > 0 && prev.added > 0) {
         segs.push({
           fromDate: prev.date, toDate: cur.date, kmRidden,
+          fromOdo: prev.startOdo, toOdo: cur.startOdo,
+          prevIdx: chgSessions.indexOf(prev), curIdx: chgSessions.indexOf(cur),
           pctUsed: prev.added,
           kmPerPct: kmRidden / prev.added,
           kmPerUnit: prev.units > 0 ? kmRidden / prev.units : null,
@@ -8696,7 +9082,7 @@ function renderChgLive() {
       </div>`;
   };
   paint();
-  _chgTick = setInterval(paint, 30000);
+  _chgTick = setInterval(() => { paint(); renderChgLog(); }, 30000);
   _chgFastTick = setInterval(chgTickCountdowns, 1000);
 }
 
@@ -8823,8 +9209,37 @@ function renderChgLog() {
     .map(h => `<th style="padding:4px 8px;text-align:right;white-space:nowrap;font-size:10px;${mut}">${h}</th>`).join('');
   const cell = (v, st='') => `<td style="padding:4px 8px;text-align:right;white-space:nowrap;${st}">${v}</td>`;
 
+  // ── Live "in progress" row: shows the moment you hit Start charging, before it's ended.
+  // Only the fields known at plug-in are real; everything end-only stays as ellipsis, so
+  // it's obvious at a glance this session isn't finished yet — not that data is missing/broken.
+  let liveRow = '';
+  if (chgActive) {
+    const a = chgActive;
+    const dateLbl = a.date ? fmtDM(a.date) : '–';
+    const elapsedMin = a.startTime ? chgMinutesBetween(a.startTime, chgNowHM()) : null;
+    liveRow = `<tr style="border-bottom:1px solid rgba(0,212,255,0.15);background:rgba(0,212,255,0.05)">
+      ${cell('<span style="color:var(--green)">●</span>', '')}
+      ${cell(dateLbl)}
+      ${cell(a.startPct + '→' + (a.targetPct||100), amber)}
+      ${cell('…', mut)}
+      ${cell('…', mut)}
+      ${cell(a.startTime + '→<span style="color:var(--green)">now</span>', mut)}
+      ${cell(elapsedMin != null ? chgFmtDur(elapsedMin) + ' <span style="'+mut+';font-size:9px">so far</span>' : '–', cyan)}
+      ${cell(a.ttcAssumed != null ? chgFmtDur(a.ttcAssumed) : '–', amber)}
+      ${cell(a.predFull != null ? chgFmtDur(a.predFull) : '–', amber)}
+      ${cell('…', mut)}
+      ${cell('…', mut)}
+      ${cell(a.startMeter != null ? a.startMeter : '–', mut)}
+      ${cell('…', mut)}
+      ${cell('…', mut)}
+      ${cell('…', mut)}
+      ${cell(a.startOdo != null ? a.startOdo : '–', a.startOdo != null ? '' : mut)}
+      ${cell('<span style="color:var(--green);font-weight:700">⚡ charging</span>', '')}
+    </tr>`;
+  }
+
   let rows = '';
-  if (!chgSessions.length) {
+  if (!chgSessions.length && !chgActive) {
     // Blank placeholder row — all columns present, dashes until real data arrives.
     rows = `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">` +
       CHG_COLS.map(() => cell('–', mut)).join('') + `</tr>`;
@@ -8878,69 +9293,13 @@ function renderChgLog() {
   }
   body.innerHTML =
     `<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace">
-      <thead><tr>${head}</tr></thead><tbody>${rows}</tbody>
+      <thead><tr>${head}</tr></thead><tbody>${liveRow}${rows}</tbody>
     </table>
-    <div style="padding:6px 8px;color:var(--muted);font-size:9px">* = assumed/predicted · m=meter units, e=estimated · Δrate green = faster than 2.56 spec · Odo = km at plug-in (✎ to backfill/edit) · tap underlined values for the calculation</div>`;
+    <div style="padding:6px 8px;color:var(--muted);font-size:9px">* = assumed/predicted · m=meter units, e=estimated · Δrate green = faster than 2.56 spec · Odo = km at plug-in (✎ to backfill/edit) · tap underlined values for the calculation${chgActive ? ' · <span style="color:var(--green)">● live row = charging in progress, updates when you end it</span>' : ''}</div>`;
 }
 
 // Scan the Range log (chgKmLog) for charge events — any consecutive pair where battery %
 // ROSE — and turn each into a proper Charge Log session, skipping ones already logged.
-// A "charge" between reading A and reading B means B.pct > A.pct (battery went up).
-function importChargesFromRangeLog() {
-  if (!Array.isArray(chgKmLog) || chgKmLog.length < 2) {
-    alert('No range-log readings to scan.');
-    return;
-  }
-  const log = chgKmLog.slice().sort((a,b) => (a.ts||0) - (b.ts||0));
-  // signature of already-logged sessions so we don't double-add
-  const have = new Set(chgSessions.map(s => (s.date||'') + '|' + (s.startPct) + '|' + (s.endPct)));
-  let added = 0;
-  for (let i = 1; i < log.length; i++) {
-    const a = log[i-1], b = log[i];
-    if (a.pct == null || b.pct == null) continue;
-    if (b.pct <= a.pct) continue;              // not a charge (battery didn't rise)
-    const startPct = a.pct, endPct = b.pct;
-    const date = b.date || a.date || new Date(b.ts||Date.now()).toISOString().slice(0,10);
-    const startTime = a.time || '00:00';
-    const endTime = b.time || '00:00';
-    const sig = date + '|' + startPct + '|' + endPct;
-    if (have.has(sig)) continue;               // already in the Charge Log
-    have.add(sig);
-
-    const durMin = chgMinutesBetween(startTime, endTime);
-    const added_ = endPct - startPct;
-    // meters unknown from range log; odo = km at the charge point (b.km)
-    const s = {
-      id: 'chg_imp_' + (b.ts || Date.now()) + '_' + i,
-      date, startPct, endPct, startTime, endTime, targetPct: 100,
-      startMeter: null, endMeter: null,
-      startOdo: (b.km != null ? b.km : (a.km != null ? a.km : null)),
-      endOdo: (b.km != null ? b.km : null),
-      durMin,
-      added: added_,
-      cycles: +(added_ / 100).toFixed(3),
-      actualRate: +((added_ > 0 ? durMin / added_ : 0)).toFixed(2),
-      unitsMeter: null,
-      unitsEst: +(added_ * chgUnitsPerPct()).toFixed(2),
-      units: +(added_ * chgUnitsPerPct()).toFixed(2),
-      cost: +(+(added_ * chgUnitsPerPct()).toFixed(2) * chgUnitCost()).toFixed(2),
-      predFast: chgPredictMinutes(startPct, Math.min(80,100), null),
-      predFull: chgPredictMinutes(startPct, 100, null),
-      imported: true
-    };
-    chgSessions.push(s);
-    added++;
-  }
-  if (!added) {
-    alert('No new charges found in the Range log.\n(A charge = a reading where battery % rose above the previous reading. All such charges are already in the Charge Log.)');
-    return;
-  }
-  chgSessions.sort((a,b) => (a.date||'').localeCompare(b.date||'') || (a.startTime||'').localeCompare(b.startTime||''));
-  chgSave();
-  renderCharging();
-  alert('✅ Imported ' + added + ' charge' + (added>1?'s':'') + ' from the Range log into the Charge Log.\nUnits/cost are estimated (no meter readings in the range log). Tap ✎ on any row to add real meter values.');
-}
-
 // Open the shared modal in ADD mode: blank fields, idx = -1 so save() creates a new session.
 function openChgAddModal() {
   const today = new Date().toISOString().slice(0,10);
@@ -8948,6 +9307,7 @@ function openChgAddModal() {
   document.getElementById('chgEditDate').value = today;
   document.getElementById('chgEditStartPct').value = '';
   document.getElementById('chgEditStartTime').value = '';
+  document.getElementById('chgEditTTC').value = '';
   document.getElementById('chgEditEndPct').value = '';
   document.getElementById('chgEditEndTime').value = '';
   document.getElementById('chgEditStartMeter').value = '';
@@ -8975,6 +9335,7 @@ function openChgSessionEditModalV2972(idx) {
   document.getElementById('chgEditDate').value = s.date || '';
   document.getElementById('chgEditStartPct').value = s.startPct;
   document.getElementById('chgEditStartTime').value = s.startTime || '';
+  document.getElementById('chgEditTTC').value = s.ttcAssumed != null ? Math.floor(s.ttcAssumed/60) + ':' + String(s.ttcAssumed%60).padStart(2,'0') : '';
   document.getElementById('chgEditEndPct').value = s.endPct;
   document.getElementById('chgEditEndTime').value = s.endTime || '';
   document.getElementById('chgEditStartMeter').value = s.startMeter != null ? s.startMeter : '';
@@ -9010,6 +9371,7 @@ function saveChgSessionEdit() {
   const nsmRaw = document.getElementById('chgEditStartMeter').value;
   const nemRaw = document.getElementById('chgEditEndMeter').value;
   const noRaw = document.getElementById('chgEditOdo').value;
+  const nttcRaw = document.getElementById('chgEditTTC').value;
 
   if (isNaN(nsp) || nsp < 0 || nsp > 100) { showToast('Enter a valid start %', true); return; }
   if (isNaN(nep) || nep < nsp || nep > 100) { showToast('Enter a valid end % (≥ start)', true); return; }
@@ -9023,6 +9385,7 @@ function saveChgSessionEdit() {
   s.startMeter = nsmRaw.trim() === '' ? null : (isNaN(parseFloat(nsmRaw)) ? s.startMeter : parseFloat(nsmRaw));
   s.endMeter = nemRaw.trim() === '' ? null : (isNaN(parseFloat(nemRaw)) ? s.endMeter : parseFloat(nemRaw));
   s.startOdo = noRaw.trim() === '' ? null : (isNaN(parseFloat(noRaw)) ? null : parseFloat(noRaw));
+  s.ttcAssumed = nttcRaw.trim() === '' ? null : chgParseTTC(nttcRaw);
 
   // ── recompute every derived field from the edited inputs, same formulas as endCharge() ──
   s.durMin = chgMinutesBetween(s.startTime, s.endTime);
@@ -9039,8 +9402,8 @@ function saveChgSessionEdit() {
   if (isAdd) {
     if (!s.date) s.date = new Date().toISOString().slice(0,10);
     chgSessions.push(s);
-    chgSessions.sort((a,b) => (a.date||'').localeCompare(b.date||'') || (a.startTime||'').localeCompare(b.startTime||''));
   }
+  chgSessions.sort((a,b) => (a.date||'').localeCompare(b.date||'') || (a.startTime||'').localeCompare(b.startTime||''));
 
   chgSave();
   closeChgSessionEditModal();
