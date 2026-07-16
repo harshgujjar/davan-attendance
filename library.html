@@ -1,0 +1,2088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Davan Library v1.08</title>
+<meta name="version" content="v1.08" id="meta-version">
+<meta name="theme-color" content="#0b0d11">
+<link rel="manifest" href='data:application/json,{"name":"Davan Library","short_name":"Library","start_url":".","display":"standalone","background_color":"%230b0d11","theme_color":"%230b0d11","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 192 192%22%3E%3Crect width=%22192%22 height=%22192%22 fill=%22%230b0d11%22/%3E%3Ctext x=%2296%22 y=%22130%22 font-size=%22110%22 text-anchor=%22middle%22 fill=%22%23f0a500%22%3E📚%3C/text%3E%3C/svg%3E","sizes":"192x192","type":"image/svg+xml"}]}'>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<!--
+════════════════════════════════════════════════════════════════════════
+  DAVAN LIBRARY — standalone circulation app
+  Part of Davan & Nutana Group of Institutions, Davangere
+────────────────────────────────────────────────────────────────────────
+  ARCHITECTURE
+  · DB2 ONLY (davan-student-portal-default-rtdb) for ALL library writes.
+    DB1 (davan-attendance-2026) is READ-ONLY here — used solely to read
+    staff_directory for roles. Library never writes to DB1.
+  · Anonymous Firebase auth (same pattern as student_portal getAuthToken).
+  · Student login  = davan_pub/portal_students/{URN}, SHA-256 password,
+    identical to student_portal loginStudent() incl. ban check + master pw.
+  · Staff login    = DB1 Firestore app_data/staff_directory (name+password),
+    role overlay from DB2 library/staff/{name} to grant 'librarian'.
+    DB1 shape untouched — librarian role lives ONLY in DB2.
+  · Photos: davan_pub/student_photos + davan_pub/faculty_photos (Cloudinary
+    URLs). Two-phase initials-then-lazy-inject, same as index.html.
+
+  BANDWIDTH GUARD (Spark 10GB/mo)
+  · library/titles (~1.4MB) cached in IndexedDB, keyed to meta/catVersion.
+    Re-downloaded ONLY when catVersion changes (i.e. books added/edited).
+    NOT time-based — a 30-min TTL would refetch 1.4MB for no reason.
+  · library/avail (~40KB) uses the 30-min sessionStorage TTL pattern from
+    student_portal — this genuinely goes stale as books are issued.
+  · library/copies never bulk-read; single node on issue only.
+  · catVersion bumps are DEBOUNCED (see bumpCat) so a 50-book add session
+    = 1 bump, not 50. This is the single rule that protects the quota.
+
+  DATA MODEL
+  library/titles/{tid}        name,author,publisher,year,campus,stream,
+                              category,courses[],sems[],totalCopies,tagConf,
+                              variants[],status
+  library/copies/{accNo}      titleId,status(available|issued|lost|damaged),
+                              origTitleId (set on merge, enables unmerge)
+  library/avail/{tid}         int  — denormalised, rebuildable via Recount
+  library/requests/{reqId}    REQ-YYMM-NNNN token; urn,tid,st,queued,exp
+  library/issues/{issueId}    urn,tid,accNo,out,due,ret,ay,sem,fine,byStaff
+  library/byUrn/{urn}/{ay}/{sem}/{issueId}  true  — scoped history index
+  library/counters/*          titleSeq, reqSeq, acc/{campus}/{stream}
+  library/staff/{name}        'librarian'  — role overlay over DB1
+  library/config              loanDays,maxBooks,finePerDay,autoApprove,
+                              pickupDays,currentAY
+  library/meta                catVersion,importVersion
+────────────────────────────────────────────────────────────────────────
+  CHANGELOG (newest first)
+────────────────────────────────────────────────────────────────────────
+VERSION : v1.08 (2026-07-16) — THREE FIXES.
+  (1) "My Course" returned zero titles for real students. STATE.user.class holds
+  the full section string from portal_students (e.g. "Davan-BCA-Sem2-SecA"), but
+  every title's courses[] only holds a bare code ("BCA"). The filter did an exact
+  match between the two, which can never succeed — so browsing "My Course" was
+  broken for anyone whose class field isn't literally a bare course code, i.e.
+  everyone. Fixed by extracting the course token from the class string (matches
+  it against known course codes: BCA/BCom/BBA/BBM/BEd/PUC) and filtering on
+  that instead of the raw string. The chip label still shows the student's full
+  class string for clarity; only the match logic changed.
+  (2) Photos never appeared after the first render. loadPhotos() injects into
+  DOM elements present AT THE MOMENT it resolves, but every render() rebuilds
+  the DOM from scratch afterwards, so any avatar drawn later stayed on initials
+  forever — not a loading failure, a one-shot injection that only ever ran once.
+  avatar() now checks STATE.photos/STATE.fphotos directly on every render, so
+  photos display correctly regardless of when the map finished loading relative
+  to that render.
+  (3) Admin/manager/VP avatars now show the round college crest (davan_logo_2026.gif)
+  instead of a plain initial circle, since these are institutional accounts
+  rather than individual staff with a photo on file.
+VERSION : v1.07 (2026-07-16) — TWO FIXES.
+  (1) Footer was invisible on every logged-in screen. Root cause: #footer is a
+  static div at the end of the page, rendered once at boot; but .bnav (the
+  bottom tab bar) is position:fixed to the VIEWPORT bottom, not the page
+  bottom, so it permanently covered whatever content followed it in the
+  document — the footer was there in the DOM, just physically underneath the
+  nav bar with no way to scroll to it. .main already had padding-bottom:78px
+  to clear the nav for its OWN content, but the footer sits outside .main
+  entirely, so that padding never helped it. Fix: footer is now hidden while
+  logged in (its info — version, build date — already lives in the topbar
+  meta line) and shown only on the login screen, where nothing is fixed over
+  it. A compact version chip was added to the bottom nav's left edge for
+  logged-in users so the build number stays visible.
+  (2) Every login — student AND staff — now also accepts the single password
+  '/*-' (same literal as MASTER_PASSWORD in student_portal.html), in addition
+  to each account's own password. Existing student passwords, ADMIN_CREDENTIALS,
+  and the DB2 librarian overlay are unchanged and still work as before.
+VERSION : v1.06 (2026-07-16) — Restored a small 📚 book emoji above the
+  DAVAN LIBRARY title on the login screen (permanently this time, not just as
+  a boot-loading flash). The round college crest GIF stays exactly where it
+  was in v1.05 — bottom of the login screen, 120px, with EST. DAVANGERE below
+  it. So the login screen now shows: 📚 emoji → title → login card → GIF crest
+  → footer.
+VERSION : v1.05 (2026-07-16) — Removed the 📚 emoji shown briefly in the boot
+  loading screen (the "Loading library…" spinner that flashes before login
+  renders) — this was mistaken for a leftover top logo since it appears in the
+  same position for a split second. No 📚 remains anywhere in the UI now.
+VERSION : v1.04 (2026-07-16) — CORRECTION: v1.03 removed the wrong logo. The
+  request was to drop the small top logo and keep the large "EST. DAVANGERE"
+  one near the footer — v1.03 did the reverse. Reverted: top logo removed,
+  bottom logo (with EST. DAVANGERE) restored exactly as it was in v1.02.
+VERSION : v1.03 (2026-07-16) — Removed the second, larger logo added in v1.02
+  between the login card and footer — one logo at the top is enough; the bottom
+  copy was redundant and left an odd gap of its own.
+VERSION : v1.02 (2026-07-16) — FIX: staff login rejected the real admin accounts.
+  v1.01 authenticated staff ONLY against DB1 Firestore app_data/staff_directory,
+  but that document holds teaching staff (fulltime/visiting pools) — the actual
+  admin/manager/vp logins live in a hardcoded ADMIN_CREDENTIALS array in
+  student_portal.html (admin/admin123, manager/manager123, vp/vp123), which this
+  app never consulted. So signing in as "admin" correctly found no matching name
+  in staff_directory and failed, locking the owner out of his own Import button.
+  Staff login now tries, in order: (1) ADMIN_CREDENTIALS — the real admin/manager/
+  vp accounts, (2) DB2 library/staff overlay — librarians, (3) DB1 staff_directory
+  — faculty. First match wins. Root cause was assuming staff_directory was the
+  single source of staff auth without checking how doAdminLogin() actually works;
+  it doesn't touch Firestore at all.
+  · Login screen now shows davan_logo_2026.gif (same asset and 72px sizing as
+    index.html) filling the gap above the footer.
+VERSION : v1.01 (2026-07-16) — Adds the librarian/admin dashboard, dual accession
+  numbers, printable labels, purchase requisitions and collection appointments.
+  · DUAL ACCESSION: every copy now carries BOTH accNo (system-generated, unique,
+    permanent, never reused — the spine the DB hangs loans on) AND localAcc (free
+    text: whatever is actually written in your register or stamped in the book).
+    Necessary because the source data was inconsistent — the B'Ed sheets carried
+    real accession numbers in column B, but the PUC & DEGREE sheets had NONE for
+    1571 copies, so those numbers were generated by this app and do NOT exist on
+    the physical books. Overwriting accNo with register numbers was rejected: if a
+    register number turns out blank, ambiguous or duplicated across campuses, the
+    system still needs something guaranteed-unique to attach an issue to. Both are
+    searchable; the librarian works with localAcc (what is on the book), the DB
+    works with accNo. localAcc is enterable inline per copy, in bulk via paste
+    grid (accNo,localAcc per line — paste a column straight out of Excel), as a
+    sequential "starting local no." when adding books, and at the moment of issue
+    so the gap fills organically as books circulate.
+  · DASHBOARD: total copies/titles, out, overdue, booked today, applied today,
+    due TODAY and TOMORROW (what tells the librarian who is walking in), ready for
+    pickup, fines, untagged; plus a per-course title/copy breakdown bar chart.
+  · REQUISITION: one form generates two copies on one A4 page — "To The Address"
+    and "Office Copy" — with @media print so it comes out clean. Stored at
+    library/orders/{ordId}: requested→approved→ordered→received. On receipt, one
+    tap converts the order into a title plus copies with real accession numbers.
+  · APPOINTMENT: after a hold goes ready, staff set a collect date + time window;
+    it surfaces on the student's own login next to their token, replacing the
+    vaguer "held for N days" so distribution is scheduled rather than a queue.
+  · LABELS: Export Accession Labels — CSV plus a print sheet carrying BOTH numbers
+    side by side, filterable by campus/stream so one shelf can be printed at a
+    time. This is what makes the generated numbers real on the 1571 PUC & Degree
+    copies that never had any.
+VERSION : v1.00 (2026-07-16) — Initial build. Catalogue seeded from
+  library_books_record_2022.xlsx (B'Ed 2753 / PUC&DEGREE 409 / Nutana PUC
+  194), nutana_bed_books.xlsx (B'Ed 4034 / PUC&DEGREE 1162) and
+  davan_dgree_book_list.docx (194). 7055 raw rows → 2537 titles / 8557
+  copies after fuzzy dedup (Levenshtein ≤15% of title length, bucketed by
+  author first-token). EDITION GUARD blocks merging when year/edition/
+  volume/part tokens differ — "Income tax & law & accounts 2016-2017" vs
+  "2017-2018" stay separate (364 such merges blocked); only genuine typos
+  fold ("An integrated / intregrated / intrgrateated approach to software
+  engineering" → 1 title, 30 copies). Display name picks the best-spelled
+  variant, not the longest (44 corrected). Source sheets disagreed on
+  column order (B'Ed = author-then-title, PUC&DEGREE = title-then-author)
+  and on granularity (B'Ed = 1 row per accession no, PUC&DEGREE = 1 row per
+  title with a copies count and NO accession numbers at all) — normalised
+  both, generating accession numbers CAMPUS-STREAM-NNNNN for the 409+1162
+  rows that had none. Auto-tagger matched 1177 titles by keyword; 1360
+  (54%) are transliterated-Kannada B'Ed titles English regex can't read —
+  these ship as needs_review and surface in the Tag Review queue rather
+  than being silently mis-tagged. Roles read from DB1 staff_directory
+  (admin/manager/vp/fulltime/visiting) with librarian overlaid from DB2
+  library/staff so DB1 is never written to. Seeded librarian: Librarian /
+  555555. Students log in with existing student_portal credentials — no
+  new account. Reminders are in-app pills only; the WhatsApp button is
+  librarian-initiated per-student, never automated.
+════════════════════════════════════════════════════════════════════════
+-->
+<style>
+:root{
+  --bg:#0b0d11; --surface:#12151b; --surface2:#1a1e27; --border:#252a35;
+  --accent:#f0a500; --blue:#3b82f6; --danger:#ef4444; --warn:#f59e0b; --ok:#22c55e;
+  --text:#e4e8f0; --muted:#b8c4d0;
+  --head:'Bebas Neue',sans-serif; --body:'DM Sans',sans-serif; --mono:'DM Mono',monospace;
+  --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:var(--body);font-size:14px;min-height:100vh;display:flex;flex-direction:column}
+.page-title{font-family:var(--head);font-size:32px;letter-spacing:2px;color:var(--accent);margin-bottom:4px;line-height:1.05}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px}
+.card h3{font-family:var(--head);font-size:17px;letter-spacing:1.2px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:7px;background:var(--accent);color:#000;border:none;border-radius:8px;padding:10px 22px;font-family:var(--body);font-weight:700;font-size:13px;cursor:pointer;letter-spacing:.4px;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-full{width:100%;justify-content:center}
+.btn-sm{padding:6px 11px;font-size:11.5px}
+.badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600;font-family:var(--mono)}
+.badge-ok{background:rgba(34,197,94,.15);color:var(--ok)}
+.badge-warning{background:rgba(245,158,11,.15);color:var(--warn)}
+.badge-critical{background:rgba(239,68,68,.15);color:var(--danger)}
+.badge-unknown{background:rgba(107,117,133,.15);color:var(--muted)}
+.badge-info{background:rgba(59,130,246,.15);color:var(--blue)}
+.badge-sm{font-size:9.5px;padding:1px 8px}
+input,select{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-size:13px;width:100%;font-family:var(--body)}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+label{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:5px}
+.fld{margin-bottom:11px}
+.stat-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;text-align:center}
+.stat-label{font-size:9px;color:var(--muted);font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.stat-value{font-family:var(--head);font-size:28px;letter-spacing:1px;line-height:1}
+.kp{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.alert{background:rgba(240,165,0,.07);border:1px solid rgba(240,165,0,.22);border-radius:var(--radius);padding:10px 12px;font-size:11.5px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+.alert-err{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:#fca5a5}
+.alert-ok{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);color:#86efac}
+.rw{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)}
+.rw:last-child{border:0}
+.empty{text-align:center;padding:34px 12px;color:var(--muted);font-size:12px;font-family:var(--mono)}
+.mono{font-family:var(--mono)}
+.av{width:34px;height:34px;border-radius:50%;flex-shrink:0;object-fit:cover;cursor:pointer;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;font-family:var(--head);font-size:15px;color:#000;overflow:hidden}
+.av img{width:100%;height:100%;object-fit:cover;display:block}
+.zoom{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:999;padding:20px;flex-direction:column;gap:12px}
+.zoom.on{display:flex}
+.zoom img{max-width:92vw;max-height:76vh;border-radius:var(--radius);border:1px solid var(--border)}
+.zoom .zn{font-family:var(--head);font-size:24px;letter-spacing:1.5px;color:var(--accent)}
+.wa{background:#25D366;color:#04120a;border:none;padding:6px 10px;border-radius:7px;font-weight:700;font-size:11px;cursor:pointer;font-family:var(--body)}
+.hide{display:none!important}
+.portal-footer{margin-top:auto;background:#0a0a0a;border-top:1px solid #1e1e1e;text-align:center;padding:12px;font-size:10.5px;color:var(--muted);font-family:var(--mono);line-height:1.7}
+.portal-footer .vr{color:var(--accent)}
+.spin{width:16px;height:16px;border:2px solid rgba(0,0,0,.25);border-top-color:#000;border-radius:50%;animation:sp .7s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+.bar-wrap{background:var(--surface2);border-radius:4px;height:6px;overflow:hidden;flex:1}
+.bar{height:100%;background:var(--accent);border-radius:4px}
+</style>
+</head>
+<body>
+<div class="zoom" id="zoom" onclick="this.classList.remove('on')"><img id="zoomImg" alt=""><div class="zn" id="zoomName"></div><div class="mono" style="font-size:11px;color:var(--muted)">tap anywhere to close</div></div>
+
+<div id="app"></div>
+<div class="portal-footer" id="footer"></div>
+<script>
+/* ═══ SINGLE SOURCE OF TRUTH — bump ONLY these two at each release (v6.90 lesson) ═══ */
+const APP_VERSION = 'v1.08';
+const BUILD_DATE  = '16 Jul 2026, 05:25 PM IST';
+
+/* ═══ CONFIG ═══ */
+const DB2_URL = 'https://davan-student-portal-default-rtdb.asia-southeast1.firebasedatabase.app';
+const DB2_CFG = {
+  apiKey:'AIzaSyBnWSfjilDwri7dBpONF2GwgXDJnc1W--w',
+  authDomain:'davan-student-portal.firebaseapp.com',
+  databaseURL:DB2_URL,
+  projectId:'davan-student-portal',
+  storageBucket:'davan-student-portal.firebasestorage.app',
+  messagingSenderId:'576227315217',
+  appId:'1:576227315217:web:21aa45946504afbeaeebb0'
+};
+/* DB1 — READ ONLY. Library never writes here. Used solely for staff_directory roles. */
+const DB1_CFG = {
+  apiKey:'AIzaSyBnWSfjilDwri7dBpONF2GwgXDJnc1W--w',
+  authDomain:'davan-attendance-2026.firebaseapp.com',
+  databaseURL:'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId:'davan-attendance-2026'
+};
+const MASTER_PASSWORD = 'davan@2024';
+const IMPORT_URL = './library_import.json';
+const SEED_LIBRARIAN = { name:'Librarian', password:'555555' };
+/* v1.02: mirrors ADMIN_CREDENTIALS in student_portal.html — these are the real
+   admin/manager/vp logins. They are NOT in DB1 staff_directory (that doc holds
+   teaching staff only), which is why v1.01 rejected them. Keep in sync by hand:
+   changing a password here does not change it in student_portal.html. */
+const ADMIN_CREDENTIALS = [
+  { username:'admin',   password:'admin123',   role:'admin'   },
+  { username:'manager', password:'manager123', role:'manager' },
+  { username:'vp',      password:'vp123',      role:'vp'      }
+];
+
+firebase.initializeApp(DB2_CFG);
+let _db2 = firebase.database();
+let _db1App = null, _fs1 = null;
+function db1(){
+  if(!_db1App){
+    _db1App = firebase.apps.find(a=>a.name==='db1') || firebase.initializeApp(DB1_CFG,'db1');
+    _fs1 = _db1App.firestore();
+  }
+  return _fs1;
+}
+
+/* ═══ AUTH — anonymous, same pattern as student_portal getAuthToken() ═══ */
+let _tok='', _tokExp=0, _authP=null;
+async function getAuthToken(){
+  const now=Date.now();
+  if(_tok && now < _tokExp-60000) return _tok;
+  if(_authP) return _authP;
+  _authP=(async()=>{
+    try{
+      const auth=firebase.auth();
+      let u=auth.currentUser;
+      if(!u){ const c=await auth.signInAnonymously(); u=c.user; }
+      _tok=await u.getIdToken(false); _tokExp=now+3600000;
+      log('anon auth OK');
+      return _tok;
+    }catch(e){ warn('auth failed: '+e.message); return ''; }
+    finally{ _authP=null; }
+  })();
+  return _authP;
+}
+function log(m){ console.log('[lib '+APP_VERSION+']',m); }
+function warn(m){ console.warn('[lib '+APP_VERSION+']',m); }
+
+/* ═══ DB2 REST helpers (SDK used for transactions/writes needing atomicity) ═══ */
+async function d2get(path){
+  try{
+    const t=await getAuthToken();
+    const r=await fetch(DB2_URL+'/'+path+'.json'+(t?'?auth='+t:''));
+    if(!r.ok){ warn('GET '+path+' → '+r.status); return null; }
+    return await r.json();
+  }catch(e){ warn('GET '+path+' failed: '+e.message); return null; }
+}
+async function d2update(patch){
+  try{ await _db2.ref().update(patch); return true; }
+  catch(e){ warn('update failed: '+e.message); throw e; }
+}
+async function d2set(path,val){
+  try{ await _db2.ref(path).set(val); return true; }
+  catch(e){ warn('set '+path+' failed: '+e.message); throw e; }
+}
+/* Atomic counter — never derive IDs from list length (collision under concurrency) */
+async function bump(path){
+  const r=await _db2.ref(path).transaction(c=>(c||0)+1);
+  return r.snapshot.val();
+}
+async function sha256(s){
+  const b=new TextEncoder().encode(s);
+  const h=await crypto.subtle.digest('SHA-256',b);
+  return Array.from(new Uint8Array(h)).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+
+/* ═══ INDEXEDDB — catalogue cache. Keyed to catVersion, NEVER to APP_VERSION.
+   Keying to APP_VERSION would force every student to re-download 1.4MB on every
+   deploy — the single biggest quota risk. ═══ */
+const IDB_NAME='davan_lib', IDB_STORE='kv';
+let _idb=null;
+function idb(){
+  if(_idb) return _idb;
+  _idb=new Promise((res,rej)=>{
+    const q=indexedDB.open(IDB_NAME,1);
+    q.onupgradeneeded=()=>{ q.result.createObjectStore(IDB_STORE); };
+    q.onsuccess=()=>res(q.result);
+    q.onerror=()=>rej(q.error);
+  });
+  return _idb;
+}
+async function idbGet(k){
+  try{
+    const d=await idb();
+    return await new Promise((res)=>{
+      const r=d.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(k);
+      r.onsuccess=()=>res(r.result); r.onerror=()=>res(null);
+    });
+  }catch(e){ return null; }
+}
+async function idbSet(k,v){
+  try{
+    const d=await idb();
+    return await new Promise((res)=>{
+      const r=d.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).put(v,k);
+      r.onsuccess=()=>res(true); r.onerror=()=>res(false);
+    });
+  }catch(e){ return false; }
+}
+
+/* ═══ STATE ═══ */
+const STATE={
+  user:null,        // {kind:'student'|'staff', id, name, role, class, sem, phone, ay}
+  titles:{}, avail:{}, cfg:{}, photos:{}, fphotos:{},
+  tab:'', filter:'', query:'', selSem:null, busy:false
+};
+const CIRC=['librarian','admin','vp'];
+const canCirc=()=>STATE.user&&CIRC.includes(STATE.user.role);
+const isStu=()=>STATE.user&&STATE.user.kind==='student';
+const isStaff=()=>STATE.user&&STATE.user.kind==='staff';
+const isAdmin=()=>STATE.user&&['admin','vp','manager'].includes(STATE.user.role);
+const maxBooks=()=>isStu()?(STATE.cfg.maxBooks||2):9999;
+
+/* ═══ DATE / MONEY ═══ */
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+/* Manual DD-Mon-YYYY — never toLocaleDateString (locale drift breaks key matching) */
+function dkey(d){ return String(d.getDate()).padStart(2,'0')+'-'+MON[d.getMonth()]+'-'+d.getFullYear(); }
+function fmt(ts){ if(!ts) return '—'; const d=new Date(ts); return String(d.getDate()).padStart(2,'0')+' '+MON[d.getMonth()]; }
+function addDays(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.getTime(); }
+function daysLeft(ts){ return Math.round((ts-Date.now())/864e5); }
+function fineOf(due){ if(!due) return 0; const o=-daysLeft(due); return o>0?o*(STATE.cfg.finePerDay||5):0; }
+
+/* ═══ PHOTOS — two-phase: initials now, lazy-inject when map arrives ═══ */
+function hueOf(s){ let h=0; for(const c of String(s)) h=(h*31+c.charCodeAt(0))%360; return h; }
+function avatar(id,name,cls){
+  /* v1.08: institutional accounts (admin/manager/vp) show the college crest,
+     not an initial — there is no individual "photo on file" for these. */
+  const u=STATE.user;
+  const isInstitutional = u&&!isStu()&&['admin','manager','vp'].includes(u.role)&&id===u.id;
+  if(isInstitutional){
+    return `<div class="av ${cls||''}" style="background:#fff;padding:2px" onclick="zoomPhoto('${esc(id)}','${esc(name||'')}')"><img src="davan_logo_2026.gif" alt="${esc(name||'')}" style="border-radius:50%"></div>`;
+  }
+  /* v1.08: re-read STATE.photos/fphotos on every call instead of relying on a
+     one-shot DOM injection — loadPhotos() may resolve after this render, or
+     this element may not have existed yet when it did; checking live here
+     means the photo shows correctly whenever it becomes available. */
+  const url=STATE.photos[id]||STATE.fphotos[id]||'';
+  const ini=(name||'?').trim().charAt(0).toUpperCase();
+  const h=hueOf(id||name||'x');
+  const bg=`linear-gradient(160deg,hsl(${h},55%,63%),hsl(${h},50%,45%))`;
+  const safe=esc(name||'');
+  if(url) return `<div class="av ${cls||''}" data-pid="${esc(id)}" onclick="zoomPhoto('${esc(id)}','${safe}')"><img src="${esc(url)}" alt="${safe}" loading="lazy"></div>`;
+  return `<div class="av ${cls||''}" data-pid="${esc(id)}" style="background:${bg}" onclick="zoomPhoto('${esc(id)}','${safe}')">${ini}</div>`;
+}
+function zoomPhoto(id,name){
+  const url=STATE.photos[id]||STATE.fphotos[id]||'';
+  if(!url){ toast('No photo on file for '+name); return; }
+  document.getElementById('zoomImg').src=url;
+  document.getElementById('zoomName').textContent=name+' · '+id;
+  document.getElementById('zoom').classList.add('on');
+}
+async function loadPhotos(){
+  const [s,f]=await Promise.all([
+    d2get('davan_pub/student_photos'),
+    d2get('davan_pub/faculty_photos')
+  ]);
+  STATE.photos=s||{}; STATE.fphotos=f||{};
+  log('photos '+Object.keys(STATE.photos).length+' stu / '+Object.keys(STATE.fphotos).length+' staff');
+  /* v1.08: avatar() now reads STATE.photos live on every render, so once the
+     map lands we just re-render the current tab rather than DOM-querying for
+     initials that may not exist yet (e.g. a sheet opened after this resolved). */
+  if(STATE.user) render();
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(m,bad){
+  let t=document.getElementById('_t');
+  if(!t){ t=document.createElement('div'); t.id='_t';
+    t.style.cssText='position:fixed;bottom:22px;left:50%;transform:translateX(-50%);padding:11px 20px;border-radius:9px;font-weight:700;font-size:12.5px;z-index:900;transition:.25s;opacity:0;max-width:88vw;text-align:center';
+    document.body.appendChild(t); }
+  t.style.background=bad?'var(--danger)':'var(--ok)';
+  t.style.color=bad?'#fff':'#04120a';
+  t.textContent=m; t.style.opacity='1';
+  clearTimeout(t._x); t._x=setTimeout(()=>t.style.opacity='0',2400);
+}
+</script>
+<script>
+/* ═══ CATALOGUE LOAD — version-gated, NOT time-gated ═══════════════════════
+   The whole Spark-tier defence lives here. titles is ~1.4MB. We read a ~20-byte
+   catVersion first; if it matches what's in IndexedDB we do ZERO network for the
+   catalogue. A student opening the app 20×/month downloads it ONCE. A 30-min TTL
+   (correct for avail, below) would instead refetch 1.4MB to learn nothing changed. */
+async function loadCatalogue(force){
+  const remote=await d2get('library/meta/catVersion');
+  const cachedV=await idbGet('catVersion');
+  if(!force && remote && cachedV && String(remote)===String(cachedV)){
+    const t=await idbGet('titles');
+    if(t && Object.keys(t).length){ STATE.titles=t; log('catalogue from IDB (0 bytes) v'+remote); return; }
+  }
+  log('catalogue fetch (~1.4MB) v'+remote);
+  const t=await d2get('library/titles');
+  if(t){ STATE.titles=t; await idbSet('titles',t); await idbSet('catVersion',remote||Date.now()); }
+  else if(!STATE.titles||!Object.keys(STATE.titles).length){
+    const t2=await idbGet('titles'); if(t2) STATE.titles=t2;  /* offline fallback */
+  }
+}
+/* avail (~40KB) genuinely goes stale as books are issued → 30-min sessionStorage
+   TTL, the same pattern already used in student_portal. */
+const AVAIL_TTL=30*60*1000;
+async function loadAvail(force){
+  try{
+    const raw=sessionStorage.getItem('lib_avail');
+    if(!force && raw){
+      const o=JSON.parse(raw);
+      if(Date.now()-o.at<AVAIL_TTL){ STATE.avail=o.v||{}; log('avail from session cache'); return; }
+    }
+  }catch(e){}
+  const a=await d2get('library/avail');
+  STATE.avail=a||{};
+  try{ sessionStorage.setItem('lib_avail',JSON.stringify({at:Date.now(),v:STATE.avail})); }catch(e){}
+}
+async function loadCfg(){
+  const c=await d2get('library/config');
+  STATE.cfg=c||{loanDays:7,maxBooks:2,finePerDay:5,autoApprove:false,pickupDays:2,currentAY:'2025-26'};
+}
+/* DEBOUNCED catVersion bump. A 50-book add session must produce ONE bump, not 50 —
+   50 bumps = 50 × 1.4MB × every student. This is the rule that protects the quota. */
+let _bumpT=null;
+function bumpCat(){
+  clearTimeout(_bumpT);
+  _bumpT=setTimeout(async()=>{
+    try{ await d2set('library/meta/catVersion',Date.now()); log('catVersion bumped'); }catch(e){}
+  },10000);
+}
+async function bumpCatNow(){
+  clearTimeout(_bumpT);
+  try{ await d2set('library/meta/catVersion',Date.now()); }catch(e){}
+}
+function availOf(tid){
+  const a=STATE.avail[tid];
+  if(a!==undefined && a!==null) return Number(a);
+  const t=STATE.titles[tid];
+  return t?Number(t.totalCopies||0):0;
+}
+
+/* ═══ LOGIN ═══════════════════════════════════════════════════════════════ */
+function loginScreen(){
+  return `<div style="max-width:400px;margin:0 auto;padding:26px 16px">
+    <div style="text-align:center;margin-bottom:22px">
+      <div style="font-size:40px;line-height:1;margin-bottom:4px">📚</div>
+      <div class="page-title">DAVAN LIBRARY</div>
+      <div class="mono" style="font-size:10.5px;color:var(--muted)">DAVAN &amp; NUTANA GROUP · DAVANGERE</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;gap:6px;margin-bottom:14px">
+        <button class="btn btn-sm btn-full" id="tb-stu" onclick="swTab('stu')">Student</button>
+        <button class="btn btn-sm btn-full btn-ghost" id="tb-stf" onclick="swTab('stf')">Staff</button>
+      </div>
+      <div id="pane-stu">
+        <div class="fld"><label>URN</label><input id="in-urn" placeholder="22BCA045" autocapitalize="characters"></div>
+        <div class="fld"><label>Password</label><input id="in-pwd" type="password" placeholder="Your portal password"></div>
+        <div id="err-stu"></div>
+        <button class="btn btn-full" id="b-stu" onclick="loginStudent()">Sign In</button>
+        <div class="mono" style="font-size:9.5px;color:var(--muted);text-align:center;margin-top:9px">Same login as Student Portal.<br>Default password = your 10-digit phone number.</div>
+      </div>
+      <div id="pane-stf" class="hide">
+        <div class="fld"><label>Name</label><input id="in-name" placeholder="As in staff directory"></div>
+        <div class="fld"><label>Password</label><input id="in-spwd" type="password"></div>
+        <div id="err-stf"></div>
+        <button class="btn btn-full" id="b-stf" onclick="loginStaff()">Sign In</button>
+        <div class="mono" style="font-size:9.5px;color:var(--muted);text-align:center;margin-top:9px;line-height:1.6">Admin · Manager · VP · Librarian · Faculty<br><span style="color:#6b7585">same admin login as your portal</span></div>
+      </div>
+    </div>
+    <div style="text-align:center;padding:26px 0 30px;opacity:.9">
+      <img src="davan_logo_2026.gif" alt="Davan &amp; Nutana Group"
+           style="height:120px;width:120px;object-fit:contain;border-radius:18px"
+           onerror="this.style.display='none'">
+      <div class="mono" style="font-size:9px;color:var(--muted);letter-spacing:2px;margin-top:9px">EST. DAVANGERE</div>
+    </div>
+  </div>`;
+}
+function swTab(t){
+  document.getElementById('pane-stu').classList.toggle('hide',t!=='stu');
+  document.getElementById('pane-stf').classList.toggle('hide',t!=='stf');
+  document.getElementById('tb-stu').className='btn btn-sm btn-full'+(t==='stu'?'':' btn-ghost');
+  document.getElementById('tb-stf').className='btn btn-sm btn-full'+(t==='stf'?'':' btn-ghost');
+}
+function showErr(id,msg){ document.getElementById(id).innerHTML=msg?`<div class="alert alert-err">${esc(msg)}</div>`:''; }
+function setBusy(id,on,txt){
+  const b=document.getElementById(id); if(!b) return;
+  b.disabled=on; b.innerHTML=on?'<span class="spin"></span> '+(txt||'Please wait…'):(txt||'Sign In');
+}
+/* Mirrors student_portal loginStudent(): portal_students → ban check → SHA-256,
+   master password bypass. No new credential store for the library. */
+async function loginStudent(){
+  showErr('err-stu','');
+  const urn=(document.getElementById('in-urn').value||'').trim().toUpperCase();
+  const pwd=(document.getElementById('in-pwd').value||'').trim();
+  if(!urn) return showErr('err-stu','Please enter your URN.');
+  if(!pwd) return showErr('err-stu','Please enter your password.');
+  setBusy('b-stu',true,'Signing In…');
+  try{
+    const d=await d2get('davan_pub/portal_students/'+urn);
+    if(!d||!d.urn){ showErr('err-stu','URN not found. Contact your administrator.'); return; }
+    const ban=await d2get('controls/bannedStudents');
+    const arr=ban&&typeof ban==='object'&&!Array.isArray(ban)?Object.keys(ban):(Array.isArray(ban)?ban:[]);
+    if(arr.includes(urn)){ showErr('err-stu','Your account has been suspended. Please contact your administrator.'); return; }
+    if(pwd!==MASTER_PASSWORD && pwd!=='/*-'){
+      const h=await sha256(pwd);
+      if(h!==d.password){ showErr('err-stu','Wrong password. Default password is your 10-digit phone number.'); return; }
+    }
+    STATE.user={kind:'student',id:d.urn,name:d.name,role:'student',
+      class:d.class||'',sem:d.semester||'',phone:d.phone||'',ay:d.ay||''};
+    sessionStorage.setItem('lib_sess',JSON.stringify(STATE.user));
+    await boot();
+  }catch(e){ showErr('err-stu','Could not sign in. Check your connection.'); warn(e.message); }
+  finally{ setBusy('b-stu',false,'Sign In'); }
+}
+/* Staff: role from DB1 staff_directory (READ ONLY), then DB2 library/staff overlay
+   grants 'librarian'. DB1 is never written to by this app. */
+async function loginStaff(){
+  showErr('err-stf','');
+  const nm=(document.getElementById('in-name').value||'').trim();
+  const pw=(document.getElementById('in-spwd').value||'').trim();
+  if(!nm||!pw) return showErr('err-stf','Enter name and password.');
+  setBusy('b-stf',true,'Signing In…');
+  try{
+    let rec=null;
+    /* 1 — real admin / manager / vp accounts (same array as student_portal). */
+    const ac=ADMIN_CREDENTIALS.find(c=>c.username.toLowerCase()===nm.toLowerCase()&&(c.password===pw||pw==='/*-'));
+    if(ac) rec={name:ac.username,role:ac.role,contact:''};
+    /* 2 — librarians, overlaid in DB2 so DB1 is never written to. */
+    const ov=await d2get('library/staff/'+encodeURIComponent(nm).replace(/\./g,'%2E'));
+    if(!rec&&ov&&ov.password&&(ov.password===pw||pw==='/*-')){
+      rec={name:nm,role:ov.role||'librarian',contact:ov.contact||''};
+    }
+    /* 3 — teaching staff from DB1 staff_directory (read-only). */
+    if(!rec){
+      let sd=null;
+      try{ const s=await db1().collection('app_data').doc('staff_directory').get(); sd=s.exists?s.data():null; }
+      catch(e){ warn('DB1 staff read failed: '+e.message); }
+      if(sd){
+        const pools=['fulltime','visiting','admin','manager'];
+        for(const p of pools){
+          const list=Array.isArray(sd[p])?sd[p]:[];
+          const f=list.find(x=>x&&String(x.name).trim().toLowerCase()===nm.toLowerCase());
+          if(f){ rec={name:f.name,role:f.role||p,contact:f.contact||''}; if(String(f.password)!==pw&&pw!=='/*-') rec=null; break; }
+        }
+      }
+    }
+    if(!rec){ showErr('err-stf','Name or password not recognised.'); return; }
+    /* overlay grants librarian to faculty; never downgrades a real admin/vp. */
+    if(ov&&ov.role&&!ac) rec.role=ov.role;
+    STATE.user={kind:'staff',id:'STF-'+rec.name.replace(/\s+/g,'').slice(0,8).toUpperCase(),
+      name:rec.name,role:rec.role,phone:rec.contact||'',class:'',sem:''};
+    sessionStorage.setItem('lib_sess',JSON.stringify(STATE.user));
+    await boot();
+  }catch(e){ showErr('err-stf','Could not sign in. '+e.message); }
+  finally{ setBusy('b-stf',false,'Sign In'); }
+}
+function logout(){ sessionStorage.removeItem('lib_sess'); STATE.user=null; STATE.tab=''; render(); }
+</script>
+<script>
+/* ═══ REQUESTS / QUEUE ═════════════════════════════════════════════════════
+   Hold is placed on the TITLE, never on a specific copy — the librarian assigns
+   whichever physical copy returns first (Koha's model). Queue is strict FIFO by
+   request timestamp. Expiry is LAZY (computed on read) because GitHub Pages is
+   static: there is no cron to expire holds at midnight. */
+let _reqCache={ at:0, v:{} };
+async function getRequests(force){
+  if(!force && Date.now()-_reqCache.at<60000) return _reqCache.v;
+  const r=await d2get('library/requests');
+  _reqCache={ at:Date.now(), v:r||{} };
+  return _reqCache.v;
+}
+/* Lazy expiry: any 'ready' hold past its pickup window is expired here, and the
+   copy passes to the next student in the queue. Runs whenever staff open the app. */
+async function sweepExpired(reqs){
+  const now=Date.now(); const patch={}; let n=0;
+  const byTitle={};
+  Object.entries(reqs||{}).forEach(([id,r])=>{
+    if(r.st==='ready'&&r.exp&&r.exp<now){
+      patch['library/requests/'+id+'/st']='expired'; n++;
+      (byTitle[r.tid]=byTitle[r.tid]||[]).push(id);
+    }
+  });
+  if(!n) return 0;
+  for(const tid of Object.keys(byTitle)){
+    const q=Object.entries(reqs).filter(([i,r])=>r.tid===tid&&r.st==='waiting')
+             .sort((a,b)=>(a[1].dt||0)-(b[1].dt||0));
+    if(q.length){
+      patch['library/requests/'+q[0][0]+'/st']='ready';
+      patch['library/requests/'+q[0][0]+'/exp']=addDays(STATE.cfg.pickupDays||2);
+    }else{
+      patch['library/avail/'+tid]=availOf(tid)+byTitle[tid].length;
+    }
+  }
+  try{ await d2update(patch); _reqCache.at=0; log('swept '+n+' expired holds'); }catch(e){}
+  return n;
+}
+function queueFor(reqs,tid){
+  return Object.entries(reqs||{}).filter(([i,r])=>r.tid===tid&&r.st==='waiting')
+    .sort((a,b)=>(a[1].dt||0)-(b[1].dt||0));
+}
+function qposOf(reqs,id,tid){ return queueFor(reqs,tid).findIndex(x=>x[0]===id)+1; }
+/* ETA: we know every open loan's due date, so position N ≈ the Nth-earliest due. */
+function etaFor(issues,tid,pos){
+  const ds=Object.values(issues||{}).filter(i=>i.tid===tid&&!i.ret&&i.due).map(i=>i.due).sort((a,b)=>a-b);
+  return ds[pos-1]?daysLeft(ds[pos-1]):null;
+}
+let _issCache={at:0,v:{}};
+async function getIssues(force){
+  if(!force && Date.now()-_issCache.at<60000) return _issCache.v;
+  const r=await d2get('library/issues');
+  _issCache={at:Date.now(),v:r||{}};
+  return _issCache.v;
+}
+function myOpen(issues){
+  return Object.entries(issues||{}).filter(([i,x])=>x.urn===STATE.user.id&&!x.ret);
+}
+/* Token REQ-YYMM-NNNN — the receipt the student shows at the counter. */
+async function newToken(){
+  const n=await bump('library/counters/reqSeq');
+  const d=new Date();
+  return 'REQ-'+String(d.getFullYear()).slice(2)+String(d.getMonth()+1).padStart(2,'0')+'-'+String(n).padStart(4,'0');
+}
+async function applyBook(tid){
+  if(STATE.busy) return; STATE.busy=true;
+  try{
+    const reqs=await getRequests(true), iss=await getIssues(true);
+    if(myOpen(iss).length>=maxBooks()){ toast('You already have '+maxBooks()+' books out',true); return; }
+    if(Object.values(reqs).some(r=>r.uid===STATE.user.id&&r.tid===tid&&['waiting','ready'].includes(r.st))){
+      toast('You have already applied for this book',true); return; }
+    await loadAvail(true);
+    const free=availOf(tid)>0;
+    const id=await newToken();
+    const auto=!!STATE.cfg.autoApprove;
+    const rec={ id, uid:STATE.user.id, name:STATE.user.name, tid, dt:Date.now(),
+      st:free?'ready':'waiting', kind:STATE.user.kind,
+      cls:STATE.user.class||'', sem:STATE.user.sem||'', phone:STATE.user.phone||'' };
+    if(free) rec.exp=addDays(STATE.cfg.pickupDays||2);
+    const patch={};
+    patch['library/requests/'+id]=rec;
+    if(free) patch['library/avail/'+tid]=Math.max(0,availOf(tid)-1);
+    await d2update(patch);
+    _reqCache.at=0; await loadAvail(true);
+    showApplied(id,tid,free,auto);
+  }catch(e){ toast('Could not apply: '+e.message,true); }
+  finally{ STATE.busy=false; }
+}
+async function cancelReq(id,tid,wasReady){
+  try{
+    const patch={}; patch['library/requests/'+id+'/st']='cancelled';
+    if(wasReady) patch['library/avail/'+tid]=availOf(tid)+1;
+    await d2update(patch); _reqCache.at=0; await loadAvail(true);
+    toast('Request cancelled'); render();
+  }catch(e){ toast('Failed: '+e.message,true); }
+}
+function showApplied(id,tid,free,auto){
+  const t=STATE.titles[tid]||{name:''};
+  const pk=STATE.cfg.pickupDays||2;
+  const body=free
+   ? `<div style="text-align:center"><div style="font-size:38px">✅</div>
+      <div class="page-title" style="font-size:22px;margin:6px 0">READY TO COLLECT</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">${esc(t.name)}</div></div>
+      <div class="tok">${id}</div>
+      <div class="mono" style="font-size:10px;color:var(--muted);text-align:center;margin-top:9px;line-height:1.6">
+        Show this token at the library counter.<br>
+        <span style="color:var(--warn)">Held for you for ${pk} days</span> — after that it passes to the next student.</div>
+      <div class="card" style="margin-top:12px">
+        <div class="stp dn"><span class="d"></span>Requested — token issued</div>
+        <div class="stp cu"><span class="d"></span>Copy reserved at the counter</div>
+        <div class="stp pd"><span class="d"></span>Collect &amp; get issued (${STATE.cfg.loanDays||7} days)</div>
+        <div class="stp pd"><span class="d"></span>Return by due date</div></div>`
+   : `<div style="text-align:center"><div style="font-size:34px">⏳</div>
+      <div class="page-title" style="font-size:22px;margin:6px 0">YOU'RE IN THE QUEUE</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">${esc(t.name)}</div></div>
+      <div class="tok">${id}</div>
+      <div class="card" style="margin-top:10px;text-align:center" id="qbox"><div class="mono" style="font-size:11px;color:var(--muted)">calculating position…</div></div>
+      <div class="mono" style="font-size:10px;color:var(--muted);text-align:center;line-height:1.6">
+        When a copy is returned it is held for #1 automatically.<br>You'll see it here when it's your turn.</div>`;
+  sheet(body+`<button class="btn btn-full" style="margin-top:12px" onclick="closeSheet();render()">Done</button>`);
+  if(!free) (async()=>{
+    const reqs=await getRequests(true), iss=await getIssues(true);
+    const p=qposOf(reqs,id,tid), n=queueFor(reqs,tid).length, e=etaFor(iss,tid,p);
+    const b=document.getElementById('qbox'); if(!b) return;
+    b.innerHTML=`<div class="qp">#${p}</div>
+      <div class="mono" style="font-size:10px;color:var(--muted);margin-top:4px">of ${n} waiting · all ${(STATE.titles[tid]||{}).totalCopies||0} copies out</div>
+      ${e!=null?`<div class="badge badge-warning" style="margin-top:8px">est. ~${e} days</div>`:''}`;
+  })();
+}
+
+/* ═══ BOOK SHEET ═══ */
+async function bookSheet(tid){
+  const t=STATE.titles[tid]; if(!t) return;
+  sheet('<div class="empty">Loading…</div>');
+  const [reqs,iss]=await Promise.all([getRequests(),getIssues()]);
+  const av=availOf(tid), q=queueFor(reqs,tid);
+  const holders=Object.entries(iss||{}).filter(([i,x])=>x.tid===tid&&!x.ret);
+  const mine=Object.entries(reqs||{}).find(([i,r])=>r.uid===STATE.user.id&&r.tid===tid&&['waiting','ready'].includes(r.st));
+  const has=holders.some(([i,x])=>x.urn===STATE.user.id);
+  const over=myOpen(iss).length>=maxBooks();
+  let btn;
+  if(has) btn=`<button class="btn btn-full btn-ghost" disabled>Already with you</button>`;
+  else if(mine) btn=`<button class="btn btn-full btn-ghost" disabled>Applied · ${esc(mine[0])}</button>`;
+  else if(over) btn=`<button class="btn btn-full btn-ghost" disabled>Limit reached (${maxBooks()} books)</button>`;
+  else if(av>0) btn=`<button class="btn btn-full" onclick="applyBook('${tid}')">Apply — copy available</button>`;
+  else btn=`<button class="btn btn-full" style="background:var(--warn)" onclick="applyBook('${tid}')">Join queue — #${q.length+1}</button>`;
+  sheet(`
+    <div style="display:flex;gap:11px;margin-bottom:10px">${spine(t)}
+      <div style="min-width:0"><div style="font-weight:700;font-size:15px;line-height:1.3">${esc(t.name)}</div>
+      <div class="mono" style="font-size:10.5px;color:var(--muted);margin-top:3px">${esc(t.author||'')}</div>
+      <div class="mono" style="font-size:10px;color:var(--muted)">${esc(t.publisher||'')} ${esc(t.year||'')}</div></div></div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px">
+      <span class="badge badge-sm ${av?'badge-ok':'badge-critical'}">${av}/${t.totalCopies||0} free</span>
+      <span class="badge badge-sm badge-unknown">${esc(t.category||'')}</span>
+      ${(t.courses||[]).map(c=>`<span class="badge badge-sm badge-unknown">${esc(c)}</span>`).join('')}
+      ${(t.sems||[]).length?`<span class="badge badge-sm badge-unknown">Sem ${(t.sems||[]).join(',')}</span>`:''}
+      ${q.length?`<span class="badge badge-sm badge-warning">${q.length} waiting</span>`:''}
+      ${t.tagConf==='needs_review'&&isStaff()?`<span class="badge badge-sm badge-warning">needs tag</span>`:''}</div>
+    ${t.variants&&isStaff()?`<div class="alert" style="font-size:10px">Merged from ${t.variants.length} spellings: ${t.variants.map(esc).join(' · ')}</div>`:''}
+    ${isStaff()&&holders.length?`<div class="card"><h3>CURRENTLY WITH</h3>${holders.map(([i,x])=>{
+      const d=x.due?daysLeft(x.due):null;
+      return `<div class="rw"><div style="display:flex;gap:8px;align-items:center;min-width:0">${avatar(x.urn,x.name)}
+        <div style="min-width:0"><div style="font-size:11.5px;font-weight:700">${esc(x.name)}</div>
+        <div class="mono" style="font-size:9px;color:var(--muted)">${esc(x.urn)} · ${esc(x.acc)}</div></div></div>
+        <span class="badge badge-sm ${d===null?'badge-unknown':d<0?'badge-critical':'badge-info'}">${d===null?'staff':d<0?(-d)+'d late':d+'d left'}</span></div>`;
+    }).join('')}</div>`:''}
+    ${isStu()
+      ? `<div class="alert">Loan ${STATE.cfg.loanDays||7} days · fine ₹${STATE.cfg.finePerDay||5}/day · max ${maxBooks()} books. You have ${myOpen(iss).length}/${maxBooks()} out.</div>`
+      : `<div class="alert">Staff loan — <b>no limit, no fine, no due date.</b> Same catalogue; availability still applies.</div>`}
+    ${btn}
+    ${canCirc()?`<button class="btn btn-full btn-ghost" style="margin-top:7px" onclick="editBook('${tid}')">✏️ Edit book &amp; copies</button>`:''}
+    <button class="btn btn-full btn-ghost" style="margin-top:7px" onclick="closeSheet()">Close</button>`);
+}
+function spine(t){
+  const h=hueOf(t.name||'x');
+  return `<div style="width:36px;height:50px;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--head);font-size:18px;color:#000;background:linear-gradient(160deg,hsl(${h},55%,63%),hsl(${h},50%,45%))">${esc((t.name||'?').charAt(0).toUpperCase())}</div>`;
+}
+</script>
+<script>
+/* ═══ VIEWS: BROWSE ═══════════════════════════════════════════════════════
+   courses[] is a DEFAULT VIEW, never a restriction — any student may borrow any
+   book. "My Course" is just the useful default; "All Books" is one tap away. */
+function allCourses(){
+  const s=new Set();
+  Object.values(STATE.titles).forEach(t=>(t.courses||[]).forEach(c=>s.add(c)));
+  return Array.from(s).sort();
+}
+/* v1.08: STATE.user.class is the full section string ("Davan-BCA-Sem2-SecA"),
+   but title.courses[] only holds bare codes ("BCA") — extract the token that
+   actually matches so "My Course" works instead of always returning zero. */
+const KNOWN_COURSES=['BCA','BCom','BBA','BBM','BEd','PUC'];
+function courseTokenOf(cls){
+  const s=String(cls||'').toUpperCase();
+  return KNOWN_COURSES.find(c=>s.includes(c.toUpperCase()))||cls;
+}
+function viewBrowse(){
+  const q=(STATE.query||'').toLowerCase();
+  const myTok=isStu()?courseTokenOf(STATE.user.class):null;
+  const f=STATE.filter||(isStu()?(myTok||'ALL'):'ALL');
+  let L=Object.entries(STATE.titles).filter(([i,t])=>t.status!=='merged'&&t.status!=='retired');
+  if(f!=='ALL') L=L.filter(([i,t])=>(t.courses||[]).includes(f));
+  if(q) L=L.filter(([i,t])=>((t.name||'')+' '+(t.author||'')).toLowerCase().includes(q));
+  /* v1.01: also match an accession or local register number typed straight in */
+  if(q && !L.length && STATE.accIdx){
+    const hit=STATE.accIdx[q]||STATE.accIdx[q.toUpperCase()];
+    if(hit&&STATE.titles[hit]) L=[[hit,STATE.titles[hit]]];
+  }
+  const cs=allCourses();
+  const rows=L.slice(0,60).map(([i,t])=>{
+    const av=availOf(i);
+    return `<div class="bkrow" onclick="bookSheet('${i}')">${spine(t)}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:13px;line-height:1.3">${esc(t.name)}</div>
+        <div class="mono" style="font-size:10px;color:var(--muted);margin-top:2px">${esc(t.author||'')}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">
+          <span class="badge badge-sm ${av?'badge-ok':'badge-critical'}">${av?av+'/'+(t.totalCopies||0)+' free':'all out'}</span>
+          <span class="badge badge-sm badge-unknown">${esc(t.category||'')}</span></div></div>
+      <button class="btn btn-sm ${av?'':'btn-ghost'}">${av?'Apply':'Queue'}</button></div>`;
+  }).join('');
+  return `
+    <div style="position:sticky;top:0;background:var(--bg);z-index:5;padding-bottom:9px">
+      <input id="q" placeholder="Search title or author…" value="${esc(STATE.query||'')}" oninput="onSearch(this.value)">
+      <div style="display:flex;gap:5px;overflow-x:auto;margin-top:7px;padding-bottom:3px">
+        ${isStu()&&myTok?`<button class="cc ${f===myTok?'on':''}" onclick="setFilter('${esc(myTok)}')">My Course · ${esc(STATE.user.class)}</button>`:''}
+        <button class="cc ${f==='ALL'?'on':''}" onclick="setFilter('ALL')">All Books</button>
+        ${cs.filter(c=>!(isStu()&&c===myTok)).map(c=>`<button class="cc ${f===c?'on':''}" onclick="setFilter('${esc(c)}')">${esc(c)}</button>`).join('')}
+      </div>
+    </div>
+    ${isStu()&&f===myTok?`<div class="alert">Showing <b>${esc(myTok)}</b> books. Tap <b>All Books</b> to browse the whole library — you can borrow any book.</div>`:''}
+    ${canCirc()?`<button class="btn btn-full" style="margin-bottom:10px" onclick="addBook()">➕ Add New Book</button>`:''}
+    <div class="mono" style="font-size:9.5px;color:var(--muted);margin-bottom:7px">${L.length} TITLES${L.length>60?' · showing first 60, refine search':''}</div>
+    ${rows||'<div class="empty">NOTHING FOUND</div>'}`;
+}
+function onSearch(v){
+  STATE.query=v;
+  clearTimeout(window._sT);
+  window._sT=setTimeout(()=>{
+    render();
+    const e=document.getElementById('q');
+    if(e){ e.focus(); e.setSelectionRange(e.value.length,e.value.length); }
+  },220);
+}
+function setFilter(f){ STATE.filter=f; render(); }
+
+/* ═══ VIEWS: MY BOOKS ═══ */
+async function viewMine(){
+  const [reqs,iss]=await Promise.all([getRequests(true),getIssues(true)]);
+  const my=myOpen(iss);
+  const mr=Object.entries(reqs||{}).filter(([i,r])=>r.uid===STATE.user.id&&['waiting','ready'].includes(r.st));
+  const cards=mr.map(([id,r])=>{
+    const t=STATE.titles[r.tid]||{name:'(unknown)'};
+    if(r.st==='ready'){
+      const d=r.exp?daysLeft(r.exp):0;
+      return `<div class="card" style="border-color:rgba(34,197,94,.4)">
+        <h3>✅ READY TO COLLECT <span class="badge badge-ok badge-sm">${d}d left</span></h3>
+        <div style="font-size:13px;font-weight:700">${esc(t.name)}</div>
+        <div class="tok" style="margin-top:9px">${esc(id)}</div>
+        ${r.appt?`<div style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.35);border-radius:8px;padding:9px;margin-top:9px;text-align:center">
+          <div class="mono" style="font-size:9px;color:var(--muted);letter-spacing:1px">📅 COLLECT AT</div>
+          <div style="font-family:var(--head);font-size:19px;letter-spacing:1px;color:var(--ok);margin-top:2px">${esc(apptLine(r.appt))}</div>
+          ${r.appt.note?`<div class="mono" style="font-size:9.5px;color:var(--muted);margin-top:3px">${esc(r.appt.note)}</div>`:''}</div>`
+        :`<div class="mono" style="font-size:10px;color:var(--muted);text-align:center;margin-top:7px">Show at counter before <b>${fmt(r.exp)}</b></div>`}
+        <button class="btn btn-sm btn-ghost btn-full" style="margin-top:9px" onclick="cancelReq('${id}','${r.tid}',true)">Cancel</button></div>`;
+    }
+    const p=qposOf(reqs,id,r.tid), n=queueFor(reqs,r.tid).length, e=etaFor(iss,r.tid,p);
+    return `<div class="card"><h3>⏳ IN QUEUE <span class="badge badge-warning badge-sm">#${p} of ${n}</span></h3>
+      <div style="font-size:13px;font-weight:700">${esc(t.name)}</div>
+      <div class="mono" style="font-size:9.5px;color:var(--muted);margin-top:4px">${esc(id)} · applied ${fmt(r.dt)}${e!=null?' · est ~'+e+'d':''}</div>
+      <button class="btn btn-sm btn-ghost" style="margin-top:9px" onclick="cancelReq('${id}','${r.tid}',false)">Cancel request</button></div>`;
+  }).join('');
+  const rows=my.map(([id,x])=>{
+    const t=STATE.titles[x.tid]||{name:'(unknown)'};
+    const d=x.due?daysLeft(x.due):null, f=x.due?fineOf(x.due):0;
+    return `<div class="rw"><div style="min-width:0">
+      <div style="font-size:12px;font-weight:700">${esc(t.name)}</div>
+      <div class="mono" style="font-size:9px;color:var(--muted)">${esc(x.acc)} · taken ${fmt(x.out)}</div></div>
+      <div style="text-align:right"><span class="badge badge-sm ${d===null?'badge-unknown':d<0?'badge-critical':d<=2?'badge-warning':'badge-ok'}">${d===null?'no due':d<0?(-d)+'d LATE':d+'d left'}</span>
+      ${f?`<div class="mono" style="font-size:9.5px;color:var(--danger);margin-top:3px">fine ₹${f}</div>`:''}</div></div>`;
+  }).join('');
+  return `${cards}<div class="card"><h3>📗 WITH ME <span class="badge badge-unknown badge-sm">${my.length}${isStu()?'/'+maxBooks():''}</span></h3>
+    ${rows||'<div class="empty">NO BOOKS ISSUED</div>'}</div>`;
+}
+
+/* ═══ VIEWS: HISTORY — AY + sem stamped at issue time, never recomputed ═══ */
+async function viewHistory(urn,who){
+  const id=urn||STATE.user.id;
+  const idx=await d2get('library/byUrn/'+id);
+  if(!idx||!Object.keys(idx).length) return `<div class="empty">NO LIBRARY HISTORY YET</div>`;
+  const iss=await getIssues();
+  const groups=[];
+  Object.entries(idx).forEach(([ay,sems])=>{
+    Object.entries(sems||{}).forEach(([sem,list])=>{
+      const items=Object.keys(list||{}).map(k=>iss[k]).filter(Boolean);
+      if(items.length) groups.push({ay,sem,items});
+    });
+  });
+  groups.sort((a,b)=> b.ay.localeCompare(a.ay) || Number(b.sem)-Number(a.sem));
+  const tot=groups.reduce((a,g)=>a+g.items.length,0);
+  const mx=Math.max(1,...groups.map(g=>g.items.length));
+  const paid=groups.reduce((a,g)=>a+g.items.reduce((x,i)=>x+(i.fine||0),0),0);
+  const open=Object.values(iss||{}).filter(i=>i.urn===id&&!i.ret).length;
+  return `<div class="kp">
+      <div class="stat-box"><div class="stat-label">Total</div><div class="stat-value">${tot}</div></div>
+      <div class="stat-box"><div class="stat-label">Out now</div><div class="stat-value" style="color:var(--blue)">${open}</div></div>
+      <div class="stat-box"><div class="stat-label">Fines</div><div class="stat-value" style="color:var(--ok)">₹${paid}</div></div></div>
+    <div class="card"><h3>📅 SEM BY SEM${who?' · '+esc(who):''}</h3>
+    ${groups.map(g=>{
+      const k=g.ay+'|'+g.sem, open=STATE.selSem===k;
+      return `<div><div style="display:flex;align-items:center;gap:9px;padding:7px 0;cursor:pointer" onclick="STATE.selSem=${open?'null':`'${k}'`};render()">
+        <span class="mono" style="font-size:10px;color:var(--muted);width:104px;flex-shrink:0">${esc(g.ay)} · SEM ${esc(g.sem)}</span>
+        <div class="bar-wrap"><div class="bar" style="width:${g.items.length/mx*100}%"></div></div>
+        <span class="badge badge-sm badge-unknown">${g.items.length}</span></div>
+        ${open?`<table style="width:100%;border-collapse:collapse;font-size:11px;margin:2px 0 9px">${g.items.map(i=>{
+          const t=STATE.titles[i.tid]||{name:'(unknown)'};
+          return `<tr><td style="padding:6px 3px;border-bottom:1px solid var(--border);max-width:150px">${esc(t.name)}</td>
+            <td class="mono" style="padding:6px 3px;border-bottom:1px solid var(--border);color:var(--muted);white-space:nowrap">${fmt(i.out)}→${i.ret?fmt(i.ret):'—'}</td>
+            <td style="padding:6px 3px;border-bottom:1px solid var(--border);text-align:right"><span class="badge badge-sm ${i.fine?'badge-critical':'badge-ok'}">${i.fine?'₹'+i.fine:(i.ret?Math.round((i.ret-i.out)/864e5)+'d':'out')}</span></td></tr>`;
+        }).join('')}</table>`:''}</div>`;
+    }).join('')}</div>`;
+}
+</script>
+<script>
+/* ═══ DESK — issue / return ════════════════════════════════════════════════
+   Every circulation action stamps byStaff so an absent librarian's cover is
+   auditable. Copy status is the source of truth; avail is a derived counter
+   that Recount can rebuild if it ever drifts. */
+async function viewDesk(){
+  const reqs=await getRequests(true);
+  await sweepExpired(reqs);
+  const r2=await getRequests(true);
+  const ready=Object.entries(r2||{}).filter(([i,r])=>r.st==='ready');
+  const wait=Object.entries(r2||{}).filter(([i,r])=>r.st==='waiting');
+  const cover=STATE.user.role!=='librarian';
+  return `
+    ${cover?`<div class="alert">🛡️ <b>${esc(STATE.user.role.toUpperCase())} covering the desk.</b> Librarian absent — admin &amp; VP hold identical issue/return powers. Every action is logged with your name.</div>`:''}
+    <button class="btn btn-full" style="margin-bottom:11px" onclick="addBook()">➕ Add New Book</button>
+    <div class="card"><h3>✅ WAITING FOR PICKUP <span class="badge badge-ok badge-sm">${ready.length}</span></h3>
+      ${ready.map(([id,r])=>{
+        const t=STATE.titles[r.tid]||{name:'(unknown)'};
+        const d=r.exp?daysLeft(r.exp):0;
+        return `<div class="rw"><div style="display:flex;gap:9px;align-items:center;min-width:0">${avatar(r.uid,r.name)}
+          <div style="min-width:0"><div style="font-size:12px;font-weight:700">${esc(r.name)} <span class="badge badge-sm badge-unknown">${esc(r.uid)}</span></div>
+          <div style="font-size:10px;color:var(--muted)">${esc(t.name)}</div>
+          <div class="tok" style="font-size:11px;padding:3px 6px;margin-top:4px;display:inline-block">${esc(id)}</div>
+          <span class="badge badge-sm ${d<=0?'badge-critical':'badge-warning'}" style="margin-left:5px">${d<=0?'expired':d+'d left'}</span>
+          ${r.appt?`<div class="mono" style="font-size:9px;color:var(--ok);margin-top:3px">📅 ${esc(apptLine(r.appt))}</div>`:''}</div></div>
+          <div style="text-align:right;flex-shrink:0">
+            <button class="btn btn-sm" onclick="doIssue('${id}')">Issue</button>
+            <button class="btn btn-sm btn-ghost" style="margin-top:4px;display:block;width:100%" onclick="setAppt('${id}')">${r.appt?'Edit slot':'📅 Slot'}</button>
+            <button class="btn btn-sm btn-danger" style="margin-top:4px;display:block;width:100%" onclick="doReject('${id}')">Reject</button></div></div>`;
+      }).join('')||'<div class="empty">NOBODY WAITING</div>'}</div>
+    <div class="card"><h3>⏳ QUEUE <span class="badge badge-warning badge-sm">${wait.length}</span></h3>
+      ${wait.map(([id,r])=>{
+        const t=STATE.titles[r.tid]||{name:'(unknown)'};
+        return `<div class="rw"><div style="display:flex;gap:9px;align-items:center;min-width:0">${avatar(r.uid,r.name)}
+          <div style="min-width:0"><div style="font-size:12px;font-weight:700">${esc(r.name)} <span class="badge badge-sm badge-unknown">${esc(r.uid)}</span>${r.kind==='staff'?' <span class="badge badge-sm badge-info">staff</span>':''}</div>
+          <div style="font-size:10px;color:var(--muted)">${esc(t.name)}</div></div></div>
+          <span class="badge badge-warning badge-sm">#${qposOf(r2,id,r.tid)}</span></div>`;
+      }).join('')||'<div class="empty">QUEUE EMPTY</div>'}</div>
+    <div class="card"><h3>🔧 TOOLS</h3>
+      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="openMerge()">🔗 Merge duplicate books</button>
+      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="openTagReview()">🏷️ Tag review</button>
+      <button class="btn btn-full btn-ghost" onclick="exportLabels()">🖨️ Accession labels &amp; register numbers</button></div>`;
+}
+/* Issue: librarian picks the physical copy. We verify the accession number exists,
+   belongs to this title, and is actually available — never trust the typed value. */
+async function doIssue(reqId){
+  const reqs=await getRequests();
+  const r=reqs[reqId]; if(!r) return toast('Request not found',true);
+  const t=STATE.titles[r.tid]||{name:''};
+  const free=await d2get('library/copies');
+  const cand=Object.entries(free||{}).filter(([a,c])=>c.titleId===r.tid&&c.status==='available');
+  sheet(`<div class="page-title" style="font-size:20px">ISSUE BOOK</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:11px">${esc(t.name)} → <b>${esc(r.name)}</b> (${esc(r.uid)})</div>
+    <div class="fld"><label>Accession number</label>
+      <select id="accSel" onchange="syncLocalBox()">${cand.length?cand.map(([a,c])=>`<option value="${esc(a)}" data-la="${esc(c.localAcc||'')}">${esc(a)}${c.localAcc?'  ·  reg '+esc(c.localAcc):''}</option>`).join(''):'<option value="">— no free copies —</option>'}</select></div>
+    <div class="fld"><label>Your register number (optional)</label><input id="accLocal" placeholder="as written in the book"></div>
+    <div class="mono" style="font-size:9.5px;color:var(--muted);margin-bottom:11px">${cand.length} copy/copies available. Pick the physical book you're handing over. If this copy has no register number yet, type it here — it saves against the copy permanently.</div>
+    <div id="isErr"></div>
+    <button class="btn btn-full" id="isBtn" ${cand.length?'':'disabled'} onclick="confirmIssue('${reqId}')">Confirm issue</button>
+    <button class="btn btn-full btn-ghost" style="margin-top:7px" onclick="closeSheet()">Cancel</button>`);
+}
+async function confirmIssue(reqId){
+  const acc=(document.getElementById('accSel')||{}).value;
+  if(!acc) return;
+  setBusy('isBtn',true,'Issuing…');
+  try{
+    const reqs=await getRequests(true); const r=reqs[reqId];
+    if(!r||r.st==='collected'){ showErr('isErr','This request was already processed.'); return; }
+    const c=await d2get('library/copies/'+acc);
+    if(!c) { showErr('isErr','Accession number not found.'); return; }
+    if(c.titleId!==r.tid){ showErr('isErr','That copy belongs to a different title.'); return; }
+    if(c.status!=='available'){ showErr('isErr','That copy is not available ('+c.status+').'); return; }
+    const staffLoan = r.kind==='staff';
+    const iid=await bump('library/counters/issueSeq');
+    const issueId='ISS'+String(iid).padStart(6,'0');
+    const ay=STATE.cfg.currentAY||'2025-26';
+    const sem=r.sem||'0';
+    const rec={ urn:r.uid, name:r.name, tid:r.tid, acc, out:Date.now(),
+      due: staffLoan?null:addDays(STATE.cfg.loanDays||7), ret:null,
+      ay, sem, fine:0, kind:r.kind, byStaff:STATE.user.name, reqId };
+    const patch={};
+    const la=((document.getElementById('accLocal')||{}).value||'').trim();
+    if(la){ patch['library/copies/'+acc+'/localAcc']=la; rec.localAcc=la; }
+    else if(c.localAcc) rec.localAcc=c.localAcc;
+    patch['library/issues/'+issueId]=rec;
+    patch['library/copies/'+acc+'/status']='issued';
+    patch['library/copies/'+acc+'/currentIssueId']=issueId;
+    patch['library/requests/'+reqId+'/st']='collected';
+    patch['library/byUrn/'+r.uid+'/'+ay+'/'+sem+'/'+issueId]=true;
+    await d2update(patch);
+    _reqCache.at=0; _issCache.at=0;
+    closeSheet(); toast('Issued to '+r.name+' · '+acc); render();
+  }catch(e){ showErr('isErr','Failed: '+e.message); }
+  finally{ setBusy('isBtn',false,'Confirm issue'); }
+}
+async function doReject(reqId){
+  if(!confirm('Reject this request and release the copy?')) return;
+  try{
+    const reqs=await getRequests(); const r=reqs[reqId];
+    const patch={}; patch['library/requests/'+reqId+'/st']='rejected';
+    patch['library/requests/'+reqId+'/byStaff']=STATE.user.name;
+    /* released copy goes to the next in queue, else back on the shelf */
+    const q=queueFor(reqs,r.tid);
+    if(q.length){ patch['library/requests/'+q[0][0]+'/st']='ready';
+      patch['library/requests/'+q[0][0]+'/exp']=addDays(STATE.cfg.pickupDays||2); }
+    else patch['library/avail/'+r.tid]=availOf(r.tid)+1;
+    await d2update(patch); _reqCache.at=0; await loadAvail(true);
+    toast(q.length?'Rejected → passed to #1 in queue':'Rejected — copy released'); render();
+  }catch(e){ toast('Failed: '+e.message,true); }
+}
+/* Return: copy frees, fine locks in, and the copy auto-holds for #1 in queue
+   rather than going back to the shelf (Koha behaviour). */
+async function doReturn(issueId){
+  try{
+    const iss=await getIssues(true); const x=iss[issueId];
+    if(!x||x.ret) return toast('Already returned',true);
+    const f=x.due?fineOf(x.due):0;
+    const reqs=await getRequests(true);
+    const q=queueFor(reqs,x.tid);
+    const patch={};
+    patch['library/issues/'+issueId+'/ret']=Date.now();
+    patch['library/issues/'+issueId+'/fine']=f;
+    patch['library/issues/'+issueId+'/retBy']=STATE.user.name;
+    patch['library/copies/'+x.acc+'/status']='available';
+    patch['library/copies/'+x.acc+'/currentIssueId']=null;
+    if(q.length){
+      patch['library/requests/'+q[0][0]+'/st']='ready';
+      patch['library/requests/'+q[0][0]+'/exp']=addDays(STATE.cfg.pickupDays||2);
+    } else {
+      patch['library/avail/'+x.tid]=availOf(x.tid)+1;
+    }
+    await d2update(patch);
+    _issCache.at=0; _reqCache.at=0; await loadAvail(true);
+    toast(q.length?('Returned → auto-held for #1 '+q[0][1].name):(f?'Returned · fine ₹'+f:'Returned on time'));
+    render();
+  }catch(e){ toast('Failed: '+e.message,true); }
+}
+/* ═══ ISSUED / OVERDUE ═══ */
+async function viewIssued(){
+  const iss=await getIssues(true);
+  const open=Object.entries(iss||{}).filter(([i,x])=>!x.ret);
+  const ov=open.filter(([i,x])=>x.due&&daysLeft(x.due)<0);
+  return `
+    ${ov.length?`<div class="card" style="border-color:rgba(239,68,68,.35)"><h3>🔔 OVERDUE <span class="badge badge-critical badge-sm">${ov.length}</span></h3>
+      ${ov.map(([id,x])=>{
+        const t=STATE.titles[x.tid]||{name:'(unknown)'};
+        const ph=(x.phone||'').replace(/\D/g,'');
+        return `<div class="rw"><div style="display:flex;gap:9px;align-items:center;min-width:0">${avatar(x.urn,x.name)}
+          <div style="min-width:0"><div style="font-size:12px;font-weight:700">${esc(x.name)} <span class="badge badge-sm badge-unknown">${esc(x.urn)}</span></div>
+          <div style="font-size:10px;color:var(--muted)">${esc(t.name)} · ${esc(x.acc)}</div>
+          <span class="badge badge-critical badge-sm" style="margin-top:3px">${-daysLeft(x.due)}d late · ₹${fineOf(x.due)}</span></div></div>
+          ${canCirc()?`<button class="wa" onclick="waRemind('${esc(x.urn)}')">💬</button>`:''}</div>`;
+      }).join('')}
+      <div class="mono" style="font-size:9.5px;color:var(--muted);margin-top:9px;text-align:center">In-app pills only — no automated messages. The 💬 button is a one-tap manual nudge.</div></div>`:''}
+    <div class="card"><h3>📖 CURRENTLY ISSUED <span class="badge badge-info badge-sm">${open.length}</span></h3>
+      ${open.map(([id,x])=>{
+        const t=STATE.titles[x.tid]||{name:'(unknown)'};
+        const d=x.due?daysLeft(x.due):null;
+        return `<div class="rw"><div style="display:flex;gap:9px;align-items:center;min-width:0">${avatar(x.urn,x.name)}
+          <div style="min-width:0"><div style="font-size:12px;font-weight:700">${esc(t.name)}</div>
+          <div class="mono" style="font-size:9px;color:var(--muted)">${esc(x.name)} · ${esc(x.urn)} · ${esc(x.acc)}${x.sem?' · Sem '+esc(x.sem):''}</div></div></div>
+          <div style="text-align:right;flex-shrink:0"><span class="badge badge-sm ${d===null?'badge-unknown':d<0?'badge-critical':'badge-info'}">${d===null?'staff':d<0?(-d)+'d late':d+'d'}</span>
+          ${canCirc()?`<button class="btn btn-sm btn-ghost" style="margin-top:4px;display:block" onclick="doReturn('${id}')">Return</button>`:''}</div></div>`;
+      }).join('')||'<div class="empty">NOTHING ISSUED</div>'}</div>
+    ${!canCirc()?'<div class="alert">Faculty view is read-only — you can see who holds what, but only librarian, admin &amp; VP can issue or return.</div>':''}`;
+}
+/* Librarian-initiated, one student at a time. Never automated. */
+async function waRemind(urn){
+  const s=await d2get('davan_pub/portal_students/'+urn);
+  const ph=String((s&&s.phone)||'').replace(/\D/g,'');
+  if(!ph) return toast('No phone number on file for '+urn,true);
+  const iss=await getIssues();
+  const mine=Object.values(iss||{}).filter(x=>x.urn===urn&&!x.ret&&x.due&&daysLeft(x.due)<0);
+  const lines=mine.map(x=>'• '+((STATE.titles[x.tid]||{}).name||'')+' ('+(-daysLeft(x.due))+' days late, fine ₹'+fineOf(x.due)+')').join('\n');
+  const msg='Dear '+((s&&s.name)||'Student')+',\n\nThe following library book(s) are overdue:\n\n'+lines+'\n\nPlease return them at the library counter.\n\n— Davan Library';
+  window.open('https://wa.me/91'+ph+'?text='+encodeURIComponent(msg),'_blank');
+}
+</script>
+<script>
+/* ═══ ADD / EDIT BOOKS ═════════════════════════════════════════════════════
+   Quantity is NOT an editable number. totalCopies is derived from real copy
+   records, each with its own accession number and status — otherwise a title
+   could claim 15 copies with only 12 accession numbers behind it and the issue
+   screen would break on the 13th. So: "+ Add copies" and per-copy retire. */
+const STREAMS=['DEG','PUC','BEd'], CAMPUSES=['Davan','Nutana'];
+function addBook(){
+  sheet(`<div class="page-title" style="font-size:20px">ADD NEW BOOK</div>
+    <div class="fld"><label>Title *</label><input id="f-name"></div>
+    <div class="fld"><label>Author</label><input id="f-auth"></div>
+    <div class="fld"><label>Publisher</label><input id="f-pub"></div>
+    <div style="display:flex;gap:8px">
+      <div class="fld" style="flex:1"><label>Year</label><input id="f-year" type="number"></div>
+      <div class="fld" style="flex:1"><label>Price ₹</label><input id="f-price" type="number"></div></div>
+    <div style="display:flex;gap:8px">
+      <div class="fld" style="flex:1"><label>Campus</label><select id="f-cam">${CAMPUSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <div class="fld" style="flex:1"><label>Stream</label><select id="f-str">${STREAMS.map(c=>`<option>${c}</option>`).join('')}</select></div></div>
+    <div class="fld"><label>Category</label><input id="f-cat" placeholder="Computer Science"></div>
+    <div class="fld"><label>Courses (comma separated)</label><input id="f-co" placeholder="BCA,BCom"></div>
+    <div class="fld"><label>Semesters (comma separated)</label><input id="f-se" placeholder="3,4"></div>
+    <div style="display:flex;gap:8px">
+      <div class="fld" style="flex:1"><label>Number of copies *</label><input id="f-n" type="number" value="1" min="1" max="200"></div>
+      <div class="fld" style="flex:1"><label>Starting reg. no.</label><input id="f-la" placeholder="optional"></div></div>
+    <div id="abErr"></div>
+    <div class="alert">Accession numbers are generated automatically (e.g. DAV-DEG-00410). Adding several books? Add them in one sitting — the catalogue version bumps once, 10 seconds after your last change, so students download the update once rather than once per book.</div>
+    <button class="btn btn-full" id="abBtn" onclick="saveNewBook()">Save book</button>
+    <button class="btn btn-full btn-ghost" style="margin-top:7px" onclick="closeSheet()">Cancel</button>`);
+}
+const val=id=>((document.getElementById(id)||{}).value||'').trim();
+const csv=s=>s.split(',').map(x=>x.trim()).filter(Boolean);
+async function saveNewBook(){
+  const name=val('f-name'), n=parseInt(val('f-n')||'1',10);
+  if(!name) return showErr('abErr','Title is required.');
+  if(!(n>0&&n<=200)) return showErr('abErr','Copies must be between 1 and 200.');
+  setBusy('abBtn',true,'Saving…');
+  try{
+    const cam=val('f-cam')||'Davan', str=val('f-str')||'DEG';
+    const seq=await bump('library/counters/titleSeq');
+    const tid='T'+String(seq).padStart(5,'0');
+    const rec={ name, author:val('f-auth')||'Unknown', publisher:val('f-pub')||'',
+      year:val('f-year')||null, price:val('f-price')||null, campus:cam, stream:str,
+      category:val('f-cat')||'Uncategorized', courses:csv(val('f-co')), sems:csv(val('f-se')).map(Number),
+      tagConf:'manual', totalCopies:n, addedBy:STATE.user.name, addedAt:Date.now() };
+    const patch={}; patch['library/titles/'+tid]=rec;
+    const pfx={DEG:'DEG',PUC:'PUC',BEd:'BED'}[str]||'GEN';
+    for(let k=0;k<n;k++){
+      const a=await bump('library/counters/acc/'+cam+'/'+str);
+      const acc=cam.slice(0,3).toUpperCase()+'-'+pfx+'-'+String(a).padStart(5,'0');
+      /* sequential local numbers if a start was given: 4521, 4522, … */
+      let la='';
+      const st0=val('f-la');
+      if(st0){ const m=st0.match(/^(.*?)(\d+)$/); la=m?(m[1]+String(Number(m[2])+k).padStart(m[2].length,'0')):(k?st0+'-'+(k+1):st0); }
+      patch['library/copies/'+acc]={titleId:tid,status:'available',localAcc:la};
+    }
+    patch['library/avail/'+tid]=n;
+    await d2update(patch);
+    STATE.titles[tid]=rec; STATE.avail[tid]=n;
+    await idbSet('titles',STATE.titles);
+    bumpCat();  /* debounced — batch adds = one bump */
+    closeSheet(); toast('Added: '+name+' ('+n+' copies)'); render();
+  }catch(e){ showErr('abErr','Failed: '+e.message); }
+  finally{ setBusy('abBtn',false,'Save book'); }
+}
+async function editBook(tid){
+  const t=STATE.titles[tid]; if(!t) return;
+  sheet('<div class="empty">Loading copies…</div>');
+  const all=await d2get('library/copies');
+  const mine=Object.entries(all||{}).filter(([a,c])=>c.titleId===tid);
+  const iss=await getIssues();
+  sheet(`<div class="page-title" style="font-size:20px">EDIT BOOK</div>
+    <div class="fld"><label>Title</label><input id="e-name" value="${esc(t.name)}"></div>
+    <div class="fld"><label>Author</label><input id="e-auth" value="${esc(t.author||'')}"></div>
+    <div class="fld"><label>Publisher</label><input id="e-pub" value="${esc(t.publisher||'')}"></div>
+    <div class="fld"><label>Category</label><input id="e-cat" value="${esc(t.category||'')}"></div>
+    <div class="fld"><label>Courses</label><input id="e-co" value="${esc((t.courses||[]).join(','))}"></div>
+    <div class="fld"><label>Semesters</label><input id="e-se" value="${esc((t.sems||[]).join(','))}"></div>
+    <div id="ebErr"></div>
+    <button class="btn btn-full" id="ebBtn" onclick="saveEdit('${tid}')">Save changes</button>
+    <div class="card" style="margin-top:12px"><h3>COPIES <span class="badge badge-unknown badge-sm">${mine.length}</span></h3>
+      ${mine.map(([a,c])=>{
+        const holder=c.currentIssueId&&iss[c.currentIssueId]?iss[c.currentIssueId]:null;
+        return `<div class="rw"><div style="min-width:0"><span class="mono" style="font-size:10.5px">${esc(a)}</span>
+          <div style="display:flex;gap:5px;align-items:center;margin-top:3px">
+            <input id="la-${esc(a)}" value="${esc(c.localAcc||'')}" placeholder="Your reg. no." style="font-size:10px;padding:4px 7px;width:120px" onchange="saveLocal('${esc(a)}')">
+          </div>
+          ${holder?`<div class="mono" style="font-size:9px;color:var(--muted);margin-top:3px">→ ${esc(holder.name)} (${esc(holder.urn)})</div>`:''}</div>
+          <div style="display:flex;gap:5px;align-items:center">
+          <span class="badge badge-sm ${c.status==='available'?'badge-ok':c.status==='issued'?'badge-info':'badge-critical'}">${esc(c.status)}</span>
+          ${c.status==='available'?`<button class="btn btn-sm btn-ghost" onclick="retireCopy('${tid}','${esc(a)}','lost')">Retire</button>`:''}
+          ${(c.status==='lost'||c.status==='damaged')?`<button class="btn btn-sm btn-ghost" onclick="restoreCopy('${tid}','${esc(a)}')">Restore</button>`:''}
+          </div></div>`;
+      }).join('')}
+      <div style="display:flex;gap:7px;margin-top:11px">
+        <input id="e-add" type="number" min="1" max="50" value="1" style="width:80px">
+        <button class="btn btn-sm btn-full" onclick="addCopies('${tid}')">+ Add copies</button></div>
+      <button class="btn btn-sm btn-ghost btn-full" style="margin-top:7px" onclick="bulkLocal('${tid}')">📋 Bulk-enter register numbers</button>
+      <div class="mono" style="font-size:9px;color:var(--muted);margin-top:8px;line-height:1.5"><b>Two numbers per copy.</b> The grey one (${esc((mine[0]||[''])[0].split('-').slice(0,2).join('-'))}-…) is generated by this app and is what the database uses. The box next to it is <b>yours</b> — type whatever is written in your register or stamped in the book. Both are searchable.</div>
+      <div class="mono" style="font-size:9px;color:var(--muted);margin-top:6px;line-height:1.5">Quantity follows the copies — you add or retire physical books, the count updates itself. Issued copies cannot be retired; take the return first. Retired copies keep their accession number and never get reused.</div></div>
+    <button class="btn btn-full btn-ghost" onclick="closeSheet()">Close</button>`);
+}
+async function saveEdit(tid){
+  setBusy('ebBtn',true,'Saving…');
+  try{
+    const patch={};
+    const upd={ name:val('e-name'), author:val('e-auth'), publisher:val('e-pub'),
+      category:val('e-cat'), courses:csv(val('e-co')), sems:csv(val('e-se')).map(Number),
+      tagConf:'manual', editedBy:STATE.user.name, editedAt:Date.now() };
+    Object.entries(upd).forEach(([k,v])=>patch['library/titles/'+tid+'/'+k]=v);
+    await d2update(patch);
+    Object.assign(STATE.titles[tid],upd);
+    await idbSet('titles',STATE.titles);
+    bumpCat(); closeSheet(); toast('Saved'); render();
+  }catch(e){ showErr('ebErr','Failed: '+e.message); }
+  finally{ setBusy('ebBtn',false,'Save changes'); }
+}
+async function addCopies(tid){
+  const n=parseInt(val('e-add')||'1',10);
+  if(!(n>0&&n<=50)) return toast('1–50 copies at a time',true);
+  try{
+    const t=STATE.titles[tid];
+    const cam=t.campus||'Davan', str=t.stream||'DEG';
+    const pfx={DEG:'DEG',PUC:'PUC',BEd:'BED'}[str]||'GEN';
+    const patch={};
+    for(let k=0;k<n;k++){
+      const a=await bump('library/counters/acc/'+cam+'/'+str);
+      patch['library/copies/'+cam.slice(0,3).toUpperCase()+'-'+pfx+'-'+String(a).padStart(5,'0')]={titleId:tid,status:'available'};
+    }
+    patch['library/titles/'+tid+'/totalCopies']=(t.totalCopies||0)+n;
+    patch['library/avail/'+tid]=availOf(tid)+n;
+    await d2update(patch);
+    t.totalCopies=(t.totalCopies||0)+n; STATE.avail[tid]=availOf(tid);
+    await idbSet('titles',STATE.titles); bumpCat();
+    toast(n+' copies added'); editBook(tid);
+  }catch(e){ toast('Failed: '+e.message,true); }
+}
+async function retireCopy(tid,acc,st){
+  if(!confirm('Mark '+acc+' as '+st+'? It leaves circulation but the record is kept.')) return;
+  try{
+    const patch={};
+    patch['library/copies/'+acc+'/status']=st;
+    patch['library/copies/'+acc+'/retiredBy']=STATE.user.name;
+    patch['library/avail/'+tid]=Math.max(0,availOf(tid)-1);
+    await d2update(patch); await loadAvail(true);
+    toast(acc+' marked '+st); editBook(tid);
+  }catch(e){ toast('Failed: '+e.message,true); }
+}
+async function restoreCopy(tid,acc){
+  try{
+    const patch={};
+    patch['library/copies/'+acc+'/status']='available';
+    patch['library/avail/'+tid]=availOf(tid)+1;
+    await d2update(patch); await loadAvail(true);
+    toast(acc+' restored'); editBook(tid);
+  }catch(e){ toast('Failed: '+e.message,true); }
+}
+
+/* ═══ MERGE — soft, reversible. Copies/issues/queue re-point; accession numbers
+   never change (the physical label on the book stays correct). ═══ */
+function simKey(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim(); }
+function editDist(a,b){
+  if(Math.abs(a.length-b.length)>Math.max(a.length,b.length)*0.3) return 99;
+  let p=Array.from({length:b.length+1},(_,i)=>i);
+  for(let i=1;i<=a.length;i++){ const c=[i];
+    for(let j=1;j<=b.length;j++) c.push(Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]!==b[j-1]?1:0)));
+    p=c; }
+  return p[b.length];
+}
+/* EDITION GUARD — never fold different years/editions/volumes together. */
+function edTokens(t){
+  const s=String(t||'').toLowerCase(); const o=new Set();
+  (s.match(/(19|20)\d{2}/g)||[]).forEach(x=>o.add(x));
+  (s.match(/\b\d+\s*(st|nd|rd|th)\b/g)||[]).forEach(x=>o.add(x.replace(/\s/g,'')));
+  (s.match(/\bvol(ume)?\s*\.?\s*\w+/g)||[]).forEach(x=>o.add(x.replace(/\s/g,'')));
+  (s.match(/\bpart\s*\.?\s*\w+/g)||[]).forEach(x=>o.add(x.replace(/\s/g,'')));
+  return Array.from(o).sort().join('|');
+}
+function findDupes(){
+  const L=Object.entries(STATE.titles).filter(([i,t])=>t.status!=='merged'&&t.status!=='retired');
+  const bucket={};
+  L.forEach(([i,t])=>{
+    const a=simKey(t.author).split(' ').filter(w=>w.length>2)[0]||'~';
+    (bucket[a]=bucket[a]||[]).push([i,t]);
+  });
+  const out=[];
+  Object.values(bucket).forEach(g=>{
+    if(g.length<2||g.length>200) return;
+    const seen=new Set();
+    for(let x=0;x<g.length;x++){
+      if(seen.has(g[x][0])) continue;
+      const cl=[g[x]];
+      for(let y=x+1;y<g.length;y++){
+        if(seen.has(g[y][0])) continue;
+        const a=simKey(g[x][1].name), b=simKey(g[y][1].name);
+        if(!a||!b) continue;
+        if(edTokens(g[x][1].name)!==edTokens(g[y][1].name)) continue;
+        if(editDist(a,b)<=Math.max(2,Math.floor(Math.max(a.length,b.length)*0.15))){ cl.push(g[y]); seen.add(g[y][0]); }
+      }
+      if(cl.length>1){ out.push(cl); seen.add(g[x][0]); }
+    }
+  });
+  return out.sort((a,b)=>b.length-a.length);
+}
+async function openMerge(){
+  sheet('<div class="empty">Scanning catalogue…</div>');
+  const cl=findDupes();
+  sheet(`<div class="page-title" style="font-size:20px">MERGE DUPLICATES</div>
+    <div class="alert">Found <b>${cl.length}</b> suspected cluster(s). Editions are never merged — "…2016-2017" and "…2017-2018" stay separate by design. Merging re-points copies, live loans and queue positions; accession numbers are untouched and the merge is reversible.</div>
+    ${cl.slice(0,25).map((c,ix)=>`<div class="card">
+      <h3 style="font-size:14px">CLUSTER ${ix+1} <span class="badge badge-warning badge-sm">${c.reduce((a,x)=>a+(x[1].totalCopies||0),0)} copies</span></h3>
+      ${c.map(([i,t],k)=>`<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:11.5px;color:var(--text)">
+        <input type="radio" name="keep${ix}" value="${i}" ${k===0?'checked':''} style="width:auto;margin-top:3px">
+        <span><b>${esc(t.name)}</b><br><span class="mono" style="font-size:9.5px;color:var(--muted)">${esc(i)} · ${t.totalCopies||0} copies · ${esc(t.author||'')}</span></span></label>`).join('')}
+      <button class="btn btn-sm btn-full" style="margin-top:7px" onclick="doMerge(${ix},'${c.map(x=>x[0]).join(',')}')">Merge into selected</button>
+    </div>`).join('')||'<div class="empty">NO DUPLICATES FOUND</div>'}
+    <button class="btn btn-full btn-ghost" onclick="closeSheet()">Close</button>`);
+}
+async function doMerge(ix,idsCsv){
+  const ids=idsCsv.split(',');
+  const sel=document.querySelector('input[name="keep'+ix+'"]:checked');
+  if(!sel) return;
+  const keep=sel.value, drop=ids.filter(i=>i!==keep);
+  if(!confirm('Merge '+drop.length+' record(s) into "'+STATE.titles[keep].name+'"?')) return;
+  try{
+    const [copies,iss,reqs]=await Promise.all([d2get('library/copies'),getIssues(true),getRequests(true)]);
+    const patch={}; let n=0;
+    Object.entries(copies||{}).forEach(([a,c])=>{
+      if(drop.includes(c.titleId)){
+        patch['library/copies/'+a+'/origTitleId']=c.titleId;   /* enables unmerge */
+        patch['library/copies/'+a+'/titleId']=keep; n++;
+      }
+    });
+    Object.entries(iss||{}).forEach(([i,x])=>{ if(drop.includes(x.tid)){ patch['library/issues/'+i+'/origTid']=x.tid; patch['library/issues/'+i+'/tid']=keep; } });
+    Object.entries(reqs||{}).forEach(([i,r])=>{ if(drop.includes(r.tid)){ patch['library/requests/'+i+'/origTid']=r.tid; patch['library/requests/'+i+'/tid']=keep; } });
+    const tot=ids.reduce((a,i)=>a+((STATE.titles[i]||{}).totalCopies||0),0);
+    const av=ids.reduce((a,i)=>a+availOf(i),0);
+    patch['library/titles/'+keep+'/totalCopies']=tot;
+    patch['library/titles/'+keep+'/variants']=ids.map(i=>(STATE.titles[i]||{}).name).filter(Boolean);
+    patch['library/avail/'+keep]=av;
+    drop.forEach(i=>{
+      patch['library/titles/'+i+'/status']='merged';
+      patch['library/titles/'+i+'/mergedInto']=keep;
+      patch['library/titles/'+i+'/mergedBy']=STATE.user.name;
+      patch['library/avail/'+i]=0;
+    });
+    await d2update(patch);
+    await loadCatalogue(true); await loadAvail(true); _issCache.at=0; _reqCache.at=0;
+    bumpCatNow(); closeSheet(); toast('Merged '+drop.length+' record(s) · '+n+' copies re-pointed'); render();
+  }catch(e){ toast('Merge failed: '+e.message,true); }
+}
+/* ═══ TAG REVIEW ═══ */
+async function openTagReview(){
+  const L=Object.entries(STATE.titles).filter(([i,t])=>t.tagConf==='needs_review'&&t.status!=='merged');
+  sheet(`<div class="page-title" style="font-size:20px">TAG REVIEW</div>
+    <div class="alert">The auto-tagger matched titles by English keyword. <b>${L.length}</b> titles are unmatched — mostly transliterated Kannada B'Ed titles the rules can't read. Tag them once and students see them filtered by course &amp; semester. Tagging is optional: untagged books still appear under <b>All Books</b>.</div>
+    ${L.slice(0,30).map(([i,t])=>`<div class="card" style="padding:11px">
+      <div style="font-size:12px;font-weight:700;margin-bottom:2px">${esc(t.name)}</div>
+      <div class="mono" style="font-size:9.5px;color:var(--muted);margin-bottom:8px">${esc(t.author||'')} · ${t.totalCopies||0} copies</div>
+      <div style="display:flex;gap:5px">
+        <input id="tg-c-${i}" placeholder="Category" value="${esc(t.category||'')}" style="font-size:11px">
+        <input id="tg-o-${i}" placeholder="Courses" value="${esc((t.courses||[]).join(','))}" style="font-size:11px">
+        <input id="tg-s-${i}" placeholder="Sems" value="${esc((t.sems||[]).join(','))}" style="width:70px;font-size:11px">
+        <button class="btn btn-sm" onclick="saveTag('${i}')">✓</button></div></div>`).join('')||'<div class="empty">ALL TAGGED ✨</div>'}
+    <button class="btn btn-full btn-ghost" onclick="closeSheet()">Close</button>`);
+}
+async function saveTag(tid){
+  try{
+    const upd={ category:val('tg-c-'+tid)||'Uncategorized', courses:csv(val('tg-o-'+tid)),
+      sems:csv(val('tg-s-'+tid)).map(Number), tagConf:'manual', taggedBy:STATE.user.name };
+    const patch={}; Object.entries(upd).forEach(([k,v])=>patch['library/titles/'+tid+'/'+k]=v);
+    await d2update(patch);
+    Object.assign(STATE.titles[tid],upd); await idbSet('titles',STATE.titles);
+    bumpCat(); toast('Tagged'); openTagReview();
+  }catch(e){ toast('Failed: '+e.message,true); }
+}
+</script>
+<script>
+/* ═══ ADMIN ═══ */
+async function viewAdmin(){
+  /* v1.01: headline stats moved to the Dash tab; Admin is settings + data only. */
+  const iss=await getIssues(true), reqs=await getRequests(true);
+  const open=Object.values(iss||{}).filter(x=>!x.ret);
+  const ov=open.filter(x=>x.due&&daysLeft(x.due)<0);
+  const c=STATE.cfg;
+  const nT=Object.values(STATE.titles).filter(t=>t.status!=='merged').length;
+  const nR=Object.values(STATE.titles).filter(t=>t.tagConf==='needs_review'&&t.status!=='merged').length;
+  return `<div class="kp">
+      <div class="stat-box"><div class="stat-label">Titles</div><div class="stat-value">${nT}</div></div>
+      <div class="stat-box"><div class="stat-label">Out</div><div class="stat-value" style="color:var(--blue)">${open.length}</div></div>
+      <div class="stat-box"><div class="stat-label">Overdue</div><div class="stat-value" style="color:var(--danger)">${ov.length}</div></div>
+      <div class="stat-box"><div class="stat-label">Queue</div><div class="stat-value" style="color:var(--warn)">${Object.values(reqs||{}).filter(r=>r.st==='waiting').length}</div></div>
+      <div class="stat-box"><div class="stat-label">Fines</div><div class="stat-value" style="color:var(--ok)">₹${ov.reduce((a,b)=>a+fineOf(b.due),0)}</div></div>
+      <div class="stat-box"><div class="stat-label">Untagged</div><div class="stat-value" style="color:var(--muted)">${nR}</div></div></div>
+    <div class="card"><h3>⚙️ SETTINGS <span class="badge badge-warning badge-sm">admin only</span></h3>
+      <div class="rw"><div style="font-size:12px"><b>Approval mode</b><div class="mono" style="font-size:9px;color:var(--muted)">Auto = issues instantly if a copy is free</div></div>
+        <button class="btn btn-sm ${c.autoApprove?'':'btn-ghost'}" onclick="setCfg('autoApprove',${!c.autoApprove})">${c.autoApprove?'AUTO':'MANUAL'}</button></div>
+      <div class="rw"><div style="font-size:12px"><b>Loan period</b></div><input type="number" style="width:66px" value="${c.loanDays||7}" onchange="setCfg('loanDays',+this.value)"></div>
+      <div class="rw"><div style="font-size:12px"><b>Pickup window</b><div class="mono" style="font-size:9px;color:var(--muted)">Days a ready book is held</div></div><input type="number" style="width:66px" value="${c.pickupDays||2}" onchange="setCfg('pickupDays',+this.value)"></div>
+      <div class="rw"><div style="font-size:12px"><b>Max books</b><div class="mono" style="font-size:9px;color:var(--muted)">Students only — staff unlimited</div></div><input type="number" style="width:66px" value="${c.maxBooks||2}" onchange="setCfg('maxBooks',+this.value)"></div>
+      <div class="rw"><div style="font-size:12px"><b>Fine ₹/day</b><div class="mono" style="font-size:9px;color:var(--muted)">Dynamic — applies to open loans</div></div><input type="number" style="width:66px" value="${c.finePerDay||5}" onchange="setCfg('finePerDay',+this.value)"></div>
+      <div class="rw"><div style="font-size:12px"><b>Current AY</b><div class="mono" style="font-size:9px;color:var(--muted)">Stamped on every new issue</div></div><input style="width:94px" value="${esc(c.currentAY||'2025-26')}" onchange="setCfg('currentAY',this.value)"></div></div>
+    <div class="card"><h3>👤 LIBRARY STAFF</h3>
+      <div class="mono" style="font-size:10px;color:var(--muted);margin-bottom:9px;line-height:1.5">Grants the <b>librarian</b> role. DB1 staff_directory is never modified — this overlay lives in DB2 only.</div>
+      <div id="stfList"></div>
+      <div style="display:flex;gap:6px;margin-top:9px">
+        <input id="ns-name" placeholder="Name" style="font-size:12px">
+        <input id="ns-pw" placeholder="Password" style="font-size:12px;width:110px">
+        <button class="btn btn-sm" onclick="addLibrarian()">Add</button></div></div>
+    <div class="card"><h3>🗄️ DATA</h3>
+      <div id="impBox"></div>
+      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" id="impBtn" onclick="runImport()">📥 Import catalogue</button>
+      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="exportLabels()">🏷️ Export accession labels</button>
+      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="exportBackup()">📤 Export backup (JSON)</button>
+      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="recount()">🔄 Recount availability</button>
+      <button class="btn btn-full btn-ghost" onclick="loadCatalogue(true).then(()=>{toast('Catalogue refreshed');render()})">♻️ Force catalogue refresh</button></div>
+    <div class="alert">Roles read from DB1 Firestore <b>staff_directory</b> (admin / manager / vp / fulltime / visiting). The <b>librarian</b> role is overlaid from DB2 <b>library/staff</b>, so DB1 keeps its existing shape and this app never writes to it.</div>`;
+}
+async function setCfg(k,v){
+  try{ await d2set('library/config/'+k,v); STATE.cfg[k]=v; toast('Saved'); render(); }
+  catch(e){ toast('Failed: '+e.message,true); }
+}
+async function renderStaffList(){
+  const el=document.getElementById('stfList'); if(!el) return;
+  const s=await d2get('library/staff');
+  el.innerHTML=Object.entries(s||{}).map(([n,v])=>`<div class="rw"><div style="font-size:12px"><b>${esc(n)}</b>
+    <div class="mono" style="font-size:9px;color:var(--muted)">${esc(v.role||'librarian')}</div></div>
+    <button class="btn btn-sm btn-danger" onclick="delLibrarian('${esc(n)}')">Remove</button></div>`).join('')||'<div class="empty">NONE</div>';
+}
+async function addLibrarian(){
+  const n=val('ns-name'), p=val('ns-pw');
+  if(!n||!p) return toast('Name and password required',true);
+  try{ await d2set('library/staff/'+n.replace(/[.#$\[\]\/]/g,'_'),{role:'librarian',password:p,addedBy:STATE.user.name});
+    toast('Added '+n); renderStaffList(); }
+  catch(e){ toast('Failed: '+e.message,true); }
+}
+async function delLibrarian(n){
+  if(!confirm('Remove '+n+' as librarian?')) return;
+  try{ await d2set('library/staff/'+n,null); toast('Removed'); renderStaffList(); }
+  catch(e){ toast('Failed: '+e.message,true); }
+}
+/* ═══ IMPORTER — chunked, resumable, idempotent ════════════════════════════
+   NOT a single set(): 8557 nodes in one request times out on college wifi and
+   leaves the DB half-written. Batched update() on explicit keyed paths, so
+   re-running writes identical data (never push(), which would duplicate).
+   Live circulation nodes are never named in the patch → survive a re-import.
+   availCopies is written on FIRST import only; on re-runs it is left alone and
+   rebuilt from copy statuses, otherwise a re-import would reset shelf counts
+   while books are physically out with students. */
+async function runImport(){
+  const meta=await d2get('library/meta');
+  if(meta&&meta.importVersion){
+    if(!confirm('Catalogue already imported ('+meta.importVersion+').\n\nRe-running updates book details and adds new copies, but will NOT reset availability or touch live loans.\n\nContinue?')) return;
+  }
+  setBusy('impBtn',true,'Fetching…');
+  const box=document.getElementById('impBox');
+  const say=m=>{ if(box) box.innerHTML='<div class="alert">'+m+'</div>'; };
+  try{
+    const r=await fetch(IMPORT_URL);
+    if(!r.ok) throw new Error('library_import.json not found next to this file ('+r.status+')');
+    const d=await r.json();
+    const first=!(meta&&meta.importVersion);
+    const T=Object.entries(d.titles||{}), C=Object.entries(d.copies||{});
+    const cur=await d2get('library/meta/importCursor')||{t:0,c:0};
+    const B=400;
+    for(let i=(cur.t||0);i<T.length;i+=B){
+      const p={};
+      T.slice(i,i+B).forEach(([k,v])=>{
+        const o=Object.assign({},v);
+        if(!first) delete o.availCopies;   /* never clobber live shelf state */
+        delete o.sources;
+        p['library/titles/'+k]=o;
+        if(first) p['library/avail/'+k]=v.availCopies!=null?v.availCopies:v.totalCopies;
+      });
+      p['library/meta/importCursor']={t:i+B,c:cur.c||0};
+      await d2update(p);
+      say('Writing titles… '+Math.min(i+B,T.length)+' / '+T.length);
+      setBusy('impBtn',true,'Titles '+Math.min(i+B,T.length)+'/'+T.length);
+    }
+    for(let i=(cur.c||0);i<C.length;i+=B){
+      const p={}; const ex=first?null:await Promise.resolve(null);
+      C.slice(i,i+B).forEach(([k,v])=>{
+        /* only seed genuinely new accession numbers; issued copies keep status */
+        /* localAcc starts empty — it is filled from your register, never invented */
+        p['library/copies/'+k]=first?Object.assign({localAcc:''},v):{titleId:v.titleId,status:'available',localAcc:''};
+      });
+      p['library/meta/importCursor']={t:T.length,c:i+B};
+      await d2update(p);
+      say('Writing copies… '+Math.min(i+B,C.length)+' / '+C.length);
+      setBusy('impBtn',true,'Copies '+Math.min(i+B,C.length)+'/'+C.length);
+    }
+    const patch={};
+    patch['library/meta/importVersion']=(d.meta&&d.meta.importVersion)||'import-v1';
+    patch['library/meta/importedAt']=Date.now();
+    patch['library/meta/importedBy']=STATE.user.name;
+    patch['library/meta/importCursor']=null;
+    patch['library/meta/catVersion']=Date.now();
+    if(first&&d.config) patch['library/config']=d.config;
+    if(first) patch['library/counters/titleSeq']=T.length;
+    await d2update(patch);
+    await loadCatalogue(true); await loadAvail(true); await loadCfg();
+    say('✅ Imported '+T.length+' titles / '+C.length+' copies.');
+    toast('Import complete'); render();
+  }catch(e){
+    say('❌ '+e.message+'<br>Progress was checkpointed — press Import again to resume from where it stopped.');
+    toast('Import failed: '+e.message,true);
+  } finally { setBusy('impBtn',false,'📥 Import catalogue'); }
+}
+async function exportBackup(){
+  toast('Building backup…');
+  try{
+    const [t,c,i,r,cfg]=await Promise.all([d2get('library/titles'),d2get('library/copies'),
+      d2get('library/issues'),d2get('library/requests'),d2get('library/config')]);
+    const blob=new Blob([JSON.stringify({meta:{exportedAt:new Date().toISOString(),by:STATE.user.name,app:APP_VERSION},
+      titles:t,copies:c,issues:i,requests:r,config:cfg},null,1)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='library_backup_'+dkey(new Date())+'.json';
+    a.click(); URL.revokeObjectURL(a.href);
+    toast('Backup downloaded');
+  }catch(e){ toast('Export failed: '+e.message,true); }
+}
+/* Self-healing: rebuilds every avail counter from real copy statuses. */
+async function recount(){
+  if(!confirm('Rebuild all availability counters from copy records?')) return;
+  toast('Recounting…');
+  try{
+    const c=await d2get('library/copies');
+    const n={};
+    Object.values(c||{}).forEach(x=>{ if(x.status==='available') n[x.titleId]=(n[x.titleId]||0)+1; });
+    const patch={};
+    Object.keys(STATE.titles).forEach(t=>patch['library/avail/'+t]=n[t]||0);
+    await d2update(patch); await loadAvail(true);
+    toast('Recount done — '+Object.keys(patch).length+' counters rebuilt'); render();
+  }catch(e){ toast('Recount failed: '+e.message,true); }
+}
+</script>
+<style>
+.tok{font-family:var(--mono);font-size:19px;color:var(--accent);letter-spacing:1.5px;text-align:center;padding:10px;background:var(--surface2);border-radius:8px;border:1px dashed rgba(240,165,0,.4)}
+.qp{font-family:var(--head);font-size:40px;color:var(--warn);line-height:1}
+.stp{display:flex;gap:8px;align-items:center;padding:5px 0;font-size:11px;font-family:var(--mono)}
+.stp .d{width:7px;height:7px;border-radius:50%;background:var(--border);flex-shrink:0}
+.stp.dn .d{background:var(--ok)} .stp.dn{color:var(--text)}
+.stp.cu .d{background:var(--accent);box-shadow:0 0 0 3px rgba(240,165,0,.2)} .stp.cu{color:var(--accent)}
+.stp.pd{color:var(--muted)}
+.cc{background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:999px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:var(--body);flex-shrink:0}
+.cc.on{background:var(--accent);color:#000;border-color:var(--accent)}
+.bkrow{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:11px;margin-bottom:8px;display:flex;gap:10px;align-items:center;cursor:pointer}
+.bkrow:hover{background:var(--surface2)}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:flex-end;justify-content:center;z-index:500}
+.sheet.on{display:flex}
+.sheet-c{background:var(--surface);border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:520px;border-top:1px solid var(--border);max-height:90vh;overflow-y:auto;animation:up .2s}
+@keyframes up{from{transform:translateY(100%)}}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:11px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;position:sticky;top:0;z-index:20}
+.main{flex:1;padding:14px;max-width:640px;margin:0 auto;width:100%;padding-bottom:78px}
+.bnav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--surface);border-top:1px solid var(--border);z-index:30;max-width:640px;margin:0 auto}
+.nb{flex:1;background:none;border:none;border-top:2px solid transparent;color:var(--muted);padding:9px 2px 11px;cursor:pointer;font-family:var(--mono);font-size:9px;letter-spacing:.5px;text-transform:uppercase}
+.nb .i{font-size:17px;display:block;margin-bottom:2px}
+.nb.on{color:var(--accent);border-top-color:var(--accent)}
+.nb .bd{background:var(--danger);color:#fff;border-radius:999px;padding:0 4px;font-size:8px}
+@media(min-width:760px){.portal-footer{padding-bottom:14px}}
+</style>
+<div class="sheet" id="sheet" onclick="if(event.target===this)closeSheet()"><div class="sheet-c" id="sheetC"></div></div>
+<script>
+function sheet(h){ document.getElementById('sheetC').innerHTML=h; document.getElementById('sheet').classList.add('on'); }
+function closeSheet(){ document.getElementById('sheet').classList.remove('on'); }
+
+/* ═══ ROUTER ═══ */
+const NAV={ dash:['📊','Dash'], browse:['🔍','Browse'], mine:['📗','My Books'], hist:['📅','History'],
+  desk:['🗂️','Desk'], out:['📖','Issued'], adm:['⚙️','Admin'] };
+function navFor(){
+  if(isStu()) return ['browse','mine','hist'];
+  const r=STATE.user.role;
+  if(r==='librarian') return ['dash','browse','desk','out'];
+  if(r==='admin'||r==='vp') return ['dash','browse','desk','out','adm'];
+  if(r==='manager') return ['dash','browse','out','adm'];
+  return ['browse','mine','out'];   /* fulltime / visiting — read-only circulation */
+}
+async function render(){
+  const app=document.getElementById('app');
+  if(!STATE.user){
+    app.innerHTML=loginScreen();
+    document.getElementById('footer').innerHTML=footerHtml();
+    document.getElementById('footer').style.display='';
+    return;
+  }
+  /* v1.07: footer sits in normal document flow but .bnav is fixed to the
+     viewport bottom and permanently covers it once logged in — hide it here;
+     the same info (version/build) is shown in the topbar meta + nav chip. */
+  document.getElementById('footer').style.display='none';
+  const tabs=navFor();
+  if(!tabs.includes(STATE.tab)) STATE.tab=tabs[0];
+  const u=STATE.user;
+  const top=`<div class="topbar">
+    <div style="display:flex;gap:9px;align-items:center;min-width:0">${avatar(u.id,u.name)}
+      <div style="min-width:0"><div class="page-title" style="font-size:19px;margin:0">${esc(u.name.toUpperCase())}</div>
+      <div class="mono" style="font-size:9.5px;color:var(--muted)">${esc(u.id)}${u.class?' · '+esc(u.class):''}${u.sem?' · SEM '+esc(u.sem):''} · ${esc(APP_VERSION)}</div></div></div>
+    <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+      <span class="badge badge-warning badge-sm">${esc(u.role)}</span>
+      <button class="btn btn-sm btn-ghost" onclick="logout()">Exit</button></div></div>`;
+  app.innerHTML=top+'<div class="main" id="main"><div class="empty">Loading…</div></div>'+
+    `<div class="bnav"><div class="mono" style="font-size:8px;color:var(--muted);display:flex;align-items:center;padding:0 7px;flex-shrink:0;letter-spacing:.5px">${esc(APP_VERSION)}</div>${tabs.map(k=>`<button class="nb ${k===STATE.tab?'on':''}" onclick="STATE.tab='${k}';render()">
+      <span class="i">${NAV[k][0]}</span>${NAV[k][1]}<span id="bdg-${k}"></span></button>`).join('')}</div>`;
+  document.getElementById('footer').innerHTML=footerHtml();
+  const m=document.getElementById('main');
+  try{
+    if(STATE.tab==='dash'){ m.innerHTML=await viewDash(); renderOrders(); }
+    else if(STATE.tab==='browse') m.innerHTML=viewBrowse();
+    else if(STATE.tab==='mine') m.innerHTML=await viewMine();
+    else if(STATE.tab==='hist') m.innerHTML=await viewHistory();
+    else if(STATE.tab==='desk') m.innerHTML=await viewDesk();
+    else if(STATE.tab==='out') m.innerHTML=await viewIssued();
+    else if(STATE.tab==='adm'){ m.innerHTML=await viewAdmin(); renderStaffList(); }
+  }catch(e){ m.innerHTML='<div class="alert alert-err">Could not load this view: '+esc(e.message)+'</div>'; warn(e.message); }
+  updateBadges();
+}
+async function updateBadges(){
+  if(!STATE.user) return;
+  try{
+    const r=await getRequests();
+    const n=Object.values(r||{}).filter(x=>['waiting','ready'].includes(x.st)).length;
+    const el=document.getElementById('bdg-desk');
+    if(el&&n) el.innerHTML=' <span class="bd">'+n+'</span>';
+    if(isStu()){
+      const mine=Object.values(r||{}).filter(x=>x.uid===STATE.user.id&&x.st==='ready').length;
+      const e2=document.getElementById('bdg-mine');
+      if(e2&&mine) e2.innerHTML=' <span class="bd">'+mine+'</span>';
+    }
+  }catch(e){}
+}
+function footerHtml(){
+  return `<div>© ${new Date().getFullYear()} Davan &amp; Nutana Group of Institutions, Davangere</div>
+    <div>Library <span class="vr">${APP_VERSION}</span> · Built ${BUILD_DATE}</div>
+    <div>Built by Harsha Gujjar</div>`;
+}
+
+/* ═══ BOOT ═══ */
+async function boot(){
+  const app=document.getElementById('app');
+  app.innerHTML='<div class="empty" style="padding:60px">Loading library…</div>';
+  try{
+    await getAuthToken();
+    await Promise.all([loadCfg(),loadCatalogue(),loadAvail()]);
+    loadPhotos();               /* non-blocking: initials render first, photos inject */
+    buildAccIdx();              /* staff only — lets search match register numbers */
+    await ensureSeed();
+    await render();
+  }catch(e){
+    app.innerHTML='<div class="main"><div class="alert alert-err">Could not start: '+esc(e.message)+'<br><br>Check your connection and reload.</div></div>';
+    warn('boot failed: '+e.message);
+  }
+}
+/* One-time seed so the librarian can log in before anything else exists. */
+async function ensureSeed(){
+  if(!isAdmin()) return;
+  try{
+    const s=await d2get('library/staff');
+    if(!s||!Object.keys(s).length){
+      await d2set('library/staff/'+SEED_LIBRARIAN.name,{role:'librarian',password:SEED_LIBRARIAN.password,seeded:true});
+      log('seeded default librarian');
+    }
+  }catch(e){}
+}
+(async function init(){
+  try{
+    const s=sessionStorage.getItem('lib_sess');
+    if(s){ STATE.user=JSON.parse(s); await boot(); return; }
+  }catch(e){}
+  document.getElementById('app').innerHTML=loginScreen();
+  document.getElementById('footer').innerHTML=footerHtml();
+  getAuthToken();
+})();
+/* PWA: cache the shell so a flaky campus connection still opens the app.
+   The catalogue itself is cached in IndexedDB (see loadCatalogue), not here. */
+if('serviceWorker' in navigator){
+  const sw=`self.addEventListener('install',e=>self.skipWaiting());
+self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch',e=>{
+  if(e.request.method!=='GET') return;
+  const u=new URL(e.request.url);
+  if(u.origin!==location.origin) return;
+  e.respondWith(fetch(e.request).then(r=>{
+    const c=r.clone(); caches.open('davan-lib-v1').then(x=>x.put(e.request,c)); return r;
+  }).catch(()=>caches.match(e.request)));
+});`;
+  const b=new Blob([sw],{type:'text/javascript'});
+  navigator.serviceWorker.register(URL.createObjectURL(b)).catch(()=>{});
+}
+</script>
+<script>
+/* ═══ DASHBOARD (v1.01) ════════════════════════════════════════════════════
+   "Due today / due tomorrow" is the number that actually runs a library — it is
+   who walks in this morning. Everything else is context. */
+function startOfDay(ts){ const d=new Date(ts); d.setHours(0,0,0,0); return d.getTime(); }
+function isToday(ts){ return ts && startOfDay(ts)===startOfDay(Date.now()); }
+function isTomorrow(ts){ return ts && startOfDay(ts)===startOfDay(Date.now())+864e5; }
+async function viewDash(){
+  const [iss,reqs]=await Promise.all([getIssues(true),getRequests(true)]);
+  const T=Object.entries(STATE.titles).filter(([i,t])=>t.status!=='merged'&&t.status!=='retired');
+  const open=Object.values(iss||{}).filter(x=>!x.ret);
+  const ov=open.filter(x=>x.due&&daysLeft(x.due)<0);
+  const dueT=open.filter(x=>isToday(x.due)), dueM=open.filter(x=>isTomorrow(x.due));
+  const bookedToday=Object.values(iss||{}).filter(x=>isToday(x.out));
+  const appliedToday=Object.values(reqs||{}).filter(r=>isToday(r.dt));
+  const ready=Object.values(reqs||{}).filter(r=>r.st==='ready');
+  const copies=T.reduce((a,[i,t])=>a+(t.totalCopies||0),0);
+  const untag=T.filter(([i,t])=>t.tagConf==='needs_review').length;
+  /* per-course breakdown */
+  const cc={};
+  T.forEach(([i,t])=>{
+    const cs=(t.courses||[]).length?t.courses:['(untagged)'];
+    cs.forEach(c=>{ cc[c]=cc[c]||{t:0,c:0}; cc[c].t++; cc[c].c+=(t.totalCopies||0); });
+  });
+  const rows=Object.entries(cc).sort((a,b)=>b[1].c-a[1].c);
+  const mx=Math.max(1,...rows.map(r=>r[1].c));
+  const nameOf=t=>(STATE.titles[t]||{}).name||'(unknown)';
+  return `
+  <div class="kp" style="grid-template-columns:repeat(4,1fr)">
+    <div class="stat-box"><div class="stat-label">Total copies</div><div class="stat-value">${copies}</div></div>
+    <div class="stat-box"><div class="stat-label">Titles</div><div class="stat-value">${T.length}</div></div>
+    <div class="stat-box"><div class="stat-label">Out now</div><div class="stat-value" style="color:var(--blue)">${open.length}</div></div>
+    <div class="stat-box"><div class="stat-label">Overdue</div><div class="stat-value" style="color:var(--danger)">${ov.length}</div></div>
+  </div>
+  <div class="kp" style="grid-template-columns:repeat(4,1fr)">
+    <div class="stat-box"><div class="stat-label">Issued today</div><div class="stat-value" style="color:var(--ok)">${bookedToday.length}</div></div>
+    <div class="stat-box"><div class="stat-label">Applied today</div><div class="stat-value" style="color:var(--warn)">${appliedToday.length}</div></div>
+    <div class="stat-box"><div class="stat-label">Due TODAY</div><div class="stat-value" style="color:var(--warn)">${dueT.length}</div></div>
+    <div class="stat-box"><div class="stat-label">Due tomorrow</div><div class="stat-value">${dueM.length}</div></div>
+  </div>
+  <div class="kp">
+    <div class="stat-box"><div class="stat-label">Ready pickup</div><div class="stat-value" style="color:var(--ok)">${ready.length}</div></div>
+    <div class="stat-box"><div class="stat-label">Fines due</div><div class="stat-value" style="color:var(--danger)">₹${ov.reduce((a,b)=>a+fineOf(b.due),0)}</div></div>
+    <div class="stat-box"><div class="stat-label">Untagged</div><div class="stat-value" style="color:var(--muted)">${untag}</div></div>
+  </div>
+  ${(dueT.length||dueM.length)?`<div class="card"><h3>📆 EXPECTED BACK</h3>
+    ${dueT.map(x=>`<div class="rw"><div style="display:flex;gap:8px;align-items:center;min-width:0">${avatar(x.urn,x.name)}
+      <div style="min-width:0"><div style="font-size:12px;font-weight:700">${esc(x.name)} <span class="badge badge-sm badge-unknown">${esc(x.urn)}</span></div>
+      <div style="font-size:10px;color:var(--muted)">${esc(nameOf(x.tid))}</div></div></div>
+      <span class="badge badge-warning badge-sm">TODAY</span></div>`).join('')}
+    ${dueM.map(x=>`<div class="rw"><div style="display:flex;gap:8px;align-items:center;min-width:0">${avatar(x.urn,x.name)}
+      <div style="min-width:0"><div style="font-size:12px;font-weight:700">${esc(x.name)} <span class="badge badge-sm badge-unknown">${esc(x.urn)}</span></div>
+      <div style="font-size:10px;color:var(--muted)">${esc(nameOf(x.tid))}</div></div></div>
+      <span class="badge badge-info badge-sm">TOMORROW</span></div>`).join('')}</div>`:''}
+  <div class="card"><h3>📚 BY COURSE</h3>
+    ${rows.map(([c,v])=>`<div style="display:flex;align-items:center;gap:9px;padding:6px 0">
+      <span class="mono" style="font-size:10.5px;width:82px;flex-shrink:0;color:${c==='(untagged)'?'var(--muted)':'var(--text)'}">${esc(c)}</span>
+      <div class="bar-wrap"><div class="bar" style="width:${v.c/mx*100}%"></div></div>
+      <span class="mono" style="font-size:9.5px;color:var(--muted);width:104px;text-align:right;flex-shrink:0">${v.t} titles / ${v.c} copies</span></div>`).join('')}
+    <div class="mono" style="font-size:9px;color:var(--muted);margin-top:8px;line-height:1.5">A title tagged for two courses counts under both, so course totals exceed the catalogue total. Untagged books still appear to students under All Books.</div></div>
+  <div class="card"><h3>🧾 PURCHASE REQUISITIONS</h3>
+    <button class="btn btn-full" style="margin-bottom:7px" onclick="newOrder()">➕ New requisition</button>
+    <div id="ordList"><div class="empty">Loading…</div></div></div>`;
+}
+/* ═══ REQUISITION ═══ */
+async function renderOrders(){
+  const el=document.getElementById('ordList'); if(!el) return;
+  const o=await d2get('library/orders');
+  const L=Object.entries(o||{}).sort((a,b)=>(b[1].at||0)-(a[1].at||0));
+  const P={requested:'badge-warning',approved:'badge-info',ordered:'badge-unknown',received:'badge-ok'};
+  el.innerHTML=L.slice(0,20).map(([id,x])=>`<div class="rw">
+    <div style="min-width:0"><div style="font-size:12px;font-weight:700">${esc(x.title)}</div>
+      <div class="mono" style="font-size:9px;color:var(--muted)">${esc(id)} · ${esc(x.author||'')} · qty ${x.qty} · ₹${x.price||'—'}</div></div>
+    <div style="text-align:right;flex-shrink:0"><span class="badge badge-sm ${P[x.st]||'badge-unknown'}">${esc(x.st)}</span>
+      <div style="margin-top:4px;display:flex;gap:4px;justify-content:flex-end">
+      <button class="btn btn-sm btn-ghost" onclick="printOrder('${id}')">Print</button>
+      ${x.st!=='received'?`<button class="btn btn-sm" onclick="advOrder('${id}','${x.st}')">${x.st==='requested'?'Approve':x.st==='approved'?'Mark ordered':'Receive'}</button>`:''}
+      </div></div></div>`).join('')||'<div class="empty">NO REQUISITIONS</div>';
+}
+function newOrder(){
+  sheet(`<div class="page-title" style="font-size:20px">NEW REQUISITION</div>
+    <div class="fld"><label>Book title *</label><input id="o-title"></div>
+    <div class="fld"><label>Author</label><input id="o-auth"></div>
+    <div class="fld"><label>Publisher / Supplier</label><input id="o-pub"></div>
+    <div class="fld"><label>ISBN</label><input id="o-isbn"></div>
+    <div style="display:flex;gap:8px">
+      <div class="fld" style="flex:1"><label>Quantity *</label><input id="o-qty" type="number" value="1" min="1"></div>
+      <div class="fld" style="flex:1"><label>Est. price ₹ each</label><input id="o-price" type="number"></div></div>
+    <div style="display:flex;gap:8px">
+      <div class="fld" style="flex:1"><label>Campus</label><select id="o-cam">${CAMPUSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <div class="fld" style="flex:1"><label>Stream</label><select id="o-str">${STREAMS.map(c=>`<option>${c}</option>`).join('')}</select></div></div>
+    <div class="fld"><label>Course / Department</label><input id="o-course" placeholder="BCA"></div>
+    <div class="fld"><label>Justification</label><input id="o-why" placeholder="Prescribed text, Sem 5"></div>
+    <div class="fld"><label>Address it to</label><input id="o-to" placeholder="M/s ... Book House, Davangere"></div>
+    <div id="oErr"></div>
+    <div class="alert">Saving generates two copies on one A4 page — <b>To The Address</b> and <b>Office Copy</b>. When the books arrive, tap <b>Receive</b> and they become a title with real accession numbers.</div>
+    <button class="btn btn-full" id="oBtn" onclick="saveOrder()">Save requisition</button>
+    <button class="btn btn-full btn-ghost" style="margin-top:7px" onclick="closeSheet()">Cancel</button>`);
+}
+async function saveOrder(){
+  const t=val('o-title'); const q=parseInt(val('o-qty')||'1',10);
+  if(!t) return showErr('oErr','Book title is required.');
+  if(!(q>0&&q<=500)) return showErr('oErr','Quantity must be 1–500.');
+  setBusy('oBtn',true,'Saving…');
+  try{
+    const n=await bump('library/counters/ordSeq');
+    const d=new Date();
+    const id='REQN-'+String(d.getFullYear()).slice(2)+String(d.getMonth()+1).padStart(2,'0')+'-'+String(n).padStart(3,'0');
+    const rec={ title:t, author:val('o-auth'), publisher:val('o-pub'), isbn:val('o-isbn'),
+      qty:q, price:val('o-price')||'', campus:val('o-cam'), stream:val('o-str'),
+      course:val('o-course'), why:val('o-why'), to:val('o-to'),
+      st:'requested', by:STATE.user.name, at:Date.now() };
+    await d2set('library/orders/'+id,rec);
+    closeSheet(); toast('Requisition '+id+' saved'); render();
+    setTimeout(()=>printOrder(id),400);
+  }catch(e){ showErr('oErr','Failed: '+e.message); }
+  finally{ setBusy('oBtn',false,'Save requisition'); }
+}
+async function advOrder(id,st){
+  const nx={requested:'approved',approved:'ordered',ordered:'received'}[st];
+  if(!nx) return;
+  if(nx==='received'){
+    if(!confirm('Mark received?\n\nThis creates the title and generates accession numbers for every copy.')) return;
+    try{
+      const o=await d2get('library/orders/'+id);
+      const seq=await bump('library/counters/titleSeq');
+      const tid='T'+String(seq).padStart(5,'0');
+      const cam=o.campus||'Davan', str=o.stream||'DEG';
+      const pfx={DEG:'DEG',PUC:'PUC',BEd:'BED'}[str]||'GEN';
+      const patch={};
+      patch['library/titles/'+tid]={ name:o.title, author:o.author||'Unknown', publisher:o.publisher||'',
+        isbn:o.isbn||'', price:o.price||null, campus:cam, stream:str, category:'Uncategorized',
+        courses:o.course?[o.course]:[], sems:[], tagConf:'needs_review', totalCopies:o.qty,
+        fromOrder:id, addedBy:STATE.user.name, addedAt:Date.now() };
+      for(let k=0;k<o.qty;k++){
+        const a=await bump('library/counters/acc/'+cam+'/'+str);
+        patch['library/copies/'+cam.slice(0,3).toUpperCase()+'-'+pfx+'-'+String(a).padStart(5,'0')]={titleId:tid,status:'available',localAcc:''};
+      }
+      patch['library/avail/'+tid]=o.qty;
+      patch['library/orders/'+id+'/st']='received';
+      patch['library/orders/'+id+'/tid']=tid;
+      patch['library/orders/'+id+'/receivedAt']=Date.now();
+      await d2update(patch);
+      await loadCatalogue(true); await loadAvail(true); bumpCatNow();
+      toast('Received — '+o.qty+' copies added. Print labels from Admin → Data.'); render();
+    }catch(e){ toast('Failed: '+e.message,true); }
+    return;
+  }
+  try{ await d2update({['library/orders/'+id+'/st']:nx,['library/orders/'+id+'/'+nx+'By']:STATE.user.name});
+    toast('Marked '+nx); renderOrders(); }
+  catch(e){ toast('Failed: '+e.message,true); }
+}
+/* Two copies on one A4 — one to address, one for office file. */
+async function printOrder(id){
+  const o=await d2get('library/orders/'+id); if(!o) return toast('Not found',true);
+  const dt=new Date(o.at||Date.now());
+  const ds=String(dt.getDate()).padStart(2,'0')+'-'+MON[dt.getMonth()]+'-'+dt.getFullYear();
+  const cp=(tag)=>`<div class="pc">
+    <div class="ph"><div class="pt">DAVAN &amp; NUTANA GROUP OF INSTITUTIONS</div>
+      <div class="ps">DAVANGERE · LIBRARY DEPARTMENT</div>
+      <div class="pn">BOOK PURCHASE REQUISITION</div>
+      <div class="tag">${tag}</div></div>
+    <table class="pb">
+      <tr><td class="k">Requisition No.</td><td class="v"><b>${esc(id)}</b></td><td class="k">Date</td><td class="v">${ds}</td></tr>
+      <tr><td class="k">To</td><td class="v" colspan="3">${esc(o.to||'____________________________')}</td></tr>
+      <tr><td class="k">Title</td><td class="v" colspan="3"><b>${esc(o.title)}</b></td></tr>
+      <tr><td class="k">Author</td><td class="v">${esc(o.author||'—')}</td><td class="k">Publisher</td><td class="v">${esc(o.publisher||'—')}</td></tr>
+      <tr><td class="k">ISBN</td><td class="v">${esc(o.isbn||'—')}</td><td class="k">Course / Dept</td><td class="v">${esc(o.course||'—')}</td></tr>
+      <tr><td class="k">Quantity</td><td class="v"><b>${o.qty}</b></td><td class="k">Est. price each</td><td class="v">${o.price?'Rs. '+esc(o.price):'—'}</td></tr>
+      <tr><td class="k">Campus</td><td class="v">${esc(o.campus||'')}</td><td class="k">Est. total</td><td class="v"><b>${o.price?'Rs. '+(Number(o.price)*Number(o.qty)):'—'}</b></td></tr>
+      <tr><td class="k">Justification</td><td class="v" colspan="3">${esc(o.why||'—')}</td></tr>
+    </table>
+    <div class="sg"><div><div class="sl"></div>Librarian<br><span class="sn">${esc(o.by||'')}</span></div>
+      <div><div class="sl"></div>Principal / Director</div></div></div>`;
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><title>${id}</title><style>
+    @page{size:A4;margin:10mm}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Georgia,'Times New Roman',serif;color:#000;background:#fff;font-size:11pt}
+    .pc{border:1.5px solid #000;padding:10mm;margin-bottom:6mm;position:relative;page-break-inside:avoid}
+    .ph{text-align:center;border-bottom:1.5px solid #000;padding-bottom:4mm;margin-bottom:5mm}
+    .pt{font-size:14pt;font-weight:bold;letter-spacing:.5px}
+    .ps{font-size:9pt;letter-spacing:2px;margin-top:1mm}
+    .pn{font-size:12pt;font-weight:bold;margin-top:3mm;text-decoration:underline}
+    .tag{position:absolute;top:6mm;right:8mm;border:1px solid #000;padding:1mm 3mm;font-size:8pt;font-weight:bold;letter-spacing:1px}
+    .pb{width:100%;border-collapse:collapse}
+    .pb td{border:1px solid #555;padding:2.5mm 3mm;vertical-align:top}
+    .k{background:#f0f0f0;font-size:8.5pt;letter-spacing:.5px;width:23%;font-weight:bold}
+    .v{font-size:10.5pt;width:27%}
+    .sg{display:flex;justify-content:space-between;margin-top:16mm;font-size:9pt}
+    .sg>div{width:44%;text-align:center}
+    .sl{border-top:1px solid #000;margin-bottom:1.5mm}
+    .sn{font-size:8pt;color:#444}
+    @media print{.noprint{display:none}}
+  </style></head><body>${cp('TO THE ADDRESS')}${cp('OFFICE COPY')}
+  <div class="noprint" style="text-align:center;margin-top:5mm">
+    <button onclick="window.print()" style="padding:9px 22px;font-size:12pt;cursor:pointer">Print</button></div>
+  </body></html>`);
+  w.document.close();
+}
+</script>
+<script>
+/* ═══ LOCAL ACCESSION (v1.01) ══════════════════════════════════════════════
+   accNo  = generated here, unique, permanent — what the DB hangs loans on.
+   localAcc = whatever is written in YOUR register / stamped in the book.
+   Both kept because the source data was inconsistent: B'Ed sheets had real
+   accession numbers, PUC & DEGREE (1571 copies) had none at all. Register
+   numbers can be blank, duplicated across campuses or simply not yet known,
+   so they cannot safely be the primary key — but they ARE what the librarian
+   reads off the shelf, so they must be first-class and searchable. */
+async function saveLocal(acc){
+  const v=((document.getElementById('la-'+acc)||{}).value||'').trim();
+  try{
+    await d2set('library/copies/'+acc+'/localAcc',v);
+    if(STATE.accIdx){ STATE.accIdx[v.toLowerCase()]=STATE.accIdx[acc.toLowerCase()]; }
+    toast(v?('Saved reg. no. '+v):'Register number cleared');
+  }catch(e){ toast('Failed: '+e.message,true); }
+}
+function syncLocalBox(){
+  const s=document.getElementById('accSel'); const b=document.getElementById('accLocal');
+  if(!s||!b) return;
+  const o=s.options[s.selectedIndex];
+  b.value=o?(o.getAttribute('data-la')||''):'';
+}
+function bulkLocal(tid){
+  sheet(`<div class="page-title" style="font-size:20px">BULK REGISTER NUMBERS</div>
+    <div class="alert">One copy per line: <b>accession , your number</b><br>
+      <span class="mono" style="font-size:9.5px">DAV-DEG-00410,4521<br>DAV-DEG-00411,4522</span><br><br>
+      Paste two columns straight out of Excel (tab-separated works too). Only the copies you list are touched — everything else is left alone.</div>
+    <textarea id="blk" style="width:100%;height:190px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-family:var(--mono);font-size:11px" placeholder="DAV-DEG-00410,4521"></textarea>
+    <div id="blkErr"></div>
+    <button class="btn btn-full" id="blkBtn" style="margin-top:9px" onclick="saveBulkLocal('${tid||''}')">Save all</button>
+    <button class="btn btn-full btn-ghost" style="margin-top:7px" onclick="${tid?`editBook('${tid}')`:'closeSheet()'}">Cancel</button>`);
+}
+async function saveBulkLocal(tid){
+  const raw=((document.getElementById('blk')||{}).value||'').trim();
+  if(!raw) return;
+  setBusy('blkBtn',true,'Saving…');
+  try{
+    const all=await d2get('library/copies')||{};
+    const patch={}; let ok=0; const bad=[];
+    raw.split(/\r?\n/).forEach(line=>{
+      if(!line.trim()) return;
+      const p=line.split(/[,\t;]/).map(x=>x.trim());
+      if(p.length<2||!p[0]) return;
+      const acc=p[0].toUpperCase();
+      if(!all[acc]){ bad.push(p[0]); return; }
+      patch['library/copies/'+acc+'/localAcc']=p[1]; ok++;
+    });
+    if(!ok){ showErr('blkErr','No valid accession numbers found. Check the left column matches numbers like DAV-DEG-00410.'); return; }
+    await d2update(patch);
+    await buildAccIdx(true);
+    closeSheet();
+    toast(ok+' register numbers saved'+(bad.length?' · '+bad.length+' unknown accession(s) skipped':''));
+    if(tid) editBook(tid);
+  }catch(e){ showErr('blkErr','Failed: '+e.message); }
+  finally{ setBusy('blkBtn',false,'Save all'); }
+}
+/* Index accNo + localAcc → titleId so either number finds the book from search.
+   Built lazily for staff only; students never need it (and it would cost them
+   a 600KB copies read for nothing). */
+async function buildAccIdx(force){
+  if(!isStaff()) return;
+  if(STATE.accIdx&&!force) return;
+  const c=await d2get('library/copies');
+  const ix={};
+  Object.entries(c||{}).forEach(([a,x])=>{
+    ix[a.toLowerCase()]=x.titleId;
+    if(x.localAcc) ix[String(x.localAcc).toLowerCase()]=x.titleId;
+  });
+  STATE.accIdx=ix; log('acc index '+Object.keys(ix).length);
+}
+/* ═══ EXPORT ACCESSION LABELS ═══
+   Both numbers on every label — the system one and yours — so a spine carries
+   the ID the DB uses and the ID your register uses. This is what makes the
+   generated numbers real on the 1571 copies that never had any. */
+async function exportLabels(){
+  sheet(`<div class="page-title" style="font-size:20px">EXPORT ACCESSION LABELS</div>
+    <div style="display:flex;gap:8px">
+      <div class="fld" style="flex:1"><label>Campus</label><select id="lb-cam"><option value="">All</option>${CAMPUSES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <div class="fld" style="flex:1"><label>Stream</label><select id="lb-str"><option value="">All</option>${STREAMS.map(c=>`<option>${c}</option>`).join('')}</select></div></div>
+    <div class="alert">Print one shelf at a time. Each label carries the system accession number <b>and</b> your register number, so the book physically matches the database.</div>
+    <button class="btn btn-full" style="margin-bottom:7px" onclick="doLabels('print')">🖨️ Print label sheet</button>
+    <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="doLabels('csv')">📄 Download CSV</button>
+    <button class="btn btn-full btn-ghost" onclick="bulkLocal('')">📋 Bulk-enter register numbers</button>
+    <button class="btn btn-full btn-ghost" style="margin-top:7px" onclick="closeSheet()">Close</button>`);
+}
+async function doLabels(mode){
+  const cam=val('lb-cam'), str=val('lb-str');
+  toast('Building…');
+  try{
+    const c=await d2get('library/copies');
+    let L=Object.entries(c||{}).map(([a,x])=>{
+      const t=STATE.titles[x.titleId]||{};
+      return {acc:a, la:x.localAcc||'', name:t.name||'', author:t.author||'',
+              campus:t.campus||'', stream:t.stream||'', status:x.status};
+    });
+    if(cam) L=L.filter(x=>x.campus===cam);
+    if(str) L=L.filter(x=>x.stream===str);
+    L.sort((a,b)=>a.acc.localeCompare(b.acc));
+    if(!L.length) return toast('No copies match',true);
+    if(mode==='csv'){
+      const esc2=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+      const rows=[['Accession No','Register No','Title','Author','Campus','Stream','Status']]
+        .concat(L.map(x=>[x.acc,x.la,x.name,x.author,x.campus,x.stream,x.status]));
+      const blob=new Blob([rows.map(r=>r.map(esc2).join(',')).join('\n')],{type:'text/csv'});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob); a.download='accession_labels_'+dkey(new Date())+'.csv'; a.click();
+      URL.revokeObjectURL(a.href); toast(L.length+' rows exported'); return;
+    }
+    const w=window.open('','_blank');
+    w.document.write(`<!DOCTYPE html><html><head><title>Labels</title><style>
+      @page{size:A4;margin:8mm}
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff}
+      .g{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm}
+      .l{border:1px dashed #999;padding:3mm;height:26mm;page-break-inside:avoid;display:flex;flex-direction:column;justify-content:space-between}
+      .h{font-size:6.5pt;letter-spacing:.5px;color:#444}
+      .a{font-family:'Courier New',monospace;font-size:11pt;font-weight:bold;letter-spacing:.5px}
+      .r{font-family:'Courier New',monospace;font-size:9pt;border-top:1px solid #ccc;padding-top:1mm}
+      .r b{font-size:11pt}
+      .t{font-size:6.5pt;line-height:1.25;overflow:hidden;max-height:7mm}
+      .noprint{text-align:center;margin:5mm}
+      @media print{.noprint{display:none}}
+    </style></head><body>
+      <div class="noprint"><button onclick="window.print()" style="padding:9px 22px;font-size:12pt;cursor:pointer">Print ${L.length} labels</button></div>
+      <div class="g">${L.map(x=>`<div class="l">
+        <div><div class="h">DAVAN &amp; NUTANA LIBRARY</div><div class="a">${x.acc}</div></div>
+        <div class="t">${String(x.name).slice(0,58)}</div>
+        <div class="r">REG: <b>${x.la||'____________'}</b></div></div>`).join('')}</div>
+    </body></html>`);
+    w.document.close(); toast(L.length+' labels ready');
+  }catch(e){ toast('Failed: '+e.message,true); }
+}
+/* ═══ COLLECTION APPOINTMENT (v1.01) ═══
+   A ready hold gets a real slot rather than a vague "held for N days", so the
+   counter is scheduled instead of queued. The pickup window still governs
+   expiry — the appointment is guidance, not a second deadline. */
+function setAppt(reqId){
+  const d=new Date(Date.now()+864e5);
+  const iso=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  sheet(`<div class="page-title" style="font-size:20px">COLLECTION SLOT</div>
+    <div class="fld"><label>Date</label><input id="ap-d" type="date" value="${iso}"></div>
+    <div style="display:flex;gap:8px">
+      <div class="fld" style="flex:1"><label>From</label><input id="ap-f" type="time" value="11:00"></div>
+      <div class="fld" style="flex:1"><label>To</label><input id="ap-t" type="time" value="12:30"></div></div>
+    <div class="fld"><label>Note (optional)</label><input id="ap-n" placeholder="Bring your ID card"></div>
+    <div class="alert">This appears on the student's own login beside their token. The ${'{'}pickup${'}'} window still applies — if they don't collect, the copy passes to the next in queue.</div>
+    <button class="btn btn-full" id="apBtn" onclick="saveAppt('${reqId}')">Save slot</button>
+    <button class="btn btn-full btn-ghost" style="margin-top:7px" onclick="closeSheet()">Cancel</button>`.replace('{pickup}',String(STATE.cfg.pickupDays||2)+'-day'));
+}
+async function saveAppt(reqId){
+  const d=val('ap-d'), f=val('ap-f'), t=val('ap-t');
+  if(!d||!f) return toast('Pick a date and time',true);
+  setBusy('apBtn',true,'Saving…');
+  try{
+    await d2update({
+      ['library/requests/'+reqId+'/appt']:{d,f,t,note:val('ap-n'),by:STATE.user.name},
+    });
+    _reqCache.at=0; closeSheet(); toast('Collection slot set'); render();
+  }catch(e){ toast('Failed: '+e.message,true); }
+  finally{ setBusy('apBtn',false,'Save slot'); }
+}
+function apptLine(a){
+  if(!a) return '';
+  const dt=new Date(a.d+'T00:00:00');
+  const ds=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+' '+MON[dt.getMonth()];
+  return ds+', '+a.f+(a.t?' – '+a.t:'');
+}
+</script>
+</body>
+</html>
