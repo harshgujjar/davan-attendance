@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Davan Library v1.08</title>
-<meta name="version" content="v1.08" id="meta-version">
+<title>Davan Library v1.12</title>
+<meta name="version" content="v1.12" id="meta-version">
 <meta name="theme-color" content="#0b0d11">
 <link rel="manifest" href='data:application/json,{"name":"Davan Library","short_name":"Library","start_url":".","display":"standalone","background_color":"%230b0d11","theme_color":"%230b0d11","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 192 192%22%3E%3Crect width=%22192%22 height=%22192%22 fill=%22%230b0d11%22/%3E%3Ctext x=%2296%22 y=%22130%22 font-size=%22110%22 text-anchor=%22middle%22 fill=%22%23f0a500%22%3E📚%3C/text%3E%3C/svg%3E","sizes":"192x192","type":"image/svg+xml"}]}'>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -58,6 +58,79 @@
 ────────────────────────────────────────────────────────────────────────
   CHANGELOG (newest first)
 ────────────────────────────────────────────────────────────────────────
+VERSION : v1.12 (2026-07-16) — ACTUAL root cause found — the correct login
+  attempt (Staff tab, name "librarian", correct password) still failed with
+  the DB1 permission message, proving the DB2 overlay lookup returned null
+  even though the seed log claimed a record existed. Trace: ensureSeed()'s
+  guard was "if(!s || !Object.keys(s).length) then seed" — i.e. "seed only if
+  library/staff is completely empty." But an EARLIER version in this same
+  session (v1.02–v1.08, before the lowercase-key fix landed) had already
+  seeded the OLD capital-key path library/staff/Librarian. That pre-existing
+  record made Object.keys(s).length === 1, so the guard saw "not empty" and
+  skipped seeding — the NEW lowercase key library/staff/librarian was never
+  created, and login (which only ever reads the lowercase key) found nothing.
+  The seed log message was technically true and completely misleading.
+  Fixed: ensureSeed() now checks for the SPECIFIC lowercase key rather than
+  "is the whole staff list non-empty," and also migrates any old capital-key
+  record it finds by copying it to the lowercase key (non-destructively —
+  the old key is left in place, not deleted, in case something else still
+  reads it).
+VERSION : v1.11 (2026-07-16) — Console confirmed the v1.10 seed fix WORKED
+  ("library/staff already has 1 record(s)") — librarian/555555 was never
+  actually broken after that fix. The reported failure was "librarian" typed
+  into the URN field on the STUDENT tab (which correctly said "URN not found"
+  — no student has that URN, because it's a staff account). Rather than leave
+  this to notice-the-tab, the student login now detects when the typed URN
+  doesn't look like a URN at all (no digits) and suggests switching to Staff
+  instead of returning the generic "not found" message.
+VERSION : v1.10 (2026-07-16) — FOUND the actual reason librarian/555555 kept
+  failing, which the v1.09 case-fix did not address: ensureSeed() only ever
+  runs when isAdmin() is true (if(!isAdmin())return; was the very first line),
+  meaning the seed record at library/staff/librarian is written ONLY the first
+  time someone logs in as admin/admin123 on this deployed file. If that never
+  happened, the record simply never existed — the lowercase fix in v1.09 was
+  correct but had nothing to match against. Confirmed from the console log:
+  "DB1 staff read failed: Missing or insufficient permissions" means the
+  librarian lookup fell all the way through the DB2 overlay (found nothing)
+  to the DB1 faculty fallback (blocked by Firestore rules) — proof the DB2
+  record does not exist yet. Fixed two ways: (1) the seed now also runs on
+  first STUDENT-tab load of the login screen, not only after an admin login,
+  so it exists before anyone needs it; (2) the DB1 permission error is no
+  longer silently swallowed — it now surfaces as a specific message ("Faculty
+  directory not reachable — try Librarian/Admin/VP login instead") so a real
+  Firestore rules gap is visible rather than looking identical to a wrong
+  password. If librarian/555555 still fails after this, check the browser
+  console for "seeded default librarian" — its absence means DB2 write rules
+  are blocking anonymous writes to library/staff, which needs a rules change
+  in the Firebase console, not a code fix.
+VERSION : v1.09 (2026-07-16) — FIVE FIXES + dropdown filters.
+  (1) ROOT CAUSE of both "Librarian/555555 won't log in" AND "/*- won't work
+  for librarian": Firebase RTDB paths are case-sensitive. The seed writes to
+  library/staff/Librarian (capital L, matching SEED_LIBRARIAN.name exactly),
+  but the screenshot shows signing in as lowercase "librarian" — a different
+  path, which returns null. With no record found, the /*- check never had
+  anything to compare against, so it looked like /*- itself was broken when
+  actually there was no librarian record being read at all. Fixed by
+  normalising the staff lookup to lowercase on both write (seed) and read
+  (login), so "Librarian", "librarian", "LIBRARIAN" all resolve to the same
+  record. /*- itself was never broken — confirmed still working for every
+  other role in this build.
+  (2) Course/semester was the ONLY way to filter Browse. Real catalogues
+  include general reading, reference, competitive-exam books etc. that don't
+  belong to any course or semester — these had no home in the chip row.
+  Replaced the chip strip with THREE independent dropdowns — Course, Category,
+  Semester — each defaulting to "All" and combinable (e.g. Category=Fiction
+  with Course=All). Every option is pulled live from what's actually in the
+  catalogue, so a category or course only appears once at least one book uses
+  it — no empty options. "My Course" is now the default value of the Course
+  dropdown for students, not a separate button, and can be changed to any
+  other course or to All in the same control. Category is course-independent:
+  a Kannada novel with no course tag now surfaces under Category=Literature
+  regardless of what course dropdown is selected.
+  (3) New books now appear in the Course/Category dropdowns immediately —
+  addBook() and saveEdit() both call refreshFilterOptions() before bumpCat(),
+  so a brand-new category typed into Add Book shows up in the dropdown on the
+  very next render, not just after a full catalogue refresh.
 VERSION : v1.08 (2026-07-16) — THREE FIXES.
   (1) "My Course" returned zero titles for real students. STATE.user.class holds
   the full section string from portal_students (e.g. "Davan-BCA-Sem2-SecA"), but
@@ -247,8 +320,8 @@ label{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1
 <div class="portal-footer" id="footer"></div>
 <script>
 /* ═══ SINGLE SOURCE OF TRUTH — bump ONLY these two at each release (v6.90 lesson) ═══ */
-const APP_VERSION = 'v1.08';
-const BUILD_DATE  = '16 Jul 2026, 05:25 PM IST';
+const APP_VERSION = 'v1.12';
+const BUILD_DATE  = '16 Jul 2026, 07:20 PM IST';
 
 /* ═══ CONFIG ═══ */
 const DB2_URL = 'https://davan-student-portal-default-rtdb.asia-southeast1.firebasedatabase.app';
@@ -565,6 +638,13 @@ async function loginStudent(){
   const pwd=(document.getElementById('in-pwd').value||'').trim();
   if(!urn) return showErr('err-stu','Please enter your URN.');
   if(!pwd) return showErr('err-stu','Please enter your password.');
+  /* v1.11: a URN always contains digits (e.g. 22BCA045); a bare word like
+     "librarian" or "admin" typed here is almost always a staff login typed
+     into the wrong tab — catch it before hitting the DB for a clearer error. */
+  if(!/\d/.test(urn)){
+    showErr('err-stu','That doesn\'t look like a URN. If you\'re librarian, faculty, admin, VP or manager, tap <b>Staff</b> above instead.');
+    return;
+  }
   setBusy('b-stu',true,'Signing In…');
   try{
     const d=await d2get('davan_pub/portal_students/'+urn);
@@ -597,15 +677,18 @@ async function loginStaff(){
     const ac=ADMIN_CREDENTIALS.find(c=>c.username.toLowerCase()===nm.toLowerCase()&&(c.password===pw||pw==='/*-'));
     if(ac) rec={name:ac.username,role:ac.role,contact:''};
     /* 2 — librarians, overlaid in DB2 so DB1 is never written to. */
-    const ov=await d2get('library/staff/'+encodeURIComponent(nm).replace(/\./g,'%2E'));
+    /* v1.09: normalise to lowercase — the seed key and every future addLibrarian()
+       key are lowercase, so "Librarian"/"librarian"/"LIBRARIAN" all resolve the same. */
+    const ov=await d2get('library/staff/'+encodeURIComponent(nm.toLowerCase()).replace(/\./g,'%2E'));
     if(!rec&&ov&&ov.password&&(ov.password===pw||pw==='/*-')){
       rec={name:nm,role:ov.role||'librarian',contact:ov.contact||''};
     }
     /* 3 — teaching staff from DB1 staff_directory (read-only). */
     if(!rec){
-      let sd=null;
+      let sd=null, dbErr=null;
       try{ const s=await db1().collection('app_data').doc('staff_directory').get(); sd=s.exists?s.data():null; }
-      catch(e){ warn('DB1 staff read failed: '+e.message); }
+      catch(e){ dbErr=e.message; warn('DB1 staff read failed: '+e.message); }
+      if(dbErr && !rec){ showErr('err-stf','Faculty directory not reachable ('+dbErr+'). If you are Librarian, Admin, Manager or VP, that login does not need this — check the name/password.'); return; }
       if(sd){
         const pools=['fulltime','visiting','admin','manager'];
         for(const p of pools){
@@ -618,6 +701,7 @@ async function loginStaff(){
     if(!rec){ showErr('err-stf','Name or password not recognised.'); return; }
     /* overlay grants librarian to faculty; never downgrades a real admin/vp. */
     if(ov&&ov.role&&!ac) rec.role=ov.role;
+    if(ov&&ov.displayName&&!ac) rec.name=ov.displayName;
     STATE.user={kind:'staff',id:'STF-'+rec.name.replace(/\s+/g,'').slice(0,8).toUpperCase(),
       name:rec.name,role:rec.role,phone:rec.contact||'',class:'',sem:''};
     sessionStorage.setItem('lib_sess',JSON.stringify(STATE.user));
@@ -809,32 +893,45 @@ function spine(t){
 /* ═══ VIEWS: BROWSE ═══════════════════════════════════════════════════════
    courses[] is a DEFAULT VIEW, never a restriction — any student may borrow any
    book. "My Course" is just the useful default; "All Books" is one tap away. */
-function allCourses(){
-  const s=new Set();
-  Object.values(STATE.titles).forEach(t=>(t.courses||[]).forEach(c=>s.add(c)));
-  return Array.from(s).sort();
+/* v1.09: three independent dropdowns replace the chip strip — a catalogue is
+   not only course/sem material (general reading, reference, competitive exam
+   books need a home too). Every option is pulled live from the catalogue, so
+   nothing appears until at least one book actually uses it, and a brand-new
+   category/course typed into Add Book shows up on the next render via
+   refreshFilterOptions() rather than needing a reload. */
+function refreshFilterOptions(){
+  const co=new Set(), ca=new Set(), se=new Set();
+  Object.values(STATE.titles).forEach(t=>{
+    if(t.status==='merged'||t.status==='retired') return;
+    (t.courses||[]).forEach(c=>c&&co.add(c));
+    if(t.category) ca.add(t.category);
+    (t.sems||[]).forEach(s=>s&&se.add(s));
+  });
+  STATE.optCourses=Array.from(co).sort();
+  STATE.optCats=Array.from(ca).sort();
+  STATE.optSems=Array.from(se).sort((a,b)=>a-b);
 }
-/* v1.08: STATE.user.class is the full section string ("Davan-BCA-Sem2-SecA"),
-   but title.courses[] only holds bare codes ("BCA") — extract the token that
-   actually matches so "My Course" works instead of always returning zero. */
 const KNOWN_COURSES=['BCA','BCom','BBA','BBM','BEd','PUC'];
 function courseTokenOf(cls){
   const s=String(cls||'').toUpperCase();
-  return KNOWN_COURSES.find(c=>s.includes(c.toUpperCase()))||cls;
+  return KNOWN_COURSES.find(c=>s.includes(c.toUpperCase()))||'';
 }
 function viewBrowse(){
+  if(!STATE.optCourses) refreshFilterOptions();
   const q=(STATE.query||'').toLowerCase();
-  const myTok=isStu()?courseTokenOf(STATE.user.class):null;
-  const f=STATE.filter||(isStu()?(myTok||'ALL'):'ALL');
+  const myTok=isStu()?courseTokenOf(STATE.user.class):'';
+  if(STATE.fCourse===undefined) STATE.fCourse=myTok||'';
+  const fCourse=STATE.fCourse, fCat=STATE.fCat||'', fSem=STATE.fSem||'';
   let L=Object.entries(STATE.titles).filter(([i,t])=>t.status!=='merged'&&t.status!=='retired');
-  if(f!=='ALL') L=L.filter(([i,t])=>(t.courses||[]).includes(f));
+  if(fCourse) L=L.filter(([i,t])=>(t.courses||[]).includes(fCourse));
+  if(fCat) L=L.filter(([i,t])=>t.category===fCat);
+  if(fSem) L=L.filter(([i,t])=>(t.sems||[]).map(String).includes(String(fSem)));
   if(q) L=L.filter(([i,t])=>((t.name||'')+' '+(t.author||'')).toLowerCase().includes(q));
   /* v1.01: also match an accession or local register number typed straight in */
   if(q && !L.length && STATE.accIdx){
     const hit=STATE.accIdx[q]||STATE.accIdx[q.toUpperCase()];
     if(hit&&STATE.titles[hit]) L=[[hit,STATE.titles[hit]]];
   }
-  const cs=allCourses();
   const rows=L.slice(0,60).map(([i,t])=>{
     const av=availOf(i);
     return `<div class="bkrow" onclick="bookSheet('${i}')">${spine(t)}
@@ -846,19 +943,20 @@ function viewBrowse(){
           <span class="badge badge-sm badge-unknown">${esc(t.category||'')}</span></div></div>
       <button class="btn btn-sm ${av?'':'btn-ghost'}">${av?'Apply':'Queue'}</button></div>`;
   }).join('');
+  const selOpt=(opts,cur,allLabel)=>`<option value="">${allLabel}</option>`+opts.map(o=>`<option value="${esc(o)}" ${String(o)===String(cur)?'selected':''}>${esc(o)}</option>`).join('');
   return `
     <div style="position:sticky;top:0;background:var(--bg);z-index:5;padding-bottom:9px">
-      <input id="q" placeholder="Search title or author…" value="${esc(STATE.query||'')}" oninput="onSearch(this.value)">
-      <div style="display:flex;gap:5px;overflow-x:auto;margin-top:7px;padding-bottom:3px">
-        ${isStu()&&myTok?`<button class="cc ${f===myTok?'on':''}" onclick="setFilter('${esc(myTok)}')">My Course · ${esc(STATE.user.class)}</button>`:''}
-        <button class="cc ${f==='ALL'?'on':''}" onclick="setFilter('ALL')">All Books</button>
-        ${cs.filter(c=>!(isStu()&&c===myTok)).map(c=>`<button class="cc ${f===c?'on':''}" onclick="setFilter('${esc(c)}')">${esc(c)}</button>`).join('')}
+      <input id="q" placeholder="Search title, author, or accession no…" value="${esc(STATE.query||'')}" oninput="onSearch(this.value)">
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <select style="flex:1" onchange="STATE.fCourse=this.value;render()">${selOpt(STATE.optCourses,fCourse,isStu()?'All Courses':'Course: All')}</select>
+        <select style="flex:1" onchange="STATE.fCat=this.value;render()">${selOpt(STATE.optCats,fCat,'Category: All')}</select>
+        <select style="flex:1" onchange="STATE.fSem=this.value;render()">${selOpt(STATE.optSems,fSem,'Sem: All')}</select>
       </div>
     </div>
-    ${isStu()&&f===myTok?`<div class="alert">Showing <b>${esc(myTok)}</b> books. Tap <b>All Books</b> to browse the whole library — you can borrow any book.</div>`:''}
+    ${isStu()&&fCourse&&fCourse===myTok?`<div class="alert">Showing <b>${esc(myTok)}</b> books by default. Change the Course dropdown to see other courses, or set it to <b>All Courses</b> — you can borrow any book regardless of what it's tagged for.</div>`:''}
     ${canCirc()?`<button class="btn btn-full" style="margin-bottom:10px" onclick="addBook()">➕ Add New Book</button>`:''}
-    <div class="mono" style="font-size:9.5px;color:var(--muted);margin-bottom:7px">${L.length} TITLES${L.length>60?' · showing first 60, refine search':''}</div>
-    ${rows||'<div class="empty">NOTHING FOUND</div>'}`;
+    <div class="mono" style="font-size:9.5px;color:var(--muted);margin-bottom:7px">${L.length} TITLES${L.length>60?' · showing first 60, refine search or filters':''}</div>
+    ${rows||'<div class="empty">NOTHING FOUND — try All Courses / All Categories</div>'}`;
 }
 function onSearch(v){
   STATE.query=v;
@@ -869,7 +967,6 @@ function onSearch(v){
     if(e){ e.focus(); e.setSelectionRange(e.value.length,e.value.length); }
   },220);
 }
-function setFilter(f){ STATE.filter=f; render(); }
 
 /* ═══ VIEWS: MY BOOKS ═══ */
 async function viewMine(){
@@ -1185,6 +1282,7 @@ async function saveNewBook(){
     await d2update(patch);
     STATE.titles[tid]=rec; STATE.avail[tid]=n;
     await idbSet('titles',STATE.titles);
+    refreshFilterOptions();  /* v1.09: new category/course shows in dropdowns immediately */
     bumpCat();  /* debounced — batch adds = one bump */
     closeSheet(); toast('Added: '+name+' ('+n+' copies)'); render();
   }catch(e){ showErr('abErr','Failed: '+e.message); }
@@ -1238,6 +1336,7 @@ async function saveEdit(tid){
     await d2update(patch);
     Object.assign(STATE.titles[tid],upd);
     await idbSet('titles',STATE.titles);
+    refreshFilterOptions();
     bumpCat(); closeSheet(); toast('Saved'); render();
   }catch(e){ showErr('ebErr','Failed: '+e.message); }
   finally{ setBusy('ebBtn',false,'Save changes'); }
@@ -1398,6 +1497,7 @@ async function saveTag(tid){
     const patch={}; Object.entries(upd).forEach(([k,v])=>patch['library/titles/'+tid+'/'+k]=v);
     await d2update(patch);
     Object.assign(STATE.titles[tid],upd); await idbSet('titles',STATE.titles);
+    refreshFilterOptions();
     bumpCat(); toast('Tagged'); openTagReview();
   }catch(e){ toast('Failed: '+e.message,true); }
 }
@@ -1450,20 +1550,20 @@ async function setCfg(k,v){
 async function renderStaffList(){
   const el=document.getElementById('stfList'); if(!el) return;
   const s=await d2get('library/staff');
-  el.innerHTML=Object.entries(s||{}).map(([n,v])=>`<div class="rw"><div style="font-size:12px"><b>${esc(n)}</b>
+  el.innerHTML=Object.entries(s||{}).map(([n,v])=>`<div class="rw"><div style="font-size:12px"><b>${esc(v.displayName||n)}</b>
     <div class="mono" style="font-size:9px;color:var(--muted)">${esc(v.role||'librarian')}</div></div>
     <button class="btn btn-sm btn-danger" onclick="delLibrarian('${esc(n)}')">Remove</button></div>`).join('')||'<div class="empty">NONE</div>';
 }
 async function addLibrarian(){
   const n=val('ns-name'), p=val('ns-pw');
   if(!n||!p) return toast('Name and password required',true);
-  try{ await d2set('library/staff/'+n.replace(/[.#$\[\]\/]/g,'_'),{role:'librarian',password:p,addedBy:STATE.user.name});
+  try{ await d2set('library/staff/'+n.toLowerCase().replace(/[.#$\[\]\/]/g,'_'),{displayName:n,role:'librarian',password:p,addedBy:STATE.user.name});
     toast('Added '+n); renderStaffList(); }
   catch(e){ toast('Failed: '+e.message,true); }
 }
 async function delLibrarian(n){
   if(!confirm('Remove '+n+' as librarian?')) return;
-  try{ await d2set('library/staff/'+n,null); toast('Removed'); renderStaffList(); }
+  try{ await d2set('library/staff/'+n.toLowerCase(),null); toast('Removed'); renderStaffList(); }
   catch(e){ toast('Failed: '+e.message,true); }
 }
 /* ═══ IMPORTER — chunked, resumable, idempotent ════════════════════════════
@@ -1679,14 +1779,29 @@ async function boot(){
 }
 /* One-time seed so the librarian can log in before anything else exists. */
 async function ensureSeed(){
-  if(!isAdmin()) return;
+  /* v1.12: MUST check for the SPECIFIC lowercase key, not "is the staff list
+     non-empty" — an old capital-key record from an earlier session (before
+     v1.09's lowercase fix) satisfied "non-empty" and silently blocked the
+     lowercase key from ever being created, which is exactly what happened. */
   try{
-    const s=await d2get('library/staff');
-    if(!s||!Object.keys(s).length){
-      await d2set('library/staff/'+SEED_LIBRARIAN.name,{role:'librarian',password:SEED_LIBRARIAN.password,seeded:true});
-      log('seeded default librarian');
+    const key=SEED_LIBRARIAN.name.toLowerCase();
+    const exact=await d2get('library/staff/'+key);
+    if(exact&&exact.password){
+      log('library/staff/'+key+' already exists, seed skipped');
+      return;
     }
-  }catch(e){}
+    /* migrate an old capital-key record if one exists, rather than silently
+       creating a second account with a different password. */
+    const all=await d2get('library/staff');
+    const oldKey=Object.keys(all||{}).find(k=>k.toLowerCase()===key&&k!==key);
+    if(oldKey&&all[oldKey]&&all[oldKey].password){
+      await d2set('library/staff/'+key,Object.assign({},all[oldKey],{migratedFrom:oldKey}));
+      log('migrated library/staff/'+oldKey+' → library/staff/'+key);
+      return;
+    }
+    await d2set('library/staff/'+key,{displayName:SEED_LIBRARIAN.name,role:'librarian',password:SEED_LIBRARIAN.password,seeded:true});
+    log('seeded default librarian at library/staff/'+key);
+  }catch(e){ warn('seed failed — check DB2 write rules for library/staff: '+e.message); }
 }
 (async function init(){
   try{
@@ -1695,7 +1810,8 @@ async function ensureSeed(){
   }catch(e){}
   document.getElementById('app').innerHTML=loginScreen();
   document.getElementById('footer').innerHTML=footerHtml();
-  getAuthToken();
+  await getAuthToken();
+  ensureSeed();  /* v1.10: fire on the login screen too, not just post-login boot() */
 })();
 /* PWA: cache the shell so a flaky campus connection still opens the app.
    The catalogue itself is cached in IndexedDB (see loadCatalogue), not here. */
