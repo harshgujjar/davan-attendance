@@ -26,6 +26,15 @@ VERSION : v6.88 (2026-07-10) — Added admin-controlled global app theme (Odd/Ev
   stored at controls/theme ('odd'|'even', defaults to 'odd' if unset) and read back inside the
   existing loadAllData() controls fetch on every session boot (student + admin alike) — no extra
   network round trip. saveTheme()/applyTheme() added near saveGlobal(), same rtdbPatch pattern.
+VERSION : v7.00 (2026-07-18) — Library panel: the student was never told when a
+  book was written off. library.html v1.37 added a lost/damaged close-out, which
+  stamps ret to stop the fine clock and unblock the student — but myIss filters
+  !x.ret, so the loan silently VANISHED from this panel with no trace they ever
+  had it or that a replacement charge exists. Added a lost/damaged card (title,
+  outcome, date, librarian's note, charge) and, on the borrow CTA, the loan terms
+  now state the replacement charge BEFORE they apply — previously they agreed to
+  terms that omitted the single largest charge they can incur. Charge is read
+  from library/config replaceCost, so it tracks the Settings value.
 VERSION : v6.99 (2026-07-17) — Library panel: per-book fine lines. Before the
   due date each loan shows "late fine ₹X/day after due date"; once overdue it
   shows THAT book's fine building live ("fine so far ₹N · growing ₹X/day"), so
@@ -476,7 +485,7 @@ LOG (newest first):
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v6.99 — Davan &amp; Nutana</title>
+<title>Student Portal v7.00 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -3028,8 +3037,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v6.99';
-const BUILD_DATE   = '17 Jul 2026, 11:55 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.00';
+const BUILD_DATE   = '18 Jul 2026, 02:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -6365,8 +6374,14 @@ async function renderLibraryPanel() {
   ]);
   const myReq = Object.entries(reqs || {}).filter(([i,r]) => r.uid === urn && ['waiting','ready'].includes(r.st));
   const myIss = Object.entries(iss || {}).filter(([i,x]) => x.urn === urn && !x.ret);
+  /* Lost/damaged close-outs: they leave the open-loan list by design (the
+     student is unblocked), but the student still needs to see the outcome and
+     the charge. */
+  const myLost = Object.entries(iss || {}).filter(([i,x]) => x.urn === urn && x.outcome)
+    .sort((a,b) => b[1].ret - a[1].ret);
   const readyCount = myReq.filter(([i,r]) => r.st === 'ready').length;
   const finePerDay = (lcfg && lcfg.finePerDay) || 5;
+  const replaceCost = (lcfg && lcfg.replaceCost) || 0;
   const overdueIss = myIss.filter(([i,x]) => x.due && libDaysLeft(x.due) < 0);
   const myFine = overdueIss.reduce((a,[i,x]) => a + (-libDaysLeft(x.due)) * finePerDay, 0);
   /* Overdue (red) outranks ready-for-pickup (green) — a book you owe is more
@@ -6396,8 +6411,21 @@ async function renderLibraryPanel() {
         You cannot request new books until ${overdueIss.length>1?'they are':'it is'} returned.
       </div>
     </div>` : '';
+  const lostCard = myLost.length ? `
+    <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.4);border-radius:10px;padding:12px;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#fbbf24;margin-bottom:6px;">📕 ${myLost.length} book${myLost.length>1?'s':''} marked lost / damaged</div>
+      ${myLost.map(([i,x]) => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 0;border-top:1px solid rgba(245,158,11,.2);">
+        <div style="min-width:0;">
+          <div style="font-size:11.5px;font-weight:700;">${nameOf(x.tid)}</div>
+          <div style="font-size:9px;color:var(--muted);font-family:monospace;">${x.outcome} · ${libFmt(x.ret)}${x.lostNote ? ' · ' + x.lostNote : ''}</div>
+        </div>
+        <span style="flex-shrink:0;font-size:10px;font-weight:700;color:#fbbf24;font-family:monospace;">${x.replaceCost ? '₹' + x.replaceCost : 'no charge'}</span>
+      </div>`).join('')}
+      <div style="font-size:10px;color:var(--muted);margin-top:7px;line-height:1.5;">Closed by the library. Settle any replacement charge at the desk — bring your URN.</div>
+    </div>` : '';
   body.innerHTML = `
     ${odBanner}
+    ${lostCard}
     <div style="text-align:center;margin-bottom:14px;">
       <div style="font-size:34px;">📚</div>
       <div style="font-weight:700;font-size:15px;margin-top:4px;">My Library</div>
@@ -6424,6 +6452,7 @@ async function renderLibraryPanel() {
         <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${d===null?'rgba(107,117,133,.15)':d<0?'rgba(239,68,68,.15)':d<=2?'rgba(245,158,11,.15)':'rgba(34,197,94,.15)'};color:${d===null?'var(--muted)':d<0?'#f87171':d<=2?'#fbbf24':'#4ade80'};">${d===null?'—':d<0?(-d)+'d late':d+'d left'}</span>
       </div>`; }).join('')}
     ${(!myReq.length && !myIss.length) ? '<div style="text-align:center;color:var(--muted);padding:20px;font-size:12px;">No books out or requested.</div>' : ''}
+    ${replaceCost ? `<div style="font-size:9.5px;color:var(--muted);text-align:center;margin-top:12px;font-family:monospace;">Loan ${(lcfg&&lcfg.loanDays)||7} days · late fine ₹${finePerDay}/day · lost or damaged: replacement ₹${replaceCost}</div>` : ''}
     <a href="#" onclick="libxOpen();return false;" style="display:block;text-align:center;margin-top:14px;padding:11px;background:var(--accent);color:#000;border-radius:8px;font-weight:700;text-decoration:none;font-size:13px;">
       Browse &amp; Apply for Books →
     </a>`;
