@@ -58,6 +58,50 @@
 ────────────────────────────────────────────────────────────────────────
   CHANGELOG (newest first)
 ────────────────────────────────────────────────────────────────────────
+VERSION : v1.41 (2026-07-18) — fixPickupDates() reported after running that
+  REQ-2607-0006 was still on Sunday. The sweep logic itself checks out (traced
+  step by step: isHoliday() correctly flags Sunday regardless of stamped
+  time-of-day, the roll-forward loop and getTime() are correct) — the toast
+  seen ("All titles already clean") was Clean Title Names' own message, which
+  means Fix Pickup Dates was either never actually clicked, or its result was
+  never confirmed before judging it had done nothing. Since that can't be
+  diagnosed further without console access to Harsha's live session, this
+  version makes a misfire impossible to miss instead: every run now logs, to
+  the on-screen log panel, exactly which request IDs it touched and their
+  before → after dates (or that zero were found already-broken, or the precise
+  error if the write itself was rejected — e.g. a Firebase rules denial, which
+  previously would have looked identical to "nothing to fix"). Also forces a
+  hard cache-bust both before AND after the read (_reqCache reset to empty,
+  not just its timestamp), removing any possibility of a stale local read
+  masking a fresh write.
+  Also v7.02 (student_portal): no way to pull fresh library data short of
+  reloading the whole portal — libGet() never caches, so a targeted refresh
+  was always technically possible, there was just no button. Added ↻ Refresh
+  in the Library panel header.
+
+VERSION : v1.40 (2026-07-18) — v1.39 fixed pickupDateFrom() for every NEW
+  write, but requests that were already 'ready' before that fix shipped —
+  including REQ-2607-0006 — had exp stamped by the old broken addDays() and
+  kept showing "Collect by Sunday" even after v1.39 was live and v7.01 was
+  correctly displaying whatever exp it was given. Data problem, not a display
+  problem. New admin-only fixPickupDates() sweep (DATA card, same pattern as
+  v1.35's cleanTitleNames): finds 'ready' requests whose exp lands on a Sunday
+  or configured holiday, rolls forward to the next open day, leaves the
+  FROM/TO time-of-day and everything else untouched. Skips anything not
+  already broken, so re-running is a no-op.
+
+VERSION : v1.39 (2026-07-18) — PICKUP DEADLINE COULD LAND ON A SUNDAY.
+  Screenshot: "Collect by Sun, 19 Jul 2026" — the library is closed Sundays and
+  holidays, so that was never a real deadline. Root cause: dueDateFrom() (loan
+  due dates) has always been holiday-aware via isHoliday() — rolls off Sundays
+  and configured holidays — but the pickup-collect-by date (r.exp) was computed
+  with addDays(), a dumb +n with no such check, at all 4 places a copy gets
+  promoted to the next student in queue. New pickupDateFrom() applies the exact
+  same isHoliday() rule; all 4 addDays(STATE.cfg.pickupDays||2) call sites now
+  use it. Confirmed with Harsha: the library is never open Sunday/holiday, so
+  the ISSUE timestamp itself needs no equivalent guard — it can only ever be
+  stamped on a day the library is open.
+
 VERSION : v1.38 (2026-07-18) — THE STUDENT NEVER LEARNED WHAT HAPPENED.
   v1.37 gave the librarian a lost/damaged close-out but left the student in the
   dark at both ends of it.
@@ -1044,8 +1088,8 @@ label{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1
 <div class="portal-footer" id="footer"></div>
 <script>
 /* ═══ SINGLE SOURCE OF TRUTH — bump ONLY these two at each release (v6.90 lesson) ═══ */
-const APP_VERSION = 'v1.38';
-const BUILD_DATE  = '18 Jul 2026, 02:10 AM IST';
+const APP_VERSION = 'v1.41';
+const BUILD_DATE  = '18 Jul 2026, 04:35 AM IST';
 
 /* ═══ CONFIG ═══ */
 const DB2_URL = 'https://davan-student-portal-default-rtdb.asia-southeast1.firebasedatabase.app';
@@ -1243,6 +1287,13 @@ function isHoliday(d){
 }
 function dueDateFrom(startTs,loanDays){
   let d=new Date(startTs); d.setDate(d.getDate()+(loanDays||7));
+  while(isHoliday(d)) d.setDate(d.getDate()+1);
+  return d.getTime();
+}
+/* v1.39: pickup-collect-by date, same holiday rule as dueDateFrom(). A closed
+   library cannot be a collection deadline. */
+function pickupDateFrom(pickupDays){
+  let d=new Date(); d.setDate(d.getDate()+(pickupDays||2));
   while(isHoliday(d)) d.setDate(d.getDate()+1);
   return d.getTime();
 }
@@ -1551,7 +1602,7 @@ async function sweepExpired(reqs){
              .sort((a,b)=>(a[1].dt||0)-(b[1].dt||0));
     if(q.length){
       patch['library/requests/'+q[0][0]+'/st']='ready';
-      patch['library/requests/'+q[0][0]+'/exp']=addDays(STATE.cfg.pickupDays||2);
+      patch['library/requests/'+q[0][0]+'/exp']=pickupDateFrom(STATE.cfg.pickupDays||2);
     }else{
       patch['library/avail/'+tid]=availOf(tid)+byTitle[tid].length;
     }
@@ -1608,7 +1659,7 @@ async function applyBook(tid){
     const rec={ id, uid:STATE.user.id, name:STATE.user.name, tid, dt:Date.now(),
       st:free?'ready':'waiting', kind:STATE.user.kind,
       cls:STATE.user.class||'', sem:STATE.user.sem||'', phone:STATE.user.phone||'' };
-    if(free) rec.exp=addDays(STATE.cfg.pickupDays||2);
+    if(free) rec.exp=pickupDateFrom(STATE.cfg.pickupDays||2);
     const patch={};
     patch['library/requests/'+id]=rec;
     if(free) patch['library/avail/'+tid]=Math.max(0,availOf(tid)-1);
@@ -2055,7 +2106,7 @@ async function doReject(reqId){
     /* released copy goes to the next in queue, else back on the shelf */
     const q=queueFor(reqs,r.tid);
     if(q.length){ patch['library/requests/'+q[0][0]+'/st']='ready';
-      patch['library/requests/'+q[0][0]+'/exp']=addDays(STATE.cfg.pickupDays||2); }
+      patch['library/requests/'+q[0][0]+'/exp']=pickupDateFrom(STATE.cfg.pickupDays||2); }
     else patch['library/avail/'+r.tid]=availOf(r.tid)+1;
     await d2update(patch); _reqCache.at=0; await loadAvail(true);
     toast(q.length?'Rejected → passed to #1 in queue':'Rejected — copy released'); render();
@@ -2092,7 +2143,7 @@ async function doReturn(issueId,opt){
     patch['library/copies/'+x.acc+'/currentIssueId']=null;
     if(q.length){
       patch['library/requests/'+q[0][0]+'/st']='ready';
-      patch['library/requests/'+q[0][0]+'/exp']=addDays(STATE.cfg.pickupDays||2);
+      patch['library/requests/'+q[0][0]+'/exp']=pickupDateFrom(STATE.cfg.pickupDays||2);
     } else {
       patch['library/avail/'+x.tid]=availOf(x.tid)+1;
     }
@@ -2928,6 +2979,7 @@ async function viewAdmin(){
       <button class="btn btn-full btn-ghost" style="margin-bottom:7px" id="impBtn" onclick="runImport()">📥 Import catalogue</button>
       <button class="btn btn-full btn-ghost" style="margin-bottom:7px;border-color:rgba(239,68,68,.35);color:#fca5a5" onclick="replaceCatalogue()">♻️ Replace catalogue (corrected data)</button>
       <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="cleanTitleNames()">🧹 Clean title names (strip leading ; . , junk)</button>
+      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="fixPickupDates()">📅 Fix pickup dates landing on Sunday/holiday</button>
       <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="recount()">🔄 Recount availability</button>
       <button class="btn btn-full btn-ghost" onclick="loadCatalogue(true).then(()=>{toast('Catalogue refreshed');render()})">♻️ Force catalogue refresh</button></div>`:''}
     <div class="alert">Roles read from DB1 Firestore <b>staff_directory</b> (admin / manager / vp / fulltime / visiting). The <b>librarian</b> role is overlaid from DB2 <b>library/staff</b>, so DB1 keeps its existing shape and this app never writes to it.</div>`;
@@ -2954,6 +3006,35 @@ async function syncFines(){
 }
 /* v1.35: one-time repair for import junk — see cleanTitle(). Patches only rows
    whose cleaned name differs, so re-running is a no-op. */
+/* v1.40: one-time repair for pickup deadlines stamped before v1.39's
+   holiday-aware pickupDateFrom() existed. Only touches 'ready' requests whose
+   exp actually falls on a Sunday/holiday; re-running is a no-op. */
+async function fixPickupDates(){
+  if(!isAdmin()) return;
+  try{
+    _reqCache={at:0,v:{}};                    /* force a genuinely fresh read */
+    const reqs=await getRequests(true);
+    const patch={}; let n=0; const touched=[];
+    Object.entries(reqs||{}).forEach(([id,r])=>{
+      if(r.st!=='ready'||!r.exp) return;
+      const before=new Date(r.exp);
+      if(!isHoliday(before)) return;
+      const d=new Date(r.exp);
+      while(isHoliday(d)) d.setDate(d.getDate()+1);
+      patch['library/requests/'+id+'/exp']=d.getTime();
+      touched.push(id+': '+dueLong(r.exp)+' → '+dueLong(d.getTime()));
+      n++;
+    });
+    /* v1.41: named so a misfire is visible instead of a bare count nobody can
+       verify — this exists BECAUSE a prior run reportedly changed nothing. */
+    log('fixPickupDates: '+(n||'0')+' request(s)'+(touched.length?'\n  '+touched.join('\n  '):''));
+    if(!n){ toast('No pickup dates needed fixing — none are currently on a Sunday/holiday'); return; }
+    await d2update(patch);
+    _reqCache={at:0,v:{}};
+    toast('Fixed '+n+' pickup date(s): '+touched.map(t=>t.split(':')[0]).join(', '));
+    render();
+  }catch(e){ toast('Failed: '+e.message,true); log('fixPickupDates failed: '+e.message); }
+}
 async function cleanTitleNames(){
   if(!isAdmin()) return;
   const patch={}; let n=0;

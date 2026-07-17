@@ -26,6 +26,28 @@ VERSION : v6.88 (2026-07-10) — Added admin-controlled global app theme (Odd/Ev
   stored at controls/theme ('odd'|'even', defaults to 'odd' if unset) and read back inside the
   existing loadAllData() controls fetch on every session boot (student + admin alike) — no extra
   network round trip. saveTheme()/applyTheme() added near saveGlobal(), same rtdbPatch pattern.
+VERSION : v7.02 (2026-07-18) — Library panel: no way to pull fresh data short of
+  reloading the WHOLE portal. libGet() never caches, so a targeted refresh was
+  always possible — there was just no button for it. Added ↻ Refresh in the
+  panel header, calling renderLibraryPanel() directly (same function the panel
+  already runs on open), so a librarian-side fix (e.g. the admin pickup-date
+  sweep) shows up without losing scroll position or re-fetching every other
+  dashboard panel.
+VERSION : v7.01 (2026-07-18) — The collection slot the librarian sets never
+  reached the student. setAppt() in library.html writes it to
+  library/requests/{id}/appt and library.html renders it — but this panel's
+  READY block only ever rendered the title and the token, so appt, exp and the
+  librarian's note were all in the record and simply never read. The slot dialog
+  literally promises "This appears on the student's own login beside their
+  token", which was only true INSIDE the library app, not in the portal where
+  students actually look. READY now shows the slot (date, from–to, note) via
+  libApptLine() mirroring library.html's apptLine(), plus the pickup deadline
+  from r.exp with days left, turning red once it has passed, and a line saying
+  the copy passes on if uncollected. IN QUEUE was worse — it showed only the
+  title, never the position, which is the one thing a waiting student wants:
+  now #N of M (ranked by dt among 'waiting' rows for that title, same ordering
+  as library.html's queueFor()), the request date, and the pickup window from
+  cfg.pickupDays.
 VERSION : v7.00 (2026-07-18) — Library panel: the student was never told when a
   book was written off. library.html v1.37 added a lost/damaged close-out, which
   stamps ret to stop the fine clock and unblock the student — but myIss filters
@@ -485,7 +507,7 @@ LOG (newest first):
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v7.00 — Davan &amp; Nutana</title>
+<title>Student Portal v7.02 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -3037,8 +3059,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.00';
-const BUILD_DATE   = '18 Jul 2026, 02:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.02';
+const BUILD_DATE   = '18 Jul 2026, 04:35 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -6356,6 +6378,16 @@ function libFmt(ts){
 function libDaysLeft(ts){ return Math.round((ts-Date.now())/864e5); }
 /* Mirrors library.html dueLong() — weekday + full date so "6d left" is
    unambiguous. Manual DD-Mon-YYYY, never toLocaleDateString (locale drift). */
+/* Mirrors library.html apptLine() — renders the librarian's collection slot.
+   Manual construction, never toLocaleDateString (locale drift). */
+function libApptLine(a){
+  if(!a||!a.d) return '';
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const W=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const dt=new Date(a.d+'T00:00:00');
+  const ds=W[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+' '+M[dt.getMonth()];
+  return ds+', '+(a.f||'')+(a.t?' – '+a.t:'');
+}
 function libDueLong(ts){
   if(!ts) return '';
   const d=new Date(ts);
@@ -6411,6 +6443,9 @@ async function renderLibraryPanel() {
         You cannot request new books until ${overdueIss.length>1?'they are':'it is'} returned.
       </div>
     </div>` : '';
+  const refreshBtn = `<div style="display:flex;justify-content:flex-end;margin:-4px 0 8px;">
+    <button onclick="renderLibraryPanel()" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:10px;font-family:monospace;cursor:pointer;">↻ Refresh</button>
+  </div>`;
   const lostCard = myLost.length ? `
     <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.4);border-radius:10px;padding:12px;margin-bottom:12px;">
       <div style="font-size:13px;font-weight:700;color:#fbbf24;margin-bottom:6px;">📕 ${myLost.length} book${myLost.length>1?'s':''} marked lost / damaged</div>
@@ -6424,22 +6459,50 @@ async function renderLibraryPanel() {
       <div style="font-size:10px;color:var(--muted);margin-top:7px;line-height:1.5;">Closed by the library. Settle any replacement charge at the desk — bring your URN.</div>
     </div>` : '';
   body.innerHTML = `
+    ${refreshBtn}
     ${odBanner}
     ${lostCard}
     <div style="text-align:center;margin-bottom:14px;">
       <div style="font-size:34px;">📚</div>
       <div style="font-weight:700;font-size:15px;margin-top:4px;">My Library</div>
     </div>
-    ${myReq.map(([id,r]) => r.st==='ready' ? `
+    ${myReq.map(([id,r]) => {
+      if (r.st === 'ready') {
+        const dl = r.exp ? libDaysLeft(r.exp) : null;
+        return `
       <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:12px;margin-bottom:8px;">
         <div style="font-size:11px;color:#22c55e;font-weight:700;">✅ READY TO COLLECT</div>
         <div style="font-size:13px;font-weight:700;margin-top:4px;">${nameOf(r.tid)}</div>
         <div style="font-family:monospace;font-size:14px;color:var(--accent);letter-spacing:1px;margin-top:6px;text-align:center;padding:6px;background:rgba(255,255,255,.04);border-radius:6px;">${id}</div>
-      </div>` : `
+        ${r.appt ? `
+        <div style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.35);border-radius:8px;padding:9px;margin-top:8px;text-align:center;">
+          <div style="font-size:9px;color:var(--muted);font-family:monospace;letter-spacing:.5px;">COLLECTION SLOT</div>
+          <div style="font-size:13.5px;font-weight:700;color:#22c55e;margin-top:2px;">${libApptLine(r.appt)}</div>
+          ${r.appt.note ? `<div style="font-size:9.5px;color:var(--muted);font-family:monospace;margin-top:3px;">${r.appt.note}</div>` : ''}
+        </div>` : ''}
+        <div style="font-size:9.5px;color:${dl !== null && dl <= 0 ? '#f87171' : 'var(--muted)'};font-family:monospace;margin-top:7px;text-align:center;line-height:1.5;">
+          ${r.exp ? (dl > 0 ? `Collect by ${libDueLong(r.exp)} — ${dl} day${dl>1?'s':''} left` : 'Collection window has passed — the copy may pass to the next in queue') : 'Show this token at the library desk'}
+        </div>
+        <div style="font-size:9px;color:var(--muted);margin-top:5px;text-align:center;line-height:1.5;">If you don't collect in time, the copy passes to the next student waiting.</div>
+      </div>`;
+      }
+      /* Queue position: the request's own rank among 'waiting' rows for this
+         title, oldest first — same ordering library.html's queueFor() uses. */
+      const q = Object.entries(reqs || {})
+        .filter(([i,x]) => x.tid === r.tid && x.st === 'waiting')
+        .sort((a,b) => (a[1].dt||0) - (b[1].dt||0));
+      const pos = q.findIndex(([i]) => i === id) + 1;
+      return `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;">
-        <div style="font-size:11px;color:#f59e0b;font-weight:700;">⏳ IN QUEUE</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <div style="font-size:11px;color:#f59e0b;font-weight:700;">⏳ IN QUEUE</div>
+          ${pos ? `<span style="font-size:10px;font-weight:700;color:#f59e0b;font-family:monospace;">#${pos} of ${q.length}</span>` : ''}
+        </div>
         <div style="font-size:13px;font-weight:700;margin-top:4px;">${nameOf(r.tid)}</div>
-      </div>`).join('')}
+        <div style="font-size:9.5px;color:var(--muted);font-family:monospace;margin-top:4px;">requested ${libFmt(r.dt)}</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:5px;line-height:1.5;">All copies are out. You'll be notified here when one is ready — collect it within ${(lcfg&&lcfg.pickupDays)||2} days.</div>
+      </div>`;
+    }).join('')}
     ${myIss.map(([id,x]) => { const d = x.due ? libDaysLeft(x.due) : null;
       return `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
