@@ -58,6 +58,70 @@
 ────────────────────────────────────────────────────────────────────────
   CHANGELOG (newest first)
 ────────────────────────────────────────────────────────────────────────
+VERSION : v1.33 (2026-07-17) — (1) IN-APP SSO: library.html now detects it is
+  running inside an <iframe> (index.html / student_portal.html open it in a
+  full-screen overlay instead of a new tab) and adopts the parent's already
+  verified session over postMessage, so nobody signs in twice. Handshake is
+  two-way and race-proof: child posts DAVAN_LIB_READY when listening, parent
+  also re-posts DAVAN_LIB_SSO on iframe onload, so whichever loads first still
+  connects; 6s timeout falls back to the normal login screen. SECURITY: the
+  payload carries identity + role only, NEVER a password; every inbound message
+  is gated on event.origin === location.origin and every send uses an explicit
+  targetOrigin (never '*'). Identity is handed over but AUTHORISATION is still
+  re-checked here — student SSO re-verifies the URN and ban list against DB2,
+  staff SSO re-reads the library/staff overlay and never accepts a role it was
+  simply handed, and never downgrades a real admin/vp. SSO sessions are
+  deliberately NOT written to sessionStorage/localStorage: the session belongs
+  to the parent tab, and persisting it would leave the library signed in after
+  the portal logged out. Exit posts DAVAN_LIB_CLOSE (closes the overlay) rather
+  than rendering a login screen inside the frame. Opened standalone, nothing
+  above runs and behaviour is identical to v1.32.
+  (2) LIBRARIAN PERMISSIONS: the Admin tab is no longer all-or-nothing —
+  'librarian' now gets 'adm' in navFor(), and the tab is split by a new
+  canManageLib() capability helper. The librarian runs the desk, so the
+  librarian owns the desk's policy + paperwork: SETTINGS (loan days, pickup
+  window, max books, fine per day, auto-approve, holidays) and EXPORTS
+  (catalogue register, accession labels, JSON backup — moved into their own
+  card). Everything genuinely institutional or destructive stays exclusive to
+  admin/vp/manager: LIBRARY STAFF (it grants the librarian role itself — a
+  librarian must not be able to mint more librarians or reset their passwords),
+  Import / Replace catalogue (whole-catalogue destructive writes), Current AY
+  (stamped on every issue; shown read-only to a librarian), and Recount /
+  Force refresh (global cache surgery). viewAdmin() opens with a
+  !canManageLib() reject as defence in depth, and renderStaffList() is now
+  called only for isAdmin() so a librarian never triggers a pointless DB2 read
+  of library/staff. No function-level guards needed changing — setCfg,
+  saveHolidays and the three export functions had none.
+
+  (3) OVERDUE HANDLING — previously, on day 7+ NOTHING happened: no push, no
+  message, no block. fineOf() computed the fine on read only, the chip turned
+  red, and that was it — the student found out only if they happened to open the
+  app, and the librarian had to spot them in Overdue and click Recall by hand.
+  GitHub Pages is static (no cron, no server), so this is closed passively —
+  every signal is computed at open time, no new infrastructure:
+    · My Books: red banner stating the count, the fine so far, that it is still
+      growing at the configured rate, and that borrowing is blocked.
+    · My Books nav badge: now shows the OVERDUE count in red, in preference to
+      the ready-to-collect count (owing a book outranks collecting one).
+    · Browse: the loan-terms alert flips to a red overdue warning.
+    · Book sheet: Apply button disables with "Return your overdue book first",
+      ordered ABOVE the maxBooks case — telling a blocked student "limit
+      reached" would send them to the wrong remedy.
+    · applyBook(): hard block as a backstop, before the maxBooks check, so the
+      rejection reason is accurate even if a stale sheet is clicked.
+  New myOverdue() helper. Students only — staff are uncapped and never blocked.
+  (4) RUNNING FINE SYNC — fine:0 was stamped at issue and corrected ONLY by
+  doReturn(), so anything reading the STORED value for an OPEN loan saw 0. This
+  under-reported outstanding fines in index.html's Library tab, which sums
+  (i.fine||0); library.html's own KPIs were always right because they call
+  fineOf() live. New syncFines() reconciles stored fine against the live value
+  for open overdue loans and is fired opportunistically after the Admin/Out tabs
+  paint (the only 'scheduler' a static host has). It writes ONLY changed values,
+  never touches returned loans (doReturn already froze the settled figure —
+  overwriting it would corrupt history), and is guarded by canCirc() so a
+  student can never write there. The render->sync->render path terminates: the
+  second pass reads back the written values, finds nothing changed and returns 0.
+
 VERSION : v1.32 (2026-07-17) — FOUND why Recall's WhatsApp option was
   missing despite the phone visibly showing on the Issued row (screenshot
   confirmed: dialog said plain "Recall" with no WhatsApp button, even
@@ -956,6 +1020,16 @@ const canCirc=()=>STATE.user&&CIRC.includes(STATE.user.role);
 const isStu=()=>STATE.user&&STATE.user.kind==='student';
 const isStaff=()=>STATE.user&&STATE.user.kind==='staff';
 const isAdmin=()=>STATE.user&&['admin','vp','manager'].includes(STATE.user.role);
+/* v1.33: SETTINGS (loan days, pickup window, max books, fine/day, auto-approve,
+   holidays) + DATA EXPORTS (register, labels, backup) are day-to-day library
+   operations — the librarian runs the desk, so the librarian owns these.
+   Everything else on the Admin tab stays exclusive to admin/vp/manager:
+     · Library Staff  — grants the librarian role itself; a librarian must not
+                        be able to mint more librarians or change passwords.
+     · Import / Replace catalogue — destructive, whole-catalogue writes.
+     · Current AY     — stamped on every issue; institutional, not desk-level.
+     · Recount / force refresh — global cache surgery. */
+const canManageLib=()=>STATE.user&&['admin','vp','manager','librarian'].includes(STATE.user.role);
 const maxBooks=()=>isStu()?(STATE.cfg.maxBooks||2):9999;
 
 /* ═══ DATE / MONEY ═══ */
@@ -1311,6 +1385,12 @@ async function getIssues(force){
 function myOpen(issues){
   return Object.entries(issues||{}).filter(([i,x])=>x.urn===STATE.user.id&&!x.ret);
 }
+/* v1.33: open loans past their due date. Students only — staff are uncapped
+   and are not blocked from borrowing. */
+function myOverdue(issues){
+  if(!isStu()) return [];
+  return myOpen(issues).filter(([i,x])=>x.due&&daysLeft(x.due)<0);
+}
 /* Token REQ-YYMM-NNNN — the receipt the student shows at the counter. */
 async function newToken(){
   const n=await bump('library/counters/reqSeq');
@@ -1321,6 +1401,9 @@ async function applyBook(tid){
   if(STATE.busy) return; STATE.busy=true;
   try{
     const reqs=await getRequests(true), iss=await getIssues(true);
+    const od=myOverdue(iss);
+    if(od.length){
+      toast('Return your overdue book'+(od.length>1?'s':'')+' before requesting more',true); return; }
     if(myOpen(iss).length>=maxBooks()){ toast('You already have '+maxBooks()+' books out',true); return; }
     if(Object.values(reqs).some(r=>r.uid===STATE.user.id&&r.tid===tid&&['waiting','ready'].includes(r.st))){
       toast('You have already applied for this book',true); return; }
@@ -1393,9 +1476,14 @@ async function bookSheet(tid){
   const mine=Object.entries(reqs||{}).find(([i,r])=>r.uid===STATE.user.id&&r.tid===tid&&['waiting','ready'].includes(r.st));
   const has=holders.some(([i,x])=>x.urn===STATE.user.id);
   const over=myOpen(iss).length>=maxBooks();
+  const odn=myOverdue(iss).length;
   let btn;
   if(has) btn=`<button class="btn btn-full btn-ghost" disabled>Already with you</button>`;
   else if(mine) btn=`<button class="btn btn-full btn-ghost" disabled>Applied · ${esc(mine[0])}</button>`;
+  /* v1.33: overdue outranks the maxBooks message — telling a blocked student
+     "limit reached" when the real reason is an overdue book sends them to the
+     wrong remedy. */
+  else if(odn) btn=`<button class="btn btn-full btn-ghost" disabled style="border-color:rgba(239,68,68,.4);color:#fca5a5">Return your overdue book${odn>1?'s':''} first</button>`;
   else if(over) btn=`<button class="btn btn-full btn-ghost" disabled>Limit reached (${maxBooks()} books)</button>`;
   else if(av>0) btn=`<button class="btn btn-full" onclick="applyBook('${tid}')">Apply — copy available</button>`;
   else btn=`<button class="btn btn-full" style="background:var(--warn)" onclick="applyBook('${tid}')">Join queue — #${q.length+1}</button>`;
@@ -1420,7 +1508,9 @@ async function bookSheet(tid){
         <span class="badge badge-sm ${d===null?'badge-unknown':d<0?'badge-critical':'badge-info'}">${d===null?'staff':d<0?(-d)+'d late':d+'d left'}</span></div>`;
     }).join('')}</div>`:''}
     ${isStu()
-      ? `<div class="alert">Loan ${STATE.cfg.loanDays||7} days · fine ₹${STATE.cfg.finePerDay||5}/day · max ${maxBooks()} books. You have ${myOpen(iss).length}/${maxBooks()} out.</div>`
+      ? (myOverdue(iss).length
+          ? `<div class="alert alert-err">You have ${myOverdue(iss).length} overdue book(s) — fine ₹${myOverdue(iss).reduce((a,[i,x])=>a+fineOf(x.due),0)} and counting. Return ${myOverdue(iss).length>1?'them':'it'} to borrow again.</div>`
+          : `<div class="alert">Loan ${STATE.cfg.loanDays||7} days · fine ₹${STATE.cfg.finePerDay||5}/day · max ${maxBooks()} books. You have ${myOpen(iss).length}/${maxBooks()} out.</div>`)
       : `<div class="alert">Staff loan — <b>no limit, no fine, no due date.</b> Same catalogue; availability still applies.</div>`}
     ${btn}
     ${canCirc()?`<button class="btn btn-full btn-ghost" style="margin-top:7px" onclick="editBook('${tid}')">✏️ Edit book &amp; copies</button>`:''}
@@ -1598,7 +1688,17 @@ async function viewMine(){
       ${x.due?`<div class="mono" style="font-size:8.5px;color:var(--muted);margin-top:3px">due ${dueLong(x.due)}</div>`:''}
       ${f?`<div class="mono" style="font-size:9.5px;color:var(--danger);margin-top:3px">fine ₹${f}</div>`:''}</div></div>`;
   }).join('');
-  return `${cards}<div class="card"><h3>📗 WITH ME <span class="badge badge-unknown badge-sm">${my.length}${isStu()?'/'+maxBooks():''}</span></h3>
+  /* v1.33: overdue banner — states the fine, that it is still growing, and that
+     borrowing is blocked. Mirrors the student_portal Library panel banner. */
+  const od=myOverdue(iss);
+  const odFine=od.reduce((a,[i,x])=>a+fineOf(x.due),0);
+  const odBanner=od.length?`<div class="card" style="border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.08)">
+    <h3 style="color:#f87171">⚠️ ${od.length} BOOK${od.length>1?'S':''} OVERDUE</h3>
+    <div style="font-size:11.5px;color:var(--muted);line-height:1.6">
+      Please return ${od.length>1?'them':'it'} at the library desk.
+      Fine so far <b style="color:#f87171">₹${odFine}</b> (₹${STATE.cfg.finePerDay||5}/day, still counting).<br>
+      You cannot request new books until ${od.length>1?'they are':'it is'} returned.</div></div>`:'';
+  return `${odBanner}${cards}<div class="card"><h3>📗 WITH ME <span class="badge badge-unknown badge-sm">${my.length}${isStu()?'/'+maxBooks():''}</span></h3>
     ${rows||'<div class="empty">NO BOOKS ISSUED</div>'}</div>`;
 }
 
@@ -2273,6 +2373,7 @@ async function viewAdmin(){
   const iss=await getIssues(true), reqs=await getRequests(true);
   const open=Object.values(iss||{}).filter(x=>!x.ret);
   const ov=open.filter(x=>x.due&&daysLeft(x.due)<0);
+  if(!canManageLib()) return `<div class="empty">Not authorised.</div>`;
   const c=STATE.cfg;
   const nT=Object.values(STATE.titles).filter(t=>t.status!=='merged').length;
   const nR=Object.values(STATE.titles).filter(t=>t.tagConf==='needs_review'&&t.status!=='merged').length;
@@ -2283,35 +2384,56 @@ async function viewAdmin(){
       <div class="stat-box" style="cursor:pointer" onclick="STATE.tab='desk';render()"><div class="stat-label">Queue</div><div class="stat-value" style="color:var(--warn)">${Object.values(reqs||{}).filter(r=>r.st==='waiting').length}</div></div>
       <div class="stat-box" style="cursor:pointer" onclick="STATE.tab='out';render()"><div class="stat-label">Fines</div><div class="stat-value" style="color:var(--ok)">₹${ov.reduce((a,b)=>a+fineOf(b.due),0)}</div></div>
       <div class="stat-box" style="cursor:pointer" onclick="viewSheetLink('untagged',${nR})"><div class="stat-label">Untagged</div><div class="stat-value" style="color:var(--muted)">${nR}</div></div></div>
-    <div class="card"><h3>⚙️ SETTINGS <span class="badge badge-warning badge-sm">admin only</span></h3>
+    <div class="card"><h3>⚙️ SETTINGS <span class="badge badge-warning badge-sm">${isAdmin()?'admin + librarian':'librarian'}</span></h3>
       <div class="rw"><div style="font-size:12px"><b>Approval mode</b><div class="mono" style="font-size:9px;color:var(--muted)">Auto = issues instantly if a copy is free</div></div>
         <button class="btn btn-sm ${c.autoApprove?'':'btn-ghost'}" onclick="setCfg('autoApprove',${!c.autoApprove})">${c.autoApprove?'AUTO':'MANUAL'}</button></div>
       <div class="rw"><div style="font-size:12px"><b>Loan period</b></div><input type="number" style="width:66px" value="${c.loanDays||7}" onchange="setCfg('loanDays',+this.value)"></div>
       <div class="rw"><div style="font-size:12px"><b>Pickup window</b><div class="mono" style="font-size:9px;color:var(--muted)">Days a ready book is held</div></div><input type="number" style="width:66px" value="${c.pickupDays||2}" onchange="setCfg('pickupDays',+this.value)"></div>
       <div class="rw"><div style="font-size:12px"><b>Max books</b><div class="mono" style="font-size:9px;color:var(--muted)">Students only — staff unlimited</div></div><input type="number" style="width:66px" value="${c.maxBooks||2}" onchange="setCfg('maxBooks',+this.value)"></div>
       <div class="rw"><div style="font-size:12px"><b>Fine ₹/day</b><div class="mono" style="font-size:9px;color:var(--muted)">Dynamic — applies to open loans</div></div><input type="number" style="width:66px" value="${c.finePerDay||5}" onchange="setCfg('finePerDay',+this.value)"></div>
-      <div class="rw"><div style="font-size:12px"><b>Current AY</b><div class="mono" style="font-size:9px;color:var(--muted)">Stamped on every new issue</div></div><input style="width:94px" value="${esc(c.currentAY||'2025-26')}" onchange="setCfg('currentAY',this.value)"></div>
+      <div class="rw"><div style="font-size:12px"><b>Current AY</b><div class="mono" style="font-size:9px;color:var(--muted)">Stamped on every new issue${isAdmin()?'':' · admin only'}</div></div><input style="width:94px" value="${esc(c.currentAY||'2025-26')}" ${isAdmin()?`onchange="setCfg('currentAY',this.value)"`:'disabled style="width:94px;opacity:.5"'}></div>
       <div style="padding:9px 0"><div style="font-size:12px;margin-bottom:6px"><b>Holidays</b><div class="mono" style="font-size:9px;color:var(--muted)">Due dates landing on these skip forward — no fine for the skipped days. Sundays are always skipped automatically.</div></div>
       <textarea id="hol-list" placeholder="2026-08-15
 2026-10-02" style="width:100%;height:66px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px;font-family:var(--mono);font-size:11px">${(c.holidays||[]).join('\n')}</textarea>
       <button class="btn btn-sm btn-full" style="margin-top:6px" onclick="saveHolidays()">Save holidays</button></div></div>
-    <div class="card"><h3>👤 LIBRARY STAFF</h3>
+    ${isAdmin()?`<div class="card"><h3>👤 LIBRARY STAFF <span class="badge badge-warning badge-sm">admin only</span></h3>
       <div class="mono" style="font-size:10px;color:var(--muted);margin-bottom:9px;line-height:1.5">Grants the <b>librarian</b> role. DB1 staff_directory is never modified — this overlay lives in DB2 only.</div>
       <div id="stfList"></div>
       <div style="display:flex;gap:6px;margin-top:9px">
         <input id="ns-name" placeholder="Name" style="font-size:12px">
         <input id="ns-pw" placeholder="Password" style="font-size:12px;width:110px">
-        <button class="btn btn-sm" onclick="addLibrarian()">Add</button></div></div>
-    <div class="card"><h3>🗄️ DATA</h3>
+        <button class="btn btn-sm" onclick="addLibrarian()">Add</button></div></div>`:''}
+    <div class="card"><h3>📤 EXPORTS <span class="badge badge-warning badge-sm">${isAdmin()?'admin + librarian':'librarian'}</span></h3>
+      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="exportRegister()">📖 Export catalogue register</button>
+      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="exportLabels()">🏷️ Export accession labels</button>
+      <button class="btn btn-full btn-ghost" onclick="exportBackup()">📤 Export backup (JSON)</button></div>
+    ${isAdmin()?`<div class="card"><h3>🗄️ DATA <span class="badge badge-warning badge-sm">admin only</span></h3>
       <div id="impBox"></div>
       <button class="btn btn-full btn-ghost" style="margin-bottom:7px" id="impBtn" onclick="runImport()">📥 Import catalogue</button>
       <button class="btn btn-full btn-ghost" style="margin-bottom:7px;border-color:rgba(239,68,68,.35);color:#fca5a5" onclick="replaceCatalogue()">♻️ Replace catalogue (corrected data)</button>
-      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="exportRegister()">📖 Export catalogue register</button>
-      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="exportLabels()">🏷️ Export accession labels</button>
-      <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="exportBackup()">📤 Export backup (JSON)</button>
       <button class="btn btn-full btn-ghost" style="margin-bottom:7px" onclick="recount()">🔄 Recount availability</button>
-      <button class="btn btn-full btn-ghost" onclick="loadCatalogue(true).then(()=>{toast('Catalogue refreshed');render()})">♻️ Force catalogue refresh</button></div>
+      <button class="btn btn-full btn-ghost" onclick="loadCatalogue(true).then(()=>{toast('Catalogue refreshed');render()})">♻️ Force catalogue refresh</button></div>`:''}
     <div class="alert">Roles read from DB1 Firestore <b>staff_directory</b> (admin / manager / vp / fulltime / visiting). The <b>librarian</b> role is overlaid from DB2 <b>library/staff</b>, so DB1 keeps its existing shape and this app never writes to it.</div>`;
+}
+/* v1.33: reconcile stored fine on OPEN overdue loans with the live computed
+   value. Runs opportunistically on Admin/Out tab loads (no scheduler exists on
+   GitHub Pages). Guarded to circulation staff — students must never write here.
+   Returned loans are skipped: doReturn() already froze the settled figure and
+   overwriting it would corrupt the historical record. */
+async function syncFines(){
+  if(!canCirc()) return 0;
+  try{
+    const iss=await getIssues(true);
+    const patch={};
+    Object.entries(iss||{}).forEach(([id,x])=>{
+      if(x.ret||!x.due) return;             /* settled or staff loan */
+      const live=fineOf(x.due);
+      if(live!==(x.fine||0)) patch['library/issues/'+id+'/fine']=live;
+    });
+    const n=Object.keys(patch).length;
+    if(n){ await d2update(patch); log('synced fine on '+n+' open loan(s)'); }
+    return n;
+  }catch(e){ warn('fine sync failed: '+e.message); return 0; }
 }
 async function setCfg(k,v){
   try{ await d2set('library/config/'+k,v); STATE.cfg[k]=v; toast('Saved'); render(); }
@@ -2567,7 +2689,7 @@ const NAV={ dash:['📊','Dash'], browse:['🔍','Browse'], mine:['📗','My Boo
 function navFor(){
   if(isStu()) return ['browse','mine','hist'];
   const r=STATE.user.role;
-  if(r==='librarian') return ['dash','browse','desk','out','sheet'];
+  if(r==='librarian') return ['dash','browse','desk','out','sheet','adm'];
   if(r==='admin'||r==='vp') return ['dash','browse','desk','out','sheet','adm'];
   if(r==='manager') return ['dash','browse','out','adm'];
   return ['browse','mine','out'];   /* fulltime / visiting — read-only circulation */
@@ -2605,9 +2727,13 @@ async function render(){
     else if(STATE.tab==='mine') m.innerHTML=await viewMine();
     else if(STATE.tab==='hist') m.innerHTML=await viewHistory();
     else if(STATE.tab==='desk') m.innerHTML=await viewDesk();
-    else if(STATE.tab==='out'){ m.innerHTML=await viewIssued(); fillMissingPhones(); }
+    else if(STATE.tab==='out'){ m.innerHTML=await viewIssued(); fillMissingPhones();
+      /* v1.33: opportunistic fine reconcile — see syncFines(). Fires after paint
+         so it never delays the view; only re-renders if a value actually moved. */
+      syncFines().then(n=>{ if(n) render(); }); }
     else if(STATE.tab==='sheet') m.innerHTML=await viewSheet();
-    else if(STATE.tab==='adm'){ m.innerHTML=await viewAdmin(); renderStaffList(); }
+    else if(STATE.tab==='adm'){ m.innerHTML=await viewAdmin(); if(isAdmin()) renderStaffList();
+      syncFines().then(n=>{ if(n) render(); }); }
   }catch(e){ m.innerHTML='<div class="alert alert-err">Could not load this view: '+esc(e.message)+'</div>'; warn(e.message); }
   updateBadges();
 }
@@ -2620,8 +2746,11 @@ async function updateBadges(){
     if(el&&n) el.innerHTML=' <span class="bd">'+n+'</span>';
     if(isStu()){
       const mine=Object.values(r||{}).filter(x=>x.uid===STATE.user.id&&x.st==='ready').length;
+      /* v1.33: overdue count is shown in preference to ready-to-collect — owing
+         a book is more urgent than collecting one. */
+      const odn=myOverdue(await getIssues()).length;
       const e2=document.getElementById('bdg-mine');
-      if(e2&&mine) e2.innerHTML=' <span class="bd">'+mine+'</span>';
+      if(e2&&(odn||mine)) e2.innerHTML=' <span class="bd"'+(odn?' style="background:var(--danger)"':'')+'>'+(odn||mine)+'</span>';
     }
   }catch(e){}
 }

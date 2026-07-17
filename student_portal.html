@@ -6331,25 +6331,59 @@ function libFmt(ts){
   return String(d.getDate()).padStart(2,'0')+' '+M[d.getMonth()];
 }
 function libDaysLeft(ts){ return Math.round((ts-Date.now())/864e5); }
+/* Mirrors library.html dueLong() — weekday + full date so "6d left" is
+   unambiguous. Manual DD-Mon-YYYY, never toLocaleDateString (locale drift). */
+function libDueLong(ts){
+  if(!ts) return '';
+  const d=new Date(ts);
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const W=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return W[d.getDay()]+', '+String(d.getDate()).padStart(2,'0')+' '+M[d.getMonth()]+' '+d.getFullYear();
+}
 async function renderLibraryPanel() {
   const body = document.getElementById('library-panel-body');
   if (!body || !STATE.studentUser) return;
   body.innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px;font-size:12px;">Loading your library record…</div>';
   const urn = STATE.studentUser.urn;
-  const [reqs, iss, titles] = await Promise.all([
-    libGet('library/requests'), libGet('library/issues'), libGet('library/titles')
+  const [reqs, iss, titles, lcfg] = await Promise.all([
+    libGet('library/requests'), libGet('library/issues'), libGet('library/titles'),
+    libGet('library/config')
   ]);
   const myReq = Object.entries(reqs || {}).filter(([i,r]) => r.uid === urn && ['waiting','ready'].includes(r.st));
   const myIss = Object.entries(iss || {}).filter(([i,x]) => x.urn === urn && !x.ret);
   const readyCount = myReq.filter(([i,r]) => r.st === 'ready').length;
+  const finePerDay = (lcfg && lcfg.finePerDay) || 5;
+  const overdueIss = myIss.filter(([i,x]) => x.due && libDaysLeft(x.due) < 0);
+  const myFine = overdueIss.reduce((a,[i,x]) => a + (-libDaysLeft(x.due)) * finePerDay, 0);
+  /* Overdue (red) outranks ready-for-pickup (green) — a book you owe is more
+     urgent than a book you can collect. */
   ['library-nav-badge','library-snav-badge'].forEach(bid => {
     const badge = document.getElementById(bid);
     if (!badge) return;
-    if (readyCount) { badge.style.display='block'; badge.textContent=readyCount; }
-    else badge.style.display='none';
+    if (overdueIss.length) {
+      badge.style.display='block'; badge.textContent=overdueIss.length;
+      badge.style.background='var(--danger,#ef4444)';
+    } else if (readyCount) {
+      badge.style.display='block'; badge.textContent=readyCount;
+      badge.style.background='var(--ok,#22c55e)';
+    } else badge.style.display='none';
   });
   const nameOf = tid => (titles||{})[tid]?.name || '(unknown book)';
+  /* v6.98: overdue banner. Nothing else in the portal told a student a book was
+     late — no push, no email (static hosting, no scheduler). This is the passive
+     signal: it appears the moment they open the panel. Fine is computed live at
+     the configured rate, same formula as library.html's fineOf(). */
+  const odBanner = overdueIss.length ? `
+    <div style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);border-radius:10px;padding:12px;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#f87171;margin-bottom:4px;">⚠️ ${overdueIss.length} book${overdueIss.length>1?'s':''} overdue</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.5;">
+        Please return ${overdueIss.length>1?'them':'it'} to the library desk.
+        Fine so far: <b style="color:#f87171;">₹${myFine}</b> (₹${finePerDay}/day, still counting).
+        You cannot request new books until ${overdueIss.length>1?'they are':'it is'} returned.
+      </div>
+    </div>` : '';
   body.innerHTML = `
+    ${odBanner}
     <div style="text-align:center;margin-bottom:14px;">
       <div style="font-size:34px;">📚</div>
       <div style="font-weight:700;font-size:15px;margin-top:4px;">My Library</div>
@@ -6368,7 +6402,8 @@ async function renderLibraryPanel() {
       return `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
         <div><div style="font-size:12.5px;font-weight:700;">${nameOf(x.tid)}</div>
-        <div style="font-size:9.5px;color:var(--muted);font-family:monospace;">taken ${libFmt(x.out)}</div></div>
+        <div style="font-size:9.5px;color:var(--muted);font-family:monospace;">taken ${libFmt(x.out)}</div>
+        ${x.due?`<div style="font-size:9.5px;color:${d!==null&&d<0?'#f87171':'var(--muted)'};font-family:monospace;margin-top:2px;">${d!==null&&d<0?'was due':'due'} ${libDueLong(x.due)}</div>`:''}</div>
         <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${d===null?'rgba(107,117,133,.15)':d<0?'rgba(239,68,68,.15)':d<=2?'rgba(245,158,11,.15)':'rgba(34,197,94,.15)'};color:${d===null?'var(--muted)':d<0?'#f87171':d<=2?'#fbbf24':'#4ade80'};">${d===null?'—':d<0?(-d)+'d late':d+'d left'}</span>
       </div>`; }).join('')}
     ${(!myReq.length && !myIss.length) ? '<div style="text-align:center;color:var(--muted);padding:20px;font-size:12px;">No books out or requested.</div>' : ''}
