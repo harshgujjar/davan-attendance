@@ -17,6 +17,22 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.03 (2026-07-18) — FIX: fresh-semester detection used the wrong
+  boundary, so a continuing student saw last term's attendance (60.3% overall,
+  progress bars, SHORTAGE badges) on a brand-new semester. Two bugs: (1)
+  stuAYState() only granted the "fresh" treatment to promoted students, so
+  continuing students fell through to 'current'; (2) even after that gate was
+  removed, the boundary was hardcoded to 1 Jul while the semester actually starts
+  17 Jul — the 14 Jul scrape landed in that gap and was read as current-term data.
+  stuAYState() now uses the REAL configured start (stuSemStartMs() →
+  semConfig.startDate, the same 17 Jul the dashboard banner reads), falling back
+  to the 1st-of-month heuristic only if config is missing. stuSemStartMs()
+  hardened to parse dates the same robust way as _adminLPIsStale ('/'→'-', append
+  midnight) so an odd stored format can't silently null it and drop to the broken
+  fallback. Attendance-page fresh box now also lists subjects + faculty (via
+  stuFreshSubjectsHtml), matching the dashboard summary — progress bars and % only
+  appear once real classes are scraped. stuDebugState() updated to report the
+  config-based boundary.
 VERSION : v6.88 (2026-07-10) — Added admin-controlled global app theme (Odd/Even palette swap).
   New Theme tab in admin panel (sidebar + tab bar) lets admin pick between the original dark/amber
   look ("odd") and a new dark/teal look ("even") — colors only, same layout/fonts/radius throughout,
@@ -507,7 +523,7 @@ LOG (newest first):
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v7.02 — Davan &amp; Nutana</title>
+<title>Student Portal v7.03 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -3059,8 +3075,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.02';
-const BUILD_DATE   = '18 Jul 2026, 04:35 AM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.03';
+const BUILD_DATE   = '18 Jul 2026, 06:15 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -7081,32 +7097,36 @@ function stuLastScrapeMs() {
 }
 
 // 2026-27 Odd semester start (ms) from session_config.startDate, else null.
+// Parses the same robust way as _adminLPIsStale (handles '/' separators, appends midnight)
+// so an odd stored format doesn't silently return null and drop us to the fallback boundary.
 function stuSemStartMs() {
   const sc = STATE.semConfig || {};
-  const sd = sc.startDate || sc.start || '';
+  const sd = sc.startDate || sc.start || sc.semStart || sc.sessionStart || sc.from || '';
   if (!sd) return null;
-  const n = Date.parse(sd);
+  let n = new Date(String(sd).replace(/\//g,'-') + 'T00:00:00').getTime();
+  if (isNaN(n)) n = Date.parse(sd);      // last-ditch: let the engine try the raw string
   return isNaN(n) ? null : n;
 }
 
 function stuAYState() {
   const u = STATE.studentUser || {};
   if (u.status === 'passout') return 'passout';
-  // Only promoted (target-AY-stamped) students get the "fresh" treatment.
-  const promoted = (u.ay === STU_TARGET_AY || u.promotedAt === STU_TARGET_AY);
-  if (promoted) {
-    const scraped = stuLastScrapeMs();
-    // Sem-aware boundary: Odd starts ~1 Jul (AY year 1), Even starts ~1 Jan (AY year 2).
-    // Any scrape BEFORE the current sem's start is last-sem data → fresh. Derived from
-    // AY_CONFIG, not session_config (which can hold stale dates).
-    const yr = parseInt((STU_TARGET_AY || '2026-27').slice(0, 4), 10) || 2026;
-    const boundary = (String(STU_TARGET_SEM).toLowerCase() === 'even')
-      ? new Date((yr + 1) + '-01-01T00:00:00').getTime()   // Even → Jan of AY year 2
-      : new Date(yr + '-07-01T00:00:00').getTime();         // Odd  → Jul of AY year 1
-    if (!scraped) return 'fresh';               // no scrape at all → fresh
-    return (scraped < boundary) ? 'fresh' : 'current';
-  }
-  return 'current';
+  // Boundary = the REAL semester start. Prefer the configured start date (same source the
+  // dashboard banner reads — e.g. 17 Jul 2026); fall back to the 1st-of-month heuristic only
+  // if config is missing. A scrape BEFORE the semester start is last-term data → fresh.
+  // NOTE: the old hardcoded 1-Jul boundary was the bug — a 14 Jul scrape fell in the gap
+  // between 1 Jul and the real 17 Jul start, so it was wrongly treated as 'current'.
+  const yr = parseInt((STU_TARGET_AY || '2026-27').slice(0, 4), 10) || 2026;
+  const fallbackBoundary = (String(STU_TARGET_SEM).toLowerCase() === 'even')
+    ? new Date((yr + 1) + '-01-01T00:00:00').getTime()   // Even → Jan of AY year 2
+    : new Date(yr + '-07-01T00:00:00').getTime();         // Odd  → Jul of AY year 1
+  const cfgStart = stuSemStartMs();
+  const boundary = (cfgStart !== null) ? cfgStart : fallbackBoundary;
+  const scraped = stuLastScrapeMs();
+  // Fresh applies to EVERY student (promoted or continuing) whose last scrape predates
+  // the current semester's start — the numbers in Firebase are still last term's.
+  if (!scraped) return 'fresh';               // no scrape at all → fresh
+  return (scraped < boundary) ? 'fresh' : 'current';
 }
 
 function renderStudentDashboard() {
@@ -7575,7 +7595,10 @@ function stuApplyFreshAttendance() {
     let fb = document.getElementById('stu-att-freshbox');
     if (!fb) { fb = document.createElement('div'); fb.id = 'stu-att-freshbox'; attWrap.appendChild(fb); }
     fb.style.display = 'block';
-    fb.innerHTML = stuFreshBox('🆕', freshMsg, 'New-year attendance appears here once classes are recorded.');
+    // Show the informative subjects + faculty list (same as dashboard summary) so students
+    // see who takes which subject this term. Progress bars / % appear once classes are scraped.
+    fb.innerHTML = stuFreshBox('🆕', freshMsg, 'New-year attendance appears here once classes are recorded.')
+      + stuFreshSubjectsHtml();
   }
 
   // ── Internals panel ── (preserve structure)
@@ -8057,8 +8080,10 @@ function stuFreshGuard() {
 function stuDebugState() {
   const u = STATE.studentUser || {};
   const scraped = (typeof stuLastScrapeMs === 'function') ? stuLastScrapeMs() : null;
+  const cfgStart = (typeof stuSemStartMs === 'function') ? stuSemStartMs() : null;
   const yr = parseInt((STU_TARGET_AY || '2026-27').slice(0,4),10) || 2026;
-  const boundary = new Date(yr + '-07-01T00:00:00').getTime();
+  const fallbackBoundary = new Date(yr + '-07-01T00:00:00').getTime();
+  const boundary = (cfgStart !== null) ? cfgStart : fallbackBoundary;
   const info = {
     urn: u.urn,
     class: u.class,
@@ -8067,10 +8092,10 @@ function stuDebugState() {
     promotedAt: u.promotedAt,
     status: u.status,
     STU_TARGET_AY: (typeof STU_TARGET_AY !== 'undefined') ? STU_TARGET_AY : 'UNDEFINED',
-    promoted_check: (u.ay === STU_TARGET_AY || u.promotedAt === STU_TARGET_AY),
     lastScrapeMs: scraped,
     lastScrapeDate: scraped ? new Date(scraped).toISOString() : 'none',
-    julyBoundary: new Date(boundary).toISOString(),
+    configuredStart: cfgStart ? new Date(cfgStart).toISOString() : 'none (using fallback)',
+    boundaryUsed: new Date(boundary).toISOString(),
     scrapeBeforeBoundary: scraped ? (scraped < boundary) : 'no-scrape',
     stuAYState: (typeof stuAYState === 'function') ? stuAYState() : 'N/A',
     viewAY: STATE._viewAY || 'current'
