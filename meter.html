@@ -2547,7 +2547,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.10.4"; // REAL FIX: both cycle-comparison charts used s.daysToLatest for their 'today' marker/lookup, which is off-by-one from s.daysSinceBill (the day-counter the Daily table's DaysSinceBill column and Used M-1/M-2/M-3 values actually use). That's why the chart showed 19.4u (day 3) while the Daily table correctly showed 24.10u (day 4) for the same 'today'. Both charts now use s.daysSinceBill throughout, so they always agree with the Daily table.
+const APP_VERSION = "v2.10.6"; // DEFINITIVE FIX for the two summaries disagreeing: the top Range panel and the bottom table now call the SAME shared functions (chgBuildReadings + chgFindLatestRide), so they are guaranteed to show identical latest-ride numbers (previously the panel read chgSessions pair-wise and diverged, showing 1.42 km/% 91km/64% while the table correctly showed 1.07 km/% 63km/59%). Also: Range & Efficiency reads solely from the Charge Log; Stop & log requires meter + odometer; interim "Since your last charge" summary on manual mid-cycle reading; gap column in days+hours.
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -8368,57 +8368,86 @@ function logKm() {
   renderChgService();
 }
 
+// ── SHARED: the one true reading list, used by BOTH the summary panel and the table. ──
+// Each charge contributes a plug-in (⚡) and unplug (🏁) odometer reading; the live active
+// charge adds a final plug-in; manual "+ Log" notes are merged in. Sorted oldest→newest.
+function chgBuildReadings() {
+  const readings = [];
+  chgSessions.forEach((s, si) => {
+    const baseTs = s.ts || Date.parse((s.date||'') + 'T' + (s.startTime||'00:00')) || 0;
+    if (s.startOdo != null) readings.push({
+      km: s.startOdo, pct: s.startPct, date: s.date, time: s.startTime,
+      ts: baseTs, type: 'charge_start', src: 'session', si
+    });
+    if (s.endOdo != null) readings.push({
+      km: s.endOdo, pct: s.endPct, date: s.date, time: s.endTime || s.startTime,
+      ts: (Date.parse((s.date||'') + 'T' + (s.endTime||s.startTime||'00:00')) || baseTs) + 1,
+      type: 'charge_end', src: 'session', si
+    });
+  });
+  if (chgActive && chgActive.startOdo != null) readings.push({
+    km: chgActive.startOdo, pct: chgActive.startPct, date: chgActive.date, time: chgActive.startTime,
+    ts: chgActive.ts || Date.now(), type: 'charge_start', src: 'live'
+  });
+  chgKmLog.forEach((r, ki) => readings.push({ ...r, src: 'manual', ki }));
+  readings.sort((a, b) => (a.ts||0) - (b.ts||0));
+  return readings;
+}
+
+// ── SHARED: find the most recent real ride (odometer rose & battery fell). ──
+// Returns {a, b} where a = earlier reading (higher %), b = later reading (higher km). Or null.
+function chgFindLatestRide(readings) {
+  const valid = readings.filter(r => r.km != null && r.pct != null);
+  for (let i = valid.length - 1; i >= 1; i--) {
+    const b = valid[i];
+    for (let j = i - 1; j >= 0; j--) {
+      const a = valid[j];
+      if (b.km - a.km > 0 && a.pct - b.pct > 0) return { a, b };
+      if (a.km > b.km) break;
+    }
+  }
+  return null;
+}
+
+// ── SHARED: all real rides (for a lifetime average). ──
+function chgAllRides(readings) {
+  const valid = readings.filter(r => r.km != null && r.pct != null);
+  const rides = [];
+  for (let i = 1; i < valid.length; i++) {
+    const a = valid[i-1], b = valid[i];
+    if (b.km - a.km > 0 && a.pct - b.pct > 0) rides.push({ km: b.km - a.km, pct: a.pct - b.pct });
+  }
+  return rides;
+}
+
 function renderChgKm() {
   const body = document.getElementById('chgKmBody');
   const chip = document.getElementById('chgKmChip');
   if (!body) return;
 
-  // ── SINGLE SOURCE OF TRUTH: the Charge Log ──
-  // Every charge session records the odometer + battery % at plug-in (startOdo/startPct)
-  // and at unplug (endOdo/endPct). A "ride" is the gap between one charge and the next:
-  // you charge up to endPct@endOdo, ride down to the next plug-in's startPct@startOdo.
-  //   distance ridden = nextStartOdo - thisEndOdo   (odometer rises)
-  //   battery used     = thisEndPct  - nextStartPct (battery falls)
-  //   efficiency       = distance / battery = km per 1%
-  // No separate range log to keep in sync — it reads straight from the charges you enter.
-  const chron = chgSessions.slice()
-    .filter(s => s.startOdo != null)
-    .sort((a, b) => (a.ts || Date.parse(a.date + 'T' + (a.startTime||'00:00')))
-                  - (b.ts || Date.parse(b.date + 'T' + (b.startTime||'00:00'))));
+  // ── SINGLE SOURCE OF TRUTH: shared readings + shared latest-ride finder. ──
+  // Uses the EXACT same computation as the table summary below, so they can never disagree.
+  const readings = chgBuildReadings();
+  const ride = chgFindLatestRide(readings);
+  const allRides = chgAllRides(readings);
 
-  const segs = [];
-  for (let i = 1; i < chron.length; i++) {
-    const prev = chron[i-1], cur = chron[i];
-    // prev must have an end reading to bound the ride; cur bounds it at the next plug-in
-    if (prev.endOdo != null && prev.endPct != null && cur.startPct != null) {
-      const kmUsed  = cur.startOdo - prev.endOdo;   // odometer rose while riding
-      const pctUsed = prev.endPct  - cur.startPct;  // battery fell while riding
-      if (kmUsed > 0 && pctUsed > 0) segs.push({ kmUsed, pctUsed, kmPerPct: kmUsed / pctUsed });
-    }
-  }
-  const totKm  = segs.reduce((s, x) => s + x.kmUsed, 0);
-  const totPct = segs.reduce((s, x) => s + x.pctUsed, 0);
-  const kmPerPct = totPct > 0 ? totKm / totPct : null;
+  const rideKm  = ride ? (ride.b.km - ride.a.km) : null;
+  const ridePct = ride ? (ride.a.pct - ride.b.pct) : null;
+  const kmPerPct = (rideKm != null && ridePct > 0) ? rideKm / ridePct : null;
   const fullRange = kmPerPct != null ? kmPerPct * 100 : null;
 
-  // ₹/km using the app's marginal charging cost per unit and units-per-%.
+  // lifetime average across every ride
+  const totKm  = allRides.reduce((s, x) => s + x.km, 0);
+  const totPct = allRides.reduce((s, x) => s + x.pct, 0);
+  const avgKmPerPct = totPct > 0 ? totKm / totPct : null;
+
   const costPerPct = chgUnitsPerPct() * chgUnitCost();
   const costPerKm = kmPerPct != null && kmPerPct > 0 ? costPerPct / kmPerPct : null;
 
   chip.textContent = kmPerPct != null ? kmPerPct.toFixed(2) + ' km/%' : '— km/%';
 
-  // "Latest" reflects the most recent plug-in odometer reading — live charge if one is active,
-  // otherwise the newest completed session. This is the number you entered at charging time.
-  let latest = null;
-  if (chgActive && chgActive.startOdo != null) {
-    latest = { km: chgActive.startOdo, pct: chgActive.startPct, date: chgActive.date, time: chgActive.startTime, live: true };
-  } else if (chron.length) {
-    const last = chron[chron.length - 1];
-    // prefer the unplug reading if present (most recent odometer), else the plug-in
-    latest = (last.endOdo != null)
-      ? { km: last.endOdo, pct: last.endPct, date: last.date, time: last.endTime || last.startTime }
-      : { km: last.startOdo, pct: last.startPct, date: last.date, time: last.startTime };
-  }
+  // "Latest" = the newest reading overall (live charge shows "charging now").
+  const latest = readings.length ? readings[readings.length - 1] : null;
 
   if (!latest) {
     body.innerHTML = '<div style="color:var(--muted);font-size:11px">Start logging charges with the odometer at plug-in and unplug — real range &amp; ₹/km compute automatically from your Charge Log.</div>';
@@ -8426,12 +8455,12 @@ function renderChgKm() {
   }
 
   body.innerHTML =
-    `<div>📍 Latest: <b>${latest.km}</b> km${latest.pct!=null?' @ <b>'+latest.pct+'%</b>':''} <span style="color:var(--muted)">(${fmtDM(latest.date)} ${latest.time||''}${latest.live?' · charging now':''})</span></div>` +
+    `<div>📍 Latest: <b>${latest.km}</b> km${latest.pct!=null?' @ <b>'+latest.pct+'%</b>':''} <span style="color:var(--muted)">(${fmtDM(latest.date)} ${latest.time||''}${latest.src==='live'?' · charging now':''})</span></div>` +
     (kmPerPct != null
-      ? `<div>🛣 Real efficiency: <b style="color:var(--green)">${kmPerPct.toFixed(2)}</b> km per 1%</div>
+      ? `<div>🛣 Real efficiency (latest ride): <b style="color:var(--green)">${kmPerPct.toFixed(2)}</b> km per 1%</div>
          <div>🔋 Real full range: ~<b style="color:var(--green)">${Math.round(fullRange)}</b> km <span style="color:var(--muted)">(vs 151 claimed)</span></div>
          <div>💰 Cost to ride: ~<b style="color:var(--accent)">₹${costPerKm.toFixed(2)}</b> per km <span style="color:var(--muted)">(petrol ~₹2.5–3)</span></div>
-         <div style="color:var(--muted);font-size:11px;margin-top:2px">from ${segs.length} ride(s) between charges · ${Math.round(totKm)} km over ${Math.round(totPct)}%</div>`
+         <div style="color:var(--muted);font-size:11px;margin-top:2px">latest ride: ${Math.round(rideKm)} km over ${Math.round(ridePct)}%${allRides.length > 1 && avgKmPerPct != null ? ` · lifetime avg <b style="color:var(--green)">${avgKmPerPct.toFixed(2)}</b> km/% over ${allRides.length} rides` : ''}</div>`
       : '<div style="color:var(--muted);font-size:11px;margin-top:2px">Log at least two charges (with odometer + % at plug-in and unplug) to compute efficiency from your rides.</div>');
 }
 
@@ -8453,29 +8482,8 @@ function renderChgKmLog() {
   const count = document.getElementById('chgKmLogCount');
   if (!body) return;
 
-  // Build the reading list from the Charge Log (source of truth) plus any manual ad-hoc notes.
-  // Each charge contributes up to two odometer readings: plug-in (⚡ start) and unplug (🏁 end).
-  // Manual "+ Log km now" entries (chgKmLog) are merged in and remain editable.
-  const readings = [];
-  chgSessions.forEach((s, si) => {
-    const baseTs = s.ts || Date.parse((s.date||'') + 'T' + (s.startTime||'00:00')) || 0;
-    if (s.startOdo != null) readings.push({
-      km: s.startOdo, pct: s.startPct, date: s.date, time: s.startTime,
-      ts: baseTs, type: 'charge_start', src: 'session', si
-    });
-    if (s.endOdo != null) readings.push({
-      km: s.endOdo, pct: s.endPct, date: s.date, time: s.endTime || s.startTime,
-      ts: (Date.parse((s.date||'') + 'T' + (s.endTime||s.startTime||'00:00')) || baseTs) + 1,
-      type: 'charge_end', src: 'session', si
-    });
-  });
-  if (chgActive && chgActive.startOdo != null) readings.push({
-    km: chgActive.startOdo, pct: chgActive.startPct, date: chgActive.date, time: chgActive.startTime,
-    ts: chgActive.ts || Date.now(), type: 'charge_start', src: 'live'
-  });
-  // manual ad-hoc notes — keep their original index so the ✎ edit still targets chgKmLog[idx]
-  chgKmLog.forEach((r, ki) => readings.push({ ...r, src: 'manual', ki }));
-  readings.sort((a, b) => (a.ts||0) - (b.ts||0));
+  // Build the reading list (shared with the summary panel above — same source of truth).
+  const readings = chgBuildReadings();
 
   count.textContent = readings.length + ' readings';
   const mut = 'color:var(--muted)', teal = 'color:#5dcaa5';
@@ -8544,16 +8552,8 @@ function renderChgKmLog() {
       </div>`;
   };
 
-  // SUMMARY 1 — Latest full ride between two charges: last unplug (charged up) → next plug-in.
-  let ride1 = null;
-  for (let i = valid.length - 1; i >= 1 && !ride1; i--) {
-    const b = valid[i];
-    for (let j = i - 1; j >= 0; j--) {
-      const a = valid[j];
-      if (b.km - a.km > 0 && a.pct - b.pct > 0) { ride1 = { a, b }; break; }
-      if (a.km > b.km) break;
-    }
-  }
+  // SUMMARY 1 — Latest full ride between two charges (shared finder, same as summary panel).
+  const ride1 = chgFindLatestRide(valid);
 
   // SUMMARY 2 — Since last charge: from the most recent charge unplug/plug-in up to the newest
   // MANUAL reading logged after it. Only shows when you've glanced at the dashboard mid-cycle.
