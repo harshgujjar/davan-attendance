@@ -1897,10 +1897,10 @@
   <div class="calc-card" style="margin-bottom:16px">
     <div class="calc-header"><span>Odometer &amp; range log</span><span id="chgKmChip" class="chip chip-teal">— km/%</span></div>
     <div style="padding:14px 16px">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">＋ Log km now (whenever you glance at the dashboard — not tied to charging)</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">＋ Log odometer now (whenever you glance at the dashboard — not tied to charging). Enter the odometer km + battery %.</div>
       <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:center;margin-bottom:8px">
-        <input type="number" id="chgKmNow" placeholder="km (range)" min="0" style="padding:8px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:12px;width:100%">
-        <input type="number" id="chgKmPct" placeholder="% (opt)" min="0" max="100" style="padding:8px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:12px;width:100%">
+        <input type="number" id="chgKmNow" placeholder="odometer km" min="0" style="padding:8px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:12px;width:100%">
+        <input type="number" id="chgKmPct" placeholder="% now" min="0" max="100" style="padding:8px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:12px;width:100%">
         <button class="btn" style="margin-top:0;padding:8px 16px;background:#1d9e7522;color:var(--green);border:1px solid #1d9e7544;font-size:14px;font-weight:700" onclick="logKm()">＋</button>
       </div>
       <div style="display:flex;gap:10px;margin-bottom:12px;font-size:11px;color:var(--muted)">
@@ -8276,13 +8276,15 @@ function endCharge() {
   // End % blank → assume the target (you clearly finished); only reject if an INVALID number was typed.
   if (isNaN(ep)) ep = chgActive.targetPct;
   if (ep < chgActive.startPct || ep > 100) { alert('End % must be between ' + chgActive.startPct + ' and 100.'); return; }
-  const endOdoEl = document.getElementById('chgEndOdo');
-  const endOdoRaw = parseFloat(endOdoEl.value);
-  const endOdo = (!isNaN(endOdoRaw) && endOdoRaw >= 0) ? endOdoRaw : null; // optional now
-  const endTime = document.getElementById('chgEndTime').value || chgNowHM();
   const meterEl = document.getElementById('chgEndMeter');
   const meterRaw = parseFloat(meterEl.value);
-  const meter = !isNaN(meterRaw) ? meterRaw : null; // optional now
+  if (isNaN(meterRaw)) { alert('Meter reading now is required.'); meterEl.focus(); return; }
+  const meter = meterRaw;
+  const endOdoEl = document.getElementById('chgEndOdo');
+  const endOdoRaw = parseFloat(endOdoEl.value);
+  if (isNaN(endOdoRaw) || endOdoRaw < 0) { alert('Odometer now (km) is required.'); endOdoEl.focus(); return; }
+  const endOdo = endOdoRaw;
+  const endTime = document.getElementById('chgEndTime').value || chgNowHM();
   const durMin = chgDurBetween(chgActive.startTime, endTime); // start → entered End time (not "now")
   const added = ep - chgActive.startPct;
   const actualRate = added > 0 ? durMin / added : 0;
@@ -8371,18 +8373,30 @@ function renderChgKm() {
   const chip = document.getElementById('chgKmChip');
   if (!body) return;
 
-  // The dashboard km is a RANGE estimate (how far you can still go); it drops as you ride
-  // and jumps up when you charge. Between two consecutive readings, if km went DOWN and we
-  // have both %s, the ride consumed (pct1-pct2)% for (km1-km2)km lost → km per % = kmLost/pctLost.
+  // ── SINGLE SOURCE OF TRUTH: the Charge Log ──
+  // Every charge session records the odometer + battery % at plug-in (startOdo/startPct)
+  // and at unplug (endOdo/endPct). A "ride" is the gap between one charge and the next:
+  // you charge up to endPct@endOdo, ride down to the next plug-in's startPct@startOdo.
+  //   distance ridden = nextStartOdo - thisEndOdo   (odometer rises)
+  //   battery used     = thisEndPct  - nextStartPct (battery falls)
+  //   efficiency       = distance / battery = km per 1%
+  // No separate range log to keep in sync — it reads straight from the charges you enter.
+  const chron = chgSessions.slice()
+    .filter(s => s.startOdo != null)
+    .sort((a, b) => (a.ts || Date.parse(a.date + 'T' + (a.startTime||'00:00')))
+                  - (b.ts || Date.parse(b.date + 'T' + (b.startTime||'00:00'))));
+
   const segs = [];
-  for (let i = 1; i < chgKmLog.length; i++) {
-    const a = chgKmLog[i-1], b = chgKmLog[i];
-    if (a.pct != null && b.pct != null && b.pct < a.pct && a.km > b.km) {
-      const pctUsed = a.pct - b.pct, kmUsed = a.km - b.km;
-      if (pctUsed > 0 && kmUsed > 0) segs.push({ kmUsed, pctUsed, kmPerPct: kmUsed / pctUsed });
+  for (let i = 1; i < chron.length; i++) {
+    const prev = chron[i-1], cur = chron[i];
+    // prev must have an end reading to bound the ride; cur bounds it at the next plug-in
+    if (prev.endOdo != null && prev.endPct != null && cur.startPct != null) {
+      const kmUsed  = cur.startOdo - prev.endOdo;   // odometer rose while riding
+      const pctUsed = prev.endPct  - cur.startPct;  // battery fell while riding
+      if (kmUsed > 0 && pctUsed > 0) segs.push({ kmUsed, pctUsed, kmPerPct: kmUsed / pctUsed });
     }
   }
-  const totKm = segs.reduce((s, x) => s + x.kmUsed, 0);
+  const totKm  = segs.reduce((s, x) => s + x.kmUsed, 0);
   const totPct = segs.reduce((s, x) => s + x.pctUsed, 0);
   const kmPerPct = totPct > 0 ? totKm / totPct : null;
   const fullRange = kmPerPct != null ? kmPerPct * 100 : null;
@@ -8393,22 +8407,43 @@ function renderChgKm() {
 
   chip.textContent = kmPerPct != null ? kmPerPct.toFixed(2) + ' km/%' : '— km/%';
 
-  const latest = chgKmLog.length ? chgKmLog[chgKmLog.length - 1] : null;
-  if (!chgKmLog.length) {
-    body.innerHTML = '<div style="color:var(--muted);font-size:11px">Log a couple of readings (with % each time) to measure real range &amp; ₹/km. The dashboard km + % is enough.</div>';
+  // "Latest" reflects the most recent plug-in odometer reading — live charge if one is active,
+  // otherwise the newest completed session. This is the number you entered at charging time.
+  let latest = null;
+  if (chgActive && chgActive.startOdo != null) {
+    latest = { km: chgActive.startOdo, pct: chgActive.startPct, date: chgActive.date, time: chgActive.startTime, live: true };
+  } else if (chron.length) {
+    const last = chron[chron.length - 1];
+    // prefer the unplug reading if present (most recent odometer), else the plug-in
+    latest = (last.endOdo != null)
+      ? { km: last.endOdo, pct: last.endPct, date: last.date, time: last.endTime || last.startTime }
+      : { km: last.startOdo, pct: last.startPct, date: last.date, time: last.startTime };
+  }
+
+  if (!latest) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:11px">Start logging charges with the odometer at plug-in and unplug — real range &amp; ₹/km compute automatically from your Charge Log.</div>';
     return;
   }
+
   body.innerHTML =
-    `<div>📍 Latest: <b>${latest.km}</b> km${latest.pct!=null?' @ <b>'+latest.pct+'%</b>':''} <span style="color:var(--muted)">(${fmtDM(latest.date)} ${latest.time})</span></div>` +
+    `<div>📍 Latest: <b>${latest.km}</b> km${latest.pct!=null?' @ <b>'+latest.pct+'%</b>':''} <span style="color:var(--muted)">(${fmtDM(latest.date)} ${latest.time||''}${latest.live?' · charging now':''})</span></div>` +
     (kmPerPct != null
       ? `<div>🛣 Real efficiency: <b style="color:var(--green)">${kmPerPct.toFixed(2)}</b> km per 1%</div>
          <div>🔋 Real full range: ~<b style="color:var(--green)">${Math.round(fullRange)}</b> km <span style="color:var(--muted)">(vs 151 claimed)</span></div>
          <div>💰 Cost to ride: ~<b style="color:var(--accent)">₹${costPerKm.toFixed(2)}</b> per km <span style="color:var(--muted)">(petrol ~₹2.5–3)</span></div>
-         <div style="color:var(--muted);font-size:11px;margin-top:2px">from ${segs.length} riding segment(s) · ${Math.round(totKm)} km over ${Math.round(totPct)}%</div>`
-      : '<div style="color:var(--muted);font-size:11px;margin-top:2px">Log another reading with % after riding to compute efficiency.</div>') +
-    (chgKmLog.length > 1
-      ? '<div style="margin-top:6px;color:var(--muted);font-size:10px">recent: ' + chgKmLog.slice(-5).map(r => r.km + (r.pct!=null?'/'+r.pct+'%':'') + ' @' + r.time).join(' · ') + '</div>'
-      : '');
+         <div style="color:var(--muted);font-size:11px;margin-top:2px">from ${segs.length} ride(s) between charges · ${Math.round(totKm)} km over ${Math.round(totPct)}%</div>`
+      : '<div style="color:var(--muted);font-size:11px;margin-top:2px">Log at least two charges (with odometer + % at plug-in and unplug) to compute efficiency from your rides.</div>');
+}
+
+// Format an hour gap as "2d 12h" / "5h" / "40m" / "just now".
+function fmtGapDH(gapH) {
+  if (gapH == null || isNaN(gapH)) return '–';
+  if (gapH < 1/60) return 'just now';
+  if (gapH < 1) return Math.round(gapH * 60) + 'm';
+  const totalH = Math.round(gapH);
+  const d = Math.floor(totalH / 24), h = totalH % 24;
+  if (d > 0) return h > 0 ? d + 'd ' + h + 'h' : d + 'd';
+  return gapH < 10 ? gapH.toFixed(1) + 'h' : totalH + 'h';
 }
 
 // ── Range log table: one row per reading, with per-row deltas and editable date/time ──
@@ -8417,25 +8452,50 @@ function renderChgKmLog() {
   const body = document.getElementById('chgKmLogBody');
   const count = document.getElementById('chgKmLogCount');
   if (!body) return;
-  count.textContent = chgKmLog.length + ' readings';
+
+  // Build the reading list from the Charge Log (source of truth) plus any manual ad-hoc notes.
+  // Each charge contributes up to two odometer readings: plug-in (⚡ start) and unplug (🏁 end).
+  // Manual "+ Log km now" entries (chgKmLog) are merged in and remain editable.
+  const readings = [];
+  chgSessions.forEach((s, si) => {
+    const baseTs = s.ts || Date.parse((s.date||'') + 'T' + (s.startTime||'00:00')) || 0;
+    if (s.startOdo != null) readings.push({
+      km: s.startOdo, pct: s.startPct, date: s.date, time: s.startTime,
+      ts: baseTs, type: 'charge_start', src: 'session', si
+    });
+    if (s.endOdo != null) readings.push({
+      km: s.endOdo, pct: s.endPct, date: s.date, time: s.endTime || s.startTime,
+      ts: (Date.parse((s.date||'') + 'T' + (s.endTime||s.startTime||'00:00')) || baseTs) + 1,
+      type: 'charge_end', src: 'session', si
+    });
+  });
+  if (chgActive && chgActive.startOdo != null) readings.push({
+    km: chgActive.startOdo, pct: chgActive.startPct, date: chgActive.date, time: chgActive.startTime,
+    ts: chgActive.ts || Date.now(), type: 'charge_start', src: 'live'
+  });
+  // manual ad-hoc notes — keep their original index so the ✎ edit still targets chgKmLog[idx]
+  chgKmLog.forEach((r, ki) => readings.push({ ...r, src: 'manual', ki }));
+  readings.sort((a, b) => (a.ts||0) - (b.ts||0));
+
+  count.textContent = readings.length + ' readings';
   const mut = 'color:var(--muted)', teal = 'color:#5dcaa5';
   const cell = (v, st='') => `<td style="padding:4px 8px;text-align:right;white-space:nowrap;${st}">${v}</td>`;
   const head = CHG_KM_COLS.map(h => `<th style="padding:4px 8px;text-align:right;white-space:nowrap;font-size:10px;${mut}">${h}</th>`).join('');
   let rows = '';
-  if (!chgKmLog.length) {
+  if (!readings.length) {
     rows = `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">` + CHG_KM_COLS.map(()=>cell('–',mut)).join('') + `</tr>`;
   } else {
     // newest first
     const tapCss = 'cursor:pointer;text-decoration:underline dotted;text-decoration-color:rgba(255,255,255,0.2)';
     const exp = (key, dateLbl, html) => 'showChgCellInfo(\'' + key + '\',\'' + dateLbl + '\',' + JSON.stringify(html).replace(/"/g,'&quot;') + ',event)';
-    chgKmLog.slice().reverse().forEach((r, i) => {
-      const idx = chgKmLog.length - 1 - i;      // real index in chgKmLog
-      const prev = idx > 0 ? chgKmLog[idx-1] : null;
+    readings.slice().reverse().forEach((r, i) => {
+      const idx = readings.length - 1 - i;      // real index in merged readings
+      const prev = idx > 0 ? readings[idx-1] : null;
       const dKm = prev ? +(r.km - prev.km).toFixed(1) : null;
       const dPct = (prev && r.pct != null && prev.pct != null) ? +(r.pct - prev.pct).toFixed(2) : null;
       const kmPerPct = (dKm != null && dPct != null && dPct < 0 && dKm > 0) ? +(dKm/(-dPct)).toFixed(2) : null;
       const gapH = prev ? ((r.ts - prev.ts)/3600000) : null;
-      const gapTxt = gapH == null ? '–' : gapH < 1 ? Math.round(gapH*60)+'m' : gapH.toFixed(1)+'h';
+      const gapTxt = fmtGapDH(gapH);
       const tagTxt = r.type === 'charge_start' ? '⚡ start' : r.type === 'charge_end' ? '🏁 end' : '<span style="'+mut+'">·</span>';
       const dateLbl = r.date ? fmtDM(r.date) : '–';
 
@@ -8455,13 +8515,70 @@ function renderChgKmLog() {
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut}${dPctExp?(';'+tapCss):''}" ${dPctExp?('onclick="'+dPctExp+'"'):''}>${dPct != null ? (dPct>0?'+':'')+dPct : '–'}</td>
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${kmPerPct!=null?teal:mut}${kmPctExp?(';'+tapCss):''}" ${kmPctExp?('onclick="'+kmPctExp+'"'):''}>${kmPerPct != null ? kmPerPct : '–'}</td>
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut}${gapExp?(';'+tapCss):''}" ${gapExp?('onclick="'+gapExp+'"'):''}>${gapTxt}</td>
-        <td style="padding:4px 8px;text-align:center"><span onclick="editKmReading(${idx})" style="cursor:pointer;color:var(--accent)">✎</span></td>
+        <td style="padding:4px 8px;text-align:center">${r.src === 'manual' ? '<span onclick="editKmReading('+r.ki+')" style="cursor:pointer;color:var(--accent)">✎</span>' : '<span style="color:var(--muted)" title="Edit this in the Charge Log above">↑</span>'}</td>
       </tr>`;
     });
   }
+
+  // ── Plain-language ride summaries ──
+  const valid = readings.filter(r => r.km != null && r.pct != null);
+
+  // Reusable: turn a ride (from-reading a → to-reading b) into an explained paragraph.
+  const describeRide = (a, b, title, accent) => {
+    const km = b.km - a.km, pct = a.pct - b.pct;
+    if (!(km > 0 && pct > 0)) return '';
+    const kmPerPct = km / pct;
+    const costPerPct = chgUnitsPerPct() * chgUnitCost();
+    const costPerKm = kmPerPct > 0 ? costPerPct / kmPerPct : null;
+    const unitsUsed = pct * chgUnitsPerPct();
+    const totalCost = unitsUsed * chgUnitCost();
+    const range100 = kmPerPct * 100;
+    const gapH = (b.ts && a.ts) ? (b.ts - a.ts) / 3600000 : null;
+    const gapTxt = gapH == null ? '' : fmtGapDH(gapH);
+    return `<div style="padding:10px 12px;margin-top:8px;background:rgba(93,202,165,0.06);border-radius:8px;line-height:1.7;font-size:12px">
+        <div style="color:${accent};font-weight:600;margin-bottom:4px">${title}</div>
+        <div>From <b>${fmtDM(a.date)} ${a.time||''}</b> to <b>${fmtDM(b.date)} ${b.time||''}</b>${gapTxt?' (about '+gapTxt+' apart)':''}, the odometer went from <b>${a.km} km</b> to <b>${b.km} km</b> — that's <b style="color:var(--green)">${km.toFixed(1)} km ridden</b>.</div>
+        <div>Over that ride the battery dropped from <b>${a.pct}%</b> to <b>${b.pct}%</b>, so you used <b style="color:var(--yellow)">${pct}% of charge</b> to cover those ${km.toFixed(1)} km.</div>
+        <div>That works out to <b style="color:var(--green)">${kmPerPct.toFixed(2)} km per 1%</b> of battery — a real full-charge range of about <b style="color:var(--green)">${Math.round(range100)} km</b>.</div>
+        <div>In power terms that's roughly <b>${unitsUsed.toFixed(2)} units</b> of electricity (≈ <b style="color:var(--accent)">₹${totalCost.toFixed(2)}</b> total), which comes to about <b style="color:var(--accent)">₹${costPerKm.toFixed(2)} per km</b> to ride — versus ₹2.5–3 per km on a petrol scooter.</div>
+      </div>`;
+  };
+
+  // SUMMARY 1 — Latest full ride between two charges: last unplug (charged up) → next plug-in.
+  let ride1 = null;
+  for (let i = valid.length - 1; i >= 1 && !ride1; i--) {
+    const b = valid[i];
+    for (let j = i - 1; j >= 0; j--) {
+      const a = valid[j];
+      if (b.km - a.km > 0 && a.pct - b.pct > 0) { ride1 = { a, b }; break; }
+      if (a.km > b.km) break;
+    }
+  }
+
+  // SUMMARY 2 — Since last charge: from the most recent charge unplug/plug-in up to the newest
+  // MANUAL reading logged after it. Only shows when you've glanced at the dashboard mid-cycle.
+  let ride2 = null;
+  const lastManual = [...valid].reverse().find(r => r.src === 'manual');
+  if (lastManual) {
+    // find the newest charge reading strictly before the manual one, with higher %
+    const before = valid.filter(r => r.src !== 'manual' && (r.ts||0) < (lastManual.ts||0));
+    for (let k = before.length - 1; k >= 0; k--) {
+      const a = before[k];
+      if (lastManual.km - a.km > 0 && a.pct - lastManual.pct > 0) { ride2 = { a, b: lastManual }; break; }
+      if (a.km > lastManual.km) break;
+    }
+  }
+
+  let rideHtml = '';
+  // Show Summary 2 first (it's the most current, interim view), then Summary 1.
+  if (ride2) rideHtml += describeRide(ride2.a, ride2.b, '📍 Since your last charge (interim reading)', '#f0b866');
+  if (ride1 && !(ride2 && ride1.a === ride2.a && ride1.b === ride2.b))
+    rideHtml += describeRide(ride1.a, ride1.b, '📊 Your latest ride between charges', '#5dcaa5');
+
   body.innerHTML =
     `<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace">
       <thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
+     ${rideHtml}
      <div style="padding:8px;margin-top:6px;border-top:1px solid rgba(255,255,255,0.08)">
        <div style="color:var(--muted);font-size:9px;margin-bottom:5px;letter-spacing:.5px">WHAT EACH COLUMN MEANS</div>
        <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:10px;line-height:1.4">
@@ -9074,8 +9191,8 @@ function renderChgLive() {
       <div style="color:var(--muted);font-size:10px;margin-top:6px">🔔 In-app sound+buzz fires at predicted times while open. ⏰ buttons add a real alarm to your phone for when it's closed.</div>
       <div class="form-row" style="margin-top:10px"><label>End %</label><input type="number" id="chgEndPct" min="${a.startPct}" max="100" value="${a.targetPct}"></div>
       <div class="form-row"><label>End time</label><input type="time" id="chgEndTime" value="${chgNowHM()}"></div>
-      <div class="form-row"><label>Meter reading now — <span style="color:var(--muted)">optional</span></label><input type="number" id="chgEndMeter" step="0.1" placeholder="${a.startMeter != null ? 'started at ' + a.startMeter : 'e.g. 10822.0'}"></div>
-      <div class="form-row"><label>Odometer now (km) — <span style="color:var(--muted)">optional</span></label><input type="number" id="chgEndOdo" step="0.1" placeholder="${a.startOdo != null ? 'was ' + a.startOdo + ' at plug-in' : 'e.g. 55'}"></div>
+      <div class="form-row"><label>Meter reading now — <span style="color:var(--yellow)">required</span></label><input type="number" id="chgEndMeter" step="0.1" placeholder="${a.startMeter != null ? 'started at ' + a.startMeter : 'e.g. 10822.0'}"></div>
+      <div class="form-row"><label>Odometer now (km) — <span style="color:var(--yellow)">required</span></label><input type="number" id="chgEndOdo" step="0.1" placeholder="${a.startOdo != null ? 'was ' + a.startOdo + ' at plug-in' : 'e.g. 55'}"></div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn btn-primary" style="flex:1" onclick="endCharge()">✅ Stop &amp; log</button>
         <button class="btn btn-danger" style="flex:0 0 60px;margin-top:0" onclick="cancelCharge()">✕</button>
