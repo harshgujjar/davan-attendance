@@ -2547,7 +2547,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.10.6"; // DEFINITIVE FIX for the two summaries disagreeing: the top Range panel and the bottom table now call the SAME shared functions (chgBuildReadings + chgFindLatestRide), so they are guaranteed to show identical latest-ride numbers (previously the panel read chgSessions pair-wise and diverged, showing 1.42 km/% 91km/64% while the table correctly showed 1.07 km/% 63km/59%). Also: Range & Efficiency reads solely from the Charge Log; Stop & log requires meter + odometer; interim "Since your last charge" summary on manual mid-cycle reading; gap column in days+hours.
+const APP_VERSION = "v2.10.9"; // After saving a reading in Add New Reading, the app now jumps straight to the Daily tab. Plus all v2.10.8 fixes: between-charges data fix (single odometer per charge), per-day AppU/day snapshot, collapsible legends.
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -4458,7 +4458,7 @@ const DAILY_COLUMNS = {
   unitsPerDay:    { label: 'Y-Bill',          sub: 'Y − bill rdg',               formula: "Yesterday's reading − Bill date reading (units elapsed through yesterday)" },
   udRate:         { label: 'U/day',           sub: 'T − bill rdg',               formula: "(Today's reading − Bill date reading)" },
   predMonth:      { label: 'Pred(cycle)',   sub: 'U/day × cycle days',          formula: 'U/day (Used ÷ DaysSinceBill) × actual cycle length in days' },
-  appUd:          { label: 'AppU/day',       sub: 'live w×6 (same all rows)',   formula: "App's live weighted rate from last 7 readings (w×6) — single value for the whole cycle" },
+  appUd:          { label: 'AppU/day',       sub: 'live w×6 (daily snapshot)',   formula: "App's weighted rate from last 7 readings (w×6). Snapshotted the day each reading was logged, so each row shows that day's value. Older rows (before snapshots) show the live rate." },
   freeRem:        { label: 'FreeRem',        sub: '164 − Pred',                 formula: '164 (free limit) − Pred(cycle)' },
   billEst:        { label: 'Bill Est',       sub: 'slab on Pred',               formula: '₹0 if Pred ≤ 164. Partial slab (164–200) or full slab (>200) on Pred(cycle)' },
   projReading:    { label: 'ProjReading',    sub: 'T + U/day×rem',              formula: "Today's reading + (U/day × days remaining in cycle)" },
@@ -4720,13 +4720,17 @@ function renderDaily() {
           billEst = est.mode === 'zero' ? '₹0' : '₹' + est.amount.toFixed(0);
           const daysRemaining = totalDays - daysSinceBill;
           projReading = (tR.u + parseFloat(udRate) * daysRemaining).toFixed(1);
-          // AppU/day — show on every row that has data (same w×6 rate from app)
-          if (isOpenCycle && _cycleWr) {
+          // AppU/day — prefer this day's own snapshot (appUdSnap, saved when the reading was
+          // logged). Rows saved before snapshots existed fall back to the live cycle rate.
+          if (tR && tR.appUdSnap != null && tR.appUdSnap > 0) {
+            appUd = tR.appUdSnap.toFixed(2);
+          } else if (isOpenCycle && _cycleWr) {
             appUd = _cycleAppUd;
+          }
+          if (isOpenCycle && _cycleWr) {
             // AppPred30 = app rate × actual cycle length
             appPred = (_cycleWr.unitsPerDay * totalDays).toFixed(1);
             // AppPredReading = today's reading + (app projected total units - units used so far)
-            // units used so far = tR.u - c.startR.u
             const appProjTotal = _cycleWr.unitsPerDay * totalDays;
             const _usedSoFarNum = tR.u - c.startR.u;
             appPredReading = (tR.u + (appProjTotal - _usedSoFarNum)).toFixed(1);
@@ -5269,6 +5273,9 @@ function addReading() {
   }
 
   const r = { u, d, t: t || '00:00', type, notes, id: Date.now().toString() };
+  // Snapshot the current live AppU/day (weighted rate) onto this reading, so future views show
+  // the value AS IT WAS on this day rather than always the latest live rate.
+  try { const _wr = getWeightedRate(); if (_wr && _wr.unitsPerDay > 0) r.appUdSnap = +_wr.unitsPerDay.toFixed(2); } catch(e){}
   recordDrift(r); // drift tracker: compare new actual vs weighted prediction (before push)
   readings.push(r);
   saveData();
@@ -5278,6 +5285,7 @@ function addReading() {
 
   showToast('✅ Reading saved!');
   renderAll();
+  switchTab('daily'); // jump straight to the Daily view after saving
 }
 
 function deleteReading(id) {
@@ -8379,8 +8387,11 @@ function chgBuildReadings() {
       km: s.startOdo, pct: s.startPct, date: s.date, time: s.startTime,
       ts: baseTs, type: 'charge_start', src: 'session', si
     });
-    if (s.endOdo != null) readings.push({
-      km: s.endOdo, pct: s.endPct, date: s.date, time: s.endTime || s.startTime,
+    // Unplug row: the scooter can't move while charging, so the odometer is the SAME as plug-in
+    // (startOdo). We ignore any stored endOdo (legacy data sometimes has it wrong/lower). Only the
+    // battery % changes (endPct = charged-up level).
+    if (s.startOdo != null && s.endPct != null) readings.push({
+      km: s.startOdo, pct: s.endPct, date: s.date, time: s.endTime || s.startTime,
       ts: (Date.parse((s.date||'') + 'T' + (s.endTime||s.startTime||'00:00')) || baseTs) + 1,
       type: 'charge_end', src: 'session', si
     });
@@ -8579,9 +8590,9 @@ function renderChgKmLog() {
     `<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace">
       <thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
      ${rideHtml}
-     <div style="padding:8px;margin-top:6px;border-top:1px solid rgba(255,255,255,0.08)">
-       <div style="color:var(--muted);font-size:9px;margin-bottom:5px;letter-spacing:.5px">WHAT EACH COLUMN MEANS</div>
-       <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:10px;line-height:1.4">
+     <details style="padding:8px;margin-top:6px;border-top:1px solid rgba(255,255,255,0.08)">
+       <summary style="color:var(--muted);font-size:9px;letter-spacing:.5px;cursor:pointer;list-style:none">▸ WHAT EACH COLUMN MEANS</summary>
+       <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:10px;line-height:1.4;margin-top:6px">
          <b style="${teal}">#</b><span style="${mut}">Serial number of the reading</span>
          <b style="${teal}">Date</b><span style="${mut}">Date the reading was taken</span>
          <b style="${teal}">Time</b><span style="${mut}">Time the reading was taken</span>
@@ -8595,7 +8606,7 @@ function renderChgKmLog() {
          <b style="${teal}">✎</b><span style="${mut}">Edit that reading's date/time</span>
        </div>
        <div style="color:var(--muted);font-size:9px;margin-top:6px">Note: <b>km/%</b> is shown only when km went up &amp; % went down (real riding). Tap any underlined value to see its calculation.</div>
-     </div>`;
+     </details>`;
 }
 
 // ── Between-charges table: km ridden between one charge and the next, computed from the
@@ -8624,20 +8635,23 @@ function renderChgBetweenCharges() {
     segs.slice().reverse().forEach((s, i) => {
       const sl = segs.length - i;
       const fromLbl = fmtDM(s.fromDate);
-      const toLbl = fmtDM(s.toDate);
+      const toLbl = fmtDM(s.toDate) + (s.isLive ? ' (now)' : '');
 
-      const dKmExp = exp('\u0394km', toLbl, 'Odometer at ' + toLbl + ' plug-in \u2212 odometer at ' + fromLbl + ' plug-in = <b>' + s.kmRidden + ' km ridden</b><br>(straight from the Charge Log\u2019s Odo column \u2014 the scooter can\u2019t move while charging, so this is exact)');
-      const pctExp = exp('%used', toLbl, 'Battery added by the ' + fromLbl + ' charge, now spent riding to the next charge = <b>' + s.pctUsed + '%</b>');
+      const dKmExp = exp('\u0394km', toLbl, 'Odometer at ' + toLbl + ' plug-in \u2212 odometer at ' + fromLbl + ' unplug = <b>' + s.kmRidden + ' km ridden</b><br>(straight from the Charge Log\u2019s Odo readings \u2014 the scooter can\u2019t move while charging, so this is exact)');
+      const pctExp = exp('%used', toLbl, 'Battery at ' + fromLbl + ' unplug \u2212 battery at ' + toLbl + ' plug-in (the dashboard drop while riding) = <b>' + s.pctUsed + '%</b>');
       const kmPctExp = exp('km/%', toLbl, s.kmRidden + ' km \u00f7 ' + s.pctUsed + '% used = <b>' + s.kmPerPct.toFixed(2) + ' km per 1%</b>');
       const kmUnitExp = s.kmPerUnit != null ? exp('km/unit', toLbl, s.kmRidden + ' km \u00f7 units added at ' + fromLbl + ' = <b>' + s.kmPerUnit.toFixed(2) + ' km per unit</b>') : null;
       const costExp = s.costPerKm != null ? exp('\u20b9/km', toLbl, 'Cost of the ' + fromLbl + ' charge \u00f7 ' + s.kmRidden + ' km ridden on it = <b>\u20b9' + s.costPerKm.toFixed(2) + '/km</b>') : null;
 
+      const toOdoClick = s.curIdx > -1 ? `onclick="openChgSessionEditModalV2972(${s.curIdx})"` : '';
+      const toOdoStyle = s.curIdx > -1 ? 'cursor:pointer;text-decoration:underline dotted;text-decoration-color:rgba(255,255,255,0.15)' : '';
+
       rows += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
         ${cell(sl, mut)}
         ${cell(fromLbl, mut)}
-        ${cell(toLbl, mut)}
+        ${cell(toLbl, s.isLive ? teal : mut)}
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut};cursor:pointer;text-decoration:underline dotted;text-decoration-color:rgba(255,255,255,0.15)" onclick="openChgSessionEditModalV2972(${s.prevIdx})" title="Tap to edit ${fromLbl} odometer">${s.fromOdo}</td>
-        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut};cursor:pointer;text-decoration:underline dotted;text-decoration-color:rgba(255,255,255,0.15)" onclick="openChgSessionEditModalV2972(${s.curIdx})" title="Tap to edit ${toLbl} odometer">${s.toOdo}</td>
+        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut};${toOdoStyle}" ${toOdoClick} title="${s.curIdx > -1 ? 'Tap to edit '+toLbl+' odometer' : 'Live charge — edit in the Charge Log'}">${s.toOdo}</td>
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${teal};${tapCss}" onclick="${dKmExp}">${s.kmRidden}</td>
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut};${tapCss}" onclick="${pctExp}">${s.pctUsed}%</td>
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${teal};${tapCss}" onclick="${kmPctExp}">${s.kmPerPct.toFixed(2)}</td>
@@ -8653,23 +8667,23 @@ function renderChgBetweenCharges() {
   body.innerHTML =
     `<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace">
       <thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
-     <div style="padding:8px;margin-top:6px;border-top:1px solid rgba(255,255,255,0.08)">
-       <div style="color:var(--muted);font-size:9px;margin-bottom:5px;letter-spacing:.5px">WHAT EACH COLUMN MEANS</div>
-       <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:10px;line-height:1.4">
+     <details style="padding:8px;margin-top:6px;border-top:1px solid rgba(255,255,255,0.08)">
+       <summary style="color:var(--muted);font-size:9px;letter-spacing:.5px;cursor:pointer;list-style:none">▸ WHAT EACH COLUMN MEANS</summary>
+       <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:10px;line-height:1.4;margin-top:6px">
          <b style="${teal}">#</b><span style="${mut}">Serial number of the ride (between two consecutive charges)</span>
          <b style="${teal}">From (charge)</b><span style="${mut}">Date of the charge you rode away from</span>
          <b style="${teal}">To (charge)</b><span style="${mut}">Date of the next charge, ending this ride</span>
-         <b style="${teal}">From Odo</b><span style="${mut}">Odometer reading noted when you plugged in for the FROM charge \u2014 tap to edit</span>
-         <b style="${teal}">To Odo</b><span style="${mut}">Odometer reading noted when you plugged in for the TO charge \u2014 tap to edit</span>
+         <b style="${teal}">From Odo</b><span style="${mut}">Odometer at the FROM charge\u2019s unplug (ride starts here) \u2014 tap to edit</span>
+         <b style="${teal}">To Odo</b><span style="${mut}">Odometer at the TO charge\u2019s plug-in (ride ends here) \u2014 tap to edit</span>
          <b style="${teal}">Δkm</b><span style="${mut}">To Odo \u2212 From Odo \u2014 the actual km ridden, plain subtraction</span>
-         <b style="${teal}">%used</b><span style="${mut}">Battery % that charge added, now spent on this ride</span>
+         <b style="${teal}">%used</b><span style="${mut}">Dashboard battery drop while riding = FROM unplug % \u2212 TO plug-in %</span>
          <b style="${teal}">km/%</b><span style="${mut}">Real range \u2014 km covered per 1% of that charge</span>
          <b style="${teal}">km/unit</b><span style="${mut}">Km covered per electricity unit spent on that charge</span>
          <b style="${teal}">₹/km</b><span style="${mut}">Running cost per km for that ride</span>
          <b style="${teal}">✎from / ✎to</b><span style="${mut}">Edit the odometer (Odo) of either charge session bounding this ride — fixes Δkm here instantly</span>
        </div>
-       <div style="color:var(--muted);font-size:9px;margin-top:6px">Source: Charge Log's Odo field (odometer noted at plug-in). One row per completed ride between two charges \u2014 no guesswork. Tap any underlined value for its calculation.</div>
-     </div>`;
+       <div style="color:var(--muted);font-size:9px;margin-top:6px">Source: Charge Log\u2019s Odo + % readings (unplug \u2192 next plug-in). Battery use = the dashboard % drop. The live charge shows as a "(now)" row so today\u2019s ride appears before you finish charging. Tap any underlined value for its calculation.</div>
+     </details>`;
 }
 
 function editKmReading(idx) {
@@ -8958,19 +8972,44 @@ function renderChgService() {
 // covered on the % (and units/cost) that the PREVIOUS charge put in, so efficiency is
 // attributed back to that previous session.
 function chgKmRideStats() {
-  const sorted = chgSessions.slice().sort((a, b) => (a.ts || Date.parse(a.date + 'T' + (a.startTime||'00:00'))) - (b.ts || Date.parse(b.date + 'T' + (b.startTime||'00:00'))));
+  // WAY 2 (dashboard drop): a ride runs from one charge's UNPLUG (endOdo/endPct) to the NEXT
+  // charge's PLUG-IN (startOdo/startPct). Battery used = prev.endPct - next.startPct (what the
+  // dashboard dropped by). Distance = next.startOdo - prev.endOdo. Units/cost attributed to the
+  // charge that powered the ride (prev). Includes the live active charge as the final plug-in,
+  // so today's partial ride shows immediately instead of waiting for the charge to complete.
+  const sorted = chgSessions.slice()
+    .sort((a, b) => (a.ts || Date.parse(a.date + 'T' + (a.startTime||'00:00')))
+                  - (b.ts || Date.parse(b.date + 'T' + (b.startTime||'00:00'))));
+  // append a virtual "next plug-in" for the live charge (no idx → not editable)
+  const chain = sorted.slice();
+  const liveNext = (chgActive && chgActive.startOdo != null)
+    ? { date: chgActive.date, startTime: chgActive.startTime, startOdo: chgActive.startOdo, startPct: chgActive.startPct, _live: true }
+    : null;
+  if (liveNext) chain.push(liveNext);
+
   const segs = [];
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = sorted[i - 1], cur = sorted[i];
-    if (prev.startOdo != null && cur.startOdo != null) {
-      const kmRidden = +(cur.startOdo - prev.startOdo).toFixed(1);
-      if (kmRidden > 0 && prev.added > 0) {
+  for (let i = 1; i < chain.length; i++) {
+    const prev = chain[i - 1], cur = chain[i];
+    // Odometer can't change while charging, so a charge has ONE odometer = its plug-in reading
+    // (startOdo). Using startOdo for both ends avoids corrupt/legacy endOdo values that can be
+    // lower than startOdo. Ride distance = next charge's odo − this charge's odo.
+    const prevOdo = prev.startOdo, curOdo = cur.startOdo;
+    // Battery spent riding = what this charge was left at (endPct) minus next plug-in %.
+    // Fall back to startPct if endPct is missing (e.g. legacy rows).
+    const prevEndPct = (prev.endPct != null) ? prev.endPct : prev.startPct;
+    if (prevOdo != null && curOdo != null && prevEndPct != null && cur.startPct != null) {
+      const kmRidden = +(curOdo - prevOdo).toFixed(1);
+      const pctUsed  = +(prevEndPct - cur.startPct).toFixed(1);
+      // Sanity: distance must be positive & plausible, battery must have dropped.
+      if (kmRidden > 0 && kmRidden < 1000 && pctUsed > 0) {
         segs.push({
           fromDate: prev.date, toDate: cur.date, kmRidden,
-          fromOdo: prev.startOdo, toOdo: cur.startOdo,
-          prevIdx: chgSessions.indexOf(prev), curIdx: chgSessions.indexOf(cur),
-          pctUsed: prev.added,
-          kmPerPct: kmRidden / prev.added,
+          fromOdo: prevOdo, toOdo: curOdo,
+          prevIdx: chgSessions.indexOf(prev),
+          curIdx: cur._live ? -1 : chgSessions.indexOf(cur),
+          isLive: !!cur._live,
+          pctUsed,
+          kmPerPct: kmRidden / pctUsed,
           kmPerUnit: prev.units > 0 ? kmRidden / prev.units : null,
           costPerKm: prev.cost > 0 ? prev.cost / kmRidden : null
         });
