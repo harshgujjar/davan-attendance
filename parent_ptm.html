@@ -446,6 +446,7 @@
   #card.pdf-mode .stat-border,#card.pdf-mode .mid{color:#b8860b!important}
   #card.pdf-mode .canvas-wrap{height:120px}
   #card.pdf-mode .charts{margin:8px 0}
+  #card.pdf-mode .facphoto-sm{display:none!important}
   #card.pdf-mode table.mc tr,#card.pdf-mode .hdr,#card.pdf-mode .name-line,#card.pdf-mode .legend,
   #card.pdf-mode .note,#card.pdf-mode .summary,#card.pdf-mode .sign,
   #card.pdf-mode .chartbox{page-break-inside:avoid}
@@ -472,6 +473,7 @@
     .stat-border,.mid{color:#b8860b!important}
     .canvas-wrap{height:120px}
     .charts{margin:8px 0}
+    .facphoto-sm{display:none!important}
     @page{size:A4 portrait;margin:0}
   }
 </style>
@@ -780,12 +782,25 @@ function showConfirmChild(usn, info){
   _confirmUsn = usn;
   const name = (info && info.name) ? info.name : usn;
   const cls  = (info && info.cls) ? info.cls : '';
-  const photo = (info && info.photoUrl)
-    ? `<img src="${info.photoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`
+  const photoUrl = info && info.photoUrl;
+  const photo = photoUrl
+    ? `<img src="${photoUrl}" onclick="event.stopPropagation();zoomPhoto('${photoUrl}')" style="width:100%;height:100%;border-radius:50%;object-fit:cover;cursor:zoom-in">`
     : '👤';
   document.getElementById('confirm-row').innerHTML =
     `<div class="ph">${photo}</div><div><div class="nm">${name}</div><div class="meta">${usn}${cls?' · '+cls:''}</div></div>`;
   show('scr-confirm');
+}
+// Tap-to-zoom lightbox for the child photo, so a parent can confirm identity
+// before trusting the name/USN alone. Plain overlay, no library needed.
+function zoomPhoto(url){
+  let ov=document.getElementById('photo-zoom-ov');
+  if(!ov){
+    ov=document.createElement('div'); ov.id='photo-zoom-ov';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:999;cursor:zoom-out';
+    ov.onclick=()=>ov.remove();
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML=`<img src="${url}" style="max-width:90vw;max-height:90vh;border-radius:12px;object-fit:contain">`;
 }
 function confirmChild(){ if(_confirmUsn) openParentCard(_confirmUsn); }
 function renderPicker(idx){
@@ -813,6 +828,10 @@ async function openParentCard(usn){
 }
 async function loadAndShow(usn, who, ck){
   try{
+    if(who==='parent'){
+      const idx = (await rtdb.ref('published_index/'+usn).once('value')).val();
+      if(idx && idx.visible===false){ alert('This report is not available yet. Please check with the college office.'); return; }
+    }
     const latest = (await rtdb.ref('published_cards/'+usn+'/_latest').once('value')).val();
     if(!latest){ alert('No published card yet for this student.'); return; }
     const card = (await rtdb.ref('published_cards/'+usn+'/'+latest).once('value')).val();
@@ -1860,9 +1879,9 @@ async function publishOneCard(C, contact){
   await rtdb.ref('puc_test_config/'+AY+'/'+C.student.cls).set({tests:C.tests});
   await rtdb.ref('published_cards/'+C.student.usn+'/'+eventId).set(C);
   await rtdb.ref('published_cards/'+C.student.usn+'/_latest').set(eventId);
-  await rtdb.ref('published_index/'+C.student.usn).set({
+  await rtdb.ref('published_index/'+C.student.usn).update({
     name:C.student.name||'', cls:C.student.cls||'', event:C.event||'',
-    eventId, publishedAt:Date.now()
+    phone:C.student.phone||'', eventId, publishedAt:Date.now(), visible:true
   });
   const phone=normPhone(contact);
   if(phone.length===10){
@@ -1885,11 +1904,34 @@ async function adLoadPublishedList(){
     AD_PUBLISHED = Object.entries(val).map(([usn,info])=>({usn, ...info}))
       .sort((a,b)=>(b.publishedAt||0)-(a.publishedAt||0));
     if(statusEl) statusEl.textContent=`${AD_PUBLISHED.length} published`;
+    adRenderPublishedList();
+    adBackfillPhones(); // fire-and-forget: fixes older entries published before phone was stored here
   }catch(e){
     if(statusEl) statusEl.textContent='Failed to load: '+e.message;
     AD_PUBLISHED=[];
+    adRenderPublishedList();
   }
-  adRenderPublishedList();
+}
+// v3.4.1: published_index/{usn}/phone didn't exist before this version, so
+// students published earlier show no phone in the list even though the
+// actual card (published_cards) always had it. One-time self-heal: for any
+// row missing phone, pull it from the card and patch it into published_index
+// (and update AD_PUBLISHED + re-render) so it fixes itself on next load
+// without needing a republish.
+async function adBackfillPhones(){
+  const missing = AD_PUBLISHED.filter(r=>!r.phone && r.usn);
+  for(const r of missing){
+    try{
+      const latest=(await rtdb.ref('published_cards/'+r.usn+'/_latest').once('value')).val();
+      if(!latest) continue;
+      const phone=(await rtdb.ref('published_cards/'+r.usn+'/'+latest+'/student/phone').once('value')).val();
+      if(phone){
+        await rtdb.ref('published_index/'+r.usn+'/phone').set(phone);
+        r.phone=phone;
+      }
+    }catch(e){}
+  }
+  if(missing.length) adRenderPublishedList();
 }
 function adRenderPublishedList(){
   const listEl=document.getElementById('ad-published-list');
@@ -1902,12 +1944,26 @@ function adRenderPublishedList(){
   listEl.innerHTML = '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--line);border-radius:8px">'
     + rows.map(r=>{
         const when = r.publishedAt ? new Date(r.publishedAt).toLocaleString() : '';
+        const visible = r.visible!==false; // default true for older records with no field
         return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:12px">
-          <span style="flex:1">${r.name||'(unnamed)'}${r.usn?' · '+r.usn:''}${r.cls?' · '+r.cls:''}<div class="mini">${r.event||''}${when?' · '+when:''}</div></span>
+          <span style="flex:1">${r.name||'(unnamed)'}${r.usn?' · '+r.usn:''}${r.cls?' · '+r.cls:''}<div class="mini">${r.phone?'📞 '+r.phone+' · ':''}${r.event||''}${when?' · '+when:''}</div></span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer" title="Uncheck to hide this card from the parent login">
+            <input type="checkbox" ${visible?'checked':''} onchange="adSetCardVisible('${r.usn}',this.checked)"> visible to parent
+          </label>
           <button class="btn" style="padding:2px 10px;font-size:11px" onclick="adPreviewPublishedStudent('${r.usn}')">👁 Preview</button>
         </div>`;
       }).join('')
     + '</div>';
+}
+// Admin can hide a published card from the parent login without deleting it
+// (e.g. published by mistake, or not ready to be shown yet). Stored on
+// published_index (the same node the list reads) so it's a single small write.
+async function adSetCardVisible(usn, visible){
+  try{
+    await rtdb.ref('published_index/'+usn+'/visible').set(visible);
+    const rec=AD_PUBLISHED.find(r=>r.usn===usn); if(rec) rec.visible=visible;
+    toast(visible?'Card shown to parent.':'Card hidden from parent.','ok');
+  }catch(e){ toast('Could not update: '+e.message,'err'); adLoadPublishedList(); }
 }
 async function adPreviewPublishedStudent(usn){
   try{
@@ -2049,6 +2105,15 @@ async function downloadPDF(){
     // animation is now disabled.
     await new Promise(res=>requestAnimationFrame(()=>requestAnimationFrame(res)));
     await new Promise(res=>setTimeout(res,150));
+    // v3.5: html2canvas captures based on the element's position in the
+    // document/viewport by default — if the card isn't scrolled to the very
+    // top, html2canvas can snapshot a full-viewport-height canvas with the
+    // card content only appearing near the bottom and a large blank area
+    // above it (exactly what was reported). Force scroll to top first so
+    // html2canvas's internal window capture starts from the card's true
+    // position.
+    window.scrollTo(0,0);
+    await new Promise(res=>setTimeout(res,50));
     // v3.3: html2pdf's own save()/toPdf() pagination slices the rendered
     // canvas into A4-page-sized chunks purely by raw pixel height, with no
     // awareness of the card's actual content — on narrow/mobile viewports
@@ -2059,26 +2124,32 @@ async function downloadPDF(){
     // pagination never touches the real card), then place the ONE canvas on
     // ONE A4 page ourselves, scaled down to fit — this guarantees a single
     // page every time, regardless of viewport width or card length.
+    // v3.4: previous version always built a fixed A4 page then shrank the
+    // image to fit inside it — when the card was taller than A4's ratio the
+    // image shrank to fit height, leaving a big blank gap in the page. Fix:
+    // size the PDF PAGE to the card's own aspect ratio (A4 width, variable
+    // height) so the image always fills the page exactly.
     const canvas = await html2pdf().set({
       margin:0, image:{type:'jpeg',quality:0.98},
-      html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true,allowTaint:false,imageTimeout:8000}
+      html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true,allowTaint:false,imageTimeout:8000,
+        x:0,y:0,scrollX:0,scrollY:0,windowWidth:el.scrollWidth,width:el.scrollWidth}
     }).from(el).toCanvas().get('canvas');
 
-    const dummy=document.createElement('div'); dummy.style.cssText='width:1px;height:1px';
-    document.body.appendChild(dummy);
-    const pdf = await html2pdf().set({margin:0,jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).from(dummy).toPdf().get('pdf');
-    document.body.removeChild(dummy);
-
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
+    const { jsPDF } = window.jspdf || {};
     const margin = 5;
+    const pageW = 210; // A4 width mm
     const usableW = pageW - margin*2;
-    const usableH = pageH - margin*2;
-    const canvasRatio = canvas.height / canvas.width;
-    let imgW = usableW, imgH = usableW * canvasRatio;
-    if(imgH > usableH){ imgH = usableH; imgW = usableH / canvasRatio; } // shrink further if still too tall
+    const usableH = usableW * (canvas.height/canvas.width);
+    const pageH = usableH + margin*2;
+    // html2pdf.js bundles jsPDF but doesn't always expose window.jspdf as a
+    // global (depends on load order/version) — fall back to html2pdf's own
+    // worker, which always has a working jsPDF internally, to build a page
+    // sized exactly to our content instead of guessing at a global.
+    const pdf = jsPDF
+      ? new jsPDF({unit:'mm', format:[pageW,pageH], orientation:'portrait'})
+      : await html2pdf().set({margin:0, jsPDF:{unit:'mm', format:[pageW,pageH], orientation:'portrait'}}).from(document.createElement('div')).toPdf().get('pdf');
     const imgData = canvas.toDataURL('image/jpeg', 0.98);
-    pdf.addImage(imgData, 'JPEG', margin, margin, imgW, imgH);
+    pdf.addImage(imgData, 'JPEG', margin, margin, usableW, usableH);
     pdf.save(fn);
   }catch(e){ toast('PDF failed: '+e.message,'err'); }
   finally{ el.classList.remove('pdf-mode'); if(btn){ btn.disabled=false; btn.textContent='⬇ Download PDF'; } }
