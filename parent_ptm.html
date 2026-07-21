@@ -447,9 +447,6 @@
   #card.pdf-mode .canvas-wrap{height:120px}
   #card.pdf-mode .charts{margin:8px 0}
   #card.pdf-mode .facphoto-sm{display:none!important}
-  #card.pdf-mode table.mc tr,#card.pdf-mode .hdr,#card.pdf-mode .name-line,#card.pdf-mode .legend,
-  #card.pdf-mode .note,#card.pdf-mode .summary,#card.pdf-mode .sign,
-  #card.pdf-mode .chartbox{page-break-inside:avoid}
 
   /* ---------- A4 print — single page ---------- */
   @media print{
@@ -1190,7 +1187,20 @@ async function adFetchClassData(cls){
         const nm=c.name||c.course_name||c.code||c.course_code||'';
         const code=c.code||c.course_code||nm;
         const ca=c.ca??c.classes_attended, ct=c.ch??c.ct??c.classes_held;
-        if(nm && ct!=null){ roster[id].att[subjKey(nm)]={name:nm, code, ca:+ca||0, ct:+ct||0}; }
+        if(nm && ct!=null){
+          const key=subjKey(nm);
+          const prev=roster[id].att[key];
+          // BUG FIX: some students carry two entries that collapse to the same
+          // subjKey (e.g. a duplicate/legacy course code for the same subject —
+          // this is what caused Economics to show 5/6 instead of 20/36 for one
+          // student). Previously this just overwrote prev with whichever course
+          // came later in the array, so a near-empty duplicate could clobber the
+          // real one. Now: keep whichever has the higher CT (classes held) — the
+          // fuller, more-authoritative record — instead of last-write-wins.
+          if(!prev || (+ct||0) >= (Number(prev.ct)||0)){
+            roster[id].att[key]={name:nm, code, ca:+ca||0, ct:+ct||0};
+          }
+        }
       });
     });
   }
@@ -1371,7 +1381,16 @@ async function buildStudentSubjects(){
     const nm=resolveName(a.code, a.name);
     const nk=nameKey(nm);
     const fac=resolveFac(a.code);
-    byName[nk]={code:a.code, sub:nm, fac, facPhoto:facultyPhotoByName(fac,FM), ca:a.ca, ct:a.ct, p1:null};
+    const prev=byName[nk];
+    // GUARD: if two different course codes resolve to the same subject name
+    // (e.g. a subjectMap entry mapping the wrong code to "Economics"), this
+    // used to silently overwrite whichever attendance row came first with
+    // whichever came later — that's how a near-empty subject (ca=5/ct=6)
+    // could clobber the real Economics row (ca=20/ct=36). Keep the one with
+    // the higher ct (the fuller, more-authoritative record) instead.
+    if(!prev || (Number(a.ct)||0) >= (Number(prev.ct)||0)){
+      byName[nk]={code:a.code, sub:nm, fac, facPhoto:facultyPhotoByName(fac,FM), ca:a.ca, ct:a.ct, p1:null};
+    }
   });
 
   // (b) 2PUC test marks — resolve name via subjectMap, merge into the name row
@@ -1773,12 +1792,36 @@ async function adDebug(){
   }catch(e){ out.push('annual read error: '+e.message); }
 
   out.push('');
-  // 3) what our loader actually built — compare CODES across sources
   const data=AD_CACHE[cls]||{};
   out.push('LOADER diag: '+JSON.stringify(data.diag||{}));
+  // Raw dump of THIS student's cumulative array exactly as it exists in
+  // puc_daily/{AY}/{dateUsed}/{cls} — before our merge/collision logic touches
+  // it. If Economics already shows ca=5/ct=6 here, the wrong number is in the
+  // source data itself (that day's scrape), not something our code introduced.
+  try{
+    const dateUsed=(data.diag&&data.diag.dateUsed)||'';
+    if(dateUsed){
+      const dayClass=(await rtdb.ref('puc_daily/'+AY+'/'+dateUsed+'/'+cls).once('value')).val();
+      const students=Array.isArray(dayClass)?dayClass:Object.values(dayClass||{});
+      const st=students.find(x=>x && (x.urn||x.usn||'').toString().toLowerCase()===usn);
+      const rawCourses=(st&&(st.cumulative||st.subjects||st.courses))||[];
+      out.push('RAW puc_daily/'+AY+'/'+dateUsed+'/'+cls+' for this student ('+rawCourses.length+' courses):');
+      rawCourses.forEach(c=>{
+        out.push('   '+(c.name||c.course_name||c.code||c.course_code)+' → ca='+(c.ca??c.classes_attended)+' ct='+(c.ch??c.ct??c.classes_held));
+      });
+    }
+  }catch(e){ out.push('raw day dump error: '+e.message); }
   const attObj=(data.roster&&data.roster[usn]&&data.roster[usn].att)||{};
-  const attCodes=Object.values(attObj).map(a=>a.code+'='+a.name).slice(0,15);
+  const attCodes=Object.values(attObj).map(a=>a.code+'='+a.name+' (ca='+a.ca+'/ct='+a.ct+')').slice(0,15);
   out.push('ATTENDANCE codes→names ('+Object.keys(attObj).length+'): '+attCodes.join(' | '));
+  // subjectMap dump: if two different codes resolve to the SAME name here,
+  // that's the exact cause of one subject's attendance overwriting another's
+  // in buildStudentSubjects (fixed to keep higher-ct now, but worth seeing).
+  const SM=data.subjectMap||{};
+  const byNameCount={};
+  Object.entries(SM).forEach(([code,info])=>{ const nm=(info&&info.name)||''; byNameCount[nm]=(byNameCount[nm]||[]); byNameCount[nm].push(code); });
+  const collisions=Object.entries(byNameCount).filter(([nm,codes])=>codes.length>1);
+  out.push('subjectMap name-collisions: '+(collisions.length?collisions.map(([nm,codes])=>nm+' ← '+codes.join(',')).join(' | '):'(none)'));
   // marks codes for this student in first available bucket
   for(const ek of IA_KEYS){
     const courses=(data.marksByExam&&data.marksByExam[ek]&&data.marksByExam[ek][usn])||null;
