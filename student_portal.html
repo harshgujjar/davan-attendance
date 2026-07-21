@@ -17,6 +17,17 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.04 (2026-07-20) — FIX: attendance % showed last term's figures even
+  after a real current-sem scrape. The scraper's stored sub.pct is unreliable at a
+  term boundary (already documented v6.34), but the dashboard summary + Attendance
+  cards trusted it first (ca/ct only as fallback). Added shared stuSubPct(s) that
+  recomputes from ca/ct (classes attended / conducted) as the source of truth,
+  wired into the dashboard summary rows, the Attendance-page cards, and the "at a
+  glance" overall + shortage/OK counts. Overall now weights by Σca/Σct (true
+  overall) instead of flat-averaging per-subject %. Subjects with no conducted
+  classes render '—' with no bar/badge instead of a fake 0%/shortage. NOTE: if
+  ca/ct themselves are stale, the fix is scraper-side (app.py) — verify via the
+  "X / Y classes attended" line.
 VERSION : v7.03 (2026-07-18) — FIX: fresh-semester detection used the wrong
   boundary, so a continuing student saw last term's attendance (60.3% overall,
   progress bars, SHORTAGE badges) on a brand-new semester. Two bugs: (1)
@@ -523,7 +534,7 @@ LOG (newest first):
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v7.03 — Davan &amp; Nutana</title>
+<title>Student Portal v7.04 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -3075,8 +3086,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.03';
-const BUILD_DATE   = '18 Jul 2026, 06:15 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.04';
+const BUILD_DATE   = '20 Jul 2026, 06:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -7086,6 +7097,21 @@ async function computeStudentRanks(urn, course, semStr) {
 var STU_TARGET_AY = (typeof AY_CONFIG !== 'undefined') ? AY_CONFIG.currentAY : '2026-27';
 var STU_TARGET_SEM = (typeof AY_CONFIG !== 'undefined') ? AY_CONFIG.currentSem : 'odd';
 
+// Per-subject attendance %, computed from ca/ct (classes attended / conducted) as the
+// SOURCE OF TRUTH. The scraper's stored sub.pct is unreliable (see changelog v6.34): at a
+// term boundary it carries last term's figure even after fresh ca/ct are scraped, which is
+// why Sem-3 showed last-term 72%/60%/65%. Whenever ca/ct are present we recompute; stored
+// pct is used only as a last resort when ct is missing entirely (labs/electives not yet held).
+// Returns null when there's nothing to show (no classes conducted yet).
+function stuSubPct(s) {
+  if (!s) return null;
+  const ct = Number(s.ct), ca = Number(s.ca);
+  if (Number.isFinite(ct) && ct > 0 && Number.isFinite(ca)) return (ca / ct) * 100;
+  // No conducted count → can't compute this term's %. Fall back to stored pct only if it
+  // actually exists as a number, else null (caller renders '—', no fake bar/badge).
+  return (typeof s.pct === 'number' && !Number.isNaN(s.pct)) ? s.pct : null;
+}
+
 // Last scrape date (ms) from admin meta, or null if unknown.
 function stuLastScrapeMs() {
   const m = STATE.metaData || {};
@@ -7428,10 +7454,14 @@ function renderHomeDashboard() {
   // Semester
   const semEl = document.getElementById('sd-semester');
   if (semEl) semEl.textContent = u && u.semester ? 'Sem ' + u.semester : '—';
-  // Overall attendance — use Firebase scraped pct per subject (same logic as Attendance page)
-  const _subPct = s => typeof s.pct === 'number' ? s.pct : (s.ct ? ((s.ca / s.ct) * 100) : 0);
+  // Overall attendance — recompute from ca/ct (stored pct is stale at term boundary).
+  const _subPct = s => stuSubPct(s);
   const validSubs = subs.filter(s => s.ct > 0);
-  const overallPct = validSubs.length ? parseFloat((validSubs.reduce((a, s) => a + _subPct(s), 0) / validSubs.length).toFixed(1)) : null;
+  // Weight by actual classes (Σca / Σct) — the true overall — not a flat average of
+  // per-subject %, which over/under-weights subjects with few conducted classes.
+  const _sumCt = validSubs.reduce((a, s) => a + Number(s.ct || 0), 0);
+  const _sumCa = validSubs.reduce((a, s) => a + Number(s.ca || 0), 0);
+  const overallPct = _sumCt > 0 ? parseFloat(((_sumCa / _sumCt) * 100).toFixed(1)) : null;
   const pctEl = document.getElementById('sd-overall-pct');
   if (pctEl) {
     pctEl.textContent = overallPct !== null ? overallPct + '%' : '—';
@@ -7866,18 +7896,19 @@ function renderDashAttSummary(subs) {
 
   // ── Attendance rows ──
   const attRows = subs.map(sub => {
-    // Use Firebase scraped pct (same as Attendance page) — ca/ct recalc gives wrong results
-    // because the college system uses a different working-days denominator
-    const pct   = typeof sub.pct === 'number' ? sub.pct : (sub.ct ? ((sub.ca / sub.ct) * 100) : 0);
-    const pctFmt = sub.ct ? pct.toFixed(1) + '%' : '—';
-    const color = sub.ct ? (pct < 75 ? 'var(--danger)' : pct < 85 ? 'var(--warn)' : 'var(--ok)') : 'var(--muted)';
-    const barW  = sub.ct ? Math.min(100, pct) : 0;
-    const is100Att = sub.ct > 0 && sub.ca === sub.ct;
+    // Recompute from ca/ct (stored pct is stale at term boundary — see stuSubPct).
+    const rawPct = stuSubPct(sub);
+    const hasData = sub.ct > 0 && rawPct !== null;
+    const pct   = hasData ? rawPct : 0;
+    const pctFmt = hasData ? pct.toFixed(1) + '%' : '—';
+    const color = hasData ? (pct < 75 ? 'var(--danger)' : pct < 85 ? 'var(--warn)' : 'var(--ok)') : 'var(--muted)';
+    const barW  = hasData ? Math.min(100, pct) : 0;
+    const is100Att = hasData && sub.ca === sub.ct;
     const badge = is100Att
       ? '<span style="font-size:10px;font-family:var(--mono);color:#facc15;background:rgba(250,204,21,0.12);border:1px solid rgba(250,204,21,0.3);border-radius:4px;padding:2px 7px;">100% 🌟</span>'
-      : sub.ct && pct < 75
+      : hasData && pct < 75
         ? '<span style="font-size:10px;font-family:var(--mono);color:var(--danger);background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:4px;padding:2px 7px;">SHORTAGE</span>'
-        : sub.ct ? '<span style="font-size:10px;font-family:var(--mono);color:var(--ok);background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:4px;padding:2px 7px;">OK</span>' : '';
+        : hasData ? '<span style="font-size:10px;font-family:var(--mono);color:var(--ok);background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:4px;padding:2px 7px;">OK</span>' : '';
     const isDI2 = STATE.studentUser && (STATE.studentUser.urn||'').toUpperCase().includes('DI');
     const fac2 = isDI2 ? (sub.facultyDI || sub.faculty || '') : (sub.facultyNU || sub.faculty || '');
     const facHtml2 = fac2 ? `<div style="font-size:10px;color:var(--blue);font-family:var(--mono);margin-top:1px;">👩‍🏫 ${fac2}</div>` : '';
@@ -8162,9 +8193,11 @@ function renderAttendance() {
   }
     const isDI_att = STATE.studentUser && (STATE.studentUser.urn||'').toUpperCase().includes('DI');
     cardsEl.innerHTML = subs.map(sub => {
-    const pct   = typeof sub.pct === 'number' ? sub.pct : (sub.ct ? ((sub.ca / sub.ct) * 100) : 0);
-    const pctFmt = sub.ct ? pct.toFixed(1) : '—';
-    const color = sub.ct ? attColor(pct) : 'var(--muted)';
+    const rawPct = stuSubPct(sub);
+    const hasData = sub.ct > 0 && rawPct !== null;
+    const pct   = hasData ? rawPct : 0;
+    const pctFmt = hasData ? pct.toFixed(1) : '—';
+    const color = hasData ? attColor(pct) : 'var(--muted)';
     let tipHtml = '';
     if (sub.ct && sub.ca < 0.75 * sub.ct) {
       const shortage = Math.ceil((0.75 * sub.ct - sub.ca) / 0.25);
