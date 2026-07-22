@@ -17,6 +17,69 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.10 (2026-07-22) — FIX: v7.08 fixed subject-name resolution for
+  the PREVIOUS-results tables, but a full sweep found 10+ MORE places across
+  the file with their own raw, unnormalized STU_KNOWN_NAMES[code] lookups —
+  each with the identical dot/underscore vulnerability, still broken: the
+  current-semester Attendance cards (Dashboard 'CURRENT SEMESTER' + dedicated
+  Attendance page, both card layouts), the Internals/IA table, old timetable
+  slot rendering (2x), the LP subject-name resolver fallback chain, and the
+  100/100 perfect-score celebration banners in both the student Report Card
+  and the admin card view. Every one of these now delegates to the shared
+  STU_KLU() helper introduced in v7.08, so a code appearing in ANY of these
+  contexts resolves correctly regardless of dot/underscore formatting.
+  Zero raw STU_KNOWN_NAMES[...] lookups remain outside STU_KLU's own
+  implementation.
+VERSION : v7.09 (2026-07-22) — FIX (same underlying issue as v7.08, opposite
+  side): faculty still showed '—' for B.COM-3.1 through B.COM-3.4.M even after
+  v7.08 fixed the subject names. Root cause confirmed via live RTDB dump of
+  davan_pub/allocation_each: code there is a plain STRING VALUE inside an
+  array, so it never went through RTDB's dot-stripping (that only affects
+  OBJECT KEYS, which is what happened to davan_pub/results' subjects map).
+  So allocation_each kept the dotted format ("B.COM-3.1") while results has
+  the underscored form (B_COM-3_1) as its subjects object key — facMap[code]
+  looked up the underscored form against dotted keys and silently missed.
+  FIX: facMap now also indexes every entry by its dot/underscore-normalized
+  form (via the shared _stuNormCode from v7.08), and the lookup tries the
+  normalized form as a fallback. Verified against live data from both RTDB
+  dumps — all four subjects now resolve to their correct faculty.
+VERSION : v7.08 (2026-07-22) — FIX (root cause confirmed via live RTDB dump):
+  B.COM-3.1 through B.COM-3.4.M still showed raw codes despite STU_KNOWN_NAMES
+  having correct entries. Ground truth from a live davan_pub/results dump: the
+  actual object keys stored are B_COM-3_1, B_COM-3_2 etc (underscores, not
+  dots — RTDB/Firestore object keys can't contain dots, so the sync writes
+  them this way). STU_KNOWN_NAMES was keyed with the original dotted format
+  (B.COM-3.1), so every lookup for these subjects silently missed and fell
+  through to sub.name — which itself just held the dotted code as literal
+  text ("B.COM-3.1"), not a resolved name, so the raw code displayed either
+  way. FIX: added a shared STU_KLU() helper (module-level, right after
+  STU_KNOWN_NAMES) that normalizes dots+underscores before comparing, so
+  B_COM-3_1 correctly matches the B.COM-3.1 map entry. All three previously-
+  separate _klu/_knownLookup copies now delegate to this one implementation.
+  Also added the missing COMP-DP-3 (Personality Development) entry.
+  Removed the temporary v7.07 diagnostic console.warn.
+VERSION : v7.07 (2026-07-22) — DIAGNOSTIC: B.COM-3.1 through B.COM-3.4.M still
+  show raw codes despite STU_KNOWN_NAMES having verified-correct entries for
+  all four (confirmed working in isolated test). Since ENGL-C-3/KAN-C-3 on the
+  SAME row resolve correctly, the map/lookup logic itself works — something
+  about the actual stored code/name for B.COM-3.x specifically differs from
+  what's expected (whitespace/case already ruled out via direct testing).
+  Added a temporary console.warn in the report-card table row renderer that
+  fires whenever a lookup fails, dumping the exact code string, its character
+  codes (to catch lookalike Unicode chars), and sub.name/short — needed to see
+  the real bytes Firestore holds, which can't be determined from static file
+  inspection. Remove once root cause is confirmed and fixed.
+VERSION : v7.06 (2026-07-22) — FIX: BCom students showed raw subject codes
+  (ENGL-C-1, KAN-C-1, and similar) instead of resolved names for their
+  language/English/constitution subjects. ROOT CAUSE: STU_KNOWN_NAMES only had
+  BCA-style codes (ENGL-S-1, KAN-B-1) -- BCom uses a different code family
+  (ENGL-C-1, KAN-C-1, HINL-C-1, SAN-L-C-1, URL-C-1) for the same subjects,
+  which was never added. Added all BCom Sem I/III/V language+English code
+  variants, sourced directly from results.html's own KNOWN_NAMES map
+  (authoritative, verified against the real portal data) rather than guessed.
+  NOTE: faculty still shows '-' for several BCom subjects in the same table --
+  that's a separate gap (missing/incomplete allocation_each doc for that
+  semester's BCom section), not a code-naming issue; flagged for follow-up.
 VERSION : v7.05 (2026-07-22) — FEAT: previous-semester result records now tag
   _isBacklog when the matched student came from a Firestore results doc's
   backlog[] array instead of regular[] (a failed student retaking that
@@ -544,7 +607,7 @@ LOG (newest first):
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v7.05 — Davan &amp; Nutana</title>
+<title>Student Portal v7.10 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -3096,8 +3159,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.05';
-const BUILD_DATE   = '22 Jul 2026, 11:00 AM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.10';
+const BUILD_DATE   = '22 Jul 2026, 01:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -6878,7 +6941,7 @@ async function loadStudentDashboard() {
         // For new sems (2026-27_even+) use full-name exact match only — no fuzzy prefix
         const _newSemMode = STATE.activeSemKey && STATE.activeSemKey !== '2025-26_odd';
         // Use Firebase sub.subject OR resolved STU_KNOWN_NAMES name for matching
-        const resolvedName = (typeof STU_KNOWN_NAMES !== 'undefined' && STU_KNOWN_NAMES[code]) || sub.subject || '';
+        const resolvedName = STU_KLU(code) || sub.subject || '';
         const subNorm = aliasSubName(resolvedName);
         // Extract student section from class string e.g. "Davan-BCA-Sem6-SecC" → "C"
         const _stuSection = (cls || '').replace(/.*[Ss]ec([A-Z]).*/,'$1');
@@ -7895,14 +7958,8 @@ function renderDashAttSummary(subs) {
     return;
   }
 
-  // Case-insensitive STU_KNOWN_NAMES lookup helper
-  const _knownName = code => {
-    if (!code) return '';
-    if (STU_KNOWN_NAMES[code]) return STU_KNOWN_NAMES[code];
-    const up = code.toUpperCase();
-    const found = Object.keys(STU_KNOWN_NAMES).find(k => k.toUpperCase() === up);
-    return found ? STU_KNOWN_NAMES[found] : '';
-  };
+  // Case-insensitive, dot/underscore-normalized STU_KNOWN_NAMES lookup helper
+  const _knownName = code => STU_KLU(code);
 
   // ── Attendance rows ──
   const attRows = subs.map(sub => {
@@ -8254,7 +8311,7 @@ function renderAttendance() {
     return `<div class="att-card">
       <div class="att-card-header">
         <div>
-          <div class="att-subject-name">${STU_KNOWN_NAMES[sub.code||''] || fixSubjectName(sub.subject) || 'Unknown'}</div>
+          <div class="att-subject-name">${STU_KLU(sub.code||'') || fixSubjectName(sub.subject) || 'Unknown'}</div>
           ${facAttHtml}
           ${sub.code ? `<div style="font-size:11px;font-family:var(--mono);color:var(--muted);margin-top:2px;">${sub.code}</div>` : ''}
         </div>
@@ -8387,7 +8444,7 @@ function renderInternals() {
     const ia2Cell = _portalIntCell(sub.int2, sub.int2_result, 2);
     const fac = isDI_int ? (sub.facultyDI || sub.faculty || '') : (sub.facultyNU || sub.faculty || '');
     const subCode = sub.code || '';
-    const subName = STU_KNOWN_NAMES[subCode] || fixSubjectName(sub.subject) || subCode || '—';
+    const subName = STU_KLU(subCode) || fixSubjectName(sub.subject) || subCode || '—';
     const statuses = [ia1Cell.status, ia2Cell.status].filter(Boolean);
     const rowStatus = statuses.includes('fail') || statuses.includes('absent') ? 'fail'
                     : statuses.includes('pass') ? 'pass' : null;
@@ -9232,7 +9289,7 @@ function renderOldTimetable(tt, wrapEl, emptyEl) {
   const todaySlots = tt[todayKey] || [];
   if (todaySlots.length) {
     slotsHtml = todaySlots.map(s => {
-      const subj = STU_KNOWN_NAMES[s.subject||''] || s.subject || '—';
+      const subj = STU_KLU(s.subject||'') || s.subject || '—';
       const fac  = s.faculty || s.teacher || s.fac || '—';
       return '<div class="tt-v2-slot"><div class="slot-time">' + (s.time||'') + '</div><div class="slot-subj">' + subj + '</div><div class="slot-fac">👩‍🏫 ' + fac + '</div></div>';
     }).join('');
@@ -9252,7 +9309,7 @@ function renderOldTTDay(btn, day) {
   if (!listEl) return;
   if (slots.length) {
     listEl.innerHTML = slots.map(s => {
-      const subj = STU_KNOWN_NAMES[s.subject||''] || s.subject || '—';
+      const subj = STU_KLU(s.subject||'') || s.subject || '—';
       const fac  = s.faculty || s.teacher || s.fac || '—';
       return '<div class="tt-v2-slot"><div class="slot-time">' + (s.time||'') + '</div><div class="slot-subj">' + subj + '</div><div class="slot-fac">👩‍🏫 ' + fac + '</div></div>';
     }).join('');
@@ -9287,6 +9344,14 @@ const STU_KNOWN_NAMES = {
   'BBA-3-1':'Cost Accounting','BBA-3-2':'Business Mathematics','BBA-3-3':'Organisation Behaviour','BBA-3-4':'Business Law',
   'B.COM-1.1':'Financial Accounting','B.COM-1.2':'Management Principles','B.COM-1.3':'Principles of Marketing','B.COM-1.4':'Business Analysis',
   'B.COM-3.1':'Corporate Accounting','B.COM-3.2':'Business Statistics','B.COM-3.3':'Accounting Standards','B.COM-3.4.M':'Retail Management',
+  // BCom-specific language/English/constitution codes (distinct from BCA's ENGL-S/KAN-B pattern) —
+  // sourced directly from results.html's own KNOWN_NAMES map (authoritative, verified)
+  'ENGL-C-1':'Basic English Innovation Part-I','KAN-C-1':'ಕನ್ನಡ ಅಸ್ಮಿತೆ-1','HINL-C-1':'Hindi Gadyeki Vidhaye and Vyakaran',
+  'SAN-L-C-1':'Samskrutha Vanijya Vahini','URL-C-1':'Urdu',
+  'ENGL-C-3':'Basic English Harvest Part-III','KAN-C-3':'ಕನ್ನಡ ಅಸ್ಮಿತೆ-3','HINL-C-3':'Hindi Ekanki Tatha Vanijya Nibhand',
+  'SAN-L-C-3':'Samskrutha Vanijya Sura Bharathi','URL-C-3':'Urdu Nasr Nazm Aur Sahafat',
+  'ENGL-C-5':'Basic English Part-V','KAN-C-5':'ಕನ್ನಡ ಅಸ್ಮಿತೆ-5','HINL-C-5':'Hindi Part-V','SAN-L-C-5':'Samskrutha Part-V',
+  'COMP-DP-3':'Personality Development',
   'BCOMDSC-5-1':'Financial Management','BCOMDSC-5-2':'Income Tax Law and Practice-I','BCOMDSC-5-3':'Principles and Practice of Auditing',
   'BCOMDSC-5-6A':'GST - Law and Practice','BCOMDSE-5-H1':'Human Resource Management','BCOMDSE-5-M1':'Retail Management',
   '21BCA5C13L':'Design & Analysis of Algorithms','21BCA5C13P':'DAA Lab',
@@ -9326,6 +9391,24 @@ const STU_KNOWN_NAMES = {
   'BBADSE-6-MK1':'Advertising and Media Management','BBADSE- MK2':'Advertising and Media Management',
   'BBADSE-MK2':'Advertising and Media Management',
 };
+
+// Shared subject-code lookup helper (used by resolveName and every inline _klu
+// copy). Normalizes dots/underscores before comparing — RTDB/Firestore object
+// keys can't contain dots, so the sync writes e.g. B.COM-3.1 as the key
+// B_COM-3_1, but STU_KNOWN_NAMES is keyed with the original dotted format.
+// Confirmed root cause (22-Jul-2026) via live RTDB dump: sub.name for these
+// subjects just held the raw dotted code as literal text, not a real name, so
+// every fallback also displayed the code — fixing the lookup was the only fix
+// needed, no map entries were actually missing.
+function _stuNormCode(c) { return (c||'').toUpperCase().replace(/[._]/g, ''); }
+function STU_KLU(c) {
+  if (!c) return '';
+  if (STU_KNOWN_NAMES[c]) return STU_KNOWN_NAMES[c];
+  const up = c.toUpperCase();
+  let k = Object.keys(STU_KNOWN_NAMES).find(x => x.toUpperCase() === up);
+  if (!k) { const norm = _stuNormCode(c); k = Object.keys(STU_KNOWN_NAMES).find(x => _stuNormCode(x) === norm); }
+  return k ? STU_KNOWN_NAMES[k] : '';
+}
 
 // Canonical subject name aliases — maps any known variant (lowercased, normalized)
 // to the canonical lowercased form used in motherAllocs.
@@ -9446,6 +9529,14 @@ async function rcLoadPrevResults(urn) {
 
     // Build global facMap: code → {facultyDI, facultyNU, faculty}
     // allocation_each = { "allocation_BCA_SemI_2026": { subjects:[{code,facultyDI,facultyNU}] }, … }
+    // NOTE: allocation_each's code is a plain string VALUE inside an array, so it
+    // keeps its original dotted format (e.g. "B.COM-3.1") — RTDB only strips dots
+    // from OBJECT KEYS, which is what happened to results' subjects map (keyed
+    // B_COM-3_1). So the same subject can appear dotted here and underscored
+    // there; index facMap by both the raw code AND its normalized form so a
+    // lookup with either format finds the same entry (confirmed via live RTDB
+    // dump, 22-Jul-2026 — see STU_KLU/_stuNormCode for the matching fix on the
+    // subject-name side of this same underlying issue).
     const facMap = {};
     if (allocEachRaw && typeof allocEachRaw === 'object') {
       Object.values(allocEachRaw).forEach(allocDoc => {
@@ -9454,6 +9545,10 @@ async function rcLoadPrevResults(urn) {
           facMap[s.code] = s;
           const stripped = s.code.replace(/^(BCom|BCA|BBA)/i,'');
           if (stripped !== s.code && !facMap[stripped]) facMap[stripped] = s;
+          const norm = _stuNormCode(s.code);
+          if (norm && !facMap[norm]) facMap[norm] = s;
+          const normStripped = _stuNormCode(stripped);
+          if (normStripped && normStripped !== norm && !facMap[normStripped]) facMap[normStripped] = s;
         });
       });
     }
@@ -9497,13 +9592,9 @@ async function rcLoadPrevResults(urn) {
     });
 
     // Resolve subject display name: STU_KNOWN_NAMES → codeNameMap → data fields → code
-    const _knownLookup = c => {
-      if (!c) return '';
-      if (STU_KNOWN_NAMES[c]) return STU_KNOWN_NAMES[c];
-      const up = c.toUpperCase();
-      const k = Object.keys(STU_KNOWN_NAMES).find(x => x.toUpperCase() === up);
-      return k ? STU_KNOWN_NAMES[k] : '';
-    };
+    // Normalize a code for comparison — see STU_KLU/_stuNormCode (module-level,
+    // defined right after STU_KNOWN_NAMES) for the full rationale.
+    const _knownLookup = c => STU_KLU(c);
     const resolveName = (code, ...extras) => {
       if (!code) return extras.find(f => f && f.trim()) || '—';
       const kn = _knownLookup(code);
@@ -9550,7 +9641,9 @@ async function rcLoadPrevResults(urn) {
         const pct    = (pctRaw != null && pctRaw > 100) ? pctRaw/10 : pctRaw;
         // Faculty: from allocation_each (per-sem doc) → slotSub → v → fallback
         // Mirrors mother app rcFetchResults: docSub.facultyDI || docSub.faculty
-        const _af  = facMap[code] || facMap[stripped] || slotSub || {};
+        // Try exact code, stripped code, then normalized (dot/underscore-agnostic)
+        // form — see facMap construction above for why normalization is needed.
+        const _af  = facMap[code] || facMap[stripped] || facMap[_stuNormCode(code)] || facMap[_stuNormCode(stripped)] || slotSub || {};
         const _fDI = _af.facultyDI || _af.faculty || v.facultyDI || v.faculty || '';
         const _fNU = _af.facultyNU || _af.faculty || v.facultyNU || v.faculty || '';
         return {
@@ -9866,7 +9959,7 @@ async function renderReportCard() {
           // Row 1: subject name + status badge
           '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px;">' +
             '<div style="flex:1;min-width:0;">' +
-              '<div style="font-size:14px;font-weight:600;color:var(--text);">' + (STU_KNOWN_NAMES[sub.code||''] || sub.subject || sub.code || '—') + '</div>' +
+              '<div style="font-size:14px;font-weight:600;color:var(--text);">' + (STU_KLU(sub.code||'') || sub.subject || sub.code || '—') + '</div>' +
               (fac ? '<div style="font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px;">👩‍🏫 ' + fac + '</div>' : '<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px;opacity:0.5;">Faculty —</div>') +
               (sub.code ? '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:1px;">' + sub.code + '</div>' : '') +
             '</div>' +
@@ -9965,7 +10058,7 @@ async function renderReportCard() {
               const code = (sub.code || '').trim();
               if (_EXCLUDE_CODES.has(code)) return false;
               // Exclude by name keywords (research, project, viva, lab, internship)
-              const nameCheck = (STU_KNOWN_NAMES[code] || sub.name || code).toLowerCase();
+              const nameCheck = (STU_KLU(code) || sub.name || code).toLowerCase();
               if (_EXCLUDE_NAMES.some(x => nameCheck.includes(x))) return false;
               if (/research|project|dissertation|viva|internship/i.test(nameCheck)) return false;
               // Exclude lab subjects
@@ -9982,7 +10075,7 @@ async function renderReportCard() {
               '<div style="font-size:11px;font-weight:700;color:#facc15;margin-bottom:5px;">🌟 Perfect Score' + (p100.length>1?'s':'') + ' — 100/100</div>' +
               p100.map(sub => {
                 const code = sub.code || '';
-                const dispName = STU_KNOWN_NAMES[code] || sub.name || code || '—';
+                const dispName = STU_KLU(code) || sub.name || code || '—';
                 const f = isDI ? (sub.facultyDI||sub.faculty||'') : (sub.facultyNU||sub.faculty||'');
                 return '<div style="font-size:12px;color:var(--text);padding:2px 0;">' + dispName + (f?' <span style="color:#a78bfa;font-size:11px;">(' + f + ')</span>':'') + ' <span style="color:#facc15;font-weight:700;">100/100</span></div>';
               }).join('') +
@@ -10040,9 +10133,10 @@ async function renderReportCard() {
                 ? '<span style="color:#a78bfa;">' + fac + '</span>'
                 : '<span style="color:var(--muted);opacity:0.4;">—</span>';
               const pctStr = sub.pct != null ? sub.pct.toFixed(1)+'%' : '—';
-              // Resolve proper subject display name via STU_KNOWN_NAMES (case-insensitive)
+              // Resolve proper subject display name via STU_KNOWN_NAMES (case-insensitive,
+              // dot/underscore-normalized — see STU_KLU)
               const code = (sub.code || '').trim();
-              const _klu = c => { if (!c) return ''; if (STU_KNOWN_NAMES[c]) return STU_KNOWN_NAMES[c]; const up=c.toUpperCase(); const k=Object.keys(STU_KNOWN_NAMES).find(x=>x.toUpperCase()===up); return k?STU_KNOWN_NAMES[k]:''; };
+              const _klu = STU_KLU;
               const dispName = _klu(code) || sub.name || code || '—';
               // 100/100 highlight — same exclusion rules as the banner
               const _EXCL = new Set(['BCA-PDPTM','IC-I','IC-II','IC-III','21BCA5VC1AL','BBADSC-5-6B','BBADSC-5-7B','BCOMDSC-5-7B']);
@@ -10284,8 +10378,8 @@ function resolveLPSubjectName(key, d) {
       return a.subject;
     }
   }
-  // 2. STU_KNOWN_NAMES (standard codes)
-  if (STU_KNOWN_NAMES[subCode]) return STU_KNOWN_NAMES[subCode];
+  // 2. STU_KNOWN_NAMES (standard codes) — STU_KLU also handles dot/underscore variants
+  if (STU_KLU(subCode)) return STU_KLU(subCode);
   // 3. LP_CODE_NAMES (our extended map incl. HIN, KAN, SPORTS etc.)
   if (LP_CODE_NAMES[subCode]) return LP_CODE_NAMES[subCode];
   // 4. Try uppercase
@@ -11217,7 +11311,7 @@ async function ascRenderPrevResults(s) {
       if (sub.total == null || sub.max !== 100 || sub.total !== 100) return false;
       const code = (sub.code || '').trim();
       if (_EXCLUDE_CODES.has(code)) return false;
-      const nameCheck = (STU_KNOWN_NAMES && STU_KNOWN_NAMES[code] ? STU_KNOWN_NAMES[code] : sub.name || code).toLowerCase();
+      const nameCheck = (STU_KLU(code) || sub.name || code).toLowerCase();
       if (_EXCLUDE_NAMES.some(x => nameCheck.includes(x))) return false;
       if (/research|project|dissertation|viva|internship/i.test(nameCheck)) return false;
       if (/lab$/i.test(code) || code.endsWith('P') || nameCheck.includes(' lab')) return false;
@@ -11241,7 +11335,7 @@ async function ascRenderPrevResults(s) {
         '<div style="font-size:11px;font-weight:700;color:#facc15;margin-bottom:4px;">🌟 Perfect Score' + (p100.length>1?'s':'') + ' — 100/100</div>' +
         p100.map(sub => {
           const code = sub.code || '';
-          const dispName = (STU_KNOWN_NAMES && STU_KNOWN_NAMES[code]) || sub.name || code || '—';
+          const dispName = STU_KLU(code) || sub.name || code || '—';
           const f = isDI ? (sub.facultyDI||sub.faculty||'') : (sub.facultyNU||sub.faculty||'');
           return '<div style="font-size:12px;color:var(--text);padding:2px 0;">' + dispName + (f?' <span style="color:#a78bfa;font-size:11px;">(' + f + ')</span>':'') + ' <span style="color:#facc15;font-weight:700;">100/100</span></div>';
         }).join('') +
@@ -11294,7 +11388,7 @@ async function ascRenderPrevResults(s) {
                           : '<span style="color:var(--muted);opacity:0.4;">—</span>';
       const pctStr  = sub.pct != null ? sub.pct.toFixed(1)+'%' : '—';
       const code    = (sub.code || '').trim();
-      const _klu    = c => { if (!c || !STU_KNOWN_NAMES) return ''; if (STU_KNOWN_NAMES[c]) return STU_KNOWN_NAMES[c]; const up=c.toUpperCase(); const k=Object.keys(STU_KNOWN_NAMES).find(x=>x.toUpperCase()===up); return k?STU_KNOWN_NAMES[k]:''; };
+      const _klu    = c => STU_KNOWN_NAMES ? STU_KLU(c) : '';
       const dispName= _klu(code) || sub.name || code || '—';
       // 100/100 row highlight
       const _nameChk = dispName.toLowerCase();

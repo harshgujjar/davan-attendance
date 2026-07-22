@@ -13386,7 +13386,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1020;  // always = HTML footer version number
+const CODE_BUILD = 1021;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '20-Jul-2026', time: '18:20', full: '20-Jul-2026 18:20 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -22751,6 +22751,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1021', date: '22-Jul-2026 IST', note: 'Fix: Report Card said \'No previous semester results found\' for a BCom Sem III student who genuinely has Sem I results (confirmed real data exists via student_portal.html, which displayed it correctly for the same URN). ROOT CAUSE: rcFetchResults\'s processSlot() compared URNs with exact-case equality ((s.urn||s.usn) === urn) instead of case-insensitively -- student_portal.html\'s equivalent function already normalizes both sides to uppercase before comparing, so it found the match while index.html silently missed it whenever the URN casing stored in a results doc differed from what was passed in (e.g. a different upload batch/tool wrote lowercase or mixed-case URNs). FIX: all URN comparisons inside rcFetchResults (both processSlot definitions -- main Firestore path AND the RTDB fallback path used when Firestore permission is denied -- plus collegeRank/classRank lookups and the globalPool construction that feeds them) now normalize to uppercase before comparing, matching student_portal.html\'s existing correct behavior. CODE_BUILD=1021.' },
   { v: 'v1020', date: '22-Jul-2026 IST', note: 'Redesigned the Previous Semester summary section per user request: (1) per-semester cards now show Pass count + Fail count + SGPA together in one card instead of just a PASS/FAIL verdict, so the whole academic history since joining is readable at a glance without opening each semester\'s table below. (2) The card grid is now merged directly INSIDE the CGPI box (a divider line separates the CGPI number from the card grid beneath it) instead of being a separate detached block below it, per user\'s explicit layout request. Applied identically to scRenderResults and rcRenderCard. Overall Total Failed/Passed Subjects + Backlog Pending cards unchanged. CODE_BUILD=1020.' },
   { v: 'v1019', date: '22-Jul-2026 IST', note: 'Changed v1017\'s per-semester/total pass-fail summary from pill-shaped chips to rcSummCard-style stat cards (icon on top, big colored value, small caption underneath) -- same visual component already used for the Current Att./In Shortage/Last SGPA/CGPI/Failed Subs row at the top of the Report Card, per user preference for consistent card styling over chips. Applied to both scRenderResults and rcRenderCard, laid out in a responsive auto-fill grid instead of flex-wrap. CODE_BUILD=1019.' },
   { v: 'v1018', date: '22-Jul-2026 IST', note: 'Fix: v1017\'s new summary chips showed a phantom extra semester (e.g. \'Sem II: FAIL\' chip + doubled Total Failed Subjects count) for a student who only had ONE semester of results actually rendered on screen. ROOT CAUSE: rcFetchResults() never deduplicated results[] by (course, sem) -- if the same real semester matched the student across more than one Firestore results doc/batch (e.g. present in BOTH a regular array in one doc and a leftover backlog array in another, or a batch scraped/uploaded twice), each match became its own separate entry. This was always possible but silent/harmless before v1017, since nothing summed across every entry -- the new chip totals were the first thing to make a silent duplicate visibly wrong. FIX: results deduplicated by course+sem before returning, preferring a non-backlog record over a backlog one when both exist for the same semester. CODE_BUILD=1018.' },
@@ -36328,8 +36329,9 @@ async function rcFetchResults(urn, isDI) {
       const collectReg = reg => {
         if (!Array.isArray(reg)) return;
         reg.forEach(s => {
-          if ((s.urn||s.usn) && isFullPass(s))
-            globalPool.push({ urn: s.urn||s.usn, pct: parseFloat(s.pct||0) });
+          const su = (s.urn||s.usn||'').toUpperCase();
+          if (su && isFullPass(s))
+            globalPool.push({ urn: su, pct: parseFloat(s.pct||0) });
         });
       };
       if (Array.isArray(d.regular)) { collectReg(d.regular); harvestStudentSubjects(d.regular); }
@@ -36384,14 +36386,15 @@ async function rcFetchResults(urn, isDI) {
 
       const processSlot = (reg, bkl, subjectsList, course, sem) => {
         if (!Array.isArray(reg)) reg = [];
-        let st = reg.find(s => (s.urn||s.usn) === urn);
+        const urnUC = (urn||'').toUpperCase();
+        let st = reg.find(s => ((s.urn||s.usn||'')).toUpperCase() === urnUC);
         let isBacklogRecord = false;
         if (!st && Array.isArray(bkl)) {
           // Not in the regular list — check backlog. A student who failed and
           // is retaking (repeater) only appears in results.html's backlog
           // array for that semester; previously this fell through silently
           // and the report card showed nothing at all for that semester.
-          st = bkl.find(s => (s.urn||s.usn) === urn);
+          st = bkl.find(s => ((s.urn||s.usn||'')).toUpperCase() === urnUC);
           if (st) isBacklogRecord = true;
         }
         if (!st) {
@@ -36438,7 +36441,7 @@ async function rcFetchResults(urn, isDI) {
         });
 
         // College rank: position among ALL students across ALL batches
-        const collegeRank = globalRankMap.get(urn) || null;
+        const collegeRank = globalRankMap.get(urnUC) || null;
 
         // Class rank: within same batch+section only
         const isFullPassLocal = x => (x.result||'').toUpperCase()==='PASS' &&
@@ -36448,7 +36451,7 @@ async function rcFetchResults(urn, isDI) {
           : reg.filter(x => !(x.urn||x.usn||'').toUpperCase().includes('DI'));
         const rankedSec = secReg.filter(isFullPassLocal).sort((a,b)=>(parseFloat(b.pct||0)-parseFloat(a.pct||0)));
         const myPct = st.pct != null ? parseFloat(st.pct) : null;
-        const classRank = (!isBacklogRecord && myPct!=null && isFullPassLocal(st)) ? rankedSec.findIndex(x=>(x.urn||x.usn)===urn)+1 : null;
+        const classRank = (!isBacklogRecord && myPct!=null && isFullPassLocal(st)) ? rankedSec.findIndex(x=>((x.urn||x.usn||'')).toUpperCase()===urnUC)+1 : null;
         // sectionTotal = students in same section/batch (DI or NU); totalStudents = college-wide for college rank
         const sectionTotal = secReg.length;
 
@@ -36541,8 +36544,9 @@ async function rcFetchResults(urn, isDI) {
             harvestSubjects(subjects);
             const allReg = Array.isArray(regular) ? regular : [];
             const allBlog = Array.isArray(backlog) ? backlog : [];
+            const urnUC = (urn||'').toUpperCase();
             allReg.forEach(st => {
-              if ((st.urn||st.usn) !== urn) return;
+              if (((st.urn||st.usn||'')).toUpperCase() !== urnUC) return;
               const subs = {};
               Object.entries(st.subjects||{}).forEach(([code,v]) => {
                 const nm = v.name || codeNameMap[code] || codeNameMap[code.replace(/^(BCom|BCA|BBA)/i,'')] || code;
@@ -36551,7 +36555,7 @@ async function rcFetchResults(urn, isDI) {
               results.push({ _course: course, _sem: sem, _isBacklog: false, ...st, subjects: subs });
             });
             allBlog.forEach(st => {
-              if ((st.urn||st.usn) !== urn) return;
+              if (((st.urn||st.usn||'')).toUpperCase() !== urnUC) return;
               const subs = {};
               Object.entries(st.subjects||{}).forEach(([code,v]) => {
                 const nm = v.name || codeNameMap[code] || codeNameMap[code.replace(/^(BCom|BCA|BBA)/i,'')] || code;
