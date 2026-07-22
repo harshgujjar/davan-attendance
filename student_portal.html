@@ -17,6 +17,16 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.05 (2026-07-22) — FEAT: previous-semester result records now tag
+  _isBacklog when the matched student came from a Firestore results doc's
+  backlog[] array instead of regular[] (a failed student retaking that
+  semester) — mirrors the same fix made in the mother app (index.html)
+  rcFetchResults. A "BACKLOG / REPEATER" badge now shows on the semester
+  header in all three render locations: the dashboard's per-sem mini-cards
+  (rc-summary), the full student Report Card panel, and the admin-facing
+  ascRenderPrevResults card. Previously a backlog-only semester rendered with
+  no indication it was a repeat attempt, identical-looking to a normal pass/
+  fail semester.
 VERSION : v7.04 (2026-07-20) — FIX: attendance % showed last term's figures even
   after a real current-sem scrape. The scraper's stored sub.pct is unreliable at a
   term boundary (already documented v6.34), but the dashboard summary + Attendance
@@ -534,7 +544,7 @@ LOG (newest first):
 <meta name="theme-color" content="#0b0d11"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Davan Portal"/>
-<title>Student Portal v7.04 — Davan &amp; Nutana</title>
+<title>Student Portal v7.05 — Davan &amp; Nutana</title>
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
@@ -3086,8 +3096,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.04';
-const BUILD_DATE   = '20 Jul 2026, 06:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.05';
+const BUILD_DATE   = '22 Jul 2026, 11:00 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -9508,8 +9518,14 @@ async function rcLoadPrevResults(urn) {
 
     // Pass 2: find student in each slot
     const processSlot = (regular, backlog, subjectsList, course, sem) => {
-      const allRows = [...(Array.isArray(regular)?regular:[]), ...(Array.isArray(backlog)?backlog:[])];
-      const st = allRows.find(s => (s.urn||s.usn||'').toUpperCase() === urn.toUpperCase());
+      const regRows = Array.isArray(regular) ? regular : [];
+      const bklRows = Array.isArray(backlog) ? backlog : [];
+      let st = regRows.find(s => (s.urn||s.usn||'').toUpperCase() === urn.toUpperCase());
+      let isBacklogRecord = false;
+      if (!st) {
+        st = bklRows.find(s => (s.urn||s.usn||'').toUpperCase() === urn.toUpperCase());
+        if (st) isBacklogRecord = true;
+      }
       if (!st) return;
 
       // slot-level code→slotSub map
@@ -9556,7 +9572,7 @@ async function rcLoadPrevResults(urn) {
         const rawPct = st.pct != null ? parseFloat(st.pct) : null;
         return (rawPct != null && rawPct > 100) ? rawPct / 10 : rawPct;
       })();
-      results.push({ _course: course, _sem: sem, sgpa: st.sgpa, cgpa: st.cgpa || null, pct: normPct, result: st.result, subjects: subArr });
+      results.push({ _course: course, _sem: sem, _isBacklog: isBacklogRecord, sgpa: st.sgpa, cgpa: st.cgpa || null, pct: normPct, result: st.result, subjects: subArr });
     };
 
     docs.forEach(([docId, d]) => {
@@ -9726,6 +9742,7 @@ async function renderReportCard() {
             return '<div class="rc-summary-card" style="grid-column:span 1;border-top:2px solid rgba(168,85,247,0.25);">' +
               '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">' + (r._course||'') + ' Sem ' + (r._sem||'') + '</div>' +
               '<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">' +
+                (r._isBacklog ? '<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.4);">BACKLOG</span>' : '') +
                 (r.sgpa ? '<span style="font-size:11px;font-family:var(--mono);padding:1px 6px;border-radius:4px;background:rgba(168,85,247,0.12);color:#a855f7;">SGPA ' + r.sgpa + '</span>' : '') +
                 '<span style="font-size:11px;font-family:var(--mono);padding:1px 6px;border-radius:4px;background:var(--surface2);color:var(--text);">' + pctDisp + '</span>' +
                 '<span style="font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:' + (rResult==='PASS'?'rgba(34,197,94,0.12)':'rgba(239,68,68,0.12)') + ';color:' + rColor + ';">' + (rResult||'—') + '</span>' +
@@ -9934,8 +9951,9 @@ async function renderReportCard() {
         const rBorder2 = rResult==='PASS' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)';
         html += '<div class="rc-sem-card">' +
           // Sem title
-          '<div style="font-family:var(--head);font-size:18px;letter-spacing:1.5px;color:var(--accent);padding:14px 14px 10px;">' +
+          '<div style="font-family:var(--head);font-size:18px;letter-spacing:1.5px;color:var(--accent);padding:14px 14px 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
             '🎓 ' + (r._course||'') + ' — SEM ' + (r._sem||'') +
+            (r._isBacklog ? '<span style="font-size:11px;font-family:var(--mono);font-weight:700;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.4);letter-spacing:0.5px;">BACKLOG / REPEATER</span>' : '') +
           '</div>' +
           // 100/100 celebration banner per sem — mirrors results.html exclusion rules
           (() => {
@@ -11213,7 +11231,9 @@ async function ascRenderPrevResults(s) {
     html += '<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px;">';
 
     // Sem header
-    html += '<div style="font-family:var(--head);font-size:17px;letter-spacing:1.2px;color:var(--accent);padding:12px 14px 8px;">🎓 ' + (r._course||'') + ' — SEM ' + (r._sem||'') + '</div>';
+    html += '<div style="font-family:var(--head);font-size:17px;letter-spacing:1.2px;color:var(--accent);padding:12px 14px 8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">🎓 ' + (r._course||'') + ' — SEM ' + (r._sem||'') +
+      (r._isBacklog ? '<span style="font-size:10px;font-family:var(--mono);font-weight:700;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.4);letter-spacing:0.5px;">BACKLOG / REPEATER</span>' : '') +
+      '</div>';
 
     // 100/100 banner
     if (p100.length) {
