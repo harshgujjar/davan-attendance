@@ -3122,7 +3122,7 @@
             <select id="um-role" style="background:#111;color:#ccc;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px;font-size:13px;width:100%;">
               <option value="fulltime">Full-Time Faculty</option>
               <option value="visiting">Visiting Faculty</option>
-              <option value="vp">Vice Principal</option>
+              <option value="principal">Principal</option>
               <option value="manager">Manager</option>
             </select>
           </div>
@@ -8961,11 +8961,19 @@ async function archiveTimetableToPortalDB2() {
 let currentUser    = null;
 let currentProfile = null;
 
-const ROLE_ADMIN    = 'admin';
-const ROLE_MANAGER  = 'manager';
-const ROLE_VP       = 'vp';
-const ROLE_FULLTIME = 'fulltime';
-const ROLE_VISITING = 'visiting';
+const ROLE_ADMIN     = 'admin';
+const ROLE_MANAGER   = 'manager';
+const ROLE_VP        = 'vp';        // legacy role, no longer assigned to anyone; kept only so old cached profiles don't crash
+const ROLE_PRINCIPAL = 'principal'; // replaces VP as the top non-admin/manager role
+const ROLE_FULLTIME  = 'fulltime';
+const ROLE_VISITING  = 'visiting';
+
+// Anitha N: fulltime faculty with special elevated access to exactly these 6 areas
+// (View/Edit Timetable, View/Edit Allocation, Class Settings, Branding) without full principal/VP powers.
+const TT_ALLOC_EXTRA_ACCESS_NAMES = ['Anitha N'];
+function hasTtAllocExtraAccess(p) {
+  return !!(p && p.role === ROLE_FULLTIME && TT_ALLOC_EXTRA_ACCESS_NAMES.includes(p.name));
+}
 
 
 // ╔══════════════════════════════════════════════════════════════════╗
@@ -9038,7 +9046,7 @@ async function _fetchProfile(uid) {
 // ── Load Firestore → localStorage shims ──
 async function loadFirestoreData() {
   // Manager/VP: Firestore blocks on file:// origin — skip straight to RTDB/localStorage
-  if (currentProfile && ['manager','vp'].includes(currentProfile.role)) {
+  if (currentProfile && ['manager','vp','principal'].includes(currentProfile.role)) {
     await _loadFromRTDB();
     return;
   }
@@ -10035,7 +10043,7 @@ function _asmDeviceId() {
 }
 let _asmHeartbeatTimer = null;
 // Only privileged roles are registered/monitored (admin surface access).
-function _asmIsMonitoredRole(role) { return role === ROLE_ADMIN || role === ROLE_MANAGER || role === ROLE_VP; }
+function _asmIsMonitoredRole(role) { return role === ROLE_ADMIN || role === ROLE_MANAGER || role === ROLE_VP || role === ROLE_PRINCIPAL; }
 
 // Register this device's session + start heartbeat. Called from onLoginSuccess.
 async function asmRegisterSession(profile) {
@@ -10587,7 +10595,7 @@ async function onLoginSuccess() {
   // Faculty photo beside name for teaching roles (fulltime/visiting/vp)
   const _sbAv = document.getElementById('sidebar-avatar');
   if (_sbAv) {
-    if (['fulltime','visiting','vp'].includes(p.role) && typeof _facAvatar === 'function') {
+    if (['fulltime','visiting','vp','principal'].includes(p.role) && typeof _facAvatar === 'function') {
       _sbAv.style.display = 'inline-flex';
       _sbAv.innerHTML = _facAvatar(p.name || '', 40);
       if (typeof facPhotosReady !== 'undefined' && facPhotosReady && facPhotosReady.then) {
@@ -10598,8 +10606,8 @@ async function onLoginSuccess() {
     }
   }
   document.getElementById('nav-login').style.display = 'none';
-  const roleLabels = { admin:'Admin', manager:'Manager', vp:'Vice Principal', fulltime:'Full-Time', visiting:'Visiting' };
-  const roleColors = { admin:'var(--accent)', manager:'#60a5fa', vp:'#a78bfa', fulltime:'var(--ok)', visiting:'var(--muted)' };
+  const roleLabels = { admin:'Admin', manager:'Manager', vp:'Vice Principal', principal:'Principal', fulltime:'Full-Time', visiting:'Visiting' };
+  const roleColors = { admin:'var(--accent)', manager:'#60a5fa', vp:'#a78bfa', principal:'#a78bfa', fulltime:'var(--ok)', visiting:'var(--muted)' };
   document.getElementById('sidebar-role-badge').innerHTML =
     `<span style="font-size:10px;font-family:var(--mono);color:${roleColors[p.role]||'#888'};background:rgba(255,255,255,0.06);border-radius:4px;padding:2px 7px;">${roleLabels[p.role]||p.role}</span>`;
   if (p.classIncharge && p.role === ROLE_FULLTIME) {
@@ -10609,7 +10617,7 @@ async function onLoginSuccess() {
   applySidebarForRole(p.role);
   secRestoreState();
   // Auto-unlock admin features for privileged roles — already authenticated via Firebase, no PIN needed
-  adminUnlocked = [ROLE_ADMIN, ROLE_MANAGER, ROLE_VP].includes(p.role);
+  adminUnlocked = [ROLE_ADMIN, ROLE_MANAGER, ROLE_VP, ROLE_PRINCIPAL].includes(p.role);
   // Set role-appropriate empty dashboard message
   const emptyMsg = document.getElementById('dash-empty-msg');
   const emptyMgrBtn = document.getElementById('dash-empty-manager');
@@ -10633,7 +10641,7 @@ async function onLoginSuccess() {
       if (typeof liveShowToast === 'function') liveShowToast(
         `👋 Welcome, ${roleLabel}!`,
         `${p.name || 'User'} logged in successfully`,
-        p.role === 'admin' ? '🎯' : p.role === 'vp' ? '🏛️' : p.role === 'manager' ? '📊' : '👨‍🏫',
+        p.role === 'admin' ? '🎯' : (p.role === 'vp' || p.role === 'principal') ? '🏛️' : p.role === 'manager' ? '📊' : '👨‍🏫',
         6000
       );
     }, 500);
@@ -10884,7 +10892,8 @@ async function onLoginSuccess() {
   const startPanel = {
     admin:    'dashboard',
     manager:  (p.username === '918918') ? 'daily-admission' : 'dashboard',
-    vp:       vpMode === 'my' ? 'dashboard-faculty' : 'dashboard',
+    vp:        vpMode === 'my' ? 'dashboard-faculty' : 'dashboard',
+    principal: 'dashboard', // principal has no My View/Full View split — always full
     fulltime: 'dashboard-faculty',
     visiting: 'dashboard-faculty'
   }[p.role] || 'dashboard';
@@ -10895,13 +10904,14 @@ async function onLoginSuccess() {
   if (startPanel === 'dashboard-faculty') {
     fdbRender();
   } else {
-    // Show My Subjects tab for VP and Manager; hide Faculty Report tab for VP
+    // Show My Subjects tab for VP/Principal and Manager; hide Faculty Report tab for VP/Principal
     const mySubBtn = document.getElementById('dash-tab-mysubjects');
     const facBtn   = document.getElementById('dash-tab-faculty');
-    // Only VP gets "My Subjects". Managers should stay on College Overview + Faculty Report.
-    if (mySubBtn) mySubBtn.style.display = (p.role === 'vp') ? '' : 'none';
-    if (p.role === 'vp' && facBtn) facBtn.style.display = 'none';
-    // VP: Full View → College Overview tab; My View → handled by vpApplyMode
+    // Only VP/Principal gets "My Subjects". Managers should stay on College Overview + Faculty Report.
+    if (mySubBtn) mySubBtn.style.display = (p.role === 'vp' || p.role === 'principal') ? '' : 'none';
+    if ((p.role === 'vp' || p.role === 'principal') && facBtn) facBtn.style.display = 'none';
+    // VP: Full View → College Overview tab; My View → handled by vpApplyMode.
+    // Principal: always College Overview — no My View mode exists for this role.
     if (p.role === 'vp') {
       setTimeout(() => dashSetTab(vpMode === 'my' ? 'mysubjects' : 'college'), 150);
     } else {
@@ -10922,8 +10932,8 @@ async function onLoginSuccess() {
     }
   }
 
-  // ── Semester switcher — init for admin/manager/vp ──
-  if ([ROLE_ADMIN, ROLE_MANAGER, ROLE_VP].includes(p.role)) {
+  // ── Semester switcher — init for admin/manager/vp/principal ──
+  if ([ROLE_ADMIN, ROLE_MANAGER, ROLE_VP, ROLE_PRINCIPAL].includes(p.role)) {
     semSwitcherInit(); // populates dropdown from archive_index; restores last session choice
   }
 
@@ -10933,7 +10943,7 @@ async function onLoginSuccess() {
   faFiredLoad(); // prevent duplicate notifications after login/refresh
 
   // ── Notify admin when any faculty logs in ──
-  if (['fulltime','visiting','vp'].includes(p.role)) {
+  if (['fulltime','visiting','vp','principal'].includes(p.role)) {
     // Delay 2s so facAlertBootstrap() finishes loading faWorkerUrl from Firestore first
     setTimeout(async () => {
       try {
@@ -11000,7 +11010,8 @@ async function onLoginSuccess() {
   // Load internals data for Banner 3 + leave blocking (background, non-blocking)
   intLoadList().then(() => { lb3Build(); }).catch(()=>{});
   intNotifInit();
-  // VP dual-mode toggle — show button and apply saved mode
+  // VP dual-mode toggle — legacy VP only. Principal does NOT get this toggle;
+  // principal always has full access (no My View/Full View split).
   const vpBtn = document.getElementById('vp-mode-toggle');
   if (p.role === ROLE_VP) {
     if (vpBtn) vpBtn.style.display = '';
@@ -11025,7 +11036,8 @@ let vpMode = localStorage.getItem('davan_vp_mode') || 'full';
 
 // Returns true when the current user should be treated as a faculty member:
 // — fulltime / visiting always
-// — VP when in My View mode
+// — VP (legacy role only) when in My View mode. Principal never acts as faculty —
+//   there is no My View/Full View split for principal, it's always full access.
 function isActingAsFaculty() {
   if (!currentProfile) return false;
   if ([ROLE_FULLTIME, ROLE_VISITING].includes(currentProfile.role)) return true;
@@ -11070,8 +11082,8 @@ function vpApplyMode(mode, skipRedirect) {
   const p = currentProfile;
   if (!p) return;
 
-  const roleLabels = { admin:'Admin', manager:'Manager', vp:'Vice Principal', fulltime:'Full-Time', visiting:'Visiting' };
-  const roleColors = { admin:'var(--accent)', manager:'#60a5fa', vp:'#a78bfa', fulltime:'var(--ok)', visiting:'var(--muted)' };
+  const roleLabels = { admin:'Admin', manager:'Manager', vp:'Vice Principal', principal:'Principal', fulltime:'Full-Time', visiting:'Visiting' };
+  const roleColors = { admin:'var(--accent)', manager:'#60a5fa', vp:'#a78bfa', principal:'#a78bfa', fulltime:'var(--ok)', visiting:'var(--muted)' };
 
   if (mode === 'my') {
     // ── MY VIEW: exact fulltime baseline + TT/Alloc editors ──
@@ -11155,15 +11167,16 @@ function vpApplyMode(mode, skipRedirect) {
     }
 
   } else {
-    // ── FULL VIEW: full VP access ──
-    applySidebarForRole('vp');
+    // ── FULL VIEW: full VP/Principal access ──
+    applySidebarForRole(p.role === ROLE_PRINCIPAL ? 'principal' : 'vp');
 
-    // Topbar: show as Vice Principal
-    setStatus(true, `${p.name} · Vice Principal`);
+    // Topbar: show as Vice Principal / Principal
+    const _fullTitle = p.role === ROLE_PRINCIPAL ? 'Principal' : 'Vice Principal';
+    setStatus(true, `${p.name} · ${_fullTitle}`);
 
-    // Sidebar badge: Vice Principal purple
+    // Sidebar badge: Vice Principal / Principal purple
     const badge = document.getElementById('sidebar-role-badge');
-    if (badge) badge.innerHTML = `<span style="font-size:10px;font-family:var(--mono);color:${roleColors.vp};background:rgba(255,255,255,0.06);border-radius:4px;padding:2px 7px;">Vice Principal</span>`;
+    if (badge) badge.innerHTML = `<span style="font-size:10px;font-family:var(--mono);color:${roleColors[p.role]||roleColors.vp};background:rgba(255,255,255,0.06);border-radius:4px;padding:2px 7px;">${_fullTitle}</span>`;
 
     // Scope: all
     if (typeof shSetScope === 'function') shSetScope('all');
@@ -11946,54 +11959,54 @@ function secOpenForPanel(panelId) {
 
 function applySidebarForRole(role) {
   const access = {
-    'nav-section-analysis': ['admin','manager','vp','fulltime','visiting'],
-    'nav-src-toggle':       ['admin','manager','vp','fulltime','visiting'],
-    'nav-report-card':      ['admin','manager','vp','fulltime','visiting'],
+    'nav-section-analysis': ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-src-toggle':       ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-report-card':      ['admin','manager','vp','principal','fulltime','visiting'],
     'nav-photo-upload':     ['admin','manager'],
     'nav-dashboard-faculty':['fulltime','visiting'],
-    'nav-dashboard':        ['admin','manager','vp'],
-    'nav-students':         ['admin','manager','vp','fulltime'],
-    'nav-absentees':        ['admin','manager','vp','fulltime'],
-    'nav-class-absent-report': ['admin','manager','vp','fulltime'],
-    'nav-classes':          ['admin','manager','vp','fulltime'],
-    'nav-classview':        ['admin','manager','vp','fulltime'],
-    'nav-section-tools':    ['admin','manager','vp','fulltime','visiting'],
-    'nav-exemptions':       ['admin','manager','vp'],
-    'nav-shortage':         ['admin','manager','vp','fulltime','visiting'],
-    'nav-shortage-summary': ['admin','manager','vp','fulltime','visiting'],
-    'nav-notify':           ['admin','manager','vp','fulltime'],
-        'nav-notify-report':    ['admin','manager','vp'],
-        'nav-followup-log':     ['admin','manager','vp','fulltime','visiting'],
+    'nav-dashboard':        ['admin','manager','vp','principal'],
+    'nav-students':         ['admin','manager','vp','principal','fulltime'],
+    'nav-absentees':        ['admin','manager','vp','principal','fulltime'],
+    'nav-class-absent-report': ['admin','manager','vp','principal','fulltime'],
+    'nav-classes':          ['admin','manager','vp','principal','fulltime'],
+    'nav-classview':        ['admin','manager','vp','principal','fulltime'],
+    'nav-section-tools':    ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-exemptions':       ['admin','manager','vp','principal'],
+    'nav-shortage':         ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-shortage-summary': ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-notify':           ['admin','manager','vp','principal','fulltime'],
+        'nav-notify-report':    ['admin','manager','vp','principal'],
+        'nav-followup-log':     ['admin','manager','vp','principal','fulltime','visiting'],
     'nav-navigator':        ['admin','manager'],
-    'nav-section-leave':    ['admin','manager','vp','fulltime','visiting'],
-    'nav-leave-mark':       ['admin','manager','vp','fulltime','visiting'],
-    'nav-leave-faculty':    ['admin','manager','vp','fulltime','visiting'],
-    'nav-leave-history':    ['admin','manager','vp','fulltime','visiting'],
-    'nav-leave-comp':       ['admin','manager','vp','fulltime','visiting'],
-    'nav-leave-admin':      ['admin','manager','vp'],
-    'nav-leave-myrecords':  ['admin','manager','vp','fulltime','visiting'],
-    'nav-section-tt':       ['admin','manager','vp','fulltime','visiting'],
-    'nav-tt-viewer':        ['admin','manager','vp','fulltime','visiting'],
-    'nav-alloc-viewer':     ['admin','manager','vp','fulltime','visiting'],
-    'nav-tt-editor':        ['admin','manager','vp'],
-    'nav-alloc-editor':     ['admin','manager','vp'],
-    'nav-class-settings':   ['admin','manager','vp'],
-    'nav-branding':         ['admin','manager','vp'],
-    'nav-section-results': ['admin','manager','vp','fulltime','visiting'],
-    'nav-results':         ['admin','manager','vp','fulltime','visiting'],
-    'nav-section-internals':['admin','manager','vp','fulltime','visiting'],
-    'nav-internals':        ['admin','manager','vp','fulltime','visiting'],
-    'nav-internal-marks':   ['admin','manager','vp','fulltime','visiting'],
-    'nav-internal-marks-analysis': ['admin','manager','vp','fulltime','visiting'],
-    'nav-section-lessonplan': ['admin','manager','vp'],
-    'nav-lessonplan':         ['admin','manager','vp'],
-    'nav-card-subject-tracker': ['admin','manager','vp','fulltime','visiting'],
+    'nav-section-leave':    ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-leave-mark':       ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-leave-faculty':    ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-leave-history':    ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-leave-comp':       ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-leave-admin':      ['admin','manager','vp','principal'],
+    'nav-leave-myrecords':  ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-section-tt':       ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-tt-viewer':        ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-alloc-viewer':     ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-tt-editor':        ['admin','manager','vp','principal'],
+    'nav-alloc-editor':     ['admin','manager','vp','principal'],
+    'nav-class-settings':   ['admin','manager','vp','principal'],
+    'nav-branding':         ['admin','manager','vp','principal'],
+    'nav-section-results': ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-results':         ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-section-internals':['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-internals':        ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-internal-marks':   ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-internal-marks-analysis': ['admin','manager','vp','principal','fulltime','visiting'],
+    'nav-section-lessonplan': ['admin','manager','vp','principal'],
+    'nav-lessonplan':         ['admin','manager','vp','principal'],
+    'nav-card-subject-tracker': ['admin','manager','vp','principal','fulltime','visiting'],
     'nav-section-admin':    ['admin','manager'],
-    'nav-smart-assist':     ['admin','manager','vp','fulltime'],
+    'nav-smart-assist':     ['admin','manager','vp','principal','fulltime'],
     'nav-user-management':  ['admin'],
     'nav-login-activity':   ['admin','manager'],
     'nav-faculty-alerts':      ['admin','manager'],
-    'nav-academic-calendar':   ['admin','manager','vp','fulltime','visiting'],
+    'nav-academic-calendar':   ['admin','manager','vp','principal','fulltime','visiting'],
     'nav-login-activity':   ['admin','manager'],
     'nav-admin-settings':   ['admin'],
     'nav-staff-directory':  ['admin'],
@@ -12001,15 +12014,24 @@ function applySidebarForRole(role) {
     'nav-fees-structure':   ['admin'],
     'nav-perfect-attendance': ['admin'],
     'nav-puc-attendance':   ['admin'],
-    'nav-downloads':        ['admin','manager','vp'],
-    'nav-library':          ['admin','manager','vp','fulltime','visiting'],
+    'nav-downloads':        ['admin','manager','vp','principal'],
+    'nav-library':          ['admin','manager','vp','principal','fulltime','visiting'],
     'nav-daily-admission':  ['admin','manager'],
-    'nav-card-sem-switcher': ['admin','manager','vp'],
+    'nav-card-sem-switcher': ['admin','manager','vp','principal'],
   };
   Object.entries(access).forEach(([id, roles]) => {
     const el = document.getElementById(id);
     if (el) el.style.display = (role && roles.includes(role)) ? '' : 'none';
   });
+
+  // Special-case: Anitha N (fulltime, formerly VP) keeps elevated access to exactly
+  // Timetable + Allocation (view & edit) + Class Settings + Branding, nothing else.
+  if (hasTtAllocExtraAccess(currentProfile)) {
+    ['nav-tt-viewer','nav-alloc-viewer','nav-tt-editor','nav-alloc-editor','nav-class-settings','nav-branding'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = '';
+    });
+  }
 }
 
 
@@ -12089,7 +12111,7 @@ function facDismissAllocOverlay() {
 function facCheckOwnPhoto() {
   const navItem = document.getElementById('nav-fac-my-photo');
   if (!currentProfile) return;
-  if (![ROLE_FULLTIME, ROLE_VISITING, ROLE_VP].includes(currentProfile.role)) return;
+  if (![ROLE_FULLTIME, ROLE_VISITING, ROLE_VP, ROLE_PRINCIPAL].includes(currentProfile.role)) return;
   const name = currentProfile.name || '';
   const key = _facKey(name);
   if (!key) return;
@@ -12171,7 +12193,8 @@ const SD_DOC = 'staff_directory';
 
 const SD_DEFAULT = {
   fulltime: [
-    { name:'Anitha N',               password:'214214', contact:'91645 05025', role:'vp',       subjects:'Operating System & Shell Programming, OS Lab, Fundamentals of Data Science' },
+    { name:'Kiran Kumar G K',         password:'919919', contact:'99161 23415', role:'principal', subjects:'—' },
+    { name:'Anitha N',               password:'214214', contact:'91645 05025', role:'fulltime', subjects:'Operating System & Shell Programming, OS Lab, Fundamentals of Data Science' },
     { name:'Shankar B C',             password:'506506', contact:'99726 52501', role:'fulltime', subjects:'Human Resource Management, Financial Markets & Services, Business Law' },
     { name:'Kotrappa K',              password:'560560', contact:'97310 67467', role:'fulltime', subjects:'Kannada' },
     { name:'Dr. Shilpa R Y',          password:'510510', contact:'95917 24804', role:'fulltime', subjects:'Corporate Administration, Financial Management, Service Marketing' },
@@ -12213,8 +12236,8 @@ const SD_DEFAULT = {
 
 let sdData = null; // loaded from Firestore or default
 
-const SD_ROLES = ['vp','fulltime','visiting','manager','admin'];
-const SD_ROLE_COLORS = { vp:'#a78bfa', fulltime:'var(--ok)', visiting:'#60a5fa', manager:'#f59e0b', admin:'var(--accent)' };
+const SD_ROLES = ['principal','fulltime','visiting','manager','admin'];
+const SD_ROLE_COLORS = { principal:'#a78bfa', fulltime:'var(--ok)', visiting:'#60a5fa', manager:'#f59e0b', admin:'var(--accent)' };
 
 const sdInp = (val, field, section, idx, style='') =>
   `<input data-sec="${section}" data-idx="${idx}" data-field="${field}"
@@ -12240,6 +12263,12 @@ function sdOnChange(el) {
   }
   const msg = document.getElementById('sd-save-msg');
   if (msg) { msg.style.color='var(--warn)'; msg.textContent='⚠ Unsaved changes'; }
+  // v1024: re-render the section when password (or name) changes so the "⚡ Create Login"
+  // button appears immediately for a freshly-typed row — no need to Save first. onchange only
+  // fires on blur/Enter (not per keystroke), so this doesn't disrupt in-progress typing elsewhere.
+  if (field === 'password' || field === 'name') {
+    sdRenderSection(sec);
+  }
 }
 
 // v966: admin toggle — "allow this faculty to change their own photo any time".
@@ -12294,7 +12323,11 @@ function sdRenderSection(sec) {
         <input type="checkbox" data-sec="${sec}" data-idx="${i}" ${r.allowPhotoChange ? 'checked' : ''}
           onchange="sdOnPhotoPermChange(this)" style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent);">
       </td>
-      <td style="padding:5px 8px;${bg}text-align:center;">
+      <td style="padding:5px 8px;${bg}text-align:center;white-space:nowrap;">
+        ${(r.password && sdExistingUsernames && !sdExistingUsernames.has(String(r.password)) && !(r.name && sdExistingUsernames.has(String(r.name)))) ? `
+        <button onclick="sdCreateSingleLogin('${sec}',${i})" title="Create login for just this person"
+          style="background:rgba(196,160,42,.15);color:var(--accent);border:1px solid rgba(196,160,42,.35);
+                 border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;margin-right:4px;">⚡ Create Login</button>` : ''}
         <button onclick="sdDeleteRow('${sec}',${i})" title="Delete"
           style="background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.25);
                  border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;">🗑</button>
@@ -12328,6 +12361,8 @@ function sdPhotoPick(sec, idx) {
   inp.click();
 }
 
+let sdExistingUsernames = null; // Set of usernames already present in users collection
+
 function staffDirectoryRender() {
   // Load from Firestore first, fall back to default
   db.collection('app_data').doc(SD_DOC).get().then(snap => {
@@ -12335,9 +12370,28 @@ function staffDirectoryRender() {
     // ensure all sections exist
     ['fulltime','visiting','nonteaching'].forEach(s => { if (!sdData[s]) sdData[s] = []; });
     try { localStorage.setItem('davan_staff_directory', JSON.stringify(sdData)); } catch(e) {}
-    sdRenderSection('fulltime');
-    sdRenderSection('visiting');
-    sdRenderSection('nonteaching');
+    // Fetch existing usernames so each row can show "Create Login" only if missing.
+    // Index by username, password, AND name — some accounts (esp. older manually-created
+    // ones) have a name-based username with the SD numeric code stored only in the password
+    // field, which is exactly how doFacultyLogin() matches at sign-in. A username-only check
+    // caused the button to wrongly show for accounts like Hemavati Desai that already exist.
+    db.collection('users').get().then(usersSnap => {
+      sdExistingUsernames = new Set();
+      usersSnap.forEach(doc => {
+        const u = doc.data();
+        if (u.username) sdExistingUsernames.add(String(u.username));
+        if (u.password) sdExistingUsernames.add(String(u.password));
+        if (u.name)     sdExistingUsernames.add(String(u.name));
+      });
+      sdRenderSection('fulltime');
+      sdRenderSection('visiting');
+      sdRenderSection('nonteaching');
+    }).catch(() => {
+      sdExistingUsernames = null; // unknown — fall back to always showing the button
+      sdRenderSection('fulltime');
+      sdRenderSection('visiting');
+      sdRenderSection('nonteaching');
+    });
   }).catch(() => {
     sdData = JSON.parse(JSON.stringify(SD_DEFAULT));
     sdRenderSection('fulltime');
@@ -12458,23 +12512,43 @@ async function sdSaveToFirestore() {
     try {
       const allEntries = [...(sdData.fulltime||[]), ...(sdData.visiting||[]), ...(sdData.nonteaching||[])];
       const usersSnap = await db.collection('users').get();
+      // Refresh the existing-username cache from this same read so newly-added
+      // rows without a login yet correctly show the per-row "⚡ Create Login" button.
+      sdExistingUsernames = new Set();
+      usersSnap.forEach(doc => {
+        const u = doc.data();
+        if (u.username) sdExistingUsernames.add(String(u.username));
+        if (u.password) sdExistingUsernames.add(String(u.password));
+        if (u.name)     sdExistingUsernames.add(String(u.name));
+      });
       const syncOps = [];
       usersSnap.forEach(doc => {
         const u = doc.data();
-        const sdEntry = allEntries.find(e => e.password && (e.password === u.username || e.name === u.name));
-        if (sdEntry && sdEntry.password && sdEntry.password !== u.password) {
-          syncOps.push(db.collection('users').doc(doc.id).update({ password: sdEntry.password }));
+        const sdEntry = allEntries.find(e => e.password && (e.password === u.username || e.password === u.password || e.name === u.name));
+        if (!sdEntry) return;
+        const updates = {};
+        if (sdEntry.password && sdEntry.password !== u.password) updates.password = sdEntry.password;
+        // v1024: also sync role — previously ONLY password was synced here, so changing
+        // someone's role in Staff Directory (e.g. Anitha vp -> fulltime) silently never
+        // reached their actual users doc, leaving their live login role stale/wrong.
+        if (sdEntry.role && sdEntry.role !== u.role) updates.role = sdEntry.role;
+        if (sdEntry.name && sdEntry.name !== u.name) updates.name = sdEntry.name;
+        if (Object.keys(updates).length) {
+          syncOps.push(db.collection('users').doc(doc.id).update(updates));
         }
       });
       if (syncOps.length) {
         await Promise.all(syncOps);
         await umRebuildLoginIndex();
-        if (msg) { msg.style.color='var(--ok)'; msg.textContent=`✅ Saved — ${syncOps.length} password(s) synced to User Management`; }
-        dvToast(`✅ Staff directory saved — ${syncOps.length} password(s) synced`, 'ok', 4000);
+        if (msg) { msg.style.color='var(--ok)'; msg.textContent=`✅ Saved — ${syncOps.length} account(s) synced to User Management`; }
+        dvToast(`✅ Staff directory saved — ${syncOps.length} account(s) synced`, 'ok', 4000);
       } else {
         if (msg) { msg.style.color='var(--ok)'; msg.textContent='✅ Saved to Firestore'; }
         dvToast('✅ Staff directory saved', 'ok');
       }
+      sdRenderSection('fulltime');
+      sdRenderSection('visiting');
+      sdRenderSection('nonteaching');
     } catch(syncErr) {
       console.warn('[SD] Password sync to users failed:', syncErr.message);
       if (msg) { msg.style.color='var(--ok)'; msg.textContent='✅ Saved (password sync failed silently)'; }
@@ -12484,6 +12558,55 @@ async function sdSaveToFirestore() {
     if (msg) { msg.style.color='var(--danger)'; msg.textContent='❌ Save failed: '+e.message; }
   }
   btn.disabled = false; btn.textContent = '💾 Save All Changes';
+}
+
+async function sdCreateSingleLogin(sec, idx) {
+  if (!sdData || !sdData[sec] || !sdData[sec][idx]) return;
+  const staff = sdData[sec][idx];
+  if (!staff.password) { dvToast('⚠ Add a password first, then save, before creating a login.', 'warn', 4000); return; }
+  const username = String(staff.password);
+  const email = `${username}@davan.local`;
+  dvToast(`Creating login for ${staff.name}…`, 'info', 8000);
+  try {
+    // Check BOTH username and password fields — some accounts (esp. older manually-created
+    // ones) have a name-based username with the SD code stored only in password, which is
+    // exactly how doFacultyLogin() itself matches at sign-in (u.password === pw || u.username === pw).
+    // A username-only check here previously caused false "doesn't exist" reads for accounts
+    // like Hemavati Desai, showing the Create Login button even though she already had one.
+    const [byUsername, byPassword, byName] = await Promise.all([
+      db.collection('users').where('username','==',username).get(),
+      db.collection('users').where('password','==',username).get(),
+      db.collection('users').where('name','==',staff.name).get(),
+    ]);
+    if (!byUsername.empty || !byPassword.empty || !byName.empty) {
+      dvToast(`⏭ ${staff.name} already has a login`, 'ok', 3000);
+      if (sdExistingUsernames) sdExistingUsernames.add(username);
+      sdRenderSection(sec);
+      return;
+    }
+    const secondaryApp = firebase.apps.find(a => a.name==='secondary') || firebase.initializeApp(firebaseConfig, 'secondary');
+    const secAuth = secondaryApp.auth();
+    const cred = await secAuth.createUserWithEmailAndPassword(email, username);
+    const uid  = cred.user.uid;
+    await secAuth.signOut();
+    await db.collection('users').doc(uid).set({
+      name: staff.name, username, role: staff.role, facultyKey: staff.name,
+      classIncharge:'', password: username, createdAt: new Date().toISOString(),
+      createdBy: currentProfile?.name || 'admin',
+    });
+    await umRebuildLoginIndex().catch(()=>{});
+    dvToast(`✅ Login created for ${staff.name} (${staff.role})`, 'ok', 4000);
+    if (sdExistingUsernames) sdExistingUsernames.add(username);
+    sdRenderSection(sec);
+  } catch(e) {
+    if (e.code === 'auth/email-already-in-use') {
+      dvToast(`⏭ ${staff.name} — Auth account already exists`, 'warn', 4000);
+      if (sdExistingUsernames) sdExistingUsernames.add(username);
+      sdRenderSection(sec);
+    } else {
+      dvToast(`❌ ${staff.name} — ${e.message}`, 'error', 6000);
+    }
+  }
 }
 
 async function staffBulkCreate() {
@@ -12958,7 +13081,8 @@ async function renderUserManagement() {
             <select id="edit-role-${u.id}" style="width:100%;background:#111;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:12px;">
               <option value="fulltime" ${u.role==='fulltime'?'selected':''}>Full-Time Faculty</option>
               <option value="visiting" ${u.role==='visiting'?'selected':''}>Visiting Faculty</option>
-              <option value="vp" ${u.role==='vp'?'selected':''}>Vice Principal</option>
+              <option value="principal" ${u.role==='principal'?'selected':''}>Principal</option>
+              <option value="vp" ${u.role==='vp'?'selected':''} style="display:none;">Vice Principal (legacy)</option>
               <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
               <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
             </select>
@@ -13323,14 +13447,15 @@ function switchPanel(name) {
       return;
     }
   }
-  // v985: admin/manager/vp-only panel guard — Edit Timetable & Edit Allocation directly
+  // v985: admin/manager/vp/principal-only panel guard — Edit Timetable & Edit Allocation directly
   // modify live scheduling data; the sidebar nav links are already hidden for
   // fulltime/visiting, but this blocks reaching them a direct switchPanel() call too
-  // (e.g. console, stale bookmark). VP retains access even outside My View.
+  // (e.g. console, stale bookmark). VP/Principal retains access even outside My View.
+  // Anitha N (fulltime) also retains access — see hasTtAllocExtraAccess().
   const _schedEditorPanels = ['tt-editor','alloc-editor'];
   if (_schedEditorPanels.includes(name)) {
     const _role = currentProfile?.role || '';
-    if (!['admin','manager','vp'].includes(_role)) {
+    if (!['admin','manager','vp','principal'].includes(_role) && !hasTtAllocExtraAccess(currentProfile)) {
       console.warn('switchPanel: access denied to', name, 'for role', _role);
       return;
     }
@@ -13386,8 +13511,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1021;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '20-Jul-2026', time: '18:20', full: '20-Jul-2026 18:20 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1024;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '23-Jul-2026', time: '16:00', full: '23-Jul-2026 16:00 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -20235,7 +20360,7 @@ async function scRenderFollowups(s) {
   const ntLog = _notificationLogs[urn];
   const ntEntries = (ntLog?.notifications || []).slice().sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-  const canRecord = currentProfile && ['admin','vp','manager','faculty'].includes(currentProfile.role);
+  const canRecord = currentProfile && ['admin','vp','principal','manager','faculty'].includes(currentProfile.role);
   const uid       = firebase.auth().currentUser?.uid || '';
   const role      = currentProfile?.role || '';
   const isPower   = FL_POWER_ROLES.includes(role);
@@ -20462,7 +20587,7 @@ let _flFiltered   = [];      // after filters applied
 let _flLoaded     = false;   // has data been loaded yet
 
 // ── Roles that can edit/delete ANY record (not just own) ──
-const FL_POWER_ROLES = ['admin', 'manager', 'vp'];
+const FL_POWER_ROLES = ['admin', 'manager', 'vp','principal'];
 
 // ── Auto-close outcomes ──
 const FL_AUTO_CLOSE_OUTCOMES = ['Assured improvement', 'No action needed'];
@@ -21135,7 +21260,7 @@ function flSwitchTab(tab) {
 // ╚══════════════════════════════════════════════════════════════════╝
 
 const CI_COLLECTION  = 'davan_class_issues';
-const CI_POWER_ROLES = ['admin', 'manager', 'vp'];
+const CI_POWER_ROLES = ['admin', 'manager', 'vp','principal'];
 
 // Sub-issue options per category
 const CI_SUBISSUES = {
@@ -22751,6 +22876,9 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1024', date: '23-Jul-2026 IST', note: 'Four fixes from user testing of v1022/v1023: (1) Principal no longer gets the VP-style My View/Full View dual-mode toggle -- that toggle is now shown for the legacy vp role only. Principal always has full access (isActingAsFaculty() no longer treats principal as acting-as-faculty; startPanel routing hardcodes principal -> dashboard/College Overview regardless of any leftover vpMode value in localStorage from prior VP use). (2) ROOT CAUSE of Anitha still showing "Vice Principal" after her Staff Directory role was changed to fulltime and saved: sdSaveToFirestore()\\u2019s users-collection sync ONLY ever wrote the password field -- it silently never synced role, so changing someone\\u2019s role dropdown in Staff Directory and clicking Save All Changes never actually reached their live users doc. Fixed: sync now also updates role and name when they differ from Staff Directory. This means Anitha (or anyone else) needs ONE more Save All Changes click on this build for her role to actually take effect in Firestore -- the previous save under v1022/v1023 code could not have worked. (3) Fixed the per-row Create Login button (added in v1023) two ways: (a) it now also appears live as soon as a password is typed into a brand-new row and the field loses focus, instead of only appearing after a full Save; (b) the existence check that decides whether to show/hide the button, AND sdCreateSingleLogin()\\u2019s own duplicate-check before creating an account, now match on username OR password OR name (previously username-only), which was causing false "does not exist" results for older accounts like Hemavati Desai whose users doc has a name-based username with the SD numeric code only in the password field -- exactly how doFacultyLogin() itself matches at sign-in. This was why her button kept reappearing after refresh: sdCreateSingleLogin would report success but the account already existed, then the next render\\u2019s username-only check would flag her as missing again. CODE_BUILD=1024.' },
+  { v: 'v1023', date: '23-Jul-2026 IST', note: 'Staff Directory: added a per-row "\u26a1 Create Login" button (next to the delete/trash button) so adding ONE new person no longer requires running "\u26a1 Bulk Create Accounts" over the whole staff list. The button only appears on a row when that row password/username does not already have a Firebase Auth account + users doc -- existing staff never see it. Implementation: staffDirectoryRender() now also fetches the users collection once on load into a Set (sdExistingUsernames) alongside staff_directory data; sdRenderSection() checks that Set per row to decide whether to render the button; sdCreateSingleLogin(sec,idx) does the actual single-account creation (same Auth + users-doc-write logic staffBulkCreate() uses, just scoped to one entry) then updates the Set + re-renders so the button disappears immediately after success. Also: sdSaveToFirestore() now refreshes sdExistingUsernames from the same users-collection read it already does for password sync, and re-renders all three sections afterward -- so a freshly-added row Create Login button appears right after clicking Save All Changes, without needing to reopen the panel. staffBulkCreate() (bulk button) is unchanged and still available for bulk imports. CODE_BUILD=1023.' },
+  { v: 'v1022', date: '23-Jul-2026 IST', note: 'Role restructure per user request: (1) Retired the \'vp\' role from active use -- added new role \'principal\' with IDENTICAL access to what \'vp\' had (same nav items, dashboard routing, My View/Full View dual-mode toggle, semester switcher, all ~60 role-gated checks across the file) -- effectively a clone/rename. New login: Kiran Kumar G K, contact 99161 23415, password 919919, role=principal, stored in Staff Directory fulltime section (same pattern the old vp record used). vpApplyMode() badge/topbar text now shows \'Principal\' vs \'Vice Principal\' based on actual role. (2) Anitha N: role changed from vp -> fulltime (no longer VP). She retains an elevated, NARROWLY SCOPED override (see hasTtAllocExtraAccess()) granting exactly 6 things a normal fulltime account does not get: View Timetable, View Allocation, Edit Timetable, Edit Allocation, Class Settings, Branding -- both the sidebar nav links (applySidebarForRole override pass) AND the switchPanel() direct-navigation guard for tt-editor/alloc-editor were updated so the override actually works, not just the nav link visibility. She does NOT get any other former-VP-only access (Dashboard admin view, Exemptions, Leave Admin, Lesson Plan, Downloads, Notify Report, semester switcher, dual-mode toggle, etc.) -- those all still gate on vp/manager/admin/principal only. ROLE_VP constant kept (not deleted) purely so any stale cached profile with role=\'vp\' does not crash; it is no longer assignable via any UI (User Management + Staff Directory dropdowns now offer \'Principal\' instead of \'Vice Principal\'; legacy vp option hidden but left in DOM as an escape hatch for pre-existing accounts only). CODE_BUILD=1022.' },
   { v: 'v1021', date: '22-Jul-2026 IST', note: 'Fix: Report Card said \'No previous semester results found\' for a BCom Sem III student who genuinely has Sem I results (confirmed real data exists via student_portal.html, which displayed it correctly for the same URN). ROOT CAUSE: rcFetchResults\'s processSlot() compared URNs with exact-case equality ((s.urn||s.usn) === urn) instead of case-insensitively -- student_portal.html\'s equivalent function already normalizes both sides to uppercase before comparing, so it found the match while index.html silently missed it whenever the URN casing stored in a results doc differed from what was passed in (e.g. a different upload batch/tool wrote lowercase or mixed-case URNs). FIX: all URN comparisons inside rcFetchResults (both processSlot definitions -- main Firestore path AND the RTDB fallback path used when Firestore permission is denied -- plus collegeRank/classRank lookups and the globalPool construction that feeds them) now normalize to uppercase before comparing, matching student_portal.html\'s existing correct behavior. CODE_BUILD=1021.' },
   { v: 'v1020', date: '22-Jul-2026 IST', note: 'Redesigned the Previous Semester summary section per user request: (1) per-semester cards now show Pass count + Fail count + SGPA together in one card instead of just a PASS/FAIL verdict, so the whole academic history since joining is readable at a glance without opening each semester\'s table below. (2) The card grid is now merged directly INSIDE the CGPI box (a divider line separates the CGPI number from the card grid beneath it) instead of being a separate detached block below it, per user\'s explicit layout request. Applied identically to scRenderResults and rcRenderCard. Overall Total Failed/Passed Subjects + Backlog Pending cards unchanged. CODE_BUILD=1020.' },
   { v: 'v1019', date: '22-Jul-2026 IST', note: 'Changed v1017\'s per-semester/total pass-fail summary from pill-shaped chips to rcSummCard-style stat cards (icon on top, big colored value, small caption underneath) -- same visual component already used for the Current Att./In Shortage/Last SGPA/CGPI/Failed Subs row at the top of the Report Card, per user preference for consistent card styling over chips. Applied to both scRenderResults and rcRenderCard, laid out in a responsive auto-fill grid instead of flex-wrap. CODE_BUILD=1019.' },
@@ -25722,7 +25850,7 @@ async function semForceReload() {
     await semSwitchTo(key, /*silent=*/true);
     // Re-render whatever panel is open so it reflects the reloaded sem.
     if (typeof renderAll === 'function') renderAll();
-    if (typeof fdbRender === 'function' && currentProfile && ['fulltime','visiting','vp'].includes(currentProfile.role)) fdbRender();
+    if (typeof fdbRender === 'function' && currentProfile && ['fulltime','visiting','vp','principal'].includes(currentProfile.role)) fdbRender();
   } catch(e) {
     if (typeof dvToast === 'function') dvToast('❌ Reload failed: ' + (e.message||e), 'error', 4000);
   }
@@ -34776,8 +34904,8 @@ const BRAND_DEFAULT = {
   contact:      '7026 225550 | www.davandvg.com',
   directorName: 'Harsharaj A Gujjar',
   directorTitle:'Director',
-  vpName:       'Anitha N',
-  vpTitle:      'Vice-Principal',
+  vpName:       'Kiran Kumar G K',
+  vpTitle:      'Principal',
   logoLeftUrl:  '',   // falls back to davan_logo_2026.gif when empty
   logoRightUrl: '',
 };
@@ -35988,7 +36116,7 @@ async function rcRenderFollowups(s) {
   wrap.style.display = 'block';
 
   // Show/hide new-visit button based on role
-  const canRecord = currentProfile && ['admin','vp','manager','faculty'].includes(currentProfile.role);
+  const canRecord = currentProfile && ['admin','vp','principal','manager','faculty'].includes(currentProfile.role);
   if (btn) btn.style.display = canRecord ? '' : 'none';
 
   // Store current student on the wrap for rcFollowupNew()
@@ -37398,7 +37526,7 @@ async function rcRecoverFromCloudinary() {
 
   try {
     const role = currentProfile?.role || '';
-    const isNonAdmin = ['manager','vp','fulltime','visiting'].includes(role);
+    const isNonAdmin = ['manager','vp','principal','fulltime','visiting'].includes(role);
     if (isNonAdmin) {
       if (rtdb) await rtdb.ref('davan_pub/student_photos').update(found);
     } else {
@@ -37450,7 +37578,7 @@ async function rcCleanBadUrls() {
   // Remove from Firebase
   try {
     const role = currentProfile?.role || '';
-    const isNonAdmin = ['manager','vp','fulltime','visiting'].includes(role);
+    const isNonAdmin = ['manager','vp','principal','fulltime','visiting'].includes(role);
 
     if (!isNonAdmin) {
       // Admin: delete from Firestore using FieldValue.delete()
@@ -39726,7 +39854,7 @@ async function intInit() {
 async function intLoadList() {
   // admin, manager, vp: full Firestore read/write access
   // faculty: RTDB mirror → default timetable fallback
-  if (!currentProfile || !['admin','manager','vp'].includes(currentProfile.role)) {
+  if (!currentProfile || !['admin','manager','vp','principal'].includes(currentProfile.role)) {
     const body = document.getElementById('int-view-body');
     if (rtdb) {
       try {
@@ -41288,7 +41416,7 @@ async function intDutyLoad() {
   let data = INT_DATA[docId];
   if (!data && docId !== 'int_default_1') {
     const _dutyRole = currentProfile?.role || '';
-    if (['admin','manager','vp'].includes(_dutyRole)) {
+    if (['admin','manager','vp','principal'].includes(_dutyRole)) {
       try {
         const doc = await db.collection('internals').doc(docId).get();
         data = doc.exists ? doc.data() : null;
@@ -41299,7 +41427,7 @@ async function intDutyLoad() {
   if (!data) { body.innerHTML = '<div style="padding:20px;color:var(--muted);">No data.</div>'; return; }
 
   const role    = currentProfile?.role||'';
-  const isAdmin = ['admin','manager','vp'].includes(role);
+  const isAdmin = ['admin','manager','vp','principal'].includes(role);
 
   if (isAdmin) {
     body.innerHTML = intRenderDutyAdmin(docId, data);
@@ -41897,7 +42025,7 @@ const SIT_RTDB_PATH = 'internals/sittingAllocation';
 // ─── INIT ────────────────────────────────────────────────────────────
 async function sitInit() {
   const role = currentProfile?.role || '';
-  if (!['admin','manager','vp'].includes(role)) {
+  if (!['admin','manager','vp','principal'].includes(role)) {
     document.getElementById('sit-grid-wrap').innerHTML =
       '<div style="color:var(--muted);font-family:var(--mono);font-size:12px;">🔒 Access restricted to Admin, Manager, VP.</div>';
     return;
@@ -42480,7 +42608,7 @@ let ATT_CLASS = '';
 
 async function attInit() {
   const role = currentProfile?.role||'';
-  if (!['admin','manager','vp'].includes(role)) {
+  if (!['admin','manager','vp','principal'].includes(role)) {
     document.getElementById('att-preview').innerHTML =
       '<div style="color:var(--muted);font-family:var(--mono);font-size:12px;">🔒 Access restricted.</div>';
     return;
@@ -43000,7 +43128,7 @@ function intLoadInchargeDropdowns(meta) {
     const faculty = [];
     snap.forEach(doc => {
       const u = doc.data();
-      if (['fulltime','vp','admin','manager'].includes(u.role)) faculty.push(u.name || u.email || doc.id);
+      if (['fulltime','vp','principal','admin','manager'].includes(u.role)) faculty.push(u.name || u.email || doc.id);
     });
     faculty.sort();
 
@@ -43074,7 +43202,7 @@ function lb3Build() {
   const role = currentProfile?.role||'';
 
   // Only show for fulltime/visiting faculty
-  if (!uid || ['admin','manager','vp'].includes(role)) {
+  if (!uid || ['admin','manager','vp','principal'].includes(role)) {
     wrap.style.display = 'none';
     return;
   }
@@ -43172,7 +43300,7 @@ function livePresenceInit(profile) {
 
   // Write presence + auto-remove on disconnect
   // Manager/VP: RTDB rules deny writes to /davan_presence — skip silently
-  const canWritePresence = !['manager','vp'].includes(profile.role);
+  const canWritePresence = !['manager','vp','principal'].includes(profile.role);
   if (canWritePresence) {
     _presenceRef = rtdb.ref('davan_presence/' + uid);
     _presenceRef.set(makeData());
@@ -43785,12 +43913,12 @@ async function calPreload() {
 async function calInit() {
   // Show add button for admin/manager/vp
   const addBtn = document.getElementById('cal-add-btn');
-  if (addBtn) addBtn.style.display = ['admin','manager','vp'].includes(currentProfile?.role||'') ? '' : 'none';
+  if (addBtn) addBtn.style.display = ['admin','manager','vp','principal'].includes(currentProfile?.role||'') ? '' : 'none';
   const actTh = document.getElementById('cal-actions-th');
-  if (actTh) actTh.style.display = ['admin','manager','vp'].includes(currentProfile?.role||'') ? '' : 'none';
+  if (actTh) actTh.style.display = ['admin','manager','vp','principal'].includes(currentProfile?.role||'') ? '' : 'none';
   // Show notification card for admin/manager/vp
   const notifCard = document.getElementById('cal-notif-card');
-  if (notifCard) notifCard.style.display = ['admin','manager','vp'].includes(currentProfile?.role||'') ? '' : 'none';
+  if (notifCard) notifCard.style.display = ['admin','manager','vp','principal'].includes(currentProfile?.role||'') ? '' : 'none';
 
   // Load from Firestore
   try {
@@ -44030,7 +44158,7 @@ function calFilterSet(f) {
 function calRenderTable() {
   const tbody = document.getElementById('cal-tbody');
   if (!tbody) return;
-  const isAdmin = ['admin','manager','vp'].includes(currentProfile?.role||'');
+  const isAdmin = ['admin','manager','vp','principal'].includes(currentProfile?.role||'');
   let filtered = calFilter === 'all' ? calEvents : calEvents.filter(e => e.type === calFilter);
   // v934: scope calendar to the ACTIVE session's date window. Calendar events are dated,
   // so events outside the current session (e.g. last sem's Jan–May holidays) are hidden
@@ -44606,7 +44734,7 @@ function imInit() {
   imRenderChips();
   const wrap = document.getElementById('im-showall-wrap');
   const p = currentProfile;
-  const showChk = p && ['fulltime','visiting','vp'].includes(p.role);
+  const showChk = p && ['fulltime','visiting','vp','principal'].includes(p.role);
   if (wrap) wrap.style.display = showChk ? 'flex' : 'none';
   // Always reload fresh from Firebase when panel opens
   imReloadAndRefresh();
@@ -44633,7 +44761,7 @@ function imRenderChips() {
   const bar = document.getElementById('im-chips');
   if (!bar) return;
   const p = currentProfile;
-  const isFaculty = p && ['fulltime','visiting','vp'].includes(p.role);
+  const isFaculty = p && ['fulltime','visiting','vp','principal'].includes(p.role);
   const isAdminMgr = p && ['admin','manager'].includes(p.role);
 
   // v967: derived live from Class Settings (LM_CLASS_META) instead of a static list.
@@ -44692,7 +44820,7 @@ function imGetMySubjects() {
   if (!p) return null;
   const role = p.role;
   if (['admin','manager'].includes(role)) return null;
-  if (role === 'vp' && !isActingAsFaculty()) return null;
+  if ((role === 'vp' || role === 'principal') && !isActingAsFaculty()) return null;
   const ownKey = p.facultyKey || p.name || '';
   const aliases = (typeof FACULTY_NAME_ALIASES !== 'undefined') ? FACULTY_NAME_ALIASES : {};
   const allKeys = [ownKey, aliases[ownKey], ...(Object.entries(aliases).filter(([k,v])=>v===ownKey).map(([k])=>k))].filter(Boolean).map(s=>s.trim().toLowerCase());
@@ -44717,7 +44845,7 @@ function imRender() {
   const mySubjects = imGetMySubjects();
   const p = currentProfile;
   const role = p?.role;
-  const isVPFull = role === 'vp' && !isActingAsFaculty();
+  const isVPFull = (role === 'vp' || role === 'principal') && !isActingAsFaculty();
   const canWAFinal = ['admin','manager'].includes(role) || isVPFull;
 
   // Students may be stored as "II YEAR BCA (A)" OR "Davan-BCA-Sem4-SecA" — match both
@@ -45196,7 +45324,7 @@ function imGoToFacultyReport(fac) {
   const role = currentProfile?.role;
   // Admin/manager: their dashboard is panel-dashboard with tabs (College/Faculty/MySubjects)
   // Faculty/VP: their dashboard is panel-dashboard-faculty
-  const isAdminLike = role === 'admin' || role === 'manager' || role === 'vp';
+  const isAdminLike = role === 'admin' || role === 'manager' || role === 'vp' || role === 'principal';
   if (isAdminLike) {
     switchPanel('dashboard');
     setTimeout(function() {
@@ -46148,7 +46276,7 @@ function sptCurrentFacultyNameAny() {
   const p = (typeof currentProfile !== 'undefined') ? currentProfile : null;
   if (!p) return null;
   const role = (p.role || '').toLowerCase();
-  if (!['fulltime','visiting','vp','manager'].includes(role)) return null;
+  if (!['fulltime','visiting','vp','principal','manager'].includes(role)) return null;
   return (p.name || (typeof currentUser !== 'undefined' && currentUser?.displayName) || '').trim() || null;
 }
 
