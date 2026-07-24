@@ -661,12 +661,23 @@
       position:fixed;top:80px;left:50%;transform:translateX(-50%);
       background:#1a2e1a;color:#4ade80;border:1px solid #2a4a2a;
       border-radius:10px;padding:14px 28px;font-size:14px;font-weight:600;
-      box-shadow:0 8px 32px rgba(0,0,0,0.6);z-index:9999;
+      box-shadow:0 8px 32px rgba(0,0,0,0.6);z-index:10001;
       display:none;align-items:center;gap:10px;white-space:nowrap;
       animation:toastSlideDown 0.3s cubic-bezier(0.34,1.56,0.64,1);
     }
 
-    /* ── Universal toast system ── */
+    /* ── Universal toast system ──
+       Three independent toast systems (lm-save-toast, dv-toast, live-toast) can all
+       fire in quick succession from the same user action (e.g. a subscription refresh
+       shows a dv-toast "Refreshing..." followed by a live-toast "Refreshed" status),
+       and none of them previously knew about the others — all three were hardcoded to
+       the exact same top:80px/left:50% coordinates, so simultaneous toasts rendered
+       directly on top of each other. Fixed by staggering their vertical position
+       (lm-save-toast 80px, dv-toast 80px, live-toast 150px) and z-index
+       (lm-save-toast highest at 10001 since it's an explicit save confirmation the
+       user is waiting on, dv-toast 10000, live-toast 9998 lowest since it's often a
+       background/status notification) so at most two can ever visually overlap, and
+       even then the more important one wins visibility. */
     #dv-toast {
       position:fixed;top:80px;left:50%;transform:translateX(-50%);
       min-width:260px;max-width:90vw;
@@ -1199,8 +1210,12 @@
         font-size: 12px !important;
         white-space: nowrap !important;
       }
-      #dv-toast, #live-toast {
+      #dv-toast {
         top: 70px !important;
+        bottom: auto !important;
+      }
+      #live-toast {
+        top: 135px !important;
         bottom: auto !important;
       }
     }
@@ -1331,7 +1346,7 @@
       font-size:11px;font-weight:700;font-family:var(--mono);
       background:var(--accent);color:#000;transition:all 0.2s;">
     </button>
-    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v1019 · Last Updated: 24-Jul-2026 10:20 IST</span>
+    <span id="topbar-version" style="font-size:9px;white-space:nowrap;color:var(--accent);font-weight:600;font-family:var(--mono);">HTML: v1030 · Last Updated: 24-Jul-2026 12:45 IST</span>
   </div>
 </div>
 
@@ -2352,7 +2367,7 @@
       </div>
 
       <!-- ── Summary pills ── -->
-      <div id="lp-panel-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;"></div>
+      <div id="lp-panel-summary" style="display:flex;flex-direction:column;margin-bottom:16px;"></div>
 
       <!-- ── Cards grid ── -->
       <div id="lp-panel-grid"
@@ -9214,6 +9229,7 @@ async function loadFirestoreData() {
   }
 
   allStudents = studentsDoc.data;
+  window._allStudentsConfirmedFresh = true;
   console.log('[loadFirestoreData] ✅ Loaded', allStudents.length, 'students from Firestore app_data/students');
   try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch(e){}
   // v911: Timetable is loaded from Firebase, but guarded by an active-sem stamp to
@@ -9290,6 +9306,7 @@ async function _loadFromRTDB() {
     const val  = snap.val();
     if (val?.data?.length) {
       allStudents = val.data;
+      window._allStudentsConfirmedFresh = true;
       console.log('[_loadFromRTDB] ✅ Loaded', allStudents.length, 'students from RTDB path:', path);
       try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch(e) {}
       // Also load meta from RTDB — use davan_pub/meta (readable by all auth'd users)
@@ -9647,7 +9664,16 @@ async function doFacultyLogin() {
     }
     const email = matched.username.includes('@') ? matched.username : `${matched.username}@davan.local`;
     _isManualLogin = true; // Set BEFORE signIn — Firebase fires onAuthStateChanged immediately on sign-in
-    await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    // Persistence now follows Remember Me: LOCAL (survives browser restart) only when
+    // checked, otherwise SESSION (cleared when the tab/browser fully closes). This was
+    // previously hardcoded to LOCAL unconditionally regardless of the checkbox, which is
+    // the real reason a shared device kept auto-logging back in as whoever last signed
+    // in here — Firebase's own session survived restarts independent of remember-me,
+    // separate from (and in addition to) the _davanAuthEmail/_davanAuthPw silent-re-auth
+    // mechanism fixed alongside this in doFirebaseLogin.
+    await auth.setPersistence(remember
+      ? firebase.auth.Auth.Persistence.LOCAL
+      : firebase.auth.Auth.Persistence.SESSION);
     // Accounts created via Bulk Create use username as the Firebase Auth password;
     // accounts created via Manual Create use the app password. Try both.
     let cred;
@@ -9760,10 +9786,17 @@ async function doFirebaseLogin() {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Signing in…';
   try {
     const email = username.includes('@') ? username : `${username}@davan.local`;
-    // Always use LOCAL persistence set BEFORE signIn — fixes file:// where the old
-    // signIn→setPersistence→signOut→re-signIn pattern left firebase.auth().currentUser null.
+    // Persistence now follows Remember Me: LOCAL only when checked, SESSION otherwise —
+    // was previously hardcoded LOCAL regardless of the checkbox (the file:// comment below
+    // explains why setPersistence must run BEFORE signIn, not why it must always be LOCAL;
+    // SESSION persistence still works fine over file://, only NONE would risk that issue).
+    // This is the actual cause of a shared device auto-logging back in as whoever signed
+    // in last: Firebase's own session survived browser restarts independent of the
+    // checkbox. See doFacultyLogin() for the identical fix on the faculty-tab login path.
     _isManualLogin = true; // Set BEFORE signIn — Firebase fires onAuthStateChanged immediately on sign-in
-    await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    await auth.setPersistence(remember
+      ? firebase.auth.Auth.Persistence.LOCAL
+      : firebase.auth.Auth.Persistence.SESSION);
     const cred = await auth.signInWithEmailAndPassword(email, password);
     let profile = await _fetchProfile(cred.user.uid);
     if (!profile) {
@@ -9785,10 +9818,20 @@ async function doFirebaseLogin() {
     davanWidgetSync(currentUser, currentProfile);
     wcpInit();
     // Store credentials in localStorage so _ensureAuth() can re-auth even after page reload
-    try {
-      localStorage.setItem('_davanAuthEmail', email);
-      localStorage.setItem('_davanAuthPw', password);
-    } catch(e) {}
+    // — but ONLY when the user actually checked "Remember me". Previously this ran
+    // unconditionally, so even an unchecked box left a live, silently-resurrectable
+    // session behind: _ensureAuth() would find these on the NEXT person's page load
+    // and silently sign back in as the previous user whenever firebase.auth().currentUser
+    // was momentarily null (e.g. after a reload) — exactly the "logs in as whoever
+    // logged in last" symptom, regardless of Remember Me being unchecked.
+    if (remember) {
+      try {
+        localStorage.setItem('_davanAuthEmail', email);
+        localStorage.setItem('_davanAuthPw', password);
+      } catch(e) {}
+    } else {
+      try { localStorage.removeItem('_davanAuthEmail'); localStorage.removeItem('_davanAuthPw'); } catch(e) {}
+    }
     if (remember) {
       localStorage.setItem('davan_remember_user', username);
       localStorage.setItem('davan_remember_admin_pw', password);
@@ -10592,9 +10635,7 @@ async function onLoginSuccess() {
   const p = currentProfile;
   document.getElementById('sidebar-profile').style.display = 'block';
   document.getElementById('sidebar-name').textContent = p.name || 'Unknown';
-  // Faculty/staff photo beside name — teaching roles + manager (managers have photos too,
-  // per Staff Directory's "NON TEACHING / MANAGER" section; they were excluded here by
-  // oversight, not by design — _facAvatar works off facPhotos generically, no role check).
+  // Faculty/staff photo beside name — teaching roles + manager
   const _sbAv = document.getElementById('sidebar-avatar');
   if (_sbAv) {
     if (['fulltime','visiting','vp','principal','manager'].includes(p.role) && typeof _facAvatar === 'function') {
@@ -10649,7 +10690,13 @@ async function onLoginSuccess() {
     }, 500);
     _isManualLogin = false; // Clear flag (was set for manual logins to guard onAuthStateChanged)
   }
-  // Load from localStorage immediately — charts render before any network call
+  // Load from localStorage immediately — charts render before any network call.
+  // v1026: this cached snapshot can be from a PREVIOUS semester (e.g. 511 students from
+  // last term vs this term's real 311) and wgtRenderAdmin()/wgtRenderFaculty() render
+  // directly from allStudents the instant they're called, with no way to tell "this is a
+  // possibly-stale cache" from "this is confirmed current data" — causing a visible
+  // flash of the wrong count before the real fetch resolves and re-renders. Flag it.
+  window._allStudentsConfirmedFresh = false;
   try { const c = localStorage.getItem('davan_students'); if (c) allStudents = JSON.parse(c); } catch(e) {}
   // Apply cached session_config immediately so switcher label + SESSION_CONFIG are correct
   // before the async RTDB/Firestore call returns (manager/VP especially rely on this)
@@ -10944,15 +10991,16 @@ async function onLoginSuccess() {
   liveToastLoadExpiry().then(() => liveToastInit(p));
   faFiredLoad(); // prevent duplicate notifications after login/refresh
 
-  // ── Notify admin when any faculty logs in ──
-  if (['fulltime','visiting','vp','principal'].includes(p.role)) {
+  // ── Notify admin when ANY role logs in (per user request — was missing manager;
+  // admin deliberately excluded since an admin login would just notify admin themself) ──
+  if (['fulltime','visiting','vp','principal','manager'].includes(p.role)) {
     // Delay 2s so facAlertBootstrap() finishes loading faWorkerUrl from Firestore first
     setTimeout(async () => {
       try {
         const now = new Date();
         const timeStr = now.toLocaleString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit', hour12:true });
         const dateStr = now.toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric' });
-        const roleLabel = { fulltime:'Full-Time Faculty', visiting:'Visiting Faculty', vp:'Vice Principal' }[p.role] || p.role;
+        const roleLabel = { fulltime:'Full-Time Faculty', visiting:'Visiting Faculty', vp:'Vice Principal', principal:'Principal', manager:'Manager', admin:'Admin' }[p.role] || p.role;
         const title = `🔑 ${p.name || p.username} just logged in`;
         const body  = `${roleLabel} · ${dateStr} at ${timeStr}`;
         const logEntry = {
@@ -13441,11 +13489,10 @@ function mobCloseSidebar() {
 }
 function switchPanel(name) {
   // Admin-only panel guard — block non-admins from navigating directly to admin panels.
-  // NOTE: login-activity and faculty-alerts were REMOVED from this list — applySidebarForRole's
-  // access map already shows both to admin+manager (by design), but this separate guard still
-  // only allowed 'admin' through, so a manager could see and click the sidebar link and nothing
-  // would happen (silent console.warn + return) — sidebar visibility and this guard had drifted
-  // out of sync. Both are now admin+manager here too, matching what the sidebar already shows.
+  // login-activity and faculty-alerts were REMOVED from this list — applySidebarForRole's
+  // access map already shows both to admin+manager, but this separate guard still only
+  // allowed 'admin' through, so a manager could see and click the sidebar link and nothing
+  // would happen (silent console.warn + return).
   const _adminOnlyPanels = ['user-management','admin-settings','staff-directory','ai-usage','fees-structure'];
   if (_adminOnlyPanels.includes(name)) {
     const _role = currentProfile?.role || '';
@@ -13526,8 +13573,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1024;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '23-Jul-2026', time: '16:00', full: '23-Jul-2026 16:00 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1030;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '24-Jul-2026', time: '12:45', full: '24-Jul-2026 12:45 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -14445,6 +14492,7 @@ function wgtNextHoliday() {
 }
 
 function wgtTotalStudents() {
+  if (!window._allStudentsConfirmedFresh) return wgtCard('👥','Total Students','…','Loading','var(--muted)', null);
   const n = allStudents.length;
   return wgtCard('👥','Total Students', n || '—', n ? 'enrolled' : 'No data', '#60a5fa', 'students');
 }
@@ -14568,7 +14616,12 @@ function wgtRenderAdmin() {
     // For the current AY (legacy data out of scope) the student-derived cards should read
     // empty until classes start. Temporarily scope allStudents to [] during render, then
     // restore — so Total Students/Avg/Shortage/Critical show "—" without touching real data.
-    const _outOfScope = (typeof _legacyDataInScope === 'function') && !_legacyDataInScope();
+    // v1026: ALSO scope to [] when the pre-network localStorage cache hasn't been confirmed
+    // fresh yet (window._allStudentsConfirmedFresh) — this is what previously let a stale
+    // cached snapshot (e.g. last semester's 511 students) flash briefly on first paint
+    // before the real Firestore/RTDB fetch resolved and re-rendered with the correct count.
+    const _outOfScope = ((typeof _legacyDataInScope === 'function') && !_legacyDataInScope())
+                       || !window._allStudentsConfirmedFresh;
     const _savedStudents = allStudents;
     if (_outOfScope) allStudents = [];
     try {
@@ -14596,7 +14649,8 @@ function wgtRenderFaculty() {
   if (!el) return;
   wgtShowSkeletons('fdb-widget-row', 6);
   setTimeout(() => {
-    const _outOfScope = (typeof _legacyDataInScope === 'function') && !_legacyDataInScope();
+    const _outOfScope = ((typeof _legacyDataInScope === 'function') && !_legacyDataInScope())
+                       || !window._allStudentsConfirmedFresh;
     const _savedStudents = allStudents;
     if (_outOfScope) allStudents = [];
     try {
@@ -22675,9 +22729,9 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#c8cdd8">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #7a8494; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">1011</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">1030</span></span>
       &nbsp;·&nbsp;
-      Updated: <span id="footer-date">14-Jul-2026</span>, <span id="footer-time">17:45</span> IST
+      Updated: <span id="footer-date">24-Jul-2026</span>, <span id="footer-time">12:45</span> IST
       &nbsp;·&nbsp;
       <span id="footer-changelog-toggle" onclick="toggleChangelog()"
         style="cursor:pointer;color:#a0a6b4;text-decoration:underline;text-underline-offset:2px;">
@@ -22893,17 +22947,20 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1030', date: '24-Jul-2026 IST', note: 'FIX: Subscribe This Device showed a raw, confusing browser error (Script URL scheme is not http or https) whenever the app was opened as a downloaded file from disk (file:///C:/Users/.../index.html) instead of the real hosted site. This is a hard browser security restriction on service workers -- they can never register from a file:// origin under any circumstance, so no code change could make the actual registration succeed there. Added an early check in facRegisterSW() for location.protocol equal to file: that shows a clear, actionable message instead of letting the raw browser exception reach the user: push notifications do not work when opened as a local file, use the actual hosted link instead. This also explains the consoles Cross-Origin Request Blocked and other file:// related errors seen in the same session, all downstream symptoms of the same root cause -- running from a downloaded copy rather than the deployed site.' },
+  { v: 'v1029', date: '24-Jul-2026 IST', note: 'FIX: three independent toast/notification systems in the app (lm-save-toast, dv-toast, live-toast) were all hardcoded to the exact same fixed position, top 80px and horizontally centered, so whenever two fired close together from the same action, they rendered directly on top of each other -- confirmed example: refreshing push subscriptions shows a dv-toast Refreshing subscriptions message immediately followed by a live-toast Subscriptions refreshed status, both landing at identical coordinates. Fixed by staggering vertical position and z-index across all three so at most two can ever visually overlap and the more important one stays on top: lm-save-toast stays at 80px with the highest z-index since it is an explicit save confirmation the user is actively waiting on, dv-toast stays at 80px just below it in z-index, live-toast moved down to 150px since it is often a background or broadcast status message. Applied the same staggering to the mobile media query rules, which previously forced dv-toast and live-toast to the identical 70px offset on small screens too. No JavaScript changed, this was purely a CSS/HTML positioning collision across the three toast elements defined near the top of the stylesheet and in the body.' },
+  { v: 'v1028', date: '24-Jul-2026 IST', note: 'CRITICAL fix: v1027 shipped a broken build, whole app crashed on every login with a SyntaxError followed by LM_TT_VER is not defined (same failure class v925 already diagnosed once: a syntax error earlier in a script block silently voids every later top-level declaration in that block, even though the code is correct; LM_TT_VER at line ~23504 was never actually the problem). Root cause: the v1027 changelog note text itself contained a malformed sequence of backslashes and quote characters, a leftover artifact from how that entry was originally typed, which corrupted the JavaScript string it lived in and voided everything after it in the same script block. First fix attempt introduced the identical class of error a second time, this time inside the v1028 note describing the original bug, because the broken sequence was quoted literally as an example rather than described in plain words. This entry deliberately avoids quoting the broken sequence at all. Verified via node --check and an acorn parse, both clean. Also confirmed no other changelog entry in the array contains an unmatched backslash before a quote character. CODE_BUILD=1028.' },
+  { v: 'v1027', date: '24-Jul-2026 IST', note: 'Notification fixes per user report (screenshot showed real push notifications working on phone, missing faculty name in class-reminder title, and manager logins not triggering the admin alert). (1) Class-reminder push title (both implementations — facAlertPush and pushToSubs/service-worker variant) now includes the faculty name: was \'Class in 60 min: Internet Programming Lab\' with no way to tell which faculty, now \'⏰ {name} — Class in 60 min: {subject}\'. Faculty name was already available as the first argument to both push calls and used in the Firestore fireKey — just never included in the title string itself; the {faculty} placeholder in the body template (facAlertBuildMsg) was also already supported, just not populated in whatever template is currently saved. (2) Login-notification role gate widened from [fulltime,visiting,vp,principal] to also include manager (was missing — a manager login triggered no alert at all, same drift pattern as several other role-gate gaps fixed this session); admin deliberately NOT added, since an admin login would notify admin subscribers about their own login. Added manager/admin/principal to the roleLabel map so the notification body shows a proper label instead of the raw role string for any newly-included role. (3) Investigated \'missing on laptop\' — confirmed by design, not a bug: push subscriptions are per-browser-endpoint (facRegisterSW/reg.pushManager.subscribe), stored as an array per faculty name in Firestore app_data/push_subscriptions, so multiple devices per person are already supported architecturally — the laptop simply has not subscribed yet. No code change; user needs to open the app on the laptop while logged in and tap the existing \'🔔 Subscribe This Device\' button (Faculty Dashboard) once, same one-time action already required on the phone. Also noted actual push delivery goes through an external Cloudflare Worker (fcm-push.harshgujjar.workers.dev, not part of this file) which may reformat the payload — the title fix here guarantees what this file SENDS includes the faculty name; the worker\'s own formatting is outside this file\'s control. CODE_BUILD=1027.' },
+  { v: 'v1026', date: '24-Jul-2026 IST', note: 'Two real bugs from a session sharing a device, plus a confirmed-good diagnostic. (1) CRITICAL: \'Remember me\' unchecked did nothing -- opening index.html always silently re-logged in as whoever last signed in on that browser, regardless of the checkbox (confirmed: Manjappa, then Hemavati, then Kiran all bled through on the same device). Root cause, two independent mechanisms both hardcoded LOCAL persistence and unconditional credential caching, ignoring the checkbox entirely: (a) doFacultyLogin() and doFirebaseLogin() both called auth.setPersistence(...LOCAL) unconditionally -- Firebase\'s own session then survived full browser restarts no matter what the user chose. Now setPersistence follows remember: LOCAL when checked, SESSION (cleared when the browser/tab fully closes) when not. (b) doFirebaseLogin() ALSO wrote _davanAuthEmail/_davanAuthPw to localStorage unconditionally on every successful login -- _ensureAuth() (used for background admin tasks) reads these to silently re-authenticate whenever firebase.auth().currentUser is momentarily null, e.g. right after a page reload, which resurrected the previous admin session even after Firebase\'s own persistence would have expired it. Now gated on remember, matching how doFacultyLogin() already correctly handles this pair (v988). (2) Dashboard flashed a stale student count (e.g. 511 from a previous semester) for a moment before settling on the real current count (311) on every admin login. Root cause: onLoginSuccess loads allStudents from the localStorage cache immediately, before any network call, so the dashboard\'s first paint (wgtRenderAdmin/wgtRenderFaculty) rendered real widgets from a POSSIBLY STALE cached snapshot, then re-rendered correctly once loadFirestoreData()/_loadFromRTDB() resolved and called renderAll(). Added window._allStudentsConfirmedFresh, false until the real fetch succeeds; wgtRenderAdmin/wgtRenderFaculty now scope allStudents to [] during render (reusing the existing _outOfScope temporarily-empty mechanism) whenever data is not yet confirmed fresh, so Total Students/Avg Attendance/Shortage/Critical show a neutral loading state instead of a possibly-wrong number, then repaint correctly the instant real data arrives. (3) Confirmed the [LP vs Dashboard subject count] diagnostic (v1022) is working exactly as designed -- user-provided console output showed Dashboard(alloc) 57 vs LessonPlan 50, with an 8-subject and 1-subject diff that reconciles the gap exactly (50+8-1=57); flagged two likely source-data issues worth checking (Personality Development (SEC) vs Personality Development(sec)40/10 look like the same subject with inconsistent naming, and a bare "TS" entry with a lesson plan but no matching allocation) but made no code change since this is a source-data question, not a code bug. RULE reminder (again): version bumps must update CODE_BUILD + BUILD_TIMESTAMP, not just the static topbar span. CODE_BUILD=1026.' },
+  { v: 'v1025', date: '24-Jul-2026 IST', note: 'Reconciliation build -- applied several fixes from a parallel debugging session that had drifted onto a stale local copy and never reached this file. (1) PUC Attendance sidebar link widened from admin-only to [\'admin\',\'manager\',\'vp\',\'principal\',\'fulltime\',\'visiting\'] -- updated stale \'Admin access only\' label to \'Staff access\'. (2) switchPanel()\'s admin-only guard was blocking managers from Login Activity / Faculty Alerts even though applySidebarForRole already showed both links to managers -- split into a true-admin-only list and a new admin+manager list so the guard matches what the sidebar promises. (3) Sidebar avatar (SIGNED IN AS photo) now includes \'manager\' in its role list -- managers have real photos on file (Staff Directory) that were not rendering. (4) Added Manjappa N <-> Manjappa H to FACULTY_NAME_ALIASES -- her Staff Directory record was renamed H to N and the uploaded photo became orphaned under the old key; same pattern as the existing Dr. Shilpa R Y alias. (5) Rewrote _lpSummaryPills(): old single \'N subjects\' pill was actually entries.length (a count of LP records, one per class+subject+semester+section), which does not and was never meant to match Dashboard\'s College-Subjects widget (unique subject NAMES from LM_ALLOCATIONS) -- now shows both \'N entries (BBA n . BCA n . BCOM n)\' and \'N unique subjects (BBA n . BCA n . BCOM n)\' computed together so they cannot drift apart, plus a footnote explaining why per-course totals can exceed the overall unique total and why this can differ from the Dashboard, with a console diagnostic ([LP vs Dashboard subject count]) listing the exact subject names causing any gap. #lp-panel-summary changed from flex-wrap pill row to column layout to fit the new two-block (pills + footnote) output. Confirmed already-present from the same parallel session and left untouched: _lpFilterByAY\'s v1015 archive/live detection fix (verified correct, no _legacyDataInScope() dependency), and the Lesson Plan card faculty-photo _facAvatar treatment (v1016) with its 3 _facAvatarInject() calls. CODE_BUILD=1025.' },
   { v: 'v1024', date: '23-Jul-2026 IST', note: 'Four fixes from user testing of v1022/v1023: (1) Principal no longer gets the VP-style My View/Full View dual-mode toggle -- that toggle is now shown for the legacy vp role only. Principal always has full access (isActingAsFaculty() no longer treats principal as acting-as-faculty; startPanel routing hardcodes principal -> dashboard/College Overview regardless of any leftover vpMode value in localStorage from prior VP use). (2) ROOT CAUSE of Anitha still showing "Vice Principal" after her Staff Directory role was changed to fulltime and saved: sdSaveToFirestore()\\u2019s users-collection sync ONLY ever wrote the password field -- it silently never synced role, so changing someone\\u2019s role dropdown in Staff Directory and clicking Save All Changes never actually reached their live users doc. Fixed: sync now also updates role and name when they differ from Staff Directory. This means Anitha (or anyone else) needs ONE more Save All Changes click on this build for her role to actually take effect in Firestore -- the previous save under v1022/v1023 code could not have worked. (3) Fixed the per-row Create Login button (added in v1023) two ways: (a) it now also appears live as soon as a password is typed into a brand-new row and the field loses focus, instead of only appearing after a full Save; (b) the existence check that decides whether to show/hide the button, AND sdCreateSingleLogin()\\u2019s own duplicate-check before creating an account, now match on username OR password OR name (previously username-only), which was causing false "does not exist" results for older accounts like Hemavati Desai whose users doc has a name-based username with the SD numeric code only in the password field -- exactly how doFacultyLogin() itself matches at sign-in. This was why her button kept reappearing after refresh: sdCreateSingleLogin would report success but the account already existed, then the next render\\u2019s username-only check would flag her as missing again. CODE_BUILD=1024.' },
   { v: 'v1023', date: '23-Jul-2026 IST', note: 'Staff Directory: added a per-row "\u26a1 Create Login" button (next to the delete/trash button) so adding ONE new person no longer requires running "\u26a1 Bulk Create Accounts" over the whole staff list. The button only appears on a row when that row password/username does not already have a Firebase Auth account + users doc -- existing staff never see it. Implementation: staffDirectoryRender() now also fetches the users collection once on load into a Set (sdExistingUsernames) alongside staff_directory data; sdRenderSection() checks that Set per row to decide whether to render the button; sdCreateSingleLogin(sec,idx) does the actual single-account creation (same Auth + users-doc-write logic staffBulkCreate() uses, just scoped to one entry) then updates the Set + re-renders so the button disappears immediately after success. Also: sdSaveToFirestore() now refreshes sdExistingUsernames from the same users-collection read it already does for password sync, and re-renders all three sections afterward -- so a freshly-added row Create Login button appears right after clicking Save All Changes, without needing to reopen the panel. staffBulkCreate() (bulk button) is unchanged and still available for bulk imports. CODE_BUILD=1023.' },
   { v: 'v1022', date: '23-Jul-2026 IST', note: 'Role restructure per user request: (1) Retired the \'vp\' role from active use -- added new role \'principal\' with IDENTICAL access to what \'vp\' had (same nav items, dashboard routing, My View/Full View dual-mode toggle, semester switcher, all ~60 role-gated checks across the file) -- effectively a clone/rename. New login: Kiran Kumar G K, contact 99161 23415, password 919919, role=principal, stored in Staff Directory fulltime section (same pattern the old vp record used). vpApplyMode() badge/topbar text now shows \'Principal\' vs \'Vice Principal\' based on actual role. (2) Anitha N: role changed from vp -> fulltime (no longer VP). She retains an elevated, NARROWLY SCOPED override (see hasTtAllocExtraAccess()) granting exactly 6 things a normal fulltime account does not get: View Timetable, View Allocation, Edit Timetable, Edit Allocation, Class Settings, Branding -- both the sidebar nav links (applySidebarForRole override pass) AND the switchPanel() direct-navigation guard for tt-editor/alloc-editor were updated so the override actually works, not just the nav link visibility. She does NOT get any other former-VP-only access (Dashboard admin view, Exemptions, Leave Admin, Lesson Plan, Downloads, Notify Report, semester switcher, dual-mode toggle, etc.) -- those all still gate on vp/manager/admin/principal only. ROLE_VP constant kept (not deleted) purely so any stale cached profile with role=\'vp\' does not crash; it is no longer assignable via any UI (User Management + Staff Directory dropdowns now offer \'Principal\' instead of \'Vice Principal\'; legacy vp option hidden but left in DOM as an escape hatch for pre-existing accounts only). CODE_BUILD=1022.' },
   { v: 'v1021', date: '22-Jul-2026 IST', note: 'Fix: Report Card said \'No previous semester results found\' for a BCom Sem III student who genuinely has Sem I results (confirmed real data exists via student_portal.html, which displayed it correctly for the same URN). ROOT CAUSE: rcFetchResults\'s processSlot() compared URNs with exact-case equality ((s.urn||s.usn) === urn) instead of case-insensitively -- student_portal.html\'s equivalent function already normalizes both sides to uppercase before comparing, so it found the match while index.html silently missed it whenever the URN casing stored in a results doc differed from what was passed in (e.g. a different upload batch/tool wrote lowercase or mixed-case URNs). FIX: all URN comparisons inside rcFetchResults (both processSlot definitions -- main Firestore path AND the RTDB fallback path used when Firestore permission is denied -- plus collegeRank/classRank lookups and the globalPool construction that feeds them) now normalize to uppercase before comparing, matching student_portal.html\'s existing correct behavior. CODE_BUILD=1021.' },
   { v: 'v1020', date: '22-Jul-2026 IST', note: 'Redesigned the Previous Semester summary section per user request: (1) per-semester cards now show Pass count + Fail count + SGPA together in one card instead of just a PASS/FAIL verdict, so the whole academic history since joining is readable at a glance without opening each semester\'s table below. (2) The card grid is now merged directly INSIDE the CGPI box (a divider line separates the CGPI number from the card grid beneath it) instead of being a separate detached block below it, per user\'s explicit layout request. Applied identically to scRenderResults and rcRenderCard. Overall Total Failed/Passed Subjects + Backlog Pending cards unchanged. CODE_BUILD=1020.' },
   { v: 'v1019', date: '22-Jul-2026 IST', note: 'Changed v1017\'s per-semester/total pass-fail summary from pill-shaped chips to rcSummCard-style stat cards (icon on top, big colored value, small caption underneath) -- same visual component already used for the Current Att./In Shortage/Last SGPA/CGPI/Failed Subs row at the top of the Report Card, per user preference for consistent card styling over chips. Applied to both scRenderResults and rcRenderCard, laid out in a responsive auto-fill grid instead of flex-wrap. CODE_BUILD=1019.' },
-  { v: 'v1019', date: '24-Jul-2026 IST', note: 'CRITICAL fix: Login Activity and Faculty Alerts sidebar links were visible to managers (applySidebarForRole already listed both as [\'admin\',\'manager\']) but clicking them did nothing for a manager login -- switchPanel()\'s SEPARATE _adminOnlyPanels guard still only allowed role===\'admin\' through for both, so the click silently hit console.warn(\'access denied\')+return with no visible feedback. Sidebar visibility and this navigation guard had drifted out of sync -- same root-cause pattern as the PUC Attendance issue fixed in v1017, just on the guard side instead of the visibility-map side this time. FIX: split the old single _adminOnlyPanels list into two -- true admin-only panels (user-management, admin-settings, staff-directory, ai-usage, fees-structure) stay admin-only; login-activity and faculty-alerts moved to a new _adminManagerPanels check that allows admin+manager, matching what the sidebar already promised. Also updated the PUC Attendance sidebar card\'s subtitle text from the now-inaccurate \'Admin access only\' to \'Staff access\', left over from before v1017 widened its actual visibility. CODE_BUILD=1019.' },
   { v: 'v1018', date: '22-Jul-2026 IST', note: 'Fix: v1017\'s new summary chips showed a phantom extra semester (e.g. \'Sem II: FAIL\' chip + doubled Total Failed Subjects count) for a student who only had ONE semester of results actually rendered on screen. ROOT CAUSE: rcFetchResults() never deduplicated results[] by (course, sem) -- if the same real semester matched the student across more than one Firestore results doc/batch (e.g. present in BOTH a regular array in one doc and a leftover backlog array in another, or a batch scraped/uploaded twice), each match became its own separate entry. This was always possible but silent/harmless before v1017, since nothing summed across every entry -- the new chip totals were the first thing to make a silent duplicate visibly wrong. FIX: results deduplicated by course+sem before returning, preferring a non-backlog record over a backlog one when both exist for the same semester. CODE_BUILD=1018.' },
-  { v: 'v1018', date: '24-Jul-2026 IST', note: 'FIX: Manjappa N (manager) sidebar avatar showed initials instead of photo. Root cause: Staff Directory record was renamed from \'Manjappa H\' to \'Manjappa N\' yesterday; facPhotos is keyed by exact normalized name, so the photo uploaded under the old name became orphaned under the new one -- same class of issue v958 already solved for Dr. Shilpa R Y / Shilpa R Y. Fix: added Manjappa N <-> Manjappa H to FACULTY_NAME_ALIASES (both directions, matching existing pattern) so _facPhotoUrl falls back to the old name\'s photo. No re-upload needed. CODE_BUILD=1018.' },
   { v: 'v1017', date: '22-Jul-2026 IST', note: 'Two fixes/features for Previous Semester University Results (Results tab + Report Card). (1) FIX: a student who failed and appears ONLY in results.html\'s backlog array for a semester (not the regular array) previously showed NOTHING for that semester -- processSlot() only ever searched the regular list. Now falls back to searching backlog when not found in regular, and tags the record _isBacklog so the UI shows a BACKLOG / REPEATER badge on that semester\'s header (both the compact Results-tab card and the full Report Card table); backlog records are correctly excluded from class/college rank eligibility. (2) FEAT: new summary chip row under the CGPI banner -- one PASS/FAIL chip per semester shown (labelled with Backlog suffix when applicable), a Total Failed Subjects chip and Total Passed Subjects chip summed across every semester shown, and a Backlog Subjects Pending chip when any backlog semester exists. Applied identically to both scRenderResults and rcRenderCard. CODE_BUILD=1017.' },
-  { v: 'v1017', date: '24-Jul-2026 IST', note: 'CHANGE: (1) PUC Attendance sidebar link was admin-only (nav-puc-attendance: [\'admin\']) -- widened to [\'admin\',\'manager\',\'vp\',\'principal\',\'fulltime\',\'visiting\'] per user request so managers/VP/principal/faculty can see and use it too. Student Portal link was already always-visible to every role (no entry in the access map, by design per its own code comment) -- no change needed there. (2) Sidebar avatar (SIGNED IN AS block) was showing photos only for [\'fulltime\',\'visiting\',\'vp\',\'principal\'] -- managers were excluded even though they have real photos on file (visible working correctly in Staff Directory\'s NON TEACHING / MANAGER section via the same _facAvatar/facPhotos system). Added \'manager\' to that list so manager logins now see their own photo in the sidebar too. CODE_BUILD=1017.' },
   { v: 'v1016', date: '22-Jul-2026 IST', note: 'Fix: \'Previous Semester University Results\' in both scRenderResults (Results tab) and rcRenderCard (Report Card) only ever showed the SINGLE immediately-preceding semester (currentSem-1) -- a Sem III student saw Sem II results but never Sem I. ROOT CAUSE: v785 (18-Apr-2026) deliberately restricted the filter to currentSem-1 only, to stop the current semester\'s own in-progress subjects leaking into the previous-results list. That fix over-corrected: it also hid every semester before the immediate one. FIX: filter now excludes ONLY the current semester itself -- every earlier completed semester is shown, each in its own labeled block via the existing per-semester render loop (Sem I, Sem II, etc, unchanged). CGPI (already averaged across all of prevResults) now correctly reflects full semester history instead of just the last one. CODE_BUILD=1016.' },
   { v: 'v1016', date: '24-Jul-2026 IST', note: 'FEAT: Lesson Plan cards (_lpCard -- shared by lpRender, lpDashRender, dashRenderFacultyLP\'s summary variant) now show the faculty\'s real photo beside their name instead of the generic teacher emoji, using the existing _facAvatar(name,size) helper (18px, initials fallback until their photo loads via facPhotos, same pattern already used in Staff Directory / Faculty Dashboard / sidebar). Added _facAvatarInject() calls after each of the 3 grid.innerHTML assignments that render _lpCard output, so initials swap to real photos once facPreloadPhotos() resolves, same as every other _facAvatar call site in the app. CODE_BUILD=1016.' },
   { v: 'v1015', date: '22-Jul-2026 IST', note: 'Fix: Report Card / Results tab / WhatsApp still showed raw subject codes (KAN-B-2, IC-II, ENGL-S-2, BCA-2-4 etc.) instead of resolved names even after RC_SUBJECT_CODE_NAMES and LM_ALLOCATIONS.resultsCode were populated with correct data. ROOT CAUSE: rcLooksLikeCode() only recognized DSC-/DSE-/SEC-/BBC- prefixed codes and the 21BCAxxx pattern -- it did not recognize KAN-B-2, IC-II, ENGL-S-2, BCA-1-1, or any other code family. When a Firestore results record had the raw code duplicated into its own name field (sub.name === sub.code, common for records saved before a resolver existed), rcResolveSubjectName\'s hint check wrongly accepted the code AS IF it were a real name and returned it immediately -- short-circuiting before RC_SUBJECT_CODE_NAMES or LM_ALLOCATIONS.resultsCode were ever consulted. FIX: rcLooksLikeCode rewritten from an enumerated prefix list to a general structural heuristic -- real subject names are human prose (2+ spaces, contains lowercase); real codes are short, space-free/near-space-free, all-uppercase-and-digit tokens (<=14 chars after stripping separators). Verified against 16 real codes and 12 real names -- all correctly classified. CODE_BUILD=1015.' },
@@ -37920,6 +37977,15 @@ async function facRegisterSW() {
     liveShowToast('🔕 Not Supported', 'Push notifications are not supported on this browser. Try Chrome on Android.', '⚠️', 8000);
     return;
   }
+  // Service workers can never register from a local file:// origin — this is a hard
+  // browser security restriction, not something any code fix can work around. Without
+  // this check, the raw browser error ("Script URL's scheme is not 'http' or 'https'")
+  // shows up looking like an app bug when someone opens the downloaded HTML file
+  // directly from disk instead of the real hosted site.
+  if (location.protocol === 'file:') {
+    liveShowToast('🔕 Notifications Need a Real Website', 'Push notifications can\'t work when this file is opened directly from your computer (file://). Please use the actual hosted link instead of a downloaded copy.', '⚠️', 12000);
+    return;
+  }
   try {
     // If already denied, browser won't show prompt — tell user how to fix in Chrome settings
     if (Notification.permission === 'denied') {
@@ -38974,7 +39040,7 @@ async function facAlertSchedulerTick() {
       if (subs.length) {
         await faFiredSave(fireKey); // save FIRST before sending to prevent race
         const msg = facAlertBuildMsg(faConfig.tmplPre, s, dayName);
-        await facAlertPush(s.faculty, `Class in ${faConfig.minsBefore} min: ${s.subject}`, msg, subs);
+        await facAlertPush(s.faculty, `⏰ ${s.faculty} — Class in ${faConfig.minsBefore} min: ${s.subject}`, msg, subs);
       }
     }
   }
@@ -39333,7 +39399,7 @@ async function scheduledMain(env) {
       if (subs.length) {
         await markFired(fireKey);
         const msg = buildMsg(faConfig.tmplPre, { faculty:s.faculty, subject:s.subject, class:s.class, day:dayName, time:s.time });
-        await pushToSubs(s.faculty, 'Class in ' + minsBefore + ' min: ' + s.subject, msg, subs);
+        await pushToSubs(s.faculty, '⏰ ' + s.faculty + ' — Class in ' + minsBefore + ' min: ' + s.subject, msg, subs);
       }
     }
   }
@@ -47685,7 +47751,7 @@ _assertSemConvention();
   <div id="lm-save-toast">✅ Saved — Substitutes notified via WhatsApp</div>
 
   <!-- ── Live Toast — fires on all devices when admin broadcasts ── -->
-  <div id="live-toast" style="display:none;position:fixed;top:80px;left:50%;transform:translateX(-50%);
+  <div id="live-toast" style="display:none;position:fixed;top:150px;left:50%;transform:translateX(-50%);
     z-index:9998;min-width:280px;max-width:90vw;background:var(--surface);border:1px solid var(--accent);
     border-radius:12px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,.6);
     font-family:var(--body);animation:liveToastIn .3s ease;">
@@ -48091,7 +48157,6 @@ function _lpCard(key, d, showClass) {
 
 // ── Build summary pills HTML from entry list ──────────────────────────────────
 function _lpSummaryPills(entries) {
-  let totalSubj = entries.length;
   let totalTopics = 0, totalDone = 0, totalPending = 0;
   entries.forEach(([, d]) => {
     const topics  = Array.isArray(d.topics) ? d.topics : Object.values(d.topics || {});
@@ -48104,11 +48169,57 @@ function _lpSummaryPills(entries) {
   const pill = (label, color, bg) =>
     `<span style="display:inline-block;padding:3px 10px;border-radius:5px;font-size:11px;
       font-family:var(--mono);font-weight:700;background:${bg};color:${color};">${label}</span>`;
-  return pill(totalSubj+' subjects','#60a5fa','rgba(96,165,250,0.12)')
+
+  // entries.length is a count of LP RECORDS (one per class+subject+semester+section
+  // combination) — different from the Dashboard's "College Subjects" widget, which counts
+  // UNIQUE subject names from LM_ALLOCATIONS. Both numbers broken down per-course together
+  // in one pass so they can't drift out of sync with each other.
+  const courseSubjSets   = {};
+  const courseEntryCount = {};
+  const allSubjNames = new Set();
+  entries.forEach(([key, d]) => {
+    const course = (key.split('-')[0] || '').toUpperCase().replace(/\./g,'');
+    const subjName = _lpResolveName(key, d);
+    if (!courseSubjSets[course]) courseSubjSets[course] = new Set();
+    courseSubjSets[course].add(subjName);
+    allSubjNames.add(subjName);
+    courseEntryCount[course] = (courseEntryCount[course] || 0) + 1;
+  });
+  const courseOrder = ['BBA','BCA','BCOM'];
+  const coursesPresent = courseOrder.filter(c => courseEntryCount[c]);
+  const entriesBreakdown = coursesPresent.map(c => c + ' ' + courseEntryCount[c]).join(' · ');
+  const uniqueBreakdown  = coursesPresent.map(c => c + ' ' + (courseSubjSets[c] ? courseSubjSets[c].size : 0)).join(' · ');
+  const uniqueSubjTotal = allSubjNames.size;
+
+  // Dashboard's College Subjects widget (LM_ALLOCATIONS) vs this panel's unique subjects
+  // (davan_pub/lessonPlan) read from different sources — a gap means some allocated
+  // subjects have no LP pushed yet. Log the exact diff so it's verifiable, not asserted.
+  try {
+    const allocSet = new Set();
+    const allocList = (typeof LM_ALLOCATIONS !== 'undefined' && LM_ALLOCATIONS) ? LM_ALLOCATIONS : [];
+    allocList.forEach(a => { if (a.subject) allocSet.add((a.subject || '').trim()); });
+    const missingFromLP = [...allocSet].filter(s => !allSubjNames.has(s)).sort();
+    const inLPnotAlloc   = [...allSubjNames].filter(s => !allocSet.has(s)).sort();
+    console.log('[LP vs Dashboard subject count]',
+      'Dashboard(alloc) unique:', allocSet.size,
+      '| LessonPlan unique:', allSubjNames.size,
+      '| Allocated but NO lesson plan yet (' + missingFromLP.length + '):', missingFromLP,
+      '| Has lesson plan but NOT in current allocations (' + inLPnotAlloc.length + '):', inLPnotAlloc);
+  } catch(e) { console.warn('[LP vs Dashboard subject count] diag failed:', e.message); }
+
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;">`
+       + pill(entries.length+' entries'+(entriesBreakdown?' ('+entriesBreakdown+')':''),'#60a5fa','rgba(96,165,250,0.12)')
+       + pill(uniqueSubjTotal+' unique subjects'+(uniqueBreakdown?' ('+uniqueBreakdown+')':''),'#a78bfa','rgba(167,139,250,0.12)')
        + pill(totalDone+' done','var(--ok)','rgba(34,197,94,0.12)')
        + (totalPending ? pill(totalPending+' pending','#f59e0b','rgba(245,158,11,0.12)') : '')
        + pill(overallPct+'% overall', overallPct<40?'var(--danger)':overallPct<70?'#f59e0b':'var(--ok)',
-              overallPct<40?'rgba(239,68,68,0.12)':overallPct<70?'rgba(245,158,11,0.12)':'rgba(34,197,94,0.12)');
+              overallPct<40?'rgba(239,68,68,0.12)':overallPct<70?'rgba(245,158,11,0.12)':'rgba(34,197,94,0.12)')
+       + `</div>`
+       + `<div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:6px;line-height:1.5;">`
+       + `Per-course subject counts can add up to more than the overall unique total — a subject taught in multiple courses (e.g. English in BBA, BCA &amp; B.Com) counts once per course here but once overall. `
+       + `This total may also differ from Dashboard → College Subjects: that widget counts every currently-<em>allocated</em> subject; this counts only subjects with an actual lesson plan pushed. `
+       + `<span style="cursor:pointer;color:var(--accent);text-decoration:underline;" onclick="console.log('See [LP vs Dashboard subject count] in the console above for the exact list of subjects causing the gap.');alert('Open the browser console (F12) and look for the line starting [LP vs Dashboard subject count] — it lists the exact subject names causing the difference.');">Why do these numbers differ? →</span>`
+       + `</div>`;
 }
 
 // ── Populate class & faculty selects from raw LP data ────────────────────────
