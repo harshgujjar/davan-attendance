@@ -7,7 +7,7 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.174                                                      ║
+║  CURRENT VERSION : v5.176                                                      ║
 ║  FILE NAME       : puc_v5.174.html                                             ║
 ║  LAST UPDATED    : 2026-07-13                                                ║
 ║                                                                              ║
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v5.174";                                            ║
+║     const APP_VERSION = "v5.176";                                            ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -39,6 +39,32 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v5.176 2026-07-24  Fix: Exception Subjects dropdown only sourced codes     ║
+║          from subjectMap + last year's Annual Exam (marksClassMap), so a   ║
+║          course that only exists in the CURRENT year's IA data (e.g.       ║
+║          DNAPD22, only present under puc_marks/2026-27/ia_*) never showed  ║
+║          up as a selectable option and could not be added as an exception. ║
+║          Fix: excPopulateSel() now also scans _intCache (current-year      ║
+║          Internals data) for codes, and intLoad() calls excPopulateSel()   ║
+║          after loading so the dropdown reflects current-year subjects.     ║
+║          Also: dropdown options now show "Name — CODE" instead of just     ║
+║          name, so subjects sharing an auto-guessed name (e.g. two          ║
+║          different codes both showing as "Economics") are distinguishable  ║
+║          and individually selectable.                                      ║
+║                                                                              ║
+║  v5.175 2026-07-24  Fix: §INTERN/scraper — old marks (e.g. a prior IA-2      ║
+║          scrape run before faculty entered/withdrew data) could survive     ║
+║          under puc_marks/{AY}/{examKey}/{class} and reappear in the         ║
+║          Internals panel even after a fresh scrape correctly detected the   ║
+║          subject as all-AB. Cause: Firebase RTDB stores arrays as index-    ║
+║          keyed objects, and spDoMarks() wrote the whole exam-key subtree    ║
+║          via a single shallow PATCH — which only overwrites array indices   ║
+║          present in the new data, leaving stale higher-index entries from   ║
+║          an earlier run intact underneath. Fix: each class's student array  ║
+║          is now written with its own PUT (full subtree replace) instead of ║
+║          one PATCH across all classes, so every scrape fully clears out     ║
+║          whatever was there before for that class+exam.                    ║
 ║                                                                              ║
 ║  v5.174 2026-07-13  Fix: Nutana/Davan/Unclassified student lists (inside      ║
 ║          the 1st PUC / 2nd PUC cards) were laid out as a multi-column         ║
@@ -7544,7 +7570,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.174";
+const APP_VERSION = "v5.176";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -19325,12 +19351,23 @@ async function spDoMarks() {
   const meta = { scraped_at:ist, academic_year:SP_MARKS_AY, exam:examLabel, classes:Object.keys(all) };
 
   // Path: puc_marks/2025-26/{examKey}/{class}
-  // ⚠ Use PATCH (not PUT) for byClass and summary so each class is written
-  //   individually and does NOT overwrite sibling classes already in Firebase.
-  //   Meta is a single flat object so PUT is fine there.
+  // ⚠ v5.175 fix: byClass[cls] is a STUDENT ARRAY. Firebase RTDB stores arrays
+  //   as index-keyed objects ("0","1","2"...). A shallow PATCH at the exam-key
+  //   level only overwrites index positions present in the NEW array — if an
+  //   earlier same-day/same-exam scrape wrote a longer array (or different
+  //   marks at a given index) those stale entries survive underneath and get
+  //   merged back on read. This caused old real numbers to reappear for
+  //   subjects that are now correctly AB-only.
+  //   Fix: PUT each class array individually (full replace of that subtree),
+  //   instead of one shallow PATCH across all classes. This still leaves
+  //   sibling class keys untouched — only fully replaces each class we
+  //   actually scraped this run.
   let fbOk = true;
+  const _classWrites = Object.entries(byClass).map(([cls, students]) =>
+    [`puc_marks/${SP_MARKS_AY_KEY}/${examKey}/${encodeURIComponent(cls)}`, students, 'PUT']
+  );
   for (const [path, data, method] of [
-    [`puc_marks/${SP_MARKS_AY_KEY}/${examKey}`,         byClass, 'PATCH'],
+    ..._classWrites,
     [`puc_marks_meta/${SP_MARKS_AY_KEY}/${examKey}`,    meta,    'PUT'  ],
     [`puc_marks_classes/${SP_MARKS_AY_KEY}/${examKey}`, summary, 'PATCH'],
   ]) {
@@ -23555,16 +23592,31 @@ async function excSave() {
 function excPopulateSel() {
   const sel = document.getElementById('exc-code-sel');
   if (!sel) return;
-  // Collect all known codes from subjectMap + marksClassMap
+  // Collect all known codes from subjectMap + marksClassMap (2025-26 Annual)
+  // + _intCache (current-year IA marks, e.g. puc_marks/2026-27/ia_*) — this
+  // last source was missing (v5.176 fix), so subjects that only exist in the
+  // current year's Internals data (like DNAPD22) never appeared here and
+  // could not be added as an exception.
   const codes = new Set(Object.keys(subjectMap));
   Object.values(marksClassMap).forEach(students =>
     (students||[]).forEach(s => (s.courses||[]).forEach(c => { if(c.code) codes.add(c.code); }))
   );
+  if (typeof _intCache !== 'undefined') {
+    Object.values(_intCache).forEach(examData =>
+      Object.values(examData||{}).forEach(students =>
+        (students||[]).forEach(s => (s.courses||[]).forEach(c => { if(c.code) codes.add(c.code); }))
+      )
+    );
+  }
   let html = '<option value="">— Select subject to exclude —</option>';
+  // Show the course code alongside the name so subjects that share a display
+  // name (e.g. two different codes both auto-named "Economics") are still
+  // distinguishable and selectable individually.
   [...codes].sort().forEach(code => {
     const nm = subjectMap[code]?.name?.trim() || code;
     const already = excSubjects.has(code) ? ' (already excluded)' : '';
-    html += `<option value="${code}">${nm}${already}</option>`;
+    const label = nm !== code ? `${nm} — ${code}` : code;
+    html += `<option value="${code}">${label}${already}</option>`;
   });
   sel.innerHTML = html;
 }
@@ -26894,6 +26946,10 @@ async function intLoad() {
 
   intBuildSecPills();
   intRender();
+  // Refresh exception-subject dropdown now that _intCache has current-year
+  // subject codes — otherwise codes only present in IA data (not in last
+  // year's Annual Exam or subjectMap) never show up as excludable options.
+  if (typeof excPopulateSel === 'function') excPopulateSel();
 }
 
 function intBuildSecPills() {
