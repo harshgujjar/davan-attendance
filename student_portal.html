@@ -80,6 +80,46 @@ VERSION : v7.06 (2026-07-22) — FIX: BCom students showed raw subject codes
   NOTE: faculty still shows '-' for several BCom subjects in the same table --
   that's a separate gap (missing/incomplete allocation_each doc for that
   semester's BCom section), not a code-naming issue; flagged for follow-up.
+VERSION : v7.20 (2026-07-23) — FIX: Lesson Plan panel showed stale prior-semester subjects
+  (e.g. "AFM", 98% done, updated_at ~02-Jun) alongside this term's real subject for the same
+  faculty/course (e.g. "Financial Management", 7% done, updated_at today) — confirmed via
+  user-provided evidence chain: app.py's scraper writes key and subject field from the same
+  source variable (no mismatch possible there); index.html's admin Lesson Plan view showed
+  BOTH "AFM" and "Financial Management" as separate cards for the same faculty, proving two
+  genuinely distinct records coexist in davan_pub/lessonPlan, not a display-layer name bug.
+  Root cause (already diagnosed and fixed for the ADMIN view in index.html v1009, but never
+  ported to the student portal): davan_pub/lessonPlan is a flat blob with NO academic-year
+  stamp — it accumulates lesson-plan entries across every semester ever scraped, so an old
+  semester's subject and the current semester's subject for the same class can both legally
+  match filterLPForStudent's course/sem/section filter (both say "Sem5", "BCom", etc.) even
+  though one is months-stale. index.html solved this with _lpFilterByAY(): drop any entry
+  whose updated_at predates the live semester's start date, applied at the single fetch
+  choke point. Ported the same logic to student_portal.html as _stuLpFilterByAY() /
+  _stuLpSemStartMs(), applied inside filterLPForStudent() (the shared choke point all 3
+  STATE.lessonPlan assignment call sites already funnel through) — after the existing
+  course/sem/section/exception filtering, additionally drops entries whose updated_at is
+  older than the semester start (STATE.semConfig.startDate, with the same 13-Jul-of-AY-year
+  fallback stuRenderSemStartNote() already uses when session_config isn't loaded yet).
+  Entries with no updated_at at all are kept rather than dropped (can't judge recency, so
+  err toward showing). Archive/legacy AY view (STATE._viewIsArchive) is exempt — shows the
+  full historical blob unchanged, matching admin's _legacyDataInScope() behavior exactly.
+VERSION : v7.19 (2026-07-23) — FIX: Today/Tomorrow lines (and any other feature routed
+  through portalClassToMotherClass) never worked for BCom/BBA students — confirmed via
+  console debug (user pasted real data): motherCls computed as "II YEAR B.Com (A)" but
+  real motherTT class strings for BCom/BBA carry NO section suffix at all — actual values
+  are "I YEAR B.Com", "II YEAR B.Com", "I YEAR BBA", "III YEAR BBA" etc. (only BCA runs
+  multiple sections, e.g. "II YEAR BCA (A)"/"(B)", so only BCA rows have "(section)").
+  portalClassToMotherClass() was unconditionally appending "(A)"/the parsed section to
+  every course, producing a class string that matched zero timetable rows for BCom/BBA —
+  hence rowsForMyClass: 0 in the debug dump despite allocs correctly resolving (22 course
+  matches, 8 full matches). Fixed both parsing branches (roman-numeral format and
+  Sem-keyword format) to only append "(section)" when the course is BCA; B.Com/BBA now
+  return the bare "<year> YEAR <course>" string matching real data. stuLmClassMatch_'s
+  section-comparison already degraded correctly for a sectionless ttClass (no regex
+  match → falls through to unconditional true), so no change needed there. This was a
+  single shared function used by 5 call sites (Today/Tomorrow, timetable rendering,
+  attendance-summary-related lookups), so the fix applies uniformly, not just to the
+  Your Summary card.
 VERSION : v7.18 (2026-07-23) — CHANGE: dashboard top-of-page reorder, per user request
   (screenshot showed the "assigned N subjects / semester dates / working days" note at
   the very top, wanted it moved below Perfect Attendance/celebrations; wanted "Your
@@ -3339,7 +3379,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.18';
+const APP_VERSION = 'v7.20';
 const BUILD_DATE   = '22 Jul 2026, 01:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -6910,6 +6950,43 @@ STATE.studentData = null;
    cls  = "Davan-BCA-Sem2-SecA"
    key  = "BCA-OS-LAB-SemIV-SecA"
 ════════════════════════════════════════════════════ */
+// v7.20: Recency (AY) filter — ports the exact fix already shipped in index.html's admin
+// Lesson Plan view (_lpFilterByAY, v1009). davan_pub/lessonPlan is a flat blob with NO AY
+// stamp: it accumulates entries across semesters, so a stale prior-semester subject (e.g.
+// "AFM", updated_at ~02-Jun) and this term's real subject for the same faculty/course (e.g.
+// "Financial Management", updated_at today) can both sit in the blob at once under different
+// keys — filterLPForStudent's class/sem/section match alone can't tell them apart since both
+// legitimately match the student's current class string. index.html solved this on the admin
+// side by dropping entries whose updated_at predates the live semester's start date; the
+// student portal never got the same filter, which is why old subjects like "AFM" leaked
+// through here even though Today/Tomorrow/attendance were otherwise correct.
+function _stuLpSemStartMs() {
+  try {
+    const sc = STATE.semConfig || {};
+    let s = sc.startDate || sc.start || sc.semStart || sc.sessionStart || sc.from || '';
+    if (!s) {
+      // Same fallback stuRenderSemStartNote() uses when session_config has no dates yet.
+      const yr = parseInt((STU_TARGET_AY || '2026-27').slice(0,4), 10) || 2026;
+      s = yr + '-07-13';
+    }
+    const t = Date.parse(String(s).replace(/\//g,'-') + (String(s).length<=10?'T00:00:00':''));
+    if (!isNaN(t)) return t;
+  } catch(e) {}
+  return 0;
+}
+function _stuLpFilterByAY(entries) {
+  // entries: array of [key, d] pairs (already class/sem/section/exception filtered).
+  // Archive/legacy AY view shows the full historical blob unchanged — same rule as admin.
+  if (STATE._viewIsArchive) return entries;
+  const cutoff = _stuLpSemStartMs();
+  if (!cutoff) return entries; // no start date resolvable at all → don't over-filter
+  return entries.filter(([key, d]) => {
+    const ts = d && d.updated_at ? Date.parse(d.updated_at) : NaN;
+    // Entries with no updated_at at all are kept (can't judge recency) rather than dropped —
+    // avoids hiding legitimately fresh data that's simply missing the timestamp field.
+    return isNaN(ts) || ts >= cutoff;
+  });
+}
 function filterLPForStudent(allLP, cls) {
   if (!allLP || !cls) return {};
   const SEM_NUM_TO_ROMAN = {'1':'I','2':'II','3':'III','4':'IV','5':'V','6':'VI'};
@@ -6925,27 +7002,26 @@ function filterLPForStudent(allLP, cls) {
   const _LP_HIDDEN_CODES = ['SPORTS','SYF','NSS','NCC','YRC','QSPIDER','QSPIDER','HINL','EXTRA'];
   const _LP_HIDDEN_NAMES = /qspider|sports|physical education|nss|ncc|yrc|samskruthi|festival/i;
   const courseU = course.toUpperCase();
-  return Object.fromEntries(
-    Object.entries(allLP).filter(([key, d]) => {
-      const ku = key.toUpperCase();
-      // Course match: key contains the course token (tolerant of Davan-/Nutana- prefix).
-      if (!ku.includes(courseU)) return false;
-      // Sem match: key contains -Sem2- or -SemII- (either numbering).
-      if (!ku.includes('-SEM' + semRom + '-') && !ku.includes('-SEM' + semNum + '-') &&
-          !ku.includes('SEM' + semRom) && !ku.includes('SEM' + semNum)) return false;
-      // Section: accept matching section OR keys with no section suffix at all.
-      const hasAnySec = /-SEC[A-Z]/.test(ku);
-      if (hasAnySec && !ku.includes('-SEC' + section)) return false;
-      // Hide subjects that admin marked as exceptions
-      const subCode = d.subject || (key.split('-')[1] || '');
-      if (exceptions.includes(subCode)) return false;
-      if (_LP_HIDDEN_CODES.some(hc => ku.includes(hc))) return false;
-      const subName = (d.subject_name || d.full_name || d.subject || '');
-      const facName = (d.faculty || '');
-      if ((subName && _LP_HIDDEN_NAMES.test(subName)) || (facName && _LP_HIDDEN_NAMES.test(facName))) return false;
-      return true;
-    })
-  );
+  const matched = Object.entries(allLP).filter(([key, d]) => {
+    const ku = key.toUpperCase();
+    // Course match: key contains the course token (tolerant of Davan-/Nutana- prefix).
+    if (!ku.includes(courseU)) return false;
+    // Sem match: key contains -Sem2- or -SemII- (either numbering).
+    if (!ku.includes('-SEM' + semRom + '-') && !ku.includes('-SEM' + semNum + '-') &&
+        !ku.includes('SEM' + semRom) && !ku.includes('SEM' + semNum)) return false;
+    // Section: accept matching section OR keys with no section suffix at all.
+    const hasAnySec = /-SEC[A-Z]/.test(ku);
+    if (hasAnySec && !ku.includes('-SEC' + section)) return false;
+    // Hide subjects that admin marked as exceptions
+    const subCode = d.subject || (key.split('-')[1] || '');
+    if (exceptions.includes(subCode)) return false;
+    if (_LP_HIDDEN_CODES.some(hc => ku.includes(hc))) return false;
+    const subName = (d.subject_name || d.full_name || d.subject || '');
+    const facName = (d.faculty || '');
+    if ((subName && _LP_HIDDEN_NAMES.test(subName)) || (facName && _LP_HIDDEN_NAMES.test(facName))) return false;
+    return true;
+  });
+  return Object.fromEntries(_stuLpFilterByAY(matched));
 }
 
 async function loadStudentDashboard() {
@@ -9415,7 +9491,13 @@ function portalClassToMotherClass(portalCls) {
     const sec    = romanMatch[3].toUpperCase();
     const year   = romanToYear[roman] || 'I';
     const cStr   = /bcom/i.test(course) ? 'B.Com' : course.toUpperCase();
-    return year + ' YEAR ' + cStr + ' (' + sec + ')';
+    // Real motherTT class strings only carry a "(section)" suffix for BCA
+    // (which runs multiple sections, e.g. "II YEAR BCA (A)"); B.Com and BBA
+    // classes are unsectioned there ("II YEAR B.Com", "I YEAR BBA" — no "(A)").
+    // Appending "(A)" unconditionally for those made the mother-class string
+    // match zero timetable rows, which is why Today/Tomorrow never showed for
+    // BCom/BBA students even though BCA worked fine.
+    return cStr.toUpperCase() === 'BCA' ? (year + ' YEAR ' + cStr + ' (' + sec + ')') : (year + ' YEAR ' + cStr);
   }
 
   // Format with "Sem" keyword e.g. "BCA-Sem3-SecA"
@@ -9429,7 +9511,8 @@ function portalClassToMotherClass(portalCls) {
   const yearMap = {1:'I',2:'I',3:'II',4:'II',5:'III',6:'III'};
   const year    = yearMap[sem] || 'I';
   const cStr    = course.toUpperCase() === 'BCOM' ? 'B.Com' : course.toUpperCase();
-  return year + ' YEAR ' + cStr + ' (' + sec + ')';
+  // Same section-suffix rule as above: only BCA carries "(section)" in real motherTT data.
+  return cStr.toUpperCase() === 'BCA' ? (year + ' YEAR ' + cStr + ' (' + sec + ')') : (year + ' YEAR ' + cStr);
 }
 
 /* ════════════════════════════════════════════════════
