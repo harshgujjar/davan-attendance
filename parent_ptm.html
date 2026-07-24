@@ -24,7 +24,7 @@
 <!--
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  DAVAN PUC — PARENT PROGRESS CARD (PTM)                                       ║
-║  FILE: parent_ptm_v3_9.html   ·   VERSION v3.9   ·   2026-07-24               ║
+║  FILE: parent_ptm_v3_17.html   ·   VERSION v3.17   ·   2026-07-24             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Two audiences, one file:                                                     ║
 ║   • PARENT  — logs in with mobile number only → picks child → sees frozen     ║
@@ -47,6 +47,178 @@
 ║  VERSIONING: bump VERSION, update this block + changelog on every change.     ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
+║  v3.17 2026-07-24 Fix: exported PDF was missing the top header entirely —    ║
+║                    the logo/college-name/student-photo row (.hdr) was       ║
+║                    cropped off the top of the page, with the card starting  ║
+║                    mid-content at "Dear Parent/Guardian,". Root cause:      ║
+║                    .topbar is position:sticky;top:0, sitting in normal      ║
+║                    document flow directly above #card. downloadPDF()        ║
+║                    measures #card's crop rect with getBoundingClientRect()  ║
+║                    against the LIVE viewport (where the sticky topbar       ║
+║                    reserves real space above the card, so rect.top          ║
+║                    correctly includes that gap) — but html2canvas never     ║
+║                    captures the live viewport, it clones the whole DOM      ║
+║                    into its own offscreen virtual window and re-renders it  ║
+║                    there. A sticky top:0 element re-rendered inside that    ║
+║                    offscreen clone doesn't reliably reserve the same        ║
+║                    layout space it did live; it can instead pin itself      ║
+║                    over the capture region, shifting the card's true       ║
+║                    position in the clone upward relative to what the live   ║
+║                    rect predicted. The crop window — built from the live    ║
+║                    rect — then started slightly below the clone's real      ║
+║                    card top, slicing .hdr (and sometimes the greeting       ║
+║                    line right after it) clean off. The existing             ║
+║                    @media print rule that hides .topbar never helped here   ║
+║                    because html2canvas renders the live screen DOM and      ║
+║                    does not trigger @media print at all. Fix: .topbar is    ║
+║                    now explicitly hidden before the capture rect is even    ║
+║                    measured — both via a body:has(#card.pdf-mode) .topbar   ║
+║                    CSS rule and, belt-and-braces for any WebView without    ║
+║                    :has() support, an explicit topbarEl.style.display=      ║
+║                    'none' in downloadPDF() itself, restored in the finally  ║
+║                    block. With nothing sticky left above #card by the time  ║
+║                    rect is measured, the live rect and the offscreen        ║
+║                    clone's layout agree, and the crop starts exactly at     ║
+║                    .hdr's real top edge.                                    ║
+║  v3.16 2026-07-24 Fix: exported PDF still clipped the "Subject marks" bar    ║
+║                    chart's rightmost bar/subject at the page's right edge,   ║
+║                    even after v3.14's chart-corruption fix. Root cause,     ║
+║                    confirmed by measuring live bounding boxes in a headless ║
+║                    browser: .charts (the two-column grid holding both       ║
+║                    chartboxes) uses grid-template-columns:1fr 1fr, but CSS  ║
+║                    grid items default to min-width:auto — meaning a grid    ║
+║                    item refuses to shrink below its own content's natural   ║
+║                    width. The bar chartbox's content (its fixed-width       ║
+║                    canvas + legend chips) wanted more horizontal room than  ║
+║                    its 1fr track actually had, so the whole chartbox        ║
+║                    overflowed its track AND the card's own right edge by    ║
+║                    ~69px — invisible on screen (where extra page width      ║
+║                    usually absorbs it) but clipped hard at the card/page    ║
+║                    boundary in the exported PDF. Fix: added min-width:0 to  ║
+║                    .chartbox, letting each chart panel actually shrink to   ║
+║                    fit its grid track like a normal box; Chart.js's own     ║
+║                    responsive:true then resizes the canvas down to match    ║
+║                    via ResizeObserver, same as it already did for height.   ║
+║                    Verified by querying Chart.js's own bar-position data    ║
+║                    directly: the last bar's right edge now sits ~30px      ║
+║                    inside the card's right edge instead of past it.        ║
+║  v3.15 2026-07-24 Feature: "not available yet" screen (visibility window     ║
+║                    gate) redesigned. Follow-us links now show real Facebook/ ║
+║                    YouTube/Instagram brand icons (inline SVG, no external    ║
+║                    image request/network wait) in their brand colors, with  ║
+║                    a subtle pulsing ring animation to draw the eye — no     ║
+║                    more plain numbered text links. Added the exact date and ║
+║                    time the report becomes visible (from published_index's  ║
+║                    visibleFrom), plus a live animated countdown (days :     ║
+║                    hours : minutes : seconds, each digit box ticking on     ║
+║                    update) that free-runs client-side and, on reaching      ║
+║                    zero, automatically re-checks Firebase and loads the     ║
+║                    card — a parent who leaves the countdown open doesn't    ║
+║                    have to refresh once it hits zero. Expired-report case   ║
+║                    still shows its own distinct message with no countdown.  ║
+║  v3.14 2026-07-24 Fix: exported PDF still showed garbled/blank charts even   ║
+║                    after v3.13's positioning fix. Root cause, confirmed by   ║
+║                    actually running the app in a headless browser and        ║
+║                    comparing the live DOM against html2canvas's captured     ║
+║                    output pixel-for-pixel: v3.11's own "fix" (calling       ║
+║                    chart.resize() on every Chart.js instance right after    ║
+║                    entering pdf-mode, to shrink each chart from 150px to    ║
+║                    75px tall) was itself the cause of a worse bug. Forcing   ║
+║                    that resize reallocates the canvas's backing store at    ║
+║                    the exact moment html2canvas is copying its pixel data — ║
+║                    the two race, and html2canvas can grab a half-updated    ║
+║                    buffer, producing the blank/garbled chart seen in        ║
+║                    exported PDFs. No amount of extra settle-time waiting    ║
+║                    fixes this, because the problem isn't timing before the  ║
+║                    resize, it's the resize itself colliding with capture.   ║
+║                    Fix: pdf-mode no longer shrinks .canvas-wrap at all —    ║
+║                    charts stay at their normal on-screen size, so no        ║
+║                    canvas ever needs to resize right before a PDF capture.  ║
+║                    The whole card, charts included, is scaled down          ║
+║                    together when placed on the A4 page (already how        ║
+║                    captureCardAsPdfBlob sizes the page from the actual      ║
+║                    captured pixel dimensions) — same visual result, no      ║
+║                    race. Verified by rendering real card data through the   ║
+║                    actual unmodified downloadPDF()/captureCardAsPdfBlob()   ║
+║                    functions in a headless browser and diffing the output   ║
+║                    against a known-clean baseline.                         ║
+║  v3.13 2026-07-24 Fix: exported PDF showed the whole card shifted right —    ║
+║                    a blank grey gap on the left, content clipped on the      ║
+║                    right. Root cause: captureCardAsPdfBlob() told            ║
+║                    html2canvas to start capturing at exactly x:0,y:0 of a   ║
+║                    fixed-width virtual window, but #card doesn't sit at     ║
+║                    x:0 — it's nested inside .wrap (16px padding, its own    ║
+║                    margin:0 auto centering), and #card.pdf-mode ALSO had    ║
+║                    margin:0 auto. Two stacked auto-centering layers meant   ║
+║                    #card's true left edge was never at 0, so capturing      ║
+║                    from x:0 sliced the image at the wrong horizontal        ║
+║                    offset. Fix: #card.pdf-mode no longer self-centers       ║
+║                    (margin:0 instead of margin:0 auto), and                 ║
+║                    captureCardAsPdfBlob() now reads #card's real on-page    ║
+║                    position via getBoundingClientRect() right before        ║
+║                    capture and passes that as html2canvas's x/y/width/      ║
+║                    height — so the capture always starts at the element's   ║
+║                    true edges regardless of ancestor padding/centering,     ║
+║                    instead of assuming a fixed offset that could drift.     ║
+║  v3.12 2026-07-24 Feature: delete published cards (single student or every  ║
+║                    student matching the current filter/class) — fully       ║
+║                    removes published_cards + published_index +              ║
+║                    parent_index/{phone}/{usn}, so the parent's phone        ║
+║                    number no longer resolves to that student at all. Never  ║
+║                    touches source attendance/marks data. Feature: bulk-     ║
+║                    publish log (step 1) is now tagged per class it was run  ║
+║                    for — switching the class dropdown to a different class  ║
+║                    swaps in a notice instead of showing a stale/mixed log.  ║
+║                    Feature: visibility start/end date-time — admin sets     ║
+║                    "visible from" (defaults to now) and "visible until"     ║
+║                    (blank = no end date) once per publish action (single    ║
+║                    or whole-class), stored on published_index. A parent     ║
+║                    logging in still sees the normal phone → confirm-child   ║
+║                    screen either way; only tapping "Yes, this is my child"  ║
+║                    (or picking from a multi-child list) checks the window   ║
+║                    — outside it, shows a "not available yet" / "no longer   ║
+║                    available" screen with the college's Facebook/YouTube/   ║
+║                    Instagram follow links, instead of the card. Window is   ║
+║                    re-checked against Firebase on every open, even for a    ║
+║                    session-cached card, so an already-cached card stops     ║
+║                    rendering once its end time passes.                      ║
+║  v3.11 2026-07-24 Fix: downloaded PDF showed the "Progress journey" line     ║
+║                    chart garbled/overlapping the "Subject marks" bar chart   ║
+║                    and the note box beneath it. Root cause: .pdf-mode CSS    ║
+║                    shrinks .canvas-wrap from 150px to 75px tall, but the     ║
+║                    Chart.js instances were already drawn at the old 150px    ║
+║                    height when pdf-mode was applied. Chart.js's             ║
+║                    responsive:true redraws on container resize via a        ║
+║                    ResizeObserver callback, which fires async and was not    ║
+║                    guaranteed to finish inside the old fixed rAF+150ms      ║
+║                    settle wait — html2canvas could snapshot mid-resize,      ║
+║                    capturing the stale 150px-tall chart bitmap stretched/    ║
+║                    overlapping into the new 75px box. Fix: downloadPDF()     ║
+║                    and the bulk-zip export path now call .resize() on       ║
+║                    every live Chart instance immediately after adding       ║
+║                    pdf-mode, forcing a synchronous redraw at the final PDF   ║
+║                    canvas size before the settle wait / capture even        ║
+║                    starts. Also added a matching settle wait to the bulk    ║
+║                    export path, which previously had none at all.           ║
+║  v3.10 2026-07-24 Fix: downloaded/published PDF showed scattered, unevenly-  ║
+║                    spaced words (e.g. "Progress   sheet   of   ADITYA...")   ║
+║                    in the greeting line and Overall Summary paragraph,       ║
+║                    while the marks table itself looked fine. Root cause:     ║
+║                    captureCardAsPdfBlob() widened html2canvas's virtual      ║
+║                    windowWidth to match the marks table's natural           ║
+║                    (unwrapped) scrollWidth so the whole table would be      ║
+║                    captured (can exceed 1200px for classes with many        ║
+║                    subjects). #card itself had no width of its own, so it   ║
+║                    — and every plain-text block inside it — stretched to    ║
+║                    fill that same artificially wide window; the browser     ║
+║                    then spread words far apart on each line to fill the     ║
+║                    unexpectedly wide container. Fix: #card.pdf-mode now has ║
+║                    a fixed 680px width (independent of table width), and    ║
+║                    the capture window matches that fixed width instead of   ║
+║                    the table's natural width — the table already squeezes   ║
+║                    to fit via its existing table-layout:fixed;width:100%    ║
+║                    + white-space:normal cell rules, so no table content is  ║
+║                    lost, just wrapped/compacted as originally intended.     ║
 ║  v3.9 2026-07-24  Feat: added Open Graph + Twitter Card meta tags (og:title, ║
 ║                    og:description, og:image using the existing Davan logo,   ║
 ║                    og:url, plus a <meta name="description">) so sharing the ║
@@ -415,6 +587,40 @@
   .switch b{color:var(--accent)}
 
   .picker{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;width:100%;max-width:400px}
+
+  /* ---------- not-available screen: countdown + follow-us panel ---------- */
+  .cd-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .cd-box{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px 4px;text-align:center}
+  .cd-num{font-size:22px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;transition:transform .15s ease}
+  .cd-num.tick{animation:cdTick .4s ease}
+  @keyframes cdTick{0%{transform:translateY(-6px);opacity:.4}100%{transform:translateY(0);opacity:1}}
+  .cd-lbl{font-size:9.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+
+  .followpanel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:18px;display:flex;flex-direction:column;gap:8px}
+  .followpanel-title{font-size:12px;color:var(--mut);margin-bottom:2px}
+  .followbtn{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px 12px;text-decoration:none;color:var(--ink);font-size:12.5px;font-weight:600;position:relative;overflow:hidden;transition:transform .15s ease,border-color .15s ease}
+  .followbtn:hover{transform:translateY(-1px)}
+  .followbtn-icon{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;flex-shrink:0;color:#fff}
+  .followbtn-arrow{margin-left:auto;opacity:.5;transition:transform .15s ease,opacity .15s ease}
+  .followbtn:hover .followbtn-arrow{opacity:1;transform:translateX(3px)}
+  .fb-btn:hover{border-color:#1877F2}
+  .fb-btn .followbtn-icon{background:#1877F2}
+  .yt-btn:hover{border-color:#FF0000}
+  .yt-btn .followbtn-icon{background:#FF0000}
+  .ig-btn:hover{border-color:#C13584}
+  .ig-btn .followbtn-icon{background:radial-gradient(circle at 30% 110%,#fdf497 0%,#fdf497 5%,#fd5949 45%,#d6249f 60%,#285AEB 90%)}
+  /* Gentle pulsing ring on the icon badges — draws the eye toward the
+     follow buttons without being obnoxious (one pulse every ~2.4s, offset
+     slightly per icon so they don't all pulse in unison). */
+  .followbtn-icon::after{content:'';position:absolute;inset:0;border-radius:50%;border:2px solid currentColor;opacity:0;animation:followPulse 2.4s ease-out infinite}
+  .fb-btn .followbtn-icon{position:relative}
+  .fb-btn .followbtn-icon::after{animation-delay:0s;color:#1877F2}
+  .yt-btn .followbtn-icon{position:relative}
+  .yt-btn .followbtn-icon::after{animation-delay:.5s;color:#FF0000}
+  .ig-btn .followbtn-icon{position:relative}
+  .ig-btn .followbtn-icon::after{animation-delay:1s;color:#d6249f}
+  @keyframes followPulse{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.6);opacity:0}}
+
   .picker h2{font-size:15px;margin-bottom:4px}
   .picker .sub{font-size:12px;color:var(--mut);margin-bottom:14px}
   .childrow{display:flex;align-items:center;gap:12px;padding:11px;border:1px solid var(--line);border-radius:9px;margin-bottom:8px;cursor:pointer}
@@ -462,6 +668,18 @@
   .chip b{color:var(--accent)}
   .foot-note{margin-top:6px;font-size:10px;color:var(--faint)}
   .charts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+  /* v3.16 fix: grid items default to min-width:auto, meaning they refuse to
+     shrink below their content's natural width — here that's the canvas
+     (336px, fixed via inline style set by Chart.js) plus the legend chips.
+     When the legend/canvas together want more room than the 1fr track
+     actually has, the chartbox overflows its own grid track and its parent
+     .charts container instead of shrinking, pushing the bar chart's
+     rightmost bar (and the box's right edge) past the card's own right edge
+     — invisible on screen (where there's usually slack) but clipped at the
+     card/page boundary in the exported PDF. min-width:0 lets each chartbox
+     actually shrink to fit its 1fr track like a normal box, and the canvas
+     inside it responds via its own responsive:true / overflow handling. */
+  .chartbox{min-width:0}
   .chartbox{background:var(--panel);border-radius:9px;padding:10px 12px}
   .chartbox h3{font-size:12.5px;font-weight:600;margin-bottom:2px}
   .chartbox .cap{font-size:10.5px;color:var(--mut);margin-bottom:6px}
@@ -529,7 +747,45 @@
      layout, compact charts) — applied as a real class (not @media print,
      which html2canvas does not emulate) so html2canvas captures the correct
      light, right-sized version of the card. */
-  #card.pdf-mode{background:#fff!important;color:#000!important;border:1px solid #999;border-radius:0;padding:6mm;font-size:9.5px}
+  /* v3.10 fix: #card has no width of its own, so when captureCardAsPdfBlob()
+     widens html2canvas's virtual windowWidth to fit a wide marks table (many
+     subject columns → 1200px+), #card — and every text block inside it, like
+     the "Progress sheet of..." line and the summary paragraph — stretched to
+     fill that same width. The browser then spread words far apart on each
+     line to justify-fill the unexpectedly wide container, producing exactly
+     the scattered-word PDF output reported. Fix: pin #card to the SAME
+     680px content width the capture always used as its floor (see
+     captureCardAsPdfBlob's contentWidth calc — Math.max(..., 700)), so text
+     wraps at a normal, readable width no matter how wide the table itself
+     is. The table keeps its own horizontal scroll/overflow independently. */
+  #card.pdf-mode{width:680px;max-width:680px;margin:0}
+  /* v3.17 fix: exported PDF was missing the top header entirely — the logo/
+     college-name/student-photo row (.hdr) and sometimes "Dear Parent/
+     Guardian," were cropped clean off the top of the capture. Root cause:
+     .topbar is position:sticky;top:0, sitting in normal document flow just
+     above #card. getBoundingClientRect() on #card correctly measures
+     rect.top as the live on-screen gap (which already accounts for the
+     sticky topbar occupying space above it) — but html2canvas doesn't
+     capture the live viewport, it clones the DOM into its own offscreen
+     virtual window and re-renders it there. In that clone, a sticky
+     top:0 element doesn't necessarily reserve the same layout space it did
+     live — it can pin itself over the top of the capture region instead,
+     shifting everything below it upward relative to what rect.top assumed.
+     That mismatch is exactly what sliced the .hdr row off: the crop window
+     (built from the live rect) ended up starting a bit lower than the
+     re-rendered clone's actual card position. @media print already hides
+     .topbar (line ~770), but that rule only fires for the browser's native
+     print engine — html2canvas renders the live screen DOM and never
+     triggers @media print, so .topbar stayed sticky and visible through
+     the whole capture. Fix: collapse .topbar out of layout directly via
+     .pdf-mode (not just relying on @media print), so there is nothing
+     sticky above #card by the time getBoundingClientRect() and html2canvas
+     both look at the page. body:has(#card.pdf-mode) targets the topbar
+     without needing a class toggle on the topbar element itself, since
+     downloadPDF() only ever adds .pdf-mode to #card. */
+  body:has(#card.pdf-mode) .topbar,body:has(#card.pdf-mode) .cardbtns{display:none!important}
+
+  #card.pdf-mode{background:#fff!important;color:#000!important;border:none;border-radius:0;padding:6mm;font-size:9.5px}
 
   #card.pdf-mode *{color:#000!important}
   #card.pdf-mode .hdr{border-color:#999;padding-bottom:5px;margin-bottom:6px}
@@ -554,7 +810,14 @@
   #card.pdf-mode .p,#card.pdf-mode .stat-ok,#card.pdf-mode .miss-ok,#card.pdf-mode .good{color:#1a7f37!important}
   #card.pdf-mode .f,#card.pdf-mode .stat-short,#card.pdf-mode .miss-bad,#card.pdf-mode .bad{color:#c0392b!important}
   #card.pdf-mode .stat-border,#card.pdf-mode .mid{color:#b8860b!important}
-  #card.pdf-mode .canvas-wrap{height:75px}
+  /* v3.14 fix: removed here — see captureCardAsPdfBlob() comment for why.
+     Shrinking .canvas-wrap for pdf-mode forced Chart.js to resize its canvas
+     backing store right before html2canvas captured it, and that resize
+     lost the race with the capture, producing garbled/blank charts in the
+     exported PDF. Charts now stay at their normal on-screen size in
+     pdf-mode too — the whole card (charts included) is scaled down together
+     when placed on the A4 page in captureCardAsPdfBlob(), so no canvas ever
+     needs to change size live right before capture. */
   #card.pdf-mode .charts{margin:5px 0;gap:6px}
   #card.pdf-mode .facphoto-sm{display:none!important}
   #card.pdf-mode .facphoto{display:none!important}
@@ -639,6 +902,52 @@
   </div>
 </div>
 
+<!-- ========= NOT YET AVAILABLE / EXPIRED (visibility window gate) ========= -->
+<div id="scr-notavail" class="screen hide">
+  <div class="picker" style="max-width:420px">
+    <h2 id="notavail-title">Report not available yet</h2>
+    <div class="sub" id="notavail-msg">This report will be visible here soon.</div>
+
+    <!-- Countdown — only shown for the "early" (not-yet-visible) case, hidden for "expired" -->
+    <div id="notavail-countdown-wrap" class="hide" style="margin-top:16px">
+      <div id="notavail-target-line" class="mini" style="text-align:center;margin-bottom:10px"></div>
+      <div class="cd-grid">
+        <div class="cd-box"><div class="cd-num" id="cd-d">00</div><div class="cd-lbl">days</div></div>
+        <div class="cd-box"><div class="cd-num" id="cd-h">00</div><div class="cd-lbl">hrs</div></div>
+        <div class="cd-box"><div class="cd-num" id="cd-m">00</div><div class="cd-lbl">min</div></div>
+        <div class="cd-box"><div class="cd-num" id="cd-s">00</div><div class="cd-lbl">sec</div></div>
+      </div>
+    </div>
+
+    <div class="followpanel">
+      <div class="followpanel-title">While you wait, follow us for updates:</div>
+      <a href="https://www.facebook.com/davandvg" target="_blank" rel="noopener" class="followbtn fb-btn">
+        <span class="followbtn-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06C2 17.08 5.66 21.23 10.44 22v-7.03H7.9v-2.91h2.54V9.85c0-2.51 1.49-3.9 3.77-3.9 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.89h2.78l-.44 2.91h-2.34V22C18.34 21.23 22 17.08 22 12.06Z"/></svg>
+        </span>
+        <span>Like our Official Facebook Page</span>
+        <span class="followbtn-arrow">→</span>
+      </a>
+      <a href="https://www.youtube.com/c/DAVANCollegeDavangere" target="_blank" rel="noopener" class="followbtn yt-btn">
+        <span class="followbtn-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.51 3.5 12 3.5 12 3.5s-7.51 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14C4.49 20.5 12 20.5 12 20.5s7.51 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81ZM9.6 15.6V8.4l6.4 3.6-6.4 3.6Z"/></svg>
+        </span>
+        <span>Subscribe to our YouTube Channel</span>
+        <span class="followbtn-arrow">→</span>
+      </a>
+      <a href="https://www.instagram.com/davan_dvg/" target="_blank" rel="noopener" class="followbtn ig-btn">
+        <span class="followbtn-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2c2.72 0 3.06.01 4.12.06 1.06.05 1.79.22 2.43.47.66.26 1.22.6 1.77 1.15.55.55.9 1.11 1.15 1.77.25.64.42 1.37.47 2.43.05 1.06.06 1.4.06 4.12s-.01 3.06-.06 4.12c-.05 1.06-.22 1.79-.47 2.43a4.9 4.9 0 0 1-1.15 1.77 4.9 4.9 0 0 1-1.77 1.15c-.64.25-1.37.42-2.43.47-1.06.05-1.4.06-4.12.06s-3.06-.01-4.12-.06c-1.06-.05-1.79-.22-2.43-.47a4.9 4.9 0 0 1-1.77-1.15 4.9 4.9 0 0 1-1.15-1.77c-.25-.64-.42-1.37-.47-2.43C2.01 15.06 2 14.72 2 12s.01-3.06.06-4.12c.05-1.06.22-1.79.47-2.43.26-.66.6-1.22 1.15-1.77A4.9 4.9 0 0 1 5.45.53C6.09.28 6.82.11 7.88.06 8.94.01 9.28 0 12 0Zm0 5a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0 8.25a3.25 3.25 0 1 1 0-6.5 3.25 3.25 0 0 1 0 6.5ZM17.4 5.1a1.17 1.17 0 1 0 0 2.34 1.17 1.17 0 0 0 0-2.34Z"/></svg>
+        </span>
+        <span>Like our Official Instagram Page</span>
+        <span class="followbtn-arrow">→</span>
+      </a>
+    </div>
+
+    <div class="switch" onclick="parentSignOut()" style="margin-top:14px">Use a different number</div>
+  </div>
+</div>
+
 <!-- ========= ADMIN LOGIN ========= -->
 <div id="scr-admin-login" class="screen hide">
   <div class="loginbox">
@@ -661,7 +970,7 @@
   <div class="topbar no-print">
     <span id="card-who" style="font-size:12px;color:var(--mut)"></span>
     <span class="sp"></span>
-    <span class="ver">v3.9</span>
+    <span class="ver">v3.16</span>
     <button class="btn" onclick="cardBack()">← Back</button>
   </div>
   <div class="wrap">
@@ -678,7 +987,7 @@
   <div class="topbar no-print">
     <b style="font-size:13px">Publish progress cards</b>
     <span class="sp"></span>
-    <span class="ver">v3.9</span>
+    <span class="ver">v3.16</span>
     <button class="btn" onclick="adminSignOut()">Sign out</button>
   </div>
   <div class="adminwrap">
@@ -692,6 +1001,20 @@
       </div>
       <div class="mini" style="margin-top:6px">Test scheme is per-class. Load a class to edit its scheme below.</div>
       <div class="mini" id="ad-student-phone" style="margin-top:4px"></div>
+
+      <div class="row" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);align-items:flex-end;flex-wrap:wrap">
+        <div>
+          <label>Visible to parent — from <span class="mini">(defaults to now)</span></label>
+          <input id="ad-vis-start" class="fld" type="datetime-local">
+        </div>
+        <div>
+          <label>Visible to parent — until <span class="mini">(blank = no end date)</span></label>
+          <input id="ad-vis-end" class="fld" type="datetime-local">
+        </div>
+        <button type="button" class="btn" onclick="adResetVisWindow()" style="height:34px">↻ Reset to defaults</button>
+      </div>
+      <div class="mini" style="margin-top:4px">Controls when the card becomes visible to the parent (and, if set, when it stops being visible). Applies to whichever publish action you use below — single student or the whole class. Before the start time and after the end time, the parent sees a "not available yet / expired" message instead of the card.</div>
+
       <div class="row" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
         <button class="btn" onclick="adBulkPublishClass()" id="ad-bulk-btn">📤 Publish entire class</button>
         <span class="mini" id="ad-bulk-status"></span>
@@ -824,17 +1147,22 @@
       <h2>7 · Published students <span class="mini">(everyone ever published — persists across reloads, both single and bulk publishes)</span></h2>
       <div class="row" style="margin-bottom:8px">
         <button class="btn" onclick="adLoadPublishedList()">↻ Refresh list</button>
-        <input id="ad-pub-search" class="fld" style="max-width:220px" placeholder="Filter by name or USN…" oninput="adRenderPublishedList()">
+        <input id="ad-pub-search" class="fld" style="max-width:220px" placeholder="🔍 Search by name or USN…" oninput="adRenderPublishedList()">
         <span class="mini" id="ad-pub-status"></span>
       </div>
+      <div id="ad-class-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
       <div class="row" style="margin-bottom:8px;align-items:center">
-        <label style="margin:0">Class for bulk actions:</label>
+        <label style="margin:0" for="ad-bulk-class">Class for bulk actions:</label>
         <select id="ad-bulk-class" class="fld" style="max-width:180px" onchange="adRenderPublishedList()"><option value="">— all published students —</option></select>
+        <span class="mini">(same as clicking a chip above)</span>
       </div>
       <div class="row" style="margin-bottom:10px">
         <button class="btn" onclick="adBulkDownloadClass()" id="ad-bulk-dl-btn">⬇ Download all as PDFs (.zip)</button>
         <button class="btn" onclick="adBulkPrintClass()" id="ad-bulk-print-btn">🖨 Print all (one dialog per student)</button>
+        <button class="btn" style="color:#e05a5a;border-color:#e05a5a" onclick="adDeleteFilteredClass()" id="ad-bulk-del-btn">🗑 Delete all in filter</button>
+        <button class="btn" style="color:#e05a5a;border-color:#e05a5a" onclick="adDeleteStreamGroup()" id="ad-bulk-del-stream-btn">🗑 Delete entire stream (all sections)</button>
       </div>
+      <div class="mini" id="ad-bulk-stream-hint" style="margin-bottom:8px;color:var(--mut)">"Delete entire stream" removes every section (A/B/C…) under the same year+stream as whichever class is picked above (chip or dropdown) — e.g. picking any 2PUC SCI section deletes 2PUC SCI-A and 2PUC SCI-B together. Pick a class first — the button is disabled otherwise.</div>
       <div class="mini" style="margin-bottom:8px">Every student defaults to <b>English</b>. Only a student explicitly marked <b>ಕನ್ನಡ</b> below (per row) prints/downloads in Kannada — everyone else in the batch stays English, even within the same class.</div>
       <div id="ad-bulk-op-status" class="mini"></div>
       <div id="ad-published-list"></div>
@@ -862,7 +1190,7 @@ const rtdb = firebase.database();
 const CUR_AY  = '2026-27';   // current academic year (marks + attendance)
 const PREV_AY = '2025-26';   // prior year (1PUC final = prior annual for a 2PUC student)
 let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
-const APP_VERSION = 'v3.9';
+const APP_VERSION = 'v3.18';
 const CLOUDINARY_CLOUD  = 'dat0khbet';
 const CLOUDINARY_PRESET = 'davan_students';
 
@@ -894,7 +1222,7 @@ const DEFAULT_TESTS = [
 const IA_KEYS = ['IA - 1','IA - 2','IA - 3','IA - 4','IA - 5'];
 
 /* ============ SCREEN NAV ============ */
-const SCR = ['scr-parent-login','scr-picker','scr-confirm','scr-admin-login','scr-card','scr-admin'];
+const SCR = ['scr-parent-login','scr-picker','scr-confirm','scr-notavail','scr-admin-login','scr-card','scr-admin'];
 function show(id){ SCR.forEach(s=>document.getElementById(s).classList.toggle('hide', s!==id)); }
 function showParentLogin(){ show('scr-parent-login'); if(!sessionStorage.getItem('parent_lang')) setParentLang('en'); else setParentLang(getParentLang()); }
 
@@ -982,11 +1310,99 @@ function renderPicker(idx){
 }
 function parentSignOut(){ sessionStorage.removeItem('parent_phone'); sessionStorage.removeItem('parent_lang'); showParentLogin(); }
 
+/* ============ VISIBILITY WINDOW GATE (parent side) ============ */
+// Shows the "not available yet" / "no longer available" screen with the
+// social-follow links, in place of the card, when the current time falls
+// outside [visibleFrom, visibleUntil]. Both cases (too early / expired) show
+// the same follow-us panel, per spec — only the headline text differs so a
+// parent isn't confused into thinking a report that already happened is
+// still coming.
+// v3.15: now takes the actual target timestamp (visibleFrom for 'early',
+// unused for 'expired') so it can show the exact date/time the report opens
+// and drive a live countdown to it, instead of just a vague "check back
+// later" message.
+let _notavailTimer=null;
+function showNotAvailable(kind, targetTs){
+  const title=document.getElementById('notavail-title'), msg=document.getElementById('notavail-msg');
+  const cdWrap=document.getElementById('notavail-countdown-wrap');
+  const targetLine=document.getElementById('notavail-target-line');
+  if(_notavailTimer){ clearInterval(_notavailTimer); _notavailTimer=null; }
+  if(kind==='expired'){
+    if(title) title.textContent='Report no longer available';
+    if(msg) msg.textContent='This report is no longer visible here. Please contact the college office if you need a copy.';
+    if(cdWrap) cdWrap.classList.add('hide');
+  }else{
+    if(title) title.textContent='Report not available yet';
+    if(msg) msg.textContent='This report will become visible here soon.';
+    if(targetTs){
+      if(targetLine) targetLine.innerHTML = 'Becomes visible on <b style="color:var(--ink)">'+new Date(targetTs).toLocaleString(undefined,{weekday:'short',day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})+'</b>';
+      if(cdWrap) cdWrap.classList.remove('hide');
+      startNotAvailCountdown(targetTs);
+    }else if(cdWrap) cdWrap.classList.add('hide');
+  }
+  show('scr-notavail');
+}
+// Live countdown to targetTs, updating once a second. Each digit box gets a
+// brief "tick" animation whenever its own value changes (not every second
+// for every box — e.g. the days box only animates on the rare occasions it
+// actually decrements), so the seconds box visibly pulses every second
+// while the slower boxes stay calm until they actually change.
+function startNotAvailCountdown(targetTs){
+  const els={d:document.getElementById('cd-d'),h:document.getElementById('cd-h'),m:document.getElementById('cd-m'),s:document.getElementById('cd-s')};
+  let prev={d:null,h:null,m:null,s:null};
+  function tick(){
+    const diff=Math.max(0,targetTs-Date.now());
+    const d=Math.floor(diff/86400000);
+    const h=Math.floor(diff%86400000/3600000);
+    const m=Math.floor(diff%3600000/60000);
+    const s=Math.floor(diff%60000/1000);
+    const vals={d,h,m,s};
+    Object.keys(vals).forEach(k=>{
+      const v=String(vals[k]).padStart(2,'0');
+      if(els[k] && els[k].textContent!==v){
+        els[k].textContent=v;
+        els[k].classList.remove('tick'); void els[k].offsetWidth; els[k].classList.add('tick');
+      }
+    });
+    if(diff<=0){
+      clearInterval(_notavailTimer); _notavailTimer=null;
+      // Time's up — re-run the real gate check against Firebase (not just a
+      // local timer) so the card actually loads once the window opens,
+      // rather than leaving the parent stuck on a countdown reading 00:00:00.
+      const usn=_confirmUsn || sessionStorage.getItem('_lastGateUsn');
+      if(usn) openParentCard(usn);
+    }
+  }
+  tick();
+  _notavailTimer=setInterval(tick,1000);
+}
+// Returns null if within the visibility window (or no window set — older
+// records), otherwise 'early' or 'expired'. Centralized so both the direct
+// open and the confirm-child path use identical logic.
+function visWindowGateState(idx){
+  if(!idx) return null;
+  const now=Date.now();
+  if(idx.visibleFrom && now < idx.visibleFrom) return 'early';
+  if(idx.visibleUntil && now > idx.visibleUntil) return 'expired';
+  return null;
+}
 
 /* ============ CARD LOAD (TTL cached, once() only) ============ */
 const TTL_MS = 6*60*60*1000;
 async function openParentCard(usn){
   const ck='card_'+usn;
+  // v3.11: the visibility window (start/end) must be re-checked against
+  // Firebase every time, even on a cache hit — a card cached while inside
+  // the window would otherwise keep rendering from sessionStorage after the
+  // end date passed, silently ignoring an admin's expiry setting. Only the
+  // (larger, mostly-static) card payload itself benefits from the TTL cache;
+  // the small published_index gate check is cheap enough to always run.
+  try{
+    const idx = (await rtdb.ref('published_index/'+usn).once('value')).val();
+    if(idx && idx.visible===false){ alert('This report is not available yet. Please check with the college office.'); return; }
+    const gate = visWindowGateState(idx);
+    if(gate){ sessionStorage.setItem('_lastGateUsn', usn); showNotAvailable(gate, idx?.visibleFrom); return; }
+  }catch(e){ /* if the gate check itself fails, fall through to the normal load below, which has its own error handling */ }
   try{
     const cached = JSON.parse(sessionStorage.getItem(ck)||'null');
     if(cached && (Date.now()-cached._t)<TTL_MS){ renderCard(cached.data,'parent'); return; }
@@ -998,6 +1414,8 @@ async function loadAndShow(usn, who, ck){
     if(who==='parent'){
       const idx = (await rtdb.ref('published_index/'+usn).once('value')).val();
       if(idx && idx.visible===false){ alert('This report is not available yet. Please check with the college office.'); return; }
+      const gate = visWindowGateState(idx);
+      if(gate){ sessionStorage.setItem('_lastGateUsn', usn); showNotAvailable(gate, idx?.visibleFrom); return; }
     }
     const latest = (await rtdb.ref('published_cards/'+usn+'/_latest').once('value')).val();
     if(!latest){ alert('No published card yet for this student.'); return; }
@@ -1306,6 +1724,7 @@ async function enterAdmin(){
   const sel=document.getElementById('ad-class'); sel.innerHTML='';
   CLASSES.forEach(c=>{ const o=document.createElement('option'); o.value=c.label; o.textContent=c.label+(c.started?'':' (not live)'); sel.appendChild(o); });
   await adLoadClass();
+  adResetVisWindow();
   adLoadPublishedList();
 }
 
@@ -1322,6 +1741,7 @@ async function adLoadClass(){
   const cls=document.getElementById('ad-class').value;
   const ssel=document.getElementById('ad-student');
   const st=document.getElementById('ad-loadstatus');
+  renderBulkList(); // re-check: if the previous bulk-publish log was for a different class, swap in the "switch back to view it" notice
   if(st) st.textContent='Loading '+cls+' from Firebase…';
   ssel.innerHTML='<option>Loading…</option>';
   try{
@@ -2636,9 +3056,14 @@ function adPreview(){
 // index is real, persistent Firebase state so a "Published students" list
 // can show everyone ever published, survives reloads, and covers both
 // publish paths.
-async function publishOneCard(C, contact){
+// v3.11: added visWindow ({visibleFrom, visibleUntil} epoch ms, visibleUntil
+// may be null for "no end date") — stored on published_index so the parent
+// login gate (loadAndShow) can check it before showing the card. Falls back
+// to the current adReadVisWindow() fields when not explicitly passed.
+async function publishOneCard(C, contact, visWindow){
   if(!C.student.usn) throw new Error('Student has no USN — cannot publish.');
   const eventId = 'ev_'+Date.now();
+  const vw = visWindow || adReadVisWindow();
   // IMPORTANT: .update(), not .set() — this node also holds inchargeName,
   // inchargeSign, and note (see saveInchargeName/adSaveNote/adSaveTestConfig).
   // A .set() here would silently wipe those siblings on every single
@@ -2648,7 +3073,9 @@ async function publishOneCard(C, contact){
   await rtdb.ref('published_cards/'+C.student.usn+'/_latest').set(eventId);
   await rtdb.ref('published_index/'+C.student.usn).update({
     name:C.student.name||'', cls:C.student.cls||'', event:C.event||'',
-    phone:C.student.phone||'', eventId, publishedAt:Date.now(), visible:true
+    phone:C.student.phone||'', eventId, publishedAt:Date.now(), visible:true,
+    visibleFrom: vw.visibleFrom!=null ? vw.visibleFrom : Date.now(),
+    visibleUntil: vw.visibleUntil!=null ? vw.visibleUntil : null
   });
   const phone=normPhone(contact);
   if(phone.length===10){
@@ -2701,32 +3128,79 @@ async function adBackfillPhones(){
   }
   if(missing.length) adRenderPublishedList();
 }
+// Sets the class filter (chip click or programmatic) and re-renders.
+// Clicking the already-active chip clears the filter back to "all".
+function adSetClassFilter(cls){
+  const clsSel=document.getElementById('ad-bulk-class');
+  if(!clsSel) return;
+  clsSel.value = (clsSel.value===cls) ? '' : cls;
+  adRenderPublishedList();
+}
 function adRenderPublishedList(){
   const listEl=document.getElementById('ad-published-list');
   if(!listEl) return;
   // Keep the class filter dropdown in sync with whatever classes actually
   // have published students, without clobbering the admin's current pick.
   const clsSel=document.getElementById('ad-bulk-class');
+  const classCounts=new Map();
+  for(const r of AD_PUBLISHED){ if(r.cls) classCounts.set(r.cls, (classCounts.get(r.cls)||0)+1); }
   if(clsSel){
-    const classes=[...new Set(AD_PUBLISHED.map(r=>r.cls).filter(Boolean))].sort();
+    const classes=[...classCounts.keys()].sort();
     const cur=clsSel.value;
-    clsSel.innerHTML='<option value="">— all published students —</option>'+classes.map(c=>`<option value="${c}">${c}</option>`).join('');
+    // Group by year+stream (e.g. "2PUC SCI") so A/B/C sections of the same
+    // stream sit together, instead of one flat list mixing SCI and COM.
+    // Falls back to an "Other" group for any class label that doesn't match
+    // the {n}PUC-{STREAM}-{SECTION} convention, so nothing silently vanishes.
+    const groups=new Map();
+    for(const c of classes){
+      const m=c.match(/^(\d+PUC)-([A-Z]+)-([A-Z0-9]+)$/);
+      const key=m?`${m[1]} ${m[2]}`:'Other';
+      if(!groups.has(key)) groups.set(key,[]);
+      groups.get(key).push(c);
+    }
+    const groupHtml=[...groups.entries()].map(([g,list])=>
+      `<optgroup label="${g}">${list.map(c=>`<option value="${c}">${c}</option>`).join('')}</optgroup>`
+    ).join('');
+    clsSel.innerHTML='<option value="">— all published students —</option>'+groupHtml;
     if(classes.includes(cur)) clsSel.value=cur;
+
+    // Build clickable chips, one per class, showing published-count. Active
+    // chip (matching the current dropdown value) is highlighted; clicking
+    // any chip sets/clears the dropdown so every other control (search,
+    // bulk download/print/delete, delete-entire-stream) reads the same
+    // single source of truth.
+    const chipsEl=document.getElementById('ad-class-chips');
+    if(chipsEl){
+      const activeCls=clsSel.value;
+      const allActive = activeCls==='';
+      let chipHtml = `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;${allActive?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetClassFilter('')">All (${AD_PUBLISHED.length})</button>`;
+      chipHtml += classes.map(c=>{
+        const active = c===activeCls;
+        return `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;${active?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetClassFilter('${c}')">${c} (${classCounts.get(c)})</button>`;
+      }).join('');
+      chipsEl.innerHTML = chipHtml;
+    }
   }
+  // Keep "Delete entire stream" disabled until a class is actually picked
+  // (via chip or dropdown) — it acts on a whole year+stream, so it shouldn't
+  // be one accidental click away with no class selected.
+  const streamBtn=document.getElementById('ad-bulk-del-stream-btn');
+  if(streamBtn) streamBtn.disabled = !(clsSel && clsSel.value);
   const q=(document.getElementById('ad-pub-search')?.value||'').trim().toLowerCase();
   const clsFilter=clsSel?clsSel.value:'';
   let rows = q
     ? AD_PUBLISHED.filter(r=>(r.name||'').toLowerCase().includes(q) || (r.usn||'').toLowerCase().includes(q))
     : AD_PUBLISHED;
   if(clsFilter) rows = rows.filter(r=>r.cls===clsFilter);
-  if(!rows.length){ listEl.innerHTML='<div class="mini">No published students yet.</div>'; return; }
+  if(!rows.length){ listEl.innerHTML='<div class="mini">No published students match this class/search.</div>'; return; }
   listEl.innerHTML = '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--line);border-radius:8px">'
     + rows.map(r=>{
         const when = r.publishedAt ? new Date(r.publishedAt).toLocaleString() : '';
         const visible = r.visible!==false; // default true for older records with no field
         const printLang = r.printLang==='kn' ? 'kn' : 'en'; // default English for bulk print/download
+        const visWin = adVisWindowLabel(r.visibleFrom, r.visibleUntil);
         return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:12px">
-          <span style="flex:1">${r.name||'(unnamed)'}${r.usn?' · '+r.usn:''}${r.cls?' · '+r.cls:''}<div class="mini">${r.phone?'📞 '+r.phone+' · ':''}${r.event||''}${when?' · '+when:''}</div></span>
+          <span style="flex:1">${r.name||'(unnamed)'}${r.usn?' · '+r.usn:''}${r.cls?' · '+r.cls:''}<div class="mini">${r.phone?'📞 '+r.phone+' · ':''}${r.event||''}${when?' · '+when:''}</div>${visWin?`<div class="mini">🕐 ${visWin}</div>`:''}</span>
           <span style="display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden" title="Language used for this student's bulk print/PDF only — doesn't affect what the parent sees when they log in">
             <button type="button" class="btn" style="padding:2px 8px;font-size:10px;border-radius:0;${printLang==='en'?'background:var(--accent);color:#fff':''}" onclick="adSetPrintLang('${r.usn}','en')">EN</button>
             <button type="button" class="btn" style="padding:2px 8px;font-size:10px;border-radius:0;${printLang==='kn'?'background:var(--accent);color:#fff':''}" onclick="adSetPrintLang('${r.usn}','kn')">ಕನ</button>
@@ -2735,6 +3209,7 @@ function adRenderPublishedList(){
             <input type="checkbox" ${visible?'checked':''} onchange="adSetCardVisible('${r.usn}',this.checked)"> visible to parent
           </label>
           <button class="btn" style="padding:2px 10px;font-size:11px" onclick="adPreviewPublishedStudent('${r.usn}')">👁 Preview</button>
+          <button class="btn" style="padding:2px 10px;font-size:11px;color:#e05a5a;border-color:#e05a5a" onclick="adDeleteStudent('${r.usn}')">🗑 Delete</button>
         </div>`;
       }).join('')
     + '</div>';
@@ -2807,6 +3282,11 @@ async function adBulkDownloadClass(){
       window.scrollTo(0,0);
       await new Promise(res=>setTimeout(res,30));
       el.classList.add('pdf-mode');
+      // v3.14: resize() call removed here — see downloadPDF() comment. It
+      // was the cause of garbled charts in exported PDFs, not the fix.
+      // pdf-mode no longer shrinks .canvas-wrap, so no resize is needed.
+      await new Promise(res=>requestAnimationFrame(()=>requestAnimationFrame(res)));
+      await new Promise(res=>setTimeout(res,120));
       const blob = await captureCardAsPdfBlob(el);
       el.classList.remove('pdf-mode');
       const fn=(r.usn||'card')+'_'+(card.student?.name||r.name||'').replace(/\s+/g,'_')+(lang==='kn'?'_KN':'')+'_PTM.pdf';
@@ -2888,6 +3368,125 @@ async function adSetCardVisible(usn, visible){
     toast(visible?'Card shown to parent.':'Card hidden from parent.','ok');
   }catch(e){ toast('Could not update: '+e.message,'err'); adLoadPublishedList(); }
 }
+
+/* ============ VISIBILITY WINDOW (start/end date-time a published card is shown to parent) ============ */
+// datetime-local inputs work in the browser's local wall-clock time with no
+// timezone info, which is exactly right here since admin and parent are on
+// the same campus timezone — no conversion needed either direction.
+function _dtLocalNow(offsetMin){
+  const d = new Date(Date.now() + (offsetMin||0)*60000);
+  d.setSeconds(0,0);
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+// Called once on page load / admin screen show so the fields always start
+// pre-filled with sensible defaults (start = now, end = blank/never) without
+// the admin having to fill them in every time.
+function adResetVisWindow(){
+  const s=document.getElementById('ad-vis-start'), e=document.getElementById('ad-vis-end');
+  if(s) s.value=_dtLocalNow(0);
+  if(e) e.value='';
+}
+// Reads the two fields and converts to epoch ms for storage. Blank start
+// falls back to "now" (as soon as published) per spec; blank end means no
+// expiry (never hidden by the window check).
+function adReadVisWindow(){
+  const sVal=document.getElementById('ad-vis-start')?.value;
+  const eVal=document.getElementById('ad-vis-end')?.value;
+  const visibleFrom = sVal ? new Date(sVal).getTime() : Date.now();
+  const visibleUntil = eVal ? new Date(eVal).getTime() : null;
+  return {visibleFrom, visibleUntil};
+}
+function adVisWindowLabel(from, until){
+  if(!from && !until) return '';
+  const f = from ? new Date(from).toLocaleString() : '';
+  const u = until ? new Date(until).toLocaleString() : 'no end date';
+  return `Visible ${f} → ${u}`;
+}
+// ============ DELETE (single student / entire class) ============
+// Deletes the PUBLISHED copy of a student's card only — never touches the
+// source data in puc_daily/puc_test_config, which is what "the main data"
+// (attendance/marks entered from puc.html) actually lives in. Removes all
+// three places a published card leaves a trace, per admin's request that
+// deleting fully removes the student from parent access, not just hides
+// them: published_cards/{usn} (every event snapshot for that student),
+// published_index/{usn} (the admin-facing list entry), and
+// parent_index/{phone}/{usn} (the mobile-number → student lookup a parent's
+// login depends on — without this, "visible to parent" toggled off would
+// hide the card, but the phone number would still resolve to the student at
+// all, just with no published card and a "no published card yet" message).
+async function adDeleteStudent(usn, opts){
+  opts = opts||{};
+  if(!opts.skipConfirm && !confirm(`Delete the published card for ${usn}?\n\nThis removes it completely — the parent's phone number will no longer find this student at all. This does NOT touch the original attendance/marks data, only the published copy. This cannot be undone.`)) return false;
+  try{
+    const rec = AD_PUBLISHED.find(r=>r.usn===usn);
+    const phone = rec?.phone || (await rtdb.ref('published_index/'+usn+'/phone').once('value')).val();
+    await rtdb.ref('published_cards/'+usn).remove();
+    await rtdb.ref('published_index/'+usn).remove();
+    if(phone) await rtdb.ref('parent_index/'+normPhone(phone)+'/'+usn).remove();
+    AD_PUBLISHED = AD_PUBLISHED.filter(r=>r.usn!==usn);
+    adRenderPublishedList();
+    if(!opts.silent) toast('Deleted '+usn,'ok');
+    return true;
+  }catch(e){
+    if(!opts.silent) toast('Delete failed: '+e.message,'err');
+    return false;
+  }
+}
+// Deletes every student currently matching the search + class filter above
+// the list (same rows adBulkDownloadClass/adBulkTargetRows would act on) —
+// so "delete entire class" is done by picking that class in the filter
+// dropdown, then using this button, rather than a separate class-only path.
+async function adDeleteFilteredClass(){
+  const rows = adBulkTargetRows();
+  if(!rows.length){ toast('No published students match the current filter.','err'); return; }
+  const clsFilter = document.getElementById('ad-bulk-class')?.value;
+  const scope = clsFilter ? `all ${rows.length} published students in ${clsFilter}` : `ALL ${rows.length} published students (no class filter selected)`;
+  if(!confirm(`Delete ${scope}?\n\nThis removes their published cards completely — parents will no longer be able to look them up at all. This does NOT touch the original attendance/marks data. This cannot be undone.`)) return;
+  const btn=document.getElementById('ad-bulk-del-btn');
+  const statusEl=document.getElementById('ad-bulk-op-status');
+  btn.disabled=true;
+  let ok=0, fail=0;
+  for(let i=0;i<rows.length;i++){
+    if(statusEl) statusEl.textContent=`Deleting ${i+1}/${rows.length}: ${rows[i].name||rows[i].usn}…`;
+    const success = await adDeleteStudent(rows[i].usn, {skipConfirm:true, silent:true});
+    if(success) ok++; else fail++;
+  }
+  btn.disabled=false;
+  if(statusEl) statusEl.textContent = `✓ Deleted ${ok}${fail?`, ${fail} failed`:''}.`;
+  toast(fail?`Deleted ${ok}, ${fail} failed`:`Deleted ${ok} students`, fail?'err':'ok');
+  adLoadPublishedList();
+}
+// Deletes every published student across ALL sections of the same
+// year+stream as the currently selected class (e.g. selecting any
+// 2PUC-SCI-* section deletes 2PUC-SCI-A and 2PUC-SCI-B together), instead
+// of only the single section adDeleteFilteredClass() targets. Falls back to
+// treating the whole class label as its own group if it doesn't match the
+// {n}PUC-{STREAM}-{SECTION} convention, so it never silently deletes more
+// (or less) than the visible stream.
+async function adDeleteStreamGroup(){
+  const clsFilter = document.getElementById('ad-bulk-class')?.value;
+  if(!clsFilter){ toast('Pick a class first — this deletes every section of that class\'s stream.','err'); return; }
+  const m = clsFilter.match(/^(\d+PUC)-([A-Z]+)-([A-Z0-9]+)$/);
+  const streamKey = m ? `${m[1]}-${m[2]}-` : clsFilter;
+  const rows = AD_PUBLISHED.filter(r=>(r.cls||'').startsWith(streamKey));
+  if(!rows.length){ toast('No published students match that stream.','err'); return; }
+  const sections = [...new Set(rows.map(r=>r.cls))].sort();
+  if(!confirm(`Delete ALL ${rows.length} published students across ${sections.join(', ')}?\n\nThis removes their published cards completely — parents will no longer be able to look them up at all. This does NOT touch the original attendance/marks data. This cannot be undone.`)) return;
+  const btn=document.getElementById('ad-bulk-del-stream-btn');
+  const statusEl=document.getElementById('ad-bulk-op-status');
+  btn.disabled=true;
+  let ok=0, fail=0;
+  for(let i=0;i<rows.length;i++){
+    if(statusEl) statusEl.textContent=`Deleting ${i+1}/${rows.length}: ${rows[i].name||rows[i].usn} (${rows[i].cls})…`;
+    const success = await adDeleteStudent(rows[i].usn, {skipConfirm:true, silent:true});
+    if(success) ok++; else fail++;
+  }
+  btn.disabled=false;
+  if(statusEl) statusEl.textContent = `✓ Deleted ${ok}${fail?`, ${fail} failed`:''} across ${sections.join(', ')}.`;
+  toast(fail?`Deleted ${ok}, ${fail} failed`:`Deleted ${ok} students across ${sections.length} sections`, fail?'err':'ok');
+  adLoadPublishedList();
+}
 async function adPreviewPublishedStudent(usn){
   try{
     const latest=(await rtdb.ref('published_cards/'+usn+'/_latest').once('value')).val();
@@ -2909,7 +3508,8 @@ async function adPublish(){
   C.summaryHTML_kn = composeSummaryKn(C);
   try{
     const s=AD_STUDENTS[+document.getElementById('ad-student').value]||{};
-    await publishOneCard(C, s.contact);
+    const vw=adReadVisWindow();
+    await publishOneCard(C, s.contact, vw);
     toast('Published ✓ Parents can now view '+C.student.name,'ok');
     adLoadPublishedList();
   }catch(e){ toast('Publish failed: '+e.message,'err'); }
@@ -2923,6 +3523,7 @@ async function adPublish(){
 // student gets their own auto-composed summary from their own real data —
 // nothing is shared or copied between students.
 let AD_BULK_RESULTS=[];
+let AD_BULK_RESULTS_CLS=''; // which class AD_BULK_RESULTS currently holds — lets the list stay scoped to one class at a time instead of mixing runs
 async function adBulkPublishClass(){
   const cls=document.getElementById('ad-class').value;
   const ssel=document.getElementById('ad-student');
@@ -2933,8 +3534,10 @@ async function adBulkPublishClass(){
   if(!confirm(`Publish progress cards for all ${AD_STUDENTS.length} students in ${cls}?\n\nEach gets their own auto-composed summary from their own data. This will overwrite any card already published for these students under the current event name.`)) return;
 
   const savedStudentIdx=ssel.value; // restore admin's original selection afterward
+  const vw=adReadVisWindow(); // read once — same visibility window applies to every student in this class run
   btn.disabled=true;
   AD_BULK_RESULTS=[];
+  AD_BULK_RESULTS_CLS=cls;
   listEl.innerHTML='';
 
   for(let i=0;i<AD_STUDENTS.length;i++){
@@ -2948,7 +3551,7 @@ async function adBulkPublishClass(){
       const C=adGatherCard();
       C.summaryHTML = composeSummary(C); // bulk always uses the fresh auto-composed summary per student (no shared manual edit)
       C.summaryHTML_kn = composeSummaryKn(C);
-      await publishOneCard(C, s.contact);
+      await publishOneCard(C, s.contact, vw);
       row.status='ok';
       row.card=C;
     }catch(e){
@@ -2967,9 +3570,21 @@ async function adBulkPublishClass(){
   toast(failCount ? `Published ${okCount}, ${failCount} failed — see list below` : `Published all ${okCount} students ✓`, failCount?'err':'ok');
   adLoadPublishedList();
 }
+// Re-renders the bulk-publish log — but only if the currently selected class
+// (step 1 dropdown) still matches the class the log was generated for.
+// Previously the log from publishing "II PUC Science" stayed on screen even
+// after switching to "I PUC Commerce B" and running a new bulk publish there
+// would just append to the same list, making it look mixed/class-agnostic.
+// Now each run is tagged with its class, and switching ad-class away from
+// that class clears the stale log instead of showing it out of context.
 function renderBulkList(){
   const listEl=document.getElementById('ad-bulk-list');
   if(!listEl) return;
+  const curCls=document.getElementById('ad-class')?.value||'';
+  if(AD_BULK_RESULTS_CLS && curCls && AD_BULK_RESULTS_CLS!==curCls){
+    listEl.innerHTML = `<div class="mini">Last bulk-publish log was for <b>${AD_BULK_RESULTS_CLS}</b>. Switch back to that class to view it, or run "Publish entire class" here to start a new log for <b>${curCls}</b>.</div>`;
+    return;
+  }
   listEl.innerHTML = '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--line);border-radius:8px">'
     + AD_BULK_RESULTS.map(r=>{
         const badge = r.status==='ok' ? '<span style="color:var(--ok)">✓ Published</span>'
@@ -3023,12 +3638,41 @@ function waitForImages(el){
 // "Download PDF" button and the bulk per-class download below, so both
 // produce byte-identical output for the same card.
 async function captureCardAsPdfBlob(el){
-  const table = el.querySelector('table.mc');
-  const contentWidth = Math.max(el.scrollWidth, table ? table.scrollWidth + 52 : 0, 700);
+  // v3.10 fix: previously widened html2canvas's virtual windowWidth to match
+  // the marks table's natural (unwrapped) scrollWidth — which could be
+  // 1200px+ for classes with many subjects. Since #card itself had no width
+  // of its own, it (and every text block inside it — greeting line, summary
+  // paragraph) stretched to fill that width too, and the browser spread
+  // words far apart to fill each unexpectedly-wide line. #card.pdf-mode now
+  // has a fixed 680px width, and its table already uses
+  // table-layout:fixed;width:100% to squeeze-fit within that — so the
+  // capture window should simply match #card's own fixed width, not the
+  // table's natural width.
+  // v3.13 fix: the whole card was rendering shifted to the right in the
+  // exported PDF, with a blank gap on the left and content clipped on the
+  // right. Root cause: html2canvas's {x:0,y:0,...,width:CARD_PDF_WIDTH}
+  // options capture starting from position (0,0) of the *virtual window*,
+  // not from #card's own position — but #card sits inside .wrap, which has
+  // its own 16px padding and margin:0 auto centering, and #card.pdf-mode
+  // itself also had margin:0 auto. So #card's actual left edge inside that
+  // virtual window was wherever those two centering/padding layers put it —
+  // never exactly 0 — while we told html2canvas to start capturing at
+  // exactly x:0. The visible gap/shift was that mismatch. Fix: (1) remove
+  // #card.pdf-mode's own margin:auto so it doesn't add a second, unpredictable
+  // centering offset — it now sits flush against whatever .wrap gives it —
+  // and (2) read #card's REAL on-page position (getBoundingClientRect) after
+  // pdf-mode is applied and pass that as html2canvas's x/y/width/height, so
+  // the capture always starts exactly at the element's true left edge no
+  // matter what padding/centering its ancestors introduce.
+  const rect = el.getBoundingClientRect();
+  const scale = 2;
   const canvas = await html2pdf().set({
     margin:0, image:{type:'jpeg',quality:0.98},
-    html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true,allowTaint:false,imageTimeout:8000,
-      x:0,y:0,scrollX:0,scrollY:0,windowWidth:contentWidth,width:contentWidth}
+    html2canvas:{scale,backgroundColor:'#ffffff',useCORS:true,allowTaint:false,imageTimeout:8000,
+      x:rect.left, y:rect.top, scrollX:0, scrollY:0,
+      width:rect.width, height:rect.height,
+      windowWidth:document.documentElement.scrollWidth,
+      windowHeight:document.documentElement.scrollHeight}
   }).from(el).toCanvas().get('canvas');
   const { jsPDF } = window.jspdf || {};
   const margin = 5;
@@ -3041,6 +3685,10 @@ async function captureCardAsPdfBlob(el){
     : await html2pdf().set({margin:0, jsPDF:{unit:'mm', format:[pageW,pageH], orientation:'portrait'}}).from(document.createElement('div')).toPdf().get('pdf');
   const imgData = canvas.toDataURL('image/jpeg', 0.98);
   pdf.addImage(imgData, 'JPEG', margin, margin, usableW, usableH);
+  // v3.18 fix: card's CSS border was clipped on right/bottom in export —
+  // html2canvas rounding at scale:2 can lose the last border pixel row.
+  // Draw the border directly in the PDF instead of trusting the raster.
+  pdf.setDrawColor(153); pdf.rect(margin, margin, usableW, usableH);
   return pdf.output('blob');
 }
 
@@ -3050,8 +3698,25 @@ async function downloadPDF(){
   if(btn){ btn.disabled=true; btn.textContent='Preparing PDF…'; }
   const fn=((C.student?.usn||'card')+'_'+(C.student?.name||'').replace(/\s+/g,'_')+'_PTM.pdf');
   el.classList.add('pdf-mode');
+  // v3.17 fix: also hide the sticky .topbar explicitly via JS (in addition
+  // to the body:has(#card.pdf-mode) CSS rule above), so this doesn't rely on
+  // :has() support alone — the app is downloaded/exported through an Android
+  // WebView PDF flow, and staying belt-and-braces here avoids reintroducing
+  // the exact "header got clipped off" bug in any older/embedded webview
+  // that doesn't support :has(). Restored in the finally block below.
+  const topbarEl=document.querySelector('.topbar');
+  const topbarPrevDisplay=topbarEl?topbarEl.style.display:null;
+  if(topbarEl) topbarEl.style.display='none';
   try{
     await waitForImages(el);
+    // v3.14: previously called _charts.forEach(c=>c.resize()) here (added in
+    // v3.11 to fix a *different* chart bug). Direct testing showed this
+    // resize call was actually the CAUSE of a worse bug: it forced Chart.js
+    // to reallocate each canvas's backing store right as html2canvas began
+    // capturing it, and that race — not a lack of settle time — is what
+    // produced garbled/blank charts in the exported PDF. Since pdf-mode no
+    // longer shrinks .canvas-wrap (see CSS), charts never need to resize on
+    // entering pdf-mode, so this call is gone entirely rather than re-timed.
     // Charts render on their own frame (Chart.js queues a resize/redraw pass
     // even with animation:false); without this, html2canvas could snapshot
     // mid-render, producing a garbled/truncated chart area and everything
@@ -3073,7 +3738,7 @@ async function downloadPDF(){
     const a = document.createElement('a'); a.href=url; a.download=fn; a.click();
     setTimeout(()=>URL.revokeObjectURL(url), 4000);
   }catch(e){ toast('PDF failed: '+e.message,'err'); }
-  finally{ el.classList.remove('pdf-mode'); if(btn){ btn.disabled=false; btn.textContent='⬇ Download PDF'; } }
+  finally{ el.classList.remove('pdf-mode'); if(topbarEl) topbarEl.style.display=topbarPrevDisplay; if(btn){ btn.disabled=false; btn.textContent='⬇ Download PDF'; } }
 }
 
 
