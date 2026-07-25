@@ -17,6 +17,45 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.22 (2026-07-25) — FEAT: the Yesterday/Today/Tomorrow lesson-plan
+  summary lines (in "📊 Attendance & Classes") now explain WHY there's
+  nothing scheduled instead of silently showing nothing. Added stuDayInfo(),
+  which classifies a given date as Sunday, a synced calendar-of-events
+  holiday (reusing the same STATE.calendarData shape/matching as
+  stuCountHolidays), or a normal day. When Yesterday had no lesson-plan
+  topics marked handled, Today has nothing pending/complete, or Tomorrow has
+  nothing pending/complete, the relevant line now says e.g. "Tomorrow (27
+  Jul) is Sunday — happy weekend!" or "Today is a holiday — Independence
+  Day, as per the calendar of events" instead of just omitting the line
+  entirely. Falls through to no line at all only if the day is a genuine
+  ordinary day with no timetable/lesson-plan data (unchanged prior
+  behaviour) — this only adds an explanation for the Sunday/holiday case,
+  it doesn't change what happens on a normal day.
+VERSION : v7.21 (2026-07-25) — FIX: student attendance summary stuck showing
+  the empty "New semester — attendance will show once classes are recorded"
+  box even after a fresh, fully-correct scrape had already landed in
+  davan_pub/students. Confirmed via live console inspection that the
+  underlying data was 100% correct (stuAYState() returned 'current',
+  davan_pub/students.data held the right subjects/ct/ca/pct for the student)
+  yet the DOM stayed on the fresh-box view. Root cause: renderStudentDashboard_orig()
+  captures _ayState ONCE at the top of the function and, if it was 'fresh' at
+  that moment, schedules stuApplyFreshAttendance() again via
+  setTimeout(..., 400) using that same stale captured value — it never
+  re-checks stuAYState() at fire-time. Two independent code paths call this
+  function: the real data-fetch flow (after Promise.all resolves and
+  STATE.metaData is populated) and restoreStudentSession()'s "fast paint"
+  path, which can call it BEFORE STATE.metaData has ever loaded — at which
+  point stuAYState()'s `if (!scraped) return 'fresh'` fallback fires purely
+  because metaData is still null, not because attendance is actually stale.
+  If that fast-paint call's 400ms timer happens to fire AFTER the real,
+  authoritative render has already shown correct current-semester cards, it
+  silently overwrites them back to the empty fresh box, and nothing
+  afterward ever calls renderAttendance() again to undo it — the page is
+  stuck on stale UI state even though every underlying data source is
+  correct. Fix: the setTimeout callback now re-checks stuAYState() itself
+  when it fires; if state has since resolved to 'current' it calls
+  renderAttendance()/renderInternals() to show the real view instead of
+  blindly re-applying the fresh override.
 VERSION : v7.10 (2026-07-22) — FIX: v7.08 fixed subject-name resolution for
   the PREVIOUS-results tables, but a full sweep found 10+ MORE places across
   the file with their own raw, unnormalized STU_KNOWN_NAMES[code] lookups —
@@ -3379,8 +3418,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.20';
-const BUILD_DATE   = '22 Jul 2026, 01:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.22';
+const BUILD_DATE   = '25 Jul 2026, 07:15 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -7698,7 +7737,41 @@ function renderStudentDashboard_orig() {
   updateSidebarProfile();
   startBroadcastPoll();
   // Fresh: promoted student whose attendance is still last year's.
-  if (_ayState === 'fresh') { stuApplyFreshAttendance(); setTimeout(stuApplyFreshAttendance, 400); }
+  // FIX (25-Jul-2026): the setTimeout below used to unconditionally re-apply
+  // the fresh override 400ms later using the _ayState value captured at the
+  // TOP of this function call. That's fine for the call that originates from
+  // the real data-fetch flow (line ~7273, after Promise.all has resolved and
+  // STATE.metaData is populated) — but restoreStudentSession()'s "fast paint"
+  // call (line ~6617) can also reach this function BEFORE STATE.metaData has
+  // ever been fetched, at which point stuAYState() falls through to its
+  // `if (!scraped) return 'fresh'` default purely because metaData is still
+  // null — not because the student's attendance is actually stale. If that
+  // fast-paint call's delayed re-apply timer (this setTimeout) happens to
+  // fire AFTER the real, authoritative render has already corrected the view
+  // to 'current' and shown real attendance cards, it silently overwrites them
+  // back to the empty "New semester" fresh box — and nothing afterward ever
+  // calls renderAttendance() again to undo it, so the page is stuck showing
+  // blank attendance even though the underlying data (davan_pub/students) is
+  // completely correct. Root cause confirmed live: scrapedAt/subjects data
+  // verified correct via console, stuAYState() verified returning 'current'
+  // at check-time, yet the DOM stayed on the fresh-box view because of this
+  // stale-timer race. Fix: re-check stuAYState() fresh at fire-time instead
+  // of trusting the _ayState value captured 400ms earlier — only apply the
+  // fresh override if it's STILL actually fresh when the timer fires.
+  if (_ayState === 'fresh') {
+    stuApplyFreshAttendance();
+    setTimeout(() => {
+      if (typeof stuAYState === 'function' && stuAYState() === 'fresh') {
+        stuApplyFreshAttendance();
+      } else {
+        // State resolved to 'current' in the meantime (metaData finished
+        // loading) — make sure the real attendance/internals/lesson-plan
+        // views are showing instead of a stale fresh box.
+        if (typeof renderAttendance === 'function') renderAttendance();
+        if (typeof renderInternals === 'function') renderInternals();
+      }
+    }, 400);
+  }
   stuInjectPastYearNav();
   stuPopulateAYSwitcher();
 }
@@ -8753,6 +8826,26 @@ function stuSummaryPart1(subs) {
     const todayD = new Date(); todayD.setHours(0,0,0,0);
     const yestD  = new Date(todayD); yestD.setDate(yestD.getDate() - 1);
     const tmrwD  = new Date(todayD); tmrwD.setDate(tmrwD.getDate() + 1);
+
+    // Classify a date as Sunday / a synced calendar holiday / a normal day, so the
+    // Yesterday/Today/Tomorrow lines can say WHY there's nothing scheduled instead of
+    // just going silent. Reuses the same calendarData shape + date-matching approach as
+    // stuCountHolidays/stuCountNonTeaching above (type === 'Holiday', event/name field
+    // for the display label) rather than re-deriving it differently here.
+    function stuDayInfo(dateObj) {
+      if (dateObj.getDay() === 0) return { kind: 'sunday' };
+      const cal = STATE.calendarData;
+      const arr = Array.isArray(cal) ? cal : (cal && typeof cal === 'object' ? Object.values(cal) : []);
+      const match = arr.find(e => {
+        if (!e || !e.date || !/holiday/i.test(e.type || '')) return false;
+        const d = new Date(String(e.date).replace(/\//g,'-') + 'T00:00:00');
+        return !isNaN(d) && d.getFullYear() === dateObj.getFullYear()
+            && d.getMonth() === dateObj.getMonth() && d.getDate() === dateObj.getDate();
+      });
+      if (match) return { kind: 'holiday', label: match.event || match.name || match.title || 'Holiday' };
+      return { kind: 'normal' };
+    }
+
     const sameDay = (dateStr, ref) => {
       const s = String(dateStr).trim();
       if (!s) return false;
@@ -8784,6 +8877,13 @@ function stuSummaryPart1(subs) {
     });
     if (taughtYesterday.length) {
       lines.push(`<span style="color:var(--blue);">Yesterday (${dfmt2(yestD)})</span> you covered <strong>${taughtYesterday.slice(0,3).map(x=>x.topic+' <span style="color:var(--blue);">('+x.name+')</span>').join(', ')}${taughtYesterday.length>3?' and '+(taughtYesterday.length-3)+' more':''}</strong>.`);
+    } else {
+      const yestInfo = stuDayInfo(yestD);
+      if (yestInfo.kind === 'sunday') {
+        lines.push(`<span style="color:var(--blue);">Yesterday (${dfmt2(yestD)})</span> was a Sunday — no classes.`);
+      } else if (yestInfo.kind === 'holiday') {
+        lines.push(`<span style="color:var(--blue);">Yesterday (${dfmt2(yestD)})</span> was a holiday — <strong>${yestInfo.label}</strong>, as per the calendar of events.`);
+      }
     }
 
     // Shared resolver: given a Date, find subjects scheduled that day (via the real
@@ -8834,6 +8934,14 @@ function stuSummaryPart1(subs) {
     if (todayLP.complete.length) {
       lines.push(`<span style="color:var(--ok);font-weight:700;">✅ Syllabus is already complete</span> for <strong style="color:var(--ok);">${todayLP.complete.join(', ')}</strong> — nothing pending for today's class${todayLP.complete.length>1?'es':''}.`);
     }
+    if (!todayLP.pending.length && !todayLP.complete.length) {
+      const todayInfo = stuDayInfo(todayD);
+      if (todayInfo.kind === 'sunday') {
+        lines.push(`<span style="color:var(--warn);font-weight:700;">📖 Today</span> is Sunday — happy weekend, no classes!`);
+      } else if (todayInfo.kind === 'holiday') {
+        lines.push(`<span style="color:var(--warn);font-weight:700;">📖 Today</span> is a holiday — <strong>${todayInfo.label}</strong>, as per the calendar of events.`);
+      }
+    }
 
     // What's coming TOMORROW — driven by tomorrow's TIMETABLE, not by given_date.
     // For each subject that has a class scheduled tomorrow: find the lowest serial-numbered
@@ -8853,6 +8961,14 @@ function stuSummaryPart1(subs) {
     }
     if (tmrwComplete.length) {
       lines.push(`<span style="color:var(--ok);font-weight:700;">✅ Syllabus is already complete</span> for <strong style="color:var(--ok);">${tmrwComplete.join(', ')}</strong> — nothing pending for tomorrow's class${tmrwComplete.length>1?'es':''}.`);
+    }
+    if (!tmrwPending.length && !tmrwComplete.length) {
+      const tmrwInfo = stuDayInfo(tmrwD);
+      if (tmrwInfo.kind === 'sunday') {
+        lines.push(`<span style="color:var(--accent);font-weight:700;">📅 Tomorrow (${dfmt2(tmrwD)})</span> is Sunday — happy weekend!`);
+      } else if (tmrwInfo.kind === 'holiday') {
+        lines.push(`<span style="color:var(--accent);font-weight:700;">📅 Tomorrow (${dfmt2(tmrwD)})</span> is a holiday — <strong>${tmrwInfo.label}</strong>, as per the calendar of events.`);
+      }
     }
 
     // "Coming up next" fallback — only when tomorrow's timetable gave nothing at all
