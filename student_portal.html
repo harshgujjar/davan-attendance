@@ -17,6 +17,67 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.36 (2026-07-25) — FIX: a student's HISTORICAL semester cards (in
+  "Previous Results") were computing College/Class/DI/NU rank using the WRONG
+  semester's data entirely. Confirmed live: V Neesha's Sem I card (CGPI block
+  above it correctly showed "Sem I: 7.76 · Sem II: 8.12", proving she has
+  multiple semesters on file) showed College Rank #3 — identical to her Class
+  Rank — even after v7.35's parity scoping, which should have made the two
+  numbers differ. Root cause, two compounding bugs in computeStudentRanks():
+  (1) extractPool's allStudents dedup keyed on URN ALONE, so a student with
+  results in several semesters had all but ONE semester's record silently
+  discarded (whichever had the highest pct survived); (2) myEntry — used to
+  determine which course/sem/section to scope every rank pool by — was then
+  looked up by URN alone too, with the semStr parameter the caller passed in
+  (e.g. 'I' for a Sem I card) never actually checked against it. So a Sem I
+  card calling computeStudentRanks(urn, course, 'I') would silently pull
+  myEntry from whatever semester survived the dedup (e.g. Sem III) and
+  compute every rank — College, Class, DI, NU — using that wrong semester's
+  course/section/pct, completely decoupled from which semester's card was
+  actually asking. Fix: (1) dedup key is now `urn + '|' + sem` so each
+  semester's record survives independently — a student now has one
+  allStudents entry PER semester with results; (2) myEntry lookup now matches
+  on `urn === myUrn && sem === targetSem` first, falling back to urn-only
+  only if no exact-semester record exists (so it never silently returns
+  zeros). Verified with an isolated trace: a synthetic student with pct 77.9
+  (Sem I), 81.2 (Sem II), 88.0 (Sem III) — requesting the Sem I card now
+  correctly resolves myEntry to the 77.9/Sem I record; requesting the Sem III
+  card resolves to the 88.0/Sem III record; previously both silently
+  resolved to whichever had survived the old urn-only dedup regardless of
+  which was actually asked for.
+VERSION : v7.35 (2026-07-25) — CHANGE (not a bug fix — deliberate scoping
+  change requested by Harsha): College Rank is now scoped to the student's
+  own semester PARITY, not the full six-semester institution. Odd-sem (I,
+  III, V) students rank against other Odd-sem students only; Even-sem (II,
+  IV, VI) students rank against other Even-sem students only — NOT scoped by
+  course, so e.g. a Sem I BCA student's College Rank pools against every
+  Sem I/III/V student across BCA+BBA+BCom combined. This mirrors admin's
+  Rankings tab ODD_SEMS/EVEN_SEMS split (results.html resGetFilteredData,
+  RES_DASH_PARITY). Background: v7.34 (same day, earlier) made College Rank
+  fully unscoped across all 6 semesters after confirming v7.25's course+sem
+  scoping was wrong — v7.34's number (#126 for a BCA Sem II/III-range
+  student, verified against admin's "All Batches" view showing the same
+  #126) was in fact numerically CORRECT for "unscoped across everything,"
+  but Harsha then asked for parity-only scoping specifically, which is a
+  narrower, different pool than either v7.34 or v7.25 used. Class Rank,
+  DI Rank, NU Rank are unaffected — still scoped to the student's own
+  course+sem as fixed in v7.24/v7.26/v7.27.
+VERSION : v7.34 (2026-07-25) — REVERT of v7.25's College Rank fix: v7.25
+  scoped College Rank to the student's own course+sem, on the theory that
+  admin's "College Rank (All Merged)" view was itself scoped to Course +
+  Semester filters. Confirmed by Harsha that theory is wrong — that admin
+  view is always run with Course=All, Semester=All, Section=Both; "All
+  Merged" means every course and every semester in the institution pooled
+  into one 413-student ranking, not just DI+NU merged within one course+sem.
+  Proof case: a BCA Sem I student correctly shown as #171 of 413 in that
+  admin view was instead shown as #3 on her own report card — #3 was
+  actually her Class Rank (BCA Sem I only, 27 students), mislabeled as
+  College Rank by v7.25's narrower pool. Fix: College Rank is once again the
+  student's position in the FULL unscoped pool (every course, every
+  semester, DI+NU merged, regular students only) — same as it was before
+  v7.25, and exactly what extractPool already builds into allStudents. Class
+  Rank, DI Rank, and NU Rank (v7.24, v7.26/27) are untouched — those were a
+  separate, correct fix and stay scoped to the student's own course+sem.
 VERSION : v7.33 (2026-07-25) — FIX: v7.30's "move below PREVIOUS RESULTS
   title" placement (Internal Marks + Current Semester Attendance sitting
   between the title and the per-sem tables) turned out to be the wrong
@@ -3569,7 +3630,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.33';
+const APP_VERSION = 'v7.36';
 const BUILD_DATE   = '25 Jul 2026, 11:20 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -7553,10 +7614,25 @@ async function computeStudentRanks(urn, course, semStr) {
         return { urn:id, pct:s.pct||0, isNU, section, course:(docCourse||'').toUpperCase(), sem:semNorm(docSem||'') };
       });
       if (pool.length) {
-        // Merge — deduplicate by URN, keeping highest pct if duplicate
+        // Merge — dedupe by URN+SEM (NOT urn alone). BUG FIX (25-Jul-2026): this used to
+        // dedupe by urn only, keeping whichever semester had the higher pct and silently
+        // DROPPING the student's other-semester records entirely. That's fine for Class/
+        // NU/DI rank (which only ever look up the current semester), but broke every
+        // *historical* semester card: computeStudentRanks(urn, course, 'I') would run,
+        // build allStudents, then look up myEntry by urn alone — and get back whichever
+        // semester survived the urn-only dedup (e.g. Sem III), NOT the Sem I record the
+        // caller actually asked about. Result: a student's Sem I "Previous Results" card
+        // silently computed College/Class/DI/NU rank using her Sem III cohort, section,
+        // and pct instead of her real Sem I data. Confirmed live: V Neesha's Sem I card
+        // showed College Rank #3 (matching her Class Rank) instead of a parity-scoped
+        // rank, because myEntry had resolved to a later semester's record. Fix: key the
+        // dedup map by `urn + '|' + sem` so each semester's record survives independently;
+        // a student now has one allStudents entry PER semester they have results for, and
+        // myEntry lookup below is updated to match on both urn AND the requested semester.
         if (!allStudents) allStudents = [];
         pool.forEach(s => {
-          const existing = allStudents.findIndex(e => e.urn === s.urn);
+          const key = s.urn + '|' + s.sem;
+          const existing = allStudents.findIndex(e => (e.urn + '|' + e.sem) === key);
           if (existing === -1) allStudents.push(s);
           else if (s.pct > allStudents[existing].pct) allStudents[existing] = s;
         });
@@ -7586,26 +7662,43 @@ async function computeStudentRanks(urn, course, semStr) {
     allStudents.sort((a, b) => b.pct - a.pct);
 
     const myUrn = urn.toUpperCase();
-    const myEntry = allStudents.find(s => s.urn === myUrn);
+    // myEntry lookup — FIX (25-Jul-2026): now matches on URN + targetSem (the semester
+    // this specific call was asked about), not URN alone. See extractPool's dedup-key
+    // comment above for the full bug: without the sem match here, a student with results
+    // in multiple semesters would resolve to whichever semester happened to survive the
+    // old urn-only dedup, regardless of which semester's card actually called this
+    // function. Falls back to URN-only match if no exact urn+sem record exists (e.g.
+    // semStr couldn't be normalized to a known roman numeral) so this never silently
+    // returns zeros for a student who does have data somewhere.
+    const myEntry = allStudents.find(s => s.urn === myUrn && s.sem === targetSem)
+                 || allStudents.find(s => s.urn === myUrn);
     if (!myEntry) return { college:0, cls:0, nu:0, di:0 };
 
     const mySection = myEntry.section;
     const myIsNU    = myEntry.isNU;
     const myIsDI    = myUrn.includes('DI');
 
-    // College Rank — FIX (25-Jul-2026): this used to be the student's position in the
-    // ENTIRE unfiltered pool (every course, every semester, 310 students combined) — e.g.
-    // #126. But the admin panel's own "College Rank (All Merged)" view (the one this is
-    // meant to mirror) is actually still scoped to the Course + Semester filters selected
-    // there; "All Merged" only means DI and NU sections are combined into one ranking
-    // instead of split, NOT that every course/semester in the institution is pooled
-    // together. Confirmed live: a student shown as #3 in admin's "College Rank (All
-    // Merged)" view for BCA Sem II (25 students) was shown as #126 on their own report
-    // card. Fix: College Rank is now the student's position within their own course+sem
-    // pool with DI/NU merged — i.e. exactly what Class Rank computes for BBA/BCom below,
-    // and for BCA specifically the DI+NU-merged version of what Class Rank computes split.
-    const collegePool = allStudents.filter(s => s.course === myEntry.course && s.sem === myEntry.sem);
-    const college = collegePool.findIndex(s => s.urn === myUrn) + 1;
+    // College Rank — PARITY SCOPE (25-Jul-2026, third pass): per Harsha's explicit
+    // request, College Rank now pools only within the student's own semester parity —
+    // Odd (I, III, V) students rank against other Odd students; Even (II, IV, VI)
+    // students rank against other Even students. This mirrors admin's Rankings tab
+    // ODD_SEMS/EVEN_SEMS split (results.html resGetFilteredData, RES_DASH_PARITY) and is
+    // a DIFFERENT, deliberately narrower pool than the two earlier revisions: v7.25 wrongly
+    // scoped to course+sem only (reverted in v7.34), and v7.34's "full institution, all six
+    // sems merged" version was itself confirmed correct-but-not-wanted once Harsha compared
+    // it against admin with the parity filter OFF (all_batches) and asked for parity
+    // scoping specifically instead. Not scoped by course — a Sem I BCA/BBA/BCom student's
+    // College Rank pools against ALL Sem I/III/V students across every course, same as
+    // admin's parity-filtered "All Merged" view does.
+    const ODD_SEMS  = ['I', 'III', 'V'];
+    const EVEN_SEMS = ['II', 'IV', 'VI'];
+    const myParityPool = ODD_SEMS.includes(myEntry.sem)
+      ? allStudents.filter(s => ODD_SEMS.includes(s.sem))
+      : EVEN_SEMS.includes(myEntry.sem)
+        ? allStudents.filter(s => EVEN_SEMS.includes(s.sem))
+        : allStudents; // fallback: unrecognized sem value, don't crash — use full pool
+    const college = myParityPool.findIndex(s => s.urn === myUrn) + 1;
+
 
     // Class rank — mirrors results.html exactly (lines 10433-10444):
     // Filter by same _course AND same _sem first, then:
