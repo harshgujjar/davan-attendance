@@ -2031,6 +2031,16 @@ body.dash-active .data-strip { display: block; }
   position: relative;
   overflow: hidden;
 }
+.celeb-banner-green {
+  animation: celebPulse 2s ease-in-out infinite, slideDown .5s ease;
+  background: linear-gradient(135deg, rgba(52,211,153,.14), rgba(16,185,129,.08), rgba(250,204,21,.10));
+  border: 1px solid rgba(52,211,153,.45);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 12px;
+  position: relative;
+  overflow: hidden;
+}
 .celeb-score {
   background: linear-gradient(90deg, #facc15, #fb923c, #a78bfa, #22c55e, #facc15);
   background-size: 300% 300%;
@@ -2138,7 +2148,20 @@ body.dash-active .data-strip { display: block; }
   z-index: 9999; align-items: center; justify-content: center; cursor: pointer;
 }
 #stu-photo-lightbox.active { display: flex; }
-#stu-photo-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 12px; object-fit: contain; }
+#stu-photo-lightbox img {
+  max-width: 90vw; max-height: 90vh; border-radius: 12px; object-fit: contain;
+  /* touch-action:none is what actually makes pinch-zoom possible: without it the
+     browser swallows two-finger gestures as page zoom and our handlers never see
+     a usable event. transform-origin centre keeps scaling anchored to the middle. */
+  touch-action: none; transform-origin: center center; will-change: transform;
+  transition: transform .12s ease-out; cursor: grab; user-select: none; -webkit-user-drag: none;
+}
+#stu-photo-lightbox img.spz-dragging { transition: none; cursor: grabbing; }
+#stu-photo-lightbox .spz-hint {
+  position: fixed; bottom: 18px; left: 0; right: 0; text-align: center;
+  font-size: 11px; font-family: var(--mono); color: rgba(255,255,255,.55);
+  pointer-events: none; letter-spacing: .04em;
+}
 /* ════════════════════════════════════════════════════
    BOTTOM NAV — mobile PWA style
 ════════════════════════════════════════════════════ */
@@ -2786,6 +2809,7 @@ body.dash-active .data-strip { display: block; }
           <table>
             <thead>
               <tr>
+                <th style="text-align:center;width:34px;">#</th>
                 <th>Subject</th>
                 <th>Faculty</th>
                 <th style="text-align:right;">IA 1</th>
@@ -2960,6 +2984,7 @@ body.dash-active .data-strip { display: block; }
       <div class="ctrl-row"><div><div class="ctrl-label">Semester Marks</div><div class="ctrl-sub">Show semester / exam results</div></div><label class="toggle"><input type="checkbox" id="g-semMarks" onchange="saveGlobal('semMarks',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Timetable</div><div class="ctrl-sub">Show weekly class schedule</div></div><label class="toggle"><input type="checkbox" id="g-timetable" onchange="saveGlobal('timetable',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Lesson Plan</div><div class="ctrl-sub">Show syllabus progress</div></div><label class="toggle"><input type="checkbox" id="g-lessonPlan" onchange="saveGlobal('lessonPlan',this.checked)"><span class="toggle-slider"></span></label></div>
+      <div class="ctrl-row"><div><div class="ctrl-label">Faculty Photos</div><div class="ctrl-sub">Show faculty photo beside every name (off = teacher emoji)</div></div><label class="toggle"><input type="checkbox" id="g-facultyPhotos" onchange="saveGlobal('facultyPhotos',this.checked);if(typeof renderStudentDashboard==='function'){try{renderStudentDashboard();}catch(e){}}"><span class="toggle-slider"></span></label></div>
     </div>
     <div class="ctrl-group">
       <div class="ctrl-group-header">🏫 By Class override</div>
@@ -3596,6 +3621,41 @@ body.dash-active .data-strip { display: block; }
    CONFIG
 ════════════════════════════════════════════════════ */
 const DB_URL = 'https://davan-student-portal-default-rtdb.asia-southeast1.firebasedatabase.app';
+
+/* ════════════════════════════════════════════════════════════════════════════
+   GOLDEN RULE — THIS APP READS FROM DB2 ONLY, NEVER FROM DB1
+   ────────────────────────────────────────────────────────────────────────────
+   DB1 (davan-attendance-2026) is the staff/admin database the scraper writes
+   to. DB2 (davan-student-portal) is student-facing. sync_db1_to_db2.py is the
+   ONLY bridge between them.
+
+   If this app needs new data, the fix is to add that path to
+   sync_db1_to_db2.py so it lands in DB2 — never to point a fetch at DB1.
+   Reaching into DB1 from a public HTML file means either loosening DB1's rules
+   for everyone or shipping a staff credential to every student's browser.
+
+   The rule was already policy (v6.92 removed the last DB1 read — the academic
+   calendar), but policy alone did not stop it being broken repeatedly. The
+   guard below makes it mechanical: any fetch aimed at a DB1 host is blocked and
+   logged loudly rather than silently succeeding in dev and leaking in prod.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const DB1_FORBIDDEN_HOSTS = ['davan-attendance-2026'];
+(function installDb1Guard() {
+  if (typeof window === 'undefined' || !window.fetch || window.__db1GuardInstalled) return;
+  window.__db1GuardInstalled = true;
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (url && DB1_FORBIDDEN_HOSTS.some(h => url.indexOf(h) !== -1)) {
+        console.error('[GOLDEN RULE] Blocked a DB1 request from the student portal:', url,
+          '\nThe portal must read DB2 only. Add this path to sync_db1_to_db2.py and read the DB2 copy instead.');
+        return Promise.reject(new Error('DB1 access blocked — student portal is DB2-only'));
+      }
+    } catch (e) { /* never let the guard break a legitimate request */ }
+    return _origFetch(input, init);
+  };
+})();
 // Firebase anonymous auth — signs in silently, token refreshes automatically
 const FIREBASE_CONFIG = {
   apiKey:            'AIzaSyBnWSfjilDwri7dBpONF2GwgXDJnc1W--w',
@@ -3651,6 +3711,222 @@ const ADMIN_CREDENTIALS = [
 ];
 
 const CONTROL_FLAGS = ['attendance','internals','semMarks','timetable','lessonPlan'];
+
+/* ════════════════════════════════════════════════════════════════════════════
+   LANGUAGE SUBJECT FILTER (26-Jul-2026)
+   A class is allocated BOTH language papers (Kannada and Hindi) because the
+   cohort is split between them, but any one student sits only one. The other
+   therefore shows up everywhere as a permanent 0/0 row — see the live case:
+   Kannada 4/4 classes attended, Hindi 0/0.
+
+   Rule, per Harsha: if the student has attendance for one language, show only
+   that language — in Attendance, Lesson Plan and Internals alike. If neither
+   language has any attendance yet (start of term, nothing conducted), show both
+   so nothing is hidden before the data exists. If both somehow have attendance,
+   show both — never guess.
+
+   "Has attendance" = ct > 0, i.e. at least one class actually conducted. ca is
+   not used: a student can legitimately have attended 0 of 6 conducted classes,
+   and that row must still be visible.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const SP_LANG_PATTERNS = [
+  ['kannada',  /kannada|\u0c95\u0ca8\u0ccd\u0ca8\u0ca1/i],
+  ['hindi',    /hindi|\u0939\u093f\u0928\u094d\u0926\u0940|\u0939\u093f\u0902\u0926\u0940/i],
+  ['sanskrit', /sanskrit|\u0938\u0902\u0938\u094d\u0915\u0943\u0924/i],
+  ['urdu',     /urdu/i],
+];
+function spLangOf(text) {
+  const t = String(text || '');
+  if (!t.trim()) return null;
+  for (const [key, re] of SP_LANG_PATTERNS) if (re.test(t)) return key;
+  return null;
+}
+// Which languages this student actually has classes in. Empty set = "can't tell,
+// show everything".
+function spActiveLangs() {
+  const out = new Set();
+  const subs = (STATE.studentData && STATE.studentData.subjects) || [];
+  subs.forEach(s => {
+    const k = spLangOf((s.subject || s.name || '') + ' ' + (s.code || ''));
+    if (k && (Number(s.ct) || 0) > 0) out.add(k);
+  });
+  return out;
+}
+// Visibility test for one subject label. Non-language subjects always pass.
+function spLangVisible(text, activeSet) {
+  const k = spLangOf(text);
+  if (!k) return true;
+  const act = activeSet || spActiveLangs();
+  if (!act.size) return true;   // nothing conducted yet — show every language
+  return act.has(k);
+}
+// Convenience filter for a STATE.studentData.subjects-shaped array.
+function spFilterLangSubs(subs) {
+  const act = spActiveLangs();
+  if (!act.size) return subs;
+  return (subs || []).filter(s => spLangVisible((s.subject || s.name || '') + ' ' + (s.code || ''), act));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   FACULTY PHOTOS (26-Jul-2026)
+   Ported from index.html (facPhotos / _facAvatar / _facAvatarInject). Photos are
+   stored by the admin app at RTDB davan_pub/faculty_photos as a map of
+   normalized-name -> image URL, which the portal can read with its existing
+   public token. Falls back to circular initials when a name has no photo, and to
+   the original teacher emoji when an admin turns the feature off.
+
+   Admin toggle: controls/global/facultyPhotos. Absent = ON, matching how every
+   other global flag in this file defaults (canShow returns `global !== false`).
+   ═══════════════════════════════════════════════════════════════════════════ */
+let spFacPhotos = {};
+let spFacPhotosReady = Promise.resolve();
+// spFacKey — MUST stay identical to _rtdb_safe_key() in sync_db1_to_db2.py.
+// RTDB forbids . $ # [ ] / in keys and rejects an ENTIRE write if one child
+// breaks the rule, so the sync strips those characters before writing the
+// faculty_photos node. "Dr. Shilpa R Y" is stored as "dr shilpa r y"; looking it
+// up with the dot intact would simply never match. Change one, change both.
+function spFacKey(name) {
+  let k = String(name || '').trim().toLowerCase();
+  k = k.replace(/[.$#\[\]\/]/g, ' ');
+  return k.replace(/\s+/g, ' ').trim();
+}
+// Titles are inconsistent between the staff directory ("Dr. Shilpa R Y") and the
+// allocation/timetable data ("Shilpa R Y"), so try the key both with and without
+// one. index.html solves this with a FACULTY_NAME_ALIASES table that does not
+// exist in the portal; this covers the same real-world mismatch without it.
+function spFacPhotoUrl(key) {
+  if (!key) return null;
+  if (spFacPhotos[key]) return spFacPhotos[key];
+  const stripped = key.replace(/^(dr|prof|smt|shri|sri|mr|mrs|ms)\s+/i, '');
+  if (stripped !== key && spFacPhotos[stripped]) return spFacPhotos[stripped];
+  for (const t of ['dr ', 'prof ', 'smt ', 'mr ', 'mrs ', 'ms ']) {
+    if (spFacPhotos[t + key]) return spFacPhotos[t + key];
+  }
+  return null;
+}
+/* ── LOADING THE PHOTO MAP (fixed 26-Jul-2026) ────────────────────────────────
+   The first version called this once from DOMContentLoaded and swallowed any
+   error. That is too early: rtdbGet() awaits getAuthToken(), which needs the
+   Firebase SDK initialised and an anonymous sign-in completed. At
+   DOMContentLoaded neither has happened, so the read to davan_pub/faculty_photos
+   was rejected ("Permission denied" — DB2 grants read to auth != null), the
+   catch quietly set spFacPhotos = {}, and nothing ever retried. Every avatar
+   then fell back to initials permanently, which looked exactly like "no photos
+   in the database" even though the data was fine.
+
+   Now: load lazily and retry. The first spFacLabel() call kicks it off, retries
+   with backoff while auth settles, and re-injects into already-rendered
+   placeholders once the map arrives. Failures are logged instead of hidden. */
+let _spFacLoading = false, _spFacTries = 0, _spFacDone = false;
+const SP_FAC_MAX_TRIES = 6;
+
+async function spEnsureFacPhotos() {
+  if (_spFacDone || _spFacLoading || _spFacTries >= SP_FAC_MAX_TRIES) return spFacPhotos;
+  _spFacLoading = true;
+  _spFacTries++;
+  try {
+    const v = await rtdbGet('davan_pub/faculty_photos');
+    _spFacLoading = false;
+    if (v && Object.keys(v).length) {
+      spFacPhotos = v;
+      _spFacDone  = true;
+      console.log('[FAC PHOTOS] loaded ' + Object.keys(v).length + ' photo(s)');
+      try { spFacAvatarInject(); } catch (e) {}
+    } else {
+      // Readable but empty — the node genuinely has nothing. Stop retrying and
+      // say so, rather than leaving initials unexplained.
+      _spFacDone = true;
+      console.warn('[FAC PHOTOS] davan_pub/faculty_photos is empty in DB2. '
+        + 'Run: python sync_faculty_photos_now.py --write');
+    }
+  } catch (e) {
+    _spFacLoading = false;
+    console.warn('[FAC PHOTOS] read failed (attempt ' + _spFacTries + '/' + SP_FAC_MAX_TRIES + '): '
+      + (e && e.message ? e.message : e));
+    if (_spFacTries < SP_FAC_MAX_TRIES) {
+      // Backoff — anonymous sign-in usually completes within a second or two.
+      setTimeout(spEnsureFacPhotos, 1200 * _spFacTries);
+    } else {
+      console.warn('[FAC PHOTOS] giving up. Check DB2 rules allow read on davan_pub '
+        + 'and that you are signed in.');
+    }
+  }
+  return spFacPhotos;
+}
+
+// Kept for compatibility; forces a fresh attempt.
+async function spPreloadFacPhotos() {
+  _spFacDone = false; _spFacTries = 0;
+  return spEnsureFacPhotos();
+}
+function spShowFacPhotos() {
+  const g = (STATE.controls && STATE.controls.global) || {};
+  return g.facultyPhotos !== false;   // default ON
+}
+// Circular photo, or initials that get swapped for the photo once it loads.
+function spFacAvatar(name, size) {
+  size = size || 20;
+  const parts = String(name || '').trim().split(/\s+/);
+  const initials = parts.length >= 2
+    ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    : ((parts[0] || '?')[0] || '?').toUpperCase();
+  const key  = spFacKey(name);
+  const base = `width:${size}px;height:${size}px;border-radius:50%;flex-shrink:0;border:1px solid var(--border);background:var(--surface2);`;
+  const url  = spFacPhotoUrl(key);
+  // stopPropagation: avatars sit inside rows that are themselves clickable, so a
+  // tap on the face must zoom the photo and NOT trigger the row behind it.
+  if (url) return `<img src="${url}" alt="${initials}" data-spfac-key="${key}" data-spfac-size="${size}" style="${base}object-fit:cover;cursor:zoom-in;" title="Tap to zoom" onclick="event.stopPropagation();rcZoomPhoto(this.src)" onerror="this.style.display='none'">`;
+  return `<span data-spfac-key="${key}" data-spfac-size="${size}" style="${base}display:inline-flex;align-items:center;justify-content:center;font-size:${Math.round(size*0.42)}px;font-weight:700;color:var(--accent);font-family:var(--head);">${initials}</span>`;
+}
+// THE call site helper — every faculty label in the app goes through this, so the
+// admin toggle flips all of them at once and nothing can be left on the emoji.
+function spFacLabel(name, size) {
+  const nm = String(name || '').trim();
+  if (!nm) return '';
+  // Lazy trigger: by the time any faculty name renders, the student is logged in
+  // and a token exists — unlike DOMContentLoaded, where the old code ran and failed.
+  if (!_spFacDone) { try { spEnsureFacPhotos(); } catch (e) {} }
+  if (!spShowFacPhotos()) return '\uD83D\uDC69\u200D\uD83C\uDFEB ' + nm;
+  return '<span style="display:inline-flex;align-items:center;gap:5px;vertical-align:middle;">'
+       + spFacAvatar(nm, size) + '<span>' + nm + '</span></span>';
+}
+// Swap any initials placeholders for real photos once the map has loaded.
+function spFacAvatarInject() {
+  document.querySelectorAll('span[data-spfac-key]').forEach(el => {
+    const key = el.getAttribute('data-spfac-key');
+    const size = parseInt(el.getAttribute('data-spfac-size') || '20', 10);
+    const url = spFacPhotoUrl(key);
+    if (!url) return;
+    const img = document.createElement('img');
+    img.src = url; img.alt = el.textContent.trim();
+    img.setAttribute('data-spfac-key', key);
+    img.setAttribute('data-spfac-size', String(size));
+    img.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;flex-shrink:0;border:1px solid var(--border);background:var(--surface2);object-fit:cover;cursor:zoom-in;`;
+    img.title = 'Tap to zoom';
+    img.onclick = function (e) { e.stopPropagation(); if (typeof rcZoomPhoto === 'function') rcZoomPhoto(img.src); };
+    img.onerror = function(){ this.style.display='none'; };
+    el.replaceWith(img);
+  });
+}
+// Rather than editing every renderer to call spFacAvatarInject(), watch the DOM and
+// run it whenever new placeholders appear. One hook covers every present and future
+// faculty label, including ones rendered asynchronously long after boot.
+function spInitFacPhotos() {
+  // Best-effort early start; if auth is not ready it retries on its own and the
+  // first spFacLabel() call will have kicked it off anyway.
+  spFacPhotosReady = spEnsureFacPhotos().then(() => { try { spFacAvatarInject(); } catch(e) {} });
+  try {
+    let pending = null;
+    new MutationObserver(() => {
+      if (pending) return;
+      pending = setTimeout(() => { pending = null; try { spFacAvatarInject(); } catch(e) {} }, 120);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  } catch(e) {}
+}
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', spInitFacPhotos);
+  else spInitFacPhotos();
+}
 const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const PAGE_SIZE = 25;
 
@@ -4934,6 +5210,11 @@ function populateClassDropdowns() {
 function renderControls() {
   const g = STATE.controls.global;
   CONTROL_FLAGS.forEach(f => { const el=document.getElementById('g-'+f); if(el) el.checked = g[f]!==false; });
+  // Faculty Photos is deliberately NOT in CONTROL_FLAGS: it is a presentation
+  // preference, not a per-student data-visibility permission, so it needs no
+  // byClass/byUrn override rows. Same default-on convention as the flags above.
+  const _fpEl = document.getElementById('g-facultyPhotos');
+  if (_fpEl) _fpEl.checked = g.facultyPhotos !== false;
   renderOverrides('byClass','class-override-list');
   renderOverrides('byUrn','urn-override-list');
 }
@@ -5858,7 +6139,7 @@ function renderOverrideList() {
     '<div class="tt-override-card">' +
       '<div style="flex:1;">' +
         '<div style="font-size:12px;font-weight:600;color:var(--text);">' + v.day + ' · ' + v.slot + '</div>' +
-        '<div style="font-size:12px;color:var(--warn);margin-top:2px;">⚡ ' + v.faculty + '</div>' +
+        '<div style="font-size:12px;color:var(--warn);margin-top:2px;">⚡ ' + spFacLabel(v.faculty, 16) + '</div>' +
         (v.reason ? '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);margin-top:2px;">' + v.reason + '</div>' : '') +
       '</div>' +
       '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">' +
@@ -6555,7 +6836,7 @@ function buildAdminTTView() {
             const a = _ttAllocFor(allocMap, match.code);
             const fac = a.faculty || a.facultyDI || a.facultyNU || '';
             html += '<td style="padding:7px 10px;"><div style="font-size:12px;font-weight:600;color:var(--text);">' + (a.subject||match.code||'—') + '</div>' +
-              (fac ? '<div style="font-size:10px;color:var(--blue);font-family:var(--mono);">' + fac + '</div>' : '') + '</td>';
+              (fac ? '<div style="font-size:10px;color:var(--blue);font-family:var(--mono);">' + spFacLabel(fac, 14) + '</div>' : '') + '</td>';
           } else {
             html += '<td style="padding:7px 10px;color:var(--border);font-size:11px;">—</td>';
           }
@@ -6580,7 +6861,7 @@ function buildAdminTTView() {
           card.innerHTML = '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);min-width:96px;flex-shrink:0;">' + formatSlotTime(row.slot) + '</div>' +
             '<div style="flex:1;min-width:0;">' +
               '<div style="font-size:14px;font-weight:600;color:var(--text);">' + subj + '</div>' +
-              (fac ? '<div style="font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px;">👩‍🏫 ' + fac + '</div>' : '') +
+              (fac ? '<div style="font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px;">' + spFacLabel(fac, 18) + '</div>' : '') +
               (row.code ? '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:1px;">' + row.code + '</div>' : '') +
             '</div>';
           slotsEl.appendChild(card);
@@ -6598,7 +6879,7 @@ function buildAdminTTView() {
       facEl.style.display = 'block';
       facList.innerHTML = sorted.map(fac =>
         '<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">' +
-          '<div style="font-size:13px;font-weight:600;color:var(--blue);min-width:140px;flex-shrink:0;font-family:var(--mono);">👩‍🏫 ' + fac + '</div>' +
+          '<div style="font-size:13px;font-weight:600;color:var(--blue);min-width:140px;flex-shrink:0;font-family:var(--mono);">' + spFacLabel(fac, 20) + '</div>' +
           '<div style="font-size:12px;color:var(--muted);">' + facMap[fac].join(', ') + '</div>' +
         '</div>'
       ).join('');
@@ -6686,7 +6967,7 @@ function renderAdminTTAllClasses(classes, motherTT, motherAlloc) {
         const a = _ttAllocFor(allocMap, match.code);
         const fac = a.faculty || a.facultyDI || a.facultyNU || '';
         html += '<td style="padding:7px 10px;"><div style="font-size:12px;font-weight:600;color:var(--text);">' + (a.subject||match.code||'—') + '</div>' +
-          (fac ? '<div style="font-size:10px;color:var(--blue);font-family:var(--mono);">' + fac + '</div>' : '') + '</td>';
+          (fac ? '<div style="font-size:10px;color:var(--blue);font-family:var(--mono);">' + spFacLabel(fac, 14) + '</div>' : '') + '</td>';
       } else {
         html += '<td style="padding:7px 10px;color:var(--border);font-size:11px;">—</td>';
       }
@@ -6801,7 +7082,7 @@ function renderLessonPlan() {
       return '<div class="lp-subject-card" style="border-left:3px solid var(--blue);">'
         + '<div class="lp-subject-header"><div>'
         + '<div class="lp-subject-name">' + subName + '</div>'
-        + (fac ? '<div style="font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px;">👩‍🏫 ' + fac + '</div>' : '')
+        + (fac ? '<div style="font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px;">' + spFacLabel(fac, 18) + '</div>' : '')
         + '<div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:1px;">' + subCode + '</div>'
         + '</div><div class="lp-pct" style="color:' + barColor + ';">' + pct + '%</div></div>'
         + '<div class="lp-bar-wrap"><div class="lp-bar" style="width:' + pct + '%;background:' + barColor + ';"></div></div>'
@@ -7569,6 +7850,95 @@ async function loadStudentDashboard() {
    Loads full batch from davan_pub/results, sorts by pct,
    finds URN position. Cached in STATE._rankCache.
 ════════════════════════════════════════════════════ */
+// ══════════════════════════════════════════════════════════════════════════════
+//  SP_AY_ALIAS — ACADEMIC-YEAR CORRECTIONS FOR MIS-KEYED RESULT BATCHES
+//  ⚠️  KEEP IN SYNC WITH index.html's RC_AY_ALIAS. Same table, same purpose.
+// ──────────────────────────────────────────────────────────────────────────────
+//  Result docs are keyed `COURSE_SemROMAN_YEAR` where YEAR is the academic year's END
+//  year (2026 = AY 2025-26). That year groups students into a College Rank pool.
+//  The Sem V batches were uploaded as _2025 while the Sem I and Sem III batches of the
+//  SAME exam session were uploaded as _2026, so Sem V sat in its own bucket and never
+//  joined the pool. Verified from the live admin pool dump:
+//      sem I 119 + sem III 195 + sem V 273 = 587 enrolled → 413 passed,
+//  and 413 is exactly the admin Rankings tab's own "Total Ranked" for the merged odd
+//  view — proving all three semesters are one session.
+//  DELETE the entry below once those batches are re-uploaded with the right year, or
+//  the corrected docs will be aliased a second time.
+// ══════════════════════════════════════════════════════════════════════════════
+const SP_AY_ALIAS = {
+  byDocId: {
+    // 'BCA_SemV_2025': 2026,
+  },
+  byYearParity: {
+    '2025|odd': 2026,   // Sem V (BCA/BBA/BCom) mis-keyed 2025; same session as Sem I/III 2026
+  },
+};
+
+// spParseDocId — one parser for course / semester / academic year, so the pool-building
+// and the rank-lookup can never disagree about which semester a doc belongs to. (In
+// index.html the equivalent mismatch silently dropped whole batches out of every pool
+// and made College Rank fall back to an all-years ranking.) Doc ID wins over any
+// in-document course/sem field, because those fields are written by the admin app after
+// load and are frequently absent from the stored record.
+function spParseDocId(id) {
+  const parts   = String(id||'').split('_');
+  const semRaw  = parts.find(p => /^Sem/i.test(p)) || '';
+  const yearRaw = parts.find(p => /^\d{4}$/.test(p));
+  const sem     = semRaw.replace(/^Sem/i, '');
+  const rawAy   = yearRaw ? parseInt(yearRaw, 10) : null;
+  const semU    = String(sem).toUpperCase();
+  const par     = ['I','III','V'].includes(semU) ? 'odd' : ['II','IV','VI'].includes(semU) ? 'even' : null;
+  let ay = rawAy;
+  if (SP_AY_ALIAS.byDocId && SP_AY_ALIAS.byDocId[id] != null) ay = SP_AY_ALIAS.byDocId[id];
+  else if (rawAy != null && par && SP_AY_ALIAS.byYearParity
+           && SP_AY_ALIAS.byYearParity[rawAy + '|' + par] != null) ay = SP_AY_ALIAS.byYearParity[rawAy + '|' + par];
+  return { course: (parts[0]||'').toUpperCase(), sem, ay, rawAy };
+}
+
+// spFmtRank — mirrors index.html's rcFmtRank so the portal and the report card read
+// identically. "#3 of 25 out of 62" = 3rd among the 25 who passed everything, in a
+// cohort of 62. Both numbers are shown because either alone misleads: "of 25" hides the
+// real class size, "of 62" implies 62 people were ranked when 37 of them failed and
+// were never rankable.
+// ── CENTUM (100/100) DETECTION — SINGLE SOURCE OF TRUTH (26-Jul-2026) ─────────
+// A "centum" is a full 100 out of 100 in a university semester exam. Per Harsha it must
+// count ONLY theory papers marked out of 100:
+//   • labs are excluded — a 100 in a practical is routine and would drown out the real
+//     achievement (both of V Neesha's 100s are labs: C Programming Lab, Data Structures Lab)
+//   • any paper whose max is 50 is excluded (Indian Constitution, PDPTM, the 50-mark DSCs)
+//   • non-graded/report papers (project, dissertation, viva, internship) are excluded
+//   • an "equal split" like 50+50 is excluded — that is a two-component paper totalling
+//     100, not a centum in a single 100-mark exam
+// This was previously duplicated inline in two table renderers with no shared definition,
+// so the row highlight and anything else could drift apart. Both now call this, which
+// means a subject highlighted gold in the table is exactly one counted by the banner.
+const SP_CENTUM_EXCLUDE_CODES = new Set(['BCA-PDPTM','IC-I','IC-II','IC-III','21BCA5VC1AL','BBADSC-5-6B','BBADSC-5-7B','BCOMDSC-5-7B']);
+function spIsCentumSub(sub, dispName) {
+  if (!sub) return false;
+  const code = (sub.code || '').trim();
+  const nm   = String(dispName || sub.name || code || '').toLowerCase();
+  const excluded = SP_CENTUM_EXCLUDE_CODES.has(code)
+    || /research|project|dissertation|viva|internship/i.test(nm)
+    || /lab$/i.test(code) || code.endsWith('P') || nm.includes(' lab');
+  if (excluded) return false;
+  const eqSplit = sub.split && sub.split.includes('+') && (() => {
+    const pts = sub.split.replace(/\s/g,'').split('+').map(p => parseFloat(p.split('=')[0])).filter(v => !isNaN(v));
+    return pts.length > 1 && pts.every(p => p === pts[0]) && pts[0] <= 50;
+  })();
+  if (eqSplit) return false;
+  return sub.total != null && sub.max != null && sub.total === sub.max && sub.max === 100;
+}
+
+function spFmtRank(rank, ranked, total) {
+  if (!rank) return '';
+  const r = Number(ranked) || 0, t = Number(total) || 0;
+  let tail = '';
+  if (r > 0 && t > 0 && t !== r) tail = ' of ' + r + ' out of ' + t;
+  else if (t > 0)               tail = ' of ' + t;
+  else if (r > 0)               tail = ' of ' + r;
+  return '#' + rank + (tail ? '<span style="font-size:.6em;color:var(--muted);font-weight:600;">' + tail + '</span>' : '');
+}
+
 async function computeStudentRanks(urn, course, semStr) {
   if (!urn || !course || !semStr) return { college:0, cls:0, nu:0, di:0 };
   const cacheKey = course + '_' + semStr;
@@ -7630,19 +8000,36 @@ async function computeStudentRanks(urn, course, semStr) {
         const r=(d.result||'').toLowerCase(); return r!=='fail'&&r!=='absent'&&r!=='ab';
       });
 
-    const extractPool = (regular, backlog, docCourse, docSem) => {
+    // enrolledAll — EVERY student on the sheet, pass or fail. Rank POSITIONS still come
+    // from allStudents (only a full pass is rankable), but DENOMINATORS come from here:
+    // "#3 of 25 out of 62" means 3rd out of a 62-student cohort, not 3rd out of 25.
+    const enrolledAll = [];
+    const _enrolledSeen = new Set();
+    const extractPool = (regular, backlog, docCourse, docSem, docAy) => {
       // College rank pool = ALL regular students across ALL courses and ALL sems
       // (matches results.html: allRegAll = Object.values(RES_ALL_DOCS).flatMap(d=>d.regular||[]))
       // NO sem filter, NO course filter, NO backlog — regular only
       // Fix marks/result first (mirrors resFixStudentMarks) before isFullPass check
       const fixed = fixStudentMarks(regular);
-      const pool = fixed.filter(isFullPass).map(s => {
+      // Campus from the URN: 'DI' anywhere in it = Davan, otherwise Nutana. Same rule
+      // index.html and results.html use, so the three files agree on who is counted.
+      const tagRec = s => {
         const id = (s.urn||s.usn||'').toUpperCase();
-        const isNU = id.includes('NU');
         const secM = (s.class||s.cls||'').match(/[Ss]ec([A-Z])/);
-        const section = secM ? secM[1] : (id.includes('DI') ? 'DI' : 'NU');
-        return { urn:id, pct:s.pct||0, isNU, section, course:(docCourse||'').toUpperCase(), sem:semNorm(docSem||'') };
+        return { urn:id, pct:s.pct||0, isNU:!id.includes('DI'),
+                 section: secM ? secM[1] : (id.includes('DI') ? 'DI' : 'NU'),
+                 course:(docCourse||'').toUpperCase(), sem:semNorm(docSem||''), ay:docAy };
+      };
+      // Enrolled side — deduped on urn|sem|ay because this runs once for a doc's flat
+      // `regular` array AND once per nested course/sem slot; without the guard a mixed
+      // doc would count the same student twice and double every denominator.
+      fixed.forEach(s => {
+        const rec = tagRec(s);
+        if (!rec.urn) return;
+        const k = rec.urn + '|' + rec.sem + '|' + rec.ay;
+        if (!_enrolledSeen.has(k)) { _enrolledSeen.add(k); enrolledAll.push(rec); }
       });
+      const pool = fixed.filter(isFullPass).map(tagRec);
       if (pool.length) {
         // Merge — dedupe by URN+SEM (NOT urn alone). BUG FIX (25-Jul-2026): this used to
         // dedupe by urn only, keeping whichever semester had the higher pct and silently
@@ -7661,8 +8048,10 @@ async function computeStudentRanks(urn, course, semStr) {
         // myEntry lookup below is updated to match on both urn AND the requested semester.
         if (!allStudents) allStudents = [];
         pool.forEach(s => {
-          const key = s.urn + '|' + s.sem;
-          const existing = allStudents.findIndex(e => (e.urn + '|' + e.sem) === key);
+          // Dedup key now includes the academic year as well as the semester, so a
+          // student who repeats a semester in a later year keeps both records.
+          const key = s.urn + '|' + s.sem + '|' + s.ay;
+          const existing = allStudents.findIndex(e => (e.urn + '|' + e.sem + '|' + e.ay) === key);
           if (existing === -1) allStudents.push(s);
           else if (s.pct > allStudents[existing].pct) allStudents[existing] = s;
         });
@@ -7670,17 +8059,21 @@ async function computeStudentRanks(urn, course, semStr) {
     };
 
     Object.entries(pub).forEach(([docId, d]) => {
-      const parts   = docId.split('_');
-      const dCourse = d.course || parts[0] || '';
-      const dSem    = d.sem || (parts.find(p=>/^Sem/i.test(p))||'').replace(/^Sem/i,'') || '';
+      // Doc ID takes priority over d.course / d.sem — those are stamped on by the admin
+      // app after it loads a doc and are usually missing from the stored record, which
+      // would leave sem = '' (no parity, so the whole batch falls out of every pool).
+      const meta    = spParseDocId(docId);
+      const dCourse = meta.course || d.course || '';
+      const dSem    = meta.sem    || d.sem    || '';
+      const dAy     = meta.ay;
       if (Array.isArray(d.regular)) {
-        extractPool(d.regular, d.backlog, dCourse, dSem);
+        extractPool(d.regular, d.backlog, dCourse, dSem, dAy);
       } else {
         COURSES.forEach(c => {
           if (!d[c]) return;
           SEMS.forEach(s => {
             const slot = d[c]['sem'+s];
-            if (slot) extractPool(slot.regular, slot.backlog, c, s);
+            if (slot) extractPool(slot.regular, slot.backlog, c, s, dAy);
           });
         });
       }
@@ -7718,16 +8111,32 @@ async function computeStudentRanks(urn, course, semStr) {
     // students in the same parity group. Not scoped by course — a Sem I NU student's
     // College Rank pools against every Sem I/III/V NU student across BCA+BBA+BCom
     // combined, same shape as before but now also split by campus.
+    // ── COLLEGE RANK — REWRITTEN (26-Jul-2026) to match index.html exactly ──
+    // Scope, as confirmed by Harsha: the student's OWN academic year + the parity of the
+    // semester being displayed, pooling ALL THREE COURSES (BCA + BBA + BCom) and BOTH
+    // CAMPUSES together. A Sem I result ranks against everyone who sat Sem I+III+V that
+    // same year; a Sem II result against that year's Sem II+IV+VI. When she reaches
+    // Sem IV her Sem III result ranks inside that year's I/III/V pool, outgoing final
+    // years having dropped out and incoming first years dropped in.
+    //
+    // This SUPERSEDES v7.37's campus split. Splitting College Rank by campus made it a
+    // second campus rank — the portal then showed a Sem I "College Rank #76" that was
+    // really her Nutana-only position, while the admin report card showed the true
+    // merged figure. Campus is still available separately as the DI/NU tile below.
+    // The academic-year scope is the other half of the fix: without it the pool merged
+    // every year on file, so a first-year's rank silently competed with graduates.
     const ODD_SEMS  = ['I', 'III', 'V'];
     const EVEN_SEMS = ['II', 'IV', 'VI'];
-    const myEntryIsDI = myEntry.urn.includes('DI');
-    const collegeCampusPool = allStudents.filter(s => s.urn.includes('DI') === myEntryIsDI);
-    const myParityPool = ODD_SEMS.includes(myEntry.sem)
-      ? collegeCampusPool.filter(s => ODD_SEMS.includes(s.sem))
-      : EVEN_SEMS.includes(myEntry.sem)
-        ? collegeCampusPool.filter(s => EVEN_SEMS.includes(s.sem))
-        : collegeCampusPool; // fallback: unrecognized sem value, don't crash — use campus-only pool
-    const college = myParityPool.findIndex(s => s.urn === myUrn) + 1;
+    const spParityOf = sm => ODD_SEMS.includes(sm) ? 'odd' : EVEN_SEMS.includes(sm) ? 'even' : null;
+    const myParity = spParityOf(myEntry.sem);
+    const myAy     = myEntry.ay;
+    // Records with no parseable AY stay eligible rather than vanishing from the pool.
+    const sameCohort = s => (!myParity || spParityOf(s.sem) === myParity)
+                         && (myAy == null || s.ay == null || s.ay === myAy);
+    const myParityPool  = allStudents.filter(sameCohort);   // already sorted % desc
+    const college       = myParityPool.findIndex(s => s.urn === myUrn) + 1;
+    const collegeRanked = myParityPool.length;                        // passed everything
+    const collegeTotal  = enrolledAll.filter(sameCohort).length;      // enrolled
 
 
     // Class rank — mirrors results.html's resIsMergedSection exactly:
@@ -7756,21 +8165,22 @@ async function computeStudentRanks(urn, course, semStr) {
     const myCourse = course.toUpperCase();
     const mySem    = myEntry.sem;
     const myIsMerged = myCourse === 'BCA' && isMergedSectionCohort(myUrn, mySem);
-    let cls = 0;
-    if (myCourse === 'BCA' && !myIsMerged) {
-      const classPool = allStudents.filter(s => {
-        if (s.course !== 'BCA') return false;
-        if (s.sem !== mySem) return false;
-        if (myIsDI)  return s.urn.includes('DI');
-        return !s.urn.includes('DI');
-      });
-      cls = classPool.findIndex(s => s.urn === myUrn) + 1;
-    } else {
-      // BBA/BCom (always), and BCA semesters listed in BCA_MERGED_SECTIONS:
-      // class = all of same course+sem, DI+NU merged, no section split.
-      const classPool = allStudents.filter(s => s.course === myCourse && s.sem === mySem);
-      cls = classPool.findIndex(s => s.urn === myUrn) + 1;
-    }
+    // inMyClass — one predicate reused for both the rank position and the denominator,
+    // so they can never describe different groups. Now also year-scoped: without it, a
+    // class pool merged this year's Sem I with every previous year's Sem I.
+    const inMyClass = s => {
+      if (myAy != null && s.ay != null && s.ay !== myAy) return false;
+      if (s.course !== myCourse) return false;
+      if (s.sem !== mySem) return false;
+      if (myCourse === 'BCA' && !myIsMerged) {
+        return myIsDI ? s.urn.includes('DI') : !s.urn.includes('DI');
+      }
+      return true; // BBA/BCom, or a merged BCA cohort: whole course+sem is one class
+    };
+    const classPool = allStudents.filter(inMyClass);
+    const cls       = classPool.findIndex(s => s.urn === myUrn) + 1;
+    const clsRanked = classPool.length;
+    const clsTotal  = enrolledAll.filter(inMyClass).length;
 
     // DI rank = position among DI students only, SAME course+sem (mirrors Class Rank's
     // scoping above). BUG FIX (25-Jul-2026): this used to filter ONLY by
@@ -7790,21 +8200,25 @@ async function computeStudentRanks(urn, course, semStr) {
     // DI/NU split rank is meaningless once the two sections have been administratively
     // combined into one; Class Rank (now merged) represents "my section" for these
     // students instead. See resIsMergedSection in results.html for the mirrored logic.
-    let di = 0;
-    if (myIsDI && !myIsMerged) {
-      const diPool = allStudents.filter(s => s.urn.includes('DI') && s.course === myCourse && s.sem === mySem);
-      di = diPool.findIndex(s => s.urn === myUrn) + 1;
-    }
+    // ── CAMPUS RANK (Davan / Nutana) — REWRITTEN (26-Jul-2026) ──
+    // Two changes, both to match index.html. (1) Scope is now the same cohort as College
+    // Rank — own academic year + own parity, all courses — then split by campus, rather
+    // than the old course+sem-only pool. It answers "where do I place among everyone at
+    // MY institute this year". (2) No longer suppressed for merged-section cohorts: a
+    // campus rank is not a section rank, so combining the DI and NU teaching sections
+    // does not make "how do I compare across Nutana" meaningless. Harsha asked for it to
+    // stay visible for these students.
+    const myCampusIsDI = myUrn.includes('DI');
+    const inMyCampus   = s => sameCohort(s) && (s.urn.includes('DI') === myCampusIsDI);
+    const campusPool   = myParityPool.filter(s => s.urn.includes('DI') === myCampusIsDI);
+    const campusPos    = campusPool.findIndex(s => s.urn === myUrn) + 1;
+    const campusRanked = campusPool.length;
+    const campusTotal  = enrolledAll.filter(inMyCampus).length;
+    const di = myCampusIsDI ? campusPos : 0;
+    const nu = myCampusIsDI ? 0 : campusPos;
 
-    // NU rank = position among NU students only, SAME course+sem. Same merged-cohort
-    // suppression as DI rank above.
-    let nu = 0;
-    if (myIsNU && !myIsMerged) {
-      const nuPool = allStudents.filter(s => s.isNU && s.course === myCourse && s.sem === mySem);
-      nu = nuPool.findIndex(s => s.urn === myUrn) + 1;
-    }
-
-    const result = { college, cls, nu, di };
+    const result = { college, cls, nu, di,
+      collegeRanked, collegeTotal, clsRanked, clsTotal, campusRanked, campusTotal };
     if (!STATE._rankCache || STATE._rankCache._key !== cacheKey) STATE._rankCache = { _key: cacheKey };
     STATE._rankCache[myUrn] = result;
     return result;
@@ -8368,7 +8782,7 @@ function stuFreshSubjectsHtml() {
     html += '<div style="display:flex;align-items:center;gap:14px;padding:15px 8px;border-bottom:1px solid var(--border);">' +
       (av || '') +
       '<div style="flex:1;"><div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:2px;">' + s.subject + '</div>' +
-      (s.faculty ? '<div style="font-size:12px;color:var(--blue);font-family:var(--mono);">👩‍🏫 ' + s.faculty + '</div>' : '') +
+      (s.faculty ? '<div style="font-size:12px;color:var(--blue);font-family:var(--mono);">' + spFacLabel(s.faculty, 18) + '</div>' : '') +
       '</div>' +
       '<div style="font-size:12px;color:var(--muted);font-family:var(--mono);">— %</div></div>';
   });
@@ -8702,6 +9116,9 @@ async function renderPastYear() {
 }
 
 function renderDashAttSummary(subs) {
+  // Language filter applied at the top so every downstream block in this function
+  // (attendance rows, celebration banners, totals) sees the same subject list.
+  subs = spFilterLangSubs(subs);
   const el = document.getElementById('sd-att-summary');
   const celebEl = document.getElementById('sd-celeb-section');
   if (!el) return;
@@ -8745,7 +9162,7 @@ function renderDashAttSummary(subs) {
         : hasData ? '<span style="font-size:10px;font-family:var(--mono);color:var(--ok);background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:4px;padding:2px 7px;">OK</span>' : '';
     const isDI2 = STATE.studentUser && (STATE.studentUser.urn||'').toUpperCase().includes('DI');
     const fac2 = isDI2 ? (sub.facultyDI || sub.faculty || '') : (sub.facultyNU || sub.faculty || '');
-    const facHtml2 = fac2 ? `<div style="font-size:10px;color:var(--blue);font-family:var(--mono);margin-top:1px;">👩‍🏫 ${fac2}</div>` : '';
+    const facHtml2 = fac2 ? `<div style="font-size:10px;color:var(--blue);font-family:var(--mono);margin-top:1px;">${spFacLabel(fac2, 16)}</div>` : '';
     const subDisplayName = _knownName(sub.code||'') || fixSubjectName(sub.subject) || sub.name || '—';
     // Classes taken / attended / missed — shown as a compact stat block before the % column.
     // ca = attended, ct = taken (total held so far); missed = ct - ca.
@@ -8805,7 +9222,7 @@ function renderDashAttSummary(subs) {
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
         <span style="font-size:16px;">✅</span>
         <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;">${nm}</span>
-        ${fac?`<span style="font-size:11px;color:var(--blue);">${fac}</span>`:''}
+        ${fac?`<span style="font-size:11px;color:var(--blue);">${spFacLabel(fac, 16)}</span>`:''}
         <span class="celeb-score" style="font-size:13px;">100%</span>
       </div>`;
     }).join('');
@@ -8840,7 +9257,7 @@ function renderDashAttSummary(subs) {
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
         <span style="font-size:16px;">🎯</span>
         <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;">${nm}</span>
-        ${fac?`<span style="font-size:11px;color:var(--blue);">${fac}</span>`:''}
+        ${fac?`<span style="font-size:11px;color:var(--blue);">${spFacLabel(fac, 16)}</span>`:''}
         ${iaTags}
       </div>`;
     }).join('');
@@ -8859,11 +9276,91 @@ function renderDashAttSummary(subs) {
       </div>`;
   }
 
+  // ── CENTUM celebration banner — 100/100 in a university semester exam ──
+  // Built from STATE._lastPrevResults, so it automatically covers EVERY semester on
+  // file: when Sem III results are uploaded they simply appear here, grouped under
+  // their own heading, with no code change. Which subject qualifies is decided solely
+  // by spIsCentumSub (labs and 50-mark papers excluded — see its comment).
+  const SEM_ORDER_CENTUM = { I:1, II:2, III:3, IV:4, V:5, VI:6 };
+  const centumBySem = [];
+  (STATE._lastPrevResults || []).forEach(r => {
+    const hits = (r.subjects || []).filter(subj => {
+      const c = (subj.code || '').trim();
+      const nm = (typeof STU_KLU === 'function' ? STU_KLU(c) : '') || subj.name || c || '';
+      return spIsCentumSub(subj, nm);
+    }).map(subj => {
+      const c = (subj.code || '').trim();
+      return {
+        name: (typeof STU_KLU === 'function' ? STU_KLU(c) : '') || subj.name || c || '\u2014',
+        fac:  isDIstu ? (subj.facultyDI || subj.faculty || '') : (subj.facultyNU || subj.faculty || ''),
+        total: subj.total, max: subj.max,
+      };
+    });
+    if (hits.length) centumBySem.push({ course: r._course || '', sem: r._sem || '', hits });
+  });
+  centumBySem.sort((a,b) => (SEM_ORDER_CENTUM[a.sem]||9) - (SEM_ORDER_CENTUM[b.sem]||9));
+  const centumCount = centumBySem.reduce((a,g) => a + g.hits.length, 0);
+
+  let examCelebHtml = '';
+  if (centumCount) {
+    const groups = centumBySem.map(g => {
+      const rows = g.hits.map(h => `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+          <span style="font-size:16px;">\uD83D\uDCAF</span>
+          <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;">${h.name}</span>
+          ${h.fac?`<span style="font-size:11px;color:var(--blue);">${spFacLabel(h.fac, 16)}</span>`:''}
+          <span class="celeb-score" style="font-size:13px;">${h.total}/${h.max}</span>
+        </div>`).join('');
+      // Semester is always named explicitly — a centum belongs to the exam it was
+      // scored in, and the banner shows several semesters at once.
+      return `<div style="margin-top:8px;">
+          <div style="font-size:10px;font-family:var(--mono);letter-spacing:.08em;color:#34d399;text-transform:uppercase;margin-bottom:2px;">
+            ${[g.course, g.sem?'Sem '+g.sem:''].filter(Boolean).join(' \u00b7 ') || 'Semester exam'}
+            <span style="color:var(--muted);">\u2014 ${g.hits.length} centum${g.hits.length>1?'s':''}</span>
+          </div>${rows}
+        </div>`;
+    }).join('');
+    const semLabels = centumBySem.map(g => 'Sem ' + g.sem).join(', ');
+    examCelebHtml = `
+      <div class="celeb-banner-green" id="celeb-exam-banner" style="${(attCelebHtml||iaCelebHtml) ? 'margin-top:10px;' : ''}">
+        ${_celebConfetti(['#34d399','#22c55e','#facc15','#60a5fa','#f472b6','#a78bfa'])}
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+          <span style="font-size:26px;">\uD83C\uDFAF</span>
+          <div>
+            <div style="font-size:14px;font-weight:800;color:#34d399;letter-spacing:.5px;">Centum in University Exam!</div>
+            <div style="font-size:11px;color:var(--muted);">${centumCount} subject${centumCount>1?'s':''} at a full 100/100 \u2014 ${semLabels}</div>
+          </div>
+          <button id="celeb-exam-toggle" onclick="(function(){const b=document.getElementById('celeb-exam-body');const t=document.getElementById('celeb-exam-toggle');if(!b)return;const hidden=b.style.display==='none';b.style.display=hidden?'block':'none';t.textContent=hidden?'\u25B2 Hide':'\u25BC Show';try{localStorage.setItem('sp_celeb_exam_hidden', hidden?'0':'1');}catch(e){}})()" style="margin-left:auto;font-size:11px;font-family:var(--mono);background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.3);color:#34d399;border-radius:6px;padding:4px 10px;cursor:pointer;">\u25B2 Hide</button>
+        </div>
+        <div id="celeb-exam-body">${groups}</div>
+      </div>`;
+  }
+
   // Write celebrations to the dedicated section ABOVE Attendance Summary
   if (celebEl) {
-    const hasCelebrations = attCelebHtml || iaCelebHtml;
+    const hasCelebrations = attCelebHtml || iaCelebHtml || examCelebHtml;
     celebEl.style.marginBottom = hasCelebrations ? '16px' : '0';
-    celebEl.innerHTML = attCelebHtml + iaCelebHtml;
+    celebEl.innerHTML = attCelebHtml + iaCelebHtml + examCelebHtml;
+    // Default is SHOWN. Only collapse if this user previously chose to hide it; the
+    // choice persists across reloads but never hides a brand-new achievement by default.
+    try {
+      if (examCelebHtml && localStorage.getItem('sp_celeb_exam_hidden') === '1') {
+        const b = document.getElementById('celeb-exam-body');
+        const t = document.getElementById('celeb-exam-toggle');
+        if (b) { b.style.display = 'none'; if (t) t.textContent = '\u25BC Show'; }
+      }
+    } catch(e) {}
+  }
+
+  // Semester results are fetched lazily (normally only when the Report Card panel is
+  // opened), so on a cold Dashboard load _lastPrevResults is still undefined and the
+  // centum banner would have nothing to read. Fetch once, then re-render just this
+  // section. The `=== undefined` guard means an empty [] result never re-triggers.
+  if (STATE._lastPrevResults === undefined && STATE.studentUser && STATE.studentUser.urn
+      && typeof rcLoadPrevResults === 'function') {
+    rcLoadPrevResults(STATE.studentUser.urn).then(res => {
+      STATE._lastPrevResults = res || [];
+      if ((STATE._lastPrevResults || []).length) renderDashAttSummary(subs);
+    }).catch(() => { STATE._lastPrevResults = STATE._lastPrevResults || []; });
   }
 
   // ── Inject ranks inline (async, non-blocking) ──
@@ -8899,17 +9396,18 @@ function renderDashRankBadges(ranks) {
   const block = document.createElement('div');
   block.id = 'dash-rank-block';
   block.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding:0 0 4px;';
-  const makeChip = (label, val, color) => val > 0
+  const makeChip = (label, val, color, ranked, total) => val > 0
     ? `<div style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid ${color}44;border-radius:8px;padding:6px 14px;flex:1;min-width:100px;">
-        <div style="font-family:var(--head);font-size:26px;color:${color};line-height:1;">#${val}</div>
+        <div style="font-family:var(--head);font-size:26px;color:${color};line-height:1;">${spFmtRank(val, ranked, total)}</div>
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;line-height:1.3;">${label}</div>
       </div>` : '';
   const myUrn = ((STATE.studentUser || {}).urn || '').toUpperCase();
   const isDIstu = myUrn.includes('DI');
   block.innerHTML =
-    makeChip('College Rank', ranks.college, '#f0a500') +
-    makeChip('Class Rank',   ranks.cls,     '#a78bfa') +
-    (isDIstu ? makeChip('DI Rank', ranks.di, '#38bdf8') : makeChip('NU Rank', ranks.nu, '#38bdf8'));
+    makeChip('College Rank', ranks.college, '#f0a500', ranks.collegeRanked, ranks.collegeTotal) +
+    makeChip('Class Rank',   ranks.cls,     '#a78bfa', ranks.clsRanked,     ranks.clsTotal) +
+    (isDIstu ? makeChip('DI Rank', ranks.di, '#38bdf8', ranks.campusRanked, ranks.campusTotal)
+             : makeChip('NU Rank', ranks.nu, '#38bdf8', ranks.campusRanked, ranks.campusTotal));
   if (block.innerHTML.trim()) statsGrid.insertAdjacentElement('afterend', block);
 }
 
@@ -9487,7 +9985,9 @@ function renderAttendance() {
       const nm = (s.subject || s.name || '').trim();
       if (nm && _attHiddenName.test(nm)) return false;
       return true;
-    });
+    })
+    // Drop the language paper this student doesn't sit — see spFilterLangSubs.
+    .filter((s, _i, arr) => spLangVisible((s.subject||s.name||'') + ' ' + (s.code||'')));
   if (STATE._viewIsArchive) {
     console.log('%c[DAVAN DEBUG] renderAttendance in ARCHIVE view', 'color:#06b6d4;font-weight:bold;', {
       viewAY: STATE._viewAY,
@@ -9569,7 +10069,7 @@ function renderAttendance() {
       return found.faculty || (isDI_r ? found.facultyDI : found.facultyNU) || found.facultyDI || found.facultyNU || '';
     };
     const facAttFinal = _resolveFac(sub, facAtt);
-    const facAttHtml = facAttFinal ? `<div style="font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px;">👩‍🏫 ${facAttFinal}</div>` : '';
+    const facAttHtml = facAttFinal ? `<div style="font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px;">${spFacLabel(facAttFinal, 18)}</div>` : '';
     return `<div class="att-card">
       <div class="att-card-header">
         <div>
@@ -9671,7 +10171,8 @@ function renderInternals() {
       const nm = (s.subject || s.name || '').trim();
       if (nm && _intHiddenName.test(nm)) return false;
       return true;
-    });
+    })
+    .filter(s => spLangVisible((s.subject||s.name||'') + ' ' + (s.code||'')));   // language filter
   const tbody = document.getElementById('stu-int-tbody');
   if (!tbody) return;
   if (!subs.length) {
@@ -9701,7 +10202,7 @@ function renderInternals() {
     };
   };
   const isDI_int = STATE.studentUser && (STATE.studentUser.urn||'').toUpperCase().includes('DI');
-  tbody.innerHTML = subs.map(sub => {
+  tbody.innerHTML = subs.map((sub, _sn) => {
     const ia1Cell = _portalIntCell(sub.int1, sub.int1_result, 1);
     const ia2Cell = _portalIntCell(sub.int2, sub.int2_result, 2);
     const fac = isDI_int ? (sub.facultyDI || sub.faculty || '') : (sub.facultyNU || sub.faculty || '');
@@ -9717,8 +10218,9 @@ function renderInternals() {
       ? `<span style="font-size:10px;font-weight:700;color:#22c55e;background:rgba(34,197,94,0.12);padding:2px 8px;border-radius:4px;">PASS</span>`
       : `<span style="font-size:10px;color:var(--muted);">—</span>`;
     return `<tr style="border-left:3px solid ${rowBorder};">
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);">${_sn+1}</td>
       <td><div style="font-weight:600;">${subName}</div>${subCode ? `<div style="font-size:10px;font-family:var(--mono);color:var(--muted);">${subCode}</div>` : ''}</td>
-      <td style="font-size:11px;color:${fac ? 'var(--blue)' : 'var(--muted)'};font-family:var(--mono);">${fac || '—'}</td>
+      <td style="font-size:11px;color:${fac ? 'var(--blue)' : 'var(--muted)'};font-family:var(--mono);">${fac ? spFacLabel(fac, 18) : '—'}</td>
       <td style="text-align:right;font-family:var(--mono);line-height:1.6;">${ia1Cell.html}</td>
       <td style="text-align:right;font-family:var(--mono);line-height:1.6;">${ia2Cell.html}</td>
       <td style="text-align:center;">${statusHtml}</td>
@@ -9792,7 +10294,10 @@ function renderStudentLessonPlan() {
   }
   if (hidEl) hidEl.style.display = 'none';
   const lp = STATE.lessonPlan || {};
-  const subjects = Object.entries(lp);
+  // Language filter — the lesson plan is keyed by subject name, so test the key.
+  const _lpActiveLangs = spActiveLangs();
+  const subjects = Object.entries(lp).filter(([k, v]) =>
+    spLangVisible(k + ' ' + ((v && (v.subject || v.name || v.code)) || ''), _lpActiveLangs));
   if (!subjects.length) {
     if (cardsEl) cardsEl.style.display = 'none';
     if (emptyEl) {
@@ -9816,7 +10321,8 @@ function renderStudentLessonPlan() {
 
   cardsEl.innerHTML = subjects.map(([key, d]) => {
     const fullSubName = resolveLPSubjectName(key, d);
-    const label    = d.faculty ? (d.faculty + ' \u00b7 ' + fullSubName) : fullSubName;
+    // label is written into innerHTML (see .lp-subject-name below), so markup is safe.
+    const label    = d.faculty ? (spFacLabel(d.faculty, 18) + ' \u00b7 ' + fullSubName) : fullSubName;
     const topics   = Array.isArray(d.topics) ? d.topics : Object.values(d.topics || {});
     const done     = topics.filter(function(t){ return !!t.handled_date; }).length;
     const pending  = topics.filter(function(t){ return !t.handled_date && !!t.given_date; }).length;
@@ -10442,7 +10948,7 @@ function renderStudentTimetable() {
         const subjEl = document.createElement('div');
         subjEl.className = 'slot-subj';
         if (facName) {
-          subjEl.innerHTML = '<span style="color:var(--muted);font-weight:500;">' + facName + '</span>' +
+          subjEl.innerHTML = '<span style="color:var(--muted);font-weight:500;">' + spFacLabel(facName, 16) + '</span>' +
             '<span style="color:var(--muted);margin:0 4px;">·</span>' + subjName;
         } else {
           subjEl.textContent = subjName;
@@ -10459,7 +10965,8 @@ function renderStudentTimetable() {
         // Faculty icon line (secondary)
         const facEl = document.createElement('div');
         facEl.className = 'slot-fac';
-        facEl.textContent = '👩‍🏫 ' + (facName || '—');
+        // innerHTML, not textContent — spFacLabel returns markup when photos are on.
+        facEl.innerHTML = facName ? spFacLabel(facName, 18) : '—';
 
         const statusEl = document.createElement('div');
         statusEl.className = 'slot-status ' + st;
@@ -10531,7 +11038,7 @@ function renderStudentTimetable() {
         '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;margin-bottom:6px;">' +
         '<div style="font-size:10px;font-family:var(--mono);color:var(--warn);font-weight:700;letter-spacing:.06em;margin-bottom:4px;">⚡ TEMP CHANGE — ' + (v.duration==='day'?'TODAY ONLY':'THIS WEEK') + '</div>' +
         '<div style="font-size:13px;font-weight:600;color:var(--text);">' + v.slot + '</div>' +
-        '<div style="font-size:12px;color:var(--warn);margin-top:2px;">' + v.faculty + '</div>' +
+        '<div style="font-size:12px;color:var(--warn);margin-top:2px;">' + spFacLabel(v.faculty, 16) + '</div>' +
         (v.reason ? '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);margin-top:2px;">' + v.reason + '</div>' : '') +
         '</div>'
       ).join('');
@@ -10560,7 +11067,7 @@ function renderOldTimetable(tt, wrapEl, emptyEl) {
     slotsHtml = todaySlots.map(s => {
       const subj = STU_KLU(s.subject||'') || s.subject || '—';
       const fac  = s.faculty || s.teacher || s.fac || '—';
-      return '<div class="tt-v2-slot"><div class="slot-time">' + (s.time||'') + '</div><div class="slot-subj">' + subj + '</div><div class="slot-fac">👩‍🏫 ' + fac + '</div></div>';
+      return '<div class="tt-v2-slot"><div class="slot-time">' + (s.time||'') + '</div><div class="slot-subj">' + subj + '</div><div class="slot-fac">' + spFacLabel(fac, 16) + '</div></div>';
     }).join('');
   } else {
     slotsHtml = '<div style="text-align:center;padding:24px;font-family:var(--mono);font-size:12px;color:var(--muted);">No classes today</div>';
@@ -10580,7 +11087,7 @@ function renderOldTTDay(btn, day) {
     listEl.innerHTML = slots.map(s => {
       const subj = STU_KLU(s.subject||'') || s.subject || '—';
       const fac  = s.faculty || s.teacher || s.fac || '—';
-      return '<div class="tt-v2-slot"><div class="slot-time">' + (s.time||'') + '</div><div class="slot-subj">' + subj + '</div><div class="slot-fac">👩‍🏫 ' + fac + '</div></div>';
+      return '<div class="tt-v2-slot"><div class="slot-time">' + (s.time||'') + '</div><div class="slot-subj">' + subj + '</div><div class="slot-fac">' + spFacLabel(fac, 16) + '</div></div>';
     }).join('');
   } else {
     listEl.innerHTML = '<div style="text-align:center;padding:24px;font-family:var(--mono);font-size:12px;color:var(--muted);">No classes</div>';
@@ -11257,7 +11764,7 @@ async function renderReportCard() {
           '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px;">' +
             '<div style="flex:1;min-width:0;">' +
               '<div style="font-size:14px;font-weight:600;color:var(--text);">' + (STU_KLU(sub.code||'') || sub.subject || sub.code || '—') + '</div>' +
-              (fac ? '<div style="font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px;">👩‍🏫 ' + fac + '</div>' : '<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px;opacity:0.5;">Faculty —</div>') +
+              (fac ? '<div style="font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px;">' + spFacLabel(fac, 18) + '</div>' : '<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px;opacity:0.5;">Faculty —</div>') +
               (sub.code ? '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:1px;">' + sub.code + '</div>' : '') +
             '</div>' +
             '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">' +
@@ -11390,7 +11897,7 @@ async function renderReportCard() {
                 const code = sub.code || '';
                 const dispName = STU_KLU(code) || sub.name || code || '—';
                 const f = isDI ? (sub.facultyDI||sub.faculty||'') : (sub.facultyNU||sub.faculty||'');
-                return '<div style="font-size:12px;color:var(--text);padding:2px 0;">' + dispName + (f?' <span style="color:#a78bfa;font-size:11px;">(' + f + ')</span>':'') + ' <span style="color:#facc15;font-weight:700;">100/100</span></div>';
+                return '<div style="font-size:12px;color:var(--text);padding:2px 0;">' + dispName + (f?' <span style="color:#a78bfa;font-size:11px;">(' + spFacLabel(f, 14) + ')</span>':'') + ' <span style="color:#facc15;font-weight:700;">100/100</span></div>';
               }).join('') +
             '</div>';
           })() +
@@ -11429,6 +11936,7 @@ async function renderReportCard() {
           '<div style="overflow-x:auto;">' +
           '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
             '<thead><tr style="background:var(--surface);">' +
+              '<th style="padding:7px 8px;text-align:center;font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);width:34px;">#</th>' +
               '<th style="padding:7px 10px;text-align:left;font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);">Subject</th>' +
               '<th style="padding:7px 10px;text-align:left;font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);">Faculty</th>' +
               '<th style="padding:7px 10px;text-align:center;font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);">Max</th>' +
@@ -11437,13 +11945,13 @@ async function renderReportCard() {
               '<th style="padding:7px 10px;text-align:center;font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);">Result</th>' +
             '</tr></thead>' +
             '<tbody>' +
-            r.subjects.map(sub => {
+            r.subjects.map((sub, _sn) => {
               const res    = (sub.result||'').toUpperCase();
               const rColor = res==='PASS' ? 'var(--ok)' : res==='FAIL' ? 'var(--danger)' : 'var(--muted)';
               const rBg    = res==='PASS' ? 'rgba(34,197,94,.04)' : res==='FAIL' ? 'rgba(239,68,68,.04)' : '';
               const fac    = isDI ? (sub.facultyDI||sub.faculty||'') : (sub.facultyNU||sub.faculty||'');
               const facHtml = fac
-                ? '<span style="color:#a78bfa;">' + fac + '</span>'
+                ? '<span style="color:#a78bfa;">' + spFacLabel(fac, 18) + '</span>'
                 : '<span style="color:var(--muted);opacity:0.4;">—</span>';
               const pctStr = sub.pct != null ? sub.pct.toFixed(1)+'%' : '—';
               // Resolve proper subject display name via STU_KNOWN_NAMES (case-insensitive,
@@ -11451,15 +11959,9 @@ async function renderReportCard() {
               const code = (sub.code || '').trim();
               const _klu = STU_KLU;
               const dispName = _klu(code) || sub.name || code || '—';
-              // 100/100 highlight — same exclusion rules as the banner
-              const _EXCL = new Set(['BCA-PDPTM','IC-I','IC-II','IC-III','21BCA5VC1AL','BBADSC-5-6B','BBADSC-5-7B','BCOMDSC-5-7B']);
-              const _nameChk = dispName.toLowerCase();
-              const _isExcluded = _EXCL.has(code)
-                || /research|project|dissertation|viva|internship/i.test(_nameChk)
-                || /lab$/i.test(code) || code.endsWith('P') || _nameChk.includes(' lab');
-              const _isEqualSplit = sub.split && sub.split.includes('+') &&
-                (() => { const pts = sub.split.replace(/\s/g,'').split('+').map(p=>parseFloat(p.split('=')[0])).filter(v=>!isNaN(v)); return pts.length>1 && pts.every(p=>p===pts[0]) && pts[0]<=50; })();
-              const is100 = !_isExcluded && !_isEqualSplit && sub.total != null && sub.max != null && sub.total === sub.max && sub.max === 100;
+              // 100/100 highlight — delegates to spIsCentumSub so the gold rows here and
+              // the dashboard centum banner can never disagree about what counts.
+              const is100 = spIsCentumSub(sub, dispName);
               const rowBg  = is100 ? 'rgba(250,204,21,0.07)' : rBg;
               const rowBorder = is100 ? 'border-left:3px solid #facc15;' : '';
               // Marks display: show split like "29+13=42" in green, or plain total
@@ -11473,6 +11975,7 @@ async function renderReportCard() {
                 marksHtml = '<span style="font-weight:600;">' + (sub.total??'—') + '</span>' + (is100 ? ' <span style="font-size:12px;">🌟</span>' : '');
               }
               return '<tr style="background:' + rowBg + ';border-bottom:1px solid rgba(255,255,255,0.04);' + rowBorder + '">' +
+                '<td style="padding:7px 8px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);">' + (_sn+1) + '</td>' +
                 '<td style="padding:7px 10px;font-size:12px;font-weight:500;">' + dispName + '</td>' +
                 '<td style="padding:7px 10px;font-size:11px;">' + facHtml + '</td>' +
                 '<td style="padding:7px 10px;text-align:center;font-family:var(--mono);font-size:12px;">' + sub.max + '</td>' +
@@ -11483,7 +11986,7 @@ async function renderReportCard() {
             }).join('') +
             // Footer totals row
             (validSubs.length ? '<tfoot><tr style="background:var(--surface2);font-weight:700;">' +
-              '<td colspan="2" style="padding:6px 10px;font-size:11px;font-family:var(--mono);color:var(--muted);">TOTAL</td>' +
+              '<td colspan="3" style="padding:6px 10px;font-size:11px;font-family:var(--mono);color:var(--muted);">TOTAL</td>' +
               '<td style="padding:6px 10px;text-align:center;font-family:var(--mono);">' + totalMax + '</td>' +
               '<td style="padding:6px 10px;text-align:center;font-family:var(--mono);color:var(--accent);">' + totalMarks + '</td>' +
               '<td style="padding:6px 10px;text-align:center;font-family:var(--mono);color:var(--accent);">' + totalPctStr + '</td>' +
@@ -11503,18 +12006,18 @@ async function renderReportCard() {
         computeStudentRanks(_rcUrn, r._course, r._sem).then(ranks => {
           const slot = document.getElementById(slotId);
           if (!slot || !ranks) return;
-          const makeRankTile = (emoji, label, val, numColor, bgColor, borderColor) => val > 0
+          const makeRankTile = (emoji, label, val, numColor, bgColor, borderColor, ranked, total) => val > 0
             ? '<div style="background:'+bgColor+';border:1px solid '+borderColor+';border-radius:8px;padding:10px 8px;text-align:center;min-width:80px;">'
-              + '<div style="font-size:20px;font-weight:700;font-family:var(--mono);color:'+numColor+';">#'+val+'</div>'
+              + '<div style="font-size:20px;font-weight:700;font-family:var(--mono);color:'+numColor+';">'+spFmtRank(val, ranked, total)+'</div>'
               + '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:3px;text-transform:uppercase;letter-spacing:.05em;">'+emoji+' '+label+'</div>'
               + '</div>'
             : '';
           const campusChip = _isDIstu
-            ? makeRankTile('\uD83D\uDD37','DI Rank', ranks.di,  '#38bdf8','rgba(56,189,248,0.08)','rgba(56,189,248,0.25)')
-            : makeRankTile('\uD83C\uDF10','NU Rank', ranks.nu,  '#38bdf8','rgba(56,189,248,0.08)','rgba(56,189,248,0.25)');
+            ? makeRankTile('\uD83D\uDD37','DI Rank', ranks.di,  '#38bdf8','rgba(56,189,248,0.08)','rgba(56,189,248,0.25)', ranks.campusRanked, ranks.campusTotal)
+            : makeRankTile('\uD83C\uDF10','NU Rank', ranks.nu,  '#38bdf8','rgba(56,189,248,0.08)','rgba(56,189,248,0.25)', ranks.campusRanked, ranks.campusTotal);
           const allChips =
-            makeRankTile('\uD83C\uDFC6','College Rank', ranks.college, '#f0a500','rgba(240,165,0,0.08)','rgba(240,165,0,0.25)') +
-            makeRankTile('\uD83C\uDF93','Class Rank',   ranks.cls,     '#a78bfa','rgba(167,139,250,0.08)','rgba(167,139,250,0.25)') +
+            makeRankTile('\uD83C\uDFC6','College Rank', ranks.college, '#f0a500','rgba(240,165,0,0.08)','rgba(240,165,0,0.25)', ranks.collegeRanked, ranks.collegeTotal) +
+            makeRankTile('\uD83C\uDF93','Class Rank',   ranks.cls,     '#a78bfa','rgba(167,139,250,0.08)','rgba(167,139,250,0.25)', ranks.clsRanked, ranks.clsTotal) +
             campusChip;
           if (allChips.trim()) slot.innerHTML = allChips;
         }).catch(() => {});
@@ -11612,12 +12115,126 @@ async function renderReportCard() {
 
 }
 
+/* ════════════════════════════════════════════════════════════════════════════
+   PHOTO LIGHTBOX WITH PINCH-TO-ZOOM (26-Jul-2026)
+   Every photo in the app — student passport photos, topbar, report card, and now
+   faculty avatars — opens through rcZoomPhoto(), so upgrading this one function
+   gives all of them pinch-zoom at once.
+
+   Supports: two-finger pinch (touch), wheel/trackpad zoom (desktop), drag to pan
+   once zoomed in, double-tap or double-click to toggle 1x <-> 2.5x, and tap on
+   the backdrop to close. Zoom is clamped to 1x-6x, and panning is disabled at 1x
+   so a stray drag can't slide the image off-centre.
+
+   The backdrop's inline onclick was removed: it fired on every pinch and pan,
+   closing the lightbox the instant a gesture started. Closing is now handled here
+   and only when the tap actually lands on the backdrop, not the image.
+   ═══════════════════════════════════════════════════════════════════════════ */
+let _spzScale = 1, _spzX = 0, _spzY = 0;
+let _spzStartDist = 0, _spzStartScale = 1;
+let _spzPanning = false, _spzPanStartX = 0, _spzPanStartY = 0;
+let _spzLastTap = 0, _spzInstalled = false;
+
+function _spzApply(img, animate) {
+  if (!img) return;
+  if (_spzScale <= 1) { _spzX = 0; _spzY = 0; }
+  img.classList.toggle('spz-dragging', !animate);
+  img.style.transform = `translate(${_spzX}px, ${_spzY}px) scale(${_spzScale})`;
+}
+function _spzReset(img) { _spzScale = 1; _spzX = 0; _spzY = 0; _spzApply(img, true); }
+function _spzZoomTo(img, next) {
+  _spzScale = Math.max(1, Math.min(6, next));
+  _spzApply(img, true);
+}
+
+function _spzInstall() {
+  if (_spzInstalled) return;
+  const lb  = document.getElementById('stu-photo-lightbox');
+  const img = document.getElementById('stu-photo-lightbox-img');
+  if (!lb || !img) return;
+  _spzInstalled = true;
+
+  // Close only when the backdrop itself is tapped.
+  lb.addEventListener('click', (e) => {
+    if (e.target === lb) { lb.classList.remove('active'); _spzReset(img); }
+  });
+
+  // ── Desktop: wheel / trackpad zoom, drag to pan, double-click to toggle ──
+  lb.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    _spzZoomTo(img, _spzScale * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+  }, { passive: false });
+
+  img.addEventListener('mousedown', (e) => {
+    if (_spzScale <= 1) return;
+    e.preventDefault();
+    _spzPanning = true; _spzPanStartX = e.clientX - _spzX; _spzPanStartY = e.clientY - _spzY;
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!_spzPanning) return;
+    _spzX = e.clientX - _spzPanStartX; _spzY = e.clientY - _spzPanStartY;
+    _spzApply(img, false);
+  });
+  window.addEventListener('mouseup', () => { _spzPanning = false; _spzApply(img, true); });
+  img.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    _spzScale > 1 ? _spzReset(img) : _spzZoomTo(img, 2.5);
+  });
+
+  // ── Touch: pinch to zoom, one-finger pan, double-tap to toggle ──
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  img.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      _spzStartDist = dist(e.touches); _spzStartScale = _spzScale; _spzPanning = false;
+    } else if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - _spzLastTap < 300) {            // double-tap
+        e.preventDefault();
+        _spzScale > 1 ? _spzReset(img) : _spzZoomTo(img, 2.5);
+      }
+      _spzLastTap = now;
+      if (_spzScale > 1) {
+        _spzPanning = true;
+        _spzPanStartX = e.touches[0].clientX - _spzX;
+        _spzPanStartY = e.touches[0].clientY - _spzY;
+      }
+    }
+  }, { passive: false });
+
+  img.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && _spzStartDist > 0) {
+      e.preventDefault();
+      _spzScale = Math.max(1, Math.min(6, _spzStartScale * (dist(e.touches) / _spzStartDist)));
+      _spzApply(img, false);
+    } else if (e.touches.length === 1 && _spzPanning) {
+      e.preventDefault();
+      _spzX = e.touches[0].clientX - _spzPanStartX;
+      _spzY = e.touches[0].clientY - _spzPanStartY;
+      _spzApply(img, false);
+    }
+  }, { passive: false });
+
+  img.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) _spzStartDist = 0;
+    if (e.touches.length === 0) { _spzPanning = false; _spzApply(img, true); }
+  });
+
+  // Esc closes on desktop.
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && lb.classList.contains('active')) {
+      lb.classList.remove('active'); _spzReset(img);
+    }
+  });
+}
+
 function rcZoomPhoto(url) {
   if (!url) return;
   const lb = document.getElementById('stu-photo-lightbox');
   const img = document.getElementById('stu-photo-lightbox-img');
   if (!lb || !img) return;
+  _spzInstall();
   img.src = url;
+  _spzReset(img);          // always open at 1x, never inherit the last photo's zoom
   lb.classList.add('active');
 }
 
@@ -12653,7 +13270,7 @@ async function ascRenderPrevResults(s) {
           const code = sub.code || '';
           const dispName = STU_KLU(code) || sub.name || code || '—';
           const f = isDI ? (sub.facultyDI||sub.faculty||'') : (sub.facultyNU||sub.faculty||'');
-          return '<div style="font-size:12px;color:var(--text);padding:2px 0;">' + dispName + (f?' <span style="color:#a78bfa;font-size:11px;">(' + f + ')</span>':'') + ' <span style="color:#facc15;font-weight:700;">100/100</span></div>';
+          return '<div style="font-size:12px;color:var(--text);padding:2px 0;">' + dispName + (f?' <span style="color:#a78bfa;font-size:11px;">(' + spFacLabel(f, 14) + ')</span>':'') + ' <span style="color:#facc15;font-weight:700;">100/100</span></div>';
         }).join('') +
       '</div>';
     }
@@ -12687,6 +13304,7 @@ async function ascRenderPrevResults(s) {
     html += '<div style="overflow-x:auto;padding:0 14px 14px;">' +
       '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
       '<thead><tr style="background:var(--surface2);border-bottom:1px solid var(--border);">' +
+        '<th style="padding:7px 8px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--muted);font-weight:600;width:34px;">#</th>' +
         '<th style="padding:7px 10px;text-align:left;font-family:var(--mono);font-size:10px;color:var(--muted);font-weight:600;">SUBJECT</th>' +
         '<th style="padding:7px 10px;text-align:left;font-family:var(--mono);font-size:10px;color:var(--muted);font-weight:600;">FACULTY</th>' +
         '<th style="padding:7px 10px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--muted);font-weight:600;">MAX</th>' +
@@ -12700,7 +13318,7 @@ async function ascRenderPrevResults(s) {
       const rColor  = res==='PASS' ? 'var(--ok)' : res==='FAIL' ? 'var(--danger)' : 'var(--muted)';
       const rBg     = res==='PASS' ? 'rgba(34,197,94,.04)' : res==='FAIL' ? 'rgba(239,68,68,.04)' : '';
       const fac     = isDI ? (sub.facultyDI||sub.faculty||'') : (sub.facultyNU||sub.faculty||'');
-      const facHtml = fac ? '<span style="color:#a78bfa;">' + fac + '</span>'
+      const facHtml = fac ? '<span style="color:#a78bfa;">' + spFacLabel(fac, 18) + '</span>'
                           : '<span style="color:var(--muted);opacity:0.4;">—</span>';
       const pctStr  = sub.pct != null ? sub.pct.toFixed(1)+'%' : '—';
       const code    = (sub.code || '').trim();
@@ -12708,12 +13326,7 @@ async function ascRenderPrevResults(s) {
       const dispName= _klu(code) || sub.name || code || '—';
       // 100/100 row highlight
       const _nameChk = dispName.toLowerCase();
-      const _excl = _EXCLUDE_CODES.has(code)
-        || /research|project|dissertation|viva|internship/i.test(_nameChk)
-        || /lab$/i.test(code) || code.endsWith('P') || _nameChk.includes(' lab');
-      const _eqSplit = sub.split && sub.split.includes('+') &&
-        (() => { const pts=sub.split.replace(/\s/g,'').split('+').map(p=>parseFloat(p.split('=')[0])).filter(v=>!isNaN(v)); return pts.length>1 && pts.every(p=>p===pts[0]) && pts[0]<=50; })();
-      const is100   = !_excl && !_eqSplit && sub.total != null && sub.max != null && sub.total === sub.max && sub.max === 100;
+      const is100   = spIsCentumSub(sub, dispName);   // shared definition — see spIsCentumSub
       const rowBg   = is100 ? 'rgba(250,204,21,0.07)' : rBg;
       const rowBord = is100 ? 'border-left:3px solid #facc15;' : '';
       // Marks display
@@ -12726,6 +13339,7 @@ async function ascRenderPrevResults(s) {
         marksHtml = '<span style="font-weight:600;">' + (sub.total??'—') + '</span>' + (is100 ? ' <span style="font-size:12px;">🌟</span>' : '');
       }
       html += '<tr style="background:' + rowBg + ';border-bottom:1px solid rgba(255,255,255,0.04);' + rowBord + '">' +
+        '<td style="padding:7px 8px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);">' + (idx+1) + '</td>' +
         '<td style="padding:7px 10px;font-size:12px;font-weight:500;">' + dispName + '</td>' +
         '<td style="padding:7px 10px;font-size:11px;">' + facHtml + '</td>' +
         '<td style="padding:7px 10px;text-align:center;font-family:var(--mono);font-size:12px;">' + (sub.max??'—') + '</td>' +
@@ -12738,7 +13352,7 @@ async function ascRenderPrevResults(s) {
     // Footer totals
     if (validSubs.length) {
       html += '<tfoot><tr style="background:var(--surface2);font-weight:700;">' +
-        '<td colspan="2" style="padding:6px 10px;font-size:11px;font-family:var(--mono);color:var(--muted);">TOTAL</td>' +
+        '<td colspan="3" style="padding:6px 10px;font-size:11px;font-family:var(--mono);color:var(--muted);">TOTAL</td>' +
         '<td style="padding:6px 10px;text-align:center;font-family:var(--mono);">' + totalMax + '</td>' +
         '<td style="padding:6px 10px;text-align:center;font-family:var(--mono);color:var(--accent);">' + totalMarks + '</td>' +
         '<td style="padding:6px 10px;text-align:center;font-family:var(--mono);color:var(--accent);">' + totalPctStr + '</td>' +
@@ -12758,18 +13372,18 @@ async function ascRenderPrevResults(s) {
     computeStudentRanks(s.urn, r._course, r._sem).then(ranks => {
       const slot = document.getElementById(slotId);
       if (!slot || !ranks) return;
-      const makeRankTile = (emoji, label, val, numColor, bgColor, borderColor) => val > 0
+      const makeRankTile = (emoji, label, val, numColor, bgColor, borderColor, ranked, total) => val > 0
         ? '<div style="background:'+bgColor+';border:1px solid '+borderColor+';border-radius:8px;padding:10px 12px;text-align:center;min-width:70px;">'
-          + '<div style="font-size:20px;font-weight:700;font-family:var(--mono);color:'+numColor+';">#'+val+'</div>'
+          + '<div style="font-size:20px;font-weight:700;font-family:var(--mono);color:'+numColor+';">'+spFmtRank(val, ranked, total)+'</div>'
           + '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.05em;">'+emoji+' '+label+'</div>'
           + '</div>'
         : '';
       const campusChip = isDI
-        ? makeRankTile('🔷','DI Rank', ranks.di,  '#38bdf8','rgba(56,189,248,0.08)','rgba(56,189,248,0.25)')
-        : makeRankTile('🌐','NU Rank', ranks.nu,  '#38bdf8','rgba(56,189,248,0.08)','rgba(56,189,248,0.25)');
+        ? makeRankTile('🔷','DI Rank', ranks.di,  '#38bdf8','rgba(56,189,248,0.08)','rgba(56,189,248,0.25)', ranks.campusRanked, ranks.campusTotal)
+        : makeRankTile('🌐','NU Rank', ranks.nu,  '#38bdf8','rgba(56,189,248,0.08)','rgba(56,189,248,0.25)', ranks.campusRanked, ranks.campusTotal);
       const allChips =
-        makeRankTile('🏆','College Rank', ranks.college, '#f0a500','rgba(240,165,0,0.08)','rgba(240,165,0,0.25)') +
-        makeRankTile('🎓','Class Rank',   ranks.cls,     '#a78bfa','rgba(167,139,250,0.08)','rgba(167,139,250,0.25)') +
+        makeRankTile('🏆','College Rank', ranks.college, '#f0a500','rgba(240,165,0,0.08)','rgba(240,165,0,0.25)', ranks.collegeRanked, ranks.collegeTotal) +
+        makeRankTile('🎓','Class Rank',   ranks.cls,     '#a78bfa','rgba(167,139,250,0.08)','rgba(167,139,250,0.25)', ranks.clsRanked, ranks.clsTotal) +
         campusChip;
       if (allChips.trim()) slot.outerHTML = allChips;
     }).catch(() => {});
@@ -12869,8 +13483,9 @@ window.addEventListener('keydown', function (e) {
 
 </script>
 <!-- Photo lightbox -->
-<div id="stu-photo-lightbox" onclick="this.classList.remove('active')">
-  <img id="stu-photo-lightbox-img" src="" alt="Student Photo">
+<div id="stu-photo-lightbox">
+  <img id="stu-photo-lightbox-img" src="" alt="Photo">
+  <div class="spz-hint">Pinch or scroll to zoom \u00b7 drag to pan \u00b7 double-tap to reset \u00b7 tap outside to close</div>
 </div>
 
 <!-- ════ ADMIN STUDENT CARD MODAL ════ -->
