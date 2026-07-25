@@ -877,7 +877,7 @@
     </div>
     <label>Registered mobile number</label>
     <input id="p-mobile" class="fld" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile">
-    <label style="margin-top:10px">Summary language <span class="mini">(only the 💬 summary changes — rest stays English)</span></label>
+    <label style="margin-top:10px">Select your summary language <span class="mini">(choose one — only the 💬 summary changes, rest stays English)</span></label>
     <div class="row" id="p-lang-row" style="gap:8px">
       <button type="button" class="btn" id="p-lang-en" onclick="setParentLang('en')" style="flex:1">English</button>
       <button type="button" class="btn" id="p-lang-kn" onclick="setParentLang('kn')" style="flex:1">ಕನ್ನಡ</button>
@@ -1217,6 +1217,19 @@
         <button class="btn" style="color:#e05a5a;border-color:#e05a5a" onclick="adDeleteFilteredClass()" id="ad-bulk-del-btn">🗑 Delete all in filter</button>
         <button class="btn" style="color:#e05a5a;border-color:#e05a5a" onclick="adDeleteStreamGroup()" id="ad-bulk-del-stream-btn">🗑 Delete entire stream (all sections)</button>
       </div>
+      <div class="row" style="margin-bottom:10px">
+        <button class="btn" onclick="adBulkSetVisible(true)" id="ad-bulk-show-btn">👁 Show all in filter to parents</button>
+        <button class="btn" onclick="adBulkSetVisible(false)" id="ad-bulk-hide-btn">🚫 Hide all in filter from parents</button>
+      </div>
+      <div class="row" style="margin-bottom:4px;align-items:center;flex-wrap:wrap;gap:8px">
+        <label style="margin:0" for="ad-bulk-vis-start">Set visible-from:</label>
+        <input id="ad-bulk-vis-start" type="datetime-local" class="fld" style="max-width:210px">
+        <label style="margin:0" for="ad-bulk-vis-end">Set visible-until:</label>
+        <input id="ad-bulk-vis-end" type="datetime-local" class="fld" style="max-width:210px" placeholder="leave blank for no end date">
+        <button class="btn" onclick="adBulkSetWindow()" id="ad-bulk-window-btn">🕐 Apply to all in filter</button>
+      </div>
+      <div class="mini" id="ad-bulk-window-hint" style="margin-bottom:6px;color:var(--accent)"></div>
+      <div class="mini" style="margin-bottom:10px;color:var(--mut)">These bulk controls act on whichever students are currently shown by the search box + class chip/dropdown above — same set as Download/Print/Delete. Leave "visible-until" blank for no expiry.</div>
       <div class="mini" id="ad-bulk-stream-hint" style="margin-bottom:8px;color:var(--mut)">"Delete entire stream" removes every section (A/B/C…) under the same year+stream as whichever class is picked above (chip or dropdown) — e.g. picking any 2PUC SCI section deletes 2PUC SCI-A and 2PUC SCI-B together. Pick a class first — the button is disabled otherwise.</div>
       <div class="mini" style="margin-bottom:8px">Every student defaults to <b>English</b>. Only a student explicitly marked <b>ಕನ್ನಡ</b> below (per row) prints/downloads in Kannada — everyone else in the batch stays English, even within the same class.</div>
       <div id="ad-bulk-op-status" class="mini"></div>
@@ -1245,7 +1258,7 @@ const rtdb = firebase.database();
 const CUR_AY  = '2026-27';   // current academic year (marks + attendance)
 const PREV_AY = '2025-26';   // prior year (1PUC final = prior annual for a 2PUC student)
 let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
-const APP_VERSION = 'v3.25';
+const APP_VERSION = 'v3.28';
 const CLOUDINARY_CLOUD  = 'dat0khbet';
 const CLOUDINARY_PRESET = 'davan_students';
 
@@ -3263,6 +3276,36 @@ function adRenderPublishedList(){
     ? AD_PUBLISHED.filter(r=>(r.name||'').toLowerCase().includes(q) || (r.usn||'').toLowerCase().includes(q))
     : AD_PUBLISHED;
   if(clsFilter) rows = rows.filter(r=>r.cls===clsFilter);
+
+  // Prefill the bulk visible-from/until fields with whatever window is
+  // already set on the filtered class, so the admin can see the existing
+  // schedule before deciding to change it — instead of always starting
+  // blank. Only prefills when a class is actually picked (chip or dropdown)
+  // and every row in that filter shares the exact same window; if the class
+  // has mixed/never-set windows, the fields are cleared and a hint explains
+  // why, so the admin isn't misled into thinking one student's value applies
+  // to everyone before hitting "Apply to all in filter".
+  const bulkStartEl=document.getElementById('ad-bulk-vis-start');
+  const bulkEndEl=document.getElementById('ad-bulk-vis-end');
+  const bulkHintEl=document.getElementById('ad-bulk-window-hint');
+  if(bulkStartEl && bulkEndEl){
+    if(clsFilter && rows.length){
+      const froms=new Set(rows.map(r=>r.visibleFrom==null?'':r.visibleFrom));
+      const untils=new Set(rows.map(r=>r.visibleUntil==null?'':r.visibleUntil));
+      if(froms.size===1 && untils.size===1){
+        const from=rows[0].visibleFrom, until=rows[0].visibleUntil;
+        bulkStartEl.value = from!=null ? _dtLocalFromMs(from) : '';
+        bulkEndEl.value = until!=null ? _dtLocalFromMs(until) : '';
+        if(bulkHintEl) bulkHintEl.textContent = `Showing ${clsFilter}'s current schedule — change and click "Apply to all in filter" to update it.`;
+      }else{
+        bulkStartEl.value=''; bulkEndEl.value='';
+        if(bulkHintEl) bulkHintEl.textContent = `Students in ${clsFilter} currently have different visibility windows — set new values below to apply the same window to all of them.`;
+      }
+    }else{
+      if(bulkHintEl) bulkHintEl.textContent = '';
+    }
+  }
+
   if(!rows.length){ listEl.innerHTML='<div class="mini">No published students match this class/search.</div>'; return; }
   listEl.innerHTML = '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--line);border-radius:8px">'
     + rows.map(r=>{
@@ -3440,12 +3483,72 @@ async function adSetCardVisible(usn, visible){
   }catch(e){ toast('Could not update: '+e.message,'err'); adLoadPublishedList(); }
 }
 
+// ============ BULK VISIBILITY — show/hide every student in the current filter ============
+// Acts on exactly the rows adBulkTargetRows() returns, i.e. whatever the
+// search box + class chip/dropdown are currently showing — same target set
+// as bulk download/print/delete, so an admin filters once and every bulk
+// action (including this one) respects that same filter.
+async function adBulkSetVisible(visible){
+  const rows=adBulkTargetRows();
+  if(!rows.length){ toast('No published students match the current filter.','err'); return; }
+  if(!confirm(`${visible?'Show':'Hide'} ${rows.length} student${rows.length>1?'s':''} ${visible?'to':'from'} parents?`)) return;
+  const showBtn=document.getElementById('ad-bulk-show-btn'), hideBtn=document.getElementById('ad-bulk-hide-btn');
+  if(showBtn) showBtn.disabled=true; if(hideBtn) hideBtn.disabled=true;
+  let ok=0, fail=0;
+  for(const r of rows){
+    try{ await rtdb.ref('published_index/'+r.usn+'/visible').set(visible); r.visible=visible; ok++; }
+    catch(e){ fail++; }
+  }
+  if(showBtn) showBtn.disabled=false; if(hideBtn) hideBtn.disabled=false;
+  toast(`${visible?'Shown':'Hidden'}: ${ok}${fail?`, failed: ${fail}`:''}`, fail?'err':'ok');
+  adRenderPublishedList();
+}
+
+// ============ BULK VISIBILITY WINDOW — set start/end for every student in the current filter ============
+// Reuses the same datetime-local fields as the single-student publish flow
+// (adReadVisWindow), so "blank end = no expiry" behaves identically here.
+async function adBulkSetWindow(){
+  const rows=adBulkTargetRows();
+  if(!rows.length){ toast('No published students match the current filter.','err'); return; }
+  const sVal=document.getElementById('ad-bulk-vis-start')?.value;
+  const eVal=document.getElementById('ad-bulk-vis-end')?.value;
+  if(!sVal){ toast('Set a visible-from date/time first.','err'); return; }
+  const visibleFrom = new Date(sVal).getTime();
+  const visibleUntil = eVal ? new Date(eVal).getTime() : null;
+  if(visibleUntil && visibleUntil<=visibleFrom){ toast('Visible-until must be after visible-from.','err'); return; }
+  const label = adVisWindowLabel(visibleFrom, visibleUntil);
+  if(!confirm(`Apply this window to ${rows.length} student${rows.length>1?'s':''}?\n${label}`)) return;
+  const btn=document.getElementById('ad-bulk-window-btn'); if(btn) btn.disabled=true;
+  let ok=0, fail=0;
+  for(const r of rows){
+    try{
+      await rtdb.ref('published_index/'+r.usn+'/visibleFrom').set(visibleFrom);
+      await rtdb.ref('published_index/'+r.usn+'/visibleUntil').set(visibleUntil);
+      r.visibleFrom=visibleFrom; r.visibleUntil=visibleUntil; ok++;
+    }catch(e){ fail++; }
+  }
+  if(btn) btn.disabled=false;
+  toast(`Window applied: ${ok}${fail?`, failed: ${fail}`:''}`, fail?'err':'ok');
+  adRenderPublishedList();
+}
+
 /* ============ VISIBILITY WINDOW (start/end date-time a published card is shown to parent) ============ */
 // datetime-local inputs work in the browser's local wall-clock time with no
 // timezone info, which is exactly right here since admin and parent are on
 // the same campus timezone — no conversion needed either direction.
 function _dtLocalNow(offsetMin){
   const d = new Date(Date.now() + (offsetMin||0)*60000);
+  d.setSeconds(0,0);
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+// Same format as _dtLocalNow but from an arbitrary epoch ms timestamp, so a
+// stored visibleFrom/visibleUntil can be dropped straight into a
+// datetime-local input for editing (e.g. prefilling the bulk-window fields
+// with a class's existing schedule).
+function _dtLocalFromMs(ms){
+  if(ms==null) return '';
+  const d = new Date(ms);
   d.setSeconds(0,0);
   const pad=n=>String(n).padStart(2,'0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
