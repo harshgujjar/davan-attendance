@@ -17,6 +17,25 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.23 (2026-07-25) — FIX: on load, a promoted/moved student's page
+  briefly showed the PREVIOUS semester's class, theme, timetable, subjects,
+  and attendance before flipping to the current semester's — the "loads
+  previous sem with that theme, then loads this sem" flash. Root cause:
+  restoreStudentSession() set STATE.studentUser.class/semester from
+  sessionStorage (written once at login time, never refreshed) and
+  immediately called loadStudentDashboard() with that stale value, WHILE
+  separately kicking off an un-awaited fetch to davan_pub/portal_students/
+  {urn} to get the student's actual current class — so the first full
+  dashboard load (and everything downstream: theme via applyTheme(),
+  timetable, subjects, attendance) used the OLD class, and only corrected
+  itself a moment later when that second fetch resolved and triggered a
+  re-render. Fix: restoreStudentSession() is now async and AWAITS the
+  portal_students/{urn} fetch first, so STATE.studentUser.class/semester is
+  already correct before loadStudentDashboard() ever runs — one single,
+  correct load instead of a wrong one followed by a corrective re-render.
+  The sessionStorage values are still used as the initial in-memory shape
+  (so other code never sees a null studentUser) but are no longer rendered
+  to screen before being corrected.
 VERSION : v7.22 (2026-07-25) — FEAT: the Yesterday/Today/Tomorrow lesson-plan
   summary lines (in "📊 Attendance & Classes") now explain WHY there's
   nothing scheduled instead of silently showing nothing. Added stuDayInfo(),
@@ -3418,8 +3437,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.22';
-const BUILD_DATE   = '25 Jul 2026, 07:15 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.23';
+const BUILD_DATE   = '25 Jul 2026, 07:45 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -6628,7 +6647,7 @@ function addLpSubject() {
 /* ════════════════════════════════════════════════════
    STUDENT DASHBOARD — Session restore
 ════════════════════════════════════════════════════ */
-(function restoreStudentSession() {
+(async function restoreStudentSession() {
   const urn  = sessionStorage.getItem('stu_urn');
   const name = sessionStorage.getItem('stu_name');
   const cls  = sessionStorage.getItem('stu_class');
@@ -6636,39 +6655,46 @@ function addLpSubject() {
   if (!urn || !name) return;
   // Don't restore if admin session already active
   if (STATE.adminUser) return;
-  // Build from sessionStorage first (fast paint), then refresh the promotion fields
-  // (ay/promotedAt/status) from Firebase — sessionStorage doesn't store them, and without
-  // them stuAYState() wrongly returns 'current' and shows last-year attendance.
+  // Build from sessionStorage first (fast paint) — this is just an initial STATE.studentUser
+  // shape so other code doesn't see `null`; it is NOT rendered to screen before being
+  // corrected below, so a promoted/moved student never gets a first paint of their OLD
+  // semester's class, theme, timetable, and subjects before flipping to the current one.
   STATE.studentUser = { urn, name, class: cls, semester: sem, passwordChanged: true };
-  (async () => {
-    try {
-      const rec = await rtdbGet('davan_pub/portal_students/' + urn).catch(() => null);
-      if (rec) {
-        STATE.studentUser = Object.assign({}, STATE.studentUser, {
-          class:     rec.class    || cls,
-          semester:  rec.semester || sem,
-          ay:        rec.ay || '',
-          promotedAt: rec.promotedAt || '',
-          status:    rec.status || '',
-          passoutAY: rec.passoutAY || ''
-        });
-        // Re-render now that promotion state is known (fixes old-data-on-refresh).
-        if (typeof renderStudentDashboard === 'function') { try { renderStudentDashboard(); } catch(e) {} }
-        if (typeof updateSidebarProfile === 'function') updateSidebarProfile();
-      }
-    } catch(e) { console.warn('[restoreStudentSession] field refresh failed', e); }
-  })();
+  // FIX (25-Jul-2026): this promotion-field fetch used to run in a separate, un-awaited
+  // async IIFE while loadStudentDashboard() (below) fired immediately afterward using
+  // whatever class/semester sessionStorage still held from LOGIN TIME. For a student who
+  // had since been promoted/moved to a new semester or section, that meant the first full
+  // dashboard load — timetable, subjects, attendance, and theme — used the OLD class, and
+  // only flipped to the correct one a moment later when this fetch resolved and triggered
+  // a second render. That's the "loads previous sem with that theme, then loads this sem"
+  // flash. Fix: await this fetch FIRST, so STATE.studentUser.class/semester (and therefore
+  // everything loadStudentDashboard() reads) is already correct before the one-and-only
+  // dashboard load and render happens — no stale first paint, no second corrective render.
+  try {
+    const rec = await rtdbGet('davan_pub/portal_students/' + urn).catch(() => null);
+    if (rec) {
+      STATE.studentUser = Object.assign({}, STATE.studentUser, {
+        class:     rec.class    || cls,
+        semester:  rec.semester || sem,
+        ay:        rec.ay || '',
+        promotedAt: rec.promotedAt || '',
+        status:    rec.status || '',
+        passoutAY: rec.passoutAY || ''
+      });
+    }
+  } catch(e) { console.warn('[restoreStudentSession] field refresh failed', e); }
   updateSidebarProfile();
   // Show bottom nav
   const nav = document.getElementById('stu-bottom-nav');
   if (nav) nav.classList.add('visible');
-  // Populate topbar row2
+  // Populate topbar row2 — use the (possibly corrected) current class, not the raw
+  // sessionStorage value captured before the promotion-field fetch above.
   const row2 = document.getElementById('topbar-row2');
   const row2name = document.getElementById('topbar-row2-name');
   const row2meta = document.getElementById('topbar-row2-meta');
   if (row2 && row2name && row2meta) {
     row2name.textContent = name;
-    row2meta.textContent = ' · ' + urn + ' · ' + (cls || '') + ' · Portal ' + APP_VERSION;
+    row2meta.textContent = ' · ' + urn + ' · ' + (STATE.studentUser.class || cls || '') + ' · Portal ' + APP_VERSION;
     row2.classList.add('visible');
   }
   showScreen('screen-student-dash');
