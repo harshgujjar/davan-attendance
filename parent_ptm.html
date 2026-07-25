@@ -53,6 +53,11 @@
 ║                                           the visibility window at attempt   ║
 ║                                           time, for the admin log's exact-   ║
 ║                                           time message)                     ║
+║   action_logs/{usn}/{pushId}          = {kind, device, phone, ts}          ║
+║                                           (kind: 'download'|'print';        ║
+║                                           written by _logCardAction(),      ║
+║                                           parent-side only — admin         ║
+║                                           previews never write this)       ║
 ║                                                                               ║
 ║  VERSIONING: bump VERSION, update this block + changelog on every change.     ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -1058,7 +1063,7 @@
   <div class="wrap">
     <div id="card"></div>
     <div class="cardbtns no-print">
-      <button class="btn wide" onclick="window.print()">🖨 Print (A4)</button>
+      <button class="btn wide" onclick="printCard()">🖨 Print (A4)</button>
       <button class="btn primary" style="flex:1;margin:0" onclick="downloadPDF()">⬇ Download PDF</button>
     </div>
   </div>
@@ -1272,8 +1277,20 @@
       </div>
       <div id="ad-viewlog-class-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
       <div id="ad-viewlog-status-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
-      <div class="mini" style="margin-bottom:10px;color:var(--mut)">Each entry is logged only after a parent taps "Yes, this is my child" and fills in their name + relationship — so this shows real confirmed check-ins, not just page loads. Attempts made while the card is hidden, not yet visible, or expired are logged too, tagged separately below so you can see who was checking even if they hit a blocked screen.</div>
+      <div class="row" style="margin-bottom:10px">
+        <button class="btn" style="color:#e05a5a;border-color:#e05a5a" onclick="adDeleteViewLogsFiltered()" id="ad-viewlog-delfilt-btn">🗑 Delete all logs in filter</button>
+      </div>
+      <div class="mini" style="margin-bottom:10px;color:var(--mut)">Each entry is logged only after a parent taps "Yes, this is my child" and fills in their name + relationship — so this shows real confirmed check-ins, not just page loads. Attempts made while the card is hidden, not yet visible, or expired are logged too, tagged separately below so you can see who was checking even if they hit a blocked screen. Use the search box + chips above to narrow down before bulk-deleting, or delete one entry at a time from its row.</div>
       <div id="ad-viewlog-list"></div>
+    </div>
+
+    <div class="pcard">
+      <h2>9 · Usage summary <span class="mini">(per class: unique students seen, PDFs downloaded, prints used)</span></h2>
+      <div class="row" style="margin-bottom:10px">
+        <button class="btn" onclick="adLoadUsageSummary()">↻ Refresh summary</button>
+        <span class="mini" id="ad-summary-status"></span>
+      </div>
+      <div id="ad-summary-list"></div>
     </div>
 
   </div>
@@ -1298,7 +1315,7 @@ const rtdb = firebase.database();
 const CUR_AY  = '2026-27';   // current academic year (marks + attendance)
 const PREV_AY = '2025-26';   // prior year (1PUC final = prior annual for a 2PUC student)
 let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
-const APP_VERSION = 'v3.32';
+const APP_VERSION = 'v3.33';
 const CLOUDINARY_CLOUD  = 'dat0khbet';
 const CLOUDINARY_PRESET = 'davan_students';
 
@@ -1697,6 +1714,7 @@ function renderCard(C, who, forceLang){
   show('scr-card');
   document.getElementById('card-who').textContent = who==='admin' ? 'Admin preview' : ('Card · '+(C.student?.name||''));
   window._CARD = C;
+  window._CARD_WHO = who; // used by downloadPDF()/print logging below — only parent actions count toward the usage report, not admin previews
   const T=C.tests||DEFAULT_TESTS, S=C.subjects||[];
   const numOf=v=>(v==='AB'||v==null||v==='')?0:(Number(v)||0);
   const sum=k=>S.reduce((a,r)=>a+numOf(r[k]),0);
@@ -1949,6 +1967,7 @@ async function enterAdmin(){
   adResetVisWindow();
   adLoadPublishedList();
   adLoadViewLogs();
+  adLoadUsageSummary();
 }
 
 async function adGetClassConfig(cls){
@@ -3487,18 +3506,152 @@ function adRenderViewLogs(){
           let label = meta.label;
           if(v.status==='early' && v.gateFrom){ label = `Tried — not visible until ${fmtTime(v.gateFrom)}`; }
           else if(v.status==='expired' && v.gateUntil){ label = `Tried — was only visible until ${fmtTime(v.gateUntil)}`; }
-          return `<div style="padding:3px 0 3px 14px;border-left:2px solid ${meta.color};margin-left:2px">
-            <b>${who}</b> ${verb} at ${when}
+          return `<div style="padding:3px 0 3px 14px;border-left:2px solid ${meta.color};margin-left:2px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span><b>${who}</b> ${verb} at ${when}
             <span style="color:${meta.color};font-size:11px;margin-left:4px">${label}</span>
-            <span class="mini">${v.device?' · 📱 '+v.device:''}${v.phone?' · 📞 '+v.phone:''}</span>
+            <span class="mini">${v.device?' · 📱 '+v.device:''}${v.phone?' · 📞 '+v.phone:''}</span></span>
+            <button type="button" class="btn" style="padding:1px 8px;font-size:10px;color:#e05a5a;border-color:#e05a5a;flex-shrink:0" onclick="adDeleteViewLogEntry('${v.usn}','${v.logId}')" title="Delete this one log entry">🗑</button>
           </div>`;
         }).join('');
         const countLabel = blockedN
           ? `${viewedN} view${viewedN!==1?'s':''}${blockedN?`, ${blockedN} blocked attempt${blockedN!==1?'s':''}`:''}`
           : `${viewedN} view${viewedN!==1?'s':''}`;
         return `<div style="padding:8px 10px;border-bottom:1px solid var(--line);font-size:12px">
-          <div style="font-weight:600">${s.studentName}${s.usn?' · '+s.usn:''}${s.cls?' · '+s.cls:''} <span class="mini">(${countLabel})</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span style="font-weight:600">${s.studentName}${s.usn?' · '+s.usn:''}${s.cls?' · '+s.cls:''} <span class="mini">(${countLabel})</span></span>
+            <button type="button" class="btn" style="padding:1px 8px;font-size:10px;color:#e05a5a;border-color:#e05a5a;flex-shrink:0" onclick="adDeleteViewLogsForStudent('${s.usn}')" title="Delete all logged views/attempts shown here for this student">🗑 Delete all shown for this student</button>
+          </div>
           <div style="margin-top:4px">${viewLines}</div>
+        </div>`;
+      }).join('')
+    + '</div>';
+}
+
+// ============ VIEW LOG DELETION — individual, per-student, or bulk-filtered ============
+async function adDeleteViewLogEntry(usn, logId){
+  if(!confirm('Delete this one log entry? This cannot be undone.')) return;
+  try{
+    await rtdb.ref('view_logs/'+usn+'/'+logId).remove();
+    AD_VIEWLOGS = AD_VIEWLOGS.filter(v=>!(v.usn===usn && v.logId===logId));
+    adRenderViewLogs();
+    toast('Log entry deleted.','ok');
+  }catch(e){ toast('Could not delete: '+e.message,'err'); }
+}
+async function adDeleteViewLogsForStudent(usn){
+  // Deletes exactly the entries currently shown for this student under the
+  // active class/status/search filters — not necessarily every log entry
+  // that student has ever had — so it can't silently wipe more than what's
+  // visible on screen right now.
+  const q=(document.getElementById('ad-viewlog-search')?.value||'').trim().toLowerCase();
+  const shown = AD_VIEWLOGS.filter(v=>{
+    if(v.usn!==usn) return false;
+    if(_adViewlogClassFilter && v.cls!==_adViewlogClassFilter) return false;
+    if(_adViewlogStatusFilter==='viewed' && v.status!=='viewed') return false;
+    if(_adViewlogStatusFilter==='blocked' && v.status==='viewed') return false;
+    if(q && !((v.studentName||'').toLowerCase().includes(q) || (v.usn||'').toLowerCase().includes(q))) return false;
+    return true;
+  });
+  if(!shown.length) return;
+  if(!confirm(`Delete all ${shown.length} log entr${shown.length>1?'ies':'y'} shown here for this student? This cannot be undone.`)) return;
+  let ok=0, fail=0;
+  for(const v of shown){
+    try{ await rtdb.ref('view_logs/'+v.usn+'/'+v.logId).remove(); ok++; }
+    catch(e){ fail++; }
+  }
+  AD_VIEWLOGS = AD_VIEWLOGS.filter(v=>!shown.includes(v));
+  adRenderViewLogs();
+  toast(`Deleted: ${ok}${fail?`, failed: ${fail}`:''}`, fail?'err':'ok');
+}
+async function adDeleteViewLogsFiltered(){
+  const q=(document.getElementById('ad-viewlog-search')?.value||'').trim().toLowerCase();
+  let rows = AD_VIEWLOGS;
+  if(_adViewlogClassFilter) rows = rows.filter(v=>v.cls===_adViewlogClassFilter);
+  if(_adViewlogStatusFilter==='viewed') rows = rows.filter(v=>v.status==='viewed');
+  else if(_adViewlogStatusFilter==='blocked') rows = rows.filter(v=>v.status!=='viewed');
+  if(q) rows = rows.filter(v=>(v.studentName||'').toLowerCase().includes(q) || (v.usn||'').toLowerCase().includes(q));
+  if(!rows.length){ toast('No log entries match the current filter.','err'); return; }
+  if(!confirm(`Delete all ${rows.length} log entr${rows.length>1?'ies':'y'} matching the current filter? This cannot be undone.`)) return;
+  const btn=document.getElementById('ad-viewlog-delfilt-btn'); if(btn) btn.disabled=true;
+  let ok=0, fail=0;
+  for(const v of rows){
+    try{ await rtdb.ref('view_logs/'+v.usn+'/'+v.logId).remove(); ok++; }
+    catch(e){ fail++; }
+  }
+  if(btn) btn.disabled=false;
+  AD_VIEWLOGS = AD_VIEWLOGS.filter(v=>!rows.includes(v));
+  adRenderViewLogs();
+  toast(`Deleted: ${ok}${fail?`, failed: ${fail}`:''}`, fail?'err':'ok');
+}
+
+// ============ USAGE SUMMARY — per class: unique students seen, PDFs downloaded, prints used ============
+// Reads both view_logs (for "seen" — actual successful views only, not
+// blocked attempts) and action_logs (for download/print counts), then
+// cross-references against AD_PUBLISHED for each student's class and the
+// class's total published count, so each row can show e.g. "23 of 40
+// published students have viewed their card".
+async function adLoadUsageSummary(){
+  const statusEl=document.getElementById('ad-summary-status');
+  if(statusEl) statusEl.textContent='Loading…';
+  try{
+    const [viewVal, actionVal] = await Promise.all([
+      rtdb.ref('view_logs').once('value').then(s=>s.val()||{}),
+      rtdb.ref('action_logs').once('value').then(s=>s.val()||{})
+    ]);
+    const byUsn = new Map(AD_PUBLISHED.map(r=>[r.usn,r]));
+    // Per-class accumulators, keyed by class label.
+    const classes = new Map(); // cls -> {total, seenUsns:Set, downloadUsns:Set, printUsns:Set, downloadCount, printCount}
+    const ensureCls = cls => {
+      if(!classes.has(cls)) classes.set(cls, {total:0, seenUsns:new Set(), downloadUsns:new Set(), printUsns:new Set(), downloadCount:0, printCount:0});
+      return classes.get(cls);
+    };
+    // Seed every class with its total published-student count, even if it
+    // has zero logged activity, so the summary always shows the full
+    // denominator (e.g. "0 of 40") rather than omitting quiet classes.
+    for(const r of AD_PUBLISHED){
+      const cls = r.cls || '(no class)';
+      ensureCls(cls).total++;
+    }
+    for(const [usn,entries] of Object.entries(viewVal)){
+      const cls = byUsn.get(usn)?.cls || '(no class)';
+      const bucket = ensureCls(cls);
+      for(const e of Object.values(entries||{})){
+        if((e.status||'viewed')==='viewed') bucket.seenUsns.add(usn); // unique students who actually saw the card, blocked attempts excluded
+      }
+    }
+    for(const [usn,entries] of Object.entries(actionVal)){
+      const cls = byUsn.get(usn)?.cls || '(no class)';
+      const bucket = ensureCls(cls);
+      for(const e of Object.values(entries||{})){
+        if(e.kind==='download'){ bucket.downloadUsns.add(usn); bucket.downloadCount++; }
+        else if(e.kind==='print'){ bucket.printUsns.add(usn); bucket.printCount++; }
+      }
+    }
+    window._AD_SUMMARY = classes;
+    if(statusEl) statusEl.textContent=`${classes.size} class${classes.size!==1?'es':''}`;
+    adRenderUsageSummary();
+  }catch(e){
+    if(statusEl) statusEl.textContent='Failed to load: '+e.message;
+    window._AD_SUMMARY = new Map();
+    adRenderUsageSummary();
+  }
+}
+function adRenderUsageSummary(){
+  const listEl=document.getElementById('ad-summary-list');
+  if(!listEl) return;
+  const classes = window._AD_SUMMARY || new Map();
+  if(!classes.size){ listEl.innerHTML='<div class="mini">No published students yet.</div>'; return; }
+  const sortedClasses = [...classes.keys()].sort();
+  listEl.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">'
+    + sortedClasses.map(cls=>{
+        const b = classes.get(cls);
+        const pct = n => b.total ? Math.round(n/b.total*100) : 0;
+        return `<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px">
+          <div style="font-weight:600;margin-bottom:6px">${cls} <span class="mini">(${b.total} published)</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px">
+            <span>👁 <b>${b.seenUsns.size}</b> / ${b.total} unique students seen <span class="mini">(${pct(b.seenUsns.size)}%)</span></span>
+            <span>⬇ <b>${b.downloadUsns.size}</b> / ${b.total} students downloaded PDF <span class="mini">(${b.downloadCount} total download${b.downloadCount!==1?'s':''})</span></span>
+            <span>🖨 <b>${b.printUsns.size}</b> / ${b.total} students used print <span class="mini">(${b.printCount} total print${b.printCount!==1?'s':''})</span></span>
+          </div>
         </div>`;
       }).join('')
     + '</div>';
@@ -4158,7 +4311,31 @@ async function captureCardAsPdfBlob(el){
   return pdf.output('blob');
 }
 
+// Records a PDF-download or print action for the usage summary report,
+// same non-blocking fire-and-forget pattern as the view-confirm log — a
+// logging failure must never interrupt the actual download/print the parent
+// is trying to do. Admin previews are intentionally excluded (checked via
+// window._CARD_WHO) so admin's own testing/proofreading never inflates the
+// "X students downloaded/printed" counts shown in the class summary.
+async function _logCardAction(kind){ // kind: 'download' | 'print'
+  if(window._CARD_WHO==='admin') return;
+  const usn = window._CARD?.student?.usn;
+  if(!usn) return;
+  try{
+    await rtdb.ref('action_logs/'+usn).push({
+      kind,
+      device: _deviceSummary(),
+      phone: sessionStorage.getItem('parent_phone')||'',
+      ts: Date.now()
+    });
+  }catch(e){ /* non-blocking */ }
+}
+function printCard(){
+  _logCardAction('print'); // fire-and-forget — don't await, printing shouldn't wait on a network write
+  window.print();
+}
 async function downloadPDF(){
+  _logCardAction('download'); // fire-and-forget — see _logCardAction comment above
   const C=window._CARD||{}; const el=document.getElementById('card');
   const btn=document.querySelector('.cardbtns .btn.primary');
   if(btn){ btn.disabled=true; btn.textContent='Preparing PDF…'; }

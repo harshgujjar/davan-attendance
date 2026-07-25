@@ -10004,6 +10004,46 @@ async function davanWidgetSync(user, profile) {
         });
       }
 
+      // v1037 — WIDGET DATA GATE: block timetable data at the SOURCE for any
+      // widget confirmed to be below LATEST_APK, instead of only nagging.
+      // Root cause this fixes: the v999/v1000 "update available" banner only
+      // shows inside the PWA — a faculty who never opens the PWA (only ever
+      // taps the widget) saw stale/working data forever with no forcing
+      // function to update. This makes the OLD WIDGET ITSELF go blank.
+      //
+      // How it decides "outdated", reusing the exact rule from
+      // wcpCheckWidgetHealth() (v1000 changelog) so admin panel status and
+      // this gate never disagree:
+      //   - No pairCode yet (never paired/opened via widget tap)              → NOT gated (nothing to gate; first login)
+      //   - Paired but NO widget_apk_report node at all                       → outdated (pre-w95 builds can never self-report — e.g. the w88 Roopa case)
+      //   - Has a report, apkVersion < LATEST_APK.apkVersion                  → outdated
+      //   - Has a report, apkVersion >= LATEST_APK.apkVersion                 → up to date, normal ttSlots
+      //
+      // IMPORTANT SCOPE: this only affects what gets WRITTEN to widget_pin,
+      // i.e. what the ANDROID WIDGET shows. It does not touch the PWA's own
+      // in-app timetable views (Live Class Board, faculty dashboard, etc.) —
+      // those read LM_ALLOCATIONS directly, never ttSlots/widget_pin.
+      //
+      // Known limitation (PWA-side only, no APK change): old widget layouts
+      // were never built with a view bound to updateRequired/updateMessage,
+      // so pre-w98 widgets will likely just render an empty "No classes"
+      // state rather than an actual popup — the fields are written so that
+      // a w98+ widget layout CAN show a real popup, and so Faculty Alerts /
+      // Push can identify exactly who is now blank and why.
+      let _wGateOutdated = false;
+      try {
+        const wPair = (localStorage.getItem('davan_widget_pair_code') || '').trim();
+        if (wPair) {
+          const repSnap = await rtdb.ref('davan_pub/widget_apk_report/' + wPair).once('value');
+          const rep = repSnap.val();
+          if (!rep || typeof rep.apkVersion !== 'number') {
+            _wGateOutdated = true; // paired, never self-reported → pre-w95, definitionally outdated
+          } else if (rep.apkVersion < LATEST_APK.apkVersion) {
+            _wGateOutdated = true;
+          }
+        }
+      } catch (e) { console.warn('[WidgetGate v1037] apk report read failed:', e && e.message); }
+
       // Full payload — identical shape used in both writes below
       const now = Date.now();
       const payload = {
@@ -10015,7 +10055,11 @@ async function davanWidgetSync(user, profile) {
         htmlVersion: CODE_BUILD,
         updatedAt:   now,
         loggedIn:    true,
-        ttSlots:     ttSlots
+        ttSlots:     _wGateOutdated ? [] : ttSlots,
+        updateRequired: _wGateOutdated,
+        updateMessage:  _wGateOutdated
+          ? ('Update your widget to w' + LATEST_APK.apkVersion + ' to see your timetable — open ' + LATEST_APK.apkUrl)
+          : ''
       };
 
       // 1. FIX v736: Write COMPLETE payload to widget_pin/<devToken>.
@@ -13610,7 +13654,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1035;  // always = HTML footer version number
+const CODE_BUILD = 1037;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '24-Jul-2026', time: '15:20', full: '24-Jul-2026 15:20 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -13618,7 +13662,7 @@ const BUILD_TIMESTAMP = { date: '24-Jul-2026', time: '15:20', full: '24-Jul-2026
 // wcpCheckWidgetHealth), and (b) the APK itself (w95+) can read this node directly and
 // nag on the widget face too. RULE: bump LATEST_APK here in lockstep with every APK
 // build.gradle versionCode bump — they must always match on release.
-const LATEST_APK = { apkVersion: 97, apkUrl: 'https://harshgujjar.github.io/davan-attendance/DavanWidget.apk' };
+const LATEST_APK = { apkVersion: 98, apkUrl: 'https://harshgujjar.github.io/davan-attendance/DavanWidget.apk' };
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -23032,6 +23076,8 @@ const HTML_CHANGELOG = [
   { v: 'v1009', date: '14-Jul-2026 IST', note: 'Fix (supersedes v1007/v1008): current-AY Lesson Plan should show THIS term\'s freshly-pushed subjects, not be blank. v1008 hid ALL lesson-plan data in the current AY because davan_pub/lessonPlan has no AY stamp — but the blob actually accumulates entries across semesters and the fresh current-term pushes (recent updated_at, 0% done) sit alongside stale prior-sem entries (updated_at ~02-Jun, 80%+). NEW APPROACH: per-entry recency filter instead of blanket hide. New _lpFilterByAY(raw): for the legacy/archive semester (_legacyDataInScope() true) returns the full historical blob unchanged; for the CURRENT AY keeps only entries whose updated_at >= SESSION_CONFIG.startDate (_lpSemStartMs), dropping last-semester carryover. If no start date is loaded yet it does NOT over-filter (returns all) to avoid a race blanking the panel. _lpFetch now stores the unfiltered blob in new global _lpRaw and exposes the AY-scoped view via _lpData, so all four renderers (lpRender/lpDashRender/fdbRenderLP/dashRenderFacultyLP) inherit the filter from the single fetch choke point. lpRender/lpDashRender additionally re-run _lpFilterByAY(_lpRaw) on each render so switching semesters updates the view without a refetch. Removed the v1007/v1008 blanket _emptyCurrentAYHtml hides from all four renderers. Net: 2026-27 Odd shows only the 14-Jul entries; selecting 2025-26 Even shows the full history. CODE_BUILD=1009.' },
   { v: 'v1008', date: '14-Jul-2026 IST', note: 'Fix (follow-up to v1007): Lesson Plan STILL showed 2025-26 Even legacy data in the current AY. Root causes: (a) a 4th LP renderer, dashRenderFacultyLP() (admin Faculty Report LP section -> #fac-lp-container), had no _legacyDataInScope() guard at all; (b) the per-render guards added in v1007 could lose a race with SESSION_CONFIG loading on first paint — if _ttActiveSemKey() briefly resolved to the seed 2025-26_even before the live 2026-27/Odd config loaded, or if _legacyDataInScope() threw into its fail-open catch, legacy cards rendered. davan_pub/lessonPlan is a flat legacy blob with NO AY stamp, so data-level AY filtering is impossible; the scope guard is the only mechanism. FIXES: (1) Added the guard to dashRenderFacultyLP(). (2) Moved the guard to the single choke point _lpFetch(): it now returns {} whenever !_legacyDataInScope(), so ALL four renderers (lpRender/lpDashRender/fdbRenderLP/dashRenderFacultyLP) get empty data for the current AY regardless of render timing — a mis-timed first paint simply shows empty, and the next render (after SESSION_CONFIG is live) stays empty too. The v1007 per-render guards remain as a second, cache-proof layer (lpRender/lpDashRender read the _lpData global directly). Selecting 2025-26 Even from the semester dropdown sets _semCurrentKey and makes _legacyDataInScope() true again, restoring the data. CODE_BUILD=1008.' },
   { v: 'v1007', date: '14-Jul-2026 IST', note: 'Fix: Lesson Plan Summary (admin dashboard pane + sidebar panel) was showing 2025-26 Even legacy data even in the current AY. Root cause: davan_pub/lessonPlan is legacy data; the faculty dashboard LP already guarded on !_legacyDataInScope() since v923, but lpDashRender() and lpRender() did not, so they rendered legacy cards unconditionally. Fix: both now run the same _legacyDataInScope() guard and show _emptyCurrentAYHtml("Lesson Plan") when the active/selected semester is not the legacy semester — matching fdbRenderLP(). Selecting 2025-26 Even from the semester dropdown still shows the data. CODE_BUILD=1007.' },
+  { v: 'v1037', date: '25-Jul-2026 IST', note: 'WIDGET DATA GATE (PWA-side, no APK change): outdated widgets now get their TIMETABLE DATA BLOCKED at write time, not just a nag. davanWidgetSync() now reads THIS device\\'s davan_pub/widget_apk_report/<pairCode> before building the widget_pin payload, using the exact same outdated-rule as wcpCheckWidgetHealth() (v1000): paired+no report at all = pre-w95, definitionally outdated (e.g. Roopa\\'s w88); has a report but apkVersion < LATEST_APK = outdated; apkVersion >= LATEST_APK = current. If outdated: ttSlots is written as [] (was the real timetable) and two new fields are added — updateRequired:true, updateMessage:"Update your widget to w98…". If current: unchanged, full ttSlots as before. SCOPE: only affects davan_pub/widget_pin/<uid>, i.e. what the ANDROID WIDGET reads — the PWA\\'s own in-app faculty views (Live Class Board, dashboards) are untouched since they read LM_ALLOCATIONS directly, never ttSlots. KNOWN LIMITATION (documented, not a bug): this is intentionally PWA-only per request — no APK change. Old widget layouts (pre-w98) were never built with a view bound to updateRequired/updateMessage, so on THOSE builds this will likely render as an empty "No classes today" rather than an actual "please update" popup — the fields are written now so a future w98+ widget layout CAN show a real popup, and so admin (Faculty Alerts/Push) can already see and message exactly who just went blank and why. First-login-ever (no pairCode yet, never tapped/paired the widget) is NOT gated — nothing to gate against yet. CODE_BUILD=1037.' },
+  { v: 'v1036', date: '25-Jul-2026 IST', note: 'WIDGET UPDATE: LATEST_APK.apkVersion 97→98 (companion APK w98 now hosted at the DavanWidget.apk URL). This is the ONLY change needed to trigger the nag — wcpCheckWidgetHealth() (see v999/v1000) already compares every device\\'s self-reported/paired widget build against LATEST_APK on each login/heartbeat and shows the persistent top "📲 Widget update available" banner (session-snoozable only, never permanently dismissible) whenever a widget is behind, exactly like the w88 field case documented in v1000/v1004/v1005. No other logic changed: pre-w95 widgets (can\\'t self-report, e.g. w88) still show "old version — install the latest APK"; w95-97 widgets now correctly show "update available (latest w98)"; the Faculty Subscription Status WIDGET column (v1005) will also reflect w98 as the new green "up to date" threshold automatically once faculty update. REMINDER: davan_pub/widget_latest is republished via wcpPublishLatestApk() on next login, so the Android widget itself can also self-nag on its face. CODE_BUILD=1036.' },
   { v: 'v967', date: '06-Jul-2026 IST', note: 'Fix + Feat: class-registration/duplicate-class bugs. ROOT CAUSE of "I BBA" and "I YEAR BBA" showing as two separate classes (one with a full timetable, one empty): csAddClass() accepted any free-typed label with no normalization/duplicate-check against existing Class Settings entries, so a slightly different spelling of an existing class silently created a second, unrelated class with its own empty timetable/meta. Also, several panels (Internal Marks) had their OWN hand-maintained hardcoded class list (IM_CLASSES/IM_CHIP_LABELS) instead of reading Class Settings live, so a genuinely new class added in Class Settings (e.g. real "I YEAR BBA") needed a manual code edit to appear there. FIXES: (1) csAddClass() now runs _csNormForCompare() (strips case/punctuation/"YEAR"/spacing) against every existing LM_CLASS_META key before creating a class; if a normalized match is found (e.g. "I BBA" ~ "I YEAR BBA") it warns with the exact existing name and requires an explicit "Add Anyway" confirm instead of silently duplicating. (2) New 🔀 Merge button per class row in Class Settings -> csMergePrompt()/csMergeClasses(): moves the duplicate class timetable entries into the correct class (never overwrites slots the target already has), merges class meta (room/strength/shift, target wins on conflict), and permanently removes the duplicate — one-time fix for existing duplicates like the I BBA case, using a real Firestore/RTDB full-overwrite save (not merge:true) so the removed key actually disappears everywhere, not just locally. (3) Internal Marks IM_CLASSES/IM_CHIP_LABELS replaced with imGetClasses()/imGetChipLabels(), both DERIVED LIVE from LM_CLASS_META (same source Edit Timetable/Edit Allocation/Class Settings already use) via a new _imShortLabel() auto-generator — so adding OR hiding a class in Class Settings takes effect in Internal Marks immediately, with zero extra wiring, matching how ttGetClasses() already worked since v914. Toast on successful csAddClass now confirms the new class is live in Edit Timetable, Edit Allocation & Internal Marks. CODE_BUILD=967.' },
   { v: 'v966', date: '06-Jul-2026 IST', note: 'Feat: (1) Persistent sidebar "📷 Add My Photo" entry (nav-fac-my-photo) for fulltime/visiting/VP faculty with no photo yet — stays available even after the v965 banner is dismissed, so faculty can add their photo any time in-session instead of waiting for next login. Uses the same facBannerAddPhoto() upload path; disappears once a photo exists, same as the banner. (2) Staff Directory admin control: new "PHOTO ✎" checkbox column (all 3 tables — Full Time/Visiting/Non-Teaching), unchecked by default on every row (sdAddRow defaults allowPhotoChange:false). When UNCHECKED (default): faculty can add a photo once (while none exists) but cannot change it themselves afterward — only admin can, from Staff Directory (sdPhotoPick), unchanged from v965. When CHECKED by admin (sdOnPhotoPermChange sets allowPhotoChange:true, saved with the rest of Staff Directory via existing Save All Changes): the sidebar "Add My Photo" entry stays available to that faculty indefinitely, letting them change their own photo any time. New: sdOnPhotoPermChange(), sdFacultyCanChangePhoto(name) (looks up allowPhotoChange from sdData, defaulting false if the faculty or field is not found — so pre-existing rows behave exactly like before this update). facCheckOwnPhoto() now also drives the sidebar entry\'s visibility via this flag; facBannerAddPhoto() re-checks visibility after a successful upload so the entry correctly disappears (locked) or stays (admin-allowed) without needing a reload. CODE_BUILD=966.' },
   { v: 'v965', date: '06-Jul-2026 IST', note: 'Feat: Faculty self-service "Add Photo" banner. Fulltime/visiting/VP faculty who have no photo on file (checked via existing _facPhotoUrl/_facKey lookup against app_data/faculty_photos) now see a dismissible banner below the topbar on login prompting them to add their own photo. "📷 Add Photo" opens a file picker and uploads via the EXISTING facUploadPhoto() Cloudinary+Firestore path (same one Staff Directory uses) — no new storage/backend. "Dismiss for now" just hides the banner for the current session; since there is no persistence flag, it reappears on the NEXT login for as long as no photo exists (added by the faculty here or by the admin in Staff Directory). Once a photo exists — from either path — facCheckOwnPhoto() (called after facPhotosReady resolves in onLoginSuccess) stops showing the banner permanently, and the faculty has no further UI to change it: only the admin can, via the existing Staff Directory 📷 badge (sdPhotoPick). Banner is hidden on logout (doFirebaseLogout) so it never leaks into the next session before that user\'s own check runs. New: fac-photo-banner markup (positioned at top:56px so it sits below the topbar, not over it; 52px on mobile), facCheckOwnPhoto(), facBannerAddPhoto(), facBannerDismiss(). Admin side (Staff Directory) is unchanged — it already showed every faculty\'s current photo/initials with a 📷 upload badge on every row, so admins can already see at a glance who still needs a photo and add it themselves. CODE_BUILD=965.' },
