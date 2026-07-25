@@ -43,6 +43,16 @@
 ║   puc_test_config/{ay}/{classLabel}   = {tests:[…]}  (per-class scheme)       ║
 ║   published_cards/{usn}/{eventId}     = {…full frozen card…}                  ║
 ║   published_cards/{usn}/_latest       = eventId                              ║
+║   view_logs/{usn}/{pushId}            = {viewerName, relationship, device,   ║
+║                                           phone, status, gateFrom,           ║
+║                                           gateUntil, ts}  (per parent        ║
+║                                           confirm attempt, written by        ║
+║                                           confirmChild(); status is          ║
+║                                           'viewed'/'hidden'/'early'/         ║
+║                                           'expired'; gateFrom/gateUntil are  ║
+║                                           the visibility window at attempt   ║
+║                                           time, for the admin log's exact-   ║
+║                                           time message)                     ║
 ║                                                                               ║
 ║  VERSIONING: bump VERSION, update this block + changelog on every change.     ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -919,6 +929,23 @@
     <h2>Confirm your child</h2>
     <div class="sub">This student is registered on this number.</div>
     <div id="confirm-row" class="childrow" style="cursor:default"></div>
+
+    <label style="margin-top:14px">Your name</label>
+    <input id="confirm-viewer-name" class="fld" placeholder="Enter your name" autocomplete="name">
+
+    <label style="margin-top:10px">Relationship to student</label>
+    <select id="confirm-viewer-rel" class="fld" onchange="onConfirmRelChange()">
+      <option value="">— select —</option>
+      <option value="Father">Father</option>
+      <option value="Mother">Mother</option>
+      <option value="Guardian">Guardian</option>
+      <option value="Grandfather">Grandfather</option>
+      <option value="Grandmother">Grandmother</option>
+      <option value="Other">Other</option>
+    </select>
+    <input id="confirm-viewer-rel-other" class="fld hide" style="margin-top:6px" placeholder="Please specify">
+
+    <div id="confirm-viewer-err" class="err" style="display:none">Please enter your name and relationship.</div>
     <button id="confirm-btn" class="btn primary" style="margin-top:12px" onclick="confirmChild()">Yes, this is my child</button>
     <div class="switch" onclick="parentSignOut()">Use a different number</div>
   </div>
@@ -1236,6 +1263,19 @@
       <div id="ad-published-list"></div>
     </div>
 
+    <div class="pcard">
+      <h2>8 · View logs <span class="mini">(who viewed each student's card, when, and from what device)</span></h2>
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn" onclick="adLoadViewLogs()">↻ Refresh logs</button>
+        <input id="ad-viewlog-search" class="fld" style="max-width:220px" placeholder="🔍 Search by name or USN…" oninput="adRenderViewLogs()">
+        <span class="mini" id="ad-viewlog-status"></span>
+      </div>
+      <div id="ad-viewlog-class-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+      <div id="ad-viewlog-status-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+      <div class="mini" style="margin-bottom:10px;color:var(--mut)">Each entry is logged only after a parent taps "Yes, this is my child" and fills in their name + relationship — so this shows real confirmed check-ins, not just page loads. Attempts made while the card is hidden, not yet visible, or expired are logged too, tagged separately below so you can see who was checking even if they hit a blocked screen.</div>
+      <div id="ad-viewlog-list"></div>
+    </div>
+
   </div>
 </div>
 
@@ -1258,7 +1298,7 @@ const rtdb = firebase.database();
 const CUR_AY  = '2026-27';   // current academic year (marks + attendance)
 const PREV_AY = '2025-26';   // prior year (1PUC final = prior annual for a 2PUC student)
 let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
-const APP_VERSION = 'v3.28';
+const APP_VERSION = 'v3.32';
 const CLOUDINARY_CLOUD  = 'dat0khbet';
 const CLOUDINARY_PRESET = 'davan_students';
 
@@ -1350,7 +1390,27 @@ function showConfirmChild(usn, info){
     : '👤';
   document.getElementById('confirm-row').innerHTML =
     `<div class="ph">${photo}</div><div><div class="nm">${name}</div><div class="meta">${usn}${cls?' · '+cls:''}</div></div>`;
+  // Reset the name/relationship fields each time — this screen is now shared
+  // by the single-child path AND the multi-child picker, so a parent picking
+  // a second child in the same session shouldn't see the first child's
+  // leftover name/relationship pre-filled (they might genuinely differ,
+  // e.g. "Father" for one child and "Guardian" for another).
+  const nameEl=document.getElementById('confirm-viewer-name');
+  const relEl=document.getElementById('confirm-viewer-rel');
+  const relOtherEl=document.getElementById('confirm-viewer-rel-other');
+  const errEl=document.getElementById('confirm-viewer-err');
+  if(nameEl) nameEl.value='';
+  if(relEl) relEl.value='';
+  if(relOtherEl){ relOtherEl.value=''; relOtherEl.classList.add('hide'); }
+  if(errEl) errEl.style.display='none';
   show('scr-confirm');
+}
+function onConfirmRelChange(){
+  const relEl=document.getElementById('confirm-viewer-rel');
+  const relOtherEl=document.getElementById('confirm-viewer-rel-other');
+  if(!relEl||!relOtherEl) return;
+  relOtherEl.classList.toggle('hide', relEl.value!=='Other');
+  if(relEl.value!=='Other') relOtherEl.value='';
 }
 // Tap-to-zoom lightbox for the child photo, so a parent can confirm identity
 // before trusting the name/USN alone. Plain overlay, no library needed.
@@ -1364,13 +1424,91 @@ function zoomPhoto(url){
   }
   ov.innerHTML=`<img src="${url}" style="max-width:90vw;max-height:90vh;border-radius:12px;object-fit:contain">`;
 }
-function confirmChild(){ if(_confirmUsn) openParentCard(_confirmUsn); }
+// Best-effort, privacy-light device summary — just enough to tell "iPhone,
+// Safari" from "Windows PC, Chrome" in the admin's view log. No IP, no GPS,
+// no fingerprinting library; just a coarse parse of the browser's own
+// user-agent string, which is standard and always available.
+function _deviceSummary(){
+  const ua = navigator.userAgent || '';
+  let os = 'Unknown device';
+  if(/android/i.test(ua)) os='Android';
+  else if(/iphone|ipad|ipod/i.test(ua)) os='iPhone/iPad';
+  else if(/windows/i.test(ua)) os='Windows PC';
+  else if(/mac os/i.test(ua)) os='Mac';
+  else if(/linux/i.test(ua)) os='Linux';
+  let browser = '';
+  if(/edg\//i.test(ua)) browser='Edge';
+  else if(/chrome\//i.test(ua) && !/edg\//i.test(ua)) browser='Chrome';
+  else if(/firefox\//i.test(ua)) browser='Firefox';
+  else if(/safari\//i.test(ua) && !/chrome\//i.test(ua)) browser='Safari';
+  return browser ? `${os} · ${browser}` : os;
+}
+async function confirmChild(){
+  if(!_confirmUsn) return;
+  const nameEl=document.getElementById('confirm-viewer-name');
+  const relEl=document.getElementById('confirm-viewer-rel');
+  const relOtherEl=document.getElementById('confirm-viewer-rel-other');
+  const errEl=document.getElementById('confirm-viewer-err');
+  const viewerName = (nameEl?.value||'').trim();
+  let relationship = relEl?.value||'';
+  if(relationship==='Other') relationship = (relOtherEl?.value||'').trim() || 'Other';
+  if(!viewerName || !relEl?.value || (relEl.value==='Other' && !relOtherEl?.value.trim())){
+    if(errEl) errEl.style.display='block';
+    return;
+  }
+  if(errEl) errEl.style.display='none';
+  const usn=_confirmUsn;
+  // Check the visibility gate BEFORE logging — not to decide whether to log,
+  // but to tag WHAT the parent actually saw. A parent can fill in their
+  // name/relationship and tap confirm even when the report isn't visible yet
+  // (not started), has expired, or was hidden by admin — those attempts are
+  // still worth recording (you asked to see who was checking, even if they
+  // hit a blocked screen), just tagged separately from a real successful
+  // view so the two don't get confused in the log. openParentCard() does its
+  // own gate check too for the actual navigation; this one only decides the
+  // 'status' tag, kept separate so a failure in one never silently skips the
+  // other.
+  let status='viewed'; // 'viewed' | 'hidden' | 'early' | 'expired'
+  let gateFrom=null, gateUntil=null; // the actual scheduled window, so the admin log can say exactly when it opens/opened
+  try{
+    const idx = (await rtdb.ref('published_index/'+usn).once('value')).val();
+    gateFrom = idx?.visibleFrom ?? null;
+    gateUntil = idx?.visibleUntil ?? null;
+    if(idx && idx.visible===false) status='hidden';
+    else{
+      const gate=visWindowGateState(idx);
+      if(gate) status=gate; // 'early' or 'expired'
+    }
+  }catch(e){ /* if the gate check itself fails, log as a normal 'viewed' attempt — don't lose the entry over a transient read error */ }
+  // Log BEFORE navigating away, so a slow/failed card load doesn't silently
+  // drop the log entry. Logging failure must never block the parent from
+  // seeing (or being gated from) the card — it's a best-effort admin
+  // convenience, not a gate — so any error here is swallowed rather than
+  // surfaced or retried.
+  try{
+    await rtdb.ref('view_logs/'+usn).push({
+      viewerName,
+      relationship,
+      device: _deviceSummary(),
+      phone: sessionStorage.getItem('parent_phone')||'',
+      status,
+      gateFrom,
+      gateUntil,
+      ts: Date.now()
+    });
+  }catch(e){ /* non-blocking — see comment above */ }
+  openParentCard(usn);
+}
 function renderPicker(idx){
   const box=document.getElementById('picker-list');
   box.innerHTML = Object.entries(idx).map(([usn,info])=>{
     const name = (info && info.name) ? info.name : usn;
     const cls  = (info && info.cls) ? info.cls : '';
-    return `<div class="childrow" onclick="openParentCard('${usn}')">
+    // Route through the same confirm-your-child screen as the single-child
+    // path, so name+relationship is captured (and view-logged) no matter how
+    // many children are registered on this number — picking from a list is
+    // still "confirming" a specific child, not skipping that step.
+    return `<div class="childrow" onclick='showConfirmChild(${JSON.stringify(usn)}, ${JSON.stringify(info||{})})'>
       <div class="ph">👤</div>
       <div><div class="nm">${name}</div><div class="meta">${usn}${cls?' · '+cls:''}</div></div>
     </div>`;
@@ -1810,6 +1948,7 @@ async function enterAdmin(){
   await adLoadClass();
   adResetVisWindow();
   adLoadPublishedList();
+  adLoadViewLogs();
 }
 
 async function adGetClassConfig(cls){
@@ -3212,6 +3351,159 @@ async function adBackfillPhones(){
   }
   if(missing.length) adRenderPublishedList();
 }
+
+// ============ VIEW LOGS ============
+// Reads view_logs/{usn}/{pushId} written by confirmChild() on the parent
+// side (only after they've entered name + relationship, so this reflects
+// confirmed views, not bare page loads). Cross-referenced against
+// AD_PUBLISHED for each student's name/class, so the log reads "Harsha ·
+// 2PUC-COM-A" instead of just a bare USN.
+let AD_VIEWLOGS=[]; // flat list: {usn, studentName, cls, viewerName, relationship, device, phone, status, ts}
+let _adViewlogClassFilter='';
+let _adViewlogStatusFilter=''; // '' = all, 'viewed' = actually saw the card, 'blocked' = hidden/early/expired attempt
+async function adLoadViewLogs(){
+  const statusEl=document.getElementById('ad-viewlog-status');
+  if(statusEl) statusEl.textContent='Loading…';
+  try{
+    const val=(await rtdb.ref('view_logs').once('value')).val()||{};
+    const byUsn = new Map(AD_PUBLISHED.map(r=>[r.usn,r]));
+    AD_VIEWLOGS = [];
+    for(const [usn,entries] of Object.entries(val)){
+      const info = byUsn.get(usn);
+      for(const [logId,e] of Object.entries(entries||{})){
+        AD_VIEWLOGS.push({
+          usn, logId,
+          studentName: info?.name || usn,
+          cls: info?.cls || '',
+          viewerName: e.viewerName || '(no name given)',
+          relationship: e.relationship || '',
+          device: e.device || '',
+          phone: e.phone || '',
+          status: e.status || 'viewed', // older entries predate this field — treat as a real view
+          gateFrom: e.gateFrom ?? null,
+          gateUntil: e.gateUntil ?? null,
+          ts: e.ts || 0
+        });
+      }
+    }
+    AD_VIEWLOGS.sort((a,b)=>b.ts-a.ts);
+    if(statusEl) statusEl.textContent=`${AD_VIEWLOGS.length} views logged`;
+    adRenderViewLogs();
+  }catch(e){
+    if(statusEl) statusEl.textContent='Failed to load: '+e.message;
+    AD_VIEWLOGS=[];
+    adRenderViewLogs();
+  }
+}
+function adSetViewlogClassFilter(cls){
+  _adViewlogClassFilter = (_adViewlogClassFilter===cls) ? '' : cls;
+  adRenderViewLogs();
+}
+function adSetViewlogStatusFilter(f){
+  _adViewlogStatusFilter = (_adViewlogStatusFilter===f) ? '' : f;
+  adRenderViewLogs();
+}
+// Human label + color for each status, shared by the filter chips and the
+// per-entry tag so they always read the same way.
+const AD_VIEWLOG_STATUS_META = {
+  viewed:  {label:'Viewed the card',        color:'#3aa76d'},
+  hidden:  {label:'Tried — card hidden by admin', color:'#e0a03a'},
+  early:   {label:'Tried — not visible yet', color:'#e0a03a'},
+  expired: {label:'Tried — report expired',  color:'#e05a5a'}
+};
+function adRenderViewLogs(){
+  const listEl=document.getElementById('ad-viewlog-list');
+  if(!listEl) return;
+  // Class chips, same pattern as section 7 — one per class that has at
+  // least one logged view, with counts, clicking toggles the filter.
+  const classCounts=new Map();
+  for(const v of AD_VIEWLOGS){ if(v.cls) classCounts.set(v.cls, (classCounts.get(v.cls)||0)+1); }
+  const chipsEl=document.getElementById('ad-viewlog-class-chips');
+  if(chipsEl){
+    const classes=[...classCounts.keys()].sort();
+    const allActive=_adViewlogClassFilter==='';
+    let chipHtml = `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;${allActive?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetViewlogClassFilter('')">All (${AD_VIEWLOGS.length})</button>`;
+    chipHtml += classes.map(c=>{
+      const active = c===_adViewlogClassFilter;
+      return `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;${active?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetViewlogClassFilter('${c}')">${c} (${classCounts.get(c)})</button>`;
+    }).join('');
+    chipsEl.innerHTML = chipHtml;
+  }
+  // Status chips — separate "actually saw the card" from "tried but was
+  // blocked" (hidden by admin / not started yet / already expired), since
+  // these mean very different things to an admin reviewing the log.
+  const statusEl2=document.getElementById('ad-viewlog-status-chips');
+  if(statusEl2){
+    const viewedCount = AD_VIEWLOGS.filter(v=>v.status==='viewed').length;
+    const blockedCount = AD_VIEWLOGS.filter(v=>v.status!=='viewed').length;
+    const mk=(key,label,count,color)=>{
+      const active = _adViewlogStatusFilter===key;
+      const bg = active ? (color||'var(--accent)') : 'transparent';
+      const bc = color||'var(--line)';
+      return `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;border-color:${bc};${active?`background:${bg};color:#fff`:''}" onclick="adSetViewlogStatusFilter('${key}')">${label} (${count})</button>`;
+    };
+    statusEl2.innerHTML =
+      mk('', 'All', AD_VIEWLOGS.length) +
+      mk('viewed', 'Actually viewed', viewedCount, '#3aa76d') +
+      mk('blocked', 'Blocked attempts', blockedCount, '#e0a03a');
+  }
+  const q=(document.getElementById('ad-viewlog-search')?.value||'').trim().toLowerCase();
+  let rows = AD_VIEWLOGS;
+  if(_adViewlogClassFilter) rows = rows.filter(v=>v.cls===_adViewlogClassFilter);
+  if(_adViewlogStatusFilter==='viewed') rows = rows.filter(v=>v.status==='viewed');
+  else if(_adViewlogStatusFilter==='blocked') rows = rows.filter(v=>v.status!=='viewed');
+  if(q) rows = rows.filter(v=>(v.studentName||'').toLowerCase().includes(q) || (v.usn||'').toLowerCase().includes(q));
+  if(!rows.length){ listEl.innerHTML='<div class="mini">No views logged yet for this class/search/status.</div>'; return; }
+
+  // Group consecutive-in-sort-order rows by student so each student shows as
+  // one block with a bulleted history underneath — e.g. "Harsha viewed at
+  // 10:30 AM, 11:00 PM" reads as one line per student with each view time
+  // listed, rather than one flat undifferentiated table.
+  const byStudent = new Map();
+  for(const v of rows){
+    const key = v.usn;
+    if(!byStudent.has(key)) byStudent.set(key, []);
+    byStudent.get(key).push(v);
+  }
+  // Order student blocks by their most recent view (already sorted overall,
+  // but grouping can shuffle order — restore recency ordering here).
+  const studentBlocks = [...byStudent.values()].sort((a,b)=>b[0].ts-a[0].ts);
+
+  listEl.innerHTML = '<div style="max-height:420px;overflow-y:auto;border:1px solid var(--line);border-radius:8px">'
+    + studentBlocks.map(views=>{
+        const s = views[0];
+        const viewedN = views.filter(v=>v.status==='viewed').length;
+        const blockedN = views.length - viewedN;
+        const viewLines = views.map(v=>{
+          const when = v.ts ? new Date(v.ts).toLocaleString(undefined,{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '(no time)';
+          const who = v.viewerName + (v.relationship?` (${v.relationship})`:'');
+          const meta = AD_VIEWLOG_STATUS_META[v.status] || AD_VIEWLOG_STATUS_META.viewed;
+          const verb = v.status==='viewed' ? 'viewed' : 'tried to view';
+          // Bake the actual scheduled time into the label for early/expired,
+          // e.g. "Tried — not visible until 10:30 AM" instead of a generic
+          // "not visible yet" with no specifics — so the admin can see
+          // exactly when it opens without cross-checking section 7.
+          const fmtTime = ms => ms ? new Date(ms).toLocaleString(undefined,{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
+          let label = meta.label;
+          if(v.status==='early' && v.gateFrom){ label = `Tried — not visible until ${fmtTime(v.gateFrom)}`; }
+          else if(v.status==='expired' && v.gateUntil){ label = `Tried — was only visible until ${fmtTime(v.gateUntil)}`; }
+          return `<div style="padding:3px 0 3px 14px;border-left:2px solid ${meta.color};margin-left:2px">
+            <b>${who}</b> ${verb} at ${when}
+            <span style="color:${meta.color};font-size:11px;margin-left:4px">${label}</span>
+            <span class="mini">${v.device?' · 📱 '+v.device:''}${v.phone?' · 📞 '+v.phone:''}</span>
+          </div>`;
+        }).join('');
+        const countLabel = blockedN
+          ? `${viewedN} view${viewedN!==1?'s':''}${blockedN?`, ${blockedN} blocked attempt${blockedN!==1?'s':''}`:''}`
+          : `${viewedN} view${viewedN!==1?'s':''}`;
+        return `<div style="padding:8px 10px;border-bottom:1px solid var(--line);font-size:12px">
+          <div style="font-weight:600">${s.studentName}${s.usn?' · '+s.usn:''}${s.cls?' · '+s.cls:''} <span class="mini">(${countLabel})</span></div>
+          <div style="margin-top:4px">${viewLines}</div>
+        </div>`;
+      }).join('')
+    + '</div>';
+}
+
 // Sets the class filter (chip click or programmatic) and re-renders.
 // Clicking the already-active chip clears the filter back to "all".
 function adSetClassFilter(cls){
