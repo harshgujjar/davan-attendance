@@ -17,6 +17,36 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.38 (2026-07-25) — FIX: BCA_MERGED_SECTIONS was WRONG — it treated
+  every BCA batch's Sem II-VI as merged, but per Harsha the section merge is
+  PER-COHORT: only the 2025-admission cohort (URN year '25', e.g.
+  U13NU25S0031) was merged into 1 section starting Sem II; other BCA batches
+  (2023/2024 admits — current 2nd/3rd year students) have separate admission
+  histories and are NOT merged. Replaced the semester-only BCA_MERGED_SECTIONS
+  list with isMergedSectionCohort(urn, sem) — checks the URN's 2-digit
+  admission year against MERGED_SECTION_COHORTS (currently just ['25']) AND
+  requires sem !== 'I' (Sem I never merges for any cohort). Mirrors
+  results.html's resIsMergedSection() added the same day — keep both files'
+  cohort lists in sync if another batch merges later. Also: DI Rank / NU Rank
+  are now suppressed (0, tile hidden) for merged-cohort students, matching
+  results.html — a DI/NU split rank is meaningless once the two sections are
+  administratively combined; Class Rank (still merged for these students)
+  represents "my section" instead.
+VERSION : v7.37 (2026-07-25) — CHANGE: College Rank now ALSO scopes by
+  campus (Davan/DI vs Nutana/NU), on top of the semester-parity scoping added
+  in v7.35, per Harsha's explicit follow-up request. A DI student's College
+  Rank now pools only against other DI students in the same parity group
+  (Odd or Even); an NU student's pools only against other NU students in the
+  same parity group. Campus detection reuses the same logic as the existing
+  myIsDI/myIsNU checks — URN contains 'DI' vs 'NU' — matching admin's
+  facIsDI_global/facIsNU_global fallback (results.html) for records with no
+  explicit campus field. Still not scoped by course: a Sem I NU student's
+  College Rank pools against every Sem I/III/V NU student across
+  BCA+BBA+BCom combined, same as before, just now also restricted to her own
+  campus. Verified with an isolated trace: a synthetic 6-student pool mixing
+  DI/NU and Odd/Even correctly excluded a same-parity DI student and a
+  same-campus wrong-parity student, leaving only the 2 genuinely-comparable
+  NU+Odd students plus self (pool size 3, rank 3).
 VERSION : v7.36 (2026-07-25) — FIX: a student's HISTORICAL semester cards (in
   "Previous Results") were computing College/Class/DI/NU rank using the WRONG
   semester's data entirely. Confirmed live: V Neesha's Sem I card (CGPI block
@@ -3630,7 +3660,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.36';
+const APP_VERSION = 'v7.38';
 const BUILD_DATE   = '25 Jul 2026, 11:20 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -7678,48 +7708,56 @@ async function computeStudentRanks(urn, course, semStr) {
     const myIsNU    = myEntry.isNU;
     const myIsDI    = myUrn.includes('DI');
 
-    // College Rank — PARITY SCOPE (25-Jul-2026, third pass): per Harsha's explicit
-    // request, College Rank now pools only within the student's own semester parity —
-    // Odd (I, III, V) students rank against other Odd students; Even (II, IV, VI)
-    // students rank against other Even students. This mirrors admin's Rankings tab
-    // ODD_SEMS/EVEN_SEMS split (results.html resGetFilteredData, RES_DASH_PARITY) and is
-    // a DIFFERENT, deliberately narrower pool than the two earlier revisions: v7.25 wrongly
-    // scoped to course+sem only (reverted in v7.34), and v7.34's "full institution, all six
-    // sems merged" version was itself confirmed correct-but-not-wanted once Harsha compared
-    // it against admin with the parity filter OFF (all_batches) and asked for parity
-    // scoping specifically instead. Not scoped by course — a Sem I BCA/BBA/BCom student's
-    // College Rank pools against ALL Sem I/III/V students across every course, same as
-    // admin's parity-filtered "All Merged" view does.
+    // College Rank — CAMPUS + PARITY SCOPE (25-Jul-2026, fourth pass): per Harsha's
+    // explicit follow-up request, College Rank now scopes by BOTH the student's campus
+    // (Davan/DI vs Nutana/NU — same detection as myIsDI/myIsNU above, i.e. URN contains
+    // 'DI' vs 'NU', matching admin's facIsDI_global/facIsNU_global fallback logic when no
+    // explicit campus field is present) AND semester parity (Odd I/III/V vs Even II/IV/VI,
+    // added in v7.35). A DI student's College Rank now pools only against other DI
+    // students in the same parity group; an NU student's pools only against other NU
+    // students in the same parity group. Not scoped by course — a Sem I NU student's
+    // College Rank pools against every Sem I/III/V NU student across BCA+BBA+BCom
+    // combined, same shape as before but now also split by campus.
     const ODD_SEMS  = ['I', 'III', 'V'];
     const EVEN_SEMS = ['II', 'IV', 'VI'];
+    const myEntryIsDI = myEntry.urn.includes('DI');
+    const collegeCampusPool = allStudents.filter(s => s.urn.includes('DI') === myEntryIsDI);
     const myParityPool = ODD_SEMS.includes(myEntry.sem)
-      ? allStudents.filter(s => ODD_SEMS.includes(s.sem))
+      ? collegeCampusPool.filter(s => ODD_SEMS.includes(s.sem))
       : EVEN_SEMS.includes(myEntry.sem)
-        ? allStudents.filter(s => EVEN_SEMS.includes(s.sem))
-        : allStudents; // fallback: unrecognized sem value, don't crash — use full pool
+        ? collegeCampusPool.filter(s => EVEN_SEMS.includes(s.sem))
+        : collegeCampusPool; // fallback: unrecognized sem value, don't crash — use campus-only pool
     const college = myParityPool.findIndex(s => s.urn === myUrn) + 1;
 
 
-    // Class rank — mirrors results.html exactly (lines 10433-10444):
+    // Class rank — mirrors results.html's resIsMergedSection exactly:
     // Filter by same _course AND same _sem first, then:
-    // BCA: split by DI / NU-C / NU-B section — EXCEPT semesters listed in
-    //   BCA_MERGED_SECTIONS below, where Sec A and Sec B have been administratively
-    //   combined into a single section and Class Rank must be DI+NU merged to match.
+    // BCA: split by DI / NU-C / NU-B section — EXCEPT for cohorts whose sections have been
+    //   administratively merged (isMergedSectionCohort below), where Class Rank must be
+    //   DI+NU combined to match how the section is actually taught.
     // BBA/BCom: return true (all of same course+sem in one class)
     //
-    // SECTION MERGE LOG — keep this updated whenever a section merge happens, since it's
-    // the one place that decides whether Class Rank splits DI/NU or shows one merged rank:
-    //   • BCA Sem II–VI (Sec A + Sec B): ALL merged into a single section starting 2026-27
-    //     Odd (confirmed by Harsha, 25-Jul-2026 — initially reported as Sem III only, then
-    //     clarified same day: every semester from 2nd through 6th is merged; ONLY Sem I
-    //     keeps separate DI/NU sections). Class Rank for BCA Sem II/III/IV/V/VI is now the
-    //     DI+NU-merged pool, same shape as College Rank, NOT split by section. Sem I is
-    //     deliberately left OUT of this list — it still splits DI/NU as before.
-    const BCA_MERGED_SECTIONS = ['II', 'III', 'IV', 'V', 'VI'];  // roman-numeral sem keys, matches semNorm() output — Sem I intentionally excluded
+    // COHORT MERGE LOG (25-Jul-2026, corrected): this is PER-COHORT, not a blanket "BCA
+    // Sem II+" rule. Earlier same-day versions of this comment wrongly treated every BCA
+    // batch's Sem II-VI as merged — Harsha clarified: only the 2025-admission cohort (URN
+    // year '25', e.g. U13NU25S0031) was merged into 1 section starting their Sem II; other
+    // BCA batches (2023/2024 admits — current 2nd/3rd year students) have their own,
+    // separate admission history and are NOT merged unless explicitly added below. Sem I is
+    // NEVER merged for ANY cohort. Mirrors results.html's resIsMergedSection() — keep both
+    // files' MERGED_SECTION_COHORTS / isMergedSectionCohort lists in sync if a new cohort
+    // merges (or un-merges) in the future.
+    const MERGED_SECTION_COHORTS = ['25']; // 2-digit URN admission years merged from Sem II onward
+    const isMergedSectionCohort = (studentUrn, sem) => {
+      if (sem === 'I') return false; // Sem I never merged, any cohort
+      const m = studentUrn.toUpperCase().match(/U13[A-Z]{2}(\d{2})S/);
+      if (!m) return false; // unknown cohort year — default to NOT merged (keeps existing split behavior)
+      return MERGED_SECTION_COHORTS.includes(m[1]);
+    };
     const myCourse = course.toUpperCase();
     const mySem    = myEntry.sem;
+    const myIsMerged = myCourse === 'BCA' && isMergedSectionCohort(myUrn, mySem);
     let cls = 0;
-    if (myCourse === 'BCA' && !BCA_MERGED_SECTIONS.includes(mySem)) {
+    if (myCourse === 'BCA' && !myIsMerged) {
       const classPool = allStudents.filter(s => {
         if (s.course !== 'BCA') return false;
         if (s.sem !== mySem) return false;
@@ -7747,15 +7785,21 @@ async function computeStudentRanks(urn, course, semStr) {
     // comment: "ALL regular students across ALL courses and ALL sems") and is correctly a
     // much bigger pool than any one class's admin table — that one is fine as-is. DI/NU rank
     // were supposed to mirror Class Rank's same-course-same-sem scoping and did not.
+    // DI rank = position among DI students only, SAME course+sem. SUPPRESSED (0, tile
+    // hidden) for merged-section cohorts (myIsMerged, defined above at Class Rank) — a
+    // DI/NU split rank is meaningless once the two sections have been administratively
+    // combined into one; Class Rank (now merged) represents "my section" for these
+    // students instead. See resIsMergedSection in results.html for the mirrored logic.
     let di = 0;
-    if (myIsDI) {
+    if (myIsDI && !myIsMerged) {
       const diPool = allStudents.filter(s => s.urn.includes('DI') && s.course === myCourse && s.sem === mySem);
       di = diPool.findIndex(s => s.urn === myUrn) + 1;
     }
 
-    // NU rank = position among NU students only, SAME course+sem — see DI rank fix note above.
+    // NU rank = position among NU students only, SAME course+sem. Same merged-cohort
+    // suppression as DI rank above.
     let nu = 0;
-    if (myIsNU) {
+    if (myIsNU && !myIsMerged) {
       const nuPool = allStudents.filter(s => s.isNU && s.course === myCourse && s.sem === mySem);
       nu = nuPool.findIndex(s => s.urn === myUrn) + 1;
     }
