@@ -17,6 +17,43 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.44 (2026-07-27) — FIX: the Kannada/Hindi "student sits only one
+  language, hide the other's permanent 0/0 row" fix (spActiveLangs /
+  spLangVisible / spFilterLangSubs, 26-Jul-2026) only ever worked on the
+  student's own login. It read STATE.studentData, which is the LOGGED-IN
+  student — on the admin side, viewing someone else's card left that
+  either empty or holding a different student's data, so the language
+  filter silently did nothing and both rows showed for everyone. Gave all
+  three language functions an optional subjects-array parameter so a
+  caller with a specific student's data in hand (not necessarily the
+  logged-in one) can pass it directly, and wired it into all four
+  admin-card subject lists: Report Card's attendance + internals sections,
+  and the standalone Attendance and Internals tabs. Student-side call
+  sites are unaffected — passing their own subs array through explicitly
+  is equivalent to the STATE.studentData default it replaces.
+VERSION : v7.43 (2026-07-27) — FEAT/FIX: Admin Student Card overhaul (5
+  issues from one report):
+  1. Report Card tab showed ONLY current-semester attendance/internals —
+     previous semesters lived only on the separate Prev Results tab, which
+     looked like the Report Card was "stuck". Now shows a compact CGPI +
+     per-semester SGPA summary (via the same rcLoadPrevResults() the other
+     tabs use) that links straight to the full Prev Results tab.
+  2. Added a Library tab: applied/queued holds, currently borrowed books
+     with due dates, and closed lost/damaged records — same DB2
+     library/requests + library/issues source as the student's own "My
+     Library" panel, read-only (library.html remains the sole writer).
+  3. Report Card / Attendance / Internals tabs never showed faculty name or
+     photo at all — they read attData.subjects raw, with no enrichment
+     step. Added ascResolveFaculty() (mirrors the student dashboard's
+     sub.facultyDI/facultyNU/faculty + allocation name-match fallback) and
+     ascEnsureAllocs() (fetches davan_pub/allocations directly rather than
+     assuming STATE.motherAllocs is already populated on the admin side).
+     Faculty now renders via the existing spFacLabel() on every subject row
+     across all three tabs.
+  4. Pinch/tap-to-zoom on faculty photos: no separate work needed — the
+     existing rcZoomPhoto lightbox (pinch, wheel-zoom, double-tap, pan) was
+     already wired to every spFacAvatar() photo; it just had nothing to
+     zoom into until fix #3 made faculty photos actually render admin-side.
 VERSION : v7.42 (2026-07-27) — FIX: topbar calendar ticker (v7.41's speed
   fix) vanished entirely on the older stu_urn/stu_name session-restore path
   (restoreStudentSession) — that path built topbar-row2 but never called
@@ -3771,10 +3808,13 @@ function spLangOf(text) {
   return null;
 }
 // Which languages this student actually has classes in. Empty set = "can't tell,
-// show everything".
-function spActiveLangs() {
+// show everything". Accepts an optional subjects array — the admin Student Card
+// has no logged-in STATE.studentData for the student being viewed, so it must
+// pass that student's own attData.subjects explicitly; student-side call sites
+// keep working unchanged by defaulting to STATE.studentData.
+function spActiveLangs(subsOverride) {
   const out = new Set();
-  const subs = (STATE.studentData && STATE.studentData.subjects) || [];
+  const subs = subsOverride || (STATE.studentData && STATE.studentData.subjects) || [];
   subs.forEach(s => {
     const k = spLangOf((s.subject || s.name || '') + ' ' + (s.code || ''));
     if (k && (Number(s.ct) || 0) > 0) out.add(k);
@@ -3789,9 +3829,12 @@ function spLangVisible(text, activeSet) {
   if (!act.size) return true;   // nothing conducted yet — show every language
   return act.has(k);
 }
-// Convenience filter for a STATE.studentData.subjects-shaped array.
-function spFilterLangSubs(subs) {
-  const act = spActiveLangs();
+// Convenience filter for a STATE.studentData.subjects-shaped array. Accepts an
+// optional subjects array (see spActiveLangs) so callers with a specific
+// student's data in hand — like the admin card — don't need STATE.studentData
+// to be set to that student.
+function spFilterLangSubs(subs, subsOverride) {
+  const act = spActiveLangs(subsOverride || subs);
   if (!act.size) return subs;
   return (subs || []).filter(s => spLangVisible((s.subject || s.name || '') + ' ' + (s.code || ''), act));
 }
@@ -3965,7 +4008,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.42';
+const APP_VERSION = 'v7.44';
 const BUILD_DATE   = '25 Jul 2026, 11:20 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -12999,7 +13042,7 @@ function ascZoomPhoto() {
 
 function ascSwitchTab(tab) {
   _ascTab = tab;
-  ['rc', 'attend', 'internals', 'prev'].forEach(t => {
+  ['rc', 'attend', 'internals', 'prev', 'library'].forEach(t => {
     const btn = document.getElementById('asc-tab-' + t);
     if (btn) btn.className = 'asc-tab' + (t === tab ? ' active' : '');
   });
@@ -13008,6 +13051,7 @@ function ascSwitchTab(tab) {
   if (tab === 'attend')    ascRenderAttendance(_ascStudent);
   if (tab === 'internals') ascRenderInternals(_ascStudent);
   if (tab === 'prev')      ascRenderPrevResults(_ascStudent);
+  if (tab === 'library')   ascRenderLibrary(_ascStudent);
 }
 
 function ascClose() {
@@ -13021,10 +13065,53 @@ function ascCloseOnBg(e) {
   if (e.target === document.getElementById('asc-overlay')) ascClose();
 }
 
+/* ── Faculty resolution for the admin Student Card ────────────────────────
+   The student's own dashboard already resolves faculty per subject via
+   sub.facultyDI/facultyNU/faculty, falling back to a name-match against
+   STATE.motherAllocs (davan_pub/allocations) when the attendance record
+   itself has no faculty field. ascRenderReportCard/ascRenderAttendance/
+   ascRenderInternals never did either step, so faculty (and therefore the
+   photo via spFacLabel) never appeared on the admin side. This mirrors
+   that same logic instead of depending on STATE.motherAllocs already
+   being populated (admin may reach the card without the student flows
+   ever having loaded it), fetching allocations directly if needed. */
+async function ascEnsureAllocs() {
+  if (STATE.motherAllocs && STATE.motherAllocs.length) return STATE.motherAllocs;
+  try {
+    const raw = await rtdbGet('davan_pub/allocations').catch(() => null);
+    STATE.motherAllocs = (raw && raw.data) ? raw.data : (Array.isArray(raw) ? raw : []);
+  } catch (e) { STATE.motherAllocs = STATE.motherAllocs || []; }
+  return STATE.motherAllocs;
+}
+function ascResolveFaculty(sub, urn) {
+  const isDI = (urn || '').toUpperCase().includes('DI');
+  const direct = isDI ? (sub.facultyDI || sub.faculty || '') : (sub.facultyNU || sub.faculty || '');
+  if (direct) return direct;
+  const mals = STATE.motherAllocs || [];
+  if (!mals.length) return '';
+  const subjectName = sub.subject || '';
+  if (!subjectName) return '';
+  const normN = s => (s||'').toLowerCase().replace(/&/g,'and').replace(/\s*\(.*?\)\s*/g,' ').replace(/\s+/g,' ').trim();
+  const aliasN = s => { const n = normN(s); return (typeof SUBJECT_NAME_ALIASES !== 'undefined' && SUBJECT_NAME_ALIASES[n]) || n; };
+  const nm = aliasN(subjectName);
+  const prefix3 = nm.split(' ').slice(0,3).join(' ');
+  const _matches = mals.filter(a =>
+    a.subject && (
+      aliasN(a.subject) === nm ||
+      (prefix3.length >= 6 && normN(a.subject).startsWith(prefix3)) ||
+      (prefix3.length >= 6 && nm.startsWith(normN(a.subject).split(' ').slice(0,3).join(' ')))
+    )
+  );
+  const found = _matches[0] || null;
+  if (!found) return '';
+  return found.faculty || (isDI ? found.facultyDI : found.facultyNU) || found.facultyDI || found.facultyNU || '';
+}
+
 // ── Render: Report Card (attendance + internals combined) ──
 async function ascRenderReportCard(s) {
   const body = document.getElementById('asc-body');
   body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-family:var(--mono);">⏳ Loading report card…</div>';
+  await ascEnsureAllocs();
 
   // Fetch attendance data — data lives in davan_pub/students as {data:[...]} array
   let attData = null;
@@ -13044,6 +13131,16 @@ async function ascRenderReportCard(s) {
   try {
     intData = await rtdbGet('davan_pub/portal_students/' + s.urn).catch(() => null);
   } catch(e) { /* ignore */ }
+
+  // Fetch previous-semester results — the Report Card tab used to show ONLY current-
+  // semester attendance/internals, with prior semesters visible only on the separate
+  // "Prev Results" tab. That looked like the Report Card was "stuck" without them.
+  // Reuse the same rcLoadPrevResults() the Prev Results tab and student-facing report
+  // card both already use, so all three stay in sync off one data source.
+  let prevResults = [];
+  try {
+    prevResults = await rcLoadPrevResults(s.urn) || [];
+  } catch(e) { console.warn('[ascRenderReportCard/prev]', e); }
 
   // Build combined HTML
   let html = '';
@@ -13069,7 +13166,7 @@ async function ascRenderReportCard(s) {
 
   // ── Attendance section ──
   const subs = attData && attData.subjects ? attData.subjects : [];
-  const visibleSubs = subs.filter(sub => sub && (sub.subject || sub.code));
+  const visibleSubs = spFilterLangSubs(subs.filter(sub => sub && (sub.subject || sub.code)), subs);
 
   if (visibleSubs.length) {
     const totalCt = visibleSubs.reduce((a, sub) => a + (sub.ct || 0), 0);
@@ -13104,9 +13201,11 @@ async function ascRenderReportCard(s) {
       const pct    = rawCt ? Math.min(100, (ca / rawCt) * 100).toFixed(1) : null;
       const color  = pct !== null ? attColor(parseFloat(pct)) : 'var(--muted)';
       const dispNm = fixSubjectName ? fixSubjectName(sub.subject || sub.code || '—') : (sub.subject || sub.code || '—');
+      const fac    = ascResolveFaculty(sub, s.urn);
+      const facHtml = fac ? '<div style="font-size:10px;color:var(--blue);font-family:var(--mono);margin-top:2px;">' + spFacLabel(fac, 16) + '</div>' : '';
       html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;' +
         (i % 2 ? 'background:rgba(255,255,255,0.01)' : '') + ';border-bottom:1px solid var(--border);">';
-      html += '<div style="font-size:12px;color:var(--text);flex:1;">' + dispNm + '</div>';
+      html += '<div style="font-size:12px;color:var(--text);flex:1;">' + dispNm + facHtml + '</div>';
       html += '<div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin:0 10px;">' + rawCa + '/' + rawCt + '</div>';
       html += '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:' + color + ';min-width:44px;text-align:right;">' + (pct !== null ? pct + '%' : '—') + '</div>';
       html += '</div>';
@@ -13119,7 +13218,10 @@ async function ascRenderReportCard(s) {
   // ── Internals section ──
   const intSubs = intData && intData.subjects ? intData.subjects
     : (attData && attData.subjects ? attData.subjects : []);
-  const intVisible = intSubs.filter(sub => sub && (typeof sub.int1 === 'number' || typeof sub.int2 === 'number' || sub.int1 === 'AB' || sub.int2 === 'AB'));
+  const intVisible = spFilterLangSubs(
+    intSubs.filter(sub => sub && (typeof sub.int1 === 'number' || typeof sub.int2 === 'number' || sub.int1 === 'AB' || sub.int2 === 'AB')),
+    intSubs
+  );
 
   if (intVisible.length) {
     html += '<div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted);letter-spacing:.06em;margin-bottom:8px;">📝 INTERNAL MARKS</div>';
@@ -13132,12 +13234,14 @@ async function ascRenderReportCard(s) {
     html += '</div>';
     intVisible.forEach((sub, i) => {
       const dispNm = fixSubjectName ? fixSubjectName(sub.subject || sub.code || '—') : (sub.subject || sub.code || '—');
+      const fac    = ascResolveFaculty(sub, s.urn);
+      const facHtml = fac ? '<div style="font-size:10px;color:var(--blue);font-family:var(--mono);margin-top:2px;">' + spFacLabel(fac, 16) + '</div>' : '';
       const ia1    = sub.int1 !== undefined ? sub.int1 : '—';
       const ia2    = sub.int2 !== undefined ? sub.int2 : '—';
       const avg    = (typeof ia1 === 'number' && typeof ia2 === 'number') ? ((ia1 + ia2) / 2).toFixed(1) : '—';
       const avgColor = avg !== '—' ? (parseFloat(avg) >= 12 ? 'var(--ok)' : 'var(--danger)') : 'var(--muted)';
       html += '<div style="display:grid;grid-template-columns:1fr 60px 60px 60px;border-bottom:1px solid var(--border);' + (i % 2 ? 'background:rgba(255,255,255,0.01)' : '') + ';">';
-      html += '<div style="padding:8px 10px;font-size:12px;color:var(--text);">' + dispNm + '</div>';
+      html += '<div style="padding:8px 10px;font-size:12px;color:var(--text);">' + dispNm + facHtml + '</div>';
       html += '<div style="padding:8px 6px;font-family:var(--mono);font-size:12px;color:' + (ia1==='AB'?'var(--danger)':'var(--text)') + ';text-align:center;">' + ia1 + '</div>';
       html += '<div style="padding:8px 6px;font-family:var(--mono);font-size:12px;color:' + (ia2==='AB'?'var(--danger)':'var(--text)') + ';text-align:center;">' + ia2 + '</div>';
       html += '<div style="padding:8px 6px;font-family:var(--mono);font-size:13px;font-weight:700;color:' + avgColor + ';text-align:center;">' + avg + '</div>';
@@ -13146,6 +13250,29 @@ async function ascRenderReportCard(s) {
     html += '</div>';
   } else {
     html += '<div style="padding:14px;background:var(--surface2);border-radius:8px;color:var(--muted);font-family:var(--mono);font-size:12px;">📝 Internal marks not available for this student.</div>';
+  }
+
+  // ── Previous Semester Results (compact summary) ──
+  if (prevResults.length) {
+    const latestWithCgpa = [...prevResults].reverse().find(r => r.cgpa != null && !isNaN(parseFloat(r.cgpa)));
+    const sgpaVals = prevResults.map(r => parseFloat(r.sgpa)).filter(n => !isNaN(n));
+    const cgpi = latestWithCgpa
+      ? parseFloat(latestWithCgpa.cgpa).toFixed(2)
+      : (sgpaVals.length ? (sgpaVals.reduce((a,b)=>a+b,0)/sgpaVals.length).toFixed(2) : null);
+    const cgpiColor = cgpi
+      ? (parseFloat(cgpi)>=8 ? 'var(--ok)' : parseFloat(cgpi)>=6 ? 'var(--warn)' : 'var(--danger)')
+      : 'var(--muted)';
+    html += '<div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted);letter-spacing:.06em;margin-bottom:8px;">🎓 PREVIOUS SEMESTER RESULTS</div>';
+    html += '<div style="display:flex;align-items:center;gap:14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;cursor:pointer;" onclick="ascSwitchTab(\'prev\')">';
+    if (cgpi) {
+      html += '<div style="flex-shrink:0;"><div style="font-family:var(--head);font-size:28px;color:' + cgpiColor + ';line-height:1;">' + cgpi + '</div>' +
+        '<div style="font-size:9px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:1px;">CGPI</div></div>';
+    }
+    html += '<div style="flex:1;font-size:11px;font-family:var(--mono);color:var(--muted);">' +
+      prevResults.map(r => 'Sem ' + r._sem + ': <span style="color:var(--accent);">' + (r.sgpa||'—') + '</span>').join(' &nbsp;·&nbsp; ') +
+      '</div>';
+    html += '<div style="flex-shrink:0;font-size:11px;font-family:var(--mono);color:var(--accent);text-decoration:underline;white-space:nowrap;">View full →</div>';
+    html += '</div>';
   }
 
   // ── Shortage Notifications + Visit Records (Firestore) ──
@@ -13215,6 +13342,7 @@ async function ascRenderReportCard(s) {
 async function ascRenderAttendance(s) {
   const body = document.getElementById('asc-body');
   body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-family:var(--mono);">⏳ Loading attendance…</div>';
+  await ascEnsureAllocs();
   let attData = null;
   try {
     if (STATE.studentData && (STATE.studentData.urn||'').toUpperCase() === (s.urn||'').toUpperCase()) {
@@ -13225,7 +13353,10 @@ async function ascRenderAttendance(s) {
       attData = arr.find(r => r && (r.urn||'').toString().toUpperCase() === (s.urn||'').toUpperCase()) || null;
     }
   } catch(e) {}
-  const subs = attData && attData.subjects ? attData.subjects.filter(sub => sub && (sub.subject || sub.code)) : [];
+  const subs = spFilterLangSubs(
+    attData && attData.subjects ? attData.subjects.filter(sub => sub && (sub.subject || sub.code)) : [],
+    attData && attData.subjects
+  );
   if (!subs.length) {
     body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-family:var(--mono);">No attendance data available.</div>';
     return;
@@ -13239,10 +13370,12 @@ async function ascRenderAttendance(s) {
     const pct   = rawCt ? Math.min(100, (ca / rawCt) * 100).toFixed(1) : null;
     const color = pct !== null ? attColor(parseFloat(pct)) : 'var(--muted)';
     const dispNm = fixSubjectName ? fixSubjectName(sub.subject || sub.code || '—') : (sub.subject || sub.code || '—');
+    const fac    = ascResolveFaculty(sub, s.urn);
+    const facHtml = fac ? '<div style="font-size:10px;color:var(--blue);font-family:var(--mono);margin-top:2px;">' + spFacLabel(fac, 16) + '</div>' : '';
     const bar   = pct !== null ? parseFloat(pct) : 0;
     html += '<div style="margin-bottom:10px;background:var(--surface2);border-radius:8px;padding:10px 12px;">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">';
-    html += '<span style="font-size:12px;color:var(--text);">' + dispNm + '</span>';
+    html += '<span style="font-size:12px;color:var(--text);">' + dispNm + facHtml + '</span>';
     html += '<span style="font-family:var(--mono);font-size:13px;font-weight:700;color:' + color + ';">' + (pct !== null ? pct + '%' : '—') + '</span>';
     html += '</div>';
     html += '<div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden;">';
@@ -13258,6 +13391,7 @@ async function ascRenderAttendance(s) {
 async function ascRenderInternals(s) {
   const body = document.getElementById('asc-body');
   body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-family:var(--mono);">⏳ Loading internals…</div>';
+  await ascEnsureAllocs();
   let attData = null;
   try {
     if (STATE.studentData && (STATE.studentData.urn||'').toUpperCase() === (s.urn||'').toUpperCase()) {
@@ -13268,7 +13402,10 @@ async function ascRenderInternals(s) {
       attData = arr.find(r => r && (r.urn||'').toString().toUpperCase() === (s.urn||'').toUpperCase()) || null;
     }
   } catch(e) {}
-  const subs = attData && attData.subjects ? attData.subjects.filter(sub => sub && (typeof sub.int1 === 'number' || typeof sub.int2 === 'number' || sub.int1 === 'AB' || sub.int2 === 'AB')) : [];
+  const subs = spFilterLangSubs(
+    attData && attData.subjects ? attData.subjects.filter(sub => sub && (typeof sub.int1 === 'number' || typeof sub.int2 === 'number' || sub.int1 === 'AB' || sub.int2 === 'AB')) : [],
+    attData && attData.subjects
+  );
   if (!subs.length) {
     body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-family:var(--mono);">No internal marks available.</div>';
     return;
@@ -13282,12 +13419,14 @@ async function ascRenderInternals(s) {
   html += '</div>';
   subs.forEach((sub, i) => {
     const dispNm = fixSubjectName ? fixSubjectName(sub.subject || sub.code || '—') : (sub.subject || sub.code || '—');
+    const fac    = ascResolveFaculty(sub, s.urn);
+    const facHtml = fac ? '<div style="font-size:10px;color:var(--blue);font-family:var(--mono);margin-top:2px;">' + spFacLabel(fac, 16) + '</div>' : '';
     const ia1 = sub.int1 !== undefined ? sub.int1 : '—';
     const ia2 = sub.int2 !== undefined ? sub.int2 : '—';
     const avg = (typeof ia1 === 'number' && typeof ia2 === 'number') ? ((ia1 + ia2) / 2).toFixed(1) : '—';
     const avgColor = avg !== '—' ? (parseFloat(avg) >= 12 ? 'var(--ok)' : 'var(--danger)') : 'var(--muted)';
     html += '<div style="display:grid;grid-template-columns:1fr 60px 60px 60px;border-bottom:1px solid var(--border);' + (i%2?'background:rgba(255,255,255,0.01)':'') + ';">';
-    html += '<div style="padding:9px 10px;font-size:12px;color:var(--text);">' + dispNm + '</div>';
+    html += '<div style="padding:9px 10px;font-size:12px;color:var(--text);">' + dispNm + facHtml + '</div>';
     html += '<div style="padding:9px 6px;font-family:var(--mono);font-size:12px;color:' + (ia1==='AB'?'var(--danger)':'var(--text)') + ';text-align:center;">' + ia1 + '</div>';
     html += '<div style="padding:9px 6px;font-family:var(--mono);font-size:12px;color:' + (ia2==='AB'?'var(--danger)':'var(--text)') + ';text-align:center;">' + ia2 + '</div>';
     html += '<div style="padding:9px 6px;font-family:var(--mono);font-size:13px;font-weight:700;color:' + avgColor + ';text-align:center;">' + avg + '</div>';
@@ -13507,6 +13646,99 @@ async function ascRenderPrevResults(s) {
   });
 }
 
+// ── Render: Library tab (admin card) ── Shows this student's current holds/
+// applications (library/requests, status waiting/ready) and active loans
+// (library/issues, unreturned), same DB2 source as the student's own "My
+// Library" panel. Read-only, same as every other admin card tab — issuing,
+// returning, and marking lost stay in library.html, the single writer.
+async function ascRenderLibrary(s) {
+  const body = document.getElementById('asc-body');
+  body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-family:var(--mono);">⏳ Loading library record…</div>';
+  const urn = s.urn;
+  let reqs, iss, titles, lcfg;
+  try {
+    [reqs, iss, titles, lcfg] = await Promise.all([
+      libGet('library/requests'), libGet('library/issues'), libGet('library/titles'), libGet('library/config')
+    ]);
+  } catch(e) {
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-family:var(--mono);">Could not load library data.</div>';
+    return;
+  }
+  const nameOf = tid => (titles||{})[tid]?.name || '(unknown book)';
+  const myReq  = Object.entries(reqs || {}).filter(([i,r]) => r.uid === urn && ['waiting','ready'].includes(r.st));
+  const myIss  = Object.entries(iss  || {}).filter(([i,x]) => x.urn === urn && !x.ret);
+  const myLost = Object.entries(iss  || {}).filter(([i,x]) => x.urn === urn && x.outcome)
+    .sort((a,b) => (b[1].ret||0) - (a[1].ret||0));
+  const finePerDay = (lcfg && lcfg.finePerDay) || 5;
+  const overdueIss = myIss.filter(([i,x]) => x.due && libDaysLeft(x.due) < 0);
+
+  if (!myReq.length && !myIss.length && !myLost.length) {
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-family:var(--mono);">📚 No library activity for this student.</div>';
+    return;
+  }
+
+  let html = '';
+  if (overdueIss.length) {
+    const fine = overdueIss.reduce((a,[i,x]) => a + (-libDaysLeft(x.due)) * finePerDay, 0);
+    html += '<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);border-radius:8px;padding:12px 14px;margin-bottom:12px;">' +
+      '<div style="font-size:13px;font-weight:700;color:#f87171;">⚠️ ' + overdueIss.length + ' book' + (overdueIss.length>1?'s':'') + ' overdue</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:3px;">Fine so far: ₹' + fine + ' (₹' + finePerDay + '/day, still counting)</div></div>';
+  }
+
+  if (myReq.length) {
+    html += '<div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted);letter-spacing:.06em;margin-bottom:8px;">📖 APPLIED / IN QUEUE</div>';
+    html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px;">';
+    myReq.forEach(([id, r], i) => {
+      const statusLabel = r.st === 'ready' ? '✅ Ready to collect' : '⏳ Waiting in queue';
+      const statusColor = r.st === 'ready' ? 'var(--ok)' : 'var(--warn)';
+      html += '<div style="padding:10px 12px;' + (i%2?'background:rgba(255,255,255,0.01)':'') + (i ? ';border-top:1px solid var(--border)' : '') + ';">';
+      html += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">';
+      html += '<div style="font-size:12px;color:var(--text);font-weight:600;">' + nameOf(r.tid) + '</div>';
+      html += '<div style="font-size:11px;font-weight:700;color:' + statusColor + ';white-space:nowrap;">' + statusLabel + '</div>';
+      html += '</div>';
+      if (r.st === 'ready' && r.exp) {
+        const dl = libDaysLeft(r.exp);
+        html += '<div style="font-size:10px;font-family:var(--mono);color:' + (dl<=0?'var(--danger)':'var(--muted)') + ';margin-top:4px;">Collect by ' + libDueLong(r.exp) + (dl>0?' — '+dl+' day'+(dl>1?'s':'')+' left':' — window passed') + '</div>';
+      }
+      if (r.appt) html += '<div style="font-size:10px;font-family:var(--mono);color:var(--accent);margin-top:2px;">📅 ' + libApptLine(r.appt) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  if (myIss.length) {
+    html += '<div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted);letter-spacing:.06em;margin-bottom:8px;">📗 CURRENTLY BORROWED</div>';
+    html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px;">';
+    myIss.forEach(([id, x], i) => {
+      const dl = x.due ? libDaysLeft(x.due) : null;
+      const isOverdue = dl !== null && dl < 0;
+      html += '<div style="padding:10px 12px;' + (i%2?'background:rgba(255,255,255,0.01)':'') + (i ? ';border-top:1px solid var(--border)' : '') + ';">';
+      html += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">';
+      html += '<div style="font-size:12px;color:var(--text);font-weight:600;">' + nameOf(x.tid) + '</div>';
+      html += '<div style="font-size:11px;font-weight:700;color:' + (isOverdue?'var(--danger)':'var(--muted)') + ';white-space:nowrap;font-family:var(--mono);">' + (x.due ? (isOverdue ? (-dl)+'d overdue' : dl+'d left') : '—') + '</div>';
+      html += '</div>';
+      if (x.due) html += '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:3px;">Due ' + libDueLong(x.due) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  if (myLost.length) {
+    html += '<div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted);letter-spacing:.06em;margin-bottom:8px;">📕 LOST / DAMAGED (CLOSED)</div>';
+    html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">';
+    myLost.forEach(([id, x], i) => {
+      html += '<div style="padding:10px 12px;' + (i%2?'background:rgba(255,255,255,0.01)':'') + (i ? ';border-top:1px solid var(--border)' : '') + ';display:flex;justify-content:space-between;gap:10px;align-items:center;">';
+      html += '<div><div style="font-size:12px;color:var(--text);font-weight:600;">' + nameOf(x.tid) + '</div>';
+      html += '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:2px;">' + (x.outcome||'') + ' · ' + libFmt(x.ret) + (x.lostNote ? ' · '+x.lostNote : '') + '</div></div>';
+      html += '<div style="font-size:11px;font-weight:700;color:var(--warn);font-family:var(--mono);white-space:nowrap;">' + (x.replaceCost ? '₹'+x.replaceCost : 'no charge') + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  body.innerHTML = html;
+}
+
 
 
 /* ╔════════════════════════════════════════════════════════════════╗
@@ -13626,6 +13858,7 @@ window.addEventListener('keydown', function (e) {
       <button class="asc-tab"        id="asc-tab-attend"   onclick="ascSwitchTab('attend')">📊 Attendance</button>
       <button class="asc-tab"        id="asc-tab-internals" onclick="ascSwitchTab('internals')">📝 Internals</button>
       <button class="asc-tab"        id="asc-tab-prev"      onclick="ascSwitchTab('prev')">🎓 Prev Results</button>
+      <button class="asc-tab"        id="asc-tab-library"   onclick="ascSwitchTab('library')">📚 Library</button>
     </div>
     <!-- Body -->
     <div id="asc-body">
