@@ -17,6 +17,35 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.42 (2026-07-27) — FIX: topbar calendar ticker (v7.41's speed
+  fix) vanished entirely on the older stu_urn/stu_name session-restore path
+  (restoreStudentSession) — that path built topbar-row2 but never called
+  the ticker builder, so anyone whose session restored through it (most
+  desktop reloads) saw no ticker at all, even with upcoming calendar events.
+  Root cause: buildStudentTicker() was a private IIFE inside goToDashboard(),
+  so the other restore path had no way to call it. Promoted it to a
+  top-level function and call it from both entry paths, after
+  loadStudentDashboard() so STATE.calendarData is populated first.
+VERSION : v7.41 (2026-07-27) — FIX: topbar calendar ticker used a fixed 30s
+  scroll animation regardless of content length. With only 1-2 upcoming
+  events (the common case) the short strip whipped across the screen in
+  ~2 seconds instead of scrolling readably. Now measures the rendered
+  content width after paint and sets duration to hold a steady ~40px/sec
+  pace (8s floor for very short tickers), so speed no longer depends on
+  how many events happen to be upcoming.
+VERSION : v7.40 (2026-07-27) — FIX: Restored sessions (remember-me, or a
+  page reload/reopen while still signed in) never wrote to
+  controls/loginActivity — only a fresh password login did. Result: a
+  student could be actively on the dashboard while admin's Login Activity
+  tab / "Live on App" showed zero trace of them. Added stuStartHeartbeat():
+  pushes an activity row on session restore and re-pings every 5 min while
+  the tab stays open (throttled via sessionStorage so refreshes don't spam
+  new rows); stuStopHeartbeat() clears it on sign-out.
+VERSION : v7.39 (2026-07-27) — FIX: Login Activity tab (list + "Live on App"
+  modal) showed a static 🟢/👤 emoji instead of the student's real photo.
+  Both now render an initials placeholder immediately, then async-swap in
+  the actual photo via rcLoadPhoto(urn) (same davan_student_photos/{urn}
+  source used everywhere else), falling back to initials on load error.
 VERSION : v7.38 (2026-07-25) — FIX: BCA_MERGED_SECTIONS was WRONG — it treated
   every BCA batch's Sem II-VI as merged, but per Harsha the section merge is
   PER-COHORT: only the 2025-admission cohort (URN year '25', e.g.
@@ -2366,7 +2395,7 @@ body.dash-active .data-strip { display: block; }
   </div>
   <!-- Ticker strip — inline in topbar below student info row -->
   <div id="topbar-ticker" style="display:none;overflow:hidden;height:22px;border-top:1px solid rgba(255,255,255,0.04);background:var(--surface);">
-    <div style="display:inline-flex;align-items:center;height:100%;white-space:nowrap;animation:ticker-scroll 30s linear infinite;" id="topbar-ticker-inner"></div>
+    <div style="display:inline-flex;align-items:center;height:100%;white-space:nowrap;" id="topbar-ticker-inner"></div>
   </div>
 </div>
 <!-- Mobile overlay for sidebar -->
@@ -3936,7 +3965,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.38';
+const APP_VERSION = 'v7.42';
 const BUILD_DATE   = '25 Jul 2026, 11:20 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -4161,6 +4190,8 @@ async function loginStudent() {
       phone:   data.phone  || '',
       loginAt: Date.now()
     }).catch(()=>{});
+    sessionStorage.setItem('stu_lastHeartbeat_' + data.urn, String(Date.now()));
+    stuStartHeartbeat(STATE.studentUser);
     goToDashboard();
   } catch(err) {
     console.error('Login error:', err);
@@ -4239,6 +4270,55 @@ async function changePassword() {
     setLoading('chg-btn','chg-spinner','chg-btn-text', false, 'Update Password');
   }
 }
+/* Builds/refreshes the topbar calendar ticker from live calendar data (future
+   dates only). Shared by every student-dashboard entry path — fresh login,
+   remember-me/session restore, and the legacy stu_urn-based restore path —
+   so the ticker doesn't silently disappear on paths that forget to call it. */
+function buildStudentTicker() {
+  const tTicker = document.getElementById('topbar-ticker');
+  const tInner  = document.getElementById('topbar-ticker-inner');
+  const wrap    = document.getElementById('ticker-wrap');
+  const srcInner= document.getElementById('ticker-inner');
+  const TYPE_ICON = { Holiday:'🏖️', Event:'🎉', Exam:'📝', VACC:'🎓', 'Working Day':'✅', Other:'📌' };
+  const TYPE_CLR  = { Holiday:'var(--danger)', Event:'var(--ok)', Exam:'var(--blue)', VACC:'#a855f7', 'Working Day':'var(--ok)', Other:'var(--muted)' };
+  const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
+  const calArr = STATE.calendarData;
+  let items = [];
+  if (Array.isArray(calArr) && calArr.length) {
+    items = calArr
+      .filter(e => { const d = new Date(e._from || e.date || ''); d.setHours(0,0,0,0); return !isNaN(d) && d >= todayMidnight; })
+      .map(e => {
+        const clr = TYPE_CLR[e.type] || 'var(--muted)';
+        const ico = TYPE_ICON[e.type] || '📌';
+        return `<span class="ticker-item">${ico} <strong style="color:${clr};">${e.date}</strong> — ${e.event}</span>`;
+      });
+  }
+  if (!items.length) {
+    if (wrap) wrap.style.display = 'none';
+    if (tTicker) tTicker.style.display = 'none';
+    return;
+  }
+  const sep = '<span class="ticker-sep">◆</span>';
+  const html = items.join(sep) + sep;
+  const doubled = html + html;
+  if (srcInner) srcInner.innerHTML = html;
+  if (wrap) wrap.style.display = '';
+  if (tTicker && tInner) {
+    tInner.innerHTML = doubled;
+    tTicker.style.display = 'block';
+    // Fixed 30s was tuned for a long list — with only 1-2 upcoming events the
+    // (short) content whips across the screen in a couple seconds. Scale the
+    // duration to actual rendered width instead, so scroll speed stays a
+    // steady, readable ~40px/sec no matter how many items are in the ticker.
+    requestAnimationFrame(() => {
+      const halfWidth = tInner.scrollWidth / 2; // doubled content, so half = one copy's width
+      const PX_PER_SEC = 40;
+      const MIN_DURATION = 8; // seconds — floor so a very short ticker doesn't zip past instantly
+      const duration = Math.max(MIN_DURATION, halfWidth / PX_PER_SEC);
+      tInner.style.animation = `ticker-scroll ${duration}s linear infinite`;
+    });
+  }
+}
 async function goToDashboard() {
   if (!STATE.studentUser) return;
   sessionStorage.setItem('stu_urn',      STATE.studentUser.urn);
@@ -4257,37 +4337,7 @@ async function goToDashboard() {
   const nav = document.getElementById('stu-bottom-nav');
   if (nav) nav.classList.add('visible');
   // Show topbar ticker — built dynamically from live calendar data (future dates only)
-  (function buildStudentTicker() {
-    const tTicker = document.getElementById('topbar-ticker');
-    const tInner  = document.getElementById('topbar-ticker-inner');
-    const wrap    = document.getElementById('ticker-wrap');
-    const srcInner= document.getElementById('ticker-inner');
-    const TYPE_ICON = { Holiday:'🏖️', Event:'🎉', Exam:'📝', VACC:'🎓', 'Working Day':'✅', Other:'📌' };
-    const TYPE_CLR  = { Holiday:'var(--danger)', Event:'var(--ok)', Exam:'var(--blue)', VACC:'#a855f7', 'Working Day':'var(--ok)', Other:'var(--muted)' };
-    const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
-    const calArr = STATE.calendarData;
-    let items = [];
-    if (Array.isArray(calArr) && calArr.length) {
-      items = calArr
-        .filter(e => { const d = new Date(e._from || e.date || ''); d.setHours(0,0,0,0); return !isNaN(d) && d >= todayMidnight; })
-        .map(e => {
-          const clr = TYPE_CLR[e.type] || 'var(--muted)';
-          const ico = TYPE_ICON[e.type] || '📌';
-          return `<span class="ticker-item">${ico} <strong style="color:${clr};">${e.date}</strong> — ${e.event}</span>`;
-        });
-    }
-    if (!items.length) {
-      if (wrap) wrap.style.display = 'none';
-      if (tTicker) tTicker.style.display = 'none';
-      return;
-    }
-    const sep = '<span class="ticker-sep">◆</span>';
-    const html = items.join(sep) + sep;
-    const doubled = html + html;
-    if (srcInner) srcInner.innerHTML = html;
-    if (wrap) wrap.style.display = '';
-    if (tTicker && tInner) { tInner.innerHTML = doubled; tTicker.style.display = 'block'; }
-  })();
+  buildStudentTicker();
   // Populate topbar row2
   const row2 = document.getElementById('topbar-row2');
   const row2name = document.getElementById('topbar-row2-name');
@@ -4387,6 +4437,7 @@ function doLogout() {
   if (adminSb) adminSb.style.left = '-280px';
   // Close welcome toast backdrop if open
   closeWelcomeToast();
+  stuStopHeartbeat();
   sessionStorage.removeItem('admin_session');
   sessionStorage.removeItem('stu_session');
   localStorage.removeItem('admin_remember');
@@ -4423,6 +4474,43 @@ function doLogout() {
 }
 
 /* ════════════════════════════════════════════════════
+   STUDENT ACTIVITY HEARTBEAT
+   Fresh password logins already push a controls/loginActivity row (see
+   stuLogin()). But a RESTORED session (remember-me, or just reopening/
+   refreshing the tab while still signed in) used to call goToDashboard()
+   directly and never touched loginActivity — so admin's Login Activity /
+   "Live on App" view showed nothing even while the student was actively
+   using the dashboard. This pushes a row on restore, then re-pings every
+   few minutes while the tab stays open, so "live" status stays accurate
+   without spamming a new row on every single page refresh.
+════════════════════════════════════════════════════ */
+let _stuHeartbeatTimer = null;
+const STU_HEARTBEAT_MIN_GAP_MS = 5 * 60 * 1000; // don't log more than once per 5 min
+function stuRecordHeartbeat(u) {
+  if (!u || !u.urn) return;
+  const lastKey = 'stu_lastHeartbeat_' + u.urn;
+  const last = Number(sessionStorage.getItem(lastKey) || 0);
+  const now = Date.now();
+  if (now - last < STU_HEARTBEAT_MIN_GAP_MS) return; // too soon, skip
+  sessionStorage.setItem(lastKey, String(now));
+  rtdbPush('controls/loginActivity', {
+    urn:     u.urn,
+    name:    u.name  || '',
+    class:   u.class || '',
+    phone:   u.phone || '',
+    loginAt: now
+  }).catch(()=>{});
+}
+function stuStartHeartbeat(u) {
+  if (_stuHeartbeatTimer) clearInterval(_stuHeartbeatTimer);
+  stuRecordHeartbeat(u);
+  _stuHeartbeatTimer = setInterval(() => stuRecordHeartbeat(u), STU_HEARTBEAT_MIN_GAP_MS);
+}
+function stuStopHeartbeat() {
+  if (_stuHeartbeatTimer) { clearInterval(_stuHeartbeatTimer); _stuHeartbeatTimer = null; }
+}
+
+/* ════════════════════════════════════════════════════
    SESSION RESTORE
 ════════════════════════════════════════════════════ */
 (function restoreSession() {
@@ -4452,6 +4540,7 @@ function doLogout() {
           const chk = document.getElementById('stu-remember');
           if (chk) chk.checked = true;
         }
+        stuStartHeartbeat(STATE.studentUser);
         goToDashboard();
         return;
       }
@@ -4698,8 +4787,22 @@ function renderLoginActivity() {
     const osStr=(()=>{const ua=r.userAgent||'';if(!ua)return '';if(/Android/.test(ua))return 'Android';if(/iPhone|iPad/.test(ua))return 'iOS';if(/Windows/.test(ua))return 'Windows';if(/Mac/.test(ua))return 'Mac';if(/Linux/.test(ua))return 'Linux';return '';})();
     const deviceLabel=r.platform?deviceIcon+' '+(r.platform)+(osStr?' · '+osStr:'')+(browserStr?' · '+browserStr:''):'';
     const nameHtml=r.urn?'<span class="asc-name-link" onclick="ascOpen(\''+r.urn+'\')" style="font-weight:600;font-size:13px;color:var(--text);">'+(r.name||'-')+'</span>':'<span style="font-weight:600;font-size:13px;color:var(--text);">'+(r.name||'-')+'</span>';
-    return '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border);background:'+(i===0?'rgba(34,197,94,0.04)':i%2?'rgba(255,255,255,0.01)':'')+';"><div style="font-size:20px;flex-shrink:0;">'+(i===0?'🟢':'👤')+'</div><div style="flex:1;min-width:0;">'+nameHtml+'<div style="font-size:11px;font-family:var(--mono);color:var(--accent);">'+(r.urn||'')+( r.class?' <span style=\"color:var(--muted);\">· '+r.class+'</span>':'')+'</div>'+(r.phone?'<div style="font-size:11px;font-family:var(--mono);color:var(--muted);">📱 '+r.phone+'</div>':'')+(deviceLabel?'<div style="font-size:11px;font-family:var(--mono);color:var(--muted);">'+deviceLabel+'</div>':'')+'</div><div style="text-align:right;flex-shrink:0;"><div style="font-size:13px;font-weight:700;color:var(--ok);">'+ts+'</div><div style="font-size:11px;font-family:var(--mono);color:var(--muted);">'+ds+'</div>'+(i===0?'<div style="font-size:9px;font-family:var(--mono);color:var(--ok);letter-spacing:.05em;margin-top:2px;">LATEST</div>':'')+'</div></div>';
+    const laInitials=nameInitials(r.name||'');
+    const laAvatarId='la-av-'+i+'-'+(r.urn||'x').replace(/[^A-Za-z0-9]/g,'');
+    const laAvatarHtml='<div id="'+laAvatarId+'" data-urn="'+(r.urn||'')+'" style="width:34px;height:34px;border-radius:50%;overflow:hidden;flex-shrink:0;background:'+(i===0?'rgba(34,197,94,0.15)':'var(--surface2)')+';border:2px solid '+(i===0?'rgba(34,197,94,0.4)':'var(--border)')+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:'+(i===0?'var(--ok)':'var(--muted)')+';font-family:var(--head);">'+laInitials+'</div>';
+    return '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border);background:'+(i===0?'rgba(34,197,94,0.04)':i%2?'rgba(255,255,255,0.01)':'')+';">'+laAvatarHtml+'<div style="flex:1;min-width:0;">'+nameHtml+'<div style="font-size:11px;font-family:var(--mono);color:var(--accent);">'+(r.urn||'')+( r.class?' <span style=\"color:var(--muted);\">· '+r.class+'</span>':'')+'</div>'+(r.phone?'<div style="font-size:11px;font-family:var(--mono);color:var(--muted);">📱 '+r.phone+'</div>':'')+(deviceLabel?'<div style="font-size:11px;font-family:var(--mono);color:var(--muted);">'+deviceLabel+'</div>':'')+'</div><div style="text-align:right;flex-shrink:0;"><div style="font-size:13px;font-weight:700;color:var(--ok);">'+ts+'</div><div style="font-size:11px;font-family:var(--mono);color:var(--muted);">'+ds+'</div>'+(i===0?'<div style="font-size:9px;font-family:var(--mono);color:var(--ok);letter-spacing:.05em;margin-top:2px;">LATEST</div>':'')+'</div></div>';
   }).join('')+'</div>';
+  // Async-load real photos into the avatar slots, replacing the initials placeholder
+  rows.forEach((r,i)=>{
+    if(!r.urn) return;
+    const elId='la-av-'+i+'-'+(r.urn||'x').replace(/[^A-Za-z0-9]/g,'');
+    rcLoadPhoto(r.urn).then(url=>{
+      if(!url) return;
+      const el=document.getElementById(elId);
+      if(!el) return;
+      el.innerHTML='<img src="'+url+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.textContent=\''+nameInitials(r.name||'').replace(/'/g,"\\'")+'\';">';
+    }).catch(()=>{});
+  });
 }
 async function clearLoginActivity(){
   if(!confirm('Clear all login activity? Cannot be undone.')) return;
@@ -4728,8 +4831,10 @@ function showLiveStudentsModal() {
     const browserStr = /Edg\//.test(ua)?'Edge':/OPR\/|Opera/.test(ua)?'Opera':/Chrome\//.test(ua)&&!/Chromium/.test(ua)?'Chrome':/Firefox\//.test(ua)?'Firefox':/Safari\//.test(ua)&&!/Chrome/.test(ua)?'Safari':'';
     const deviceStr = [deviceIcon, osStr, browserStr].filter(Boolean).join(' · ');
 
+    const lsAvatarId='ls-av-'+i+'-'+(r.urn||'x').replace(/[^A-Za-z0-9]/g,'');
+    const lsInitials=nameInitials(r.name||'');
     return `<div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border);background:${i%2?'':'rgba(34,197,94,0.03)'};">
-      <div style="width:36px;height:36px;border-radius:50%;background:rgba(34,197,94,0.15);border:2px solid rgba(34,197,94,0.4);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">🟢</div>
+      <div id="${lsAvatarId}" style="width:36px;height:36px;border-radius:50%;overflow:hidden;background:rgba(34,197,94,0.15);border:2px solid rgba(34,197,94,0.4);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--ok);font-family:var(--head);flex-shrink:0;">${lsInitials}</div>
       <div style="flex:1;min-width:0;">
         <div style="font-weight:700;font-size:14px;color:var(--text);">${r.name || '—'}</div>
         <div style="font-size:11px;font-family:var(--mono);color:var(--accent);margin-top:1px;">
@@ -4753,6 +4858,17 @@ function showLiveStudentsModal() {
   document.getElementById('live-students-modal-body').innerHTML = rows || emptyHtml;
   document.getElementById('live-students-modal-count').textContent = live.length + ' student' + (live.length !== 1 ? 's' : '') + ' active';
   document.getElementById('live-students-overlay').style.display = 'flex';
+  // Async-load real photos into the avatar slots
+  live.forEach((r,i)=>{
+    if(!r.urn) return;
+    const elId='ls-av-'+i+'-'+(r.urn||'x').replace(/[^A-Za-z0-9]/g,'');
+    rcLoadPhoto(r.urn).then(url=>{
+      if(!url) return;
+      const el=document.getElementById(elId);
+      if(!el) return;
+      el.innerHTML='<img src="'+url+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.textContent=\''+nameInitials(r.name||'').replace(/'/g,"\\'")+'\';">';
+    }).catch(()=>{});
+  });
 }
 function closeLiveStudentsModal() {
   document.getElementById('live-students-overlay').style.display = 'none';
@@ -7202,7 +7318,8 @@ function addLpSubject() {
     row2.classList.add('visible');
   }
   showScreen('screen-student-dash');
-  loadStudentDashboard();
+  await loadStudentDashboard();
+  buildStudentTicker();
 })();
 
 /* ════════════════════════════════════════════════════

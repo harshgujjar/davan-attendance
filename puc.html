@@ -7,9 +7,9 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.176                                                      ║
-║  FILE NAME       : puc_v5.174.html                                             ║
-║  LAST UPDATED    : 2026-07-13                                                ║
+║  CURRENT VERSION : v5.177                                                      ║
+║  FILE NAME       : puc_v5.177.html                                             ║
+║  LAST UPDATED    : 2026-07-27                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  RULES FOR CLAUDE — READ BEFORE MAKING ANY CHANGES                          ║
@@ -30,7 +30,7 @@
 ║                                                                              ║
 ║  3. APP_VERSION is displayed live in the topbar (top-right corner)          ║
 ║     It is set at the top of the <script> block as:                          ║
-║     const APP_VERSION = "v5.176";                                            ║
+║     const APP_VERSION = "v5.177";                                            ║
 ║                                                                              ║
 ║  4. DO NOT guess — always read the file before editing                      ║
 ║  5. DO NOT copy-paste old version blocks — increment from current           ║
@@ -39,6 +39,25 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v5.177 2026-07-27  Fix: "⏰ Period-wise Absent — Yesterday" dashboard        ║
+║          widget only ever skipped Sundays when stepping back from the       ║
+║          LCB's selected day — it never consulted the academic calendar.     ║
+║          So when the previous day was a DECLARED HOLIDAY (e.g. a Saturday   ║
+║          marked as holiday in the Academic Calendar for a parents'          ║
+║          meeting), the widget silently jumped back exactly 7 days to the    ║
+║          same weekday and showed the wrong day's attendance (e.g. Friday    ║
+║          instead of noting Saturday was a holiday and going back further    ║
+║          to Thursday/last teaching day). Fix: new pucYpaPrevTeachingDay()   ║
+║          walks back one day at a time, checking drCalStatusForDate() (same  ║
+║          holiday/exam/event/sports/internal check the Date Report already   ║
+║          uses, across both COM + SCI calendars) at each step, skipping any  ║
+║          blocked day until it lands on a real teaching day. The panel's     ║
+║          sub-header now also names any skipped holiday(s), e.g. "Showing    ║
+║          Thu, 23-Jul-2026 — skipped holiday: Parents' Meeting". Calendar    ║
+║          data is preloaded via pucCalPreload() if not already loaded.       ║
+║          pucYpaResolveDateKey() is now async — its two callers              ║
+║          (pucYpaRefresh, pucYpaDebug) updated to await it.                  ║
 ║                                                                              ║
 ║  v5.176 2026-07-24  Fix: Exception Subjects dropdown only sourced codes     ║
 ║          from subjectMap + last year's Annual Exam (marksClassMap), so a   ║
@@ -7570,7 +7589,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.176";
+const APP_VERSION = "v5.177";
 
 // ── Extension feedback listener ──────────────────────────────────────────────
 window.addEventListener('message', (e) => {
@@ -14960,20 +14979,50 @@ function pucYpaLcbViewedDate() {
 
 // Most recent date strictly BEFORE `fromDate` matching weekday `targetDow`
 // (0=Sun..6=Sat) — used to step "one school-day back", skipping Sunday.
+// (Kept for reference; no longer called by pucYpaResolveDateKey — see
+// pucYpaPrevTeachingDay() below, v5.173.)
 function pucYpaPrevWeekday(fromDate, targetDow) {
   const d = new Date(fromDate);
   do { d.setDate(d.getDate() - 1); } while (d.getDay() !== targetDow);
   return d;
 }
 
-function pucYpaResolveDateKey() {
+// v5.173: step back one calendar day at a time from `fromDate`, skipping
+// Sundays AND any date the academic calendar marks as a blocking event
+// (holiday/exam/event/sports/internal — same BLOCK_TYPES as
+// drCalStatusForDate(), checked across BOTH streams since this widget can be
+// showing either one). Previously this only skipped Sunday, jumping straight
+// back exactly 7 days to the same weekday — so a declared holiday (e.g. a
+// Saturday given as a holiday for a parents' meeting) was silently treated
+// as a normal teaching day, and the panel showed the PREVIOUS Friday's
+// attendance instead of noting the holiday and going one more day back to
+// the last real teaching day. Returns { dispDate, skipped }, where `skipped`
+// lists every blocked day walked over (for the "yesterday was a holiday"
+// note rendered in the UI).
+function pucYpaPrevTeachingDay(fromDate) {
+  const skipped = [];
+  let d = new Date(fromDate);
+  for (let guard = 0; guard < 30; guard++) { // safety cap against bad/huge calendar ranges
+    d = new Date(d);
+    d.setDate(d.getDate() - 1);
+    if (d.getDay() === 0) { skipped.push({ type: 'holiday', name: 'Sunday' }); continue; }
+    const iso = fmtIsoLocal(d);
+    const evt = (typeof drCalStatusForDate === 'function') ? drCalStatusForDate(iso) : null;
+    if (evt) { skipped.push(evt); continue; }
+    return { dispDate: d, skipped };
+  }
+  return { dispDate: d, skipped }; // guard tripped — return whatever we landed on
+}
+
+async function pucYpaResolveDateKey() {
   const viewedDate = pucYpaLcbViewedDate();
-  let prevDow = viewedDate.getDay() - 1;
-  if (prevDow < 0) prevDow = 6; // Sun(0)-1 → Sat(6)
-  let d = pucYpaPrevWeekday(viewedDate, prevDow);
-  if (d.getDay() === 0) d = pucYpaPrevWeekday(d, 6); // skip Sunday → Saturday
+  // Calendar data is required to detect holidays here — make sure it's loaded.
+  if (typeof _pucCalEvents !== 'undefined' && !_pucCalEvents.com.length && !_pucCalEvents.sci.length) {
+    try { await pucCalPreload(); } catch(e) {}
+  }
+  const { dispDate: d, skipped } = pucYpaPrevTeachingDay(viewedDate);
   const iso = fmtIsoLocal(d); // local parts — NOT toISOString() (UTC shifts IST back a day)
-  return { dateKey: drFmtKey(iso), dispDate: d };
+  return { dateKey: drFmtKey(iso), dispDate: d, skipped };
 }
 
 // Resolve one LCB slot index into a {start,label,puc} descriptor. Always
@@ -15124,7 +15173,7 @@ async function pucYpaRefresh(force) {
   const leftPeriod  = pucYpaResolveSlot(leftIdx);
   const rightPeriod = rightIdx < slots.length ? pucYpaResolveSlot(rightIdx) : null;
 
-  const { dateKey, dispDate } = pucYpaResolveDateKey();
+  const { dateKey, dispDate, skipped } = await pucYpaResolveDateKey();
 
   // Skip re-fetch if nothing actually changed since last run (e.g. the LCB's
   // 30s "live" timer re-rendering the same still-current slot — no need to
@@ -15139,7 +15188,18 @@ async function pucYpaRefresh(force) {
   _pucYpaDateKey = dateKey;
 
   const dayName = ARP_DAY_LONG[dispDate.getDay()];
-  sub.innerHTML = `Showing <span style="color:var(--accent);">${dayName}, ${dateKey}</span> — yesterday relative to the day selected above on the Live Class Board.`;
+  // v5.173: if any days were skipped (Sunday and/or declared holidays/events)
+  // between the LCB's selected day and the resolved teaching day, say so —
+  // e.g. "Sat, 25-Jul-2026 was a holiday (Parents' Meeting) — showing Fri, 24-Jul-2026 instead."
+  let skipNote = '';
+  if (skipped && skipped.length) {
+    const nonSunday = skipped.filter(e => e.name !== 'Sunday');
+    if (nonSunday.length) {
+      const parts = nonSunday.map(e => `<span style="color:#f59e0b;">${e.name}</span>`).join(', ');
+      skipNote = ` — <span style="color:var(--muted);">skipped holiday${nonSunday.length>1?'s':''}: ${parts}</span>`;
+    }
+  }
+  sub.innerHTML = `Showing <span style="color:var(--accent);">${dayName}, ${dateKey}</span> — last teaching day before the day selected above on the Live Class Board${skipNote}.`;
   if (leftHdrEl)  leftHdrEl.innerHTML  = leftPeriod  ? `☀ ${leftPeriod.label}`  : '';
   if (rightHdrEl) rightHdrEl.innerHTML = rightPeriod ? `⏭ ${rightPeriod.label}` : 'End of Day';
 
@@ -15176,8 +15236,11 @@ async function pucYpaDebug() {
   const out = [];
   const P = s => out.push(s);
   try {
-    const { dateKey, dispDate } = pucYpaResolveDateKey();
+    const { dateKey, dispDate, skipped } = await pucYpaResolveDateKey();
     P(`resolved dateKey = ${dateKey}`);
+    if (skipped && skipped.length) {
+      P(`skipped days walking back: ${skipped.map(e => e.name).join(', ')}`);
+    }
     P(`AY key (SP_AY_KEY) = ${typeof SP_AY_KEY !== 'undefined' ? SP_AY_KEY : '(undef)'}`);
     P(`stream = ${_pucLcbStream}`);
 
