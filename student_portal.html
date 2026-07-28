@@ -17,6 +17,163 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.54 (2026-07-27) — FIX (real root cause, not the v7.53 theory):
+  the "0 holidays" bug was neither a timing issue (v7.53's fix, while a
+  real separate improvement, didn't resolve this) nor an index.html
+  deploy-lag issue — added on-screen debug output that proved it directly:
+  STATE.calendarData genuinely still contained dates as "15 Aug 2026"
+  (pretty/display format), not ISO, in the live database at the moment
+  this was checked. stuCountHolidays/stuCountNonTeaching do
+  `new Date(dStr + 'T00:00:00')`, which is invalid syntax for that format
+  and silently fails isNaN() — every holiday dropped, count stuck at 0 —
+  while the Calendar tab looked completely fine on the exact same data,
+  because DISPLAYING a pretty string never needed it to be parseable, only
+  a numeric comparison (>=, sort, isPast) does. Added stuParseCalDate(), a
+  shared parser that tries ISO first (unchanged behaviour for already-
+  correct data) and falls back to manually parsing "DD Mon YYYY" /
+  "DD Month YYYY" when ISO parsing fails — so this works correctly
+  regardless of which format happens to be in the database, instead of
+  depending on index.html always being redeployed with fresh data first.
+  Swept the whole file for every other place silently vulnerable to the
+  identical bug (all were doing ad-hoc new Date(e.date...) with no
+  fallback) and fixed all of them to use the same shared parser:
+  _filterCalToSessionWindow, the topbar ticker, the upcoming-events strip,
+  both the student and admin calendar tables (display AND isPast/isToday
+  logic), the admin calendar sort, stuDayInfo's per-day holiday lookup,
+  and the internal-assessment date parser. Removed the temporary on-screen
+  debug output added to diagnose this.
+VERSION : v7.53 (2026-07-27) — FIX: Dashboard's working-days sentence
+  ("This semester has N days... excluding N Sundays and N holidays") stuck
+  showing "0 holidays" specifically on session RESTORE (remember-me / page
+  reload while still signed in) even when the Calendar tab, opened
+  separately, correctly showed real holidays from the same STATE.
+  calendarData. Root cause: restoreStudentSession() calls
+  updateSidebarProfile() (which triggers stuRenderSemStartNote(), the
+  sentence) immediately as a "fast paint" BEFORE awaiting
+  loadStudentDashboard() — at that point STATE.calendarData is still
+  whatever it was left as from before this page load (typically empty on
+  a fresh restore), so the holiday count computed from nothing and nothing
+  ever recomputed it afterward. The Calendar tab looked fine only because
+  it renders on-demand when actually opened, by which point the real fetch
+  has long since finished. goToDashboard() (fresh login path) never had
+  this bug — it already called updateSidebarProfile() only once, after the
+  await. Fix: restoreStudentSession() now also calls updateSidebarProfile()
+  again after awaiting loadStudentDashboard(), so the sentence gets a
+  second, correct computation once real data has actually arrived. The
+  earlier fast-paint call is left in place — it exists for a different,
+  legitimate reason (see its own comment) and this is additive, not a
+  replacement.
+VERSION : v7.52 (2026-07-27) — FEAT: Social Media follow nudges now have
+  independent show/hide toggles, one per placement — Controls ▸ VISIBILITY
+  CONTROLS ▸ Global gained 4 new rows (Dashboard Banner, Sidebar Card,
+  Once-a-day Toast, Login Page Footer), same Global-only pattern as Faculty
+  Photos (default-on, no byClass/byUrn override — a per-student "should
+  this student see the follow banner" doesn't make sense the way "should
+  this student see their marks" does). New canShowSocial(flag) gates all 4
+  render functions. The Login Page Footer toggle needed special handling
+  since it renders before any login happens: loadPreLoginSocialLinks() now
+  also fetches controls/global/socialLoginPage directly (not the full
+  controls tree) so the flag is known pre-auth, same reasoning as the
+  existing pre-login socialLinks fetch.
+VERSION : v7.51 (2026-07-27) — FEAT: Social Media tab, two usability fixes.
+  (1) BY PLACEMENT table cells are now clickable — tapping any non-zero
+  number (e.g. "1" under Banner for Instagram) expands renderSocialPlacement
+  Detail() below the table: exact list of who clicked that specific
+  platform+placement combo, with photo (async-loaded via rcLoadPhoto, tap
+  to zoom via rcZoomPhoto — same pattern as every other photo in the admin),
+  name, URN, and timestamp. Anonymous login-page clicks show as such rather
+  than blank. (2) Class roster drilldown no longer dumps all 40-65 students
+  by default — split into clickers (shown immediately, with photos, sorted
+  most-recent-activity-first) and non-clickers (collapsed behind a "👁 Show
+  N who haven't clicked" toggle, built lazily on first expand rather than
+  always rendering). Toggle re-labels to "🙈 Hide" and stays expanded until
+  clicked again; re-opening a different class rebuilds fresh.
+VERSION : v7.50 (2026-07-27) — FIX: v7.49's fixed Sign Out button ate into
+  the tab row's available width, so Social Media (last tab) got visually
+  truncated to "SO..." — looked broken rather than scrollable. Reduced
+  tab-btn padding 20px→16px to fit more tabs before overflow, and added a
+  right-edge fade gradient over the tab row (pointer-events:none, so it
+  never blocks the tab underneath) that signals "more tabs, scroll →"
+  instead of a tab looking cut off. Tab row still scrolls via the
+  pre-existing .tab-bar overflow-x:auto — this only fixes the visual
+  read, same underlying scroll mechanism as before.
+VERSION : v7.49 (2026-07-27) — FIX: admin's Sign Out button got pushed off
+  the visible screen edge once the new Social Media tab (v7.46) tipped the
+  tab row over its horizontal-scroll threshold. Root cause: Sign Out lived
+  INSIDE the same overflow-x:auto row as the tabs, positioned via
+  margin-left:auto — that only pins it to the far edge of the scrollable
+  content, not the visible viewport, so once the row overflowed, reaching
+  Sign Out required scrolling the tab bar itself all the way right (not
+  obvious/discoverable). Moved it OUTSIDE the scrolling .tab-bar entirely,
+  into a fixed sibling button that's always on-screen regardless of how
+  many tabs exist now or get added later — adding more tabs can now only
+  make the tab row scroll, never hide Sign Out.
+VERSION : v7.48 (2026-07-27) — FEAT: Social & Contact Links now fully
+  admin-editable (Controls ▸ 📣 Social & Contact Links, writes
+  controls/socialLinks) — Facebook/YouTube/Instagram URLs, WhatsApp number,
+  and Call number can all be changed without a code deploy. Every nudge
+  placement (login page footer, dashboard banner, sidebar card, once-a-day
+  toast) now reads live from STATE.socialLinks via a getter (SN_LINKS →
+  snGetLinks()) instead of hardcoded URLs, so an admin edit takes effect
+  everywhere immediately. Added WhatsApp + Call the office links to the
+  student login page (matching parent_ptm.html's own login footer) — these
+  didn't exist here before, only the three social icons did. New
+  loadPreLoginSocialLinks() fetches controls/socialLinks on page load, no
+  login required, since the footer renders before any auth happens; falls
+  back to sane hardcoded defaults (matching parent_ptm.html) until that
+  resolves so the footer is never blank. snTrackClick() extended to two
+  new platform keys (whatsapp, call) alongside fb/yt/ig. Admin Social Media
+  tab gained a dedicated "LOGIN PAGE CLICKS" log (renderSocialOverview) —
+  a flat, most-recent-first list of every individual pre-login click with
+  which action (Facebook/YouTube/Instagram/WhatsApp/Call) and exact
+  date/time, since these clicks are anonymous most of the time and can't
+  go through the class-roster drilldown the way logged-in clicks can.
+VERSION : v7.47 (2026-07-27) — FEAT: added the same "Follow us: [FB][YT][IG]"
+  icon-row footer parent_ptm.html shows on its login page, to the student
+  login page here too (below "Forgot password?"), same icons/links/sizing.
+  snTrackClick() now records these too — previously it silently no-op'd
+  without STATE.studentUser.urn (nobody's logged in yet on this screen),
+  which would have dropped every login-page click. Anonymous clicks now
+  write urn:null instead of being skipped, tagged source='loginpage'. Admin
+  Social Media tab updated to handle them correctly rather than folding
+  them into one fake "student": overview splits Unique students (signed
+  in) from a separate Anon (login page) count, and the BY PLACEMENT table
+  gained a 4th "Login pg" column so these clicks are visible there too.
+VERSION : v7.46 (2026-07-27) — FEAT: Social Media follow nudges + admin
+  analytics. Three student-facing placements, links/icons matched exactly
+  to parent_ptm.html's official Facebook/YouTube/Instagram pages: (1) a
+  dismissible banner at the top of the dashboard (dismiss lasts the
+  session, reappears next login), (2) a permanent compact card in the
+  sidebar, (3) a once-per-calendar-day welcome toast. Every click writes
+  {urn,name,class,platform,source,ts} to davan_pub/socialClicks via
+  snTrackClick() — source records which of the three placements was
+  clicked. New admin "📣 Social Media" tab (loadSocialClicks/
+  renderSocialOverview/renderSocialClassList/renderSocialDrilldown):
+  overview cards (total clicks, unique students, per-platform totals) +
+  a by-placement breakdown table (banner vs sidebar vs toast, per
+  platform) + a per-class strength grid (unique clickers / roster size,
+  same X/Y pattern as Login Activity) that opens a full roster drilldown
+  on click — each student's click history with platform, placement,
+  date/time, and repeat-click detection (same link clicked more than
+  once). CODE_BUILD unrelated — this is student_portal.html only.
+VERSION : v7.45 (2026-07-27) — FIX: dashboard showed "0 holidays" in the
+  working-days sentence no matter how many holidays existed in the synced
+  calendar. Root cause was on the index.html (mother app) side: the
+  auto-push to davan_pub/calendar sent date/endDate as a display string
+  ("15 Aug 2026") instead of something parseable, and stuCountHolidays /
+  stuCountNonTeaching do `new Date(dStr + 'T00:00:00')` on that field —
+  invalid syntax for a display string, so every holiday silently failed
+  isNaN() and got dropped. index.html now sends date/endDate as ISO
+  (YYYY-MM-DD) with the pretty text moved to new dateLabel/endDateLabel
+  fields. Updated every place here that displays these dates (admin +
+  student calendar tables, upcoming strip, topbar ticker) to prefer
+  dateLabel/endDateLabel for display while date/endDate stays parseable —
+  falls back to date/endDate for any calendar data pushed before this fix.
+  Also fixed on the index.html side (v1048): the auto-push that runs after
+  every calendar save was separately overwriting davan_pub/session_config
+  (a PUT, not a merge) with a hardcoded placeholder date range whenever its
+  own Session Config screen hadn't been used — silently reverting whatever
+  the Semester Dates admin control here had saved. See index.html v1048.
 VERSION : v7.44 (2026-07-27) — FIX: the Kannada/Hindi "student sits only one
   language, hide the other's permanent 0/0 row" fix (spActiveLangs /
   spLangVisible / spFilterLangSubs, 26-Jul-2026) only ever worked on the
@@ -1409,6 +1566,109 @@ body { font-family: var(--body); background: var(--bg); color: var(--text); min-
 }
 .sidebar-item .icon { font-size: 13px; flex-shrink: 0; }
 
+/* ════════════════════════════════════════════════════
+   SOCIAL FOLLOW NUDGE — banner (dashboard top), compact card
+   (sidebar), one-time toast (first login of the day). Styling matches
+   parent_ptm.html's followpanel/followbtn so the "follow us" look is
+   consistent across every app students/parents see it in. Every click
+   is tracked via snTrackClick() → davan_pub/socialClicks for the admin
+   Social Media analytics tab.
+════════════════════════════════════════════════════ */
+.sn-btn {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 9px;
+  padding: 9px 11px; text-decoration: none; color: var(--text);
+  font-size: 12px; font-weight: 600; position: relative; overflow: hidden;
+  transition: transform .15s ease, border-color .15s ease;
+}
+.sn-btn:hover { transform: translateY(-1px); border-color: var(--accent); }
+.sn-btn-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; color: #fff;
+  position: relative;
+}
+.sn-btn-arrow { margin-left: auto; opacity: .5; transition: transform .15s ease, opacity .15s ease; flex-shrink:0; }
+.sn-btn:hover .sn-btn-arrow { opacity: 1; transform: translateX(3px); }
+.sn-fb .sn-btn-icon { background: #1877F2; }
+.sn-yt .sn-btn-icon { background: #FF0000; }
+.sn-ig .sn-btn-icon { background: radial-gradient(circle at 30% 110%,#fdf497 0%,#fdf497 5%,#fd5949 45%,#d6249f 60%,#285AEB 90%); }
+@keyframes snPulse { 0% { transform:scale(1); opacity:.55; } 100% { transform:scale(1.6); opacity:0; } }
+.sn-btn-icon::after {
+  content:''; position:absolute; inset:0; border-radius:50%; border:2px solid currentColor;
+  opacity:0; animation: snPulse 2.4s ease-out infinite;
+}
+.sn-fb .sn-btn-icon::after { color:#1877F2; }
+.sn-yt .sn-btn-icon::after { color:#FF0000; animation-delay:.5s; }
+.sn-ig .sn-btn-icon::after { color:#d6249f; animation-delay:1s; }
+
+/* Banner (dashboard top) */
+.sn-banner {
+  background: linear-gradient(135deg, var(--surface2), var(--surface));
+  border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+  position: relative; overflow: hidden;
+}
+.sn-banner::before {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background: radial-gradient(circle at top right, rgba(240,165,0,0.10), transparent 60%);
+}
+.sn-banner-row { display:flex; align-items:center; gap:12px; position:relative; margin-bottom:12px; }
+.sn-banner-icon {
+  width:36px; height:36px; border-radius:10px; flex-shrink:0;
+  background: rgba(240,165,0,0.12); border:1px solid rgba(240,165,0,0.3);
+  display:flex; align-items:center; justify-content:center; font-size:17px;
+}
+.sn-banner-title { font-size:13px; font-weight:700; color:var(--text); }
+.sn-banner-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+.sn-banner-close {
+  background:none; border:none; color:var(--muted); font-size:16px; cursor:pointer;
+  padding:2px 6px; flex-shrink:0; opacity:.6; margin-left:auto;
+}
+.sn-banner-close:hover { opacity:1; }
+.sn-banner-links { display:flex; gap:8px; flex-wrap:wrap; position:relative; }
+.sn-banner-links .sn-btn { flex:1; min-width:110px; justify-content:center; padding:8px 10px; }
+.sn-banner-links .sn-btn-icon { width:22px; height:22px; font-size:11px; }
+.sn-banner-links .sn-btn span:not(.sn-btn-icon) { font-size:11px; }
+
+/* Sidebar compact card */
+.social-nudge-compact {
+  background: var(--surface2); border:1px solid var(--border); border-radius:10px;
+  padding:10px; margin-bottom:8px;
+}
+.social-nudge-compact .sn-compact-title {
+  font-size:10px; font-family:var(--mono); color:var(--muted); text-transform:uppercase;
+  letter-spacing:.06em; margin-bottom:8px; display:flex; align-items:center; gap:6px;
+}
+.social-nudge-compact .sn-compact-title .dot {
+  width:6px; height:6px; border-radius:50%; background:var(--ok,#22c55e);
+  box-shadow:0 0 6px var(--ok,#22c55e);
+}
+.social-nudge-compact .sn-btn { padding:7px 9px; margin-bottom:6px; font-size:11px; }
+.social-nudge-compact .sn-btn:last-child { margin-bottom:0; }
+.social-nudge-compact .sn-btn-icon { width:22px; height:22px; font-size:10px; }
+
+/* One-time toast overlay */
+#sn-toast-overlay {
+  display:none; position:fixed; inset:0; z-index:9500;
+  background:rgba(0,0,0,0.55); align-items:center; justify-content:center; padding:20px;
+}
+#sn-toast-overlay.active { display:flex; }
+.sn-toast-card {
+  background: var(--surface); border:1px solid var(--border); border-radius:14px;
+  padding:22px; text-align:center; max-width:360px; width:100%;
+  animation: snToastIn .25s ease-out;
+}
+@keyframes snToastIn { from { opacity:0; transform:translateY(8px) scale(.98); } to { opacity:1; transform:none; } }
+.sn-toast-card .sn-toast-emoji { font-size:30px; margin-bottom:8px; }
+.sn-toast-card h3 {
+  font-family:var(--head); letter-spacing:.5px; font-size:19px; margin:0 0 6px; color:var(--text);
+}
+.sn-toast-card p { font-size:12px; color:var(--muted); margin:0 0 16px; line-height:1.5; }
+.sn-toast-card .sn-btn { justify-content:center; margin-bottom:8px; }
+.sn-toast-later {
+  display:block; margin-top:10px; font-size:11px; color:var(--muted);
+  text-decoration:underline; cursor:pointer; background:none; border:none; font-family:var(--body,inherit);
+}
+
 /* ── Mob overlay for sidebar ── */
 /* Admin mobile sidebar items */
 .admin-sb-item {
@@ -1605,7 +1865,7 @@ textarea { padding-left: 11px; resize: vertical; min-height: 80px; }
 /* tab bar */
 .tab-bar { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; overflow-x: auto; flex-shrink: 0; scrollbar-width: none; }
 .tab-bar::-webkit-scrollbar { display: none; }
-.tab-btn { flex-shrink: 0; padding: 0 20px; height: 46px; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.18s; white-space: nowrap; }
+.tab-btn { flex-shrink: 0; padding: 0 16px; height: 46px; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.18s; white-space: nowrap; }
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
@@ -2437,6 +2697,8 @@ body.dash-active .data-strip { display: block; }
 </div>
 <!-- Mobile overlay for sidebar -->
 <div id="mob-overlay" onclick="closeMobileSidebar()"></div>
+<!-- Social follow — one-time toast overlay (shown once per day, see maybeShowSocialToast) -->
+<div id="sn-toast-overlay"></div>
 
 <!-- ═══════════════════════════════════════════════
      SCREEN 1 — LOGIN  (student + admin tabs)
@@ -2498,6 +2760,7 @@ body.dash-active .data-strip { display: block; }
             <span id="stu-login-btn-text">Sign In</span>
           </button>
           <p style="text-align:center;margin-top:13px;font-size:11px;color:var(--muted);font-family:var(--mono);">Forgot password? Contact your administrator.</p>
+          <div id="login-follow-footer"></div>
         </div>
 
         <!-- ADMIN TAB -->
@@ -2685,8 +2948,12 @@ body.dash-active .data-strip { display: block; }
       </button>
     </div>
 
+    <!-- Social follow — compact card (source='sidebar'). Sits above Sign Out so it's always
+         visible without competing with the nav items above it. -->
+    <div id="social-nudge-sidebar" class="sidebar-card social-nudge-compact" style="margin-top:auto;"></div>
+
     <!-- Sidebar footer actions -->
-    <div class="sidebar-card" style="margin-top:auto;">
+    <div class="sidebar-card" style="margin-top:0;">
       <button class="sidebar-item" onclick="showScreen('screen-student')" style="color:var(--muted);display:none;">
         <span class="icon">🔒</span> Change Password
       </button>
@@ -2755,6 +3022,11 @@ body.dash-active .data-strip { display: block; }
            dash-sem-note itself moved below the celebration/Perfect-Attendance section
            (see stu-archive-view-banner / sd-celeb-section), per user request. -->
       <div id="dash-greeting" style="margin-top:12px;margin-bottom:18px;font-size:15px;font-weight:600;color:var(--text);"></div>
+
+      <!-- Social follow — dismissible banner (source='banner'). Placed above the summary
+           card so it's the first thing seen, but doesn't block getting to actual dashboard
+           content once dismissed for the session. -->
+      <div id="social-nudge-banner" style="margin-bottom:18px;"></div>
 
       <!-- v7.18: "📊 Attendance & Classes" (Your Summary Part 1) moved to the very top of
            the dashboard, right under the greeting — per user request. -->
@@ -3006,25 +3278,37 @@ body.dash-active .data-strip { display: block; }
     <button class="admin-sb-item" onclick="switchTab('exceptions');closeAdminSidebar()">🚫 Exceptions</button>
     <button class="admin-sb-item" onclick="switchTab('banned');closeAdminSidebar()">🔒 Banned</button>
     <button class="admin-sb-item" onclick="switchTab('loginactivity');closeAdminSidebar()">📋 Login Activity</button>
+    <button class="admin-sb-item" onclick="switchTab('socialmedia');closeAdminSidebar()">📣 Social Media</button>
     <div style="margin-top:auto;padding:12px 12px 0;">
       <button onclick="doLogout()" style="width:100%;background:transparent;color:var(--danger);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:8px 0;font-size:12px;cursor:pointer;font-family:var(--mono);">🚪 Sign Out</button>
     </div>
   </div>
 
-  <!-- dashboard tab bar -->
-  <div class="tab-bar">
-    <button class="tab-btn active" data-tab="controls"   onclick="switchTab('controls')">⚙ Controls</button>
-    <button class="tab-btn"        data-tab="theme"      onclick="switchTab('theme')">🎨 Theme</button>
-    <button class="tab-btn"        data-tab="students"   onclick="switchTab('students')">👥 Students</button>
-    <button class="tab-btn"        data-tab="archives"   onclick="switchTab('archives')">🎓 Archives</button>
-    <button class="tab-btn"        data-tab="notices"    onclick="switchTab('notices')">🔔 Notices</button>
-    <button class="tab-btn"        data-tab="timetable"  onclick="switchTab('timetable')">📅 Timetable</button>
-    <button class="tab-btn"        data-tab="lessonplan" onclick="switchTab('lessonplan')">📚 Lesson Plan</button>
-    <button class="tab-btn"        data-tab="admincal"   onclick="switchTab('admincal')">🗓 Calendar</button>
-    <button class="tab-btn"        data-tab="exceptions" onclick="switchTab('exceptions')">🚫 Exceptions</button>
-    <button class="tab-btn"        data-tab="banned"     onclick="switchTab('banned')">🔒 Banned</button>
-    <button class="tab-btn"        data-tab="loginactivity" onclick="switchTab('loginactivity')">📋 Login Activity</button>
-    <button class="tab-btn" onclick="doLogout()" style="margin-left:auto;color:var(--danger);border-bottom-color:transparent;flex-shrink:0;">🚪 Sign Out</button>
+  <!-- dashboard tab bar — Sign Out lives OUTSIDE the scrolling row (v7.49) so adding tabs
+       (like Social Media) can never push it past the visible edge again; margin-left:auto
+       inside an overflow-x:auto row just moves the overflow point, it doesn't prevent it. -->
+  <div style="display:flex;align-items:stretch;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;">
+    <div style="position:relative;flex:1;min-width:0;">
+      <div class="tab-bar" style="border-bottom:none;">
+        <button class="tab-btn active" data-tab="controls"   onclick="switchTab('controls')">⚙ Controls</button>
+        <button class="tab-btn"        data-tab="theme"      onclick="switchTab('theme')">🎨 Theme</button>
+        <button class="tab-btn"        data-tab="students"   onclick="switchTab('students')">👥 Students</button>
+        <button class="tab-btn"        data-tab="archives"   onclick="switchTab('archives')">🎓 Archives</button>
+        <button class="tab-btn"        data-tab="notices"    onclick="switchTab('notices')">🔔 Notices</button>
+        <button class="tab-btn"        data-tab="timetable"  onclick="switchTab('timetable')">📅 Timetable</button>
+        <button class="tab-btn"        data-tab="lessonplan" onclick="switchTab('lessonplan')">📚 Lesson Plan</button>
+        <button class="tab-btn"        data-tab="admincal"   onclick="switchTab('admincal')">🗓 Calendar</button>
+        <button class="tab-btn"        data-tab="exceptions" onclick="switchTab('exceptions')">🚫 Exceptions</button>
+        <button class="tab-btn"        data-tab="banned"     onclick="switchTab('banned')">🔒 Banned</button>
+        <button class="tab-btn"        data-tab="loginactivity" onclick="switchTab('loginactivity')">📋 Login Activity</button>
+        <button class="tab-btn"        data-tab="socialmedia" onclick="switchTab('socialmedia')">📣 Social Media</button>
+      </div>
+      <!-- Fade hint on the right edge — signals "more tabs, scroll →" instead of looking
+           like a tab got cut off/broken when the row overflows its container. Pointer
+           events pass through so it never blocks clicking the tab underneath it. -->
+      <div style="position:absolute;top:0;right:0;bottom:0;width:22px;background:linear-gradient(to right, transparent, var(--surface));pointer-events:none;"></div>
+    </div>
+    <button onclick="doLogout()" style="flex-shrink:0;padding:0 18px;background:transparent;border:none;border-left:1px solid var(--border);color:var(--danger);font-family:var(--body,inherit);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">🚪 Sign Out</button>
   </div>
 
   <!-- Global admin AY view toggle: controls Timetable / Lesson Plan / Calendar data source -->
@@ -3051,6 +3335,10 @@ body.dash-active .data-strip { display: block; }
       <div class="ctrl-row"><div><div class="ctrl-label">Timetable</div><div class="ctrl-sub">Show weekly class schedule</div></div><label class="toggle"><input type="checkbox" id="g-timetable" onchange="saveGlobal('timetable',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Lesson Plan</div><div class="ctrl-sub">Show syllabus progress</div></div><label class="toggle"><input type="checkbox" id="g-lessonPlan" onchange="saveGlobal('lessonPlan',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Faculty Photos</div><div class="ctrl-sub">Show faculty photo beside every name (off = teacher emoji)</div></div><label class="toggle"><input type="checkbox" id="g-facultyPhotos" onchange="saveGlobal('facultyPhotos',this.checked);if(typeof renderStudentDashboard==='function'){try{renderStudentDashboard();}catch(e){}}"><span class="toggle-slider"></span></label></div>
+      <div class="ctrl-row"><div><div class="ctrl-label">Social — Dashboard Banner</div><div class="ctrl-sub">Dismissible "Stay in the loop" banner at the top of Home</div></div><label class="toggle"><input type="checkbox" id="g-socialBanner" onchange="saveGlobal('socialBanner',this.checked);if(typeof renderSocialBanner==='function')renderSocialBanner();"><span class="toggle-slider"></span></label></div>
+      <div class="ctrl-row"><div><div class="ctrl-label">Social — Sidebar Card</div><div class="ctrl-sub">Permanent "Official Channels" card in the student sidebar</div></div><label class="toggle"><input type="checkbox" id="g-socialSidebar" onchange="saveGlobal('socialSidebar',this.checked);if(typeof renderSocialSidebar==='function')renderSocialSidebar();"><span class="toggle-slider"></span></label></div>
+      <div class="ctrl-row"><div><div class="ctrl-label">Social — Once-a-day Toast</div><div class="ctrl-sub">"One last thing" popup on first login of the day</div></div><label class="toggle"><input type="checkbox" id="g-socialToast" onchange="saveGlobal('socialToast',this.checked)"><span class="toggle-slider"></span></label></div>
+      <div class="ctrl-row"><div><div class="ctrl-label">Social — Login Page Footer</div><div class="ctrl-sub">"Follow us" + WhatsApp/Call the office, below the sign-in form</div></div><label class="toggle"><input type="checkbox" id="g-socialLoginPage" onchange="saveGlobal('socialLoginPage',this.checked);if(typeof renderLoginFollowFooter==='function')renderLoginFollowFooter();"><span class="toggle-slider"></span></label></div>
     </div>
     <div class="ctrl-group">
       <div class="ctrl-group-header">🏫 By Class override</div>
@@ -3105,6 +3393,44 @@ body.dash-active .data-strip { display: block; }
         </div>
         <button class="btn btn-sm btn-primary" onclick="saveSemesterDates()">💾 Save Semester Dates</button>
         <span id="sem-dates-current" style="margin-left:10px;font-size:11px;color:var(--muted);font-family:var(--mono);"></span>
+      </div>
+    </div>
+
+    <div class="ctrl-group" style="margin-top:16px;">
+      <div class="ctrl-group-header">📣 Social &amp; Contact Links</div>
+      <div style="padding:14px 4px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">
+          Powers every "Follow us" nudge students see (login page, dashboard banner, sidebar
+          card, once-a-day toast) plus the login page's WhatsApp/Call the office links.
+          Sets <code style="font-family:var(--mono);color:var(--accent);">controls/socialLinks</code>
+          — change a number or link here without any code deploy.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:12px;">
+          <div>
+            <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">👍 Facebook page URL</label>
+            <input type="text" id="sl-fb" placeholder="https://www.facebook.com/yourpage" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">▶️ YouTube channel URL</label>
+            <input type="text" id="sl-yt" placeholder="https://www.youtube.com/c/yourchannel" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">📷 Instagram page URL</label>
+            <input type="text" id="sl-ig" placeholder="https://www.instagram.com/yourpage" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;">
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:180px;">
+              <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">💬 WhatsApp number (with country code, digits only)</label>
+              <input type="text" id="sl-whatsapp" placeholder="918970225553" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;">
+            </div>
+            <div style="flex:1;min-width:180px;">
+              <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">📞 Call number (with country code)</label>
+              <input type="text" id="sl-call" placeholder="+917026225550" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;">
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="saveSocialLinks()">💾 Save Social &amp; Contact Links</button>
+        <span id="social-links-save-notice" style="margin-left:10px;font-size:11px;color:var(--muted);font-family:var(--mono);"></span>
       </div>
     </div>
   </div>
@@ -3529,6 +3855,17 @@ body.dash-active .data-strip { display: block; }
     <div id="la-class-summary" style="display:none;margin-bottom:14px;"></div>
     <div id="la-empty" style="display:none;" class="empty-state"><div class="empty-icon">📋</div>No login activity yet.</div>
     <div id="la-list"></div>
+  </div>
+
+  <div class="tab-content" id="tab-socialmedia">
+    <div class="section-title">SOCIAL MEDIA</div>
+    <div class="section-desc">Clicks on the Follow Facebook/Instagram/YouTube nudges shown to students — banner (dashboard top), sidebar card, and the once-a-day toast.</div>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="btn btn-sm btn-ghost" onclick="loadSocialClicks()" style="white-space:nowrap;margin-bottom:0;"><span class="spinner" id="sm-spinner"></span>🔄 Refresh</button>
+    </div>
+    <div id="sm-overview"></div>
+    <div id="sm-class-list" style="margin-top:18px;"></div>
+    <div id="sm-drilldown" style="margin-top:18px;"></div>
   </div>
 
 </div><!-- /screen-admin -->
@@ -4008,7 +4345,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.44';
+const APP_VERSION = 'v7.54';
 const BUILD_DATE   = '25 Jul 2026, 11:20 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -4019,6 +4356,17 @@ let STATE = {
   studentUser:  null,   // { urn, name, class, semester, passwordChanged }
   students:     {},
   controls:     { global: {}, byClass: {}, byUrn: {} },
+  // v7.48: default social/contact links — present from first paint so the login page
+  // footer and every nudge placement always has something valid to render, even before
+  // the pre-login fetch (loadPreLoginSocialLinks) or post-login load overwrites it with
+  // whatever admin has actually saved.
+  socialLinks:  {
+    fb: 'https://www.facebook.com/davandvg',
+    yt: 'https://www.youtube.com/c/DAVANCollegeDavangere',
+    ig: 'https://www.instagram.com/davan_dvg/',
+    whatsapp: '918970225553',
+    call: '+917026225550'
+  },
   notices:      {},
   timetable:    {},
   lessonPlan:   {},
@@ -4313,6 +4661,153 @@ async function changePassword() {
     setLoading('chg-btn','chg-spinner','chg-btn-text', false, 'Update Password');
   }
 }
+/* ════════════════════════════════════════════════════
+   SOCIAL FOLLOW NUDGE — banner + sidebar compact card + one-time toast.
+   Links match parent_ptm.html exactly (same official pages). Every click
+   writes a record to davan_pub/socialClicks for the admin Social Media tab:
+   {urn, name, class, platform, source, ts}. source identifies which of the
+   three placements was clicked (banner/sidebar/toast) — that's the "how do
+   I know WHERE they clicked from" piece.
+════════════════════════════════════════════════════ */
+// v7.48: URLs now come from STATE.socialLinks (admin-editable, Controls ▸ Social & Contact
+// Links) instead of being hardcoded — icons/labels/CTA text stay fixed since those are
+// cosmetic, only the destination changes. Falls back to the same defaults if
+// STATE.socialLinks hasn't loaded yet (e.g. very first paint before the pre-login fetch
+// resolves) so nothing is ever broken/blank.
+function snGetLinks() {
+  const sl = STATE.socialLinks || {};
+  return [
+    { key: 'fb', label: 'Facebook', cta: 'Like our Official Facebook Page',
+      url: sl.fb || 'https://www.facebook.com/davandvg',
+      icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06C2 17.08 5.66 21.23 10.44 22v-7.03H7.9v-2.91h2.54V9.85c0-2.51 1.49-3.9 3.77-3.9 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.89h2.78l-.44 2.91h-2.34V22C18.34 21.23 22 17.08 22 12.06Z"/></svg>' },
+    { key: 'yt', label: 'YouTube', cta: 'Subscribe to our YouTube Channel',
+      url: sl.yt || 'https://www.youtube.com/c/DAVANCollegeDavangere',
+      icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.51 3.5 12 3.5 12 3.5s-7.51 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14C4.49 20.5 12 20.5 12 20.5s7.51 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81ZM9.6 15.6V8.4l6.4 3.6-6.4 3.6Z"/></svg>' },
+    { key: 'ig', label: 'Instagram', cta: 'Follow our Official Instagram Page',
+      url: sl.ig || 'https://www.instagram.com/davan_dvg/',
+      icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2c2.72 0 3.06.01 4.12.06 1.06.05 1.79.22 2.43.47.66.26 1.22.6 1.77 1.15.55.55.9 1.11 1.15 1.77.25.64.42 1.37.47 2.43.05 1.06.06 1.4.06 4.12s-.01 3.06-.06 4.12c-.05 1.06-.22 1.79-.47 2.43a4.9 4.9 0 0 1-1.15 1.77 4.9 4.9 0 0 1-1.77 1.15c-.64.25-1.37.42-2.43.47-1.06.05-1.4.06-4.12.06s-3.06-.01-4.12-.06c-1.06-.05-1.79-.22-2.43-.47a4.9 4.9 0 0 1-1.77-1.15 4.9 4.9 0 0 1-1.15-1.77c-.25-.64-.42-1.37-.47-2.43C2.01 15.06 2 14.72 2 12s.01-3.06.06-4.12c.05-1.06.22-1.79.47-2.43.26-.66.6-1.22 1.15-1.77A4.9 4.9 0 0 1 5.45.53C6.09.28 6.82.11 7.88.06 8.94.01 9.28 0 12 0Zm0 5a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0 8.25a3.25 3.25 0 1 1 0-6.5 3.25 3.25 0 0 1 0 6.5ZM17.4 5.1a1.17 1.17 0 1 0 0 2.34 1.17 1.17 0 0 0 0-2.34Z"/></svg>' }
+  ];
+}
+// Kept as a live-evaluated getter (not a static array) so every render call picks up the
+// latest STATE.socialLinks without needing to be reassigned after an admin edit.
+Object.defineProperty(window, 'SN_LINKS', { get: snGetLinks });
+
+const SN_WA_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.5 14.4c-.3-.1-1.7-.9-2-1-.3-.1-.5-.1-.7.1-.2.3-.8 1-.9 1.2-.2.2-.3.2-.6.1-.3-.2-1.3-.5-2.4-1.5-.9-.8-1.5-1.8-1.7-2.1-.2-.3 0-.5.1-.6.1-.1.3-.3.4-.5.1-.1.2-.3.3-.5.1-.2 0-.4 0-.5C10 9 9.4 7.6 9.2 7c-.2-.5-.4-.5-.6-.5h-.5c-.2 0-.5.1-.7.3-.2.3-1 1-1 2.4s1 2.8 1.1 3c.1.2 2 3.1 4.9 4.3.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.5-.1 1.7-.7 2-1.4.2-.7.2-1.2.2-1.4-.1-.1-.3-.2-.5-.3ZM12 2a10 10 0 0 0-8.6 15L2 22l5.1-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.6 0-3.1-.4-4.4-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7.2 3.9Z"/></svg>';
+const SN_CALL_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.02-.24c1.12.37 2.33.57 3.57.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.61 21 3 13.39 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.24.2 2.45.57 3.57a1 1 0 0 1-.25 1.02l-2.2 2.2Z"/></svg>';
+
+// Records one click. Fire-and-forget (never blocks the outbound navigation) — the link's
+// href already opens the real destination via target=_blank, this just logs alongside it.
+// Works both logged-in (banner/sidebar/toast, has urn/name/class) and pre-login (the
+// "Follow us" strip on the login page, source='loginpage') — anonymous clicks still get
+// recorded with urn:null rather than silently dropped, so the admin overview doesn't
+// undercount actual reach.
+function snTrackClick(platform, source) {
+  const u = STATE.studentUser || {};
+  rtdbPush('davan_pub/socialClicks', {
+    urn: u.urn || null, name: u.name || '', class: u.class || '',
+    platform: platform, source: source, ts: Date.now()
+  }).catch(() => {});
+}
+function snBtnHtml(link, source, compact) {
+  return '<a href="' + link.url + '" target="_blank" rel="noopener" class="sn-btn sn-' + link.key + '" ' +
+    'onclick="snTrackClick(\'' + link.key + '\',\'' + source + '\')">' +
+    '<span class="sn-btn-icon">' + link.icon + '</span>' +
+    '<span>' + (compact ? link.label : link.cta) + '</span>' +
+    (compact ? '' : '<span class="sn-btn-arrow">→</span>') +
+    '</a>';
+}
+
+// Banner — dismissible per session (sessionStorage, not localStorage, so it reappears
+// next login rather than being gone forever after one dismiss).
+// v7.52: shared visibility check for the 4 social nudge placements — Global-only (see
+// VISIBILITY CONTROLS ▸ Social — ... toggles), default-on same as every other flag in
+// this app, so an unset/not-yet-loaded flag never hides something admin didn't ask to hide.
+function canShowSocial(flag) {
+  const g = STATE.controls && STATE.controls.global;
+  return !g || g[flag] !== false;
+}
+function renderSocialBanner() {
+  const el = document.getElementById('social-nudge-banner');
+  if (!el) return;
+  if (!canShowSocial('socialBanner')) { el.innerHTML = ''; return; }
+  if (sessionStorage.getItem('sn_banner_dismissed')) { el.innerHTML = ''; return; }
+  el.innerHTML =
+    '<div class="sn-banner">' +
+      '<div class="sn-banner-row">' +
+        '<div class="sn-banner-icon">📣</div>' +
+        '<div>' +
+          '<div class="sn-banner-title">Stay in the loop</div>' +
+          '<div class="sn-banner-sub">Follow Davan &amp; Nutana for results, events and campus updates.</div>' +
+        '</div>' +
+        '<button class="sn-banner-close" onclick="snDismissBanner()">✕</button>' +
+      '</div>' +
+      '<div class="sn-banner-links">' + SN_LINKS.map(l => snBtnHtml(l, 'banner', true)).join('') + '</div>' +
+    '</div>';
+}
+function snDismissBanner() {
+  sessionStorage.setItem('sn_banner_dismissed', '1');
+  const el = document.getElementById('social-nudge-banner');
+  if (el) el.innerHTML = '';
+}
+
+// Sidebar compact card — always visible, no dismiss (small, non-intrusive).
+function renderSocialSidebar() {
+  const el = document.getElementById('social-nudge-sidebar');
+  if (!el) return;
+  if (!canShowSocial('socialSidebar')) { el.innerHTML = ''; return; }
+  el.innerHTML =
+    '<div class="sn-compact-title"><span class="dot"></span>Official Channels</div>' +
+    SN_LINKS.map(l => snBtnHtml(l, 'sidebar', true)).join('');
+}
+
+// One-time toast — shown once per calendar day (localStorage, survives across sessions
+// so it doesn't reappear every login, only once per day).
+function maybeShowSocialToast() {
+  if (!canShowSocial('socialToast')) return;
+  const today = new Date().toISOString().slice(0,10);
+  if (localStorage.getItem('sn_toast_shown_date') === today) return;
+  const overlay = document.getElementById('sn-toast-overlay');
+  if (!overlay) return;
+  overlay.innerHTML =
+    '<div class="sn-toast-card">' +
+      '<div class="sn-toast-emoji">🎓</div>' +
+      '<h3>ONE LAST THING</h3>' +
+      '<p>Get results and event updates first — follow us where you already scroll.</p>' +
+      SN_LINKS.map(l => snBtnHtml(l, 'toast', false)).join('') +
+      '<button class="sn-toast-later" onclick="snCloseToast()">Maybe later</button>' +
+    '</div>';
+  overlay.classList.add('active');
+  localStorage.setItem('sn_toast_shown_date', today);
+}
+function snCloseToast() {
+  const overlay = document.getElementById('sn-toast-overlay');
+  if (overlay) overlay.classList.remove('active');
+}
+
+// Login page footer — "Follow us: 🔵▶️📷" + WhatsApp/Call the office, matching
+// parent_ptm.html's own login footer. Renders on first paint with whatever
+// STATE.socialLinks currently holds (hardcoded defaults if the pre-login fetch hasn't
+// resolved yet) and again once that fetch lands with admin's actual saved links —
+// see loadPreLoginSocialLinks() above restoreSession().
+function renderLoginFollowFooter() {
+  const el = document.getElementById('login-follow-footer');
+  if (!el) return;
+  if (!canShowSocial('socialLoginPage')) { el.innerHTML = ''; return; }
+  const sl = STATE.socialLinks || {};
+  const waNum   = (sl.whatsapp || '918970225553').replace(/[^\d]/g, '');
+  const callNum = sl.call || '+917026225550';
+  const iconLink = (url, icon, platform) =>
+    '<a href="' + url + '" target="_blank" rel="noopener" onclick="snTrackClick(\'' + platform + '\',\'loginpage\')" ' +
+    'style="color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;vertical-align:middle;margin:0 3px;">' + icon + '</a>';
+  let html = '<p style="text-align:center;margin-top:6px;font-size:11px;color:var(--muted);font-family:var(--mono);">Need help? ' +
+    '<a href="https://wa.me/' + waNum + '" target="_blank" rel="noopener" onclick="snTrackClick(\'whatsapp\',\'loginpage\')" style="color:var(--accent);text-decoration:none;">WhatsApp</a> or ' +
+    '<a href="tel:' + callNum + '" onclick="snTrackClick(\'call\',\'loginpage\')" style="color:var(--accent);text-decoration:none;">Call</a> the office</p>';
+  html += '<p style="text-align:center;margin-top:6px;font-size:11px;color:var(--muted);font-family:var(--mono);">Follow us: ' +
+    snGetLinks().map(l => iconLink(l.url, l.icon.replace('width="16" height="16"', 'width="14" height="14"'), l.key)).join('') +
+    '</p>';
+  el.innerHTML = html;
+}
+
 /* Builds/refreshes the topbar calendar ticker from live calendar data (future
    dates only). Shared by every student-dashboard entry path — fresh login,
    remember-me/session restore, and the legacy stu_urn-based restore path —
@@ -4329,11 +4824,11 @@ function buildStudentTicker() {
   let items = [];
   if (Array.isArray(calArr) && calArr.length) {
     items = calArr
-      .filter(e => { const d = new Date(e._from || e.date || ''); d.setHours(0,0,0,0); return !isNaN(d) && d >= todayMidnight; })
+      .filter(e => { const d = stuParseCalDate(e._from || e.date || ''); d.setHours(0,0,0,0); return !isNaN(d) && d >= todayMidnight; })
       .map(e => {
         const clr = TYPE_CLR[e.type] || 'var(--muted)';
         const ico = TYPE_ICON[e.type] || '📌';
-        return `<span class="ticker-item">${ico} <strong style="color:${clr};">${e.date}</strong> — ${e.event}</span>`;
+        return `<span class="ticker-item">${ico} <strong style="color:${clr};">${e.dateLabel || e.date}</strong> — ${e.event}</span>`;
       });
   }
   if (!items.length) {
@@ -4381,6 +4876,11 @@ async function goToDashboard() {
   if (nav) nav.classList.add('visible');
   // Show topbar ticker — built dynamically from live calendar data (future dates only)
   buildStudentTicker();
+  // Social follow nudges — banner (dismissible/session) + sidebar (permanent) + toast
+  // (once/day). See SOCIAL FOLLOW NUDGE module above buildStudentTicker.
+  renderSocialBanner();
+  renderSocialSidebar();
+  maybeShowSocialToast();
   // Populate topbar row2
   const row2 = document.getElementById('topbar-row2');
   const row2name = document.getElementById('topbar-row2-name');
@@ -4556,6 +5056,43 @@ function stuStopHeartbeat() {
 /* ════════════════════════════════════════════════════
    SESSION RESTORE
 ════════════════════════════════════════════════════ */
+/* v7.48: Pre-login fetch of controls/socialLinks — the "Follow us" + WhatsApp/Call strip
+   on the login page renders before any authentication happens, so it can't wait for the
+   normal post-login STATE.socialLinks load. Fires once on page load, non-blocking (login
+   screen renders immediately with hardcoded defaults already baked into the markup), then
+   re-renders the footer in place if admin has actually customized any link. */
+(function loadPreLoginSocialLinks() {
+  // Paint immediately with whatever's in STATE.socialLinks right now (hardcoded defaults —
+  // see the STATE.socialLinks fallback objects above) so the footer is never blank while
+  // waiting on the network.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderLoginFollowFooter);
+  } else {
+    renderLoginFollowFooter();
+  }
+  rtdbGet('controls/socialLinks').then(sl => {
+    if (!sl) return;
+    STATE.socialLinks = Object.assign({
+      fb: 'https://www.facebook.com/davandvg',
+      yt: 'https://www.youtube.com/c/DAVANCollegeDavangere',
+      ig: 'https://www.instagram.com/davan_dvg/',
+      whatsapp: '918970225553',
+      call: '+917026225550'
+    }, sl);
+    renderLoginFollowFooter();
+  }).catch(() => {});
+  // v7.52: the socialLoginPage visibility toggle (Controls ▸ VISIBILITY CONTROLS) also
+  // needs to be known BEFORE login — same reasoning as socialLinks above, since this
+  // footer renders on the login screen itself. STATE.controls.global stays whatever the
+  // top-level STATE default is ({}) until this resolves, so canShowSocial() below
+  // correctly defaults to visible in the meantime.
+  rtdbGet('controls/global/socialLoginPage').then(v => {
+    if (v === null || v === undefined) return;
+    STATE.controls.global.socialLoginPage = v;
+    renderLoginFollowFooter();
+  }).catch(() => {});
+})();
+
 (function restoreSession() {
   // Restore admin session
   const adminRaw = sessionStorage.getItem('admin_session') || localStorage.getItem('admin_remember');
@@ -4712,6 +5249,349 @@ async function renderArchivesTab() {
   }
 }
 
+/* ════════════════════════════════════════════════════
+   SOCIAL MEDIA ANALYTICS (admin) — reads davan_pub/socialClicks, written by
+   snTrackClick() on the student side. Three views stacked in the tab:
+   1. Overview — total clicks per platform, broken down by placement (source)
+   2. Class strength — per class, how many unique students clicked at least
+      once, out of class roster size (same "X/Y" pattern as Login Activity)
+   3. Drilldown — click a class, see the roster with per-student click list
+      (platform, source, date/time, repeat-click count)
+════════════════════════════════════════════════════ */
+async function loadSocialClicks() {
+  const sp = document.getElementById('sm-spinner'); if (sp) sp.classList.add('show');
+  try {
+    const raw = await rtdbGet('davan_pub/socialClicks').catch(() => null);
+    STATE.socialClicks = raw && typeof raw === 'object' ? Object.values(raw) : [];
+  } catch(e) { STATE.socialClicks = []; }
+  const sp2 = document.getElementById('sm-spinner'); if (sp2) sp2.classList.remove('show');
+  renderSocialOverview();
+  renderSocialClassList();
+  const dd = document.getElementById('sm-drilldown');
+  if (dd) dd.innerHTML = '';
+}
+
+function renderSocialOverview() {
+  const el = document.getElementById('sm-overview');
+  if (!el) return;
+  const clicks = STATE.socialClicks || [];
+  if (!clicks.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:30px;"><div class="empty-icon">📣</div>No social media clicks recorded yet.</div>';
+    return;
+  }
+  const platLabel = { fb: '👍 Facebook', yt: '▶️ YouTube', ig: '📷 Instagram' };
+  const platColor = { fb: '#1877F2', yt: '#FF0000', ig: '#d6249f' };
+  const srcLabel  = { banner: 'Banner', sidebar: 'Sidebar', toast: 'Toast', loginpage: 'Login page' };
+
+  // Per-platform totals (all clicks, not unique students — repeat clicks count here).
+  const byPlat = {};
+  clicks.forEach(c => { byPlat[c.platform] = (byPlat[c.platform] || 0) + 1; });
+
+  // Per-platform × per-source breakdown.
+  const bySrc = {};
+  clicks.forEach(c => {
+    bySrc[c.platform] = bySrc[c.platform] || {};
+    bySrc[c.platform][c.source] = (bySrc[c.platform][c.source] || 0) + 1;
+  });
+
+  // Unique identified students who clicked at least once (excludes anonymous login-page
+  // clicks, which have urn:null and shouldn't collapse into one fake "student").
+  const identifiedClicks = clicks.filter(c => c.urn);
+  const anonClicks = clicks.filter(c => !c.urn);
+  const uniqueStudents = new Set(identifiedClicks.map(c => c.urn)).size;
+
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;">';
+  html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;">' +
+    '<div style="font-size:22px;font-weight:700;font-family:var(--head);color:var(--accent);">' + clicks.length + '</div>' +
+    '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Total clicks</div></div>';
+  html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;">' +
+    '<div style="font-size:22px;font-weight:700;font-family:var(--head);color:var(--ok);">' + uniqueStudents + '</div>' +
+    '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Unique students (signed in)</div></div>';
+  if (anonClicks.length) {
+    html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;">' +
+      '<div style="font-size:22px;font-weight:700;font-family:var(--head);color:var(--muted);">' + anonClicks.length + '</div>' +
+      '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Anon (login page)</div></div>';
+  }
+  ['fb','yt','ig'].forEach(p => {
+    if (!byPlat[p]) return;
+    html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;">' +
+      '<div style="font-size:22px;font-weight:700;font-family:var(--head);color:' + platColor[p] + ';">' + byPlat[p] + '</div>' +
+      '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">' + platLabel[p] + '</div></div>';
+  });
+  html += '</div>';
+
+  // Placement breakdown table — which of banner/sidebar/toast/login-page is actually
+  // working. Every non-zero cell is clickable — expands an inline "who clicked" list
+  // below the table with photo (tap to zoom, same rcLoadPhoto/rcZoomPhoto pattern used
+  // everywhere else in the admin), name, URN, and exact date/time.
+  html += '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">BY PLACEMENT <span style="text-transform:none;font-weight:400;">— tap a number to see who</span></div>';
+  html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;overflow-x:auto;">';
+  html += '<div style="display:grid;grid-template-columns:1fr 70px 70px 70px 80px;background:var(--surface2);border-bottom:1px solid var(--border);padding:8px 12px;font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;min-width:460px;">' +
+    '<div>Platform</div><div style="text-align:right;">Banner</div><div style="text-align:right;">Sidebar</div><div style="text-align:right;">Toast</div><div style="text-align:right;">Login pg</div></div>';
+  const _cell = (p, src, n) => n
+    ? '<div onclick="renderSocialPlacementDetail(\'' + p + '\',\'' + src + '\')" style="text-align:right;font-family:var(--mono);color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px;">' + n + '</div>'
+    : '<div style="text-align:right;font-family:var(--mono);color:var(--text);">0</div>';
+  ['fb','yt','ig'].forEach((p, i) => {
+    if (!byPlat[p]) return;
+    const s = bySrc[p] || {};
+    html += '<div style="display:grid;grid-template-columns:1fr 70px 70px 70px 80px;padding:9px 12px;' + (i%2?'background:rgba(255,255,255,0.01);':'') + 'border-bottom:1px solid var(--border);font-size:12px;min-width:460px;">' +
+      '<div style="color:' + platColor[p] + ';font-weight:600;">' + platLabel[p] + '</div>' +
+      _cell(p,'banner',s.banner) + _cell(p,'sidebar',s.sidebar) + _cell(p,'toast',s.toast) + _cell(p,'loginpage',s.loginpage) +
+      '</div>';
+  });
+  html += '</div>';
+  html += '<div id="sm-placement-detail" style="margin-top:10px;"></div>';
+  el.innerHTML = html;
+
+  // Login-page click log — these are pre-login (no urn/class most of the time), so they
+  // can't go through the class-roster drilldown below. Flat, most-recent-first list of
+  // every individual login-page click: which link (Facebook/YouTube/Instagram/WhatsApp/
+  // Call) and exact date/time. If a click happened to carry a urn (e.g. someone clicked
+  // the footer from an already-restored session before it redirected), that's shown too.
+  const loginPageClicks = clicks.filter(c => c.source === 'loginpage').sort((a,b) => (b.ts||0)-(a.ts||0));
+  if (loginPageClicks.length) {
+    const actionLabel = { fb:'👍 Facebook', yt:'▶️ YouTube', ig:'📷 Instagram', whatsapp:'💬 WhatsApp', call:'📞 Call' };
+    const actionColor = { fb:'#1877F2', yt:'#FF0000', ig:'#d6249f', whatsapp:'#25D366', call:'#4a90d9' };
+    const fmtTs = ts => { const d = new Date(ts); return isNaN(d) ? '' : d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); };
+    let lp = '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 8px;">LOGIN PAGE CLICKS (' + loginPageClicks.length + ')</div>';
+    lp += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:320px;overflow-y:auto;">';
+    loginPageClicks.forEach((c, i) => {
+      lp += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;' + (i%2?'background:rgba(255,255,255,0.01);':'') + (i?'border-top:1px solid var(--border);':'') + '">' +
+        '<span style="font-size:12px;font-weight:600;color:' + (actionColor[c.platform]||'var(--text)') + ';">' + (actionLabel[c.platform]||c.platform) + '</span>' +
+        (c.urn ? '<span style="font-size:10px;font-family:var(--mono);color:var(--accent);">' + (c.name||c.urn) + '</span>' : '<span style="font-size:10px;font-family:var(--mono);color:var(--muted);">Anonymous</span>') +
+        '<span style="font-size:10px;font-family:var(--mono);color:var(--muted);">' + fmtTs(c.ts) + '</span>' +
+        '</div>';
+    });
+    lp += '</div>';
+    el.innerHTML += lp;
+  }
+}
+
+function renderSocialClassList() {
+  const el = document.getElementById('sm-class-list');
+  if (!el) return;
+  const clicks = STATE.socialClicks || [];
+  const allStudents = STATE.allStudents || [];
+  if (!allStudents.length) { el.innerHTML = ''; return; }
+
+  // Unique-clicker count per class, vs class roster size — same "X/Y still to X" pattern
+  // used in Login Activity's class summary cards.
+  const rosterByClass = {};
+  allStudents.forEach(s => {
+    const cls = s.class || s.className || 'Unknown';
+    rosterByClass[cls] = rosterByClass[cls] || new Set();
+    if (s.urn) rosterByClass[cls].add(s.urn);
+  });
+  const clickersByClass = {};
+  clicks.forEach(c => {
+    const cls = c.class || 'Unknown';
+    clickersByClass[cls] = clickersByClass[cls] || new Set();
+    if (c.urn) clickersByClass[cls].add(c.urn);
+  });
+
+  const classes = Object.keys(rosterByClass).sort();
+  let html = '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">BY CLASS (UNIQUE STUDENTS WHO CLICKED AT LEAST ONE LINK)</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;">';
+  classes.forEach(cls => {
+    const total = rosterByClass[cls].size;
+    const clicked = clickersByClass[cls] ? clickersByClass[cls].size : 0;
+    const pct = total ? Math.round((clicked/total)*100) : 0;
+    const color = pct >= 50 ? 'var(--ok)' : pct > 0 ? 'var(--accent)' : 'var(--danger)';
+    html += '<div onclick="renderSocialDrilldown(\'' + cls.replace(/'/g,"\\'") + '\')" style="cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px;">' + cls + '</div>' +
+      '<div style="font-size:20px;font-weight:700;font-family:var(--head);"><span style="color:' + color + ';">' + clicked + '</span><span style="color:var(--muted);font-size:13px;">/' + total + '</span></div>' +
+      '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:2px;">' + (total-clicked) + ' not clicked yet</div>' +
+      '<div style="height:3px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden;"><div style="height:100%;width:' + pct + '%;background:' + color + ';"></div></div>' +
+      '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+// Click a class card → show its roster with each student's click history (platform,
+// placement, date/time, and repeat-click count — "did they click the same link twice").
+// Click a "BY PLACEMENT" table cell → who clicked that exact platform+placement combo.
+// Shows photo (async-loaded, tap to zoom — same rcLoadPhoto/rcZoomPhoto pattern as the
+// rest of the admin), name, URN, and exact date/time. Most-recent-first.
+function renderSocialPlacementDetail(platform, source) {
+  const el = document.getElementById('sm-placement-detail');
+  if (!el) return;
+  const platLabel = { fb: '👍 Facebook', yt: '▶️ YouTube', ig: '📷 Instagram' };
+  const srcLabel  = { banner: 'Banner', sidebar: 'Sidebar', toast: 'Toast', loginpage: 'Login page' };
+  const fmtTs = ts => { const d = new Date(ts); return isNaN(d) ? '' : d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); };
+  const rows = (STATE.socialClicks || [])
+    .filter(c => c.platform === platform && c.source === source)
+    .sort((a,b) => (b.ts||0) - (a.ts||0));
+
+  let html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+    '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">' +
+    (platLabel[platform]||platform) + ' via ' + (srcLabel[source]||source) + ' (' + rows.length + ')</div>' +
+    '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'sm-placement-detail\').innerHTML=\'\'" style="margin-bottom:0;">✕ Close</button></div>';
+  html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">';
+  rows.forEach((c, i) => {
+    const avId = 'smp-av-' + i + '-' + (c.urn||'anon').replace(/[^A-Za-z0-9]/g,'');
+    const initials = c.urn ? (c.name||'').split(' ').filter(Boolean).map(w=>w[0]).slice(0,2).join('').toUpperCase() : '👤';
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;' + (i%2?'background:rgba(255,255,255,0.01);':'') + (i?'border-top:1px solid var(--border);':'') + '">' +
+      '<div id="' + avId + '" data-urn="' + (c.urn||'') + '" style="width:30px;height:30px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);font-family:var(--head);">' + initials + '</div>' +
+      '<div style="flex:1;min-width:0;">' +
+        (c.urn
+          ? '<span style="font-size:12px;font-weight:600;color:var(--text);">' + (c.name||'—') + '</span><span style="font-size:10px;font-family:var(--mono);color:var(--accent);margin-left:6px;">' + c.urn + (c.class?' · '+c.class:'') + '</span>'
+          : '<span style="font-size:12px;font-weight:600;color:var(--muted);">Anonymous (not signed in)</span>') +
+      '</div>' +
+      '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);flex-shrink:0;">' + fmtTs(c.ts) + '</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Async-load real photos into the avatar slots (identified clicks only).
+  rows.forEach((c, i) => {
+    if (!c.urn) return;
+    const avId = 'smp-av-' + i + '-' + (c.urn||'anon').replace(/[^A-Za-z0-9]/g,'');
+    rcLoadPhoto(c.urn).then(url => {
+      if (!url) return;
+      const el2 = document.getElementById(avId);
+      if (!el2) return;
+      el2.innerHTML = '<img src="' + url + '" alt="" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" title="Tap to zoom" onclick="event.stopPropagation();rcZoomPhoto(this.src)" onerror="this.style.display=\'none\';">';
+    }).catch(()=>{});
+  });
+}
+
+function renderSocialDrilldown(cls) {
+  const el = document.getElementById('sm-drilldown');
+  if (!el) return;
+  const clicks = (STATE.socialClicks || []).filter(c => (c.class || 'Unknown') === cls);
+  const allStudents = (STATE.allStudents || []).filter(s => (s.class || s.className || 'Unknown') === cls);
+  const platLabel = { fb: '👍 FB', yt: '▶️ YT', ig: '📷 IG' };
+  const srcLabel  = { banner: 'Banner', sidebar: 'Sidebar', toast: 'Toast', loginpage: 'Login page' };
+  const fmtTs = ts => { const d = new Date(ts); return isNaN(d) ? '' : d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); };
+
+  // Group this class's clicks by student.
+  const byStudent = {};
+  clicks.forEach(c => {
+    byStudent[c.urn] = byStudent[c.urn] || [];
+    byStudent[c.urn].push(c);
+  });
+  // Split roster: clickers (shown by default, most recent activity first) vs non-clickers
+  // (hidden behind a toggle — with rosters running 40-65 students per class, showing every
+  // "Not clicked" row by default buried the people who actually engaged).
+  const clickers = [], nonClickers = [];
+  allStudents.forEach(s => (byStudent[s.urn] ? clickers : nonClickers).push(s));
+  clickers.sort((a,b) => {
+    const aLatest = Math.max(...(byStudent[a.urn]||[]).map(c=>c.ts||0));
+    const bLatest = Math.max(...(byStudent[b.urn]||[]).map(c=>c.ts||0));
+    return bLatest - aLatest;
+  });
+  nonClickers.sort((a,b) => (a.name||'').localeCompare(b.name||''));
+
+  const studentRow = (s, i) => {
+    const sClicks = (byStudent[s.urn] || []).slice().sort((a,b) => (b.ts||0) - (a.ts||0));
+    const hasClicked = sClicks.length > 0;
+    const platCounts = {};
+    sClicks.forEach(c => { platCounts[c.platform] = (platCounts[c.platform]||0) + 1; });
+    const repeats = Object.entries(platCounts).filter(([p,n]) => n > 1);
+    const avId = 'smd-av-' + i + '-' + (s.urn||'x').replace(/[^A-Za-z0-9]/g,'');
+    const initials = (s.name||'').split(' ').filter(Boolean).map(w=>w[0]).slice(0,2).join('').toUpperCase() || '?';
+
+    let row = '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;' + (i%2?'background:rgba(255,255,255,0.01);':'') + (i?'border-top:1px solid var(--border);':'') + '">';
+    row += '<div id="' + avId + '" data-urn="' + (s.urn||'') + '" style="width:32px;height:32px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);font-family:var(--head);">' + initials + '</div>';
+    row += '<div style="flex:1;min-width:0;">';
+    row += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">';
+    row += '<div><span style="font-size:12px;font-weight:600;color:var(--text);">' + (s.name||'—') + '</span>' +
+      '<span style="font-size:10px;font-family:var(--mono);color:var(--accent);margin-left:8px;">' + (s.urn||'') + '</span></div>';
+    row += '<span style="font-size:10px;font-weight:700;color:' + (hasClicked?'var(--ok)':'var(--muted)') + ';white-space:nowrap;">' + (hasClicked ? sClicks.length + ' click' + (sClicks.length>1?'s':'') : 'Not clicked') + '</span>';
+    row += '</div>';
+    if (hasClicked) {
+      row += '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">';
+      sClicks.forEach(c => {
+        row += '<div style="font-size:10px;font-family:var(--mono);color:var(--muted);display:flex;gap:8px;">' +
+          '<span style="color:var(--text);">' + (platLabel[c.platform]||c.platform) + '</span>' +
+          '<span>via ' + (srcLabel[c.source]||c.source||'—') + '</span>' +
+          '<span style="margin-left:auto;">' + fmtTs(c.ts) + '</span>' +
+          '</div>';
+      });
+      row += '</div>';
+      if (repeats.length) {
+        row += '<div style="margin-top:4px;font-size:10px;color:var(--accent);">🔁 Clicked ' + repeats.map(([p,n]) => (platLabel[p]||p) + ' ×' + n).join(', ') + ' — repeat visit' + (repeats.length>1?'s':'') + '</div>';
+      }
+    }
+    row += '</div></div>';
+    return row;
+  };
+
+  let html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">' +
+    '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">' + cls + ' — ' + clickers.length + ' clicked</div>' +
+    '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'sm-drilldown\').innerHTML=\'\'" style="margin-bottom:0;">✕ Close</button></div>';
+
+  if (!clickers.length) {
+    html += '<div class="empty-state" style="padding:24px;"><div class="empty-icon">📣</div>No one in this class has clicked yet.</div>';
+  } else {
+    html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">';
+    clickers.forEach((s, i) => { html += studentRow(s, i); });
+    html += '</div>';
+  }
+
+  if (nonClickers.length) {
+    html += '<button class="btn btn-sm btn-ghost" id="sm-nonclick-toggle" onclick="smToggleNonClickers(\'' + cls.replace(/'/g,"\\'") + '\')" style="margin-top:10px;">' +
+      '👁 Show ' + nonClickers.length + ' who haven\'t clicked</button>';
+    html += '<div id="sm-nonclick-list" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden;"></div>';
+  }
+
+  el.innerHTML = html;
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Async-load real photos for the visible (clickers) list.
+  clickers.forEach((s, i) => {
+    if (!s.urn) return;
+    const avId = 'smd-av-' + i + '-' + (s.urn||'x').replace(/[^A-Za-z0-9]/g,'');
+    rcLoadPhoto(s.urn).then(url => {
+      if (!url) return;
+      const av = document.getElementById(avId);
+      if (!av) return;
+      av.innerHTML = '<img src="' + url + '" alt="" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" title="Tap to zoom" onclick="event.stopPropagation();rcZoomPhoto(this.src)" onerror="this.style.display=\'none\';">';
+    }).catch(()=>{});
+  });
+
+  // Stash the row-builder + non-clicker list on the module so the toggle can reuse them
+  // without rebuilding everything or re-fetching data.
+  window._smDrilldownState = { cls, nonClickers, studentRow };
+}
+
+// Reveals the non-clicker list on demand (hidden by default — see renderSocialDrilldown).
+// Builds it lazily on first click of the toggle rather than always rendering 40-65 rows
+// up front, and loads their photos too once shown.
+function smToggleNonClickers(cls) {
+  const listEl = document.getElementById('sm-nonclick-list');
+  const toggleBtn = document.getElementById('sm-nonclick-toggle');
+  if (!listEl || !toggleBtn) return;
+  const st = window._smDrilldownState;
+  if (!st || st.cls !== cls) return;
+
+  const isHidden = listEl.style.display === 'none';
+  if (isHidden) {
+    if (!listEl.dataset.built) {
+      listEl.innerHTML = st.nonClickers.map((s, i) => st.studentRow(s, i)).join('');
+      listEl.dataset.built = '1';
+      st.nonClickers.forEach((s, i) => {
+        if (!s.urn) return;
+        const avId = 'smd-av-' + i + '-' + (s.urn||'x').replace(/[^A-Za-z0-9]/g,'');
+        rcLoadPhoto(s.urn).then(url => {
+          if (!url) return;
+          const av = document.getElementById(avId);
+          if (!av) return;
+          av.innerHTML = '<img src="' + url + '" alt="" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" title="Tap to zoom" onclick="event.stopPropagation();rcZoomPhoto(this.src)" onerror="this.style.display=\'none\';">';
+        }).catch(()=>{});
+      });
+    }
+    listEl.style.display = '';
+    toggleBtn.textContent = '🙈 Hide ' + st.nonClickers.length + ' who haven\'t clicked';
+  } else {
+    listEl.style.display = 'none';
+    toggleBtn.textContent = '👁 Show ' + st.nonClickers.length + ' who haven\'t clicked';
+  }
+}
+
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab===name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id==='tab-'+name));
@@ -4720,9 +5600,10 @@ function switchTab(name) {
   if (name === 'banned')        renderBannedTab();
   if (name === 'lessonplan')    { if (document.getElementById('lp-class-sel').value) loadLessonPlan(); }
   if (name === 'loginactivity') loadLoginActivity();
+  if (name === 'socialmedia')   loadSocialClicks();
   if (name === 'timetable')     autoSyncTimetableToPortal();
   if (name === 'theme')         applyTheme(STATE.controls.theme === 'even' ? 'even' : 'odd');
-  if (name === 'controls')      loadSemesterDatesUI();
+  if (name === 'controls')      { loadSemesterDatesUI(); loadSocialLinksUI(); }
   if (name === 'admincal') {
     // v6.85: Current AY → re-fetch live admin calendar (fetchAdminCalendar, Firestore
     // + RTDB fallback) so the tab always shows fresh synced events, same source
@@ -5226,6 +6107,16 @@ async function loadAllData() {
       byClass: (ctrlRaw && ctrlRaw.byClass) || {},
       byUrn:   (ctrlRaw && ctrlRaw.byUrn)   || {}
     };
+    // v7.48: Admin-editable social/contact links (Controls ▸ Social & Contact Links).
+    // Defaults match parent_ptm.html's own links so both apps point at the same places
+    // out of the box; admin can repoint any of them without a code deploy.
+    STATE.socialLinks = Object.assign({
+      fb: 'https://www.facebook.com/davandvg',
+      yt: 'https://www.youtube.com/c/DAVANCollegeDavangere',
+      ig: 'https://www.instagram.com/davan_dvg/',
+      whatsapp: '918970225553',
+      call: '+917026225550'
+    }, (ctrlRaw && ctrlRaw.socialLinks) || {});
     // v6.88: Apply admin-set app theme (controls/theme = 'odd'|'even'). 'odd' is the default/
     // original look, so any missing/unrecognised value falls back to it safely.
     applyTheme((ctrlRaw && ctrlRaw.theme === 'even') ? 'even' : 'odd');
@@ -5374,6 +6265,14 @@ function renderControls() {
   // byClass/byUrn override rows. Same default-on convention as the flags above.
   const _fpEl = document.getElementById('g-facultyPhotos');
   if (_fpEl) _fpEl.checked = g.facultyPhotos !== false;
+  // v7.52: same default-on, Global-only convention as Faculty Photos above — each of the
+  // 4 social nudge placements can be switched off independently without touching
+  // byClass/byUrn (a per-student override for "should this student see the follow
+  // banner" doesn't make sense the way "should this student see their marks" does).
+  ['socialBanner','socialSidebar','socialToast','socialLoginPage'].forEach(f => {
+    const el = document.getElementById('g-' + f);
+    if (el) el.checked = g[f] !== false;
+  });
   renderOverrides('byClass','class-override-list');
   renderOverrides('byUrn','urn-override-list');
 }
@@ -5427,6 +6326,32 @@ async function saveSemesterDates() {
     STATE.semConfig = Object.assign({}, STATE.semConfig, { startDate: start, endDate: end || null });
     loadSemesterDatesUI();
     flashAlert('ctrl-save-notice','Saved');
+  } catch(e) { alert('Save failed: '+e.message); }
+}
+// v7.48: Social & Contact Links admin control — pre-fills the Controls ▸ inputs from
+// STATE.socialLinks, same pattern as loadSemesterDatesUI above.
+function loadSocialLinksUI() {
+  const sl = STATE.socialLinks || {};
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  set('sl-fb', sl.fb); set('sl-yt', sl.yt); set('sl-ig', sl.ig);
+  set('sl-whatsapp', sl.whatsapp); set('sl-call', sl.call);
+}
+async function saveSocialLinks() {
+  const val = id => ((document.getElementById(id) || {}).value || '').trim();
+  const next = {
+    fb: val('sl-fb'), yt: val('sl-yt'), ig: val('sl-ig'),
+    whatsapp: val('sl-whatsapp').replace(/[^\d]/g, ''), // wa.me/ needs digits only, no + or spaces
+    call: val('sl-call')
+  };
+  // Don't let an accidental full clear wipe a link that's actually in use — fall back to
+  // the current value for any field left blank rather than saving an empty string.
+  const cur = STATE.socialLinks || {};
+  Object.keys(next).forEach(k => { if (!next[k]) next[k] = cur[k] || ''; });
+  try {
+    await rtdbPatch('controls', { socialLinks: next });
+    STATE.socialLinks = next;
+    loadSocialLinksUI();
+    flashAlert('social-links-save-notice','Saved');
   } catch(e) { alert('Save failed: '+e.message); }
 }
 function renderOverrides(type, listId) {
@@ -6472,7 +7397,7 @@ function _filterCalToSessionWindow(events) {
   if (!ws || ws < ayStart) { ws = new Date(yr+'-07-01T00:00:00'); we = new Date(yr+'-12-31T23:59:59'); }
   if (ws && we) {
     events = events.filter(e => {
-      const d = new Date(String(e.date||e.startDate||'').replace(/\//g,'-'));
+      const d = stuParseCalDate(e.date||e.startDate||'');
       return !isNaN(d) && d >= ws && d <= we;
     });
   }
@@ -6553,7 +7478,7 @@ function renderCalendarPanel() {
   events = _filterCalToSessionWindow(events);
 
   const today = new Date(); today.setHours(0,0,0,0);
-  const upcoming = events.filter(e => new Date(e.date||e.startDate||'') >= today).slice(0,3);
+  const upcoming = events.filter(e => stuParseCalDate(e.date||e.startDate||'') >= today).slice(0,3);
   const typeColor = { Holiday:'var(--danger)', Event:'var(--ok)', Exam:'var(--blue)', VACC:'#a855f7', 'Working Day':'var(--muted)' };
   const typeBg    = { Holiday:'rgba(239,68,68,0.1)', Event:'rgba(34,197,94,0.1)', Exam:'rgba(59,130,246,0.1)', VACC:'rgba(168,85,247,0.1)', 'Working Day':'rgba(255,255,255,0.06)' };
 
@@ -6569,7 +7494,7 @@ function renderCalendarPanel() {
     html += '<span style="color:var(--accent);font-weight:700;margin-right:8px;">📌 Upcoming:</span>';
     html += upcoming.map(e => {
       const col = typeColor[e.type] || 'var(--accent)';
-      return '<strong style="color:' + col + ';">' + (e.date||'') + '</strong> — ' + (e.event||'');
+      return '<strong style="color:' + col + ';">' + (e.dateLabel || e.date || '') + '</strong> — ' + (e.event||'');
     }).join('&nbsp;&nbsp;&nbsp;');
     html += '</div>';
   }
@@ -6597,12 +7522,14 @@ function renderCalendarPanel() {
     '</tr></thead><tbody>';
 
   filtered.forEach((e, i) => {
-    const d = new Date(e.date||e.startDate||''); d.setHours(0,0,0,0);
+    const d = stuParseCalDate(e.date||e.startDate||''); d.setHours(0,0,0,0);
     const isPast  = d < today;
     const isToday = d.getTime() === today.getTime();
     const rowBg   = isToday ? 'rgba(240,165,0,0.06)' : (i%2 ? 'rgba(255,255,255,0.015)' : '');
     const col = typeColor[e.type] || 'var(--muted)';
-    const dateStr = e.endDate ? (e.date + ' – ' + e.endDate) : (e.date||'');
+    const dispStart = e.dateLabel || e.date || '';
+    const dispEnd    = e.endDateLabel || e.endDate || '';
+    const dateStr = dispEnd ? (dispStart + ' – ' + dispEnd) : dispStart;
     const dayStr  = e.day || (d.toLocaleDateString('en-IN',{weekday:'short'}));
     html += '<tr style="background:' + rowBg + ';border-bottom:1px solid rgba(255,255,255,0.04);' + (isPast?'opacity:0.45;':'') + '">' +
       '<td style="padding:9px 12px;font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap;color:' + (isToday?'var(--accent)':'var(--text)') + ';">' + dateStr + (isToday?'<span style="font-size:9px;color:var(--accent);margin-left:4px;">TODAY</span>':'') + '</td>' +
@@ -6652,7 +7579,7 @@ function renderAdminCalendar() {
   // Only filter the CURRENT AY view to the live session window. The archived 2025-26 view
   // has its own frozen window that may not match live semConfig, so leave it unfiltered.
   if (_adminViewAY === 'current') events = _filterCalToSessionWindow(events);
-  events.sort((a,b) => new Date(a.date||'') - new Date(b.date||''));
+  events.sort((a,b) => stuParseCalDate(a.date||'') - stuParseCalDate(b.date||''));
   const today = new Date(); today.setHours(0,0,0,0);
   const typeColor = { Holiday:'var(--danger)', Event:'var(--ok)', Exam:'var(--blue)', VACC:'#a855f7', 'Working Day':'var(--muted)' };
   let html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
@@ -6664,11 +7591,17 @@ function renderAdminCalendar() {
     '<th style="padding:10px 12px;text-align:left;font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">For</th>' +
     '</tr></thead><tbody>';
   events.forEach((e, i) => {
-    const d = new Date(e.date||''); d.setHours(0,0,0,0);
+    const d = stuParseCalDate(e.date||''); d.setHours(0,0,0,0);
     const isPast = d < today;
     const isToday = d.getTime() === today.getTime();
     const col = typeColor[e.type] || 'var(--muted)';
-    const dateStr = e.endDate ? (e.date + ' – ' + e.endDate) : (e.date||'');
+    // v7.45: date/endDate now carry ISO (YYYY-MM-DD) after the index.html-side fix that made
+    // holidays parseable for the working-days counter — display the pretty label instead
+    // (dateLabel/endDateLabel), falling back to the raw field for older cached calendar data
+    // pushed before that fix (dateLabel undefined).
+    const dispStart = e.dateLabel || e.date || '';
+    const dispEnd    = e.endDateLabel || e.endDate || '';
+    const dateStr = dispEnd ? (dispStart + ' – ' + dispEnd) : dispStart;
     html += '<tr style="background:' + (isToday?'rgba(240,165,0,0.06)':i%2?'rgba(255,255,255,0.015)':'') + ';border-bottom:1px solid rgba(255,255,255,0.04);' + (isPast?'opacity:0.45;':'') + '">' +
       '<td style="padding:9px 12px;font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap;color:' + (isToday?'var(--accent)':'var(--text)') + ';">' + dateStr + '</td>' +
       '<td style="padding:9px 12px;font-family:var(--mono);font-size:12px;color:var(--muted);">' + (e.day||'') + '</td>' +
@@ -7362,7 +8295,20 @@ function addLpSubject() {
   }
   showScreen('screen-student-dash');
   await loadStudentDashboard();
+  // v7.53 FIX: updateSidebarProfile() above (line ~8236) fires BEFORE this await — at that
+  // point STATE.calendarData is still whatever it was before this page load (usually
+  // null/empty on a fresh session restore), so stuRenderSemStartNote() computed "0
+  // holidays" from an empty calendar and nothing ever recomputed it afterward. The Calendar
+  // tab looked correct because it only renders when the student actually opens it — by
+  // then loadStudentDashboard() has long since populated STATE.calendarData for real. The
+  // dashboard sentence never got that same second chance. Re-running it here, now that the
+  // real fetch has resolved, fixes the mismatch without touching the fast-paint call above
+  // (which still needs to run early for its own reason — see the comment on it).
+  updateSidebarProfile();
   buildStudentTicker();
+  renderSocialBanner();
+  renderSocialSidebar();
+  maybeShowSocialToast();
 })();
 
 /* ════════════════════════════════════════════════════
@@ -7815,6 +8761,16 @@ async function loadStudentDashboard() {
       byClass: (controls && controls.byClass) || {},
       byUrn:   (controls && controls.byUrn)   || {}
     };
+    // v7.48: Same bug shape as the theme/session_config fixes noted above — social/contact
+    // links must load on the student path too, not just admin's, or students see the
+    // hardcoded defaults forever regardless of what admin edits in Controls.
+    STATE.socialLinks = Object.assign({
+      fb: 'https://www.facebook.com/davandvg',
+      yt: 'https://www.youtube.com/c/DAVANCollegeDavangere',
+      ig: 'https://www.instagram.com/davan_dvg/',
+      whatsapp: '918970225553',
+      call: '+917026225550'
+    }, (controls && controls.socialLinks) || {});
     // v6.97: Same bug shape as the session_config fix above — applyTheme() was ONLY ever
     // called from admin's loadAllData(), never from the student's own load path, so a
     // student's browser stayed on the default 'odd' theme regardless of what admin set,
@@ -9167,10 +10123,35 @@ function stuCountSubjects() {
 }
 
 // Count holidays within [start,end] from the synced calendar + config, excluding Sundays.
+// Parses a calendar event date string that could be EITHER format: ISO ("2026-08-15",
+// the correct format since the index.html date-format fix) or pretty/display
+// ("15 Aug 2026", what un-repushed/stale calendar data still carries, and what this app
+// itself displays everywhere via dateLabel). new Date() understands ISO natively but
+// returns Invalid Date for "15 Aug 2026" — that mismatch is exactly why the holiday count
+// silently returned 0 while the Calendar tab (which only ever displays the string, never
+// parses it for a numeric comparison) looked completely fine on the same underlying data.
+// This tries ISO first, then falls back to manually parsing "DD Mon YYYY".
+const _CAL_MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,sept:8,oct:9,nov:10,dec:11 };
+function stuParseCalDate(dStr) {
+  if (!dStr) return new Date(NaN);
+  const s = String(dStr).trim();
+  // Try ISO / slash-date first (existing behaviour, unchanged for already-correct data).
+  const iso = new Date(s.replace(/\//g,'-') + 'T00:00:00');
+  if (!isNaN(iso)) return iso;
+  // Fall back to "15 Aug 2026" / "15 Aug 2026" style pretty format.
+  const m = s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+  if (m) {
+    const day = parseInt(m[1], 10);
+    const mon = _CAL_MONTHS[m[2].toLowerCase().slice(0,4).replace(/t$/,'')] ?? _CAL_MONTHS[m[2].toLowerCase().slice(0,3)];
+    const year = parseInt(m[3], 10);
+    if (mon !== undefined && !isNaN(day) && !isNaN(year)) return new Date(year, mon, day);
+  }
+  return new Date(NaN);
+}
 function stuCountHolidays(start, end) {
   const set = new Set();
   const add = dStr => {
-    const d = new Date(String(dStr).replace(/\//g,'-') + 'T00:00:00');
+    const d = stuParseCalDate(dStr);
     if (!isNaN(d) && d >= start && d <= end && d.getDay() !== 0) set.add(d.toISOString().slice(0,10));
   };
   // From synced calendar events (type Holiday).
@@ -9192,7 +10173,7 @@ function stuCountHolidays(start, end) {
 function stuCountNonTeaching(start, end) {
   const set = new Set();
   const add = dStr => {
-    const d = new Date(String(dStr).replace(/\//g,'-') + 'T00:00:00');
+    const d = stuParseCalDate(dStr);
     if (!isNaN(d) && d >= start && d <= end && d.getDay() !== 0) set.add(d.toISOString().slice(0,10));
   };
   const cal = STATE.calendarData;
@@ -9827,7 +10808,7 @@ function stuSummaryPart1(subs) {
       const arr = Array.isArray(cal) ? cal : (cal && typeof cal === 'object' ? Object.values(cal) : []);
       const match = arr.find(e => {
         if (!e || !e.date || !/holiday/i.test(e.type || '')) return false;
-        const d = new Date(String(e.date).replace(/\//g,'-') + 'T00:00:00');
+        const d = stuParseCalDate(e.date);
         return !isNaN(d) && d.getFullYear() === dateObj.getFullYear()
             && d.getMonth() === dateObj.getMonth() && d.getDate() === dateObj.getDate();
       });
@@ -9996,7 +10977,7 @@ function stuSummaryPart2() {
   const calArr = Array.isArray(cal) ? cal : (cal && typeof cal === 'object' ? Object.values(cal) : []);
   const internalEvents = calArr.filter(e => e && e.date && /internal/i.test(e.event || e.title || ''));
   const today = new Date(); today.setHours(0,0,0,0);
-  const parseEvDate = e => { const d = new Date(String(e.date).replace(/\//g,'-') + 'T00:00:00'); return isNaN(d) ? null : d; };
+  const parseEvDate = e => { const d = stuParseCalDate(e.date); return isNaN(d) ? null : d; };
   const upcomingInternal = internalEvents
     .map(e => ({ ...e, _d: parseEvDate(e) }))
     .filter(e => e._d)

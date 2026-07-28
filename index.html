@@ -8858,6 +8858,27 @@ async function lpDb2Set(path, value) {
   return await res.json();
 }
 
+// Merge-write variant of lpDb2Set. PUT replaces the whole node at `path`, which is why
+// _autoPushCalendarToPortal() was silently wiping the student portal's Semester Dates
+// (davan_pub/session_config.startDate/endDate) every time a calendar edit (e.g. adding a
+// holiday) triggered an auto-push: it PUT the in-memory SESSION_CONFIG default, which
+// carries no knowledge of dates the OTHER admin tool (student_portal.html's own Semester
+// Dates control) had separately saved to that same path. Firebase REST PATCH merges
+// top-level keys instead of replacing the node, so pushing calendar-derived fields here
+// can no longer clobber fields owned by a different admin screen.
+async function lpDb2Patch(path, value) {
+  const token = await _lpGetPortalToken();
+  const auth  = token ? ('?auth=' + token) : '';
+  const url   = LP_PORTAL_URL + '/' + path + '.json' + auth;
+  const res   = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value)
+  });
+  if (!res.ok) { const b = await res.text(); throw new Error('DB2 patch ' + res.status + ': ' + b); }
+  return await res.json();
+}
+
 // Push ONLY the current timetable from this (mother) app straight to the student portal's
 // DB2 — no scrape, no full sync. Reads live LM_TIMETABLE and writes davan_pub/timetable in DB2.
 // Auto-push current timetable + allocations to the portal DB2. Called automatically after
@@ -8901,6 +8922,11 @@ function _normCalForPortal(events) {
     if (isNaN(d)) return String(s);
     return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
   };
+  const iso = s => {
+    if (!s) return '';
+    const d = new Date(String(s).replace(/\//g,'-') + 'T00:00:00');
+    return isNaN(d) ? '' : d.toISOString().slice(0,10); // YYYY-MM-DD, parseable
+  };
   const dayOf = s => { const d = new Date(String(s).replace(/\//g,'-')+'T00:00:00'); return isNaN(d)?'':['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]; };
   return events
     .filter(e => {
@@ -8909,8 +8935,17 @@ function _normCalForPortal(events) {
       return !isNaN(d) && d >= ws && d <= we;
     })
     .map(e => ({
-      date:    fmt(e.from || e.date),
-      endDate: fmt(e.to || e.endDate),
+      // v1048 FIX: `date`/`endDate` used to carry fmt()'s "15 Aug 2026" display string.
+      // The student portal's holiday counter (stuCountHolidays/stuCountNonTeaching) does
+      // `new Date(dStr.replace(/\//g,'-') + 'T00:00:00')` on this field expecting something
+      // parseable — "15 Aug 2026T00:00:00" is not valid date syntax, so every holiday
+      // silently failed isNaN() and got dropped, undercounting to 0 regardless of how many
+      // holidays were actually added. `date`/`endDate` now carry ISO (YYYY-MM-DD); the
+      // pretty label moves to dateLabel/endDateLabel for anything that wants to display it.
+      date:       iso(e.from || e.date),
+      endDate:    iso(e.to || e.endDate),
+      dateLabel:  fmt(e.from || e.date),
+      endDateLabel: fmt(e.to || e.endDate),
       day:     e.day || dayOf(e.from || e.date),
       Type:    e.type || e.Type || '',
       type:    e.type || e.Type || '',
@@ -8925,8 +8960,26 @@ async function _autoPushCalendarToPortal() {
     if (typeof calEvents !== 'undefined' && Array.isArray(calEvents)) {
       await lpDb2Set('davan_pub/calendar', _normCalForPortal(calEvents));
     }
+    // v1015: was lpDb2Set (PUT, full overwrite) with the raw SESSION_CONFIG object — that
+    // object defaults to a hardcoded 10-Jul-11-Nov placeholder whenever this admin screen's
+    // own Session Config editor hasn't been used, and a PUT here silently wiped whatever
+    // startDate/endDate the student portal's separate Semester Dates control had saved.
+    // Fixed two ways: (1) PATCH instead of PUT, so this only merges the keys it sends
+    // rather than replacing the whole node; (2) only send academicYear/semType/workingDays
+    // unconditionally, and only include startDate/endDate if SESSION_CONFIG was actually
+    // loaded from a saved config (not silently running on the hardcoded default) — see
+    // SESSION_CONFIG_IS_DEFAULT below, set once at load time.
     if (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG) {
-      await lpDb2Set('davan_pub/session_config', SESSION_CONFIG);
+      const payload = {
+        academicYear: SESSION_CONFIG.academicYear,
+        semType:      SESSION_CONFIG.semType,
+        workingDays:  SESSION_CONFIG.workingDays
+      };
+      if (!window.SESSION_CONFIG_IS_DEFAULT) {
+        payload.startDate = SESSION_CONFIG.startDate;
+        payload.endDate   = SESSION_CONFIG.endDate;
+      }
+      await lpDb2Patch('davan_pub/session_config', payload);
     }
     console.log('[AutoPush] calendar+session_config → portal DB2');
   } catch(e) { console.warn('[AutoPush cal] failed:', e && e.message); }
@@ -8968,8 +9021,21 @@ async function pushTimetableToPortalDB2() {
       }
       // Session config (dates) — mirror what the mother app has so the portal sentence/session
       // line shows 13 Jul–31 Oct instead of the old Feb dates.
+      // v1048: same fix as _autoPushCalendarToPortal — PATCH (merge) instead of PUT (overwrite),
+      // and never push startDate/endDate while SESSION_CONFIG is still the hardcoded default
+      // (see SESSION_CONFIG_IS_DEFAULT), so this button's confirm dialog ("updates only
+      // davan_pub/timetable") stops silently also wiping the portal's saved Semester Dates.
       if (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG) {
-        await lpDb2Set('davan_pub/session_config', SESSION_CONFIG);
+        const _cfgPayload = {
+          academicYear: SESSION_CONFIG.academicYear,
+          semType:      SESSION_CONFIG.semType,
+          workingDays:  SESSION_CONFIG.workingDays
+        };
+        if (!window.SESSION_CONFIG_IS_DEFAULT) {
+          _cfgPayload.startDate = SESSION_CONFIG.startDate;
+          _cfgPayload.endDate   = SESSION_CONFIG.endDate;
+        }
+        await lpDb2Patch('davan_pub/session_config', _cfgPayload);
       }
     } catch(e) { console.warn('[push] calendar/session_config failed:', e && e.message); }
     // Verify.
@@ -13679,7 +13745,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1047;  // always = HTML footer version number
+const CODE_BUILD = 1049;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '26-Jul-2026', time: '00:20', full: '26-Jul-2026 00:20 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -23072,7 +23138,9 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
-  { v: 'v1047', date: '27-Jul-2026 IST', note: 'FEAT: Academic Calendar — Import from Excel. New "📥 Import from Excel" button (admin/manager/vp/principal, next to + Add Event) opens a file picker (.xlsx/.xls, uses the SheetJS lib already loaded in the app) and parses "Degree Calendar of Events" style sheets: auto-detects the header row containing Date + Events columns (also reads optional Month/Day/Schedule/Type/For columns), converts DD.MM.YYYY dates (including "DD.MM.YYYY - DD.MM.YYYY" ranges) to the app\\'s internal YYYY-MM-DD format, and infers event type from a Schedule="H" flag (-> holiday) or keyword matching on the event name (internal/exam/assessment -> exam, VACC -> vacc, "working day" -> working, else event) when no explicit Type column is present. Shows a preview modal (calRenderImportPreview) listing every parsed row with its date, type badge, name, and audience before anything is saved, plus a "Replace existing calendar" checkbox — unchecked (default) merges and skips exact from-date+name duplicates already in calEvents, checked wipes and replaces the whole calendar. Confirm (calImportConfirm) writes to the same app_data/academic_calendar Firestore doc as manual Add/Edit, triggers the same _autoPushCalendarToPortal mirror to the student portal DB2, and refreshes the upcoming banner/stats/table/ticker exactly like calSaveEvent already does. New: calHandleImportFile, _calDMYtoISO, calParseImportRows, calRenderImportPreview, calImportClose, calImportConfirm. CODE_BUILD=1047.' },
+  { v: 'v1049', date: '27-Jul-2026 IST', note: 'CRITICAL fix: same failure class as v1028 and v925 (documented below) — whole app crashed on every login with a SyntaxError followed by LM_TT_VER is not defined. Root cause: the v1048 changelog note (added when session_config/lpDb2Patch was fixed) contained four places where an apostrophe inside a possessive word was escaped with an extra, unnecessary backslash character in front of the backslash that was already there — doubling it up instead of using a single escape. That corrupted the JavaScript string it lived in and voided every top-level declaration after it in the same script block, including LM_TT_VER further down, which was never actually the problem, same red herring the v1028 note already called out. Also found and fixed one older instance of the identical extra-backslash mistake sitting in the v1047 note, present before this session, that had not yet caused a visible crash only because nothing after it happened to be load-bearing at the time. This entry deliberately describes the mistake in plain words rather than quoting the broken sequence literally, per the rule the v1028 note already established, since quoting it as an example is exactly how v1028s own first fix attempt reintroduced the same class of error. CODE_BUILD=1049.' },
+  { v: 'v1048', date: '27-Jul-2026 IST', note: 'FIX: Semester Dates saved in the student portal (student_portal.html \u25b8 Controls \u25b8 Semester Dates) kept reverting after every calendar edit here (e.g. adding a holiday). ROOT CAUSE: _autoPushCalendarToPortal() runs automatically after any calendar save and used lpDb2Set (Firebase PUT = full node overwrite) to push the in-memory SESSION_CONFIG object to davan_pub/session_config \u2014 the SAME path the student portal\'s Semester Dates control writes to. SESSION_CONFIG defaults to a hardcoded placeholder (10 Jul\u201311 Nov 2026) whenever this screen\'s own Session Config editor hasn\'t been used that session, so the auto-push was blind-overwriting real saved dates with that placeholder on every single calendar edit. Fixed two ways: (1) added lpDb2Patch (Firebase PATCH = merge, not replace) and switched the calendar auto-push to use it, so it can no longer wipe fields it doesn\'t send; (2) added window.SESSION_CONFIG_IS_DEFAULT, true until _applySessionConfig() loads/receives a real saved config \u2014 while true, the auto-push omits startDate/endDate from its payload entirely rather than pushing the placeholder. The deliberate "Activate & Go Live" write (_scfgDoActivate, explicit admin action with real staged dates) is unchanged \u2014 only the silent automatic push was the problem. CODE_BUILD=1048.' },
+  { v: 'v1047', date: '27-Jul-2026 IST', note: 'FEAT: Academic Calendar — Import from Excel. New "📥 Import from Excel" button (admin/manager/vp/principal, next to + Add Event) opens a file picker (.xlsx/.xls, uses the SheetJS lib already loaded in the app) and parses "Degree Calendar of Events" style sheets: auto-detects the header row containing Date + Events columns (also reads optional Month/Day/Schedule/Type/For columns), converts DD.MM.YYYY dates (including "DD.MM.YYYY - DD.MM.YYYY" ranges) to the app\'s internal YYYY-MM-DD format, and infers event type from a Schedule="H" flag (-> holiday) or keyword matching on the event name (internal/exam/assessment -> exam, VACC -> vacc, "working day" -> working, else event) when no explicit Type column is present. Shows a preview modal (calRenderImportPreview) listing every parsed row with its date, type badge, name, and audience before anything is saved, plus a "Replace existing calendar" checkbox — unchecked (default) merges and skips exact from-date+name duplicates already in calEvents, checked wipes and replaces the whole calendar. Confirm (calImportConfirm) writes to the same app_data/academic_calendar Firestore doc as manual Add/Edit, triggers the same _autoPushCalendarToPortal mirror to the student portal DB2, and refreshes the upcoming banner/stats/table/ticker exactly like calSaveEvent already does. New: calHandleImportFile, _calDMYtoISO, calParseImportRows, calRenderImportPreview, calImportClose, calImportConfirm. CODE_BUILD=1047.' },
   { v: 'v1046', date: '26-Jul-2026 IST', note: 'Follow-up to v1045: the nt-confirm-dialog fix did not cover every WhatsApp/upload popup reachable from inside the student card. Same root cause (popup built at z-index 9999, below #sc-overlay/student card at 10002, so it rendered fully behind the still-open card) found in three more places and fixed the same way, bumped to z-index 20100: rcWhatsApp function&#39;s rc-wa-modal (Report Card tab WhatsApp preview -- this was the one actually reported, screenshot showed the green WhatsApp button doing nothing because the modal was hidden behind the card), rcShowPhotoPanel function&#39;s rc-photo-panel (Upload Student Photos), and imWaOpen function&#39;s im-wa-modal (Internal Marks WhatsApp). Audited remaining z-index:9999-and-below overlays in the file; the rest (top banners, a dropdown, an unrelated toast) are not reachable from within the student card so left untouched. CODE_BUILD=1046.' },
   { v: 'v1045', date: '26-Jul-2026 IST', note: 'Two fixes. (1) Student Card WhatsApp confirm dialog (nt-confirm-dialog, built by ntShowConfirm/ntShowConfirmHandler off the Report Card tab inside the student card) was stacking at z-index 10000, one level below #sc-overlay (the student card modal itself) at z-index 10002 — so the confirm popup rendered fully hidden behind the still-open card with no way to see or dismiss it except closing the whole card. Bumped the confirm dialog to z-index 20100 so it always shows in front of the card that opened it. (2) Class View student table (cvRefreshDetail) rendered students in whatever order allStudents/Firestore returned them, not alphabetically — added a name sort (localeCompare, case-insensitive) right where the class roster is filtered, so the roster and all summary stats built from it are alphabetical by student name. CODE_BUILD=1045.' },
   { v: 'v1035', date: '24-Jul-2026 IST', note: 'FIX: Live Class Board (sN times ctN) badge was missing on I YEAR cards (BCom, BBA, BCA) while showing fine on II and III YEAR cards. Root cause: lcbTtClassToStudentClass always mapped I YEAR to Sem2, II YEAR to Sem4, III YEAR to Sem6, a hardcoded Even-semester-only rule left over from before the app-wide Odd/Even sem convention fix (v818 to v821, which established Odd equals Sem I, III, V and Even equals Sem II, IV, VI via getSemsForType). The current live session is 2026-27 Odd, so I YEAR students are really Sem1, not Sem2, and since I YEAR students are new admissions this term with no prior Sem2 record to fall back on, the ctMap lookup key never matched and the badge silently disappeared. II and III YEAR cards happened to still show a badge only because those students carry over an old Sem4 and Sem6 record from being I and II YEAR last academic year, so the wrong hardcoded key still matched something, just not necessarily the current sem attendance. Fix: lcbTtClassToStudentClass now reads SESSION_CONFIG.semType at call time and computes the sem number as year times 2 minus 1 for Odd or year times 2 for Even, matching the same convention already used by getSemsForType and getTypeForSem elsewhere in the app, with a safe fallback to the old year times 2 behavior if SESSION_CONFIG has not loaded yet so it never throws or returns blank. CODE_BUILD=1035.' },
@@ -24981,6 +25049,10 @@ let SESSION_CONFIG = {
   endDate:      '2026-11-11',
   workingDays:  0,
 };
+// v1015: true until a real saved config is loaded/applied via _applySessionConfig(). Lets
+// _autoPushCalendarToPortal() tell "this IS the live date range" apart from "this is just
+// the hardcoded placeholder" — see the fix note on that function.
+window.SESSION_CONFIG_IS_DEFAULT = true;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SINGLE SOURCE OF TRUTH — College Semester Convention
@@ -25142,6 +25214,9 @@ function _scfgLabel(cfg) {
 function _applySessionConfig(cfg) {
   if (!cfg || !cfg.academicYear) return;
   SESSION_CONFIG = Object.assign({}, SESSION_CONFIG, cfg);
+  // A real config (loaded from Firestore/RTDB, or just saved) is now in memory — the
+  // auto-push guard (_autoPushCalendarToPortal) can trust its startDate/endDate from here on.
+  window.SESSION_CONFIG_IS_DEFAULT = false;
   const label = _scfgLabel(cfg);
   const t = document.getElementById('topbar-session-label');
   if (t) t.textContent = label;
