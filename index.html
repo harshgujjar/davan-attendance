@@ -13745,8 +13745,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1049;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '26-Jul-2026', time: '00:20', full: '26-Jul-2026 00:20 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1050;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '28-Jul-2026', time: '14:00', full: '28-Jul-2026 14:00 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -23138,6 +23138,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1050', date: '28-Jul-2026 IST', note: 'FIX: auth/quota-exceeded (Firebase password-verification quota) hit during bulk report-card photo uploads. ROOT CAUSE: _ensureAuth() (called once per photo inside _rcSavePhotoToFirebase, itself called per-file in bulk uploads) has no lock — if firebase.auth().currentUser was momentarily null when a bulk upload started (page reload, tab backgrounded, token refresh gap), every single photo in the batch independently called auth.signInWithEmailAndPassword() with the cached admin credentials in parallel, since none of the concurrent calls saw currentUser set yet (that only happens after each call\'s own await resolves). A batch of 50-100 photos could fire 50-100 real password-verification attempts in the same few seconds, tripping Firebase\'s quota. This only affects admin flows since _ensureAuth() is only called from report-card/bulk-upload code (rcDoSingleUploadPanel, rcDoBulkUpload, rcPushAllPhotosToFirebase) — faculty/student logins never call it. FIX: added a shared in-flight promise (_ensureAuthInFlight) — if a re-auth is already in progress, subsequent concurrent callers now await the SAME promise instead of starting their own signInWithEmailAndPassword call, collapsing any number of concurrent _ensureAuth() calls into at most one real Auth request. CODE_BUILD=1050.' },
   { v: 'v1049', date: '27-Jul-2026 IST', note: 'CRITICAL fix: same failure class as v1028 and v925 (documented below) — whole app crashed on every login with a SyntaxError followed by LM_TT_VER is not defined. Root cause: the v1048 changelog note (added when session_config/lpDb2Patch was fixed) contained four places where an apostrophe inside a possessive word was escaped with an extra, unnecessary backslash character in front of the backslash that was already there — doubling it up instead of using a single escape. That corrupted the JavaScript string it lived in and voided every top-level declaration after it in the same script block, including LM_TT_VER further down, which was never actually the problem, same red herring the v1028 note already called out. Also found and fixed one older instance of the identical extra-backslash mistake sitting in the v1047 note, present before this session, that had not yet caused a visible crash only because nothing after it happened to be load-bearing at the time. This entry deliberately describes the mistake in plain words rather than quoting the broken sequence literally, per the rule the v1028 note already established, since quoting it as an example is exactly how v1028s own first fix attempt reintroduced the same class of error. CODE_BUILD=1049.' },
   { v: 'v1048', date: '27-Jul-2026 IST', note: 'FIX: Semester Dates saved in the student portal (student_portal.html \u25b8 Controls \u25b8 Semester Dates) kept reverting after every calendar edit here (e.g. adding a holiday). ROOT CAUSE: _autoPushCalendarToPortal() runs automatically after any calendar save and used lpDb2Set (Firebase PUT = full node overwrite) to push the in-memory SESSION_CONFIG object to davan_pub/session_config \u2014 the SAME path the student portal\'s Semester Dates control writes to. SESSION_CONFIG defaults to a hardcoded placeholder (10 Jul\u201311 Nov 2026) whenever this screen\'s own Session Config editor hasn\'t been used that session, so the auto-push was blind-overwriting real saved dates with that placeholder on every single calendar edit. Fixed two ways: (1) added lpDb2Patch (Firebase PATCH = merge, not replace) and switched the calendar auto-push to use it, so it can no longer wipe fields it doesn\'t send; (2) added window.SESSION_CONFIG_IS_DEFAULT, true until _applySessionConfig() loads/receives a real saved config \u2014 while true, the auto-push omits startDate/endDate from its payload entirely rather than pushing the placeholder. The deliberate "Activate & Go Live" write (_scfgDoActivate, explicit admin action with real staged dates) is unchanged \u2014 only the silent automatic push was the problem. CODE_BUILD=1048.' },
   { v: 'v1047', date: '27-Jul-2026 IST', note: 'FEAT: Academic Calendar — Import from Excel. New "📥 Import from Excel" button (admin/manager/vp/principal, next to + Add Event) opens a file picker (.xlsx/.xls, uses the SheetJS lib already loaded in the app) and parses "Degree Calendar of Events" style sheets: auto-detects the header row containing Date + Events columns (also reads optional Month/Day/Schedule/Type/For columns), converts DD.MM.YYYY dates (including "DD.MM.YYYY - DD.MM.YYYY" ranges) to the app\'s internal YYYY-MM-DD format, and infers event type from a Schedule="H" flag (-> holiday) or keyword matching on the event name (internal/exam/assessment -> exam, VACC -> vacc, "working day" -> working, else event) when no explicit Type column is present. Shows a preview modal (calRenderImportPreview) listing every parsed row with its date, type badge, name, and audience before anything is saved, plus a "Replace existing calendar" checkbox — unchecked (default) merges and skips exact from-date+name duplicates already in calEvents, checked wipes and replaces the whole calendar. Confirm (calImportConfirm) writes to the same app_data/academic_calendar Firestore doc as manual Add/Edit, triggers the same _autoPushCalendarToPortal mirror to the student portal DB2, and refreshes the upcoming banner/stats/table/ticker exactly like calSaveEvent already does. New: calHandleImportFile, _calDMYtoISO, calParseImportRows, calRenderImportPreview, calImportClose, calImportConfirm. CODE_BUILD=1047.' },
@@ -38139,20 +38140,27 @@ async function rcDoSingleUploadPanel(e) {
 // ── Ensure Firebase Auth session is active before RTDB writes ──────
 // On file://, the auth session can silently drop. This re-authenticates
 // using credentials saved in sessionStorage during login.
+let _ensureAuthInFlight = null; // shared promise — prevents concurrent bulk-upload calls from each firing their own signInWithEmailAndPassword (was the cause of auth/quota-exceeded during bulk photo/report-card uploads)
 async function _ensureAuth() {
   if (firebase.auth().currentUser) return true; // already authed
-  try {
-    const em = localStorage.getItem('_davanAuthEmail');
-    const pw = localStorage.getItem('_davanAuthPw');
-    if (!em || !pw) { console.warn('[_ensureAuth] No stored credentials'); return false; }
-    await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-    const cred = await auth.signInWithEmailAndPassword(em, pw);
-    currentUser = cred.user;
-    return true;
-  } catch(e) {
-    console.error('[_ensureAuth] Re-auth failed:', e.message);
-    return false;
-  }
+  if (_ensureAuthInFlight) return _ensureAuthInFlight; // a re-auth is already in progress — wait on it instead of starting a new one
+  _ensureAuthInFlight = (async () => {
+    try {
+      const em = localStorage.getItem('_davanAuthEmail');
+      const pw = localStorage.getItem('_davanAuthPw');
+      if (!em || !pw) { console.warn('[_ensureAuth] No stored credentials'); return false; }
+      await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+      const cred = await auth.signInWithEmailAndPassword(em, pw);
+      currentUser = cred.user;
+      return true;
+    } catch(e) {
+      console.error('[_ensureAuth] Re-auth failed:', e.message);
+      return false;
+    } finally {
+      _ensureAuthInFlight = null; // clear once settled, so a future genuine drop can still trigger a fresh re-auth
+    }
+  })();
+  return _ensureAuthInFlight;
 }
 
 async function rcDoBulkUpload(e) {
