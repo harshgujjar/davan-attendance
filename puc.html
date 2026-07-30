@@ -8068,10 +8068,19 @@ const firebaseConfig = {
   appId:             "1:1022644498921:web:734eea6c99b5ad04351b78",
   databaseURL:       "https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db   = firebase.firestore();
-const rtdb = firebase.database();
+// FIX (login loop): puc.html and index.html are served from the SAME origin and
+// both used the DEFAULT Firebase app, so Firebase Auth persisted both sessions
+// under one shared key and broadcast every sign-in/sign-out between them. Admin
+// signs in here -> index.html gets the broadcast and re-inits; index.html signs
+// in a non-admin -> the listener below signed it out -> index re-logs in -> loop.
+// A NAMED app gives this console its own auth persistence namespace, so the two
+// apps can hold independent sessions at the same time.
+const PUC_APP_NAME = 'puc-admin';
+const _pucApp = firebase.apps.find(a => a.name === PUC_APP_NAME)
+             || firebase.initializeApp(firebaseConfig, PUC_APP_NAME);
+const auth = _pucApp.auth();
+const db   = _pucApp.firestore();
+const rtdb = _pucApp.database();
 
 // =====================
 // GLOBAL STATE
@@ -8319,9 +8328,26 @@ auth.onAuthStateChanged(async (user) => {
     }
     if (profile && profile.role === 'admin') {
       onPucLoginSuccess(user, profile);
-    } else {
+    } else if (profile) {
+      // Definitive answer: this account exists but is not an admin. Signing out
+      // is correct here.
       await auth.signOut().catch(() => {});
-      showLoginOverlay(profile ? '⚠ Admin access only.' : '⚠ Could not verify — check your connection (an ad-blocker may be blocking Firebase) and try again.');
+      showLoginOverlay('⚠ Admin access only.');
+    } else {
+      // FIX: we could NOT read the profile (timeout / ad-blocker / offline).
+      // That is NOT proof the user lacks access — signing out here destroyed a
+      // perfectly valid session (and, when the session was shared, index.html's
+      // too, which is what kicked off the re-login loop). Keep the session and
+      // offer a retry instead.
+      showLoginOverlay('⚠ Could not verify — check your connection (an ad-blocker may be blocking Firebase). Your session is still active; press Retry.');
+      try {
+        const box = document.getElementById('login-status-msg');
+        if (box) {
+          box.innerHTML = '<button onclick="pucRetryVerify()" style="background:var(--accent);color:#000;border:none;'
+            + 'border-radius:8px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono);">'
+            + '↻ Retry verification</button>';
+        }
+      } catch(e) {}
     }
   } else {
     showLoginOverlay();
@@ -8336,6 +8362,34 @@ auth.onAuthStateChanged(async (user) => {
     } catch(e) {}
   }
 });
+
+// FIX: re-run the admin role check for the already-signed-in user, used by the
+// Retry button shown when the profile lookup timed out.
+async function pucRetryVerify() {
+  const u = auth.currentUser;
+  const msg = document.getElementById('login-status-msg');
+  if (!u) { showLoginOverlay('⚠ Session ended — please sign in again.'); return; }
+  if (msg) msg.textContent = 'Verifying role…';
+  const withTimeout = (p, ms) => Promise.race([
+    p, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))
+  ]);
+  let profile = null;
+  try {
+    const snap = await withTimeout(rtdb.ref('davan_profiles/' + u.uid).once('value'), 8000);
+    profile = snap.val();
+  } catch(e) {}
+  if (!profile) {
+    try {
+      const doc = await withTimeout(db.collection('users').doc(u.uid).get(), 8000);
+      if (doc.exists) profile = doc.data();
+    } catch(e) {}
+  }
+  if (profile && profile.role === 'admin') { onPucLoginSuccess(u, profile); return; }
+  if (profile) { await auth.signOut().catch(()=>{}); showLoginOverlay('⚠ Admin access only.'); return; }
+  if (msg) msg.innerHTML = '<span style="color:var(--danger);">Still cannot reach Firebase.</span> '
+    + '<button onclick="pucRetryVerify()" style="background:var(--accent);color:#000;border:none;border-radius:8px;'
+    + 'padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--mono);margin-left:6px;">↻ Retry</button>';
+}
 
 // Show/hide the typed admin password.
 function pucTogglePw() {
@@ -21590,7 +21644,12 @@ async function mrmRenderResults(body) {
 
     // Discover which IAs actually have data for this student
     const usnLow = (s.usn||'').toLowerCase();
-    const availableIAs = MR_EXAM_ORDER.filter(ia => {
+    // Order: known IA order first, then any newer exam bucket (e.g. 'Mid Term')
+    // added to INT_EXAM_KEYS later — no code change needed for those.
+    const _allExamKeys = MR_EXAM_ORDER.concat(
+      Object.keys(_intCache || {}).filter(k => !MR_EXAM_ORDER.includes(k))
+    );
+    const availableIAs = _allExamKeys.filter(ia => {
       const bucket = _intCache[ia] || {};
       return Object.values(bucket).some(arr =>
         Array.isArray(arr) && arr.some(r => (r.usn||'').toLowerCase() === usnLow)
@@ -21602,16 +21661,29 @@ async function mrmRenderResults(body) {
       _mrmSelectedIA = availableIAs[availableIAs.length - 1] || '';
     }
 
-    // Fetch this student's courses for the selected IA from _intCache
+    // Fetch this student's courses for EVERY available exam (was: only the
+    // selected one) so the table can show IA-1, IA-2 … side by side.
     let intCourses = [];
     let intDisplayClass = s.class || '—';
-    if (_mrmSelectedIA) {
-      const iaBucket = _intCache[_mrmSelectedIA] || {};
-      for (const [cls, arr] of Object.entries(iaBucket)) {
+    const _iaCourseMap = {};   // examKey -> { subjectCode: courseObj }
+    const _iaSubOrder  = [];   // subject codes, first-seen order
+    availableIAs.forEach(ia => {
+      const bucket = _intCache[ia] || {};
+      for (const [cls, arr] of Object.entries(bucket)) {
         if (!Array.isArray(arr)) continue;
         const rec = arr.find(r => (r.usn||'').toLowerCase() === usnLow);
-        if (rec) { intCourses = (rec.courses || []).filter(c => !excSubjects.has(c.code)); intDisplayClass = cls; break; }
+        if (!rec) continue;
+        const list = (rec.courses || []).filter(c => !excSubjects.has(c.code));
+        const m = {};
+        list.forEach(c => { if (c.code) { m[c.code] = c; if (!_iaSubOrder.includes(c.code)) _iaSubOrder.push(c.code); } });
+        _iaCourseMap[ia] = m;
+        if (ia === _mrmSelectedIA) { intCourses = list; intDisplayClass = cls; }
+        break;
       }
+    });
+    if (!intCourses.length && _iaSubOrder.length) {
+      const _firstIA = availableIAs.find(ia => _iaCourseMap[ia]);
+      if (_firstIA) intCourses = Object.values(_iaCourseMap[_firstIA]);
     }
 
     const _pucLabelInt = (intDisplayClass||s.class||'').toUpperCase().includes('1PUC') ? '1st PUC' : '2nd PUC';
@@ -21752,34 +21824,70 @@ async function mrmRenderResults(body) {
     <div style="overflow-x:auto;">
     <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono);">
       <thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border);">
-        <th style="text-align:left;padding:7px 10px;color:var(--muted);font-weight:600;">Subject</th>
-        <th style="text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;min-width:120px;">Faculty</th>
-        <th style="text-align:center;padding:7px 8px;color:var(--muted);font-weight:600;">${examLabel}</th>
-        <th style="text-align:center;padding:7px 8px;color:var(--muted);font-weight:600;">Result</th>
+        <th rowspan="2" style="text-align:left;padding:7px 10px;color:var(--muted);font-weight:600;vertical-align:bottom;">Subject</th>
+        <th rowspan="2" style="text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;min-width:120px;vertical-align:bottom;">Faculty</th>
+        ${availableIAs.map(ia => {
+          const sel = ia === _mrmSelectedIA;
+          return `<th colspan="2" style="text-align:center;padding:6px 8px;font-weight:700;letter-spacing:0.5px;
+            border-left:1px solid var(--border);
+            color:${sel?'#f0a500':'var(--muted)'};background:${sel?'rgba(240,165,0,0.10)':'transparent'};">
+            ${MR_EXAM_SHORT[ia]||ia}</th>`;
+        }).join('')}
+      </tr>
+      <tr style="background:var(--surface2);border-bottom:2px solid var(--border);">
+        ${availableIAs.map(ia => {
+          const sel = ia === _mrmSelectedIA;
+          const bg  = sel?'rgba(240,165,0,0.06)':'transparent';
+          return `<th style="text-align:center;padding:5px 8px;color:var(--muted);font-weight:600;font-size:9px;border-left:1px solid var(--border);background:${bg};">Marks</th>
+                  <th style="text-align:center;padding:5px 8px;color:var(--muted);font-weight:600;font-size:9px;background:${bg};">Result</th>`;
+        }).join('')}
       </tr></thead><tbody>`;
 
-    intCourses.forEach((c, idx) => {
-      const subName = getSubName(c.code);
-      const facName = _resolveSubjectFaculty(intDisplayClass, c.code) || c.faculty || '—';
-      const v       = c.marks?.[examKey];
-      const isAB    = v===undefined||v===null||v==='AB';
-      const num     = !isAB&&!isNaN(Number(v))?Number(v):null;
-      const pass    = num!==null&&num>=passMark;
-      const clr     = isAB?'var(--muted)':pass?'#22c55e':'#ef4444';
+    // Row per subject — union of subjects across all exams, so a subject that
+    // only appears in a later test still gets a row.
+    const _rowCodes = _iaSubOrder.length ? _iaSubOrder : intCourses.map(c => c.code);
+    _rowCodes.forEach((code, idx) => {
+      const anyC    = (_iaCourseMap[_mrmSelectedIA] && _iaCourseMap[_mrmSelectedIA][code])
+                    || availableIAs.map(ia => _iaCourseMap[ia] && _iaCourseMap[ia][code]).find(Boolean)
+                    || { code };
+      const subName = getSubName(code);
+      const facName = _resolveSubjectFaculty(intDisplayClass, code) || anyC.faculty || '—';
       const rowBg   = idx%2===0?'transparent':'rgba(255,255,255,0.02)';
+
+      let cells = '';
+      availableIAs.forEach(ia => {
+        const sel = ia === _mrmSelectedIA;
+        const bg  = sel?'rgba(240,165,0,0.06)':'transparent';
+        const cc  = _iaCourseMap[ia] && _iaCourseMap[ia][code];
+        if (!cc) {
+          cells += `<td style="text-align:center;padding:6px 8px;color:var(--muted);border-left:1px solid var(--border);background:${bg};">—</td>
+                    <td style="text-align:center;padding:6px 8px;color:var(--muted);background:${bg};">—</td>`;
+          return;
+        }
+        const v     = cc.marks?.[ia];
+        const isAB  = v===undefined||v===null||v==='AB';
+        const num   = !isAB&&!isNaN(Number(v))?Number(v):null;
+        const pass  = num!==null&&num>=passMark;
+        const clr   = isAB?'var(--muted)':pass?'#22c55e':'#ef4444';
+        cells += `<td style="text-align:center;padding:6px 8px;color:${clr};font-weight:700;border-left:1px solid var(--border);background:${bg};">${isAB?'AB':v}</td>
+                  <td style="text-align:center;padding:6px 8px;color:${clr};font-weight:700;font-size:10px;background:${bg};">${isAB?'AB':pass?'PASS':'FAIL'}</td>`;
+      });
+
       html += `<tr style="background:${rowBg};border-bottom:1px solid var(--border);">
-        <td style="padding:6px 10px;border-right:1px solid var(--border);max-width:160px;" title="${subName} (${c.code})">
+        <td style="padding:6px 10px;border-right:1px solid var(--border);max-width:160px;" title="${subName} (${code})">
           <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);">${subName}</div>
-          <div style="font-size:9px;color:var(--muted);margin-top:1px;">${c.code||''}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:1px;">${code||''}</div>
         </td>
         <td style="padding:6px 8px;border-right:1px solid var(--border);color:#f0a500;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;" title="${facName}">${facName}</td>
-        <td style="text-align:center;padding:6px 8px;color:${clr};font-weight:700;">${isAB?'AB':v}</td>
-        <td style="text-align:center;padding:6px 8px;color:${clr};font-weight:700;">${isAB?'AB':pass?'PASS':'FAIL'}</td>
+        ${cells}
       </tr>`;
     });
 
     html += `</tbody></table></div>
-    <div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-top:8px;">Pass mark: ${passMark}</div>
+    <div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-top:8px;">
+      Pass mark: ${passMark} · showing ${availableIAs.length} test${availableIAs.length===1?'':'s'} side by side —
+      summary tiles &amp; rank above are for <span style="color:#f0a500;">${examLabel}</span> (change with the dropdown).
+    </div>
     <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
       <button onclick="mrmSendWhatsApp('result')" style="background:#25d366;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:11px;cursor:pointer;font-family:var(--mono);font-weight:700;">WhatsApp Results</button>
     </div>`;
@@ -21958,7 +22066,7 @@ async function mrmGetClassSnaps(ayKey, classLabel, FB_URL) {
   if (_mrmDailyCache[cacheKey]) return _mrmDailyCache[cacheKey];
 
   // Shallow fetch for date keys, then parallel fetch for this class only
-  const _fbIdTok = await firebase.auth().currentUser?.getIdToken();
+  const _fbIdTok = await auth.currentUser?.getIdToken();
   const _shallowR = await fetch(`${FB_URL}/puc_daily/${ayKey}.json?shallow=true&auth=${_fbIdTok}`);
   const _shallowV = await _shallowR.json();
   if (!_shallowV || _shallowV.error) throw new Error('No daily snapshots found for AY ' + ayKey);
@@ -25014,7 +25122,7 @@ function flRender() {
     return;
   }
 
-  const uid  = firebase.auth().currentUser?.uid || '';
+  const uid  = auth.currentUser?.uid || '';
   const role = currentProfile?.role || '';
   const isPower = FL_POWER_ROLES.includes(role);
 
@@ -25291,7 +25399,7 @@ async function flSaveRecord() {
   const dtRaw     = document.getElementById('fl-datetime')?.value   || new Date().toISOString();
   const meetingDt = new Date(dtRaw).toISOString();
   const now       = new Date().toISOString();
-  const uid       = firebase.auth().currentUser?.uid || '';
+  const uid       = auth.currentUser?.uid || '';
 
   // Auto-close?
   const autoClose = FL_AUTO_CLOSE_OUTCOMES.includes(outcome);
@@ -25392,7 +25500,7 @@ async function flSaveRecord() {
 function flEditRecord(urn, id) {
   const record = _flAllRecords.find(r => r.id === id && r.urn === urn);
   if (!record) { dvToast('Record not found.', 'warn'); return; }
-  const uid  = firebase.auth().currentUser?.uid || '';
+  const uid  = auth.currentUser?.uid || '';
   const role = currentProfile?.role || '';
   if (!FL_POWER_ROLES.includes(role) && record.spokenById !== uid) {
     dvToast('You can only edit records you created.', 'warn'); return;
@@ -25402,7 +25510,7 @@ function flEditRecord(urn, id) {
 
 // ── Delete record ──
 async function flDeleteRecord(urn, id) {
-  const uid  = firebase.auth().currentUser?.uid || '';
+  const uid  = auth.currentUser?.uid || '';
   const role = currentProfile?.role || '';
   const record = _flAllRecords.find(r => r.id === id && r.urn === urn);
   if (!record) { dvToast('Record not found.', 'warn'); return; }
@@ -25457,7 +25565,7 @@ async function flDoCloseToken() {
   const remark = document.getElementById('fl-close-remarks')?.value?.trim() || '';
   if (!remark) { dvToast('Please add a resolution note before closing.', 'warn'); return; }
 
-  const uid  = firebase.auth().currentUser?.uid || '';
+  const uid  = auth.currentUser?.uid || '';
   const now  = new Date().toISOString();
 
   try {
@@ -25741,7 +25849,7 @@ function ciRender() {
     wrap.innerHTML = '<div class="empty"><div class="empty-icon">🏫</div>No class issues match your filters.</div>';
     return;
   }
-  const uid      = firebase.auth().currentUser?.uid || '';
+  const uid      = auth.currentUser?.uid || '';
   const role     = currentProfile?.role || '';
   const isPower  = CI_POWER_ROLES.includes(role);
 
@@ -25908,7 +26016,7 @@ async function ciSaveIssue() {
   const escalateDirector = document.getElementById('ci-escalate-director')?.checked || false;
   const dtRaw     = document.getElementById('ci-datetime')?.value  || new Date().toISOString();
   const raisedAt  = new Date(dtRaw).toISOString();
-  const uid       = firebase.auth().currentUser?.uid || '';
+  const uid       = auth.currentUser?.uid || '';
   const now       = new Date().toISOString();
 
   const issue = {
@@ -25956,7 +26064,7 @@ async function ciSaveIssue() {
 function ciEditIssue(id) {
   const issue = _ciAllIssues.find(r => r.id === id);
   if (!issue) { dvToast('Issue not found.', 'warn'); return; }
-  const uid  = firebase.auth().currentUser?.uid || '';
+  const uid  = auth.currentUser?.uid || '';
   const role = currentProfile?.role || '';
   if (!CI_POWER_ROLES.includes(role) && issue.raisedById !== uid) {
     dvToast('You can only edit issues you raised.', 'warn'); return;
@@ -25968,7 +26076,7 @@ function ciEditIssue(id) {
 async function ciDeleteIssue(id) {
   const issue = _ciAllIssues.find(r => r.id === id);
   if (!issue) { dvToast('Issue not found.', 'warn'); return; }
-  const uid  = firebase.auth().currentUser?.uid || '';
+  const uid  = auth.currentUser?.uid || '';
   const role = currentProfile?.role || '';
   if (!CI_POWER_ROLES.includes(role) && issue.raisedById !== uid) {
     dvToast('You can only delete issues you raised.', 'warn'); return;
@@ -26013,7 +26121,7 @@ async function ciDoCloseToken() {
     dvToast('Only admin, manager, or VP can close class issue tokens.', 'warn'); return;
   }
 
-  const uid = firebase.auth().currentUser?.uid || '';
+  const uid = auth.currentUser?.uid || '';
   const now = new Date().toISOString();
   const issue = _ciAllIssues.find(r => r.id === id);
   if (!issue) { dvToast('Issue not found.', 'error'); return; }
@@ -28843,7 +28951,7 @@ async function pucSessInit() {
 // Firestore so this only needs to run once per segment.
 async function pucSessBackfillStartDates() {
   const FB_URL = 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app';
-  const _fbIdTok = await firebase.auth().currentUser?.getIdToken();
+  const _fbIdTok = await auth.currentUser?.getIdToken();
   const _shallowR = await fetch(`${FB_URL}/puc_daily/${SP_AY_KEY}.json?shallow=true&auth=${_fbIdTok}`);
   const _shallowV = await _shallowR.json();
   if (!_shallowV || _shallowV.error) return;
