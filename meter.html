@@ -2095,6 +2095,27 @@
       <span style="color:var(--yellow)">✓ Daily usage prediction</span>
     </div>
   </div>
+
+  <div class="settings-card">
+    <div class="settings-title">🔍 DB Inspector <span style="font-size:10px;color:var(--muted);font-weight:normal">(read-only)</span></div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:8px">
+      View the raw data actually stored in Firebase — useful to confirm what synced (e.g. whether a charge session is really saved). This only READS; it never writes or deletes.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;margin-bottom:8px">
+      <select id="dbInspectPath" style="padding:8px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:12px">
+        <option value="charging/sessions">charging/sessions (charge log)</option>
+        <option value="charging/active">charging/active (live charge)</option>
+        <option value="charging">charging (all EV data)</option>
+        <option value="electric">electric (readings)</option>
+        <option value="water">water</option>
+        <option value="">ROOT (everything)</option>
+      </select>
+      <button onclick="dbInspectFetch()" style="padding:8px 14px;background:var(--accent);color:#04121f;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Fetch</button>
+    </div>
+    <div id="dbInspectMeta" style="font-size:10px;color:var(--muted);margin-bottom:4px"></div>
+    <pre id="dbInspectOut" style="max-height:340px;overflow:auto;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:10px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-word;margin:0">Pick a path and tap Fetch.</pre>
+    <button onclick="dbInspectCopy()" style="margin-top:8px;padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;cursor:pointer">Copy JSON</button>
+  </div>
 </div>
 
 <!-- EDIT READING MODAL -->
@@ -2547,7 +2568,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.10.9"; // After saving a reading in Add New Reading, the app now jumps straight to the Daily tab. Plus all v2.10.8 fixes: between-charges data fix (single odometer per charge), per-day AppU/day snapshot, collapsible legends.
+const APP_VERSION = "v2.10.14"; // Added a "power consumed per charge" summary to the Range & Efficiency panel: average units/charge (kWh), ≈₹/charge, last charge's units (marked est if no meter reading), and total units across all charges with a meter-measured vs estimated count. Units come from endMeter−startMeter where available, else added%×units-per-%. + one-row-per-charge table, merge write-guard, DB Inspector, and all prior fixes.
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -8167,10 +8188,91 @@ let _chgTarget80 = null;  // ms timestamp — predicted 80% time, or null if alr
 let _chgTargetFull = null; // ms timestamp — predicted target% time
 let _chgTargetTTC = null;  // ms timestamp — scooter-dashboard-implied ETA, or null if no TTC entered
 
-function chgSave() {
-  fbSet(FB_CHARGING + '/sessions', chgSessions);
-  fbSet(FB_CHARGING + '/active', chgActive || null);
+// ── DB Inspector (read-only): fetch and pretty-print raw Firebase data ──
+let _dbInspectLast = '';
+async function dbInspectFetch() {
+  const sel = document.getElementById('dbInspectPath');
+  const out = document.getElementById('dbInspectOut');
+  const meta = document.getElementById('dbInspectMeta');
+  if (!sel || !out) return;
+  const sub = sel.value;
+  const path = sub ? (FB_ROOT + '/' + sub) : FB_ROOT;
+  out.textContent = 'Fetching ' + path + ' …';
+  meta.textContent = '';
+  try {
+    const val = await fbGet(path);
+    if (val == null) {
+      out.textContent = '(empty — nothing stored at this path)';
+      _dbInspectLast = '';
+      meta.textContent = path;
+      return;
+    }
+    // If it's an array-like (sessions), show a quick count + the JSON
+    let count = '';
+    if (Array.isArray(val)) count = val.length + ' items';
+    else if (typeof val === 'object') count = Object.keys(val).length + ' keys';
+    const json = JSON.stringify(val, null, 2);
+    _dbInspectLast = json;
+    out.textContent = json;
+    meta.textContent = path + (count ? '  ·  ' + count : '') + '  ·  fetched ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    out.textContent = 'Error: ' + (e && e.message ? e.message : e) + '\n(If TIMEOUT, check your connection and try again.)';
+    _dbInspectLast = '';
+  }
 }
+function dbInspectCopy() {
+  if (!_dbInspectLast) { showToast('Nothing to copy — fetch first', true); return; }
+  navigator.clipboard.writeText(_dbInspectLast)
+    .then(() => showToast('📋 JSON copied'))
+    .catch(() => showToast('Copy failed', true));
+}
+
+async function chgSave() {
+  // WRITE-GUARD against stale-copy data loss: before overwriting the sessions list, re-read
+  // what's currently in Firebase and MERGE by session id. This way a copy of the app that
+  // loaded older data can never erase sessions that another copy already added. We union the
+  // remote list with our in-memory list; for ids in both, we keep the more-complete record
+  // (the one that has an endPct — i.e. a finished charge — wins over an unfinished duplicate).
+  try {
+    const remote = await fbGet(FB_CHARGING + '/sessions');
+    const remoteArr = Array.isArray(remote) ? remote : (remote ? Object.values(remote) : []);
+    const byId = new Map();
+    const key = s => s && (s.id != null ? String(s.id) : (s.date + '|' + s.startTime));
+    // seed with remote (existing truth), skipping anything the user just deleted
+    remoteArr.forEach(s => { if (s && !_chgDeletedKeys.has(key(s))) byId.set(key(s), s); });
+    // overlay our in-memory list; prefer the record that is "more complete"
+    chgSessions.forEach(s => {
+      if (!s || _chgDeletedKeys.has(key(s))) return;
+      const k = key(s);
+      const prev = byId.get(k);
+      if (!prev) { byId.set(k, s); return; }
+      // choose the better of the two: finished (has endPct) and/or richer object
+      const score = x => (x.endPct != null ? 2 : 0) + (x.endMeter != null ? 1 : 0) + Object.keys(x).length * 0.001;
+      byId.set(k, score(s) >= score(prev) ? s : prev);
+    });
+    const merged = Array.from(byId.values())
+      .sort((a, b) => (a.ts || Date.parse(a.date + 'T' + (a.startTime||'00:00')))
+                    - (b.ts || Date.parse(b.date + 'T' + (b.startTime||'00:00'))));
+    // guard: never write a list SHORTER than what's already stored unless it's an explicit delete
+    if (merged.length < remoteArr.length && !_chgAllowShrink) {
+      console.warn('chgSave guard: merged list shorter than remote; keeping remote to avoid data loss.');
+      chgSessions = merged.length >= chgSessions.length ? merged : remoteArr.slice();
+    } else {
+      chgSessions = merged;
+    }
+    _chgAllowShrink = false;
+    await fbSet(FB_CHARGING + '/sessions', chgSessions);
+    try { renderCharging(); } catch(e){}  // reflect any merged-in remote sessions
+  } catch (e) {
+    console.error('chgSave merge failed, writing local as fallback:', e);
+    await fbSet(FB_CHARGING + '/sessions', chgSessions);
+  }
+  await fbSet(FB_CHARGING + '/active', chgActive || null);
+}
+// set true immediately before a deliberate delete so the shrink-guard allows it once
+let _chgAllowShrink = false;
+// keys the user explicitly deleted this session — the merge won't resurrect them from remote
+const _chgDeletedKeys = new Set();
 
 // Parse "h:mm" or "hh-mm" or minutes → total minutes. Returns null if blank/invalid.
 function chgParseTTC(s) {
@@ -8380,40 +8482,45 @@ function logKm() {
 // Each charge contributes a plug-in (⚡) and unplug (🏁) odometer reading; the live active
 // charge adds a final plug-in; manual "+ Log" notes are merged in. Sorted oldest→newest.
 function chgBuildReadings() {
+  // ONE row per charge (cleanest). Odometer = plug-in reading (startOdo); the scooter can't move
+  // while charging so unplug shares it. We carry BOTH battery %s on the row:
+  //   pct     = plug-in % (low, what you rode down TO)
+  //   pctEnd  = charged-up % (high, what you rode away ON)  [falls back to pct if no end]
+  // A ride between charges = earlier charge's pctEnd → next charge's pct, over the odo gap.
   const readings = [];
   chgSessions.forEach((s, si) => {
+    if (s.startOdo == null) return;
     const baseTs = s.ts || Date.parse((s.date||'') + 'T' + (s.startTime||'00:00')) || 0;
-    if (s.startOdo != null) readings.push({
-      km: s.startOdo, pct: s.startPct, date: s.date, time: s.startTime,
-      ts: baseTs, type: 'charge_start', src: 'session', si
-    });
-    // Unplug row: the scooter can't move while charging, so the odometer is the SAME as plug-in
-    // (startOdo). We ignore any stored endOdo (legacy data sometimes has it wrong/lower). Only the
-    // battery % changes (endPct = charged-up level).
-    if (s.startOdo != null && s.endPct != null) readings.push({
-      km: s.startOdo, pct: s.endPct, date: s.date, time: s.endTime || s.startTime,
-      ts: (Date.parse((s.date||'') + 'T' + (s.endTime||s.startTime||'00:00')) || baseTs) + 1,
-      type: 'charge_end', src: 'session', si
+    readings.push({
+      km: s.startOdo,
+      pct: s.startPct,
+      pctEnd: (s.endPct != null ? s.endPct : s.startPct),
+      date: s.date, time: s.startTime,
+      endTime: s.endTime || null,
+      ts: baseTs, type: 'charge', src: 'session', si
     });
   });
   if (chgActive && chgActive.startOdo != null) readings.push({
-    km: chgActive.startOdo, pct: chgActive.startPct, date: chgActive.date, time: chgActive.startTime,
-    ts: chgActive.ts || Date.now(), type: 'charge_start', src: 'live'
+    km: chgActive.startOdo, pct: chgActive.startPct, pctEnd: chgActive.startPct,
+    date: chgActive.date, time: chgActive.startTime,
+    ts: chgActive.ts || Date.now(), type: 'charge', src: 'live'
   });
-  chgKmLog.forEach((r, ki) => readings.push({ ...r, src: 'manual', ki }));
+  // manual ad-hoc odometer notes stay as their own single rows
+  chgKmLog.forEach((r, ki) => readings.push({ ...r, pctEnd: (r.pctEnd != null ? r.pctEnd : r.pct), src: 'manual', ki }));
   readings.sort((a, b) => (a.ts||0) - (b.ts||0));
   return readings;
 }
 
 // ── SHARED: find the most recent real ride (odometer rose & battery fell). ──
-// Returns {a, b} where a = earlier reading (higher %), b = later reading (higher km). Or null.
+// Ride = earlier charge's charged-up % (pctEnd) → later reading's % (pct), over rising odometer.
 function chgFindLatestRide(readings) {
   const valid = readings.filter(r => r.km != null && r.pct != null);
   for (let i = valid.length - 1; i >= 1; i--) {
     const b = valid[i];
     for (let j = i - 1; j >= 0; j--) {
       const a = valid[j];
-      if (b.km - a.km > 0 && a.pct - b.pct > 0) return { a, b };
+      const aPct = (a.pctEnd != null ? a.pctEnd : a.pct);  // rode away on the charged-up level
+      if (b.km - a.km > 0 && aPct - b.pct > 0) return { a, b, aPct };
       if (a.km > b.km) break;
     }
   }
@@ -8426,7 +8533,8 @@ function chgAllRides(readings) {
   const rides = [];
   for (let i = 1; i < valid.length; i++) {
     const a = valid[i-1], b = valid[i];
-    if (b.km - a.km > 0 && a.pct - b.pct > 0) rides.push({ km: b.km - a.km, pct: a.pct - b.pct });
+    const aPct = (a.pctEnd != null ? a.pctEnd : a.pct);   // rode away on the charged-up level
+    if (b.km - a.km > 0 && aPct - b.pct > 0) rides.push({ km: b.km - a.km, pct: aPct - b.pct });
   }
   return rides;
 }
@@ -8443,7 +8551,7 @@ function renderChgKm() {
   const allRides = chgAllRides(readings);
 
   const rideKm  = ride ? (ride.b.km - ride.a.km) : null;
-  const ridePct = ride ? (ride.a.pct - ride.b.pct) : null;
+  const ridePct = ride ? ((ride.aPct != null ? ride.aPct : ride.a.pct) - ride.b.pct) : null;
   const kmPerPct = (rideKm != null && ridePct > 0) ? rideKm / ridePct : null;
   const fullRange = kmPerPct != null ? kmPerPct * 100 : null;
 
@@ -8465,14 +8573,33 @@ function renderChgKm() {
     return;
   }
 
+  // ── Power consumed per charge (BESCOM units = kWh) ──
+  // Meter-measured where available (endMeter − startMeter), else estimated from % added.
+  const powered = chgSessions.filter(s => s.units != null && s.units > 0);
+  let powerHtml = '';
+  if (powered.length) {
+    const totUnits = powered.reduce((a, s) => a + s.units, 0);
+    const avgUnits = totUnits / powered.length;
+    const totCost = powered.reduce((a, s) => a + (s.cost != null ? s.cost : s.units * chgUnitCost()), 0);
+    const measured = powered.filter(s => s.unitsMeter != null).length;
+    const lastP = powered[powered.length - 1];
+    powerHtml =
+      `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.08)">
+        <div>🔋 Power per charge: avg <b style="color:var(--accent)">${avgUnits.toFixed(2)}</b> units <span style="color:var(--muted)">(≈ ₹${(totCost/powered.length).toFixed(2)}/charge)</span></div>
+        <div>🔌 Last charge used <b style="color:var(--accent)">${lastP.units.toFixed(2)}</b> units${lastP.unitsMeter==null?' <span style="color:var(--muted)">(est)</span>':''} <span style="color:var(--muted)">on ${fmtDM(lastP.date)}</span></div>
+        <div style="color:var(--muted);font-size:11px;margin-top:2px">total ${totUnits.toFixed(1)} units over ${powered.length} charges · ${measured} meter-measured, ${powered.length-measured} estimated</div>
+      </div>`;
+  }
+
   body.innerHTML =
-    `<div>📍 Latest: <b>${latest.km}</b> km${latest.pct!=null?' @ <b>'+latest.pct+'%</b>':''} <span style="color:var(--muted)">(${fmtDM(latest.date)} ${latest.time||''}${latest.src==='live'?' · charging now':''})</span></div>` +
+    `<div>📍 Latest: <b>${latest.km}</b> km${(latest.pctEnd!=null?latest.pctEnd:latest.pct)!=null?' @ <b>'+(latest.pctEnd!=null?latest.pctEnd:latest.pct)+'%</b>':''} <span style="color:var(--muted)">(${fmtDM(latest.date)} ${latest.time||''}${latest.src==='live'?' · charging now':''})</span></div>` +
     (kmPerPct != null
       ? `<div>🛣 Real efficiency (latest ride): <b style="color:var(--green)">${kmPerPct.toFixed(2)}</b> km per 1%</div>
          <div>🔋 Real full range: ~<b style="color:var(--green)">${Math.round(fullRange)}</b> km <span style="color:var(--muted)">(vs 151 claimed)</span></div>
          <div>💰 Cost to ride: ~<b style="color:var(--accent)">₹${costPerKm.toFixed(2)}</b> per km <span style="color:var(--muted)">(petrol ~₹2.5–3)</span></div>
          <div style="color:var(--muted);font-size:11px;margin-top:2px">latest ride: ${Math.round(rideKm)} km over ${Math.round(ridePct)}%${allRides.length > 1 && avgKmPerPct != null ? ` · lifetime avg <b style="color:var(--green)">${avgKmPerPct.toFixed(2)}</b> km/% over ${allRides.length} rides` : ''}</div>`
-      : '<div style="color:var(--muted);font-size:11px;margin-top:2px">Log at least two charges (with odometer + % at plug-in and unplug) to compute efficiency from your rides.</div>');
+      : '<div style="color:var(--muted);font-size:11px;margin-top:2px">Log at least two charges (with odometer + % at plug-in and unplug) to compute efficiency from your rides.</div>')
+    + powerHtml;
 }
 
 // Format an hour gap as "2d 12h" / "5h" / "40m" / "just now".
@@ -8510,27 +8637,31 @@ function renderChgKmLog() {
     readings.slice().reverse().forEach((r, i) => {
       const idx = readings.length - 1 - i;      // real index in merged readings
       const prev = idx > 0 ? readings[idx-1] : null;
+      const rowPct = (r.pctEnd != null ? r.pctEnd : r.pct); // charged-up level = what you rode away on
+      const prevPct = prev ? (prev.pctEnd != null ? prev.pctEnd : prev.pct) : null;
       const dKm = prev ? +(r.km - prev.km).toFixed(1) : null;
-      const dPct = (prev && r.pct != null && prev.pct != null) ? +(r.pct - prev.pct).toFixed(2) : null;
-      const kmPerPct = (dKm != null && dPct != null && dPct < 0 && dKm > 0) ? +(dKm/(-dPct)).toFixed(2) : null;
+      const dPct = (prev && rowPct != null && prevPct != null) ? +(rowPct - prevPct).toFixed(2) : null;
+      // km/% for the ride INTO this charge = km since last charge ÷ (last charged-up % − this plug-in %)
+      const rideDrop = (prev && prevPct != null && r.pct != null) ? +(prevPct - r.pct).toFixed(2) : null;
+      const kmPerPct = (dKm != null && rideDrop != null && rideDrop > 0 && dKm > 0) ? +(dKm/rideDrop).toFixed(2) : null;
       const gapH = prev ? ((r.ts - prev.ts)/3600000) : null;
       const gapTxt = fmtGapDH(gapH);
-      const tagTxt = r.type === 'charge_start' ? '⚡ start' : r.type === 'charge_end' ? '🏁 end' : '<span style="'+mut+'">·</span>';
+      const tagTxt = (r.type && r.type.indexOf('charge')===0) ? '⚡ charge' : '<span style="'+mut+'">·</span>';
       const dateLbl = r.date ? fmtDM(r.date) : '–';
 
-      const dKmExp = prev ? exp('\u0394km', dateLbl, r.km + ' \u2212 ' + prev.km + ' (prev reading) = <b>' + (dKm>0?'+':'')+dKm + ' km</b>') : null;
-      const dPctExp = (prev && dPct != null) ? exp('\u0394%', dateLbl, (r.pct!=null?r.pct:'–') + '% \u2212 ' + (prev.pct!=null?prev.pct:'–') + '% (prev reading) = <b>' + (dPct>0?'+':'')+dPct + '%</b>') : null;
-      const kmPctExp = kmPerPct != null ? exp('km/%', dateLbl, Math.abs(dKm) + ' km ridden \u00f7 ' + Math.abs(dPct) + '% battery used = <b>' + kmPerPct + ' km per 1%</b><br>(only computed when km rose &amp; % dropped between readings \u2014 real riding)') : null;
-      const gapExp = prev ? exp('gap', dateLbl, 'Time between this reading and the previous one: <b>' + gapTxt + '</b>') : null;
+      const dKmExp = prev ? exp('\u0394km', dateLbl, r.km + ' \u2212 ' + prev.km + ' (prev charge) = <b>' + (dKm>0?'+':'')+dKm + ' km ridden</b>') : null;
+      const dPctExp = (prev && dPct != null) ? exp('\u0394%', dateLbl, 'Charged-up level vs previous charge: <b>' + (dPct>0?'+':'')+dPct + '%</b>') : null;
+      const kmPctExp = kmPerPct != null ? exp('km/%', dateLbl, dKm + ' km ridden \u00f7 ' + rideDrop + '% used (rode from ' + prevPct + '% down to ' + r.pct + '% at this plug-in) = <b>' + kmPerPct + ' km per 1%</b>') : null;
+      const gapExp = prev ? exp('gap', dateLbl, 'Time since the previous charge: <b>' + gapTxt + '</b>') : null;
 
       rows += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
         ${cell(idx+1, mut)}
         ${cell(dateLbl)}
         ${cell(r.time || '–')}
-        ${cell(tagTxt, r.type === 'charge_start' ? 'color:var(--green)' : r.type === 'charge_end' ? 'color:var(--yellow)' : '')}
+        ${cell(tagTxt, (r.type && r.type.indexOf('charge')===0) ? 'color:var(--green)' : '')}
         ${cell(r.km, teal)}
-        ${cell(r.pct != null ? r.pct : '–')}
-        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${dKm!=null?(dKm<0?'color:#5dcaa5':mut):mut}${dKmExp?(';'+tapCss):''}" ${dKmExp?('onclick="'+dKmExp+'"'):''}>${dKm != null ? (dKm>0?'+':'')+dKm : '–'}</td>
+        ${cell(rowPct != null ? rowPct : '–')}
+        <td style="padding:4px 8px;text-align:right;white-space:nowrap;${dKm!=null?(dKm>0?'color:#5dcaa5':mut):mut}${dKmExp?(';'+tapCss):''}" ${dKmExp?('onclick="'+dKmExp+'"'):''}>${dKm != null ? (dKm>0?'+':'')+dKm : '–'}</td>
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut}${dPctExp?(';'+tapCss):''}" ${dPctExp?('onclick="'+dPctExp+'"'):''}>${dPct != null ? (dPct>0?'+':'')+dPct : '–'}</td>
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${kmPerPct!=null?teal:mut}${kmPctExp?(';'+tapCss):''}" ${kmPctExp?('onclick="'+kmPctExp+'"'):''}>${kmPerPct != null ? kmPerPct : '–'}</td>
         <td style="padding:4px 8px;text-align:right;white-space:nowrap;${mut}${gapExp?(';'+tapCss):''}" ${gapExp?('onclick="'+gapExp+'"'):''}>${gapTxt}</td>
@@ -8544,7 +8675,8 @@ function renderChgKmLog() {
 
   // Reusable: turn a ride (from-reading a → to-reading b) into an explained paragraph.
   const describeRide = (a, b, title, accent) => {
-    const km = b.km - a.km, pct = a.pct - b.pct;
+    const aPct = (a.pctEnd != null ? a.pctEnd : a.pct);  // rode away on the charged-up level
+    const km = b.km - a.km, pct = aPct - b.pct;
     if (!(km > 0 && pct > 0)) return '';
     const kmPerPct = km / pct;
     const costPerPct = chgUnitsPerPct() * chgUnitCost();
@@ -8557,7 +8689,7 @@ function renderChgKmLog() {
     return `<div style="padding:10px 12px;margin-top:8px;background:rgba(93,202,165,0.06);border-radius:8px;line-height:1.7;font-size:12px">
         <div style="color:${accent};font-weight:600;margin-bottom:4px">${title}</div>
         <div>From <b>${fmtDM(a.date)} ${a.time||''}</b> to <b>${fmtDM(b.date)} ${b.time||''}</b>${gapTxt?' (about '+gapTxt+' apart)':''}, the odometer went from <b>${a.km} km</b> to <b>${b.km} km</b> — that's <b style="color:var(--green)">${km.toFixed(1)} km ridden</b>.</div>
-        <div>Over that ride the battery dropped from <b>${a.pct}%</b> to <b>${b.pct}%</b>, so you used <b style="color:var(--yellow)">${pct}% of charge</b> to cover those ${km.toFixed(1)} km.</div>
+        <div>Over that ride the battery dropped from <b>${aPct}%</b> to <b>${b.pct}%</b>, so you used <b style="color:var(--yellow)">${pct}% of charge</b> to cover those ${km.toFixed(1)} km.</div>
         <div>That works out to <b style="color:var(--green)">${kmPerPct.toFixed(2)} km per 1%</b> of battery — a real full-charge range of about <b style="color:var(--green)">${Math.round(range100)} km</b>.</div>
         <div>In power terms that's roughly <b>${unitsUsed.toFixed(2)} units</b> of electricity (≈ <b style="color:var(--accent)">₹${totalCost.toFixed(2)}</b> total), which comes to about <b style="color:var(--accent)">₹${costPerKm.toFixed(2)} per km</b> to ride — versus ₹2.5–3 per km on a petrol scooter.</div>
       </div>`;
@@ -8566,16 +8698,16 @@ function renderChgKmLog() {
   // SUMMARY 1 — Latest full ride between two charges (shared finder, same as summary panel).
   const ride1 = chgFindLatestRide(valid);
 
-  // SUMMARY 2 — Since last charge: from the most recent charge unplug/plug-in up to the newest
-  // MANUAL reading logged after it. Only shows when you've glanced at the dashboard mid-cycle.
+  // SUMMARY 2 — Since last charge: from the most recent charge up to the newest MANUAL reading
+  // logged after it. Only shows when you've glanced at the dashboard mid-cycle.
   let ride2 = null;
   const lastManual = [...valid].reverse().find(r => r.src === 'manual');
   if (lastManual) {
-    // find the newest charge reading strictly before the manual one, with higher %
     const before = valid.filter(r => r.src !== 'manual' && (r.ts||0) < (lastManual.ts||0));
     for (let k = before.length - 1; k >= 0; k--) {
       const a = before[k];
-      if (lastManual.km - a.km > 0 && a.pct - lastManual.pct > 0) { ride2 = { a, b: lastManual }; break; }
+      const aPct = (a.pctEnd != null ? a.pctEnd : a.pct);
+      if (lastManual.km - a.km > 0 && aPct - lastManual.pct > 0) { ride2 = { a, b: lastManual }; break; }
       if (a.km > lastManual.km) break;
     }
   }
@@ -8596,7 +8728,7 @@ function renderChgKmLog() {
          <b style="${teal}">#</b><span style="${mut}">Serial number of the reading</span>
          <b style="${teal}">Date</b><span style="${mut}">Date the reading was taken</span>
          <b style="${teal}">Time</b><span style="${mut}">Time the reading was taken</span>
-         <b style="${teal}">Tag</b><span style="${mut}">Entry type — ⚡ charge start, 🏁 charge end, · normal reading</span>
+         <b style="${teal}">Tag</b><span style="${mut}">⚡ charge = a charge session (one row each), · = manual dashboard note</span>
          <b style="${teal}">km</b><span style="${mut}">Odometer reading (total distance on scooter)</span>
          <b style="${teal}">%</b><span style="${mut}">Battery level at that moment</span>
          <b style="${teal}">Δkm</b><span style="${mut}">Distance ridden since the previous reading</span>
@@ -8737,14 +8869,17 @@ function deleteKmReading() {
 }
 
 // ── Riding analytics — all six, each self-guards until it has enough data ──
+// Uses the SAME shared readings as everything else (odometer rises as you ride, % falls).
 function chgRidingSegments() {
-  // consecutive readings where km dropped (riding). Requires both readings to have ts.
+  // consecutive readings where the odometer ROSE (riding) with a real time gap.
+  const readings = chgBuildReadings().filter(r => r.km != null && r.ts);
   const segs = [];
-  for (let i = 1; i < chgKmLog.length; i++) {
-    const a = chgKmLog[i-1], b = chgKmLog[i];
-    if (a.km > b.km) {
-      const kmUsed = a.km - b.km;
+  for (let i = 1; i < readings.length; i++) {
+    const a = readings[i-1], b = readings[i];
+    if (b.km > a.km) {                       // odometer went up = distance ridden
+      const kmUsed = b.km - a.km;
       const hrs = (b.ts - a.ts) / 3600000;
+      // battery fell while riding (a.pct high after charge → b.pct lower at next plug-in)
       const pctUsed = (a.pct != null && b.pct != null && a.pct > b.pct) ? a.pct - b.pct : null;
       segs.push({ kmUsed, hrs, pctUsed, from: a, to: b });
     }
@@ -8752,11 +8887,12 @@ function chgRidingSegments() {
   return segs;
 }
 function chgIdleSegments() {
-  // consecutive readings where km did NOT drop but % dropped and no charge (parked drain)
+  // consecutive readings where the odometer did NOT change but % dropped (parked vampire drain).
+  const readings = chgBuildReadings().filter(r => r.km != null && r.ts);
   const segs = [];
-  for (let i = 1; i < chgKmLog.length; i++) {
-    const a = chgKmLog[i-1], b = chgKmLog[i];
-    if (b.km >= a.km && a.pct != null && b.pct != null && b.pct < a.pct) {
+  for (let i = 1; i < readings.length; i++) {
+    const a = readings[i-1], b = readings[i];
+    if (b.km === a.km && a.pct != null && b.pct != null && b.pct < a.pct) {
       const hrs = (b.ts - a.ts) / 3600000;
       if (hrs > 0.5) segs.push({ pctLost: a.pct - b.pct, hrs });
     }
@@ -8767,6 +8903,7 @@ function chgIdleSegments() {
 function renderChgAnalytics() {
   const el = document.getElementById('chgAnalyticsBody');
   if (!el) return;
+  const readings = chgBuildReadings().filter(r => r.km != null && r.ts);
   const ride = chgRidingSegments().filter(s => s.hrs > 0);
   const idle = chgIdleSegments();
   const lines = [];
@@ -8776,8 +8913,7 @@ function renderChgAnalytics() {
   if (ride.length) {
     const totKm = ride.reduce((a,s)=>a+s.kmUsed,0);
     const totHrs = ride.reduce((a,s)=>a+s.hrs,0);
-    // pace = total km ridden / total elapsed days across the whole log span
-    const span = chgKmLog.length ? (chgKmLog[chgKmLog.length-1].ts - chgKmLog[0].ts)/86400000 : 0;
+    const span = readings.length ? (readings[readings.length-1].ts - readings[0].ts)/86400000 : 0;
     kmPerDay = span > 0.2 ? totKm / span : (totHrs>0 ? totKm/(totHrs/24) : null);
     if (kmPerDay) { settings.chgAvgKmPerDay = +kmPerDay.toFixed(1); }
   }
@@ -8785,16 +8921,16 @@ function renderChgAnalytics() {
     ? `🏍 Riding pace: <b style="color:var(--accent)">${kmPerDay.toFixed(1)}</b> km/day`
     : `🏍 Riding pace: <span style="color:var(--muted)">need 2+ readings across time</span>`);
 
-  // 3. range consumption rate (km lost per hour of use)
+  // 3. range consumption rate (km per hour of use)
   const rideHrs = ride.reduce((a,s)=>a+s.hrs,0);
   const rideKm = ride.reduce((a,s)=>a+s.kmUsed,0);
   const kmPerHr = rideHrs > 0 ? rideKm/rideHrs : null;
   lines.push(kmPerHr != null
-    ? `⚡ Consumption: <b>${kmPerHr.toFixed(1)}</b> km/hr while active`
+    ? `⚡ Consumption: <b>${kmPerHr.toFixed(1)}</b> km/hr <span style="color:var(--muted)">(avg over whole gap, incl. parked)</span>`
     : `⚡ Consumption: <span style="color:var(--muted)">needs riding data</span>`);
 
   // 5. days until next charge (from current %, drain pace)
-  const last = chgKmLog.length ? chgKmLog[chgKmLog.length-1] : null;
+  const last = readings.length ? readings[readings.length-1] : null;
   const pctSegs = ride.filter(s=>s.pctUsed!=null);
   let pctPerDay = null;
   if (pctSegs.length) {
@@ -9571,6 +9707,10 @@ function deleteChgSession() {
   const idx = parseInt(document.getElementById('chgEditIdx').value, 10);
   if (isNaN(idx) || !chgSessions[idx]) return;
   if (!confirm('Delete this charge session? This cannot be undone.')) return;
+  const del = chgSessions[idx];
+  const delKey = del && (del.id != null ? String(del.id) : (del.date + '|' + del.startTime));
+  _chgDeletedKeys.add(delKey);   // so the merge won't resurrect it from remote
+  _chgAllowShrink = true;        // allow the sessions list to get shorter this once
   chgSessions.splice(idx, 1);
   chgSave();
   closeChgSessionEditModal();
