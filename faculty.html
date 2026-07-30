@@ -209,7 +209,14 @@ table{border-collapse:collapse;}
         <div id="rem-head" class="card" style="margin-bottom:16px;"></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
           <button class="btn" onclick="remSave()" style="padding:9px 20px;">💾 Save Attendance</button>
-          <button id="rem-defmode" onclick="remToggleDefault()" style="font-size:11px;padding:6px 14px;border-radius:16px;border:1px solid var(--border);cursor:pointer;margin-left:auto;"></button>
+          <div style="display:flex;align-items:center;gap:8px;margin-left:auto;font-size:11px;font-weight:700;">
+            <span id="rem-defmode-lbl-p" style="color:var(--ok);">Present</span>
+            <button id="rem-defmode" onclick="remToggleDefault()" title="Click to flip everyone"
+              style="position:relative;width:46px;height:24px;border-radius:14px;border:1px solid var(--border);cursor:pointer;background:var(--surface2);padding:0;flex-shrink:0;">
+              <span id="rem-defmode-knob" style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--ok);transition:left .18s ease,background .18s ease;"></span>
+            </button>
+            <span id="rem-defmode-lbl-a" style="color:var(--muted);">Absent</span>
+          </div>
         </div>
         <div id="rem-roster"></div>
         <div style="margin-top:18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -1012,13 +1019,21 @@ function remToggleDefault(){
 }
 function remUpdateDefBtn(){
   const b=document.getElementById('rem-defmode'); if(!b) return;
+  const knob=document.getElementById('rem-defmode-knob');
+  const lblP=document.getElementById('rem-defmode-lbl-p');
+  const lblA=document.getElementById('rem-defmode-lbl-a');
   const allPresent=curDefault==='P';
-  // Show the ACTION the button performs, not the current state — tapping it
-  // marks everyone the opposite of what's currently set.
-  b.textContent = allPresent ? 'Mark all Absent' : 'Mark all Present';
-  b.style.background = allPresent ? 'rgba(239,68,68,.15)' : 'rgba(34,197,94,.15)';
-  b.style.color = allPresent ? 'var(--danger)' : 'var(--ok)';
-  b.style.borderColor = allPresent ? 'rgba(239,68,68,.4)' : 'rgba(34,197,94,.4)';
+  // Slider reflects the CURRENT state (not the action): knob sits on the
+  // Present side when everyone is Present, slides to the Absent side when
+  // everyone is Absent. Clicking anywhere on the switch flips it.
+  if(knob){
+    knob.style.left = allPresent ? '2px' : '24px';
+    knob.style.background = allPresent ? 'var(--ok)' : 'var(--danger)';
+  }
+  if(lblP){lblP.style.color = allPresent ? 'var(--ok)' : 'var(--muted)';}
+  if(lblA){lblA.style.color = allPresent ? 'var(--muted)' : 'var(--danger)';}
+  b.style.background = allPresent ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)';
+  b.style.borderColor = allPresent ? 'rgba(34,197,94,.4)' : 'rgba(239,68,68,.4)';
 }
 
 function remLoadDate(){
@@ -1070,7 +1085,36 @@ async function remSave(){
   const st=document.getElementById('rem-save-status');
   const usns=Object.keys(curRoster);
   if(!usns.length){st.textContent='Nothing to save.';toast('Nothing to save.','warn');return;}
+
+  // Guard against double-clicks / double-taps firing two overlapping saves.
+  if(window._remSaving){toast('Already saving — please wait…','warn');return;}
+  window._remSaving=true;
+  const saveBtn=document.querySelector('[onclick="remSave()"]');
+  if(saveBtn){saveBtn.disabled=true;saveBtn.style.opacity='.6';saveBtn.style.cursor='not-allowed';}
+
+  function _remUnlockBtn(){
+    window._remSaving=false;
+    if(saveBtn){saveBtn.disabled=false;saveBtn.style.opacity='';saveBtn.style.cursor='';}
+  }
+
+  try{
+
   const k=sessKey(todayKey(),curSess);
+  const path=REM_BASE()+'/attendance/'+curAsn+'/'+k;
+
+  // Faculty can never overwrite a session that's already saved — re-check
+  // the live database for this exact key right before writing. If the page
+  // sat open a while and curSess is stale, this stops a silent clobber.
+  // Editing an already-saved record is only ever done via the admin-approved
+  // edit-reason flow elsewhere in this app, never a plain re-save.
+  const existing=await rtdb.ref(path).once('value');
+  if(existing.exists() && existing.val() && existing.val().records && Object.keys(existing.val().records).length){
+    st.textContent='🔒 This session is already saved and locked. Refresh the page to take a new session, or use Attendance Report to request an edit.';
+    toast('🔒 Already saved — this record is locked. Refresh for a new session.','err');
+    _remUnlockBtn();
+    return;
+  }
+
   const records={};
   usns.forEach(u=>records[u]={status:curToggle[u]||'P'});
   const payload={ takenBy:MY_ID, takenByName:ME.name||'', takenAt:new Date().toISOString(),
@@ -1079,7 +1123,6 @@ async function remSave(){
   const pres=usns.length-abs;
 
   st.textContent='⏳ Saving…'; toast('Saving attendance…','warn');
-  const path=REM_BASE()+'/attendance/'+curAsn+'/'+k;
 
   // Write, then read the SAME key straight back and confirm every student
   // we sent is actually there with the right status — a promise resolving
@@ -1113,6 +1156,9 @@ async function remSave(){
   }catch(e){
     st.textContent='✗ Save failed: '+e.message+' — attendance NOT saved, try again.';
     toast('✗ Save failed — nothing was saved. '+e.message,'err');
+  }
+  }finally{
+    _remUnlockBtn();
   }
 }
 
