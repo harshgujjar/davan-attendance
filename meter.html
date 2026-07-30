@@ -2297,6 +2297,18 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v2.10.16 2026-07-31 FIX the ghost fix. v2.10.15 put the guard only inside     ║
+║                    chgSave() — but NOTHING calls chgSave() on page load, and   ║
+║                    a ghost whose fired80/fired100 flags are already true       ║
+║                    never triggers the ticker either, so there was no code      ║
+║                    path left to run the guard: the ghost survived every        ║
+║                    refresh. Extracted chgActiveIsGhost() + chgReconcile        ║
+║                    Active() and now call it right after /charging loads,       ║
+║                    with writeThrough=true so the stale /active is wiped in     ║
+║                    Firebase too (not just in memory). chgSave() calls the      ║
+║                    same helper — one definition of "this live session is       ║
+║                    actually dead", two call sites.                             ║
+║                                                                              ║
 ║  v2.10.15 2026-07-31 FIX ghost active-charge resurrection. /charging/active   ║
 ║                    was a plain last-writer-wins fbSet with NO merge guard     ║
 ║                    (unlike /sessions). A second stale open copy (desktop      ║
@@ -2582,7 +2594,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.10.15"; // FIX ghost active-charge: /charging/active write in chgSave() now guarded — if the active session already exists FINISHED in the merged sessions list (ended on another device), the stale local copy is dropped and /active is cleared instead of being resurrected by a second open tab whose ticker fired 80/100 alerts. Prev: // Added a "power consumed per charge" summary to the Range & Efficiency panel: average units/charge (kWh), ≈₹/charge, last charge's units (marked est if no meter reading), and total units across all charges with a meter-measured vs estimated count. Units come from endMeter−startMeter where available, else added%×units-per-%. + one-row-per-charge table, merge write-guard, DB Inspector, and all prior fixes.
+const APP_VERSION = "v2.10.16"; // FIX the ghost fix: the v2.10.15 guard lived only in chgSave(), which nothing calls on page load — so a ghost with fired80/fired100 already set had no code path left to clear it and survived every refresh. Ghost detection extracted to chgActiveIsGhost()/chgReconcileActive() and now runs right after /charging loads, writing null to /active so it is cleared in Firebase, not just in memory. Prev: // FIX ghost active-charge: /charging/active write in chgSave() now guarded — if the active session already exists FINISHED in the merged sessions list (ended on another device), the stale local copy is dropped and /active is cleared instead of being resurrected by a second open tab whose ticker fired 80/100 alerts. Prev: // Added a "power consumed per charge" summary to the Range & Efficiency panel: average units/charge (kWh), ≈₹/charge, last charge's units (marked est if no meter reading), and total units across all charges with a meter-measured vs estimated count. Units come from endMeter−startMeter where available, else added%×units-per-%. + one-row-per-charge table, merge write-guard, DB Inspector, and all prior fixes.
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -7239,6 +7251,12 @@ window.onload = async () => {
       if (cData.serviceLog) chgServiceLog = Array.isArray(cData.serviceLog) ? cData.serviceLog : Object.values(cData.serviceLog);
       if (cData.kmLog) chgKmLog = Array.isArray(cData.kmLog) ? cData.kmLog : Object.values(cData.kmLog);
       chgKmLog.sort((a,b) => (a.ts||0) - (b.ts||0));
+      // Self-heal on load: if the restored /active duplicates a session that is already
+      // finished in the log, it is a ghost left behind by a stale copy of the app. Nothing
+      // else calls chgSave() on load, and a ghost whose fired80/fired100 flags are already
+      // set will never trigger the ticker either — so without this it would sit there
+      // forever showing the Stop & log UI for a charge that ended hours ago.
+      chgReconcileActive(true);
     }
   } catch(e) { console.error('charging load', e); }
 
@@ -8241,6 +8259,38 @@ function dbInspectCopy() {
     .catch(() => showToast('Copy failed', true));
 }
 
+// ── Ghost-active detection ───────────────────────────────────────────────────
+// /charging/active is a plain last-writer-wins write with no merge protection
+// (unlike /sessions). A stale open copy of the app can therefore re-write a
+// chgActive that another device already Stop & logged, and on the next load the
+// app faithfully restores a session that is actually finished — the "ghost".
+// This is the single source of truth for "is the live session actually dead?":
+// true when chgActive duplicates a session that already exists FINISHED (endPct
+// set) in chgSessions. Pure check, no side effects.
+function chgActiveIsGhost() {
+  if (!chgActive) return false;
+  const ak = chgActive.id != null ? String(chgActive.id) : (chgActive.date + '|' + chgActive.startTime);
+  return chgSessions.some(s => {
+    if (!s || s.endPct == null) return false;
+    const sk = s.id != null ? String(s.id) : (s.date + '|' + s.startTime);
+    return sk === ak;
+  });
+}
+
+// Clear a ghost if there is one. Called on load (writeThrough=true → also wipe the
+// stale /active in Firebase so it stops coming back) and before every /active write.
+// Returns true if a ghost was cleared.
+function chgReconcileActive(writeThrough) {
+  if (!chgActiveIsGhost()) return false;
+  const ak = chgActive.id != null ? String(chgActive.id) : (chgActive.date + '|' + chgActive.startTime);
+  console.warn('chgReconcileActive: session ' + ak + ' is already finished in the log — clearing stale live copy.');
+  chgActive = null;
+  if (writeThrough) { try { fbSet(FB_CHARGING + '/active', null); } catch(e){} }
+  try { renderCharging(); } catch(e){}
+  try { showToast('🧹 Cleared a finished charge that was still showing as live'); } catch(e){}
+  return true;
+}
+
 async function chgSave() {
   // WRITE-GUARD against stale-copy data loss: before overwriting the sessions list, re-read
   // what's currently in Firebase and MERGE by session id. This way a copy of the app that
@@ -8281,25 +8331,8 @@ async function chgSave() {
     console.error('chgSave merge failed, writing local as fallback:', e);
     await fbSet(FB_CHARGING + '/sessions', chgSessions);
   }
-  // GHOST-ACTIVE GUARD: /active has no merge protection (it is a plain last-writer-wins
-  // overwrite), so a stale open copy of the app (second tab / desktop) whose ticker fires
-  // fired80/fired100 → chgSave() could resurrect a session that another device already
-  // Stop & logged. Before writing, check the merged sessions list: if OUR active session
-  // already exists there FINISHED (endPct set), it was ended elsewhere — drop the stale
-  // live copy and clear /active instead of re-writing it.
-  if (chgActive) {
-    const ak = chgActive.id != null ? String(chgActive.id) : (chgActive.date + '|' + chgActive.startTime);
-    const doneElsewhere = chgSessions.some(s => {
-      if (!s || s.endPct == null) return false;
-      const sk = s.id != null ? String(s.id) : (s.date + '|' + s.startTime);
-      return sk === ak;
-    });
-    if (doneElsewhere) {
-      console.warn('chgSave guard: active session ' + ak + ' already finished on another device — clearing stale local copy.');
-      chgActive = null;
-      try { renderCharging(); } catch(e){}
-    }
-  }
+  // Never resurrect a session that has already been finished elsewhere.
+  chgReconcileActive(false);
   await fbSet(FB_CHARGING + '/active', chgActive || null);
 }
 // set true immediately before a deliberate delete so the shrink-guard allows it once
