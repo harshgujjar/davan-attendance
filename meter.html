@@ -2297,6 +2297,20 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v2.10.15 2026-07-31 FIX ghost active-charge resurrection. /charging/active   ║
+║                    was a plain last-writer-wins fbSet with NO merge guard     ║
+║                    (unlike /sessions). A second stale open copy (desktop      ║
+║                    tab) whose live ticker hit fired80/fired100 called         ║
+║                    chgSave() and re-wrote its in-memory chgActive back to     ║
+║                    Firebase AFTER the phone had already Stop & logged the     ║
+║                    session — so every refresh reloaded a dead session and     ║
+║                    showed the Stop & log UI again. Fix: single choke-point    ║
+║                    guard in chgSave() — before writing /active, if the        ║
+║                    active session id (or date|startTime) already exists      ║
+║                    FINISHED (endPct set) in the merged sessions list, it      ║
+║                    was ended on another device: clear the stale local copy    ║
+║                    and write null instead of resurrecting it.                 ║
+║                                                                              ║
 ║  v2.9.88 2026-07-13 NEW "⚡ Import from Range log" button. Scans chgKmLog for  ║
 ║                    charge events (any reading where battery % ROSE vs the     ║
 ║                    previous reading) and creates Charge Log sessions for      ║
@@ -2568,7 +2582,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-const APP_VERSION = "v2.10.14"; // Added a "power consumed per charge" summary to the Range & Efficiency panel: average units/charge (kWh), ≈₹/charge, last charge's units (marked est if no meter reading), and total units across all charges with a meter-measured vs estimated count. Units come from endMeter−startMeter where available, else added%×units-per-%. + one-row-per-charge table, merge write-guard, DB Inspector, and all prior fixes.
+const APP_VERSION = "v2.10.15"; // FIX ghost active-charge: /charging/active write in chgSave() now guarded — if the active session already exists FINISHED in the merged sessions list (ended on another device), the stale local copy is dropped and /active is cleared instead of being resurrected by a second open tab whose ticker fired 80/100 alerts. Prev: // Added a "power consumed per charge" summary to the Range & Efficiency panel: average units/charge (kWh), ≈₹/charge, last charge's units (marked est if no meter reading), and total units across all charges with a meter-measured vs estimated count. Units come from endMeter−startMeter where available, else added%×units-per-%. + one-row-per-charge table, merge write-guard, DB Inspector, and all prior fixes.
 
 // =================== DATA ===================
 const STORAGE_KEY  = 'meter_data_v2';    // kept for export/import compat only
@@ -8266,6 +8280,25 @@ async function chgSave() {
   } catch (e) {
     console.error('chgSave merge failed, writing local as fallback:', e);
     await fbSet(FB_CHARGING + '/sessions', chgSessions);
+  }
+  // GHOST-ACTIVE GUARD: /active has no merge protection (it is a plain last-writer-wins
+  // overwrite), so a stale open copy of the app (second tab / desktop) whose ticker fires
+  // fired80/fired100 → chgSave() could resurrect a session that another device already
+  // Stop & logged. Before writing, check the merged sessions list: if OUR active session
+  // already exists there FINISHED (endPct set), it was ended elsewhere — drop the stale
+  // live copy and clear /active instead of re-writing it.
+  if (chgActive) {
+    const ak = chgActive.id != null ? String(chgActive.id) : (chgActive.date + '|' + chgActive.startTime);
+    const doneElsewhere = chgSessions.some(s => {
+      if (!s || s.endPct == null) return false;
+      const sk = s.id != null ? String(s.id) : (s.date + '|' + s.startTime);
+      return sk === ak;
+    });
+    if (doneElsewhere) {
+      console.warn('chgSave guard: active session ' + ak + ' already finished on another device — clearing stale local copy.');
+      chgActive = null;
+      try { renderCharging(); } catch(e){}
+    }
   }
   await fbSet(FB_CHARGING + '/active', chgActive || null);
 }
