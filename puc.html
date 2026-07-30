@@ -4392,17 +4392,19 @@ body {
       <!-- FULL FORM — visible fields, shown on first-time login or when the
            person explicitly asks to switch accounts. -->
       <div id="puc-full-login">
-        <!-- readonly until focus: browsers ignore autocomplete="off" on credential
-             fields, but they won't autofill a readonly input. Cleared on focus. -->
-        <input type="text" id="puc-login-email" placeholder="Username or email" readonly
-          onfocus="this.removeAttribute('readonly')"
-          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="puc-adm-user-nofill">
+        <!-- Real <form> with standard autocomplete tokens. The password manager
+             can only fill the username AND password as a PAIR when both live in
+             the same form and are annotated username / current-password. The old
+             markup used readonly + autocomplete="off" + decoy names to block
+             autofill, which is exactly why picking "admin" filled the password
+             but left the username blank. -->
+        <form id="puc-login-form" autocomplete="on" onsubmit="doPucLogin(); return false;">
+        <input type="text" id="puc-login-email" name="username" placeholder="Username or email"
+          autocomplete="username" autocorrect="off" autocapitalize="off" spellcheck="false">
         <div style="position:relative;">
-          <input type="password" id="puc-login-password" placeholder="Password" readonly
-            onfocus="this.removeAttribute('readonly')"
-            autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false" name="puc-adm-pw-nofill"
-            style="padding-right:46px;"
-            onkeydown="if(event.key==='Enter') doPucLogin()">
+          <input type="password" id="puc-login-password" name="password" placeholder="Password"
+            autocomplete="current-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+            style="padding-right:46px;">
           <button type="button" id="puc-pw-eye" onclick="pucTogglePw()" aria-label="Show password"
             style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;
               border:none;cursor:pointer;font-size:17px;padding:6px 8px;line-height:1;color:var(--muted);">👁</button>
@@ -4415,7 +4417,8 @@ body {
           <input type="checkbox" id="puc-admin-autologin" onchange="pucSetAutoLogin(this.checked)" style="width:auto;margin:0;cursor:pointer;">
           Auto sign-in as admin on this device
         </label>
-        <button id="puc-login-btn" class="btn btn-full" onclick="doPucLogin()">Sign In</button>
+        <button id="puc-login-btn" type="submit" class="btn btn-full">Sign In</button>
+        </form>
       </div>
 
       <div id="login-status-msg" style="margin-top:12px;font-size:11px;color:var(--muted);font-family:var(--mono);text-align:center;"></div>
@@ -5673,6 +5676,7 @@ body {
       <div class="page-title">FACULTY</div>
       <div class="page-sub">Manage faculty details — names here appear in Subject Map dropdowns</div>
       <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+        <button class="btn btn-ghost" id="fm-pass-toggle" onclick="fmTogglePassVis()" style="padding:8px 16px;font-size:12px;margin-right:8px;">🙈 Hide passwords</button>
         <button class="btn" onclick="fmShowAdd()" style="padding:8px 20px;font-size:12px;">➕ Add Faculty</button>
       </div>
       <div id="fm-list-wrap">
@@ -8739,6 +8743,7 @@ function renderAll() {
   renderAbsentees();
   renderReportCard();
   fmRenderList();
+  fmLoadPasswords().then(fmRenderList);
   smRenderTable();
   // Ensure timetable data is available for LCB (await so data is ready before render)
   const lcbInits = [];
@@ -13961,8 +13966,43 @@ async function fmLoadFromRTDB() {
   } catch(e) { console.warn('[faculty] blocklist load failed:', e.message); }
 }
 
+// Remedial login accounts live in Firestore (puc_remedial_faculty), linked back
+// to this faculty list by facultyMapId. Cached here so each card can show that
+// person's login password inline instead of needing the View Password dialog.
+let _fmPassByMap = {}, _fmPassByName = {}, _fmPassLoaded = false, _fmShowPass = true;
+
+async function fmLoadPasswords() {
+  try {
+    const snap = await db.collection('puc_remedial_faculty').get();
+    _fmPassByMap = {}; _fmPassByName = {};
+    snap.docs.forEach(d => {
+      const v = d.data() || {};
+      const rec = { id: d.id, password: v.password || '', disabled: !!v.disabled };
+      // Prefer the explicit link; fall back to name for older accounts that
+      // were created before facultyMapId was stored.
+      if (v.facultyMapId) _fmPassByMap[v.facultyMapId] = rec;
+      if (v.name) _fmPassByName[String(v.name).trim().toLowerCase()] = rec;
+    });
+    _fmPassLoaded = true;
+  } catch(e) {
+    _fmPassLoaded = false;
+    console.warn('[faculty] password load failed:', e.message);
+  }
+}
+
+function fmAccountFor(id, f) {
+  return _fmPassByMap[id]
+      || _fmPassByName[String((f && f.name) || '').trim().toLowerCase()]
+      || null;
+}
+
+function fmTogglePassVis() { _fmShowPass = !_fmShowPass; fmRenderList(); }
+async function fmRefreshPasswords() { await fmLoadPasswords(); fmRenderList(); }
+
 function fmRenderList() {
   const wrap = document.getElementById('fm-list-wrap');
+  const _tg = document.getElementById('fm-pass-toggle');
+  if (_tg) _tg.textContent = _fmShowPass ? '🙈 Hide passwords' : '👁 Show passwords';
   if (!wrap) return;
   const entries = Object.entries(facultyMap);
   if (!entries.length) {
@@ -13984,6 +14024,14 @@ function fmRenderList() {
     html += '<div style="flex:1;min-width:0;">';
     html += '<div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (f.name||'—') + '</div>';
     if (f.phone) html += '<div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px;">📞 ' + f.phone + '</div>';
+    const _acc = fmAccountFor(id, f);
+    if (_acc && _acc.password) {
+      const _shown = _fmShowPass ? _acc.password : '•'.repeat(Math.max(6, _acc.password.length));
+      const _esc = String(_shown).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      html += '<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:2px;" title="Remedial app login password' + (_acc.disabled ? ' (account disabled)' : '') + '">🔑 ' + _esc + (_acc.disabled ? ' <span style="color:var(--danger);font-size:9px;">DISABLED</span>' : '') + '</div>';
+    } else if (_fmPassLoaded) {
+      html += '<div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px;opacity:.7;">no login account</div>';
+    }
     html += '</div>';
     html += '<div style="display:flex;gap:6px;flex-shrink:0;">';
     html += '<button onclick="fmShowEdit(\'' + id + '\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;">✏ Edit</button>';
@@ -32306,18 +32354,31 @@ function parSetMode(m) {
   if (m === 'class') parRenderClassWide();
 }
 
-// Class-wide matrix: one row per student, every subject's CT/CA/% side by
-// side, plus an overall column. Built from the scraped puc_students data
-// (same source the COM Timetable CT overlay uses), not remedial records.
+// Class-wide matrix: one row per student, every REMEDIAL subject running in
+// that class side by side (classes held / attended / %), plus an overall
+// column. Source is the remedial register itself — puc_remedial/{AY}
+// assignments + roster + attendance — NOT the scraped puc_students
+// main-college CT/CA figures, which is what this used to show by mistake.
 async function parRenderClassWide() {
   const wrap = document.getElementById('par-classwide-wrap');
   wrap.innerHTML = '<div class="loading-state"><div class="spinner"></div> Loading…</div>';
   const basis = document.getElementById('par-basis')?.value || 'all';
   try {
-    const snap = await rtdb.ref('puc_students/' + activeAY).once('value');
-    const val = snap.val() || {};
-    const classes = Object.keys(val).sort();
-    if (!classes.length) { wrap.innerHTML = '<div class="empty">No student attendance data found.</div>'; return; }
+    const asnSnap = await rtdb.ref(remBase() + '/assignments').once('value');
+    const allAsn = asnSnap.val() || {};
+    // Faculty see only their own classes; admin sees every class.
+    const isFaculty = !!pucFacultyLoggedInId;
+    const visible = Object.entries(allAsn).filter(([, a]) => {
+      if (!a || a.status === 'cancelled') return false;
+      return isFaculty ? (a.facultyId === pucFacultyLoggedInId) : true;
+    });
+    if (!visible.length) {
+      wrap.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>No remedial classes to report on yet.</div>';
+      return;
+    }
+
+    const classes = [...new Set(visible.map(([, a]) => a.classLabel).filter(Boolean))].sort();
+    if (!classes.length) { wrap.innerHTML = '<div class="empty">No remedial classes found.</div>'; return; }
     if (!_parClassWideSel || !classes.includes(_parClassWideSel)) _parClassWideSel = classes[0];
 
     const chip = on => on
@@ -32326,23 +32387,45 @@ async function parRenderClassWide() {
     const chipsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">' +
       classes.map(cl => `<button onclick="parPickClassWide('${cl}')" style="${chip(cl === _parClassWideSel)}">${remEsc(cl)}</button>`).join('') + '</div>';
 
-    const raw = val[_parClassWideSel];
-    const students = (Array.isArray(raw) ? raw : Object.values(raw || {})).filter(Boolean);
-    const codes = [...new Set(students.flatMap(s => (s.subjects || []).map(x => x.subject).filter(Boolean)))];
+    // Every remedial assignment running in the selected class becomes a column.
+    const cols = visible.filter(([, a]) => a.classLabel === _parClassWideSel);
 
-    let rows = students.map(s => {
+    // Roster + saved attendance for each column, in parallel.
+    const loaded = await Promise.all(cols.map(async ([id, a]) => {
+      const [rS, tS] = await Promise.all([
+        rtdb.ref(remBase() + '/roster/' + id).once('value'),
+        rtdb.ref(remBase() + '/attendance/' + id).once('value'),
+      ]);
+      return { id, a, roster: rS.val() || {}, hist: tS.val() || {} };
+    }));
+
+    // Union of every student appearing in any of those rosters.
+    const nameByUsn = {};
+    loaded.forEach(c => Object.entries(c.roster).forEach(([u, s]) => {
+      if (!nameByUsn[u]) nameByUsn[u] = (s && s.name) || u;
+    }));
+
+    let rows = Object.keys(nameByUsn).map(u => {
       const per = {}; let held = 0, att = 0;
-      (s.subjects || []).forEach(x => {
-        const ct = parseInt(x.ct) || 0, ca = parseInt(x.ca) || 0;
-        per[x.subject] = { ct, ca, pct: ct ? Math.round(ca / ct * 100) : (x.pct != null ? Math.round(Number(x.pct)) : null) };
-        held += ct; att += ca;
+      loaded.forEach(c => {
+        let h = 0, aa = 0;
+        // A student only counts as "held" on sessions they were recorded in.
+        Object.keys(c.hist).forEach(dk => {
+          const rec = ((c.hist[dk] || {}).records || {})[u];
+          if (!rec) return;
+          h++;
+          if (rec.status === 'P') aa++;
+        });
+        per[c.id] = { held: h, att: aa, pct: h ? Math.round(aa / h * 100) : null };
+        held += h; att += aa;
       });
-      return { usn: s.usn || s.urn || '', name: s.name || '—', per, held, att, overall: held ? Math.round(att / held * 100) : null };
-    }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      return { usn: u, name: nameByUsn[u], per, held, att, overall: held ? Math.round(att / held * 100) : null };
+    }).sort((x, y) => (x.name || '').localeCompare(y.name || ''));
 
     if (basis === 'short')    rows = rows.filter(r => r.overall != null && r.overall < 75);
     if (basis === 'critical') rows = rows.filter(r => r.overall != null && r.overall < 50);
 
+    const totalSessions = loaded.reduce((n, c) => n + Object.keys(c.hist).length, 0);
     const withPct = rows.filter(r => r.overall != null);
     const avg = withPct.length ? Math.round(withPct.reduce((a, b) => a + b.overall, 0) / withPct.length) : 0;
     const below = withPct.filter(r => r.overall < 75).length;
@@ -32350,17 +32433,25 @@ async function parRenderClassWide() {
       <div style="font-size:9px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">${l}</div>
       <div style="font-size:20px;font-weight:800;color:${col};">${v}</div>
       ${sub ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;">${sub}</div>` : ''}</div>`;
-    const sumHtml = `<div style="font-family:var(--head);font-size:17px;color:var(--accent);margin-bottom:4px;">${remEsc(_parClassWideSel)} — Class-wide Attendance</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Every subject side by side · ${rows.length} student(s) shown</div>
+    const sumHtml = `<div style="font-family:var(--head);font-size:17px;color:var(--accent);margin-bottom:4px;">${remEsc(_parClassWideSel)} — Remedial Class-wide Attendance</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Every remedial subject side by side · ${rows.length} student(s) shown</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:16px;">
-        ${tile('Students', rows.length, 'var(--text)', basis === 'all' ? 'full class' : 'filtered')}
-        ${tile('Subjects', codes.length, 'var(--text)', '')}
-        ${tile('Avg Attendance', avg + '%', avg >= 75 ? 'var(--ok)' : avg >= 50 ? '#f59e0b' : 'var(--danger)', 'class average')}
-        ${tile('Below 75%', below, below ? 'var(--danger)' : 'var(--ok)', 'shortage risk')}
+        ${tile('Students', rows.length, 'var(--text)', basis === 'all' ? 'in remedial rosters' : 'filtered')}
+        ${tile('Remedial Subjects', cols.length, 'var(--text)', 'running in this class')}
+        ${tile('Sessions Held', totalSessions, totalSessions ? 'var(--text)' : 'var(--muted)', 'across all subjects')}
+        ${tile('Avg Attendance', withPct.length ? avg + '%' : '—', !withPct.length ? 'var(--muted)' : avg >= 75 ? 'var(--ok)' : avg >= 50 ? '#f59e0b' : 'var(--danger)', 'remedial average')}
+        ${tile('Below 75%', withPct.length ? below : '—', !withPct.length ? 'var(--muted)' : below ? 'var(--danger)' : 'var(--ok)', 'shortage risk')}
       </div>`;
 
+    if (!totalSessions) {
+      wrap.innerHTML = chipsHtml + sumHtml +
+        '<div class="empty"><div class="empty-icon">🗓</div>No remedial attendance saved yet for ' + remEsc(_parClassWideSel) + '.<br><span style="font-size:11px;color:var(--muted);">Rosters exist, but no session has been recorded for these subjects.</span></div>';
+      return;
+    }
     if (!rows.length) { wrap.innerHTML = chipsHtml + sumHtml + '<div class="empty">No students match this filter.</div>'; return; }
+
     const bd = '1px solid var(--border)';
+    const colLabel = c => (c.a.subjectName || c.a.subjectCode || c.id);
     wrap.innerHTML = chipsHtml + sumHtml + `
     <div class="card" style="padding:0;overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
@@ -32369,13 +32460,13 @@ async function parRenderClassWide() {
             <th rowspan="2" style="padding:6px 8px;border:${bd};width:42px;font-family:var(--mono);font-size:10px;color:var(--muted);">SL</th>
             <th rowspan="2" style="padding:6px 8px;border:${bd};text-align:left;font-family:var(--mono);font-size:10px;color:var(--muted);">STUDENT</th>
             <th rowspan="2" style="padding:6px 8px;border:${bd};text-align:left;font-family:var(--mono);font-size:10px;color:var(--muted);">USN</th>
-            ${codes.map(cd => `<th colspan="3" style="padding:6px 8px;border:${bd};font-family:var(--mono);font-size:9px;color:var(--text);white-space:nowrap;">${remEsc(subjectMap[cd]?.name || cd)}</th>`).join('')}
+            ${loaded.map(c => `<th colspan="3" style="padding:6px 8px;border:${bd};font-family:var(--mono);font-size:9px;color:var(--text);white-space:nowrap;">${remEsc(colLabel(c))}<div style="font-size:8px;color:var(--accent);font-weight:400;">${remEsc(c.a.facultyName || '—')}</div><div style="font-size:8px;color:var(--muted);font-weight:400;">${Object.keys(c.hist).length} session(s)</div></th>`).join('')}
             <th rowspan="2" style="padding:6px 8px;border:${bd};font-family:var(--mono);font-size:10px;color:var(--accent);">OVERALL</th>
           </tr>
           <tr style="background:var(--surface2);">
-            ${codes.map(() => `
-              <th style="padding:4px 5px;border:${bd};font-family:var(--mono);font-size:9px;color:var(--muted);">CT</th>
-              <th style="padding:4px 5px;border:${bd};font-family:var(--mono);font-size:9px;color:var(--muted);">CA</th>
+            ${loaded.map(() => `
+              <th style="padding:4px 5px;border:${bd};font-family:var(--mono);font-size:9px;color:var(--muted);" title="Classes held for this student">HELD</th>
+              <th style="padding:4px 5px;border:${bd};font-family:var(--mono);font-size:9px;color:var(--muted);" title="Classes attended">ATT</th>
               <th style="padding:4px 5px;border:${bd};font-family:var(--mono);font-size:9px;color:var(--muted);">%</th>`).join('')}
           </tr>
         </thead>
@@ -32387,12 +32478,12 @@ async function parRenderClassWide() {
               ${typeof pfmPhotoTag === 'function' ? pfmPhotoTag(r.usn, r.name, 24) : ''}
               <span style="white-space:nowrap;">${remEsc(r.name)}</span></div></td>
             <td style="padding:5px 8px;border:${bd};color:var(--muted);font-family:var(--mono);font-size:10px;white-space:nowrap;">${remEsc(r.usn)}</td>
-            ${codes.map(cd => {
-              const d = r.per[cd];
-              if (!d) return `<td style="padding:5px;border:${bd};text-align:center;color:var(--border);">—</td><td style="padding:5px;border:${bd};text-align:center;color:var(--border);">—</td><td style="padding:5px;border:${bd};text-align:center;color:var(--border);">—</td>`;
+            ${loaded.map(c => {
+              const d = r.per[c.id];
+              if (!d || !d.held) return `<td style="padding:5px;border:${bd};text-align:center;color:var(--border);">—</td><td style="padding:5px;border:${bd};text-align:center;color:var(--border);">—</td><td style="padding:5px;border:${bd};text-align:center;color:var(--border);">—</td>`;
               const col = d.pct == null ? 'var(--muted)' : d.pct >= 75 ? 'var(--ok)' : d.pct >= 50 ? '#f59e0b' : 'var(--danger)';
-              return `<td style="padding:5px;border:${bd};text-align:center;font-family:var(--mono);">${d.ct || '—'}</td>
-                      <td style="padding:5px;border:${bd};text-align:center;font-family:var(--mono);">${d.ca != null ? d.ca : '—'}</td>
+              return `<td style="padding:5px;border:${bd};text-align:center;font-family:var(--mono);">${d.held}</td>
+                      <td style="padding:5px;border:${bd};text-align:center;font-family:var(--mono);">${d.att}</td>
                       <td style="padding:5px;border:${bd};text-align:center;font-family:var(--mono);font-weight:700;color:${col};">${d.pct == null ? '—' : d.pct + '%'}</td>`;
             }).join('')}
             ${(() => { const col = r.overall == null ? 'var(--muted)' : r.overall >= 75 ? 'var(--ok)' : r.overall >= 50 ? '#f59e0b' : 'var(--danger)';

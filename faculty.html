@@ -207,11 +207,11 @@ table{border-collapse:collapse;}
       <div id="rem-take" style="display:none;">
         <button class="btn btn-ghost" style="font-size:11px;padding:6px 14px;margin-bottom:14px;" onclick="remBack()">← Back</button>
         <div id="rem-head" class="card" style="margin-bottom:16px;"></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+          <button class="btn" onclick="remSave()" style="padding:9px 20px;">💾 Save Attendance</button>
+          <button id="rem-defmode" onclick="remToggleDefault()" style="font-size:11px;padding:6px 14px;border-radius:16px;border:1px solid var(--border);cursor:pointer;margin-left:auto;"></button>
+        </div>
         <div id="rem-roster"></div>
-
-        <!-- Live review of what's about to be saved -->
-        <div id="rem-review" style="margin-top:18px;"></div>
-
         <div style="margin-top:18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button class="btn" onclick="remSave()" style="padding:10px 24px;">💾 Save Attendance</button>
           <div id="rem-save-status" style="font-size:12px;color:var(--muted);"></div>
@@ -235,8 +235,13 @@ table{border-collapse:collapse;}
 
     <!-- ATTENDANCE REPORT -->
     <div class="panel" id="panel-report">
-      <div class="page-title">📊 Attendance Report</div>
-      <div class="page-sub">Classes taken vs attended. Tap a row for the date-wise card.</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div class="page-title">📊 Attendance Report</div>
+          <div class="page-sub">Classes taken vs attended. Tap a row for the date-wise card.</div>
+        </div>
+        <button class="btn" onclick="document.getElementById('ed-date').scrollIntoView({behavior:'smooth',block:'center'});document.getElementById('ed-date').focus();" style="padding:9px 20px;">✏ Edit attendance</button>
+      </div>
       <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:1px;margin:14px 0 7px;">SUBJECT</div>
       <div id="rep-subj-chips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;"></div>
       <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:1px;margin:0 0 7px;">CLASS</div>
@@ -382,8 +387,22 @@ const auth = firebase.auth();
 const db   = firebase.firestore();
 const rtdb = firebase.database();
 
-const FAC_VERSION = 'v1.5';
+const FAC_VERSION = 'v1.7';
 const FAC_CHANGELOG = [
+  { v:'v1.7', d:'2026-07-30', items:[
+    'Fixed "getSubName is not defined" crash on the ATTEND tab of the student card.',
+    'Default-attendance button now shows the action it performs (Mark all Absent / Mark all Present), not a status label.',
+    'Save is now write-then-verify: reads the record straight back and confirms every student landed correctly before saying Saved, retries once automatically, and refuses to claim success if it cannot confirm.',
+    'Toast now always states exact present/absent counts and confirms the database write.',
+    'Callable phone numbers actually working now — student phone lives on the puc_students record (.contact), not on the roster entry, so it is looked up correctly everywhere: Remedial Attendance, Attendance Report editor, and the student card.',
+  ]},
+  { v:'v1.6', d:'2026-07-30', items:[
+    'ATTEND and SUMMARY tabs now use the exact same logic as the admin app (date log, worst/best period, streaks, letters) instead of a simplified version.',
+    'Removed the review-before-saving screen — Save now commits immediately.',
+    'Added top and bottom Save buttons, plus an All Present / All Absent default switch.',
+    'Attendance Report has a top Edit shortcut that jumps straight to the date editor.',
+    'Student phone numbers are now callable (tap to dial) in Remedial Attendance and the Report editor.',
+  ]},
   { v:'v1.5', d:'2026-07-30', items:[
     'Attendance Report: pick a date + session and hit Load — the roster opens inline on the same page, no modal.',
     'New date starts everyone Present; an already-recorded day shows exactly what was saved.',
@@ -601,6 +620,35 @@ function codeToAbbr(code){
 }
 
 // ── login ────────────────────────────────────────────────────
+
+// Compatibility wrappers for the ported admin drill/summary code — same
+// job as puc.html's getSubName()/_resolveSubjectFaculty(), built on the
+// resolvers already in this file (resolveFac/resolveSubjName/codeToAbbr)
+// instead of porting the whole admin SMAR/ttCom resolution chain.
+// Roster entries (puc_remedial roster) only ever store {name, addedOn,
+// addedVia} — no phone. The real number lives on the puc_students record
+// under .contact (confirmed against the admin app's own field name), so
+// look it up there by USN/URN whenever the passed-in record doesn't have it.
+function fscPhoneFor(usn, rec){
+  if(rec){
+    const direct=rec.contact||rec.phone||rec.mobile||rec.ph;
+    if(direct) return direct;
+  }
+  const key=String(usn||'').toUpperCase();
+  const found=studentIndex&&(studentIndex[key]);
+  return found?(found.contact||found.phone||found.mobile||''):'';
+}
+
+function getSubName(code){
+  return resolveSubjName(codeToAbbr(code)) || code;
+}
+function _resolveSubjectFaculty(classLabel, code){
+  const cls=(classLabel||'').trim();
+  const sec=(cls.split('-').pop()||'A').toUpperCase();
+  const is1puc=cls.toUpperCase().includes('1PUC');
+  return resolveFac(codeToAbbr(code), sec, is1puc) || '';
+}
+
 async function facPreview(){
   const pw=(document.getElementById('fac-pw').value||'').trim();
   const el=document.getElementById('fac-name-preview');
@@ -886,7 +934,7 @@ function go(which){
 }
 
 // ── remedial attendance ──────────────────────────────────────
-let curAsn=null, curRoster={}, curToggle={}, curHist={}, curAsnMeta=null, curDate=null, curSess=null, curWasSaved=false;
+let curAsn=null, curRoster={}, curToggle={}, curHist={}, curAsnMeta=null, curDate=null, curSess=null, curWasSaved=false, curDefault='P';
 async function remList(){
   document.getElementById('rem-home').style.display='';
   document.getElementById('rem-take').style.display='none';
@@ -951,15 +999,37 @@ function remRenderHead(){
      </div>`;
 }
 
-function remLoadDate(){
-  // Always a fresh sheet — editing existing records happens in Attendance Report.
-  curToggle={}; curWasSaved=false;
-  Object.keys(curRoster).forEach(u=>{ curToggle[u]='P'; });
+// Default is Present for everyone; flip to make Absent the default instead
+// (useful for a holiday-adjacent day where most students are away).
+function remToggleDefault(){
+  curDefault = curDefault==='P' ? 'A' : 'P';
+  Object.keys(curRoster).forEach(u=>{ curToggle[u]=curDefault; });
+  remUpdateDefBtn();
   const att={},held={};
   Object.values(curHist||{}).forEach(d=>Object.entries(d.records||{}).forEach(([u,r])=>{
     held[u]=(held[u]||0)+1; if(r.status==='P')att[u]=(att[u]||0)+1;}));
   remRenderRoster(att,held);
-  remRenderReview();
+}
+function remUpdateDefBtn(){
+  const b=document.getElementById('rem-defmode'); if(!b) return;
+  const allPresent=curDefault==='P';
+  // Show the ACTION the button performs, not the current state — tapping it
+  // marks everyone the opposite of what's currently set.
+  b.textContent = allPresent ? 'Mark all Absent' : 'Mark all Present';
+  b.style.background = allPresent ? 'rgba(239,68,68,.15)' : 'rgba(34,197,94,.15)';
+  b.style.color = allPresent ? 'var(--danger)' : 'var(--ok)';
+  b.style.borderColor = allPresent ? 'rgba(239,68,68,.4)' : 'rgba(34,197,94,.4)';
+}
+
+function remLoadDate(){
+  // Always a fresh sheet — editing existing records happens in Attendance Report.
+  curToggle={}; curWasSaved=false; curDefault='P';
+  Object.keys(curRoster).forEach(u=>{ curToggle[u]=curDefault; });
+  remUpdateDefBtn();
+  const att={},held={};
+  Object.values(curHist||{}).forEach(d=>Object.entries(d.records||{}).forEach(([u,r])=>{
+    held[u]=(held[u]||0)+1; if(r.status==='P')att[u]=(att[u]||0)+1;}));
+  remRenderRoster(att,held);
 }
 
 function remRenderRoster(att,held){
@@ -968,6 +1038,7 @@ function remRenderRoster(att,held){
   if(!usns.length){w.innerHTML='<div class="empty"><div class="empty-icon">👥</div>No students in roster.</div>';return;}
   w.innerHTML='<div style="display:flex;flex-direction:column;gap:6px;">'+usns.map(u=>{
     const s=curRoster[u], h=held[u]||0, a=att[u]||0;
+    const ph=(fscPhoneFor(u,s)||'').replace(/\D/g,'');
     return `<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;">
       <div style="display:flex;align-items:center;gap:10px;min-width:0;cursor:pointer;" onclick="stuCard('${u}','${esc(String(s.name).replace(/'/g,"&#39;"))}')">
         ${photoTag(u,s.name,36)}
@@ -976,15 +1047,17 @@ function remRenderRoster(att,held){
           <div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:2px;">${esc(u)} · attended ${a}/${h}</div>
         </div>
       </div>
-      <div id="tg-${u}" style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0;">
-        <button data-v="P" onclick="setTg('${u}','P')" style="padding:7px 14px;font-size:12px;font-weight:700;border:none;cursor:pointer;background:var(--ok);color:#062b0f;">Present</button>
-        <button data-v="A" onclick="setTg('${u}','A')" style="padding:7px 14px;font-size:12px;font-weight:700;border:none;cursor:pointer;background:var(--surface2);color:var(--muted);">Absent</button>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        ${ph?`<a href="tel:${ph}" onclick="event.stopPropagation()" title="Call ${ph}" style="width:32px;height:32px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:14px;">📞</a>`:''}
+        <div id="tg-${u}" style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <button data-v="P" onclick="setTg('${u}','P')" style="padding:7px 14px;font-size:12px;font-weight:700;border:none;cursor:pointer;background:var(--ok);color:#062b0f;">Present</button>
+          <button data-v="A" onclick="setTg('${u}','A')" style="padding:7px 14px;font-size:12px;font-weight:700;border:none;cursor:pointer;background:var(--surface2);color:var(--muted);">Absent</button>
+        </div>
       </div></div>`;}).join('')+'</div>';
 }
 
 function setTg(usn,v){
   curToggle[usn]=v;
-  remRenderReview();
   const g=document.getElementById('tg-'+usn); if(!g)return;
   g.querySelectorAll('button').forEach(b=>{
     const on=b.dataset.v===v;
@@ -1000,20 +1073,47 @@ async function remSave(){
   const k=sessKey(todayKey(),curSess);
   const records={};
   usns.forEach(u=>records[u]={status:curToggle[u]||'P'});
-  st.textContent='⏳ Saving…';
+  const payload={ takenBy:MY_ID, takenByName:ME.name||'', takenAt:new Date().toISOString(),
+    session:curSess||1, records };
+  const abs=usns.filter(u=>(curToggle[u]||'P')==='A').length;
+  const pres=usns.length-abs;
+
+  st.textContent='⏳ Saving…'; toast('Saving attendance…','warn');
+  const path=REM_BASE()+'/attendance/'+curAsn+'/'+k;
+
+  // Write, then read the SAME key straight back and confirm every student
+  // we sent is actually there with the right status — a promise resolving
+  // isn't proof the data landed if the connection drops mid-write. Retry
+  // once on mismatch before telling the person anything failed.
+  async function writeAndVerify(){
+    await rtdb.ref(path).set(payload);
+    const check=await rtdb.ref(path).once('value');
+    const saved=check.val();
+    if(!saved || !saved.records) return false;
+    return usns.every(u=>saved.records[u] && saved.records[u].status===records[u].status);
+  }
+
   try{
-    await rtdb.ref(REM_BASE()+'/attendance/'+curAsn+'/'+k).set({
-      takenBy:MY_ID, takenByName:ME.name||'', takenAt:new Date().toISOString(),
-      session:curSess||1, records
-    });
-    const abs=usns.filter(u=>(curToggle[u]||'P')==='A').length;
-    st.textContent='✅ Saved — '+labelKey(k)+' · '+nowIST();
-    toast('Saved '+labelKey(k)+' — '+(usns.length-abs)+' present, '+abs+' absent','ok');
+    let ok=await writeAndVerify();
+    if(!ok){
+      toast('First save did not verify — retrying…','warn');
+      ok=await writeAndVerify();
+    }
+    if(!ok){
+      st.textContent='✗ Could not confirm the save. Do not close this page — try Save again.';
+      toast('⚠ Save could not be verified. Please try Save again before leaving.','err');
+      return;
+    }
+    st.textContent='✅ Saved & verified — '+labelKey(k)+' · '+nowIST();
+    toast('✅ Saved & confirmed in database — '+pres+' present, '+abs+' absent ('+labelKey(k)+')','ok');
     const t=await rtdb.ref(REM_BASE()+'/attendance/'+curAsn).once('value');
     curHist=t.val()||{};
     remRenderHistory(curHist);
     remRenderHead(); remLoadDate();
-  }catch(e){st.textContent='✗ Save failed: '+e.message;toast('Save failed: '+e.message,'err');}
+  }catch(e){
+    st.textContent='✗ Save failed: '+e.message+' — attendance NOT saved, try again.';
+    toast('✗ Save failed — nothing was saved. '+e.message,'err');
+  }
 }
 
 function remRenderHistory(hist){
@@ -1055,32 +1155,6 @@ function remRenderHistory(hist){
         ${pres.length?`<div style="font-size:10px;font-family:var(--mono);color:var(--ok);letter-spacing:1px;margin:12px 0 6px;">PRESENT (${pres.length})</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;">${pres.map(s=>`<span title="${s.ed?(s.ap?'edited · approved':'edited · pending admin approval'):''}" style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid ${s.ed&&!s.ap?'#94a3b8':'var(--border)'};color:var(--muted);border-radius:16px;padding:3px 10px 3px 3px;font-size:11px;${s.ed&&!s.ap?'opacity:.5;':''}">${photoTag(s.u,s.nm,22)}${esc(s.nm)}${s.ed?(s.ap?' <span style="font-size:9px;color:#c084fc;">✎</span>':' <span style="font-size:9px;color:#94a3b8;">⏳</span>'):''}</span>`).join('')}</div>`:''}
       </div></div>`;}).join('');
-}
-
-// Live pre-save review: exactly who is going down as Present vs Absent.
-function remRenderReview(){
-  const w=document.getElementById('rem-review'); if(!w)return;
-  const usns=Object.keys(curRoster);
-  if(!usns.length){w.innerHTML='';return;}
-  const pres=usns.filter(u=>(curToggle[u]||'P')==='P');
-  const abs=usns.filter(u=>(curToggle[u]||'P')==='A');
-  const chip=(u,ok)=>`<span style="display:inline-flex;align-items:center;gap:6px;
-    background:${ok?'rgba(34,197,94,.12)':'rgba(239,68,68,.12)'};
-    border:1px solid ${ok?'rgba(34,197,94,.4)':'rgba(239,68,68,.4)'};
-    border-radius:16px;padding:3px 10px 3px 3px;font-size:11px;">
-    ${photoTag(u,curRoster[u].name,20)}${esc(curRoster[u].name)}</span>`;
-  w.innerHTML=`<div class="card">
-    <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px;">Review before saving</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">
-      ${todayKey()} · <b style="color:var(--ok);">${pres.length} present</b> · <b style="color:var(--danger);">${abs.length} absent</b>
-    </div>
-    <div style="font-size:10px;font-family:var(--mono);color:var(--danger);letter-spacing:1px;margin-bottom:6px;">ABSENT (${abs.length})</div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
-      ${abs.length?abs.map(u=>chip(u,false)).join(''):'<span style="font-size:11px;color:var(--ok);">Nobody absent.</span>'}</div>
-    <div style="font-size:10px;font-family:var(--mono);color:var(--ok);letter-spacing:1px;margin-bottom:6px;">PRESENT (${pres.length})</div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;">
-      ${pres.length?pres.map(u=>chip(u,true)).join(''):'<span style="font-size:11px;color:var(--danger);">Nobody present.</span>'}</div>
-  </div>`;
 }
 
 // ── internal marks ───────────────────────────────────────────
@@ -1332,6 +1406,7 @@ function edRender(){
       const v=_ed.map[u], was=_ed.orig[u], ch=(was!==null&&v!==was);
       const saved=recs[u]||{};
       const pend=saved.edited&&!saved.approved;
+      const ph=(fscPhoneFor(u,repData.roster[u])||'').replace(/\D/g,'');
       return `<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 13px;
         ${pend?'opacity:.5;':''}${ch?'border-color:var(--warn);':''}">
         <div style="display:flex;align-items:center;gap:10px;min-width:0;">
@@ -1343,12 +1418,14 @@ function edRender(){
               ${pend?' · <span style="color:#94a3b8;">⏳ awaiting admin approval</span>':''}
               ${saved.edited&&saved.approved?' · <span style="color:#c084fc;">✎ edited</span>':''}
             </div></div></div>
-        <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0;">
-          <button onclick="edSet('${u}','P')" style="padding:7px 14px;font-size:12px;font-weight:700;border:none;cursor:pointer;
-            background:${v==='P'?'var(--ok)':'var(--surface2)'};color:${v==='P'?'#062b0f':'var(--muted)'};">Present</button>
-          <button onclick="edSet('${u}','A')" style="padding:7px 14px;font-size:12px;font-weight:700;border:none;cursor:pointer;
-            background:${v==='A'?'var(--danger)':'var(--surface2)'};color:${v==='A'?'#fff':'var(--muted)'};">Absent</button>
-        </div></div>`;}).join('')}
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          ${ph?`<a href="tel:${ph}" onclick="event.stopPropagation()" title="Call ${ph}" style="width:30px;height:30px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:13px;">📞</a>`:''}
+          <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+            <button onclick="edSet('${u}','P')" style="padding:7px 14px;font-size:12px;font-weight:700;border:none;cursor:pointer;
+              background:${v==='P'?'var(--ok)':'var(--surface2)'};color:${v==='P'?'#062b0f':'var(--muted)'};">Present</button>
+            <button onclick="edSet('${u}','A')" style="padding:7px 14px;font-size:12px;font-weight:700;border:none;cursor:pointer;
+              background:${v==='A'?'var(--danger)':'var(--surface2)'};color:${v==='A'?'#fff':'var(--muted)'};">Absent</button>
+          </div></div></div>`;}).join('')}
   </div>`;
 }
 
@@ -1359,33 +1436,49 @@ async function edSave(){
   const changed=usns.filter(u=>_ed.orig[u]!==null&&_ed.map[u]!==_ed.orig[u]);
   if(!_ed.isNew && !changed.length){toast('No changes to save.','warn');return;}
   const recs=(repData.hist[_ed.key]||{}).records||{};
-  try{
-    const out={};
-    usns.forEach(u=>{
-      const v=_ed.map[u], was=_ed.orig[u];
-      const r={status:v};
-      if(was!==null&&v!==was){
-        Object.assign(r,{edited:true,editReason:_ed.reasons[u]||'',editedBy:ME.name||MY_ID,
-          editedAt:new Date().toISOString(),approved:false,prevStatus:was});
-      } else if(recs[u]&&recs[u].edited){
-        Object.assign(r,{edited:true,editReason:recs[u].editReason,editedBy:recs[u].editedBy,
-          editedAt:recs[u].editedAt,approved:!!recs[u].approved,prevStatus:recs[u].prevStatus});
-      }
-      out[u]=r;
-    });
-    const payload={records:out};
-    if(_ed.isNew){
-      Object.assign(payload,{takenBy:MY_ID,takenByName:ME.name||'',takenAt:new Date().toISOString(),session:sessNo(_ed.key)});
-    } else {
-      Object.assign(payload,{lastEditReason:Object.values(_ed.reasons).filter(Boolean).join(' | '),
-        lastEditBy:ME.name||MY_ID,lastEditAt:new Date().toISOString()});
+  const out={};
+  usns.forEach(u=>{
+    const v=_ed.map[u], was=_ed.orig[u];
+    const r={status:v};
+    if(was!==null&&v!==was){
+      Object.assign(r,{edited:true,editReason:_ed.reasons[u]||'',editedBy:ME.name||MY_ID,
+        editedAt:new Date().toISOString(),approved:false,prevStatus:was});
+    } else if(recs[u]&&recs[u].edited){
+      Object.assign(r,{edited:true,editReason:recs[u].editReason,editedBy:recs[u].editedBy,
+        editedAt:recs[u].editedAt,approved:!!recs[u].approved,prevStatus:recs[u].prevStatus});
     }
-    await rtdb.ref(REM_BASE()+'/attendance/'+repData.id+'/'+_ed.key).update(payload);
-    toast(_ed.isNew?('Attendance saved for '+labelKey(_ed.key))
-                   :(changed.length+' change(s) submitted — greyed out until admin approves'),'ok');
+    out[u]=r;
+  });
+  const payload={records:out};
+  if(_ed.isNew){
+    Object.assign(payload,{takenBy:MY_ID,takenByName:ME.name||'',takenAt:new Date().toISOString(),session:sessNo(_ed.key)});
+  } else {
+    Object.assign(payload,{lastEditReason:Object.values(_ed.reasons).filter(Boolean).join(' | '),
+      lastEditBy:ME.name||MY_ID,lastEditAt:new Date().toISOString()});
+  }
+  const path=REM_BASE()+'/attendance/'+repData.id+'/'+_ed.key;
+
+  async function writeAndVerify(){
+    await rtdb.ref(path).update(payload);
+    const check=await rtdb.ref(path).once('value');
+    const saved=check.val();
+    if(!saved||!saved.records) return false;
+    return usns.every(u=>saved.records[u]&&saved.records[u].status===out[u].status);
+  }
+
+  toast('Saving…','warn');
+  try{
+    let ok=await writeAndVerify();
+    if(!ok){ toast('First save did not verify — retrying…','warn'); ok=await writeAndVerify(); }
+    if(!ok){
+      toast('⚠ Save could not be confirmed. Please try Save again.','err');
+      return;
+    }
+    toast(_ed.isNew?('✅ Attendance saved & confirmed for '+labelKey(_ed.key))
+                   :('✅ '+changed.length+' change(s) saved & confirmed — greyed out until admin approves'),'ok');
     document.getElementById('ed-panel').innerHTML='';
     repRender();
-  }catch(e){toast('Failed: '+e.message,'err');}
+  }catch(e){toast('✗ Save failed — nothing was saved. '+e.message,'err');}
 }
 
 function repOpenStu(usn){
@@ -1580,7 +1673,7 @@ function stuCard(usn,fallbackName){
     if(f){rec=f;cls=label;break;}
   }
   _sc={usn,name:(rec&&rec.name)||fallbackName||usn,rec,cls,tab:_sc.tab||'attend'};
-  const ph=rec&&(rec.phone||rec.mobile||rec.ph);
+  const ph=fscPhoneFor(usn,rec);
   document.getElementById('stu-head').innerHTML=`${photoTag(usn,_sc.name,54)}
     <div><div style="font-size:17px;font-weight:700;">${esc(_sc.name)}</div>
     <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:3px;">
@@ -1600,14 +1693,20 @@ function scRender(){
       border-bottom:2px solid ${_sc.tab===k?'var(--accent)':'transparent'};font-weight:700;">${l}</button>`).join('')}
   </div>`;
   let body='';
-  if(_sc.tab==='attend')  body=scAttend();
+  if(_sc.tab==='attend')  body='<div id="mrm-body"></div>';
   if(_sc.tab==='results') body='<div class="loading-state"><div class="spinner"></div> Loading marks…</div>';
-  if(_sc.tab==='summary') body=scSummary();
+  if(_sc.tab==='summary') body='<div id="mrm-body"></div>';
   if(_sc.tab==='follow'||_sc.tab==='letters') body='<div class="loading-state"><div class="spinner"></div> Loading…</div>';
   document.getElementById('stu-body').innerHTML=bar+body;
   if(_sc.tab==='results') scResults();
   if(_sc.tab==='follow')  scFollow();
   if(_sc.tab==='letters') scLetters();
+  if(_sc.tab==='attend'||_sc.tab==='summary'){
+    _mrmStudent={usn:_sc.usn, name:_sc.name, class:_sc.cls};
+    const mb=document.getElementById('mrm-body');
+    if(_sc.tab==='attend') fscRenderAttend(mb).catch(e=>{mb.innerHTML='<div class="empty">⚠ '+e.message+'</div>';});
+    else fscRenderSummary(mb).catch(e=>{mb.innerHTML='<div class="empty">⚠ '+e.message+'</div>';});
+  }
 }
 
 function scAttend(){
@@ -2078,6 +2177,1310 @@ async function waCopy(btn){
   try{await navigator.clipboard.writeText(el.value);}catch(e){el.select();document.execCommand('copy');}
   const o=btn.textContent; btn.textContent='✅ Copied'; toast('Message copied','ok');
   setTimeout(()=>btn.textContent=o,1600);
+}
+
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  §FSC — Ported verbatim from puc.html (admin app), same logic ║
+// ║  as the admin student card's ATTEND date-log and whole-year   ║
+// ║  SUMMARY report. Reads the same Firebase paths (puc_daily,    ║
+// ║  puc_faculty, puc_wa_log) so output is identical, not          ║
+// ║  approximated. Era-switcher UI removed (faculty app has no    ║
+// ║  saved-timetable-version history) — always uses the whole     ║
+// ║  year, which is the admin app's own default behaviour.        ║
+// ╚══════════════════════════════════════════════════════════════╝
+let facultyMap={}, _fmDeletedNames=new Set();
+async function fmLoadFromRTDB(){
+  try{const s=await rtdb.ref('puc_faculty').once('value'); const v=s.val();
+    facultyMap=(v&&typeof v==='object')?v:{};}catch(e){}
+  try{const s=await rtdb.ref('puc_faculty_deleted').once('value'); const v=s.val();
+    if(Array.isArray(v)) v.forEach(n=>_fmDeletedNames.add((n||'').toLowerCase()));}catch(e){}
+}
+function getFacultyPhotoByName(name){
+  if(!name) return '';
+  const lc=name.trim().toLowerCase();
+  for(const f of Object.values(facultyMap)) if(f.photo&&(f.name||'').trim().toLowerCase()===lc) return f.photo;
+  return '';
+}
+const AY_LIST=[PREV_AY, AY];
+let _mrmDailyCache={};
+let _mrmStudent=null;
+
+async function mrmGetClassSnaps(ayKey, classLabel, FBURL){
+  const cacheKey=`${ayKey}::${classLabel}`;
+  if(_mrmDailyCache[cacheKey]) return _mrmDailyCache[cacheKey];
+  const tok=await firebase.auth().currentUser?.getIdToken();
+  const r=await fetch(`${FBURL}/puc_daily/${ayKey}.json?shallow=true&auth=${tok}`);
+  const v=await r.json();
+  if(!v||v.error) throw new Error('No daily snapshots found for AY '+ayKey);
+  const parseKey=k=>{const [d,m,y]=k.split('-');return new Date(`${m} ${d} ${y}`);};
+  const sortedKeys=Object.keys(v).sort((a,b)=>parseKey(a)-parseKey(b));
+  const snaps=await Promise.all(sortedKeys.map(dk=>rtdb.ref(`puc_daily/${ayKey}/${dk}/${classLabel}`).once('value')));
+  const allRaw={};
+  sortedKeys.forEach((dk,i)=>{const val=snaps[i].val(); allRaw[dk]={[classLabel]:Array.isArray(val)?val:[]};});
+  _mrmDailyCache[cacheKey]={allRaw,sortedKeys,parseKey};
+  return _mrmDailyCache[cacheKey];
+}
+
+
+// Same-shape student record the admin app's _mrmStudent expects, built from
+// our own studentsByClass cache instead of the admin-only allPucStudents.
+function fscAllStudents(){
+  const out=[];
+  Object.entries(studentsByClass).forEach(([cls,arr])=>(arr||[]).forEach(s=>{
+    out.push({...s, class:s.class||cls, urn:s.urn||s.usn||''});
+  }));
+  return out;
+}
+
+async function fscRenderSummary(body) {
+  const s = _mrmStudent;
+  body.innerHTML = `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:24px 0;display:flex;align-items:center;gap:10px;"><div class="spinner"></div> Building whole-year summary…</div>`;
+
+  // ── Resolve the puc student record (for class + cumulative subjects) ──
+  const _pucAll = fscAllStudents();
+  const _sClass = (s.class||'').trim().toUpperCase();
+  const _sName  = (s.name||'').trim().toLowerCase();
+  const _sUsn   = (s.usn||'').trim().toUpperCase();
+  let pucS = _pucAll.find(x => _sUsn && (x.urn||'').trim().toUpperCase() === _sUsn)
+          || _pucAll.find(x => (x.name||'').trim().toLowerCase()===_sName && (x.class||'').trim().toUpperCase()===_sClass)
+          || _pucAll.find(x => (x.name||'').trim().toLowerCase()===_sName)
+          || null;
+
+  const classLabel = ((pucS && pucS.class) || s.class || '').trim();
+  if (!classLabel) {
+    body.innerHTML = `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px 0;">No class on record — cannot build period summary.</div>`;
+    return;
+  }
+
+  // AY selector (mirrors ATTEND tab so user can switch year)
+  const ayKey  = (typeof AY !== 'undefined' ? AY : '2026-27');
+  const ayRow = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;">
+    <span style="font-size:10px;font-family:var(--mono);color:var(--muted);">AY</span>
+    <span style="font-size:12px;font-weight:700;color:var(--accent);font-family:var(--mono);">${ayKey}</span>
+    <span style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-left:auto;">${classLabel} · by timetable ↓</span></div>`;
+
+  let allRaw, sortedKeys, parseKey;
+  try {
+    ({ allRaw, sortedKeys, parseKey } = await mrmGetClassSnaps(ayKey, classLabel, 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app'));
+  } catch(e) {
+    body.innerHTML = ayRow + `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px 0;">No daily snapshots for AY ${ayKey}.<br><span style="font-size:10px;">Scrape attendance first (card 01/02).</span></div>`;
+    return;
+  }
+
+  const _usnUC  = _sUsn;
+  const _pucSid = (pucS && pucS.sid) ? pucS.sid : '';
+
+  // ── TIMETABLE ERAS ──────────────────────────────────────────────
+  // Each saved timetable's validFrom/validTo defines an era. We pick the
+  // history array matching the student's stream, load it if not in memory
+  // yet, and filter the summary to the selected era (default = current/latest).
+  const _clsUC = classLabel.toUpperCase();
+  // Faculty app has no admin timetable-version history — always use the
+  // single current era (whole year, no era filtering/switcher UI).
+  const _ttHist = [];
+  // Build era list (each with a from/to ISO range), newest first
+  const _eras = (_ttHist||[]).filter(t => t && t.validFrom && t.validTo)
+    .map(t => ({ id: t.id || (t.validFrom+'_'+t.validTo), label: t.label || 'Timetable', from: t.validFrom, to: t.validTo }))
+    .sort((a,b) => (a.from||'').localeCompare(b.from||''));   // oldest first (04/04 before 10/06)
+  // Resolve selected era: explicit pick → today's era → DEFAULT 'both' (whole year)
+  const _todayIso = new Date().toISOString().slice(0,10);
+  let _selEra = 'both'; // default = all dates combined
+  if ('both' === 'both') {
+    _selEra = 'both';
+  } else if ('both') {
+    _selEra = _eras.find(e => e.id === 'both') || 'both';
+  }
+  // The active filter predicate: returns true if a dateKey is IN the selected era.
+  const _eraHas = (dk) => {
+    if (!_selEra || _selEra === 'both') return true;
+    const iso = keyToIso(dk);
+    return iso >= _selEra.from && iso <= _selEra.to;
+  };
+
+  const fmt12 = t => { if(!t) return ''; try { const [h,m]=t.split(':').map(Number); const ap=h>=12?'PM':'AM'; const h12=h%12||12; return h12+(m?':'+String(m).padStart(2,'0'):'')+' '+ap; } catch(_){ return t; } };
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  // Accumulators
+  const periodMap   = {};   // "HH:MM" -> { total, absent, bySub:{ code:{total,absent} } }
+  const subMissCnt  = {};   // code -> absent-period count (whole year)
+  const subTotCnt   = {};   // code -> total periods held
+  const subPresCnt  = {};   // code -> present-period count
+  const weekdayMiss = {};   // "Mon" -> absent period count
+  const weekdayPres = {};   // "Mon" -> present period count
+  const dayRecords  = [];   // { dk, dateObj, dayPeriods, dayAbsent } per date the student appears
+  let totalPeriods = 0, totalAbsent = 0;
+  const recentMisses = [];  // { dk, dateObj, time, code }
+  const recentPresent = []; // { dk, dateObj, time, code } — attended periods
+
+  // Era selector button-row HTML — generated from saved timetables (newest first) + "Both".
+  // Self-updating: adding a timetable in the History UI adds a button here automatically.
+  const _fmtRange = (from,to) => {
+    const f = d => { try { const [y,m,da]=d.split('-'); return da+'/'+m; } catch(_){ return d; } };
+    const isCur = (from <= _todayIso && to >= _todayIso);
+    return f(from) + '–' + (isCur ? 'now' : f(to));
+  };
+  const _eraBtnRow = (() => {
+    if (!_eras.length) return '';
+    const curId = (_selEra && _selEra !== 'both') ? _selEra.id : 'both';
+    let r = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">`;
+    _eras.forEach(e => {
+      const on = curId === e.id;
+      r += `<button onclick="mrmSumSetEra('${(e.id||'').replace(/'/g,"\\'")}')" title="${(e.label||'').replace(/"/g,'&quot;')} (${e.from} → ${e.to})"
+        style="padding:6px 12px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:11px;font-weight:400;letter-spacing:0;
+        border:1px solid ${on?'var(--accent)':'var(--border)'};background:${on?'rgba(245,158,11,0.12)':'transparent'};color:${on?'var(--accent)':'var(--muted)'};transition:all .15s;">
+        ${_fmtRange(e.from,e.to)}</button>`;
+    });
+    const bothOn = curId === 'both';
+    r += `<button onclick="mrmSumSetEra('both')" title="Whole year — all timetables combined"
+      style="padding:6px 12px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:11px;font-weight:${bothOn?'700':'400'};letter-spacing:0;
+      border:1px solid ${bothOn?'var(--accent)':'var(--border)'};background:${bothOn?'rgba(245,158,11,0.12)':'transparent'};color:${bothOn?'var(--accent)':'var(--muted)'};transition:all .15s;">Both</button>`;
+    r += `</div>`;
+    return r;
+  })();
+
+  for (let i=0;i<sortedKeys.length;i++){
+    const dk = sortedKeys[i];
+    if (!_eraHas(dk)) continue;   // skip dates outside the selected timetable era
+    const dayData = allRaw[dk];
+    const students = Array.isArray(dayData[classLabel]) ? dayData[classLabel] : [];
+    let stu = _usnUC ? students.find(x => (x.usn||'').trim().toUpperCase() === _usnUC) : null;
+    if (!stu && _pucSid) stu = students.find(x => x.sid && x.sid === _pucSid) || null;
+    if (!stu && _sName)  stu = students.find(x => (x.name||'').trim().toLowerCase() === _sName) || null;
+    if (!stu) continue;
+
+    const dateObj = parseKey(dk);
+    const wd = dayNames[dateObj.getDay()];
+    let dayPeriods = 0, dayAbsent = 0;
+
+    (stu.courses||[]).forEach(c => {
+      const code = (c.code||'').toUpperCase();
+      if (!code) return;
+      const slots = (c.slots && c.slots.length) ? c.slots
+                    : (c.attended==='A'||c.attended==='P') ? [{ start:'', end:'', attended:c.attended }] : [];
+      slots.forEach(sl => {
+        const isAbs = (sl.attended ? sl.attended : c.attended) === 'A';
+        const start = sl.start || '__';   // bucket key (may be blank for legacy)
+        totalPeriods++; dayPeriods++;
+        subTotCnt[code] = (subTotCnt[code]||0)+1;
+        if (!periodMap[start]) periodMap[start] = { total:0, absent:0, bySub:{} };
+        periodMap[start].total++;
+        if (!periodMap[start].bySub[code]) periodMap[start].bySub[code] = { total:0, absent:0 };
+        periodMap[start].bySub[code].total++;
+        if (isAbs){
+          totalAbsent++; dayAbsent++;
+          periodMap[start].absent++;
+          periodMap[start].bySub[code].absent++;
+          subMissCnt[code] = (subMissCnt[code]||0)+1;
+          weekdayMiss[wd] = (weekdayMiss[wd]||0)+1;
+          recentMisses.push({ dk, dateObj, time:start, code });
+        } else {
+          subPresCnt[code] = (subPresCnt[code]||0)+1;
+          weekdayPres[wd]  = (weekdayPres[wd]||0)+1;
+          recentPresent.push({ dk, dateObj, time:start, code });
+        }
+      });
+    });
+    if (dayPeriods>0) dayRecords.push({ dk, dateObj, dayPeriods, dayAbsent });
+  }
+
+  if (!dayRecords.length){
+    const eraNote = (_selEra && _selEra !== 'both')
+      ? ` in this timetable period (${_selEra.from} → ${_selEra.to})` : ` in AY ${ayKey}`;
+    body.innerHTML = ayRow + _eraBtnRow + `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px 0;">No daily attendance records found for this student${eraNote}.<br><span style="font-size:10px;">Try another timetable period above, or "Both".</span></div>`;
+    return;
+  }
+
+  // Count of legacy (no slot-time) periods — excluded from the period matrix
+  const legacyPeriods = (periodMap['__'] ? periodMap['__'].total : 0);
+
+  // ── Class-average per period (for "vs class" context) ──
+  // One extra walk over every classmate so each period's miss-rate has a baseline.
+  const classPeriod = {};   // "HH:MM" -> { total, absent }  (whole section, selected era)
+  for (let i=0;i<sortedKeys.length;i++){
+    const dk = sortedKeys[i];
+    if (!_eraHas(dk)) continue;   // same era scope as the student's own numbers
+    const students = Array.isArray(allRaw[dk][classLabel]) ? allRaw[dk][classLabel] : [];
+    students.forEach(stu => {
+      (stu.courses||[]).forEach(c => {
+        const slots = (c.slots && c.slots.length) ? c.slots
+                      : (c.attended==='A'||c.attended==='P') ? [{ start:'', attended:c.attended }] : [];
+        slots.forEach(sl => {
+          const start = sl.start || '__';
+          if (start==='__') return; // only timed periods get a baseline
+          if (!classPeriod[start]) classPeriod[start] = { total:0, absent:0 };
+          classPeriod[start].total++;
+          if ((sl.attended ? sl.attended : c.attended) === 'A') classPeriod[start].absent++;
+        });
+      });
+    });
+  }
+
+  // ── Derived metrics ──
+  const fullDayAbsent = dayRecords.filter(d => d.dayAbsent>0 && d.dayAbsent===d.dayPeriods).length;
+  const partialDays   = dayRecords.filter(d => d.dayAbsent>0 && d.dayAbsent<d.dayPeriods).length;
+  const cleanDays     = dayRecords.filter(d => d.dayAbsent===0).length;
+
+  // Worst period
+  const periodKeys = Object.keys(periodMap).filter(k=>k!=='__').sort();
+  let worstPeriod=null, worstPeriodN=-1;
+  periodKeys.forEach(k => { if (periodMap[k].absent>worstPeriodN){ worstPeriodN=periodMap[k].absent; worstPeriod=k; } });
+
+  // Worst weekday
+  let worstWd=null, worstWdN=-1;
+  Object.entries(weekdayMiss).forEach(([d,n]) => { if (n>worstWdN){ worstWdN=n; worstWd=d; } });
+
+  // Most-missed subject (period-wise)
+  let worstSub=null, worstSubN=-1;
+  Object.entries(subMissCnt).forEach(([c,n]) => { if (n>worstSubN){ worstSubN=n; worstSub=c; } });
+
+  // Streaks — longest run of consecutive any-absence days (only days student appears)
+  const sortedDays = [...dayRecords].sort((a,b)=>a.dateObj-b.dateObj);
+  let longestStreak=0, curStreak=0, prevAbs=false;
+  sortedDays.forEach(d => {
+    if (d.dayAbsent>0){ curStreak++; if(curStreak>longestStreak) longestStreak=curStreak; }
+    else curStreak=0;
+  });
+  // current (trailing) streak
+  let trailing=0;
+  for (let i=sortedDays.length-1;i>=0;i--){ if(sortedDays[i].dayAbsent>0) trailing++; else break; }
+
+  // ── PRESENT-side mirror metrics ──
+  // Best-attended period = lowest miss-rate slot (needs at least 1 held)
+  let bestPeriod=null, bestPeriodRate=2, bestPeriodPres=0;
+  periodKeys.forEach(k => {
+    const p = periodMap[k];
+    if (!p.total) return;
+    const rate = p.absent/p.total;
+    if (rate < bestPeriodRate){ bestPeriodRate=rate; bestPeriod=k; bestPeriodPres=p.total-p.absent; }
+  });
+  // Best weekday = most present periods
+  let bestWd=null, bestWdN=-1;
+  Object.entries(weekdayPres).forEach(([d,n]) => { if (n>bestWdN){ bestWdN=n; bestWd=d; } });
+  // Most-attended subject = most present periods
+  let bestSub=null, bestSubN=-1;
+  Object.entries(subPresCnt).forEach(([c,n]) => { if (n>bestSubN){ bestSubN=n; bestSub=c; } });
+  // Longest present (clean-day) streak + current trailing-present streak
+  let longestPresStreak=0, curPres=0;
+  sortedDays.forEach(d => {
+    if (d.dayAbsent===0){ curPres++; if(curPres>longestPresStreak) longestPresStreak=curPres; }
+    else curPres=0;
+  });
+  let trailingPres=0;
+  for (let i=sortedDays.length-1;i>=0;i--){ if(sortedDays[i].dayAbsent===0) trailingPres++; else break; }
+
+  // Trend — last 14 days vs prior, absence rate
+  const lastDate = sortedDays[sortedDays.length-1].dateObj;
+  const cut = new Date(lastDate); cut.setDate(cut.getDate()-14);
+  let recAbs=0,recTot=0,priAbs=0,priTot=0;
+  sortedDays.forEach(d => {
+    if (d.dateObj>=cut){ recAbs+=d.dayAbsent; recTot+=d.dayPeriods; }
+    else { priAbs+=d.dayAbsent; priTot+=d.dayPeriods; }
+  });
+  const recRate = recTot? recAbs/recTot : 0;
+  const priRate = priTot? priAbs/priTot : 0;
+  let trendTxt='—', trendClr='var(--muted)';
+  if (recTot && priTot){
+    if (recRate < priRate-0.03){ trendTxt='IMPROVING ▼'; trendClr='#22c55e'; }
+    else if (recRate > priRate+0.03){ trendTxt='WORSENING ▲'; trendClr='#ef4444'; }
+    else { trendTxt='STEADY ▬'; trendClr='#f59e0b'; }
+  }
+
+  // ── Persist for parent_ptm.html's Part-4 auto-fill ──────────────────────
+  // Writes once per SUMMARY-tab view (fire-and-forget, non-blocking) so the
+  // PTM publish screen's Worst weekday/period, Best weekday, Streak fields
+  // stop being permanently blank. Keyed by USN so parent_ptm.html's
+  // autofillSummaryMetrics() finds it directly.
+  (function _saveAttSummary(){
+    const usn=(_usnUC||(pucS&&pucS.urn)||'').toString().trim();
+    if(!usn || !rtdb) return;
+    const trend = trendTxt.startsWith('IMPROVING') ? 'IMPROVING' : trendTxt.startsWith('WORSENING') ? 'WORSENING' : trendTxt.startsWith('STEADY') ? 'STEADY' : '';
+    rtdb.ref('puc_att_summary/'+ayKey+'/'+usn).set({
+      worstWd: worstWd||'', worstPeriod: worstPeriod?fmt12(worstPeriod):'',
+      bestWd: bestWd||'', longestStreak: longestStreak||0,
+      trend, savedAt: Date.now()
+    }).catch(e=>console.warn('[mrmSummary] puc_att_summary write failed:', e.message));
+  })();
+
+  // Cumulative below-75 (from pucS.subjects)
+  const cumSubs = ((pucS&&pucS.subjects)||[]).filter(x=>x.subject);
+  const below75 = cumSubs.filter(x=>x.pct!==null&&x.pct!==undefined&&parseFloat(x.pct)<75)
+                         .sort((a,b)=>parseFloat(a.pct)-parseFloat(b.pct));
+
+  // Overall risk badge
+  const overallRate = totalPeriods? totalAbsent/totalPeriods : 0;
+  let risk='LOW', riskClr='#22c55e';
+  if (below75.length>=3 || overallRate>0.25 || trendTxt.startsWith('WORSENING')){ risk='HIGH'; riskClr='#ef4444'; }
+  else if (below75.length>=1 || overallRate>0.12){ risk='MEDIUM'; riskClr='#f59e0b'; }
+
+  const sName = code => { const e=(typeof subjectMap!=='undefined')?(subjectMap[code]||{}):{}; return e.name?e.name:code; };
+
+  // Cumulative whole-subject totals (held=ct, attended=ca) keyed by code — for the yellow N/N on each chip.
+  const cumByCode = {};
+  cumSubs.forEach(x => {
+    const cd = (x.subject||'').toUpperCase();
+    if (!cd) return;
+    const ct = (x.ct!==null&&x.ct!==undefined)?x.ct:null;
+    const ca = (x.ca!==null&&x.ca!==undefined)?x.ca:null;
+    cumByCode[cd] = { ct, ca };
+  });
+
+  // ── WhatsApp: resolve parent contact + build a plain-text summary message ──
+  const rawContact = ((pucS && pucS.contact) || s.contact || '').replace(/\D/g,'');
+  const waPhone = rawContact.length===10 ? '91'+rawContact
+                : rawContact.length===12 ? rawContact
+                : rawContact.length>12   ? '91'+rawContact.slice(-10) : '';
+  // Build the message body (uses *bold* WhatsApp markdown, matching abWaSend style)
+  const _waLines = [];
+  _waLines.push('Dear Parent,');
+  _waLines.push('');
+  _waLines.push('Attendance summary for *' + (s.name||'your ward') + '* (URN: ' + ((pucS&&pucS.urn)||s.usn||'—') + ', Class: ' + classLabel + ') — AY ' + ayKey + ':');
+  _waLines.push('');
+  _waLines.push('• Periods missed: *' + totalAbsent + '*');
+  _waLines.push('• Full days absent: *' + fullDayAbsent + '*');
+  _waLines.push('• Overall miss rate: *' + (overallRate*100).toFixed(1) + '%*');
+  if (below75.length){
+    _waLines.push('');
+    _waLines.push('Subjects below 75%:');
+    below75.forEach(sub => _waLines.push('  - ' + sName(sub.subject) + ': ' + parseFloat(sub.pct).toFixed(1) + '%'));
+  }
+  if (worstPeriod) _waLines.push('');
+  if (worstPeriod) _waLines.push('Most-missed period: ' + fmt12(worstPeriod) + ' (' + worstPeriodN + ' times)');
+  _waLines.push('');
+  _waLines.push('Please ensure regular attendance to avoid shortage/detention.');
+  _waLines.push('');
+  _waLines.push('— Davan PUC');
+  const waMsg = _waLines.join('\n');
+  const waUrl = waPhone ? 'https://wa.me/' + waPhone + '?text=' + encodeURIComponent(waMsg) : '';
+  const _waUrlJs = waUrl.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const _waUsnJs = ((pucS&&pucS.urn)||s.usn||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+
+  // ───────────────── BUILD HTML ─────────────────
+  let h = ayRow + _eraBtnRow;
+
+  // Risk banner
+  h += `<div style="display:flex;align-items:center;gap:12px;background:${riskClr}1a;border:1px solid ${riskClr}55;border-radius:12px;padding:12px 14px;margin-bottom:10px;">
+    <div style="font-size:11px;font-family:var(--mono);color:var(--muted);">RISK</div>
+    <div style="font-size:20px;font-weight:800;color:${riskClr};font-family:var(--mono);letter-spacing:1px;">${risk}</div>
+    <div style="margin-left:auto;text-align:right;font-size:10px;font-family:var(--mono);color:var(--muted);line-height:1.5;">
+      Trend <span style="color:${trendClr};font-weight:700;">${trendTxt}</span><br>
+      ${below75.length} subj below 75%${trailing>0?` · <span style="color:#ef4444;font-weight:700;">${trailing}-day streak</span>`:''}</div></div>`;
+
+  // Action row — WhatsApp parent + jump to LETTERS
+  h += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">`;
+  if (waUrl){
+    h += `<button onclick="mrmSummaryWaSend('${_waUsnJs}','${_waUrlJs}')" title="Send this summary to parent on WhatsApp"
+      style="flex:1 1 160px;display:flex;align-items:center;justify-content:center;gap:7px;background:#25D366;border:none;border-radius:9px;padding:11px;cursor:pointer;font-family:var(--mono);font-size:12px;font-weight:700;color:#06311b;transition:opacity .2s;"
+      onmouseover="this.style.opacity='0.88'" onmouseout="this.style.opacity='1'">📲 Send to Parent</button>`;
+  } else {
+    h += `<div style="flex:1 1 160px;display:flex;align-items:center;justify-content:center;gap:7px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:11px;font-family:var(--mono);font-size:11px;color:var(--muted);">📵 No contact on file</div>`;
+  }
+  h += `<button onclick="mrmShowTab('letters')" title="Open the Letters tab to issue a shortage letter"
+      style="flex:1 1 160px;display:flex;align-items:center;justify-content:center;gap:7px;background:var(--surface2);border:1px solid var(--accent);border-radius:9px;padding:11px;cursor:pointer;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);transition:background .2s;"
+      onmouseover="this.style.background='rgba(245,158,11,0.1)'" onmouseout="this.style.background='var(--surface2)'">📄 Letters →</button>`;
+  h += `</div>`;
+
+  // Headline stat chips
+  const chip=(v,l,clr)=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center;">
+    <div style="font-size:20px;font-weight:700;color:${clr};font-family:var(--mono);line-height:1;">${v}</div>
+    <div style="font-size:8.5px;color:var(--muted);font-family:var(--mono);margin-top:3px;letter-spacing:0.5px;">${l}</div></div>`;
+  h += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px;">
+    ${chip(totalAbsent,'PERIODS MISSED',totalAbsent>0?'#ef4444':'#22c55e')}
+    ${chip(fullDayAbsent,'FULL DAYS ABSENT',fullDayAbsent>0?'#ef4444':'#22c55e')}
+    ${chip(partialDays,'PARTIAL DAYS','#f59e0b')}
+    ${chip((overallRate*100).toFixed(1)+'%','MISS RATE',overallRate>0.25?'#ef4444':overallRate>0.12?'#f59e0b':'#22c55e')}</div>`;
+
+  // Pattern strips — Absence (left) + Present mirror (right). Wrap to stack on mobile.
+  let absStrip = `<div style="flex:1 1 240px;min-width:0;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:11px 14px;font-size:11px;font-family:var(--mono);line-height:1.9;color:var(--muted);">
+    <div style="font-size:9px;letter-spacing:1px;color:#ef4444;margin-bottom:4px;font-weight:700;">ABSENCE PATTERN</div>`;
+  if (worstPeriod) absStrip += `🕐 Worst period: <strong style="color:#ef4444;">${fmt12(worstPeriod)}</strong> — ${worstPeriodN} misses<br>`;
+  if (worstWd)     absStrip += `📆 Worst weekday: <strong style="color:#ef4444;">${worstWd}</strong> — ${worstWdN} misses<br>`;
+  if (worstSub && worstSubN>0) absStrip += `📚 Most-skipped: <strong style="color:#ef4444;">${sName(worstSub)}</strong> — ${worstSubN} misses<br>`;
+  absStrip += `🔥 Longest absent streak: <strong style="color:var(--text);">${longestStreak} day${longestStreak!==1?'s':''}</strong>${trailing>0?` · current: ${trailing}`:''}</div>`;
+
+  let presStrip = `<div style="flex:1 1 240px;min-width:0;background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.25);border-radius:10px;padding:11px 14px;font-size:11px;font-family:var(--mono);line-height:1.9;color:var(--muted);">
+    <div style="font-size:9px;letter-spacing:1px;color:#22c55e;margin-bottom:4px;font-weight:700;">PRESENT PATTERN</div>`;
+  if (bestPeriod) presStrip += `🕐 Best period: <strong style="color:#22c55e;">${fmt12(bestPeriod)}</strong> — ${bestPeriodPres} present<br>`;
+  if (bestWd && bestWdN>0) presStrip += `📆 Best weekday: <strong style="color:#22c55e;">${bestWd}</strong> — ${bestWdN} present<br>`;
+  if (bestSub && bestSubN>0) presStrip += `📚 Most-attended: <strong style="color:#22c55e;">${sName(bestSub)}</strong> — ${bestSubN} present<br>`;
+  presStrip += `✅ Longest present streak: <strong style="color:var(--text);">${longestPresStreak} day${longestPresStreak!==1?'s':''}</strong>${trailingPres>0?` · current: ${trailingPres}`:''}</div>`;
+
+  h += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">${absStrip}${presStrip}</div>`;
+
+  // PERIOD × SUBJECT matrix
+  h += `<div style="font-size:10px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;margin:4px 2px 8px;">⏱ PERIOD-WISE MISSES (subject breakdown)</div>`;
+  if (legacyPeriods>0){
+    h += `<div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin:-4px 2px 8px;">ℹ️ ${legacyPeriods} period${legacyPeriods!==1?'s':''} have no slot-time data (legacy scrape) — counted in totals above but not shown per-period below.</div>`;
+  }
+  if (!periodKeys.length){
+    h += `<div style="color:var(--muted);font-family:var(--mono);font-size:11px;padding:6px 2px 14px;">No timed slot data (legacy snapshots only).</div>`;
+  } else {
+    h += `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">`;
+    periodKeys.forEach(pk => {
+      const p = periodMap[pk];
+      const subsHere = Object.entries(p.bySub).filter(([,v])=>v.absent>0).sort((a,b)=>b[1].absent-a[1].absent);
+      const headClr = p.absent>0?'#ef4444':'#22c55e';
+      // vs class avg
+      const cp = classPeriod[pk];
+      const myRate = p.total ? p.absent/p.total : 0;
+      const clRate = (cp && cp.total) ? cp.absent/cp.total : null;
+      let vsTxt = '';
+      if (clRate!==null){
+        const diff = (myRate-clRate)*100;
+        const vsClr = diff>5?'#ef4444':diff<-5?'#22c55e':'var(--muted)';
+        const sign  = diff>0?'+':'';
+        vsTxt = `<span style="font-size:9px;font-family:var(--mono);color:${vsClr};margin-left:8px;">${sign}${diff.toFixed(0)}% vs class</span>`;
+      }
+      h += `<div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${headClr};border-radius:10px;padding:10px 12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${subsHere.length?'8px':'0'};">
+          <span><span style="font-size:13px;font-weight:700;color:var(--text);font-family:var(--mono);">${fmt12(pk)}</span>${vsTxt}</span>
+          <span style="font-size:11px;font-family:var(--mono);color:${headClr};font-weight:700;">${p.absent} missed<span style="color:var(--muted);font-weight:400;"> / ${p.total} held</span></span></div>`;
+      if (subsHere.length){
+        h += `<div style="display:flex;flex-wrap:wrap;gap:6px;">`;
+        subsHere.forEach(([code,v]) => {
+          const cum = cumByCode[code];
+          let totTag = '';
+          if (cum && cum.ct!==null){
+            const missed = (cum.ca!==null) ? Math.max(0, cum.ct - cum.ca) : null;
+            if (missed!==null) totTag = `<span style="color:#f59e0b;margin-left:5px;" title="Total ${sName(code)}: ${missed} missed of ${cum.ct} held (all periods)">${missed}/${cum.ct}</span>`;
+          }
+          h += `<span style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:3px 8px;font-size:10px;font-family:var(--mono);color:#fca5a5;white-space:nowrap;">
+            ${sName(code)} <strong style="color:#ef4444;">✗${v.absent}</strong>${totTag}</span>`;
+        });
+        h += `</div>`;
+      }
+      h += `</div>`;
+    });
+    h += `</div>`;
+  }
+
+  // BELOW 75% (cumulative)
+  if (below75.length){
+    h += `<div style="font-size:10px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;margin:4px 2px 8px;">⚠️ BELOW 75% (cumulative — shortage)</div>`;
+    h += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:16px;">`;
+    below75.forEach(sub => {
+      const pct = parseFloat(sub.pct), ct=sub.ct, ca=sub.ca;
+      const clr = pct>=65?'#f59e0b':'#ef4444';
+      let need=''; if (ct){ const n=Math.max(0,Math.ceil((0.75*ct-(ca||0))/0.25)); if(n>0) need=`<div style="font-size:9px;color:#ef4444;margin-top:3px;">Need ${n} more</div>`; }
+      h += `<div style="background:rgba(239,68,68,0.06);border:1px solid ${clr}55;border-radius:10px;padding:10px 12px;">
+        <div style="font-size:10px;font-family:var(--mono);color:var(--muted);margin-bottom:3px;">${sName(sub.subject)}</div>
+        <div style="font-size:18px;font-weight:700;color:${clr};font-family:var(--mono);line-height:1;">${pct.toFixed(1)}%</div>
+        <div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-top:3px;">CT ${ct??'—'} · CA ${ca??'—'}</div>${need}</div>`;
+    });
+    h += `</div>`;
+  }
+
+  // RECENT — Misses / Present toggle (CSS-only, no JS state). Both: one row per period.
+  const recent = recentMisses.sort((a,b)=>b.dateObj-a.dateObj).slice(0,12);
+  const presentList = recentPresent
+    .sort((a,b)=> (b.dateObj-a.dateObj) || (a.time||'').localeCompare(b.time||''))
+    .slice(0,12); // one row per attended period: date · weekday · time · subject
+  if (recent.length || presentList.length){
+    const _tid = 'rcl_' + Math.random().toString(36).slice(2,8); // unique radio group per render
+    h += `<style>
+      #${_tid}-m:checked ~ .${_tid}-mlist{display:block;} #${_tid}-m:checked ~ .${_tid}-tabs .${_tid}-mlbl{color:#fca5a5;border-color:rgba(239,68,68,0.5);background:rgba(239,68,68,0.1);}
+      #${_tid}-p:checked ~ .${_tid}-plist{display:block;} #${_tid}-p:checked ~ .${_tid}-tabs .${_tid}-plbl{color:#86efac;border-color:rgba(34,197,94,0.5);background:rgba(34,197,94,0.1);}
+      .${_tid}-mlist,.${_tid}-plist{display:none;}
+    </style>`;
+    h += `<input type="radio" name="${_tid}" id="${_tid}-m" checked style="display:none;">`;
+    h += `<input type="radio" name="${_tid}" id="${_tid}-p" style="display:none;">`;
+    // Tab buttons (labels toggle the radios)
+    h += `<div class="${_tid}-tabs" style="display:flex;gap:8px;margin:4px 2px 8px;align-items:center;">
+      <span style="font-size:10px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;margin-right:2px;">🗓 RECENT</span>
+      <label for="${_tid}-m" class="${_tid}-mlbl" style="cursor:pointer;font-family:var(--mono);font-size:10px;font-weight:700;padding:4px 10px;border-radius:7px;border:1px solid var(--border);color:var(--muted);transition:all .15s;">MISSES (${recent.length})</label>
+      <label for="${_tid}-p" class="${_tid}-plbl" style="cursor:pointer;font-family:var(--mono);font-size:10px;font-weight:700;padding:4px 10px;border-radius:7px;border:1px solid var(--border);color:var(--muted);transition:all .15s;">PRESENT (${presentList.length})</label>
+    </div>`;
+    // Row builder shared by both lists: date · weekday · time · subject
+    const _row = (r, subjColor) => {
+      const wd = dayNames[r.dateObj.getDay()];
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);font-size:11px;font-family:var(--mono);">
+        <span style="color:var(--muted);flex:0 0 92px;">${r.dk}</span>
+        <span style="color:var(--text);flex:0 0 34px;">${wd}</span>
+        <span style="color:var(--text);flex:0 0 64px;">${r.time&&r.time!=='__'?fmt12(r.time):'—'}</span>
+        <span style="color:${subjColor};flex:1 1 auto;text-align:right;">${sName(r.code)}</span></div>`;
+    };
+    // Misses list
+    h += `<div class="${_tid}-mlist" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:6px 4px;margin-bottom:8px;overflow-x:auto;">`;
+    if (recent.length){ recent.forEach(r => { h += _row(r, '#fca5a5'); }); }
+    else { h += `<div style="padding:10px;font-size:11px;font-family:var(--mono);color:var(--muted);text-align:center;">No misses in scope 🎉</div>`; }
+    h += `</div>`;
+    // Present list (one row per attended period)
+    h += `<div class="${_tid}-plist" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:6px 4px;margin-bottom:8px;overflow-x:auto;">`;
+    if (presentList.length){ presentList.forEach(r => { h += _row(r, '#86efac'); }); }
+    else { h += `<div style="padding:10px;font-size:11px;font-family:var(--mono);color:var(--muted);text-align:center;">No present periods in scope</div>`; }
+    h += `</div>`;
+  }
+
+  // ── Data-coverage signal: scraped days vs working days since session start ──
+  // Flags likely scraping gaps so absence totals aren't misread as complete.
+  let coverageHtml = '';
+  try {
+    const _segKey = Object.keys(PUC_SESS_SEGMENTS).find(k =>
+      (PUC_SESS_SEGMENTS[k].classLabels||[]).map(x=>x.toUpperCase()).includes(_clsUC));
+    const _sessStart = (_segKey && _pucSessDates[_segKey] && _pucSessDates[_segKey].start) || '';
+    // Distinct dates actually scraped for this class in the selected scope:
+    const scrapedDates = new Set();
+    for (let i=0;i<sortedKeys.length;i++){
+      const dk = sortedKeys[i];
+      if (!_eraHas(dk)) continue;
+      if (Array.isArray(allRaw[dk][classLabel]) && allRaw[dk][classLabel].length) scrapedDates.add(dk);
+    }
+    const nScraped = scrapedDates.size;
+    if (_sessStart){
+      // Count weekdays (Mon–Sat; exclude Sundays only — holidays unknown here) from start→today
+      const start = new Date(_sessStart+'T00:00:00');
+      const today = new Date(_todayIso+'T00:00:00');
+      // If an era is selected, clamp the window to the era too
+      let winStart = start, winEnd = today;
+      if (_selEra && _selEra !== 'both'){
+        const eStart = new Date(_selEra.from+'T00:00:00'), eEnd = new Date(_selEra.to+'T00:00:00');
+        if (eStart>winStart) winStart=eStart;
+        if (eEnd<winEnd) winEnd=eEnd;
+      }
+      let workingDays=0;
+      for (let dt=new Date(winStart); dt<=winEnd; dt.setDate(dt.getDate()+1)){
+        if (dt.getDay()!==0) workingDays++; // skip Sundays
+      }
+      const gap = workingDays - nScraped;
+      const gapPct = workingDays>0 ? (gap/workingDays) : 0;
+      const clr = gapPct>0.25 ? '#ef4444' : gapPct>0.1 ? '#f59e0b' : '#22c55e';
+      coverageHtml = `<div style="font-size:9px;font-family:var(--mono);color:var(--muted);text-align:center;padding:2px 0;">
+        coverage: <strong style="color:${clr};">${nScraped}</strong> days scraped vs ~${workingDays} working days (Mon–Sat) since ${_sessStart}`
+        + (gap>3 ? ` · <span style="color:${clr};">~${gap} day${gap!==1?'s':''} may be un-scraped</span>` : ` · looks complete`)
+        + `<br><span style="opacity:0.7;">(holidays not excluded — working-day estimate is approximate)</span></div>`;
+    } else {
+      coverageHtml = `<div style="font-size:9px;font-family:var(--mono);color:var(--muted);text-align:center;padding:2px 0;">
+        coverage: ${nScraped} days scraped (session start not set — can't estimate gaps)</div>`;
+    }
+  } catch(e){ /* coverage is best-effort; never block the summary */ }
+
+  // Footer note
+  const _scopeTxt = (_selEra && _selEra !== 'both')
+    ? `${_selEra.label} (${_selEra.from} → ${_selEra.to})`
+    : (_eras.length ? 'all timetables (whole year)' : 'whole year');
+  h += coverageHtml;
+  h += `<div style="font-size:9px;font-family:var(--mono);color:var(--muted);text-align:center;padding:6px 0 2px;">
+    ${dayRecords.length} school days analysed · ${cleanDays} clean · ${partialDays} partial · ${fullDayAbsent} full-absent<br>
+    <span style="opacity:0.8;">scope: ${_scopeTxt}</span></div>`;
+
+  body.innerHTML = h;
+}
+
+
+async function fscShowDrill(code, subjectName, portalCt, portalCa) {
+  const body = document.getElementById('mrm-body');
+  if (!body || !_mrmStudent) return;
+
+  const s    = _mrmStudent;
+  const _pucAll2 = fscAllStudents();
+  const _sClassUC2 = (s.class||'').trim().toUpperCase();
+  const _sNameLC2  = (s.name||'').trim().toLowerCase();
+  const _sUsnUC2   = (s.usn||'').trim().toUpperCase();
+  // Match by URN first, then name+class (class-constrained to avoid wrong student), then name alone
+  const pucS = _pucAll2.find(x => _sUsnUC2 && (x.urn||'').trim().toUpperCase() === _sUsnUC2)
+            || _pucAll2.find(x => (x.name||'').trim().toLowerCase()===_sNameLC2 && (x.class||'').trim().toUpperCase()===_sClassUC2)
+            || _pucAll2.find(x => (x.name||'').trim().toLowerCase()===_sNameLC2) // fallback: name only (handles class mismatch between marks and portal)
+            || null;
+  // Prefer pucS.class (current portal class) over s.class (may be stale from marks data)
+  const classLabel = ((pucS && pucS.class) || s.class || '').trim();
+  const usn        = (pucS && pucS.urn) ? pucS.urn.trim() : (s.usn || '').trim();
+  const ayKey      = (typeof AY !== 'undefined') ? AY : SP_AY_KEY;
+
+  // Faculty info for drill header
+  if (!Object.keys(facultyMap).length) await fmLoadFromRTDB();
+  const _drFacNm  = _resolveSubjectFaculty(classLabel, code);
+  const _drFacPhoto = _drFacNm ? getFacultyPhotoByName(_drFacNm) : '';
+  const _drFacInits = _drFacNm ? _drFacNm.trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase() : '';
+  const _drFacAvatarHtml = _drFacNm
+    ? (_drFacPhoto
+        ? `<img src="${_drFacPhoto}" alt="" title="${_drFacNm} — click to zoom" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);flex-shrink:0;cursor:zoom-in;" onclick="zoomPhoto(this.src)" onerror="this.style.display='none'">`
+        : `<span style="width:32px;height:32px;border-radius:50%;background:var(--surface2);border:2px solid var(--accent);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--accent);flex-shrink:0;">${_drFacInits}</span>`)
+    : '';
+  const _drFacBlock = _drFacNm
+    ? `<div style="display:flex;align-items:center;gap:7px;margin-top:4px;">${_drFacAvatarHtml}<span style="font-size:10px;color:#f0a500;font-family:var(--mono);">${_drFacNm}</span></div>`
+    : '';
+
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <button onclick="fscRenderAttend(document.getElementById('mrm-body'))"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 12px;
+               font-size:10px;font-family:var(--mono);color:var(--text);cursor:pointer;">← Back</button>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:700;color:var(--accent);font-family:var(--mono);">${subjectName}</div>
+        <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">${code} · ${classLabel}</div>
+        ${_drFacBlock}
+      </div>
+    </div>
+    <div style="color:var(--muted);font-family:var(--mono);font-size:11px;padding:12px 0;">⏳ Loading date log…</div>`;
+
+  try {
+    // Use cached class snapshots (fetched once per session per class).
+    const { allRaw, sortedKeys, parseKey } = await mrmGetClassSnaps(ayKey, classLabel, 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app');
+
+    // For each date, find this student's ca/ch for this subject code
+    // Then diff with previous to detect: class held today? attended today?
+    const rows = []; // { dateKey, classHeld, attended }
+
+    // ── Timetable slot-count helper (used to cap bleed-over from missing snapshots)
+    // Cap rule (v4.11): use timetable slot count ONLY when timetable knows this
+    // subject is scheduled on that day (ttSlots >= 1). If ttSlots === 0 the subject
+    // isn't in the timetable for that day (makeup/extra class) — use raw chDelta so
+    // we don't lose the real class. This prevents the 26-May bleed: 26 May snapshot
+    // missing → 27 May chDelta inflates to 3 → timetable says 2 BS slots on Wed →
+    // cap to 2 → correct. Extra class on a non-scheduled day → ttSlots=0 → no cap.
+    const _ttSection2 = (classLabel.trim().split('-').pop() || '').toUpperCase();
+    const _ttAbbr2 = (() => {
+      if (typeof subjectMap !== 'undefined') {
+        const e = subjectMap[classLabel + '|' + code] || subjectMap[code] || subjectMap['_SEED_' + code];
+        if (e && e.abbr) return e.abbr.trim().toUpperCase();
+      }
+      return '';
+    })();
+    const _ttDayNamesEarly = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const getTtSlotCount = (dk) => {
+      try {
+        if (!_ttAbbr2 || !_ttSection2) return 0; // 0 = unknown, don't cap
+        const _ttSrc = ttCom || TT_COM_SEED;
+        const [d,m,y] = dk.split('-');
+        const dayName = _ttDayNamesEarly[new Date(`${m} ${d} ${y}`).getDay()];
+        const grid = (_ttSrc.grid || {})[_ttSection2] || {};
+        const slots = grid[dayName] || [];
+        let cnt = 0;
+        slots.forEach(abbr => {
+          if ((abbr||'').trim().toUpperCase().split('/').some(a => a.trim() === _ttAbbr2)) cnt++;
+        });
+        return cnt; // 0 = not scheduled this day (no cap); >=1 = cap to this count
+      } catch(_) { return 0; }
+    };
+
+    // NEW FORMAT: attended:A/P — read directly, no diffing needed
+    const _debugRows = [];
+
+    for (let i = 0; i < sortedKeys.length; i++) {
+      const key     = sortedKeys[i];
+      const dayData = allRaw[key];
+      const students = Array.isArray(dayData[classLabel]) ? dayData[classLabel] : [];
+      const _usnUC   = usn.trim().toUpperCase();
+      const _sNameLC = (s.name||'').trim().toLowerCase();
+      const _pucSid  = (pucS && pucS.sid) ? pucS.sid : '';
+      let stu = _usnUC ? students.find(x => (x.usn||'').trim().toUpperCase() === _usnUC) : null;
+      if (!stu && _pucSid) {
+        stu = students.find(x => x.sid && x.sid === _pucSid) || null;
+      }
+      if (!stu && _sNameLC) {
+        stu = students.find(x => (x.name||'').trim().toLowerCase() === _sNameLC) || null;
+      }
+
+      const course = stu ? (stu.courses||[]).find(c => (c.code||'').toUpperCase() === code.toUpperCase()) : null;
+
+      _debugRows.push({
+        date: key,
+        found: !!course,
+        attended: course ? course.attended : null,
+        count: course ? (course.count || 1) : 0,
+      });
+
+      if (!course) continue;
+
+      // Emit one row per slot so date log row count = actual periods held.
+      // slots[] carries real start/end times from the API (new format).
+      // Legacy: no slots → treat as single period with attended from top-level field.
+      if (course.attended === 'A' || course.attended === 'P') {
+        if (course.slots && course.slots.length) {
+          course.slots.forEach(sl => {
+            const fmt12 = t => {
+              if (!t) return '';
+              try {
+                const [h, m] = t.split(':').map(Number);
+                const ampm = h >= 12 ? 'PM' : 'AM';
+                const h12  = h % 12 || 12;
+                return h12 + (m ? ':' + String(m).padStart(2, '0') : '') + ' ' + ampm;
+              } catch(_) { return t; }
+            };
+            const slotTime = (sl.start && sl.end) ? fmt12(sl.start) + '–' + fmt12(sl.end) : '';
+            rows.push({ dateKey: key, classHeld: true, attended: sl.attended === 'P', slotTime });
+          });
+        } else {
+          // Legacy snapshot (no slots field) — single period, no time info
+          rows.push({ dateKey: key, classHeld: true, attended: course.attended === 'P', slotTime: '' });
+        }
+      }
+    }
+
+    // Build display — format date key "05-May-2026" nicely
+    const fmtDate = k => {
+      try {
+        const [d,m,y] = k.split('-');
+        const dt = new Date(`${m} ${d} ${y}`);
+        return dt.toLocaleDateString('en-IN', { weekday:'short', day:'2-digit', month:'short', year:'numeric' });
+      } catch(_) { return k; }
+    };
+
+    // Build timetable timing lookup for this subject on each day of week
+    // Returns e.g. "09:30–10:30" or "09:30–10:30, 14:15–15:15" if appears twice
+    const _ttSection = (classLabel.trim().split('-').pop() || '').toUpperCase(); // 'A','B','C'
+    const _ttAbbr = (() => {
+      if (typeof subjectMap !== 'undefined') {
+        const e = subjectMap[code] || subjectMap['_SEED_' + code];
+        if (e && e.abbr) return e.abbr.trim().toUpperCase();
+      }
+      return '';
+    })();
+    const _ttDayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const getTiming = (dk) => {
+      try {
+        if (!_ttAbbr || !_ttSection) return '';
+        const _ttSrc = ttCom || TT_COM_SEED;
+        const [d,m,y] = dk.split('-');
+        const dayName = _ttDayNames[new Date(`${m} ${d} ${y}`).getDay()];
+        const grid = (_ttSrc.grid || {})[_ttSection] || {};
+        const slots = grid[dayName] || [];
+        const periods = (_ttSrc.periods || []).filter(p => p.type === 'period');
+        const times = [];
+        slots.forEach((abbr, idx) => {
+          if ((abbr||'').trim().toUpperCase().split('/').some(a => a.trim() === _ttAbbr)) {
+            const p = periods[idx];
+            if (p && p.start && p.end) {
+              const fmt12 = t => {
+                const [h,m] = t.split(':').map(Number);
+                const ampm = h >= 12 ? 'PM' : 'AM';
+                const h12  = h % 12 || 12;
+                return h12 + (m ? ':' + String(m).padStart(2,'0') : '') + ' ' + ampm;
+              };
+              times.push(fmt12(p.start) + '–' + fmt12(p.end));
+            }
+          }
+        });
+        return times.join(', ');
+      } catch(_) { return ''; }
+    };
+
+    // Snapshot rows are the ground truth for dates that were actually scraped.
+    // portalCt/portalCa come from puc_students which is updated only on scrape day
+    // and can be stale (e.g. exam-day cumulative reflects only that day's data).
+    // Rule: when snapshots have MORE data than portal says -> snapshots win.
+    //       when portal says MORE classes than we have snapshot rows for -> portal wins
+    //       (those extra classes happened on days with no snapshot).
+    const _snapCt        = rows.length;
+    const _snapCa        = rows.filter(r => r.attended).length;
+    const _notInSnap     = (portalCt > _snapCt) ? (portalCt - _snapCt) : 0;
+    const totalHeld      = _snapCt >= (portalCt||0) ? _snapCt : portalCt;
+    const totalAttended  = _snapCt >= (portalCt||0) ? _snapCa
+                         : (portalCa !== undefined && portalCa >= 0) ? portalCa : _snapCa;
+    const totalAbsent    = totalHeld - totalAttended;
+    const pct            = totalHeld ? Math.round(totalAttended/totalHeld*100) : 0;
+    const clr            = pct>=75?'#22c55e':pct>=65?'#f59e0b':'#ef4444';
+
+    // Group by date for display
+    const byDate = {};
+    rows.forEach(r => {
+      if (!byDate[r.dateKey]) byDate[r.dateKey] = { p:0, a:0 };
+      if (r.attended) byDate[r.dateKey].p++;
+      else            byDate[r.dateKey].a++;
+    });
+
+    // Fetch leave letters before building HTML so chip count is available
+    let _letterMap = {};
+    try {
+      const _ltSnap = await db.collection('leave_letters').doc(usn).collection('dates').get();
+      _ltSnap.forEach(d => { _letterMap[d.id] = d.data(); });
+    } catch(_) {}
+    const _ltSubmitted = Object.values(_letterMap).filter(v => v && v.reason).length;
+    const _ltChip = _ltSubmitted > 0
+      ? `<div style="flex:1;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:8px;text-align:center;" title="${_ltSubmitted} leave letter(s) submitted">
+          <div style="font-size:18px;font-weight:700;color:#22c55e;font-family:var(--mono);">📄 ${_ltSubmitted}</div>
+          <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">LETTERS</div>
+        </div>`
+      : `<div style="flex:1;background:rgba(239,68,68,0.05);border:1px dashed rgba(239,68,68,0.2);border-radius:8px;padding:8px;text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:var(--muted);font-family:var(--mono);">0</div>
+          <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">LETTERS</div>
+        </div>`;
+
+    let html = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <button onclick="fscRenderAttend(document.getElementById('mrm-body'))"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 12px;
+                 font-size:10px;font-family:var(--mono);color:var(--text);cursor:pointer;">← Back</button>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--accent);font-family:var(--mono);">${subjectName}</div>
+          <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">${code} · ${classLabel}</div>
+          ${_drFacBlock}
+        </div>
+        <div style="margin-left:auto;text-align:right;">
+          <div style="font-size:18px;font-weight:700;color:${clr};font-family:var(--mono);">${pct}%</div>
+          <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">${totalAttended}/${totalHeld}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <div style="flex:1;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:8px;text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:#22c55e;font-family:var(--mono);">${totalAttended}</div>
+          <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">PRESENT</div>
+        </div>
+        <div style="flex:1;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:8px;text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:#ef4444;font-family:var(--mono);">${totalAbsent}</div>
+          <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">ABSENT</div>
+        </div>
+        <div style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:${clr};font-family:var(--mono);">${pct}%</div>
+          <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">OVERALL</div>
+        </div>
+        ${_ltChip}
+      </div>`;
+
+    if (!Object.keys(byDate).length) {
+      html += `<div style="color:var(--muted);font-family:var(--mono);font-size:11px;padding:12px 0;">
+        No date-wise data found. Daily snapshots may not cover this subject yet.<br>
+        <span style="font-size:10px;">Tip: Re-scrape existing dates from the backfill tool.</span></div>`;
+    } else {
+
+      // Build one row per period so list count matches ABSENT box exactly.
+      // Same date with 2 classes → 2 rows, each with its own time slot.
+      // Track per-date occurrence index to pick the right slot from getTiming().
+      const _occIdx = {};
+      rows.sort((a,b) => parseKey(a.dateKey) - parseKey(b.dateKey));
+      let _rowsHtml = '';
+      let _rowNum = 0;
+      rows.forEach(r => {
+        _rowNum++;
+        const dk = r.dateKey;
+        if (_occIdx[dk] === undefined) _occIdx[dk] = 0;
+        const occN = _occIdx[dk]++;
+        // Use real API start/end time stored in the snapshot (new format).
+        // Fall back to timetable-derived time for legacy snapshots without slot times.
+        let _slotTime = r.slotTime || '';
+        if (!_slotTime) {
+          const _allTimes = getTiming(dk).split(',').map(t => t.trim()).filter(Boolean);
+          _slotTime = _allTimes[occN] || _allTimes[0] || '';
+        }
+        const absent = !r.attended;
+        const statusClr = absent ? '#ef4444' : '#22c55e';
+        const statusLbl = absent ? 'Absent' : 'Present';
+        let letterCell = '<td style="text-align:center;padding:5px 8px;border:1px solid var(--border);color:var(--muted);">—</td>';
+        if (absent) {
+          const lt = _letterMap[dk];
+          if (lt && lt.reason) {
+            letterCell = `<td style="text-align:center;padding:5px 8px;border:1px solid var(--border);" title="${(lt.reason||'').replace(/"/g,'&quot;')}"><span style="cursor:pointer;" onclick="mrmLetterEdit('${usn}','${dk}',this)">📄</span></td>`;
+          } else {
+            letterCell = `<td style="text-align:center;padding:5px 8px;border:1px solid var(--border);"><span style="cursor:pointer;font-size:10px;color:#f59e0b;" onclick="mrmLetterEdit('${usn}','${dk}',this)">⚠ Add</span></td>`;
+          }
+        }
+        _rowsHtml += `<tr data-present="${absent?'0':'1'}" style="display:${absent?'':'none'};">\
+          <td style="text-align:center;padding:5px 6px;border:1px solid var(--border);color:var(--muted);font-size:10px;">${_rowNum}</td>\
+          <td style="padding:5px 10px;border:1px solid var(--border);color:var(--text);">${fmtDate(dk)}${_slotTime ? ` <span style="font-size:9px;color:var(--muted);font-family:var(--mono);opacity:0.7;">(${_slotTime})</span>` : ''}</td>\
+          <td style="text-align:center;padding:5px 8px;border:1px solid var(--border);color:${statusClr};font-weight:700;">${statusLbl}</td>\
+          <td style="text-align:center;padding:5px 8px;border:1px solid var(--border);color:#22c55e;font-weight:700;">${r.attended ? '1' : '—'}</td>\
+          <td style="text-align:center;padding:5px 8px;border:1px solid var(--border);color:${absent?'#ef4444':'var(--muted)'};font-weight:700;">${absent ? '1' : '—'}</td>\
+          ${letterCell}\
+        </tr>`;
+      });
+      const _absentCount  = rows.filter(r => !r.attended).length;
+      const _presentCount = rows.filter(r => r.attended).length;
+
+      const _toggleBtn = _presentCount > 0
+        ? `<button id="mrm-drill-toggle" onclick="(function(btn){const tbl=document.getElementById('mrm-drill-table');const rows=tbl.querySelectorAll('tr[data-present=\\'1\\']');const show=rows[0]&&rows[0].style.display==='none';rows.forEach(r=>r.style.display=show?'':'none');btn.textContent=show?'▲ Hide present':'▼ Show present';})(this)" style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:10px;font-family:var(--mono);color:var(--muted);cursor:pointer;">▼ Show present</button>`
+        : '';
+
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <span style="font-size:9px;color:var(--muted);font-family:var(--mono);letter-spacing:0.5px;">DATE LOG · ${rows.length} periods &nbsp;·&nbsp; <span style="color:#ef4444;">${_absentCount} absent</span>${_notInSnap > 0 ? ` &nbsp;·&nbsp; <span style="color:#f59e0b;" title="Portal says ${portalCt} classes held but only ${rows.length} are recoverable from daily snapshots — missing snapshots on those days">⚠ ${_notInSnap} not in snapshots</span>` : ''}</span>
+        ${_toggleBtn}
+      </div>
+      <table id="mrm-drill-table" style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono);">
+        <thead><tr style="background:var(--surface2);">
+          <th style="text-align:center;padding:6px 6px;border:1px solid var(--border);color:var(--muted);">#</th>
+          <th style="text-align:left;padding:6px 10px;border:1px solid var(--border);color:var(--muted);">Date</th>
+          <th style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:var(--muted);">Status</th>
+          <th style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:var(--muted);">Present</th>
+          <th style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:var(--muted);">Absent</th>
+          <th style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:var(--muted);">Letter</th>
+        </tr></thead><tbody>${_rowsHtml}</tbody></table>`;
+    }
+
+    // ── Debug panel: raw snapshot trace ──────────────────────────────────
+    {
+      let _dbgHtml = '<details style="margin-top:14px;"><summary style="font-size:9px;color:var(--muted);font-family:var(--mono);cursor:pointer;padding:4px 0;letter-spacing:0.5px;">🔍 RAW SNAPSHOT TRACE (debug)</summary>';
+      _dbgHtml += '<table style="width:100%;border-collapse:collapse;font-size:9px;font-family:var(--mono);margin-top:6px;">';
+      _dbgHtml += '<thead><tr style="background:var(--surface2);"><th style="padding:4px 6px;border:1px solid var(--border);color:var(--muted);text-align:left;">Date</th><th style="padding:4px 6px;border:1px solid var(--border);color:var(--muted);">Found</th><th style="padding:4px 6px;border:1px solid var(--border);color:var(--muted);">Status</th></tr></thead><tbody>';
+      _debugRows.forEach(r => {
+        const status = !r.found ? 'MISSING' : (r.attended === 'A' ? 'ABSENT' : r.attended === 'P' ? 'PRESENT' : '—');
+        const clr = !r.found ? 'color:#555' : (r.attended === 'A' ? 'color:#ef4444' : r.attended === 'P' ? 'color:#22c55e' : 'color:#888');
+        _dbgHtml += `<tr style="${clr}"><td style="padding:3px 6px;border:1px solid var(--border);">${r.date}</td><td style="padding:3px 6px;border:1px solid var(--border);text-align:center;">${r.found?'✓':'✗'}</td><td style="padding:3px 6px;border:1px solid var(--border);text-align:center;font-weight:700;">${status}</td></tr>`;
+      });
+      _dbgHtml += '</tbody></table></details>';
+      html += _dbgHtml;
+    }
+
+    body.innerHTML = html;
+
+  } catch(e) {
+    body.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <button onclick="fscRenderAttend(document.getElementById('mrm-body'))"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 12px;
+                 font-size:10px;font-family:var(--mono);color:var(--text);cursor:pointer;">← Back</button>
+        <div style="font-size:13px;font-weight:700;color:var(--accent);font-family:var(--mono);">${subjectName}</div>
+          ${_drFacBlock}
+      </div>
+      <div style="color:#ef4444;font-family:var(--mono);font-size:11px;">❌ Error: ${e.message}</div>`;
+  }
+}
+
+
+
+async function fscRenderAttend(body) {
+  const s    = _mrmStudent;
+
+  // AY selector row — switching calls switchAY() then re-renders
+  const ayRow = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;">
+    <span style="font-size:10px;font-family:var(--mono);color:var(--muted);white-space:nowrap;">AY</span>
+    <select onchange="fscAttendSwitchAY(this.value)" style="background:transparent;border:none;outline:none;color:var(--accent);font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;">
+      ${AY_LIST.map(ay => '<option value="'+ay+'"'+(ay===AY?' selected':'')+'>'+ay+'</option>').join('')}
+    </select>
+    <span style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-left:auto;">attendance data</span>
+  </div>`;
+
+  const _pucAllA = fscAllStudents();
+  const _sClassA = (s.class||'').trim().toUpperCase();
+  const _sNameA  = (s.name||'').trim().toLowerCase();
+  const _sUsnA   = (s.usn||'').trim().toUpperCase();
+  let pucS = _pucAllA.find(x => _sUsnA && (x.urn||'').trim().toUpperCase() === _sUsnA)
+            || _pucAllA.find(x => (x.name||'').trim().toLowerCase()===_sNameA && (x.class||'').trim().toUpperCase()===_sClassA)
+            || _pucAllA.find(x => (x.name||'').trim().toLowerCase()===_sNameA) // fallback: name only
+            || null;
+  // NOTE: do NOT early-return when pucS===null — fall through to cross-AY Firebase fetch below.
+  // allPucStudents is loaded for AY; 1PUC students' data lives in 2025-26 while
+  // AY defaults to 2026-27 → pucS is null but data exists in alternate AY.
+
+  // If the found record is a runtime stub (auto-registered, no subjects scraped),
+  // try a name-based lookup to find the real scraped record with subjects data.
+  if (pucS && !(pucS.subjects||[]).length && _sNameA) {
+    const byName = _pucAllA.find(x =>
+      (x.name||'').trim().toLowerCase() === _sNameA &&
+      (x.subjects||[]).length > 0
+    );
+    if (byName) pucS = byName;
+  }
+
+  // Cross-AY fallback: AY may not match the AY where this student's data was scraped.
+  // This covers: 1PUC students whose data is in 2025-26 while AY=2026-27; pucS===null
+  // (not in allPucStudents at all because allPucStudents is loaded for AY only).
+  if (!pucS || !(pucS.subjects||[]).filter(x=>x.subject).length) {
+    const FB    = 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app';
+    const AY0   = (typeof AY !== 'undefined' ? AY : '2025-26');
+    // Include current AY first — student may be in Firebase but missing from allPucStudents
+    // (e.g. stub pushed by ltHub before loadPucData completed, or loadPucData ran before scrape wrote data)
+    const altAYs = [AY0, ...['2025-26', '2026-27'].filter(ay => ay !== AY0)];
+    body.innerHTML = ayRow + `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px 0;display:flex;align-items:center;gap:8px;"><div class="spinner"></div> Checking alternate AY…</div>`;
+    const _findInList = (list) => {
+      if (!Array.isArray(list)) list = Object.values(list||{});
+      return list.find(x => x && (
+        (_sUsnA && (x.urn||'').toUpperCase() === _sUsnA) ||
+        (_sUsnA && (x.usn||'').toUpperCase() === _sUsnA) ||
+        (_sNameA && (x.name||'').trim().toLowerCase() === _sNameA)
+      ));
+    };
+    let found = false;
+    // Pass 1: try known class in each alternate AY
+    if (s.class) {
+      for (const altAY of altAYs) {
+        try {
+          const r = await fetch(`${FB}/puc_students/${altAY}/${encodeURIComponent(s.class)}.json`);
+          if (!r.ok) continue;
+          const arr = await r.json();
+          if (!arr) continue;
+          const rec = _findInList(arr);
+          if (rec && (rec.subjects||[]).filter(x=>x.subject).length) {
+            console.log('[attendFallback] Pass1 found', s.name, 'in AY', altAY, s.class);
+            pucS = rec; found = true; break;
+          }
+        } catch(e) { continue; }
+      }
+    }
+    // Pass 2: scan all classes if pass 1 missed (handles USN-mismatch students)
+    if (!found) {
+      outer2: for (const altAY of altAYs) {
+        for (const cls of PUC_CLASSES) {
+          if (cls === s.class) continue; // already tried in pass 1
+          try {
+            const r = await fetch(`${FB}/puc_students/${altAY}/${encodeURIComponent(cls)}.json`);
+            if (!r.ok) continue;
+            const arr = await r.json();
+            if (!arr) continue;
+            const rec = _findInList(arr);
+            if (rec && (rec.subjects||[]).filter(x=>x.subject).length) {
+              console.log('[attendFallback] Pass2 found', s.name, 'in AY', altAY, cls);
+              pucS = rec; found = true; break outer2;
+            }
+          } catch(e) { continue; }
+        }
+      }
+    }
+    if (!found) console.warn('[attendFallback] No subjects found for', s.name, _sUsnA, 'across all AYs');
+    if (!found && !pucS) {
+      body.innerHTML = ayRow + `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px 0;">
+        No attendance data found for AY ${AY}.<br><span style="font-size:10px;">Scrape attendance first from card 01/02.</span></div>`;
+      return;
+    }
+  }
+
+  // Field names from scraper: subject=code, ct=total, ca=present, pct=percentage
+  let subs = (pucS.subjects||[]).filter(sub => sub.subject);
+  if (!subs.length) {
+    body.innerHTML = ayRow + `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px 0;">No subject attendance data.</div>`;
+    return;
+  }
+
+  // Pad missing subjects with zeros — scraper omits subjects where ct=0 (no classes held yet)
+  // Strategy: look at classmates in pucClassMap to build the full subject code list for this class,
+  // then insert zero-entry stubs for any code not already in subs.
+  try {
+    const classKey = (pucS.class || s.class || '').trim();
+    const classmates = (studentsByClass[classKey]||[]);
+    // Collect all unique subject codes seen across any classmate with data
+    const allCodes = new Set();
+    classmates.forEach(cm => (cm.subjects||[]).forEach(sub => { if (sub.subject) allCodes.add(sub.subject); }));
+    // Also add any codes already in subs (in case pucClassMap is stale/empty)
+    subs.forEach(sub => allCodes.add(sub.subject));
+    const subMap = {};
+    subs.forEach(sub => { subMap[sub.subject] = sub; });
+    // Build merged list: existing subs + zero stubs for missing codes
+    const merged = [];
+    allCodes.forEach(code => {
+      merged.push(subMap[code] || { subject: code, ct: 0, ca: 0, pct: 0 });
+    });
+    // Sort: subjects with ct>0 first (so active subjects appear at top), then alphabetically by code
+    merged.sort((a, b) => {
+      if ((b.ct||0) !== (a.ct||0)) return (b.ct||0) - (a.ct||0);
+      return (a.subject||'').localeCompare(b.subject||'');
+    });
+    // Drop zero-ct stubs for optional language subjects (Kannada/Hindi/Sanskrit) when
+    // the student already has real data (ct>0) for any language in that group.
+    // Use resolved name (not raw code) because portal codes are like 23KAN01, 22HIN03.
+    const _langNames = new Set(['Kannada','Hindi','Sanskrit']);
+    const _resolveName = code => {
+      if (typeof subjectMap !== 'undefined') {
+        const e = subjectMap[code] || subjectMap[(code||'').toUpperCase()];
+        if (e && e.name) return e.name;
+      }
+      return (typeof smAutoName === 'function') ? smAutoName(code) : '';
+    };
+    const _isLang = code => _langNames.has(_resolveName(code));
+    const _hasLangData = merged.some(x => _isLang(x.subject||'') && (x.ct||0) > 0);
+    const _filteredMerged = _hasLangData
+      ? merged.filter(x => !(_isLang(x.subject||'') && (x.ct||0) === 0))
+      : merged;
+    if (_hasLangData || _filteredMerged.length > subs.length) subs = _filteredMerged;
+  } catch(e) { /* keep original subs on error */ }
+
+  // Correct sub.ct by subtracting baseline ch (classes that existed in portal before
+  // first snapshot was ever taken — not attributable to any tracked date).
+  // Fetch puc_daily, find first snapshot containing this student, read ch per course.
+  try {
+    const ayKey    = (typeof AY !== 'undefined') ? AY : '2025-26';
+    const _usnUC   = (pucS.urn || s.usn || '').trim().toUpperCase();
+    const _nameLC  = (pucS.name || s.name || '').trim().toLowerCase();
+    const _classUC = (pucS.class || s.class || '').trim().toUpperCase();
+    // Use cached class snapshots (fetched once per session per class).
+    const _pClassUC = (pucS.class || s.class || '').trim();
+    const { allRaw: _dailyRaw, sortedKeys: _dailyKeys } = await mrmGetClassSnaps(ayKey, _pClassUC, 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app');
+    // Find first snapshot that contains this student
+    const _findStu = (dayData) => {
+      for (const k of Object.keys(dayData)) {
+        const arr = Array.isArray(dayData[k]) ? dayData[k] : null;
+        if (!arr) continue;
+        if (_usnUC) {
+          const hit = arr.find(x => (x.usn||'').trim().toUpperCase() === _usnUC);
+          if (hit) return hit;
+        } else if (_nameLC && _classUC) {
+          const clKey = Object.keys(dayData).find(k2 => k2.trim().toUpperCase() === _classUC);
+          const clArr = clKey && Array.isArray(dayData[clKey]) ? dayData[clKey] : null;
+          if (clArr) { const hit = clArr.find(x => (x.name||'').trim().toLowerCase()===_nameLC); if (hit) return hit; }
+        }
+      }
+      return null;
+    };
+    let _baselineStu = null;
+    for (const dk of _dailyKeys) {
+      _baselineStu = _findStu(_dailyRaw[dk]);
+      if (_baselineStu) break;
+    }
+    if (_baselineStu) {
+      const _baseMap = {}; // code -> { ch, ca }
+      (_baselineStu.courses||[]).forEach(c => { _baseMap[(c.code||'').toUpperCase()] = { ch: c.ch||0, ca: c.ca||0 }; });
+      subs = subs.map(sub => {
+        const base = _baseMap[(sub.subject||'').toUpperCase()];
+        if (base && base.ch > 0) return {
+          ...sub,
+          ct: Math.max(0, (sub.ct||0) - base.ch),
+          ca: Math.max(0, (sub.ca||0) - base.ca),
+        };
+        return sub;
+      });
+    }
+
+    // Cross-check: recompute ct/ca from puc_daily snapshots and use whichever is higher.
+    // puc_students is updated only on scrape day and can be stale (e.g. exam day scrape
+    // returns wrong cumulative). Snapshots are per-date A/P records — always correct for
+    // dates covered. When snapshots show MORE classes than puc_students, prefer snapshots.
+    const _snapTotals = {}; // code → { ct, ca }
+    const _pucSidA = (pucS && pucS.sid) ? pucS.sid : '';
+    const _findStu2 = (dayData) => {
+      for (const k of Object.keys(dayData)) {
+        const arr = Array.isArray(dayData[k]) ? dayData[k] : null;
+        if (!arr) continue;
+        if (_usnUC) {
+          const hit = arr.find(x => (x.usn||'').trim().toUpperCase() === _usnUC);
+          if (hit) return hit;
+        }
+        if (_pucSidA) {
+          const hit = arr.find(x => x.sid && x.sid === _pucSidA);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    };
+    for (const dk of _dailyKeys) {
+      const stuRec = _findStu2(_dailyRaw[dk]);
+      if (!stuRec) continue;
+      (stuRec.courses||[]).forEach(c => {
+        const codeUC = (c.code||'').toUpperCase();
+        if (!codeUC) return;
+        if (!_snapTotals[codeUC]) _snapTotals[codeUC] = { ct: 0, ca: 0 };
+        if (c.attended === 'A' || c.attended === 'P') {
+          // slots[] = one entry per period (new format). Legacy: no slots → 1 period.
+          const periods = (c.slots && c.slots.length > 0) ? c.slots.length
+                        : (c.count && c.count > 1)        ? c.count : 1;
+          _snapTotals[codeUC].ct += periods;
+          if (c.attended === 'P') _snapTotals[codeUC].ca += periods;
+        }
+      });
+    }
+    if (Object.keys(_snapTotals).length) {
+      subs = subs.map(sub => {
+        const snap = _snapTotals[(sub.subject||'').toUpperCase()];
+        if (!snap) return sub;
+        // Only override when snapshots have MORE data — they can't have fewer valid records
+        // than reality (each row = a day a class was actually held and recorded).
+        const useCt = snap.ct > (sub.ct||0) ? snap.ct : (sub.ct||0);
+        const useCa = snap.ct > (sub.ct||0) ? snap.ca : (sub.ca||0);
+        return { ...sub, ct: useCt, ca: useCa };
+      });
+    }
+  } catch(e) { /* keep original sub.ct on error */ }
+
+  let totClasses=0, totPresent=0;
+  subs.forEach(sub => { totClasses+=sub.ct||0; totPresent+=sub.ca||0; });
+  const overallPct = totClasses ? Math.round(totPresent/totClasses*100) : 0;
+  const overallClr = overallPct>=75?'#22c55e':overallPct>=65?'#f59e0b':'#ef4444';
+
+  // Pre-fetch leave letters so list view can show letter count per subject
+  let _listLetterMap = {}; // dateKey → {reason, savedAt}
+  try {
+    const _llUsn = (pucS && pucS.urn) ? pucS.urn.trim() : (s.usn||'').trim();
+    if (_llUsn) {
+      const _llSnap = await db.collection('leave_letters').doc(_llUsn).collection('dates').get();
+      _llSnap.forEach(d => { _listLetterMap[d.id] = d.data(); });
+    }
+  } catch(_) {}
+  const _listLetterTotal = Object.values(_listLetterMap).filter(v => v && v.reason).length;
+
+  let html = ayRow + `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;display:flex;align-items:center;gap:20px;">
+    <div style="text-align:center;">
+      <div style="font-size:28px;font-weight:700;color:${overallClr};font-family:var(--head);">${overallPct}%</div>
+      <div style="font-size:9px;color:var(--muted);font-family:var(--mono);">OVERALL</div>
+    </div>
+    <div style="flex:1;">
+      <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:6px;">
+        <div style="height:100%;width:${overallPct}%;background:${overallClr};border-radius:4px;"></div>
+      </div>
+      <div style="font-size:10px;font-family:var(--mono);color:var(--muted);">${totPresent} / ${totClasses} classes attended</div>
+    </div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono);">
+    <thead><tr style="background:var(--surface2);">
+      <th style="text-align:left;padding:7px 10px;border:1px solid var(--border);color:var(--muted);">Subject</th>
+      <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">Classes Held</th>
+      <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">Attended</th>
+      <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">Missed</th>
+      <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">Letters</th>
+      <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">%</th>
+      <th style="text-align:center;padding:7px 8px;border:1px solid var(--border);color:var(--muted);">Status</th>
+    </tr></thead><tbody>`;
+
+  subs.forEach((sub, i) => {
+    const pct    = sub.pct !== undefined ? parseFloat(sub.pct) : (sub.ct ? Math.round(sub.ca/sub.ct*100) : 0);
+    const clr    = pct>=75?'#22c55e':pct>=65?'#f59e0b':'#ef4444';
+    const status = pct>=75?'OK':pct>=65?'Border':'Short';
+    const bg     = i%2===0?'transparent':'rgba(255,255,255,0.02)';
+    // Get subject name from subjectMap or code
+    const code   = sub.subject||'';
+    const nm     = getSubName(code) || code;
+    // Faculty lookup via app-wide helper (SMAR → subjectMap → timetable)
+    const _listCls = (pucS && pucS.class) ? pucS.class.trim() : (s.class||'').trim();
+    const facNm    = _resolveSubjectFaculty(_listCls, code);
+    const facPhoto = facNm ? getFacultyPhotoByName(facNm) : '';
+    const facInits = facNm ? facNm.trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase() : '';
+    const facAvatar = facNm
+      ? (facPhoto
+          ? `<img src="${facPhoto}" alt="" title="${facNm}" style="width:22px;height:22px;border-radius:50%;object-fit:cover;border:1px solid var(--border);vertical-align:middle;flex-shrink:0;cursor:zoom-in;" onclick="event.stopPropagation();zoomPhoto(this.src)" onerror="this.style.display='none'">`
+          : `<span style="width:22px;height:22px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:var(--accent);flex-shrink:0;vertical-align:middle;">${facInits}</span>`)
+      : '';
+    const nmCell = facNm
+      ? `<div style="font-weight:500;">${nm}</div><div style="display:flex;align-items:center;gap:5px;margin-top:3px;">${facAvatar}<span style="font-size:9px;color:#f0a500;">${facNm}</span></div>`
+      : nm;
+    const safeCode = (code||'').replace(/'/g,"\\'");
+    const safeNm   = (nm||'').replace(/'/g,"\\'");
+    html += `<tr onclick="fscShowDrill('${safeCode}','${safeNm}',${sub.ct||0},${sub.ca||0})" style="background:${bg};cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='rgba(245,158,11,0.08)'" onmouseout="this.style.background='${bg}'">
+      <td style="padding:6px 10px;border:1px solid var(--border);">
+        ${nmCell}
+        <div style="font-size:8px;color:var(--accent);margin-top:3px;font-family:var(--mono);letter-spacing:0.3px;">tap for date log ›</div>
+      </td>
+      <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);">${sub.ct||0}</td>
+      <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);">${sub.ca||0}</td>
+      <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:${(sub.ct||0)-(sub.ca||0)>0?'#ef4444':'var(--text)'};font-weight:${(sub.ct||0)-(sub.ca||0)>0?'700':'400'};">${(sub.ct||0)-(sub.ca||0)}</td>
+      <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);">${_listLetterTotal > 0 ? `<span style="font-size:10px;color:#22c55e;font-weight:700;" title="${_listLetterTotal} letter(s) submitted">📄 ${_listLetterTotal}</span>` : '<span style="color:var(--muted);">—</span>'}</td>
+      <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:${clr};font-weight:700;">${pct}%</td>
+      <td style="text-align:center;padding:6px 8px;border:1px solid var(--border);color:${clr};font-weight:600;">${status}</td>
+    </tr>`;
+  });
+  html += `</tbody></table>
+  <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+    <button onclick="mrmSendWhatsApp('attend')" style="background:#1da1f2;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:11px;cursor:pointer;font-family:var(--mono);font-weight:700;">WhatsApp Attendance</button>
+  </div>`;
+  body.innerHTML = html;
+}
+
+
+
+// Small compatibility shims for the ported admin functions. Letter-issuing
+// and bulk WhatsApp-attendance are office/admin actions — kept in puc.html,
+// not duplicated here; these just explain that clearly instead of throwing.
+function mrmSummaryWaSend(urn,url){
+  try{ if(urn) db.collection('puc_wa_log').doc(urn).set(
+    {entries:firebase.firestore.FieldValue.arrayUnion({sentAt:new Date().toISOString(),mode:'summary'})},{merge:true}).catch(()=>{});
+  }catch(e){}
+  window.open(url,'_blank');
+  toast('WhatsApp opened with the summary — review & send','ok');
+}
+
+function mrmSumSetEra(id){
+  if(id==='both'){ const mb=document.getElementById('mrm-body'); if(mb) fscRenderSummary(mb); return; }
+  toast('Timetable-era history is only available in the admin app.','warn');
+}
+function mrmShowTab(tab){ if(tab==='letters') scTab('letters'); }
+function mrmLetterEdit(){ toast('Issuing letters is done from the admin app.','warn'); }
+function mrmSendWhatsApp(){ toast('Use the WhatsApp button on Attendance Report for messaging.','warn'); }
+
+async function fscAttendSwitchAY(ay){ toast('Switch AY not available in the faculty app yet.','warn'); }
+
+// Bridge: render the SUMMARY / ATTEND(-drill) content inside our existing
+// student-card tabs (RESULTS/ATTEND/FOLLOW-UP/LETTERS/SUMMARY), reusing the
+// tab bar already built for stuCard() rather than importing a second modal.
+async function fscSummaryTab(){
+  _mrmStudent={usn:_sc.usn, name:_sc.name, class:_sc.cls};
+  const holder=document.createElement('div');
+  holder.id='mrm-body-holder';
+  scReplaceBody('<div id="mrm-body"></div>');
+  await fscRenderSummary(document.getElementById('mrm-body'));
 }
 
 // ── boot ─────────────────────────────────────────────────────
