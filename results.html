@@ -263,6 +263,24 @@
  r416 | 30-Mar-2026 21:35 IST | Bottom 10: replace total-across-subjects with worst failed subject marks + subject name; show fail count if multiple fails
  r417 | 30-Mar-2026 21:50 IST | Bottom 10: also catch below-35%-threshold subjects as effective fails; fallback to lowest subject when no fail; photo adds console debug + RTDB flat-object fallback
  r419 | 14-Apr-2026 IST | Remove inline ⚙ Sec C button+panel from dashboard — sidebar entry is the correct one
+ r445 | 31-Jul-2026 IST | FIX (r444 was writing the mirror to the WRONG place, confirmed against sync_db1_to_db2.py and the Firebase console screenshot): sync_db1_to_db2.py's RTDB_PATHS_PUBLIC syncs davan_pub/allocations as ONE node with a full-node .set() copied verbatim DB1 to DB2 — so allocation docs must live as CHILDREN of that single node, davan_pub/allocations/allocation_<batch>, exactly as seen live in the console (an allocations node containing allocation_BBA_SemIII_2026 etc., separate from a flat list of allocation_* siblings). r444 wrote sibling keys directly under davan_pub/<docId> instead, which the sync script never reads at all — so Repair Allocations kept reporting Firestore as complete and the RTDB mirror as successfully written, while the actual synced node never changed. fsSetMerge now writes allocation docs to rtdb.ref(davan_pub/allocations/ + id).update(data) — a child update, never touching the parent node with .set() so other batches are not wiped. New sidebar button Fix Mirror Paths (r444 cleanup) does a one-time migration: moves any davan_pub/allocation_<batch> sibling key (including the ones r444 itself just created) into davan_pub/allocations/allocation_<batch>, then deletes the wrong copy. Run this once, then Repair Allocations again if needed, then sync.
+ r444 | 31-Jul-2026 IST | FIX (root cause of the student portal showing no faculty): fsSetMerge wrote to FIRESTORE ONLY. _rtdbPubPath() existed purely as a READ fallback for manager/vp roles, so nothing in this file has ever written the DB1 RTDB copy at davan_pub/allocations — and sync_db1_to_db2.py reads that RTDB path, never Firestore. Every allocation edit therefore landed in Firestore, results.html read it back correctly, and the student portal kept serving whatever the RTDB mirror last contained — which is why exactly four B.COM subjects showed a dash in the portal while looking perfect in the admin, and why Repair Allocations correctly reported nothing to fix (Firestore really was complete). fsSetMerge now mirrors every write to its davan_pub RTDB path — allocation docs flat under davan_pub/allocations/<docId>, others at the mapped path — and logs the mirror. If the RTDB write is refused it does not fail the save; it warns in console and raises a sticky Saved but not mirrored toast naming the error, so a permissions problem can never again masquerade as saved data. My r443 note claiming fsSetMerge already mirrored was wrong and is corrected in place.
+ r443 | 31-Jul-2026 IST | FEAT: Repair Allocations button (sidebar, above Clear All Allocation) to recover the faculty the r438 merge bug blanked. Diagnosis from the report: results.html itself showed every faculty correctly while the student portal showed a dash for exactly the four B.COM-2.x subjects — because the two read DIFFERENT sources. The faculty a subject was uploaded or auto-assigned with is stored on the RESULTS doc (doc.subjects[].faculty), which the wipe never touched, whereas the student portal reads the separate allocation_<batch> docs (mirrored to davan_pub/allocations and pushed to DB2 by sync_db1_to_db2.py), which is what got blanked. resRepairAllocations() walks every loaded batch, dry-runs first and shows exactly which assignments it would restore, then writes back only the faculty that exist in the results doc and are MISSING from the allocation doc — a name already present in the allocation is never overwritten, so the tool can be run repeatedly without risk. CORRECTION (see r444): the claim here that fsSetMerge also updated the RTDB mirror was wrong — it wrote to Firestore only, which is the real reason the portal stayed stale.
+ r442 | 31-Jul-2026 IST | REGRESSION FIX (my bug, introduced in r438): faculty disappeared from subjects OTHER than Environmental Studies. r438's allocation merge ended with rows.forEach(r => merged[key] = r), which overwrote unconditionally — so any subject whose faculty happened to be EMPTY in the current in-memory view erased the good assignment already saved in Firestore. Two things made empty rows common: r440's resReconcileDocSubjects restores subjects missing from a batch with faculty:'' by design, and any subject whose allocation had not been applied in the session also carried ''. A single Save and Apply then blanked them all. Fix: an empty value now only wins when the user actually touched that dropdown — resFacultyEditCell marks the row _touched, the flag survives a filter rebuild, and the merge keeps the existing faculty for any untouched blank while still allowing a deliberate clear. Restored placeholder rows are skipped entirely unless a faculty was set on them. A console warning reports how many entries were preserved. Sorry — this one was mine, not pre-existing.
+ r441 | 31-Jul-2026 IST | CHANGE: the SECTION chip row no longer disappears. It was hidden entirely whenever the course filter was not BCA, and individual chips were disabled whenever their student count hit zero — so selecting BCom made the whole row vanish and a section could silently drop out from under the cursor mid-filtering. The Davan/Nutana split is real for BCom and BBA too (both courses run at both campuses), so the row is now always rendered on all five tabs (Dashboard, Students, Class, Merit, Rankings) via new shared resSectionChipOpts(), which labels the chips per course — A (DI)/B (NU-1)/C (NU-2) for BCA, Davan (DI)/Nutana (NU) otherwise — and never drops the chip that is currently selected, so a NUC selection can always be undone. Chips are never disabled: choosing a section with no students now shows an empty list rather than removing the control that got you there. Student counts are still computed and logged to console for diagnostics.
+ r440 | 31-Jul-2026 IST | FIX: the /50 ENVIRONMENTAL STUDIES (EVS) and SAMSKUTHA (SAN-L-C-2) subjects disappeared from BCom Sem II. Root cause in resSaveUpload: the merged doc was built as { ...existingDoc, ...b }, which merges regular/backlog campus-aware but lets the NEWEST upload replace `subjects` and `subjectLookup` wholesale. Uploading the Nutana BCom Sem II file, whose 11 students never sat EVS /50 or Sanskrit, therefore deleted those two subjects from the batch even though three Davan repeat students still hold marks for them — the columns vanished from the students and assign tables and any faculty assigned to them was orphaned. IMPORTANT: no student marks were ever lost, only the subject list describing them. Two-part fix. (1) subjects are now merged BY CODE, with the new upload winning on descriptive fields but never blanking a faculty the other campus's upload recorded, subjectLookup is merged rather than replaced, and each subject's passCount/failCount/passRate is recomputed across the MERGED student list so a subject kept from the other campus no longer carries that campus's numbers. (2) New resReconcileDocSubjects() runs on every batch load and rebuilds any subject that exists in the students' own mark records but is missing from doc.subjects — so batches already damaged by the old merge heal themselves on next load, with correct pass/fail numbers and a console warning naming what was restored, no re-upload needed.
+ r439 | 31-Jul-2026 IST | FIX: r438 made the faculty save reach the right Firestore doc (toast now correctly reads BCom_SemII_2026), but the students table column header still showed no teacher for EVS-2025. Two separate causes, both fixed. (1) resApplyAllocToData used find(), so the FIRST matching allocation entry won. An allocation doc can hold two entries for one subject — a real one plus a legacy entry with an empty code whose NAME resolves onto the same code, which is exactly what happens here because EVS and EVS-2025 are both printed ENVIRONMENTAL STUDIES. When the empty entry came first it shadowed the real assignment and the header rendered blank. Now every matching entry is collected and the one that actually names a teacher wins; code comparison is case-insensitive on both sides; a console warning lists the duplicates so the underlying data problem stays visible. (2) RES_ALL_DOCS is loaded once per session (resLoadAllBatches skips keys it already holds) and every table rebuilds RES_DATA from that cache, so a successful save was correct in Firebase yet invisible on screen until a full page reload. resSaveFacultyEdits now writes the saved values into the cached batch docs and rebuilds RES_DATA, so the change appears immediately and matches what a reload produces.
+ r438 | 31-Jul-2026 IST | FIX: faculty assignments never persisted when saved from a filtered view — reported as Roopa M C saved many times to ENVIRONMENTAL STUDIES and not saving at all. resSaveFacultyEdits wrote to 'allocation_' + RES_DATA.key, but on any combined/filtered view RES_DATA.key is a HUMAN LABEL, not a batch key: the success toast in the report literally read Even Sems (II-IV-VI) BCom Sem II, meaning the doc was created as app_data/allocation_Even Sems (II-IV-VI) BCom Sem II. Nothing ever reads that id — resLoadAllBatches only probes allocation_<Course>_Sem<X>_<YYYY> — so the assignment applied in memory, showed correctly on the Class tab for the rest of the session, and vanished on reload, while an orphan doc accumulated in Firestore for every filter combination ever used. Faculty are now grouped by each subject's own _batch tag and written to one real allocation doc per batch, merged with that batch's existing entries by code so subjects outside the current chip filter keep their faculty. New resIsBatchKey() guard rejects label keys; if no real batch can be determined the save is refused with a sticky error instead of silently writing an unreachable doc. NOTE: this was pre-existing, not introduced by r431 — the old key expression produced BCom SemII (no year) for a course+sem view, equally unreachable; only single-batch selections from the sidebar dropdown ever saved correctly.
+ r437 | 31-Jul-2026 IST | FEAT: upload now cross-checks CAMPUS, COURSE and SEMESTER against the Excel, not just the academic year. Reported case: a Nutana file (every URN U13NU...) was uploaded with the Campus dropdown left on Davan (DI) and nothing warned. Verified how far the damage actually goes rather than assuming: resSaveUpload derives the campus from each student's own record (set from the USN prefix) and only falls back to the dropdown when no student carries one, so a wrong selection mislabels the upload log and status rather than destroying data — the exception being files whose URNs yield no campus, where the fallback decides which students get replaced. New checks, all sticky toasts using the r435 keyed-toast mechanism: Campus Mismatch (compares the majority campus derived from the students' own USN prefixes against the dropdown), Mixed Campuses (file contains both DI and NU students, which one upload cannot represent), Course Mismatch (Excel Program: line vs dropdown, compared through resNormCourse so BCom/BCOM never false-fires) and Semester Mismatch (Excel Semester: line vs dropdown). Policy matches the existing year check — warn loudly, never block, dropdown wins as the explicit human choice; the batch key is now rebuilt after applying the dropdown course/sem so the preview header can no longer show one batch while Firebase receives another. All five warnings are cleared automatically on Save or Cancel.
+ r436 | 31-Jul-2026 IST | FIX: Assign Faculty Manually ignored the chip filter — with SEM TYPE Even, COURSE BCom, SEMESTER 2 selected the table still listed BCA Sem II subjects. Root cause: resRenderFacultyEditTable() was DEAD CODE, never called from anywhere, so the table kept rendering whatever _facultySnapshot happened to hold when Re-assign Faculty was first clicked. Worse than cosmetic: the dropdowns write into RES_DATA.subjects BY INDEX while the visible rows are read from the snapshot, so once the two lists drifted apart a pick could be written onto a completely different subject. Both lists are now rebuilt together in the same order by new resFacRebuildEditRows(), which runs from inside resRenderFaculty (recursion-guarded) so every path that repaints the tab honours the live chips; in-progress picks survive a filter change because they are preserved by batch+code instead of array index. SECOND FIX found in the same code: entering edit mode blanked every faculty field in RES_DATA.subjects while the dropdowns displayed names read from the snapshot — so pressing Save and Apply without touching a row wrote an empty faculty over a subject the UI showed as assigned. Live values are now seeded from the saved ones, and the Assign dropdown renders the live value (what will actually be saved) while the Current column keeps showing the saved original.
+ r435 | 31-Jul-2026 IST | FIX: the Year Mismatch warning auto-vanished after 4 seconds, so the one message that must be acted on could be missed and a whole batch saved under the wrong academic year — exactly the failure the check exists to prevent. resToast now takes a duration of 0 meaning STICKY (stays until the user closes it) plus an optional key; keyed toasts replace their previous instance instead of stacking identical cards on re-upload, and carry a small stays until dismissed hint. Year Mismatch now fires sticky under the key year-mismatch, and new resDismissToast(key) clears it automatically from resSaveUpload and resCancelUpload so the warning never outlives the upload it refers to. All other toasts keep their existing 4s behaviour.
+ r434 | 31-Jul-2026 IST | FEAT: Assign Faculty table now disambiguates same-named subjects. Real case found in BCom Sem II (Jul-2026): the university ships EVS (max 50, old syllabus, 3 repeat students from the 2024 admission year) AND EVS-2025 (max 100, new syllabus, 38 students from the 2025 admission year) — both printed as ENVIRONMENTAL STUDIES, no student holds both. They cannot be merged into one column because the maximums differ (15/50 and 15/100 are not the same result), so two identical-looking rows appeared and a faculty was assigned to the 3-student legacy code while the 38-student column stayed blank in the students table. New resSubjectScopeHint() renders max marks plus the real count of students who sat that exact code under each subject name (e.g. /100 - 38 students), and a ${n} CODES amber badge marks any batch carrying several codes under one display name. Read-only: no parsing, merging or data change — the two codes stay separate as the university published them.
+ r433 | 31-Jul-2026 IST | FIX: SEM TYPE jumping back to All the moment a Semester chip was clicked. r431 deliberately cleared parity on Semester selection (and Semester on parity selection) on the reasoning that Sem 2 and Even are the same axis — but a filter silently undoing a selection the user just made is worse than the contradiction it prevented, and it made the chip bar feel like it was shifting on its own. Replaced the auto-reset with prevention: a Semester chip that contradicts the active Sem Type greys out (new resSemBlocked helper wired into all 6 sem-chip disabled functions), and a Sem Type chip that contradicts the active Semester greys out too. Impossible combinations are now unclickable rather than silently rewritten, so NOTHING the user selects ever changes by itself; Course, Semester and Sem Type all compose freely and every filter stays exactly where it was put.
+ r432 | 31-Jul-2026 IST | FIX: chips and the data/labels disagreeing after any click on a non-Dashboard tab — reported as the selection keeping shifting. Confirmed case: SEM TYPE showed All and SEMESTER showed 1, while the Currently browsing note still read Odd Sems (I-III-V) BCom. Root cause: only the Dashboard chip handler ran resApplyDashFilter (which rebuilds RES_DATA and refreshes the note). The Students, Class, Merit, Rankings and Search handlers called setter(val) then re-rendered ONLY their own tab, so RES_DATA, the six other parity rows and the Currently browsing note were never recomputed and kept showing the previous selection. This predates r430 for course/sem; r430 made it visible by putting the parity chip on every tab. All five handlers now go through the single resRefreshFiltered() choke point. Also: when a chip combination matches no saved batch, resGetFilteredData returns null and the old code simply kept the previous RES_DATA, leaving stale student counts on screen directly under chips that described a different view — it now installs an honest empty dataset (marked _empty) and logs which combination missed.
+ r431 | 31-Jul-2026 IST | CHANGE: Sem Type (Odd/Even) and Course now COMPOSE instead of cancelling each other. Previously picking a Course wiped the parity back to All (pre-existing Dashboard behaviour, propagated to every tab by r430) so BCom + Even Sems — a view that is genuinely wanted — was impossible: clicking BCom silently widened the pool to every BCom semester ever uploaded. Course setters on all tabs no longer reset RES_DASH_PARITY, and resSetParity no longer resets RES_DASH_COURSE. Semester still clears parity and vice versa, because those two ARE the same axis (Sem 2 IS even; Sem 1 + Even is an empty pool). No filtering-engine change was needed — resGetFilteredData already ANDed course, sem and parity together, so composition just works. Labels updated to match: new shared resFilterLabel()/resFilterLabelAY() build a combined Odd/Even + Course + Sem string, now used by the combined dataset key, the Currently browsing note (which used to show parity OR course, never both), and the Default view banner (which hardcoded BCA+BBA+BCom for any parity default and now names the real course scope).
+ r430 | 31-Jul-2026 IST | FIX + FEAT: (1) BCom course chip permanently greyed out on Students/Class/Merit/Rankings/Subject-Marks tabs and in the batch dropdown. Root cause: those renderers built their availability set from the batch key as parts[0].toUpperCase() (BCom_SemII_2026 gives BCOM) then tested membership against the literal chip labels BCA/BBA/BCom. BCA and BBA survive uppercasing unchanged so they matched by luck; BCom never did. Knock-on effect: availSems is looked up as available[RES_DASH_COURSE], so once BCom was current EVERY Semester chip greyed out too, and the batch dropdown hid all BCom options. Fixed with a single choke-point helper resNormCourse() now used by every course comparison (7 builders, 6 membership tests, 4 availSems lookups, the dropdown dimmer, faculty-login course sets, and the Search tab compare) so one forgotten site cannot reintroduce it. (2) SEM TYPE (Odd/Even) chip is now universal — it was Dashboard-only while RES_DASH_PARITY is global state, so on every other tab the filter stayed silently active but invisible. Added the row to Students, Class, Analysis, Search, Merit and Rankings via new shared resRenderParityChips() + resSetParity() + RES_PARITY_ROW_IDS; the Dashboard duplicate implementation was deleted so all seven rows are one code path and stay in sync. (3) Related correctness fix: Rankings and Merit filtered their pools inline by course/sem but never by parity, and their chip setters re-rendered only their own tab without rebuilding RES_DATA — so a parity selection could silently do nothing there. Added explicit resParityOk() guards to the Rankings, Merit and Search pools, and new resRefreshFiltered() rebuilds RES_DATA from one place whenever any chip changes. Course chips on all tabs now reset parity to All, matching the Dashboard mutual-exclusion semantics that already existed.
+ r429 | 31-Jul-2026 IST | FIX: View Full Preview button dead — resShowUploadPreview referenced _KS/_KN in the buildTable thead but neither was defined in its scope (the const _KS declarations elsewhere are locals of OTHER functions), so the first header cell threw ReferenceError and killed the entire preview render before display/scroll. Confirmed by direct reproduction. Fix: declare const _KS/_KN from KNOWN_SHORTS/KNOWN_NAMES at top of resShowUploadPreview, same guard pattern already used by the students table renderer. Dashboard preview banner and Save to Firebase were unaffected — only the full preview table.
+ r428 | 31-Jul-2026 IST | FEAT: New Davangere University result ledger parser (resIsUnivLedgerFormat + resParseUnivLedger) for the changed 2026 Excel format (MAY/JUNE-2026 onwards). Detection: any cell starting with USN: in first 40 rows of Sheet2 — old UUCMS files (Tabulation Register) still route to the old parser untouched. New format = vertical variable-height blocks: column B carries labelled meta (USN, Student Name, Father Name, Mother Name, SGPA/CGPA, Result, Term Grade, Marks card No) while subject rows run in parallel columns; block ends at the Total row. FUTURE-PROOF DESIGN: all Sheet2 column indices discovered from the Candidate Details header row (never hardcoded — merged-cell shifts across course/college/sem cannot break it); Course/Sem/Year read from Sheet1 meta lines (Program: Bachelor of X, Semester:, Exam Month:); campus per student derived from USN prefix U13DI/U13NU with file-level fallback; Sheet1 Subject Code/Subject Name lookup column-discovered with inline Sheet2 names as fallback; old-batch repeater skip generalised — old regex hardwired the S course letter and silently never matched BCom C USNs like U13DI24C0003. NEW FIELDS captured per student: fatherName, motherName, termGrade, marksCardNo, ledgerResult; per subject: grace, credits, gradePoint, creditPoints, letter grade — stored in Firebase but zero UI changes this pass. BUILT-IN SANITY CHECKS logged to console: summed subject totals vs ledger Total row per student, computed PASS/FAIL vs ledger printed Result, subject-count distribution vs REGULAR_MIN. Output doc shape identical to UUCMS parser (regular/backlog/subjects/summary/subjectLookup/key) so rankings, parity, sections, Firebase save, and DB1-to-DB2 student portal sync all work unchanged.
  r427 | 25-Jul-2026 IST | FEAT: added resIsMergedSection() — single source of truth for whether a student's BCA DI/NU sections have been administratively merged. PER-COHORT, not a blanket rule: only the 2025-admission cohort (URN year '25', e.g. U13NU25...) was merged into 1 section starting Sem II — other BCA batches (2023/2024 admits, current 2nd/3rd year students) have separate admission histories and remain split unless explicitly added to MERGED_SECTION_COHORTS. Sem I never merges for any cohort. Student modal now uses this: Section chip shows "Section — Merged (DI+NU)" instead of a fictional DI/NU split for these students; Class Rank pools DI+NU together for them; DI Rank/NU Rank tiles are suppressed (hidden) since a DI/NU split rank is meaningless once sections are combined. NOTE: Rankings tab table, DI/NU Split checkbox view, timetable, and faculty views were NOT touched this pass — they may have the same blind spot and should be checked/fixed separately if this cohort's data shows up wrong there too.
 
  r426 | 25-Jul-2026 IST | CORRECTION to r425: r425's campus+parity College Rank was wrong — confirmed live with Sem Type=Even selected, V Neesha was #3 in the Rankings tab's actual DI+NU-merged "All Merged" table (25 ranked, all BCA Sem II), but the modal showed #1 (her NU-only rank, mislabeled). College Rank now uses the shared resParityOk() helper to mirror whatever Sem Type (All/Odd/Even) is live on the Rankings tab — DI+NU merged, all courses, filtered only by parity, matching resGetFilteredData()'s own pool exactly. Also added an "Odd Sems (I·III·V)" / "Even Sems (II·IV·VI)" chip to the modal header (next to Section chip) so it's never ambiguous which pool produced the number; chip is hidden when Sem Type=All. Verified: reproduces #3 exactly against the real Even-sem BCA Sem II table.
@@ -1180,7 +1198,7 @@
     <div id="topbar-meta"></div>
     <div class="topbar-right">
       <div id="status-dot"></div>
-      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r427</span>
+      <span id="topbar-version" style="font-family:var(--mono);font-size:11px;color:var(--muted);">r445</span>
       <button id="vp-toggle-btn" onclick="resVPToggle()" style="display:none;font-size:11px;font-family:var(--mono);font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;">👁 My Subjects</button>
       <span id="topbar-user" style="font-size:12px;font-family:var(--mono);color:var(--text);"></span>
     </div>
@@ -1305,6 +1323,8 @@
           <div style="font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.05em;margin-bottom:4px;">📋 ALLOCATION</div>
           <input type="file" id="res-file-allocation" accept=".xlsx,.xls" style="display:none;" onchange="resFileSelected('allocation',event)" />
           <button onclick="document.getElementById('res-file-allocation').click()" style="font-size:11px;width:100%;text-align:left;padding:7px 10px;border:1px solid #a78bfa;color:#a78bfa;background:transparent;border-radius:6px;cursor:pointer;margin-bottom:4px;">📋 Upload Allocation Excel</button>
+          <button onclick="resFixAllocationMirrorPaths()" style="font-size:11px;width:100%;text-align:left;padding:7px 10px;border:1px solid #f59e0b;color:#f59e0b;background:transparent;border-radius:6px;cursor:pointer;margin-bottom:6px;">🔧 Fix Mirror Paths (r444 cleanup)</button>
+          <button onclick="resRepairAllocations()" style="font-size:11px;width:100%;text-align:left;padding:7px 10px;border:1px solid var(--ok);color:var(--ok);background:transparent;border-radius:6px;cursor:pointer;margin-bottom:6px;">🩹 Repair Allocations</button>
           <button onclick="resClearAllAllocation()" style="font-size:11px;width:100%;text-align:left;padding:7px 10px;border:1px solid #f87171;color:#f87171;background:transparent;border-radius:6px;cursor:pointer;">🗑 Clear All Allocation</button>
 
           <button class="btn btn-outline-accent" id="res-scrape-btn" onclick="resToggleScrapeConfig()" style="display:none;font-size:11px;width:100%;text-align:left;margin-top:4px;">🌐 Scrape UUCMS</button>
@@ -1623,6 +1643,10 @@
         <!-- ── Batch filter chips — shared with Dashboard ── -->
         <div id="res-dash-section-chips-students" style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border);">
           <div>
+            <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">SEM TYPE</div>
+            <div id="res-dash-chip-parity-row-s" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+          </div>
+          <div>
             <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">COURSE</div>
             <div id="res-dash-chip-course-row-s" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
           </div>
@@ -1676,6 +1700,10 @@
         <!-- Faculty filter chips (admin only) -->
         <div id="res-fac-chips-wrap" style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border);">
           <div>
+            <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">SEM TYPE</div>
+            <div id="res-fac-chip-parity-row" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+          </div>
+          <div>
             <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">COURSE</div>
             <div id="res-fac-chip-course-row" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
           </div>
@@ -1719,6 +1747,12 @@
 
       <!-- ── ANALYSIS ── -->
       <div id="res-pane-analysis" style="display:none;">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;margin-bottom:12px;padding:6px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">SEM TYPE</div>
+            <div id="res-analysis-chip-parity" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+          </div>
+          </div>
 
         <!-- Subject difficulty ranking -->
         <div class="analysis-card" style="margin-bottom:20px;">
@@ -1770,6 +1804,10 @@
         <!-- Search filter chips -->
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-bottom:12px;">
           <div>
+            <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">SEM TYPE</div>
+            <div id="res-search-chip-parity" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+          </div>
+          <div>
             <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">COURSE</div>
             <div id="res-search-chip-course" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
           </div>
@@ -1806,6 +1844,10 @@
       <!-- ── MERIT / SCHOLARSHIP TAB ── -->
       <div id="res-pane-merit" style="display:none;padding:16px 0;">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:16px;padding:10px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">SEM TYPE</div>
+            <div id="res-merit-chip-parity" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+          </div>
           <div>
             <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">COURSE</div>
             <div id="res-merit-chip-course" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
@@ -1872,6 +1914,10 @@
       <!-- ── RANKINGS TAB ── -->
       <div id="res-pane-ranks" style="display:none;padding:16px 0;">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:16px;padding:10px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">SEM TYPE</div>
+            <div id="res-ranks-chip-parity" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+          </div>
           <div>
             <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;margin-bottom:4px;">COURSE</div>
             <div id="res-ranks-chip-course" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
@@ -2286,7 +2332,7 @@
     <div class="res-footer">
       <div style="margin-bottom:4px;font-size:11px;color:var(--text);">© 2026 Davan Institute of Advanced Management Studies</div>
       <div style="margin-bottom:4px;"><span id="footer-desc">Top 10: summary banner above list + best/lowest subject on each card</span></div>
-      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r427</span> &nbsp;·&nbsp; Updated: 25-Jul-2026 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
+      <div>DAVAN Results &nbsp;·&nbsp; Version: <span id="footer-version">r445</span> &nbsp;·&nbsp; Updated: 31-Jul-2026 IST &nbsp;·&nbsp; Built by Harsha Gujjar, Director — Davan College</div>
     </div>
       </div><!-- /.main-wrap -->
     </div><!-- /.app-body -->
@@ -2306,20 +2352,38 @@ function resNowIST() {
 }
 
 // Show a toast — type: 'success'|'error'|'warn'|'info'
-function resToast(title, msg, type='success', duration=4000) {
+function resToast(title, msg, type='success', duration=4000, key='') {
   const icons = { success:'✅', error:'❌', warn:'⚠️', info:'ℹ️' };
   const c = document.getElementById('res-toast-container');
   if (!c) return;
+  // Keyed toasts replace their previous instance instead of stacking up —
+  // otherwise re-uploading after a warning leaves a pile of identical cards.
+  if (key) c.querySelectorAll(`[data-toast-key="${key}"]`).forEach(el => el.remove());
   const t = document.createElement('div');
   t.className = 'res-toast ' + type;
+  if (key) t.setAttribute('data-toast-key', key);
+  // duration <= 0 means STICKY: stays until the user dismisses it or the
+  // code clears it. Used for warnings that must be acted on (year mismatch)
+  // rather than glanced at — a 4s auto-hide meant it could be missed and a
+  // whole batch saved under the wrong academic year.
+  const sticky = !(duration > 0);
   t.innerHTML = `<span class="t-icon">${icons[type]||'ℹ️'}</span>
-    <div class="t-body"><div class="t-title">${title}</div>${msg?`<div class="t-msg">${msg}</div>`:''}</div>
+    <div class="t-body"><div class="t-title">${title}</div>${msg?`<div class="t-msg">${msg}</div>`:''}${sticky?`<div style="font-size:10px;opacity:.7;margin-top:5px;font-family:var(--mono);">stays until dismissed</div>`:''}</div>
     <button class="t-close" onclick="this.closest('.res-toast').remove()">✕</button>`;
   c.appendChild(t);
-  if (duration > 0) setTimeout(() => {
+  if (!sticky) setTimeout(() => {
     t.style.animation = 'toastOut .3s ease forwards';
     setTimeout(() => t.remove(), 300);
   }, duration);
+  return t;
+}
+
+// Clear a keyed toast programmatically (e.g. once the upload it warned about
+// has been saved or cancelled, so a stale warning never outlives its cause).
+function resDismissToast(key) {
+  const c = document.getElementById('res-toast-container');
+  if (!c || !key) return;
+  c.querySelectorAll(`[data-toast-key="${key}"]`).forEach(el => el.remove());
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -3269,6 +3333,164 @@ function resParityOk(sem) {
   return true;
 }
 
+// ── resNormCourse — SINGLE SOURCE OF TRUTH for course-string comparison ──
+// Batch keys are Course_SemX_YEAR (e.g. BCom_SemII_2026). Several chip
+// renderers built their availability set with parts[0].toUpperCase(), then
+// tested it against the literal chip labels ['BCA','BBA','BCom'].
+// 'BCA'/'BBA' survive uppercasing unchanged so they matched by luck, but
+// 'BCom'.toUpperCase() === 'BCOM' never matched — so the BCom chip (and,
+// once BCom was selected, every Semester chip, since availSems is looked up
+// as available[RES_DASH_COURSE]) rendered permanently greyed/disabled even
+// with BCom results saved. Route EVERY course comparison through this so the
+// bug cannot come back at one forgotten call site.
+// A specific Semester chip that contradicts the active Sem Type (e.g. Sem 1
+// while Even is selected) is greyed out rather than silently resetting the
+// Sem Type when clicked. Nothing the user picked ever changes by itself.
+// Disambiguating hint for a subject row in the Assign Faculty table.
+// Real case (BCom Sem II, Jul-2026): the university ships EVS (/50, old
+// syllabus, 3 repeat students) AND EVS-2025 (/100, new syllabus, 38
+// students) — both printed as "ENVIRONMENTAL STUDIES". They are genuinely
+// different subjects with different maximum marks so they cannot be merged,
+// but two identical-looking rows made it easy to assign the faculty to the
+// wrong one and then wonder why the students table showed no name. Shows
+// max marks + how many students actually sat that exact code.
+function resSubjectScopeHint(sub) {
+  try {
+    if (!sub || !sub.code) return '';
+    const all = Object.values(RES_ALL_DOCS || {});
+    const bk  = sub._batch;
+    const docs = (bk && RES_ALL_DOCS && RES_ALL_DOCS[bk]) ? [RES_ALL_DOCS[bk]]
+      : all.filter(d => (!sub._course || d._course === sub._course) &&
+                        (!sub._sem    || d._sem    === sub._sem));
+    let n = 0; const maxes = new Set();
+    docs.forEach(d => [...(d.regular||[]), ...(d.backlog||[])].forEach(s => {
+      const rec = s.subjects && s.subjects[sub.code];
+      if (rec) { n++; if (rec.max) maxes.add(rec.max); }
+    }));
+    if (!n) return '';
+    const mx = [...maxes].sort((a,b) => a-b);
+    const maxLbl = mx.length ? '/' + mx.join(' or /') : '';
+    return maxLbl + (maxLbl ? ' \u00B7 ' : '') + n + ' student' + (n === 1 ? '' : 's');
+  } catch(e) { return ''; }
+}
+
+function resSemBlocked(sem) {
+  if (RES_DASH_PARITY === 'all') return false;
+  return !resParityOk(sem);
+}
+
+function resNormCourse(c) {
+  const s = String(c == null ? '' : c).trim().toUpperCase();
+  if (!s) return '';
+  if (s === 'BCOM') return 'BCom';
+  return s;   // BCA, BBA, and anything future — uppercase canonical
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  UNIVERSAL SEM TYPE (Odd/Even parity) CHIP
+//  RES_DASH_PARITY is global state, but the chip used to exist only on the
+//  Dashboard — so on every other tab the filter was invisible while still
+//  silently active. These helpers render the same chip into every tab and
+//  keep them all in sync from one place.
+// ═══════════════════════════════════════════════════════════════
+const RES_PARITY_ROW_IDS = [
+  'res-dash-chip-parity-row',      // Dashboard
+  'res-dash-chip-parity-row-s',    // Students
+  'res-fac-chip-parity-row',       // Class / Faculty
+  'res-analysis-chip-parity',      // Analysis
+  'res-search-chip-parity',        // Search
+  'res-merit-chip-parity',         // Merit
+  'res-ranks-chip-parity',         // Rankings
+];
+
+// Which parities actually have data — used to grey out impossible options
+function resAvailParities() {
+  const ODD  = ['I','III','V'], EVEN = ['II','IV','VI'];
+  const out = new Set();
+  Object.values(RES_ALL_DOCS).forEach(d => {
+    if (ODD.includes(d._sem))  out.add('odd');
+    if (EVEN.includes(d._sem)) out.add('even');
+  });
+  return out;
+}
+
+// Rebuild RES_DATA from the current chip state and repaint everything.
+// Chip setters on Students/Faculty/Merit/Rankings previously only re-rendered
+// their own tab without rebuilding RES_DATA, which left the other tabs (and
+// any parity-scoped pool) reading a stale dataset. One choke point now.
+function resRefreshFiltered(cb) {
+  const combined = resGetFilteredData();
+  if (combined) {
+    RES_DATA = combined;
+    if (resIsFaculty()) resBuildFacultyView();
+  } else if (Object.keys(RES_ALL_DOCS||{}).length) {
+    // Chips describe a combination with no saved data (e.g. Odd + a course
+    // that only has even sems). Show an honest empty set — keeping the old
+    // RES_DATA left the numbers on screen contradicting the chips above them.
+    RES_DATA = { key: (typeof resFilterLabel==='function' ? resFilterLabel() : '') || 'all_batches',
+      regular: [], backlog: [], subjects: [],
+      summary: { written:0, pass:0, fail:0 },
+      course: RES_DASH_COURSE==='all' ? '' : RES_DASH_COURSE,
+      sem:    RES_DASH_SEM==='all'    ? '' : RES_DASH_SEM,
+      parity: RES_DASH_PARITY==='all' ? '' : RES_DASH_PARITY,
+      _combined: true, _empty: true, _filteredBatches: [] };
+    console.warn('[resRefreshFiltered] no batches match', RES_DASH_PARITY, RES_DASH_COURSE, RES_DASH_SEM);
+  }
+  resRenderParityChips();
+  try { if (typeof cb === 'function') cb(); } catch(e) { console.error('[resRefreshFiltered] cb', e); }
+  try { resStripRender(); } catch(e) {}
+  try { resUpdateLiveViewNote(); } catch(e) {}
+}
+
+function resSetParity(v) {
+  RES_DASH_PARITY = v;
+  // Sem Type COMPOSES with Course AND Semester (r433). Nothing else is
+  // cleared here: contradictory combinations are prevented up-front by
+  // greying the offending chips, so no selection the user made ever
+  // changes by itself.
+  resRefreshFiltered(() => {
+    // Repaint every tab's chip row so Course/Sem reset is visible everywhere
+    try { resRenderDashSectionChip(); } catch(e) {}
+    try { resRenderBatchChips();      } catch(e) {}
+    try { resRenderMeritChips();      } catch(e) {}
+    try { resRenderRanksChips();      } catch(e) {}
+    try { resRenderFacChips();        } catch(e) {}
+    try { resRenderSearchChips();     } catch(e) {}
+    try { resRenderAll();             } catch(e) {}
+    try { resRenderMerit();           } catch(e) {}
+    try { resRenderRanks();           } catch(e) {}
+  });
+}
+
+// Render the Sem Type chip into every parity row that exists in the DOM
+function resRenderParityChips() {
+  const avail = resAvailParities();
+  const opts = [
+    ['all',  'All',             'var(--ok)'],
+    ['odd',  'Odd (I·III·V)',   'var(--blue)'],
+    ['even', 'Even (II·IV·VI)', '#a78bfa'],
+  ];
+  RES_PARITY_ROW_IDS.forEach(rowId => {
+    const row = document.getElementById(rowId);
+    if (!row) return;              // that tab's markup not present — skip
+    row.innerHTML = '';
+    opts.forEach(([val, lbl, col]) => {
+      const active   = RES_DASH_PARITY === val;
+      // Grey out a parity that no data supports, OR that contradicts the
+      // Semester currently selected (Sem 1 + Even can never match anything).
+      const semConflict = val !== 'all' && RES_DASH_SEM !== 'all' &&
+        !(val === 'odd' ? ['I','III','V'] : ['II','IV','VI']).includes(RES_DASH_SEM);
+      const disabled = val !== 'all' && (!avail.has(val) || semConflict);
+      const el = document.createElement('button');
+      el.textContent = lbl;
+      el.disabled = disabled;
+      el.style.cssText = `font-size:10px;font-family:var(--mono);font-weight:600;padding:3px 8px;border-radius:5px;cursor:${disabled?'default':'pointer'};transition:all .15s;border:1px solid ${disabled?'var(--border)':active?col:'var(--border)'};background:${disabled?'transparent':active?col+'22':'var(--surface2)'};color:${disabled?'var(--border)':active?col:'var(--muted)'};`;
+      if (!disabled) el.onclick = () => resSetParity(val);
+      row.appendChild(el);
+    });
+  });
+}
+
 // resIsMergedSection — SINGLE SOURCE OF TRUTH (25-Jul-2026) for whether a student's BCA
 // DI/NU sections have been administratively combined into one. This is PER-COHORT, NOT a
 // blanket "BCA Sem II+" rule: per Harsha, this particular batch of students was admitted
@@ -3359,8 +3581,47 @@ async function fsSet(col, id, data) {
   catch(e) { console.error('fsSet',e); return false; }
 }
 async function fsSetMerge(col, id, data) {
-  try { await db.collection(col).doc(id).set(data, { merge:true }); return true; }
+  let ok = false;
+  try { await db.collection(col).doc(id).set(data, { merge:true }); ok = true; }
   catch(e) { console.error('fsSetMerge',e); return false; }
+  // ── Mirror to the DB1 RTDB public copy (r445, corrected) ───────────────
+  // r444 wrote a SIBLING key davan_pub/<docId> — WRONG. Confirmed against
+  // sync_db1_to_db2.py: RTDB_PATHS_PUBLIC syncs davan_pub/allocations as ONE
+  // node using rtdb_sdk.reference(path).set(data) — a full-node .set() copied
+  // verbatim from DB1 to DB2. The real, correct shape (also visually
+  // confirmed in the Firebase console) is allocation docs living as CHILDREN
+  // of that single node: davan_pub/allocations/allocation_<batch>. r444's
+  // writes never reached there, which is exactly why nothing changed after
+  // it ran. Only .update() on the CHILD path is correct; the parent
+  // "allocations" node itself must never be touched with .set() from here,
+  // since that would wipe every other batch's entry.
+  if (id.startsWith('allocation_')) {
+    try {
+      await rtdb.ref('davan_pub/allocations/' + id).update(data);
+      console.log('[fsSetMerge] mirrored to DB1 RTDB davan_pub/allocations/' + id);
+    } catch(e) {
+      console.warn('[fsSetMerge] RTDB mirror FAILED for davan_pub/allocations/' + id, '—', e.message,
+        '| Firestore write succeeded, but the student portal will not see this until the mirror is writable.');
+      resToast('Saved, but not mirrored',
+        'Firestore saved. The public RTDB copy the student portal syncs from could not be written (' + e.message + ').',
+        'warn', 0, 'mirror-fail');
+    }
+    return ok;
+  }
+  // Other doc types (unchanged from r444): mirror at their mapped path.
+  const path = _rtdbPubPath(col, id);
+  if (path) {
+    try {
+      await rtdb.ref(path).update(data);
+      console.log('[fsSetMerge] mirrored to DB1 RTDB', path, id);
+    } catch(e) {
+      console.warn('[fsSetMerge] RTDB mirror FAILED for', path, id, '—', e.message);
+      resToast('Saved, but not mirrored',
+        'Firestore saved. The public RTDB copy could not be written (' + e.message + ').',
+        'warn', 0, 'mirror-fail');
+    }
+  }
+  return ok;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3662,7 +3923,7 @@ function resRenderMarksEditor() {
   const COURSES = ['BCA','BBA','BCom'];
   const SEMS    = ['I','II','III','IV','V','VI'];
   const SEM_NUM = {'I':'1','II':'2','III':'3','IV':'4','V':'5','VI':'6'};
-  const availCourses = new Set(Object.values(RES_ALL_DOCS).map(d=>d._course).filter(Boolean));
+  const availCourses = new Set(Object.values(RES_ALL_DOCS).map(d=>resNormCourse(d._course)).filter(Boolean));
   const availSems    = new Set(Object.values(RES_ALL_DOCS)
     .filter(d => RES_MARKS_COURSE==='all' || d._course===RES_MARKS_COURSE)
     .map(d=>d._sem).filter(Boolean));
@@ -3685,11 +3946,11 @@ function resRenderMarksEditor() {
   mkChip('res-marks-chip-course',
     [['all','All'],...COURSES.map(c=>[c,c])], RES_MARKS_COURSE,
     v => { RES_MARKS_COURSE=v; RES_MARKS_SEM='all'; },
-    v => v!=='all' && !availCourses.has(v));
+    v => v!=='all' && !availCourses.has(resNormCourse(v)));
   mkChip('res-marks-chip-sem',
     [['all','All'],...SEMS.map(s=>[s,SEM_NUM[s]])], RES_MARKS_SEM,
     v => RES_MARKS_SEM=v,
-    v => v!=='all' && !availSems.has(v));
+    v => v!=='all' && (!availSems.has(v) || resSemBlocked(v)));
 
   // Build table from filtered docs
   const wrap = document.getElementById('res-marks-table-wrap');
@@ -3773,12 +4034,13 @@ async function resSaveSubjectMarks() {
 
 
 function resRenderMeritChips() {
+  resRenderParityChips();
   const COURSES = ['BCA','BBA','BCom'];
   const SEMS    = ['I','II','III','IV','V','VI'];
   const SEM_NUM = {'I':'1','II':'2','III':'3','IV':'4','V':'5','VI':'6'};
   const available = {};
   RES_BATCHES.forEach(k => {
-    const parts = k.split('_'), course = parts[0]?.toUpperCase();
+    const parts = k.split('_'), course = resNormCourse(parts[0]);
     const semPart = parts.find(p=>/^Sem/i.test(p));
     if (!course||!semPart) return;
     const sem = semPart.replace(/^Sem/i,'').toUpperCase();
@@ -3788,7 +4050,7 @@ function resRenderMeritChips() {
   const availCourses = new Set(Object.keys(available));
   const availSems = RES_DASH_COURSE==='all'
     ? new Set(Object.values(available).flatMap(s=>[...s]))
-    : (available[RES_DASH_COURSE]||new Set());
+    : (available[resNormCourse(RES_DASH_COURSE)]||new Set());
 
   const mkChip = (rowId, opts, current, setter, isDisabled) => {
     const row = document.getElementById(rowId); if (!row) return;
@@ -3797,23 +4059,18 @@ function resRenderMeritChips() {
       const active=current===val, disabled=isDisabled(val);
       const el=document.createElement('button'); el.textContent=lbl; el.disabled=disabled;
       el.style.cssText=`font-size:10px;font-family:var(--mono);font-weight:600;padding:3px 8px;border-radius:5px;cursor:${disabled?'default':'pointer'};transition:all .15s;border:1px solid ${disabled?'var(--border)':active?col:'var(--border)'};background:${disabled?'transparent':active?col+'22':'var(--surface2)'};color:${disabled?'var(--border)':active?col:'var(--muted)'};`;
-      if (!disabled) el.onclick = () => { setter(val); resRenderMeritChips(); resRenderMerit(); };
+      if (!disabled) el.onclick = () => { setter(val); resRefreshFiltered(() => { resRenderMeritChips(); resRenderMerit(); }); };
       row.appendChild(el);
     });
   };
   mkChip('res-merit-chip-course', [['all','All','var(--ok)'],...COURSES.map(c=>[c,c,'var(--ok)'])], RES_DASH_COURSE,
-    v=>{RES_DASH_COURSE=v;RES_DASH_SEM='all';}, v=>v!=='all'&&!availCourses.has(v));
+    v=>{RES_DASH_COURSE=v;RES_DASH_SEM='all';}, v=>v!=='all'&&!availCourses.has(resNormCourse(v)));
   mkChip('res-merit-chip-sem', [['all','All','var(--ok)'],...SEMS.map(s=>[s,SEM_NUM[s],'var(--ok)'])], RES_DASH_SEM,
-    v=>{RES_DASH_SEM=v;}, v=>v!=='all'&&!availSems.has(v));
-  // Section chip
-  const showSec = RES_DASH_COURSE==='BCA'||(RES_DASH_COURSE==='all'&&availCourses.has('BCA'));
+    v=>{RES_DASH_SEM=v;}, v=>v!=='all'&&(!availSems.has(v)||resSemBlocked(v)));
+  // Section chip — always visible, never disabled (r441)
   const secWrap = document.getElementById('res-merit-chip-section')?.parentElement;
-  if (secWrap) secWrap.style.display = showSec?'':'none';
-  if (showSec) {
-    // Always show NUC chip for BCA
-    const secOpts = [['all','Both','var(--ok)'],['DI','A (DI)','var(--blue)'],['NU','B (NU-1)','#a78bfa'],['NUC','C (NU-2)','#f59e0b']];
-    mkChip('res-merit-chip-section', secOpts, RES_DASH_SECTION, v=>{RES_DASH_SECTION=v;}, v=>false);
-  }
+  if (secWrap) secWrap.style.display = '';
+  mkChip('res-merit-chip-section', resSectionChipOpts(), RES_DASH_SECTION, v=>{RES_DASH_SECTION=v;}, v=>false);
 }
 
 function resRenderMerit() {
@@ -3826,6 +4083,7 @@ function resRenderMerit() {
 
   // Filter students by chips
   const pool = (RES_DATA.regular||[]).filter(s => {
+    if (s._sem && !resParityOk(s._sem)) return false;
     if (RES_DASH_COURSE !== 'all' && s._course && s._course !== RES_DASH_COURSE) return false;
     if (RES_DASH_SEM    !== 'all' && s._sem    && s._sem    !== RES_DASH_SEM)    return false;
     if (RES_DASH_SECTION === 'DI')  return facIsDI_global(s);
@@ -4354,11 +4612,12 @@ Davan Institute of Advanced Management Studies`;
 }
 
 function resRenderRanksChips() {
+  resRenderParityChips();
   const COURSES=['BCA','BBA','BCom'], SEMS=['I','II','III','IV','V','VI'];
   const SN={'I':'1','II':'2','III':'3','IV':'4','V':'5','VI':'6'};
   const available={};
   RES_BATCHES.forEach(k=>{
-    const parts=k.split('_'), course=parts[0]?.toUpperCase();
+    const parts=k.split('_'), course=resNormCourse(parts[0]);
     const sp=parts.find(p=>/^Sem/i.test(p));
     if(!course||!sp) return;
     const sem=sp.replace(/^Sem/i,'').toUpperCase();
@@ -4368,7 +4627,7 @@ function resRenderRanksChips() {
   const availCourses=new Set(Object.keys(available));
   const availSems=RES_DASH_COURSE==='all'
     ? new Set(Object.values(available).flatMap(s=>[...s]))
-    : (available[RES_DASH_COURSE]||new Set());
+    : (available[resNormCourse(RES_DASH_COURSE)]||new Set());
 
   const mkChip=(rowId,opts,current,setter,isDisabled)=>{
     const row=document.getElementById(rowId); if(!row) return;
@@ -4377,22 +4636,17 @@ function resRenderRanksChips() {
       const active=current===val, disabled=isDisabled(val);
       const el=document.createElement('button'); el.textContent=lbl; el.disabled=disabled;
       el.style.cssText=`font-size:10px;font-family:var(--mono);font-weight:600;padding:3px 8px;border-radius:5px;cursor:${disabled?'default':'pointer'};transition:all .15s;border:1px solid ${disabled?'var(--border)':active?col:'var(--border)'};background:${disabled?'transparent':active?col+'22':'var(--surface2)'};color:${disabled?'var(--border)':active?col:'var(--muted)'};`;
-      if(!disabled) el.onclick=()=>{setter(val); resRenderRanksChips(); resRenderRanks();};
+      if(!disabled) el.onclick=()=>{setter(val); resRefreshFiltered(()=>{ resRenderRanksChips(); resRenderRanks(); });};
       row.appendChild(el);
     });
   };
   mkChip('res-ranks-chip-course',[['all','All','var(--ok)'],...COURSES.map(c=>[c,c,'var(--ok)'])],
-    RES_DASH_COURSE, v=>{RES_DASH_COURSE=v;RES_DASH_SEM='all';}, v=>v!=='all'&&!availCourses.has(v));
+    RES_DASH_COURSE, v=>{RES_DASH_COURSE=v;RES_DASH_SEM='all';}, v=>v!=='all'&&!availCourses.has(resNormCourse(v)));
   mkChip('res-ranks-chip-sem',[['all','All','var(--ok)'],...SEMS.map(s=>[s,SN[s],'var(--ok)'])],
-    RES_DASH_SEM, v=>{RES_DASH_SEM=v;}, v=>v!=='all'&&!availSems.has(v));
-  const showSec=RES_DASH_COURSE==='BCA'||(RES_DASH_COURSE==='all'&&availCourses.has('BCA'));
+    RES_DASH_SEM, v=>{RES_DASH_SEM=v;}, v=>v!=='all'&&(!availSems.has(v)||resSemBlocked(v)));
   const secWrap=document.getElementById('res-ranks-chip-section')?.parentElement;
-  if(secWrap) secWrap.style.display=showSec?'':'none';
-  if(showSec){
-    // Always show NUC chip for BCA
-    const secOpts=[['all','Both','var(--ok)'],['DI','A (DI)','var(--blue)'],['NU','B (NU-1)','#a78bfa'],['NUC','C (NU-2)','#f59e0b']];
-    mkChip('res-ranks-chip-section',secOpts,RES_DASH_SECTION,v=>{RES_DASH_SECTION=v;},v=>false);
-  }
+  if(secWrap) secWrap.style.display='';   // always visible (r441)
+  mkChip('res-ranks-chip-section',resSectionChipOpts(),RES_DASH_SECTION,v=>{RES_DASH_SECTION=v;},v=>false);
 }
 
 function resRenderRanks() {
@@ -4414,6 +4668,9 @@ function resRenderRanks() {
 
   const pool = (RES_DATA.regular||[]).filter(s => {
     if (!isFullPass(s)) return false;
+    // Sem Type (Odd/Even) is now a visible chip on this tab — enforce it here
+    // too, not just via RES_DATA, so the chip can never silently do nothing.
+    if (s._sem && !resParityOk(s._sem)) return false;
     if (RES_DASH_COURSE!=='all' && s._course && s._course!==RES_DASH_COURSE) return false;
     if (RES_DASH_SEM   !=='all' && s._sem    && s._sem   !==RES_DASH_SEM)    return false;
     if (RES_DASH_SECTION==='DI')  return facIsDI_global(s);
@@ -5063,6 +5320,9 @@ async function resLoadAllBatches() {
       // Fix marks/pct before storing in RES_ALL_DOCS
       doc.regular = resFixStudentMarks(doc.regular);
       doc.backlog  = resFixStudentMarks(doc.backlog);
+      // Restore any subject the old merge dropped, so it reappears (with its
+      // real pass/fail numbers) without needing a re-upload.
+      resReconcileDocSubjects(doc);
       // Auto-apply allocation for this batch
       // Try multiple year variants since batch key year may differ from allocation save year
       const curYear = new Date().getFullYear();
@@ -5226,11 +5486,9 @@ function resGetFilteredData() {
 
   // Use first doc's meta as base, override with combined counts
   const base = filtered[0];
-  const parityLabel = RES_DASH_PARITY === 'odd' ? 'Odd Sems (I·III·V)' : RES_DASH_PARITY === 'even' ? 'Even Sems (II·IV·VI)' : '';
   return {
     ...base,
-    key: RES_DASH_PARITY !== 'all' ? parityLabel
-       : RES_DASH_COURSE === 'all' ? 'all_batches' : (RES_DASH_COURSE + (RES_DASH_SEM !== 'all' ? ' Sem'+RES_DASH_SEM : '')),
+    key: resFilterLabel() || 'all_batches',
     regular, backlog, subjects,
     course: RES_DASH_COURSE === 'all' ? '' : RES_DASH_COURSE,
     sem:    RES_DASH_SEM    === 'all' ? '' : RES_DASH_SEM,
@@ -5365,7 +5623,10 @@ function resShowDefaultBanner(def) {
       // currently loaded docs if an older default was saved before this
       // field existed.
       const ay = def.ay || resDeriveAYForParity(def.parity);
-      label = `${parityName}${ay ? ' — ' + ay : ''} — BCA+BBA+BCom`;
+      // Parity now composes with Course (r431) — name the actual course scope
+      // instead of always claiming BCA+BBA+BCom.
+      const scope = (def.course && def.course !== 'all') ? def.course : 'BCA+BBA+BCom';
+      label = `${parityName}${ay ? ' — ' + ay : ''} — ${scope}`;
     } else if (def.course && def.course!=='all' && def.sem && def.sem!=='all') {
       // Find the actual matching batch doc so we get its real year, not a guess
       const match = Object.values(RES_ALL_DOCS||{}).find(d => d._course===def.course && d._sem===def.sem);
@@ -5391,6 +5652,25 @@ function resShowDefaultBanner(def) {
 // the saved default is still "Even". Without this, switching chips silently
 // re-filters the data correctly but the banner above still reads like it's
 // describing what's on screen, which it isn't once you've navigated away.
+// Human label for whatever combination of Sem Type + Course + Sem is active.
+// Parity and Course compose (r431), so this must render both, not pick one.
+function resFilterLabel() {
+  const parts = [];
+  if (RES_DASH_PARITY === 'odd')  parts.push('Odd Sems (I\u00B7III\u00B7V)');
+  if (RES_DASH_PARITY === 'even') parts.push('Even Sems (II\u00B7IV\u00B7VI)');
+  if (RES_DASH_COURSE !== 'all')  parts.push(RES_DASH_COURSE);
+  if (RES_DASH_SEM    !== 'all')  parts.push('Sem ' + RES_DASH_SEM);
+  return parts.join(' \u2022 ');
+}
+
+function resFilterLabelAY() {
+  const base = resFilterLabel();
+  if (!base) return '';
+  let ay = '';
+  try { if (RES_DASH_PARITY !== 'all') ay = resDeriveAYForParity(RES_DASH_PARITY) || ''; } catch(e) {}
+  return base + (ay ? ' \u2014 ' + ay : '');
+}
+
 function resUpdateLiveViewNote() {
   const note = document.getElementById('res-live-view-note');
   const sidebarNote = document.getElementById('res-sidebar-live-view-note');
@@ -5402,14 +5682,7 @@ function resUpdateLiveViewNote() {
   const diverged = RES_DASH_PARITY !== savedParity || RES_DASH_COURSE !== savedCourse || RES_DASH_SEM !== savedSem;
   let text = '';
   if (diverged) {
-    if (RES_DASH_PARITY !== 'all') {
-      const ay = resDeriveAYForParity(RES_DASH_PARITY);
-      text = `👀 Currently browsing: ${RES_DASH_PARITY === 'odd' ? 'Odd Sems (I·III·V)' : 'Even Sems (II·IV·VI)'}${ay?' — '+ay:''} (not saved as default)`;
-    } else if (RES_DASH_COURSE !== 'all' || RES_DASH_SEM !== 'all') {
-      text = `👀 Currently browsing: ${[RES_DASH_COURSE!=='all'?RES_DASH_COURSE:'', RES_DASH_SEM!=='all'?'Sem '+RES_DASH_SEM:''].filter(Boolean).join(' ')} (not saved as default)`;
-    } else {
-      text = `👀 Currently browsing: All Batches (not saved as default)`;
-    }
+    text = `👀 Currently browsing: ${resFilterLabelAY() || 'All Batches'} (not saved as default)`;
   }
   if (note) { note.style.display = diverged ? '' : 'none'; note.textContent = text; }
   if (sidebarNote) { sidebarNote.style.display = diverged ? '' : 'none'; sidebarNote.textContent = text; }
@@ -5486,6 +5759,7 @@ function resDeriveAYForParity(parity) {
 
 // ── Batch filter chips ────────────────────────────────────────────────────────
 function resRenderBatchChips() {
+  resRenderParityChips();
   // Render chips into students tab using same mkChip helper as dashboard
   // All state variables are shared (RES_DASH_COURSE/SEM/SECTION)
   const COURSES = ['BCA','BBA','BCom'];
@@ -5493,13 +5767,13 @@ function resRenderBatchChips() {
   const SEM_NUM = {'I':'1','II':'2','III':'3','IV':'4','V':'5','VI':'6'};
 
   const isFac = resIsFaculty();
-  const _facC = new Set(isFac&&RES_DATA?(RES_DATA.subjects||[]).map(s=>s._course||'').filter(Boolean).map(s=>s.toUpperCase()):[]);
+  const _facC = new Set(isFac&&RES_DATA?(RES_DATA.subjects||[]).map(s=>resNormCourse(s._course)).filter(Boolean):[]);
   const _facS = new Set(isFac&&RES_DATA?(RES_DATA.subjects||[]).map(s=>s._sem||'').filter(Boolean).map(s=>s.toUpperCase()):[]);
 
   const available = {};
   RES_BATCHES.forEach(k => {
     const parts = k.split('_');
-    const course = parts[0]?.toUpperCase();
+    const course = resNormCourse(parts[0]);
     const semPart = parts.find(p => /^Sem/i.test(p));
     if (!course || !semPart) return;
     const sem = semPart.replace(/^Sem/i,'').toUpperCase();
@@ -5509,7 +5783,7 @@ function resRenderBatchChips() {
   const availCourses = new Set(Object.keys(available));
   const availSems = RES_DASH_COURSE === 'all'
     ? new Set(Object.values(available).flatMap(s => [...s]))
-    : (available[RES_DASH_COURSE] || new Set());
+    : (available[resNormCourse(RES_DASH_COURSE)] || new Set());
 
   const mkChipS = (rowId, opts, current, setter, isDisabled) => {
     const row = document.getElementById(rowId);
@@ -5522,7 +5796,7 @@ function resRenderBatchChips() {
       el.textContent = lbl;
       el.disabled = disabled;
       el.style.cssText = `font-size:10px;font-family:var(--mono);font-weight:600;padding:3px 8px;border-radius:5px;cursor:${disabled?'default':'pointer'};transition:all .15s;border:1px solid ${disabled?'var(--border)':active?col:'var(--border)'};background:${disabled?'transparent':active?col+'22':'var(--surface2)'};color:${disabled?'var(--border)':active?col:'var(--muted)'};`;
-      if (!disabled) el.onclick = () => { setter(val); resRenderBatchChips(); resRenderStudents(); };
+      if (!disabled) el.onclick = () => { setter(val); resRefreshFiltered(() => { resRenderBatchChips(); resRenderStudents(); }); };
       row.appendChild(el);
     });
   };
@@ -5532,40 +5806,26 @@ function resRenderBatchChips() {
     [['all','All','var(--ok)'], ...COURSES.map(c=>[c,c,'var(--ok)'])],
     RES_DASH_COURSE,
     v => { RES_DASH_COURSE = v; RES_DASH_SEM = 'all'; },
-    v => isFac ? (v !== 'all' && !_facC.has(v)) : (v !== 'all' && !availCourses.has(v)));
+    v => isFac ? (v !== 'all' && !_facC.has(resNormCourse(v))) : (v !== 'all' && !availCourses.has(resNormCourse(v))));
 
   // Sem
   mkChipS('res-dash-chip-sem-row-s',
     [['all','All','var(--ok)'], ...SEMS.map(s=>[s,SEM_NUM[s],'var(--ok)'])],
     RES_DASH_SEM,
     v => { RES_DASH_SEM = v; },
-    v => isFac ? (v !== 'all' && !_facS.has(v)) : (v !== 'all' && !availSems.has(v)));
+    v => v !== 'all' && (resSemBlocked(v) || (isFac ? !_facS.has(v) : !availSems.has(v))));
 
   // Section — only for BCA
   const showSec = RES_DASH_COURSE === 'BCA' || (RES_DASH_COURSE === 'all' && availCourses.has('BCA'));
   const secWrap = document.getElementById('res-students-section-chip-wrap');
-  if (secWrap) secWrap.style.display = showSec ? '' : 'none';
+  if (secWrap) secWrap.style.display = '';   // always visible (r441)
   // Update ⚙ Sec C button label with current URN count
   const secCBtn = document.getElementById('res-secc-inline-btn');
   if (secCBtn) {
     secCBtn.textContent = RES_SEC_C_URNS.size > 0 ? ('⚙ Sec C (' + RES_SEC_C_URNS.size + ')') : '⚙ Sec C';
   }
-  if (showSec) {
-    // Always show NUC chip for BCA — grey/disabled if no students classified as NUC yet
-    const secOpts = [['all','Both','var(--ok)'],['DI','A (DI)','var(--blue)'],['NU','B (NU-1)','#a78bfa'],['NUC','C (NU-2)','#f59e0b']];
-    const allReg = Object.values(RES_ALL_DOCS)
-      .filter(d => (RES_DASH_COURSE==='all'||d._course===RES_DASH_COURSE) && (RES_DASH_SEM==='all'||d._sem===RES_DASH_SEM) && resParityOk(d._sem))
-      .flatMap(d => d.regular||[]);
-    mkChipS('res-dash-chip-section-row-s', secOpts, RES_DASH_SECTION,
-      v => { RES_DASH_SECTION = v; },
-      v => {
-        if (v==='all') return false;
-        if (v==='DI')  return allReg.filter(facIsDI_global).length === 0;
-        if (v==='NU')  return allReg.filter(facIsNUB_global).length === 0;
-        if (v==='NUC') return allReg.filter(facIsNUC_global).length === 0;
-        return false;
-      });
-  }
+  mkChipS('res-dash-chip-section-row-s', resSectionChipOpts(), RES_DASH_SECTION,
+    v => { RES_DASH_SECTION = v; }, v => false);
 }
 
 function resApplyStudentsFilter() {
@@ -5582,7 +5842,7 @@ function resFilterDropdown() {
   [...sel.options].forEach(o => {
     if (!o.value) return;
     const parts = o.value.split('_');
-    const kCourse = parts[0]?.toUpperCase();
+    const kCourse = resNormCourse(parts[0]);
     const semPart = parts.find(p => /^Sem/i.test(p));
     const kSem = semPart?.replace(/^Sem/i,'').toUpperCase();
     const courseMatch = RES_DASH_COURSE==='all' || kCourse===RES_DASH_COURSE;
@@ -6991,6 +7251,308 @@ function resParseUUCMS(wb) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  DAVANGERE UNIVERSITY LEDGER PARSER (new 2026 vertical-block format)
+//  Layout: Sheet1 = header meta (College/Program/Semester/Exam Month) +
+//  subject list. Sheet2 = variable-height vertical blocks per student:
+//  column B carries labelled meta strings (USN:, Student Name:, Father
+//  Name:, Mother Name:, SGPA/CGPA, Result:, Term Grade:, Marks card No:)
+//  while subject rows run in parallel columns (Code, Subject, CIA+SEE,
+//  Grace, Max, Total Obt, Crs, Gr.Point, Cr.Points, Ltr.Gr., Result).
+//  Block ends at the codeCol === Total row.
+//  All column indices are DISCOVERED from the header row, never hardcoded,
+//  so merged-cell shifts across courses/colleges/years cannot break it.
+// ═══════════════════════════════════════════════════════════════
+function resIsUnivLedgerFormat(rows) {
+  // Signature: any cell in the first 40 rows starts with USN:
+  for (let i = 0; i < Math.min(40, rows.length); i++) {
+    const row = rows[i] || [];
+    for (let ci = 0; ci < row.length; ci++) {
+      if (row[ci] && /^USN\s*:/i.test(String(row[ci]).trim())) return true;
+    }
+  }
+  return false;
+}
+
+function resParseUnivLedger(wb) {
+  // ── 1. File-level meta: scan ALL sheets, first 25 rows, every cell ──
+  let course = '', sem = '', year = null, fileCampus = '', collegeCode = '', collegeName = '';
+  const scanMeta = (rows) => {
+    for (let i = 0; i < Math.min(25, rows.length); i++) {
+      for (const c of (rows[i] || [])) {
+        if (!c || typeof c !== 'string') continue;
+        const t = c.trim();
+        let m;
+        if ((m = t.match(/College\s*:\s*([A-Z0-9]+)\s+(.+)/i))) {
+          collegeCode = m[1]; collegeName = m[2];
+          fileCampus = /Nutan/i.test(m[2]) ? 'NU' : 'DI';
+        }
+        if ((m = t.match(/Program\s*:\s*Bachelor of\s+([A-Za-z ]+)/i))) {
+          const p = m[1].toUpperCase();
+          if (p.includes('COMPUTER'))      course = 'BCA';
+          else if (p.includes('BUSINESS')) course = 'BBA';
+          else if (p.includes('COMMERCE')) course = 'BCom';
+        }
+        if ((m = t.match(/Semester\s*:\s*([IVX]+)/i)) && !sem) sem = m[1].toUpperCase();
+        if (/Exam Month/i.test(t) && (m = t.match(/20(\d{2})/))) year = parseInt('20' + m[1]);
+        if (!year && (m = t.match(/\b20(2\d)\b/))) year = parseInt('20' + m[1]);
+      }
+    }
+  };
+  for (const name of wb.SheetNames) {
+    scanMeta(XLSX.utils.sheet_to_json(wb.Sheets[name], { header:1, defval:null }));
+  }
+  if (!year) year = new Date().getFullYear();
+  console.log('[univ-ledger] meta:', { course, sem, year, fileCampus, collegeCode, collegeName });
+
+  // ── 2. Sheet1 subject lookup (code → full name), column-discovered ──
+  const subjectLookup = {};
+  const subjectOfferOrder = []; // university canonical order
+  {
+    const s1 = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:null });
+    let codeCol = -1, nameCol = -1, hdr = -1;
+    for (let i = 0; i < Math.min(25, s1.length); i++) {
+      const row = s1[i] || [];
+      const ci = row.findIndex(c => c && /Subject Code/i.test(String(c)));
+      if (ci >= 0) {
+        codeCol = ci;
+        nameCol = row.findIndex(c => c && /Subject Name/i.test(String(c)));
+        hdr = i; break;
+      }
+    }
+    if (hdr >= 0 && nameCol >= 0) {
+      for (let i = hdr + 1; i < s1.length; i++) {
+        const code = String((s1[i] || [])[codeCol] || '').trim();
+        const nm   = String((s1[i] || [])[nameCol] || '').trim();
+        if (code && nm && !/minimum|maximum/i.test(code)) {
+          if (!subjectLookup[code]) subjectOfferOrder.push(code);
+          subjectLookup[code] = nm;
+        }
+      }
+    }
+    console.log('[univ-ledger] Sheet1 subject lookup:', Object.keys(subjectLookup).length, 'codes', subjectOfferOrder);
+  }
+
+  // ── 3. Sheet2 (or biggest sheet) — discover column layout from header ──
+  const bigSheet = wb.SheetNames.reduce((best, name) => {
+    const r = XLSX.utils.sheet_to_json(wb.Sheets[name], { header:1, defval:null });
+    return r.length > best.rows ? { name, rows: r.length, data: r } : best;
+  }, { name: wb.SheetNames[0], rows: 0, data: [] });
+  const rows = bigSheet.data.length ? bigSheet.data
+    : XLSX.utils.sheet_to_json(wb.Sheets[bigSheet.name], { header:1, defval:null });
+
+  let metaCol=-1, codeCol=-1, subjNameCol=-1, marksCol=-1, graceCol=-1, maxCol=-1,
+      totCol=-1, crsCol=-1, gpCol=-1, cpCol=-1, ltrCol=-1, resCol=-1, headerRow=-1;
+  for (let i = 0; i < Math.min(15, rows.length); i++) {
+    const row = rows[i] || [];
+    const mi = row.findIndex(c => c && /Candidate Details/i.test(String(c)));
+    if (mi < 0) continue;
+    headerRow = i; metaCol = mi;
+    row.forEach((c, ci) => {
+      if (!c) return;
+      const t = String(c).trim();
+      if (/Subject Code/i.test(t))                 codeCol     = ci;
+      else if (/^Subject$/i.test(t))               subjNameCol = ci;
+      else if (/Marks\s*Obt/i.test(t))             marksCol    = ci;
+      else if (/Grace/i.test(t))                   graceCol    = ci;
+      else if (/Max/i.test(t))                     maxCol      = ci;
+      else if (/Total\s*Obt/i.test(t))             totCol      = ci;
+      else if (/^Crs/i.test(t))                    crsCol      = ci;
+      else if (/Gr\.?\s*Point/i.test(t))           gpCol       = ci;
+      else if (/Cr\.?\s*Points/i.test(t))          cpCol       = ci;
+      else if (/Ltr/i.test(t))                     ltrCol      = ci;
+      else if (/Result/i.test(t))                  resCol      = ci;
+    });
+    break;
+  }
+  console.log('[univ-ledger] header row', headerRow, 'cols:', { metaCol, codeCol, subjNameCol, marksCol, graceCol, maxCol, totCol, crsCol, gpCol, cpCol, ltrCol, resCol });
+  if (headerRow < 0 || metaCol < 0 || codeCol < 0) {
+    console.error('[univ-ledger] header row not found — cannot parse');
+    return null;
+  }
+
+  // ── 4. Walk student blocks ──
+  const num = v => { const n = parseFloat(String(v == null ? '' : v).replace(',', '')); return isNaN(n) ? null : n; };
+  const splitSum = raw => {
+    // Same normalisation as UUCMS parser: NN + NN, dashes/blank segment = 0.
+    // A segment WITH digits is left untouched (do NOT collapse spaces into
+    // digits — see the r-era regex bug documented in resParseUUCMS).
+    if (!raw) return null;
+    const s = String(raw).trim();
+    if (!s || s === '-' || /^AB$/i.test(s)) return null;
+    if (!s.includes('+')) { const n = parseFloat(s); return isNaN(n) ? null : n; }
+    const segs = s.split('+').map(x => x.trim()).map(x => /\d/.test(x) ? x : '0');
+    const sum  = segs.reduce((a, p) => { const n = parseFloat(p); return a + (isNaN(n) ? 0 : n); }, 0);
+    return Math.round(sum * 10) / 10;
+  };
+
+  const students = [];
+  let cur = null;
+  const pushCur = () => {
+    if (!cur) return;
+    if (!cur.usn && !cur.name) { cur = null; return; }
+    // The ledger printed Result is AUTHORITATIVE — the university already
+    // decided. Real case this handles: student wrote CIA but was absent for
+    // every SEE — all subjects say Absent, and resComputeResult treats
+    // Absent as not-Fail (correct for old-format semantics, kept untouched),
+    // which would wrongly compute PASS while the ledger says FAIL.
+    const computed = resComputeResult(cur.subjects);
+    cur.result = cur.ledgerResult || computed;
+    if (cur.ledgerResult && computed && cur.ledgerResult !== computed) {
+      console.log('[univ-ledger] using ledger result for', cur.usn, '— ledger:', cur.ledgerResult, '| computed:', computed);
+    }
+    // Cross-check summed subject totals vs ledger Total row
+    if (cur._ledgerTotal != null) {
+      const summed = Object.values(cur.subjects).reduce((a, d) => a + (d.total || 0), 0);
+      if (Math.abs(summed - cur._ledgerTotal) > 0.5) {
+        console.warn('[univ-ledger] total mismatch', cur.usn, 'summed:', summed, 'ledger:', cur._ledgerTotal);
+      }
+    }
+    delete cur._ledgerTotal;
+    students.push(cur);
+    cur = null;
+  };
+
+  for (let r = headerRow + 1; r < rows.length; r++) {
+    const row  = rows[r] || [];
+    const meta = String(row[metaCol] || '').trim();
+
+    // New block starts at USN:
+    if (/^USN\s*:/i.test(meta)) {
+      pushCur();
+      cur = { usn: meta.replace(/^USN\s*:\s*/i, '').trim(), name:'', fatherName:'', motherName:'',
+              sgpa:null, cgpa:null, ledgerResult:'', termGrade:'', marksCardNo:'',
+              subjects:{}, _ledgerTotal:null };
+    }
+    if (cur && meta) {
+      let m;
+      if ((m = meta.match(/^Student Name\s*:\s*(.+)/i)))      cur.name = m[1].trim();
+      else if ((m = meta.match(/^Father Name\s*:\s*(.+)/i)))  cur.fatherName = m[1].trim();
+      else if ((m = meta.match(/^Mother Name\s*:\s*(.+)/i)))  cur.motherName = m[1].trim();
+      else if ((m = meta.match(/SGPA\s*:\s*([\d.]+)/i)))      { cur.sgpa = num(m[1]);
+        const mc = meta.match(/CGPA\s*:\s*([\d.]+)/i); if (mc) cur.cgpa = num(mc[1]); }
+      else if ((m = meta.match(/^Result\s*:\s*([A-Za-z]+)/i))) cur.ledgerResult = m[1].toUpperCase();
+      else if ((m = meta.match(/^Term Grade\s*:\s*(\S+)/i)))  cur.termGrade = m[1].trim();
+      else if ((m = meta.match(/Marks\s*card\s*No\s*:?\s*(\S+)/i))) cur.marksCardNo = m[1].trim();
+    }
+
+    // Subject row / Total row
+    const code = String(row[codeCol] || '').trim();
+    if (cur && code) {
+      if (/^Total$/i.test(code)) {
+        cur._ledgerTotal = num(row[totCol]);
+        continue; // meta on this row (Marks card No) was already captured above
+      }
+      const marksRaw = String(row[marksCol] || '').trim();
+      const total    = (num(row[totCol]) != null) ? num(row[totCol]) : splitSum(marksRaw);
+      const max      = num(row[maxCol]) || 100;
+      const grade    = String(row[ltrCol] || '').trim();
+      const resRaw   = String(row[resCol] || '').trim().toLowerCase();
+      let normRes = resRaw.includes('pass') ? 'Pass'
+                  : resRaw.includes('fail') ? 'Fail'
+                  : resRaw.includes('absent') ? 'Absent' : '';
+      if (!normRes && /^AB/i.test(marksRaw)) normRes = 'Absent';
+      if (!normRes && total != null) normRes = total >= Math.ceil(max * 0.35) ? 'Pass' : 'Fail';
+      const inlineName = String(row[subjNameCol] || '').trim();
+      if (inlineName && !subjectLookup[code]) subjectLookup[code] = inlineName;
+      if (cur.subjects[code]) console.warn('[univ-ledger] duplicate subject code in block', cur.usn, code);
+      cur.subjects[code] = {
+        total, max, grade, result: normRes,
+        split: marksRaw || null,
+        name: subjectLookup[code] || inlineName || code,
+        grace:        num(row[graceCol]),
+        credits:      num(row[crsCol]),
+        gradePoint:   num(row[gpCol]),
+        creditPoints: num(row[cpCol]),
+      };
+    }
+  }
+  pushCur();
+  console.log('[univ-ledger] total students parsed:', students.length);
+
+  // ── 5. Campus per student from USN (U13DI... / U13NU...), file fallback ──
+  // Skip old-batch repeaters exactly like the UUCMS parser, but with a
+  // generalised course letter (BCom uses C, e.g. U13DI24C0003 — the old
+  // regex hardwired S and silently never matched these).
+  const kept = [];
+  for (const s of students) {
+    const cm = String(s.usn).match(/^U13(DI|NU)/i);
+    s.campus = cm ? cm[1].toUpperCase() : (fileCampus || 'DI');
+    const ym = String(s.usn).match(/^U13[A-Z]{2}(\d{2})[A-Z]/i);
+    if (ym && year) {
+      const urnYear = parseInt(ym[1]);
+      const batchStartYY = (year - 3) % 100;
+      if (urnYear < batchStartYY) { console.log('[univ-ledger] skip old-batch repeater', s.usn); continue; }
+    }
+    kept.push(s);
+  }
+
+  // ── 6. Classify regular vs backlog (same rule as UUCMS parser) ──
+  const REGULAR_MIN = course === 'BCA' ? 8 : 4;
+  const counts = {};
+  kept.forEach(s => { const n = Object.keys(s.subjects).length; counts[n] = (counts[n]||0)+1; });
+  console.log('[univ-ledger] subject-count distribution:', counts, '| REGULAR_MIN:', REGULAR_MIN);
+  let regular = kept.filter(s => Object.keys(s.subjects).length >= REGULAR_MIN);
+  let backlog = kept.filter(s => Object.keys(s.subjects).length <  REGULAR_MIN);
+
+  // ── 7. Subject order: university offer order first, then extras seen ──
+  const regCodes = new Set();
+  regular.forEach(s => Object.keys(s.subjects).forEach(c => regCodes.add(c)));
+  const subjectOrder = [
+    ...subjectOfferOrder.filter(c => regCodes.has(c)),
+    ...[...regCodes].filter(c => !subjectOfferOrder.includes(c))
+  ];
+
+  const computeStudentPct = (s, order) => {
+    let tot = 0, maxTot = 0;
+    for (const c of order) {
+      const d = s.subjects[c];
+      if (!d || d.total === null) continue;
+      tot += d.total; maxTot += (d.max || 100);
+    }
+    return maxTot > 0 ? { pct:(tot/maxTot)*100, total:tot, maxTotal:maxTot } : { pct:null, total:0, maxTotal:0 };
+  };
+  regular = regular.map(s => {
+    const { pct, total, maxTotal } = computeStudentPct(s, subjectOrder);
+    return { ...s, urn: s.usn, pct, total, maxTotal };
+  }).sort((a,b) => (b.pct||0)-(a.pct||0));
+  backlog = backlog.map(s => {
+    const { pct, total, maxTotal } = computeStudentPct(s, Object.keys(s.subjects));
+    return { ...s, urn: s.usn, pct, total, maxTotal };
+  }).sort((a,b) => a.name.localeCompare(b.name));
+
+  const subjects = subjectOrder.map(code => {
+    const appeared  = regular.filter(s => s.subjects[code]);
+    const passCount = appeared.filter(s => (s.subjects[code]?.result||'').toLowerCase()==='pass').length;
+    return {
+      code,
+      name:  subjectLookup[code] || code,
+      short: subjectLookup[code] || code,
+      faculty: '',   // set by allocation parser after upload
+      passRate: appeared.length ? (passCount/appeared.length)*100 : 0,
+      passCount,
+      failCount: appeared.length - passCount
+    };
+  });
+
+  const allStu = [...regular, ...backlog];
+  const summary = {
+    written: allStu.length,
+    pass:    allStu.filter(s => s.result === 'PASS').length,
+    fail:    allStu.filter(s => s.result === 'FAIL').length,
+  };
+  if (regular.length) console.log('[univ-ledger] first regular:', regular[0].usn, regular[0].name, 'pct:', regular[0].pct?.toFixed(1), 'subjects:', Object.keys(regular[0].subjects));
+
+  return { course: course || 'Unknown', sem: sem || 'I', year,
+    key: resKey(course || 'Unknown', sem || 'I', year),
+    subjects, regular, backlog, summary,
+    subjectLookup,
+    meta: { source:'excel_upload_univ_ledger', course, sem, year,
+      collegeCode, collegeName, campus: fileCampus,
+      scraped_at: new Date().toISOString(), scraped_by: currentProfile?.name || 'Admin' }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  OLD PARSER (row-per-student format — kept as fallback)
 // ═══════════════════════════════════════════════════════════════
 function resParseRowFormat(rows, sheetName) {
@@ -7582,20 +8144,37 @@ function resApplyAllocToData(allocSubjects, parsed) {
     const subShort = norm(sub.short || sub.name);
     const subCode  = (sub.code||'').toLowerCase();
 
-    const match = allocSubjects.find(a => {
-      const aCode = (a.code||'').toUpperCase();
-      // 1. Exact code match
-      if (aCode && aCode === sub.code) return true;
+    // Collect ALL allocation entries that map to this subject, then prefer one
+    // that actually names a teacher.
+    // BUG THIS FIXES (r439): this used find(), so the FIRST match won. An
+    // allocation doc can easily hold two entries for the same subject — a
+    // real one, plus a legacy entry with an empty code whose name resolves to
+    // the same code (both EVS and EVS-2025 are printed "ENVIRONMENTAL
+    // STUDIES", so a code-less entry resolves onto one of them). If the empty
+    // one came first it shadowed the real assignment and the column header
+    // rendered blank even though the allocation clearly showed a teacher.
+    const subCodeU = String(sub.code||'').toUpperCase();
+    const candidates = allocSubjects.filter(a => {
+      const aCode = String(a.code||'').toUpperCase();
+      // 1. Exact code match (case-insensitive on BOTH sides)
+      if (aCode && subCodeU && aCode === subCodeU) return true;
       // 2. Resolve alloc subject name → code via saved subjectLookup, then match
       if (!aCode && a.name) {
         const resolvedCode = nameToCode[norm(a.name)];
-        if (resolvedCode && resolvedCode === sub.code) {
+        if (resolvedCode && String(resolvedCode).toUpperCase() === subCodeU) {
           a.code = resolvedCode; // enrich for future saves
           return true;
         }
       }
       return false;
     });
+    const match = candidates.find(a => a.faculty || a.facultyDI || a.facultyNU || a.facultyC)
+               || candidates[0];
+    if (candidates.length > 1) {
+      console.warn('[resApplyAllocToData]', sub.code, 'has', candidates.length,
+        'allocation entries — using the one with a teacher:',
+        candidates.map(a => (a.code||'?') + '=' + (a.faculty||a.facultyDI||'(empty)')).join(' | '));
+    }
 
     if (match) {
       // Also enrich allocation entry with correct code for future saves
@@ -7917,6 +8496,9 @@ async function resParseUploadedFiles() {
   if (isUUCMS) {
     resSetProgress(40, 'UUCMS format — parsing students…');
     parsed = resParseUUCMS(resultWb);
+  } else if (resIsUnivLedgerFormat(rows2)) {
+    resSetProgress(40, 'Davangere University ledger format — parsing students…');
+    parsed = resParseUnivLedger(resultWb);
   } else {
     resSetProgress(40, 'Standard format — parsing…');
     const bigSheet = resultWb.SheetNames.reduce((best, name) => {
@@ -7953,7 +8535,7 @@ async function resParseUploadedFiles() {
       const msg = `⚠ Year mismatch! Excel file says ${parsed.year}, but you selected AY ${RES_UP_AY_START}-${String(RES_UP_AY_START+1).slice(2)} (expects ${expectedEndYear}). ` +
                   `Double-check before saving — wrong year will file this under the wrong semester.`;
       resSetProgress(-1, msg);
-      resToast('Year Mismatch', msg, 'warn');
+      resToast('Year Mismatch', msg, 'warn', 0, 'year-mismatch');
       console.warn('[AY cross-check]', msg, { parsedYear: parsed.year, expectedEndYear, ayStart: RES_UP_AY_START });
       // Don't block — admin may know better than the sheet — but force them to see it.
     } else if (!parsed.year) {
@@ -7963,6 +8545,71 @@ async function resParseUploadedFiles() {
     // an explicit human choice rather than a regex match against sheet text.
     parsed.year = expectedEndYear;
     parsed.key  = resKey(parsed.course, parsed.sem, expectedEndYear);
+  }
+
+  // ── CAMPUS / COURSE / SEMESTER cross-checks ─────────────────────────
+  // The year check above existed alone, so uploading a Nutana file with the
+  // Campus dropdown left on Davan (or a BCom file with BCA selected, or a
+  // Sem IV file with Sem II selected) went through in silence. On campus
+  // specifically: resSaveUpload derives the campus from the students' own
+  // records (set from the USN prefix) and only falls back to this dropdown
+  // when no student carries one — so a wrong selection mislabels the upload
+  // log and status rather than destroying data, EXCEPT for files whose URNs
+  // yield no campus, where the fallback decides which students get replaced.
+  // Same policy as the year check — warn loudly, never block; the admin may
+  // know something the sheet doesn't.
+  const _mmWarn = (title, msg, key) => {
+    resSetProgress(-1, msg);
+    resToast(title, msg, 'warn', 0, key);   // sticky until dismissed
+    console.warn('[upload cross-check]', title, msg);
+  };
+  {
+    const allStu = [...(parsed.regular||[]), ...(parsed.backlog||[])];
+
+    // Campus — from each student's own USN prefix (U13DI… / U13NU…)
+    if (RES_UP_CAMPUS && allStu.length) {
+      const counts = { DI:0, NU:0, '':0 };
+      allStu.forEach(s => { counts[(s.campus||'')] = (counts[(s.campus||'')]||0) + 1; });
+      const fileCampus = counts.DI === counts.NU ? '' : (counts.DI > counts.NU ? 'DI' : 'NU');
+      const nameOf = c => c === 'DI' ? 'Davan (DI)' : c === 'NU' ? 'Nutana (NU)' : c;
+      if (fileCampus && fileCampus !== RES_UP_CAMPUS) {
+        _mmWarn('Campus Mismatch',
+          `⚠ Campus mismatch! The URNs in this file are ${nameOf(fileCampus)} (${counts[fileCampus]} of ${allStu.length} students), ` +
+          `but you selected ${nameOf(RES_UP_CAMPUS)}. The students themselves will still be filed under ${nameOf(fileCampus)} (campus comes from each URN), ` +
+          `but the upload log and status will name the wrong campus — and if any URN has no campus, those rows fall back to your selection.`,
+          'campus-mismatch');
+      } else if (counts.DI && counts.NU) {
+        _mmWarn('Mixed Campuses',
+          `⚠ This file contains BOTH campuses — ${counts.DI} Davan (DI) and ${counts.NU} Nutana (NU) students. ` +
+          `Uploads are saved one campus at a time; check this is the file you meant.`,
+          'campus-mixed');
+      }
+    }
+
+    // Course — read from the Excel's own Program: line
+    if (RES_UP_COURSE && parsed.course &&
+        resNormCourse(parsed.course) !== resNormCourse(RES_UP_COURSE)) {
+      _mmWarn('Course Mismatch',
+        `⚠ Course mismatch! The Excel says ${parsed.course}, but you selected ${RES_UP_COURSE}. ` +
+        `This will be filed under ${RES_UP_COURSE} — check before saving.`,
+        'course-mismatch');
+    }
+
+    // Semester — read from the Excel's own Semester: line
+    const _semNorm = v => String(v||'').trim().toUpperCase();
+    if (RES_UP_SEM && parsed.sem && _semNorm(parsed.sem) !== _semNorm(RES_UP_SEM)) {
+      _mmWarn('Semester Mismatch',
+        `⚠ Semester mismatch! The Excel says Sem ${parsed.sem}, but you selected Sem ${RES_UP_SEM}. ` +
+        `This will be filed under Sem ${RES_UP_SEM} — check before saving.`,
+        'sem-mismatch');
+    }
+
+    // The dropdowns are an explicit human choice, so they win — but the
+    // batch key must then reflect what will ACTUALLY be saved, otherwise the
+    // preview header shows one thing and Firebase gets another.
+    if (RES_UP_COURSE) parsed.course = RES_UP_COURSE;
+    if (RES_UP_SEM)    parsed.sem    = RES_UP_SEM;
+    if (RES_UP_COURSE || RES_UP_SEM) parsed.key = resKey(parsed.course, parsed.sem, parsed.year);
   }
 
   resUpdateFileStatus('result', _resultFile?.name, true);
@@ -8226,6 +8873,13 @@ function resShowUploadPreview(parsed) {
   const infoEl     = document.getElementById('res-preview-info');
   const tableEl    = document.getElementById('res-preview-table');
   if (!previewDiv || !infoEl || !tableEl) return;
+  // _KS/_KN were referenced in buildTable thead but never defined in this
+  // function scope (the const declarations elsewhere are locals of OTHER
+  // functions) — ReferenceError killed the whole preview render, making the
+  // View Full Preview button appear dead. Same guard pattern as the students
+  // table renderer.
+  const _KS = typeof KNOWN_SHORTS !== 'undefined' ? KNOWN_SHORTS : {};
+  const _KN = typeof KNOWN_NAMES  !== 'undefined' ? KNOWN_NAMES  : {};
 
   const { regular=[], backlog=[], subjects=[], summary={}, course='' } = parsed;
   const total   = regular.length + backlog.length;
@@ -8425,6 +9079,7 @@ function resDismissConfirm() {
 
 async function resSaveUpload() {
   if (!RES_UPLOAD_PARSED) { resSetStatus('⚠ No parsed data to save.', 'var(--warn)'); return; }
+  ['year-mismatch','campus-mismatch','campus-mixed','course-mismatch','sem-mismatch'].forEach(resDismissToast);  // decision made — clear sticky warnings
   if (resIsFaculty()) { resSetStatus('⚠ Faculty cannot upload results.', 'var(--warn)'); return; }
   resDismissConfirm();
   const btn = document.getElementById('res-save-btn');
@@ -8486,14 +9141,58 @@ async function resSaveUpload() {
       ...(b.backlog  || [])
     ];
 
+    // Merge the SUBJECT list by code instead of letting the new upload replace it.
+    // BUG THIS FIXES (r440): mergedDoc was { ...existingDoc, ...b }, so `subjects`
+    // and `subjectLookup` came wholly from the newest upload. Uploading the
+    // Nutana BCom Sem II file (whose students never sat EVS /50 or SAN-L-C-2)
+    // therefore deleted those subjects from the batch even though three Davan
+    // repeat students still hold marks for them — the column vanished from the
+    // students table and any faculty assigned to it was orphaned. Student marks
+    // themselves were never lost, only the subject list describing them.
+    const mergedSubjects = (() => {
+      const byCode = {};
+      (existingDoc.subjects || []).forEach(s => {
+        if (s && s.code) byCode[String(s.code).toUpperCase()] = { ...s };
+      });
+      (b.subjects || []).forEach(s => {
+        if (!s || !s.code) return;
+        const k = String(s.code).toUpperCase();
+        const prev = byCode[k];
+        // New upload wins on descriptive fields, but never blanks a faculty
+        // that the other campus's upload had already recorded.
+        byCode[k] = prev ? { ...prev, ...s,
+          faculty:   s.faculty   || prev.faculty   || '',
+          facultyDI: s.facultyDI || prev.facultyDI || '',
+          facultyNU: s.facultyNU || prev.facultyNU || '',
+          facultyC:  s.facultyC  || prev.facultyC  || '',
+        } : { ...s };
+      });
+      return Object.values(byCode);
+    })();
+
+    // Pass/fail stats on each subject were computed for one upload only, so
+    // recompute them across the merged student list — otherwise a subject kept
+    // from the other campus carries that campus's numbers.
+    mergedSubjects.forEach(sub => {
+      const appeared = mergedRegular.filter(s => s.subjects && s.subjects[sub.code]);
+      const pass = appeared.filter(s => String(s.subjects[sub.code].result||'').toLowerCase() === 'pass').length;
+      sub.passCount = pass;
+      sub.failCount = appeared.length - pass;
+      sub.passRate  = appeared.length ? (pass / appeared.length) * 100 : 0;
+    });
+
     // Build merged doc preserving all existing fields
     const mergedDoc = {
       ...existingDoc,
       ...b,
       regular: mergedRegular,
       backlog:  mergedBacklog,
+      subjects: mergedSubjects,
+      subjectLookup: { ...(existingDoc.subjectLookup || {}), ...(b.subjectLookup || {}) },
       savedAt: new Date().toISOString(),
     };
+    console.log('[resSaveUpload] subjects: existing', (existingDoc.subjects||[]).length,
+      '+ new', (b.subjects||[]).length, '→ merged', mergedSubjects.length);
 
     console.log('[resSaveUpload] campus:', uploadedCampus,
       '| existing regular:', existingDoc.regular?.length || 0,
@@ -8762,6 +9461,7 @@ async function resApplyCheckedAlloc() {
 }
 
 function resCancelUpload() {
+  ['year-mismatch','campus-mismatch','campus-mixed','course-mismatch','sem-mismatch'].forEach(resDismissToast);  // warnings must not outlive the upload
   RES_UPLOAD_PARSED = null;
   const pv = document.getElementById('res-upload-preview');
   if (pv) pv.style.display='none';
@@ -9156,13 +9856,13 @@ function resRenderDashSectionChip() {
   const SEM_NUM = {'I':'1','II':'2','III':'3','IV':'4','V':'5','VI':'6'};
 
   // Available courses/sems from loaded docs
-  const availCourses = new Set(Object.values(RES_ALL_DOCS).map(d=>d._course).filter(Boolean));
+  const availCourses = new Set(Object.values(RES_ALL_DOCS).map(d=>resNormCourse(d._course)).filter(Boolean));
   const availSems    = new Set(Object.values(RES_ALL_DOCS)
     .filter(d => RES_DASH_COURSE === 'all' || d._course === RES_DASH_COURSE)
     .map(d=>d._sem).filter(Boolean));
 
   // Faculty constraints
-  const _facC2 = new Set(isFac&&RES_DATA?(RES_DATA.subjects||[]).map(s=>s._course||'').filter(Boolean).map(s=>s.toUpperCase()):[]);
+  const _facC2 = new Set(isFac&&RES_DATA?(RES_DATA.subjects||[]).map(s=>resNormCourse(s._course)).filter(Boolean):[]);
   const _facS2 = new Set(isFac&&RES_DATA?(RES_DATA.subjects||[]).map(s=>s._sem||'').filter(Boolean).map(s=>s.toUpperCase()):[]);
 
   const mkChip = (id, options, current, setter, disabledFn) => {
@@ -9186,38 +9886,28 @@ function resRenderDashSectionChip() {
   // (BCA+BBA+BCom together). Mutually exclusive with Course/Sem chips since
   // combining "BCA only" with "Odd only" would be a different, narrower view —
   // picking a parity resets Course/Sem to 'all' and vice versa.
-  const availParities = new Set();
-  const ODD_SEMS_C  = ['I','III','V'];
-  const EVEN_SEMS_C = ['II','IV','VI'];
-  Object.values(RES_ALL_DOCS).forEach(d => {
-    if (ODD_SEMS_C.includes(d._sem))  availParities.add('odd');
-    if (EVEN_SEMS_C.includes(d._sem)) availParities.add('even');
-  });
-  const parityOpts = [['all','All','var(--ok)'], ['odd','Odd (I·III·V)','var(--blue)'], ['even','Even (II·IV·VI)','#a78bfa']];
-  mkChip('res-dash-chip-parity-row', parityOpts, RES_DASH_PARITY,
-    v => { RES_DASH_PARITY = v; if (v !== 'all') { RES_DASH_COURSE = 'all'; RES_DASH_SEM = 'all'; } },
-    v => v !== 'all' && !availParities.has(v));
+  // Sem Type chips — rendered by the shared universal renderer so the
+  // Dashboard row and every other tab's row are one implementation.
+  resRenderParityChips();
 
   // Course chips
   const courseOpts = [['all','All','var(--ok)'], ...COURSES.map(c=>[c,c,'var(--ok)'])];
   mkChip('res-dash-chip-course-row', courseOpts, RES_DASH_COURSE,
-    v => { RES_DASH_COURSE = v; RES_DASH_SEM = 'all'; RES_DASH_PARITY = 'all'; },
-    v => isFac ? (v !== 'all' && !_facC2.has(v)) : (v !== 'all' && !availCourses.has(v)));
+    v => { RES_DASH_COURSE = v; RES_DASH_SEM = 'all'; },
+    v => isFac ? (v !== 'all' && !_facC2.has(resNormCourse(v))) : (v !== 'all' && !availCourses.has(resNormCourse(v))));
 
   // Sem chips
   const semOpts = [['all','All','var(--ok)'], ...SEMS.map(s=>[s,SEM_NUM[s],'var(--ok)'])];
   mkChip('res-dash-chip-sem-row', semOpts, RES_DASH_SEM,
-    v => { RES_DASH_SEM = v; if (v !== 'all') RES_DASH_PARITY = 'all'; },
-    v => isFac ? (v !== 'all' && !_facS2.has(v)) : (v !== 'all' && !availSems.has(v)));
+    v => { RES_DASH_SEM = v; },
+    v => v !== 'all' && (resSemBlocked(v) || (isFac ? !_facS2.has(v) : !availSems.has(v))));
 
-  // Section chips — only for BCA
-  const showSection = RES_DASH_COURSE === 'BCA' || (RES_DASH_COURSE === 'all' && availCourses.has('BCA'));
+  // Section chips — always visible, never disabled (r441)
   const secWrap = document.getElementById('res-dash-section-chips');
   const secParent = document.getElementById('res-dash-chip-section-row')?.parentElement;
-  if (secParent) secParent.style.display = showSection ? '' : 'none';
-  if (showSection) {
-    // Always show NUC chip for BCA
-    const secOpts = [['all','All','var(--ok)'],['DI','A (DI)','var(--blue)'],['NU','B (NU-1)','#a78bfa'],['NUC','C (NU-2)','#f59e0b']];
+  if (secParent) secParent.style.display = '';
+  {
+    const secOpts = resSectionChipOpts();
     let facSections = new Set();
     if (isFac && RES_DATA) {
       const myName = (currentProfile?.facultyKey||currentProfile?.name||'').toLowerCase().trim();
@@ -9246,15 +9936,14 @@ function resRenderDashSectionChip() {
       diCountChip = allRegForChips.filter(facIsDI_global).length;
       nuCountChip = allRegForChips.filter(facIsNU_global).length;
     }
+    // Counts are used for the tooltip only — a zero-student section stays
+    // clickable and simply renders an empty list, instead of the chip (or the
+    // whole row) vanishing while the user is filtering.
+    console.debug('[section chips] DI:', diCountChip, 'NU:', nuCountChip,
+      'NUC:', allRegForChips.filter(facIsNUC_global).length);
     mkChip('res-dash-chip-section-row', secOpts, RES_DASH_SECTION,
       v => RES_DASH_SECTION = v,
-      v => {
-        if (v === 'all') return false;
-        if (v === 'DI')  return diCountChip === 0;
-        if (v === 'NU')  return nuCountChip === 0;
-        if (v === 'NUC') return allRegForChips.filter(facIsNUC_global).length === 0;
-        return false;
-      });
+      v => false);
   }
 }
 
@@ -9988,17 +10677,36 @@ function resFacultyEditCell(el) {
   if (RES_DATA && RES_DATA.subjects && RES_DATA.subjects[idx]) {
     RES_DATA.subjects[idx][field] = el.value.trim();
     if (field === 'facultyDI' || field === 'faculty') RES_DATA.subjects[idx].faculty = el.value.trim();
+    // Mark this row as deliberately edited. Only a touched row is allowed to
+    // write an EMPTY faculty over a saved one — see resSaveFacultyEdits.
+    RES_DATA.subjects[idx]._touched = true;
   }
 }
 
 let _facultySnapshot = null; // snapshot of subjects before manual-edit clear
 
 
-// Re-render edit table when chip changes during Assign Faculty Manually
-function resRenderFacultyEditTable() {
-  if (!_facultySnapshot) return;
-  // Rebuild cleared subjects from newly chip-filtered docs
-  const docs = Object.values(RES_ALL_DOCS).filter(doc => {
+// Rebuild the Assign Faculty rows from the currently chip-filtered batches.
+// BUG THIS FIXES (r436): this used to be dead code — nothing ever called it —
+// so the edit table kept rendering whatever _facultySnapshot held at the
+// moment "Re-assign Faculty" was clicked. Filtering to BCom Sem II still
+// showed BCA Sem II rows, and because the dropdowns write into
+// RES_DATA.subjects BY INDEX while the visible rows come from the snapshot,
+// a pick could land on a completely different subject once the two lists
+// drifted apart. Both lists are now rebuilt together, in the same order.
+let _facRebuilding = false;
+function resFacRebuildEditRows() {
+  if (!_facultySnapshot || !RES_DATA) return;
+  // Preserve in-progress picks by batch|code — array index is not stable
+  // across a filter change, so it cannot be used as the identity.
+  const edits = {};
+  (RES_DATA.subjects||[]).forEach(s => {
+    if (s.faculty || s.facultyDI || s.facultyNU || s._touched) {
+      edits[(s._batch||'') + '|' + (s.code||'')] =
+        { faculty:s.faculty||'', facultyDI:s.facultyDI||'', facultyNU:s.facultyNU||'', _touched: !!s._touched };
+    }
+  });
+  const docs = Object.values(RES_ALL_DOCS||{}).filter(doc => {
     if (RES_DASH_COURSE !== 'all' && doc._course !== RES_DASH_COURSE) return false;
     if (RES_DASH_SEM    !== 'all' && doc._sem    !== RES_DASH_SEM)    return false;
     if (!resParityOk(doc._sem)) return false;
@@ -10007,12 +10715,25 @@ function resRenderFacultyEditTable() {
   const subjectMap = {};
   docs.forEach(doc => {
     (doc.subjects||[]).forEach(sub => {
-      const k = sub.code + '|' + (doc._batch||'');
+      const k = (doc._batch||'') + '|' + sub.code;
       if (!subjectMap[k]) subjectMap[k] = { ...sub, _batch:doc._batch, _course:doc._course, _sem:doc._sem };
     });
   });
-  // Set cleared subjects as RES_DATA.subjects so edit table shows them
-  RES_DATA.subjects = Object.values(subjectMap).map(s => ({ ...s, faculty:'', facultyDI:'', facultyNU:'' }));
+  const rows = Object.values(subjectMap);
+  // Snapshot = what is currently SAVED (drives the read-only Current column)
+  _facultySnapshot = rows.map(s => ({ ...s }));
+  // Live = what will be saved. Seeded from the saved value so an untouched
+  // row keeps its faculty instead of being silently blanked on Save & Apply.
+  RES_DATA.subjects = rows.map(s => {
+    const e = edits[(s._batch||'') + '|' + (s.code||'')];
+    return e ? { ...s, ...e } : { ...s };
+  });
+}
+
+// Re-render edit table when chip changes during Assign Faculty Manually
+function resRenderFacultyEditTable() {
+  if (!_facultySnapshot) return;
+  resFacRebuildEditRows();
   resRenderFaculty();
 }
 
@@ -10026,8 +10747,11 @@ function resClearFacultyForEdit() {
   resLoadStaffNames();
   // Save snapshot so Back button can restore it
   _facultySnapshot = RES_DATA.subjects.map(s => ({ ...s }));
-  // Clear all faculty fields so the edit table shows
-  RES_DATA.subjects = RES_DATA.subjects.map(s => ({ ...s, faculty:'', facultyDI:'', facultyNU:'' }));
+  // Keep the live values equal to the saved ones. They used to be blanked
+  // here, which meant the dropdowns showed a name (read from the snapshot)
+  // while RES_DATA held '' — so pressing Save & Apply without touching a row
+  // wiped that subject's faculty even though the UI showed it assigned.
+  RES_DATA.subjects = RES_DATA.subjects.map(s => ({ ...s }));
   resRenderFaculty();
 }
 
@@ -10043,31 +10767,317 @@ function resCancelFacultyEdit() {
   resRenderFaculty();
 }
 
-async function resSaveFacultyEdits() {
-  if (!RES_DATA) return;
-  const key = RES_DATA.key;
-  const subjects = RES_DATA.subjects || [];
-  // Save allocation doc
-  if (key) {
-    const allocSubjects = subjects.map(s => ({
-      name: s.name, code: s.code||'', faculty: s.faculty||s.facultyDI||'',
-      facultyDI: s.facultyDI||'', facultyNU: s.facultyNU||'', sem: s.sem||RES_DATA.sem||'', course: s.course||RES_DATA.course||''
-    }));
-    try {
-      await fsSetMerge('app_data', 'allocation_' + key, { subjects: allocSubjects, savedAt: new Date().toISOString(), batch: key });
-      resSetStatus('✅ Faculty saved permanently', 'var(--ok)');
-      setTimeout(() => resSetStatus(''), 3000);
-      resToast('Faculty Saved', key + ' · ' + allocSubjects.length + ' subjects', 'success');
-      resLogEvent('ok', 'Faculty edits saved: ' + key, allocSubjects.length + ' subjects');
-      resSummaryRender();
-    } catch(e) {
-      resSetStatus('❌ Save failed: ' + e.message, 'var(--danger)');
-      resToast('Faculty Save Failed', e.message, 'error');
-      resLogEvent('err', 'Faculty save failed: ' + key, e.message);
+// Does this string look like a REAL batch key (Course_SemX_YYYY)?
+// RES_DATA.key is a display label whenever the dashboard is showing a
+// combined/filtered view, and an allocation written under a label can never
+// be found again by the loader, which only ever probes allocation_<batchKey>.
+// Rebuild any subject entry that exists in the students' own records but is
+// missing from doc.subjects. Self-heals batches damaged by the pre-r440 merge,
+// which let a second-campus upload replace the whole subject list — the marks
+// survived inside each student, only the list describing them was lost, so the
+// list can be reconstructed from the marks with no re-upload.
+// Section chips are ALWAYS on screen (r441). They used to be hidden entirely
+// whenever the course filter was not BCA, so selecting BCom made the whole
+// SECTION row vanish mid-filtering. The Davan/Nutana split is real for BCom
+// and BBA too — both courses run at both campuses — so the row is now always
+// rendered, labelled per course, and chips are never disabled: picking a
+// section with no students simply shows an empty list rather than removing
+// the control that got you there.
+// ── Repair allocations from the results docs (r443) ────────────────────────
+// The faculty a subject was uploaded/auto-assigned with lives on the RESULTS
+// doc (doc.subjects[].faculty), while the student portal reads the separate
+// allocation_<batch> docs (mirrored to davan_pub/allocations and synced to
+// DB2). The r438 merge bug blanked entries in the allocation docs while the
+// results docs kept their copy — which is exactly why results.html still
+// showed SHANKAR B C / GNANESHWARI etc. but the student portal showed a dash.
+// This walks every loaded batch and writes back any faculty that exists in
+// the results doc but is missing from the allocation doc. It NEVER overwrites
+// a name already present in the allocation — it only fills blanks.
+// One-time migration/cleanup (r445): move the WRONG sibling keys r444 wrote
+// (davan_pub/allocation_<batch>) into the correct nested location
+// (davan_pub/allocations/allocation_<batch>), then delete the sibling so it
+// stops cluttering the console tree. Safe to run more than once — skips
+// anything already correct.
+async function resFixAllocationMirrorPaths() {
+  let moved = 0, alreadyOk = 0, failed = 0;
+  try {
+    const rootSnap = await rtdb.ref('davan_pub').once('value');
+    const root = rootSnap.val() || {};
+    const siblingKeys = Object.keys(root).filter(k => k.startsWith('allocation_'));
+    if (!siblingKeys.length) {
+      resToast('Nothing to Fix', 'No stray allocation_* keys found directly under davan_pub.', 'info');
       return;
     }
+    if (!confirm('Found ' + siblingKeys.length + ' allocation doc(s) sitting in the WRONG place ' +
+        '(davan_pub/<key> instead of davan_pub/allocations/<key>) — including the ones r444 just wrote.\n\n' +
+        'Move them into davan_pub/allocations/ and delete the wrong copies?')) return;
+    for (const k of siblingKeys) {
+      try {
+        await rtdb.ref('davan_pub/allocations/' + k).update(root[k]);
+        await rtdb.ref('davan_pub/' + k).remove();
+        moved++;
+      } catch(e) { failed++; console.error('[resFixAllocationMirrorPaths] failed', k, e.message); }
+    }
+  } catch(e) {
+    resToast('Fix Failed', e.message, 'error'); return;
   }
+  resToast(failed ? 'Partly Fixed' : 'Mirror Paths Fixed',
+    moved + ' moved into davan_pub/allocations' + (failed ? ' · ' + failed + ' failed' : '') +
+    '. Now run the DB1→DB2 sync.', failed ? 'warn' : 'success', 0, 'mirror-path-fix');
+  resLogEvent(failed ? 'warn' : 'ok', 'Fixed misplaced allocation mirror keys', moved + ' moved');
+}
+
+async function resRepairAllocations() {
+  const batches = Object.entries(RES_ALL_DOCS || {}).filter(([k]) => resIsBatchKey(k));
+  if (!batches.length) { resToast('Nothing to Repair', 'No batches are loaded.', 'warn'); return; }
+
+  // Dry run first so the admin sees exactly what would change
+  const plan = [];
+  for (const [bk, doc] of batches) {
+    let existing = [];
+    try { const d = await fsGet('app_data', 'allocation_' + bk); existing = (d && d.subjects) || []; } catch(e) {}
+    const byCode = {};
+    existing.forEach(r => { byCode[String(r.code || r.name || '').toUpperCase()] = r; });
+    (doc.subjects || []).forEach(sub => {
+      const fac = sub.faculty || sub.facultyDI || sub.facultyNU || '';
+      if (!fac || !sub.code) return;
+      const cur = byCode[String(sub.code).toUpperCase()];
+      const curFac = cur ? (cur.faculty || cur.facultyDI || cur.facultyNU || '') : '';
+      if (!curFac) plan.push({ bk, code: sub.code, name: sub.name || sub.code, fac, existing, byCode, doc });
+    });
+  }
+  if (!plan.length) {
+    // Firestore is complete — but the DB1 RTDB copy the student portal syncs
+    // from may still be stale (that was the real fault, see r444). Re-write
+    // each allocation doc unchanged so fsSetMerge pushes it to the mirror.
+    if (!confirm('Firestore allocations are already complete — nothing to repair.\n\n' +
+        'Push all ' + batches.length + ' allocation doc(s) to the public RTDB mirror that the student portal syncs from?')) return;
+    let pushed = 0, failedPush = 0;
+    for (const [bk] of batches) {
+      try {
+        const d = await fsGet('app_data', 'allocation_' + bk);
+        if (!d || !d.subjects) continue;
+        await fsSetMerge('app_data', 'allocation_' + bk,
+          { subjects: d.subjects, savedAt: d.savedAt || new Date().toISOString(), batch: bk, mirroredAt: new Date().toISOString() });
+        pushed++;
+      } catch(e) { failedPush++; console.error('[resRepairAllocations] mirror push failed', bk, e.message); }
+    }
+    resToast(failedPush ? 'Mirror Push Partly Failed' : 'Pushed to RTDB Mirror',
+      pushed + ' allocation doc(s) re-written' + (failedPush ? ' · ' + failedPush + ' failed' : '') +
+      '. Now run the DB1→DB2 sync, then reload the student portal.',
+      failedPush ? 'warn' : 'success', 0, 'alloc-repair');
+    resLogEvent(failedPush ? 'warn' : 'ok', 'Allocations pushed to RTDB mirror', pushed + ' docs');
+    return;
+  }
+  const preview = plan.slice(0, 12).map(p => `• ${p.bk} — ${p.code}: ${p.fac}`).join('\n');
+  if (!confirm(`Restore ${plan.length} faculty assignment(s) into the allocation docs?\n\n` +
+      `${preview}${plan.length > 12 ? `\n… and ${plan.length - 12} more` : ''}\n\n` +
+      `Existing names in the allocation are never overwritten — only blanks are filled.`)) return;
+
+  const byBatch = {};
+  plan.forEach(p => { (byBatch[p.bk] = byBatch[p.bk] || []).push(p); });
+  let written = 0, failed = 0;
+  for (const [bk, items] of Object.entries(byBatch)) {
+    try {
+      const merged = {};
+      (items[0].existing || []).forEach(r => { merged[String(r.code || r.name || '').toUpperCase()] = r; });
+      items.forEach(p => {
+        const k = String(p.code).toUpperCase();
+        const sub = (p.doc.subjects || []).find(s => String(s.code).toUpperCase() === k) || {};
+        merged[k] = { ...(merged[k] || {}), name: p.name, code: p.code,
+          faculty: p.fac,
+          facultyDI: sub.facultyDI || (merged[k] && merged[k].facultyDI) || '',
+          facultyNU: sub.facultyNU || (merged[k] && merged[k].facultyNU) || '',
+          sem: p.doc._sem || '', course: p.doc._course || '' };
+        written++;
+      });
+      await fsSetMerge('app_data', 'allocation_' + bk,
+        { subjects: Object.values(merged), savedAt: new Date().toISOString(), batch: bk, repairedAt: new Date().toISOString() });
+      console.log('[resRepairAllocations] repaired allocation_' + bk, items.length, 'entries');
+    } catch(e) {
+      failed++; console.error('[resRepairAllocations] failed', bk, e.message);
+    }
+  }
+  resToast(failed ? 'Repair Partly Failed' : 'Allocations Repaired',
+    written + ' assignment(s) restored across ' + Object.keys(byBatch).length + ' batch(es)' +
+    (failed ? ' · ' + failed + ' batch(es) failed' : '') +
+    '. Run the DB1→DB2 sync to push this to the student portal.',
+    failed ? 'warn' : 'success', 0, 'alloc-repair');
+  resLogEvent(failed ? 'warn' : 'ok', 'Allocations repaired from results docs', written + ' entries');
+}
+
+function resSectionChipOpts() {
+  const isBCAsel = RES_DASH_COURSE === 'BCA' ||
+    (RES_DASH_COURSE === 'all' && Object.values(RES_ALL_DOCS||{}).some(d => d._course === 'BCA'));
+  const opts = isBCAsel
+    ? [['all','Both','var(--ok)'],['DI','A (DI)','var(--blue)'],['NU','B (NU-1)','#a78bfa'],['NUC','C (NU-2)','#f59e0b']]
+    : [['all','Both','var(--ok)'],['DI','Davan (DI)','var(--blue)'],['NU','Nutana (NU)','#a78bfa']];
+  // Never drop the chip that is currently selected — otherwise the only way
+  // to undo a NUC selection would disappear along with it.
+  if (!opts.some(o => o[0] === RES_DASH_SECTION) && RES_DASH_SECTION !== 'all') {
+    opts.push([RES_DASH_SECTION, 'C (NU-2)', '#f59e0b']);
+  }
+  return opts;
+}
+
+function resReconcileDocSubjects(doc) {
+  if (!doc || !Array.isArray(doc.subjects)) return doc;
+  const have = new Set(doc.subjects.map(s => String(s.code||'').toUpperCase()));
+  const students = [...(doc.regular||[]), ...(doc.backlog||[])];
+  const lookup = doc.subjectLookup || {};
+  const added = [];
+  students.forEach(s => {
+    Object.entries(s.subjects || {}).forEach(([code, rec]) => {
+      const k = String(code||'').toUpperCase();
+      if (!k || have.has(k)) return;
+      have.add(k);
+      const entry = { code, name: lookup[code] || rec.name || code,
+        short: lookup[code] || rec.name || code,
+        faculty:'', facultyDI:'', facultyNU:'',
+        passCount:0, failCount:0, passRate:0, _restored:true };
+      doc.subjects.push(entry);
+      added.push(code);
+    });
+  });
+  if (added.length) {
+    // Give the restored entries real pass/fail numbers
+    doc.subjects.forEach(sub => {
+      if (!sub._restored) return;
+      const appeared = (doc.regular||[]).filter(s => s.subjects && s.subjects[sub.code]);
+      const pass = appeared.filter(s => String(s.subjects[sub.code].result||'').toLowerCase() === 'pass').length;
+      sub.passCount = pass; sub.failCount = appeared.length - pass;
+      sub.passRate  = appeared.length ? (pass/appeared.length)*100 : 0;
+    });
+    console.warn('[resReconcileDocSubjects]', doc._batch || doc.key || '?',
+      '— restored', added.length, 'subject(s) missing from the saved list but present in student marks:', added.join(', '));
+  }
+  return doc;
+}
+
+function resIsBatchKey(k) {
+  return /^[A-Za-z.]+_Sem[A-Za-z0-9]+_\d{4}$/.test(String(k == null ? '' : k).trim());
+}
+
+async function resSaveFacultyEdits() {
+  if (!RES_DATA) return;
+  const subjects = RES_DATA.subjects || [];
+
+  // BUG THIS FIXES (r438): this used to save to 'allocation_' + RES_DATA.key.
+  // On a combined view that key is a human label — the save toast literally
+  // read "Even Sems (II·IV·VI) • BCom • Sem II" — so the doc was written as
+  // app_data/allocation_Even Sems (II·IV·VI) • BCom • Sem II. Nothing ever
+  // reads that id (resLoadAllBatches probes allocation_<Course>_Sem<X>_<YYYY>),
+  // so every assignment made from a filtered view looked saved, applied
+  // in-memory for the rest of the session, and was gone on reload. Faculty
+  // are now written per REAL batch, using each subject's own _batch tag.
+  const byBatch = {};
+  subjects.forEach(s => {
+    const bk = s._batch || (resIsBatchKey(RES_DATA.key) ? RES_DATA.key : '');
+    if (!bk) return;
+    // Placeholder rows rebuilt by resReconcileDocSubjects carry no faculty by
+    // definition; writing them into the allocation adds nothing and risks
+    // blanking a real entry, so skip them unless the user actually set one.
+    if (s._restored && !s.faculty && !s.facultyDI && !s.facultyNU && !s._touched) return;
+    (byBatch[bk] = byBatch[bk] || []).push(s);
+  });
+
+  const batchKeys = Object.keys(byBatch).filter(resIsBatchKey);
+  if (!batchKeys.length) {
+    const msg = 'Could not tell which batch these subjects belong to, so nothing was saved. Reload the page and try again.';
+    resSetStatus('❌ ' + msg, 'var(--danger)');
+    resToast('Faculty Not Saved', msg, 'error', 0, 'fac-save');
+    resLogEvent('err', 'Faculty save aborted — no batch key', String(RES_DATA.key||''));
+    console.error('[resSaveFacultyEdits] no usable batch key', { resDataKey: RES_DATA.key, groups: Object.keys(byBatch) });
+    return;
+  }
+
+  const saved = [];
+  try {
+    for (const bk of batchKeys) {
+      const rows = byBatch[bk].map(s => ({
+        name: s.name, code: s.code || '',
+        faculty:   s.faculty || s.facultyDI || '',
+        facultyDI: s.facultyDI || '', facultyNU: s.facultyNU || '',
+        sem:    s._sem    || s.sem    || '',
+        course: s._course || s.course || '',
+        _touched: !!s._touched
+      }));
+      // Merge with whatever that batch already has, so subjects outside the
+      // current chip filter keep their faculty instead of being dropped.
+      let existing = [];
+      try { const d = await fsGet('app_data', 'allocation_' + bk); existing = (d && d.subjects) || []; } catch(e) {}
+      const merged = {};
+      existing.forEach(r => { merged[String(r.code || r.name || '').toUpperCase()] = r; });
+      // REGRESSION FIX (r442): r438 wrote `merged[key] = r` unconditionally, so
+      // a row whose faculty happened to be empty in the current in-memory view
+      // OVERWROTE a good saved assignment. That is how subjects other than
+      // EVS lost their faculty: r440's resReconcileDocSubjects restores missing
+      // subjects with faculty:'' , and any subject whose allocation had not
+      // been applied in this session also carried '' — one Save & Apply then
+      // blanked them all in Firestore. An empty value now only wins if the
+      // user actually touched that dropdown (_touched), so deliberate clearing
+      // still works while untouched rows can never erase anything.
+      const keepIfBlank = (next, prev) => (next && String(next).trim()) ? next : (prev || '');
+      let preserved = 0;
+      rows.forEach(r => {
+        const k = String(r.code || r.name || '').toUpperCase();
+        const prev = merged[k];
+        if (!prev) { merged[k] = r; return; }
+        if (r._touched) { merged[k] = { ...prev, ...r }; return; }
+        const kept = { ...prev, ...r,
+          faculty:   keepIfBlank(r.faculty,   prev.faculty),
+          facultyDI: keepIfBlank(r.facultyDI, prev.facultyDI),
+          facultyNU: keepIfBlank(r.facultyNU, prev.facultyNU),
+          facultyC:  keepIfBlank(r.facultyC,  prev.facultyC) };
+        if (!r.faculty && (prev.faculty || prev.facultyDI)) preserved++;
+        merged[k] = kept;
+      });
+      if (preserved) console.warn('[resSaveFacultyEdits]', bk, '— kept existing faculty for', preserved,
+        'subject(s) whose dropdown was blank and untouched (nothing was erased)');
+      Object.values(merged).forEach(r => { delete r._touched; });
+      await fsSetMerge('app_data', 'allocation_' + bk,
+        { subjects: Object.values(merged), savedAt: new Date().toISOString(), batch: bk });
+      console.log('[resSaveFacultyEdits] saved allocation_' + bk, rows.length, 'subjects (merged total', Object.keys(merged).length + ')');
+      saved.push(bk + ' · ' + rows.length);
+    }
+  } catch(e) {
+    resSetStatus('❌ Save failed: ' + e.message, 'var(--danger)');
+    resToast('Faculty Save Failed', e.message, 'error');
+    resLogEvent('err', 'Faculty save failed', e.message);
+    return;
+  }
+
+  // Write the same values into the cached batch docs. RES_ALL_DOCS is loaded
+  // once per session (resLoadAllBatches skips keys it already holds), and
+  // every table rebuilds RES_DATA from that cache — so without this the save
+  // was correct in Firebase yet the students table kept rendering the stale,
+  // faculty-less subject list until a full page reload. (r439)
+  batchKeys.forEach(bk => {
+    const doc = RES_ALL_DOCS[bk];
+    if (!doc || !Array.isArray(doc.subjects)) return;
+    const byCode = {};
+    byBatch[bk].forEach(s => { if (s.code) byCode[String(s.code).toUpperCase()] = s; });
+    doc.subjects = doc.subjects.map(sub => {
+      const e = byCode[String(sub.code||'').toUpperCase()];
+      if (!e) return sub;
+      return { ...sub,
+        faculty:   e.faculty   || e.facultyDI || sub.faculty   || '',
+        facultyDI: e.facultyDI || sub.facultyDI || '',
+        facultyNU: e.facultyNU || sub.facultyNU || '',
+        facultyC:  e.facultyC  || sub.facultyC  || '' };
+    });
+  });
+
+  resSetStatus('✅ Faculty saved permanently', 'var(--ok)');
+  setTimeout(() => resSetStatus(''), 3000);
+  resToast('Faculty Saved', saved.join('  ·  ') + ' subjects', 'success');
+  resLogEvent('ok', 'Faculty edits saved', saved.join(' | '));
+  resSummaryRender();
+
   _facultySnapshot = null;
+  // Rebuild RES_DATA from the now-updated cache so every tab (students table
+  // column headers included) shows the new faculty immediately.
+  resRefreshFiltered(() => { resRenderAll(); });
   resRenderFaculty();
 }
 
@@ -10783,6 +11793,7 @@ async function resSaveSecCConfig(urns) {
 
 // ── Faculty tab filter chips ──────────────────────────────────────────────────
 function resRenderFacChips() {
+  resRenderParityChips();
   // Faculty tab chips share state with dashboard — render same chips into fac rows
   const isFac = resIsFaculty();
   const wrap  = document.getElementById('res-fac-chips-wrap');
@@ -10795,7 +11806,7 @@ function resRenderFacChips() {
   const available = {};
   RES_BATCHES.forEach(k => {
     const parts = k.split('_');
-    const course = parts[0]?.toUpperCase();
+    const course = resNormCourse(parts[0]);
     const semPart = parts.find(p => /^Sem/i.test(p));
     if (!course || !semPart) return;
     const sem = semPart.replace(/^Sem/i,'').toUpperCase();
@@ -10805,7 +11816,7 @@ function resRenderFacChips() {
   const availCourses = new Set(Object.keys(available));
   const availSems    = RES_DASH_COURSE === 'all'
     ? new Set(Object.values(available).flatMap(s=>[...s]))
-    : (available[RES_DASH_COURSE] || new Set());
+    : (available[resNormCourse(RES_DASH_COURSE)] || new Set());
 
   const mkChip = (rowId, opts, current, setter, isDisabled) => {
     const row = document.getElementById(rowId);
@@ -10816,7 +11827,7 @@ function resRenderFacChips() {
       const el = document.createElement('button');
       el.textContent = lbl; el.disabled = disabled;
       el.style.cssText = `font-size:10px;font-family:var(--mono);font-weight:600;padding:3px 8px;border-radius:5px;cursor:${disabled?'default':'pointer'};transition:all .15s;border:1px solid ${disabled?'var(--border)':active?col:'var(--border)'};background:${disabled?'transparent':active?col+'22':'var(--surface2)'};color:${disabled?'var(--border)':active?col:'var(--muted)'};`;
-      if (!disabled) el.onclick = () => { setter(val); resRenderFacChips(); resRenderFaculty(); };
+      if (!disabled) el.onclick = () => { setter(val); resRefreshFiltered(() => { resRenderFacChips(); resRenderFaculty(); }); };
       row.appendChild(el);
     });
   };
@@ -10825,33 +11836,20 @@ function resRenderFacChips() {
     [['all','All','var(--ok)'], ...COURSES.map(c=>[c,c,'var(--ok)'])],
     RES_DASH_COURSE,
     v => { RES_DASH_COURSE = v; RES_DASH_SEM = 'all'; },
-    v => v !== 'all' && !availCourses.has(v));
+    v => v !== 'all' && !availCourses.has(resNormCourse(v)));
 
   mkChip('res-fac-chip-sem-row',
     [['all','All','var(--ok)'], ...SEMS.map(s=>[s,SEM_NUM[s],'var(--ok)'])],
     RES_DASH_SEM,
     v => { RES_DASH_SEM = v; },
-    v => v !== 'all' && !availSems.has(v));
+    v => v !== 'all' && (!availSems.has(v) || resSemBlocked(v)));
 
-  // Section chip — BCA only
-  const showSec = RES_DASH_COURSE === 'BCA' || (RES_DASH_COURSE === 'all' && availCourses.has('BCA'));
+  // Section chip — always visible, never disabled (r441)
   const secWrap = document.getElementById('res-fac-chip-section-row')?.parentElement;
-  if (secWrap) secWrap.style.display = showSec ? '' : 'none';
-  if (showSec) {
-    // Always show NUC chip for BCA
-    const secOpts = [['all','Both','var(--ok)'],['DI','A (DI)','var(--blue)'],['NU','B (NU-1)','#a78bfa'],['NUC','C (NU-2)','#f59e0b']];
-    const allReg = Object.values(RES_ALL_DOCS)
-      .filter(d => (RES_DASH_COURSE==='all'||d._course===RES_DASH_COURSE) && (RES_DASH_SEM==='all'||d._sem===RES_DASH_SEM) && resParityOk(d._sem))
-      .flatMap(d => d.regular||[]);
-    mkChip('res-fac-chip-section-row', secOpts, RES_DASH_SECTION,
-      v => { RES_DASH_SECTION = v; },
-      v => {
-        if (v==='all') return false;
-        if (v==='DI')  return allReg.filter(facIsDI_global).length === 0;
-        if (v==='NU')  return allReg.filter(facIsNUB_global).length === 0;
-        if (v==='NUC') return allReg.filter(facIsNUC_global).length === 0;
-        return false;
-      });
+  if (secWrap) secWrap.style.display = '';
+  {
+    mkChip('res-fac-chip-section-row', resSectionChipOpts(), RES_DASH_SECTION,
+      v => { RES_DASH_SECTION = v; }, v => false);
   }
 }
 
@@ -10960,6 +11958,12 @@ async function resRenderFaculty() {
 
   // ── Edit mode (Re-assign Faculty button) ──────────────────────────────
   if (_facultySnapshot) {
+    // Always reflect the live chip filter — guarded because the rebuild
+    // helper re-enters this function via resRenderFacultyEditTable.
+    if (!_facRebuilding) {
+      _facRebuilding = true;
+      try { resFacRebuildEditRows(); } finally { _facRebuilding = false; }
+    }
     if (!TT_DATA.length) await resFetchTTData();
     // Canonical roster from staff_directory (exact names, index.html's source
     // of truth) — this is what makes the dropdown populated even for a
@@ -10978,6 +11982,21 @@ async function resRenderFaculty() {
     const selStyle  = col => `background:var(--bg);color:${col};border:1px solid var(--border);border-radius:4px;font-size:11px;width:100%;min-width:130px;padding:4px 6px;`;
     const mkSel = (idx, field, val, col) => `<select data-idx="${idx}" data-field="${field}" style="${selStyle(col)}" onchange="resFacultyEditCell(this)">${['', ...allFacNames].map(f => `<option value="${f}" ${f===val?'selected':''}>${f||'— choose —'}</option>`).join('')}</select>`;
     const curTag = (v, col) => v ? `<span style="font-size:11px;color:${col};background:${col}18;padding:2px 8px;border-radius:4px;">${v}</span>` : `<span style="color:var(--muted);font-size:11px;">—</span>`;
+
+    // Flag when one batch carries several codes printed under the SAME
+    // subject name (EVS vs EVS-2025) — the exact trap that sent a faculty
+    // assignment to the 3-student legacy code instead of the 38-student one.
+    const _dupName = {};
+    (_facultySnapshot||[]).forEach(s => {
+      const k = (s._batch||'') + '|' + String(subName(s)).toLowerCase();
+      _dupName[k] = (_dupName[k]||0) + 1;
+    });
+    const dupBadge = sub => {
+      const n = _dupName[(sub._batch||'') + '|' + String(subName(sub)).toLowerCase()] || 0;
+      return n > 1
+        ? `<span title="This batch has ${n} different subject codes printed under the same name — assign each one separately" style="font-size:9px;font-weight:700;color:#f59e0b;background:#f59e0b18;padding:1px 6px;border-radius:8px;margin-left:6px;white-space:nowrap;">${n} CODES</span>`
+        : '';
+    };
 
     let lastBatch = '';
     listEl.innerHTML = `
@@ -10999,25 +12018,27 @@ async function resRenderFaculty() {
           </tr></thead>
           <tbody>
             ${(_facultySnapshot||[]).map((snap, i) => {
-              const sub = snap;
+              const sub  = snap;
+              // live = what Save & Apply will write; snap = what is saved now
+              const live = ((RES_DATA&&RES_DATA.subjects)||[])[i] || snap;
               const bk = sub._batch || '';
               const sep = bk && bk !== lastBatch
                 ? (() => { lastBatch = bk; const col = {BCA:'#60a5fa',BBA:'#a78bfa',BCom:'#34d399'}[sub._course]||'var(--muted)'; return `<tr><td colspan="7" style="padding:6px 4px 2px;font-size:10px;font-weight:700;color:${col};letter-spacing:.06em;">${sub._course||''} Sem ${sub._sem||''}</td></tr>`; })()
                 : '';
               return sep + (isBCAedit ? `<tr>
                 <td style="color:var(--muted);font-size:11px;">${i+1}</td>
-                <td style="font-size:12px;font-weight:500;">${subName(sub)}</td>
+                <td style="font-size:12px;font-weight:500;">${subName(sub)}${dupBadge(sub)}${(h => h ? `<div style="font-size:10px;font-weight:400;font-family:var(--mono);color:var(--muted);margin-top:2px;">${h}</div>` : '')(resSubjectScopeHint(sub))}</td>
                 <td style="font-family:var(--mono);font-size:10px;color:var(--accent);">${sub.code||''}</td>
                 <td>${curTag(snap.facultyDI||snap.faculty||'','var(--blue)')}</td>
-                <td>${mkSel(i,'facultyDI',snap.facultyDI||snap.faculty||'','var(--blue)')}</td>
+                <td>${mkSel(i,'facultyDI',live.facultyDI||live.faculty||'','var(--blue)')}</td>
                 <td>${curTag(snap.facultyNU||'','#a78bfa')}</td>
-                <td>${mkSel(i,'facultyNU',snap.facultyNU||'','#a78bfa')}</td>
+                <td>${mkSel(i,'facultyNU',live.facultyNU||'','#a78bfa')}</td>
               </tr>` : `<tr>
                 <td style="color:var(--muted);font-size:11px;">${i+1}</td>
-                <td style="font-size:12px;font-weight:500;">${subName(sub)}</td>
+                <td style="font-size:12px;font-weight:500;">${subName(sub)}${dupBadge(sub)}${(h => h ? `<div style="font-size:10px;font-weight:400;font-family:var(--mono);color:var(--muted);margin-top:2px;">${h}</div>` : '')(resSubjectScopeHint(sub))}</td>
                 <td style="font-family:var(--mono);font-size:10px;color:var(--accent);">${sub.code||''}</td>
                 <td>${curTag(snap.faculty||snap.facultyDI||'','var(--ok)')}</td>
-                <td>${mkSel(i,'faculty',snap.faculty||snap.facultyDI||'','var(--ok)')}</td>
+                <td>${mkSel(i,'faculty',live.faculty||live.facultyDI||'','var(--ok)')}</td>
               </tr>`);
             }).join('')}
           </tbody>
@@ -11184,6 +12205,7 @@ async function resRenderFaculty() {
 // ══════════════════════════════════════════════════
 
 function resRenderSearchChips() {
+  resRenderParityChips();
   const isFac   = resIsFaculty();
   const course  = (RES_DATA?.course||'').toUpperCase();
   const sem     = (RES_DATA?.sem||'').toUpperCase();
@@ -11213,7 +12235,7 @@ function resRenderSearchChips() {
       el.textContent = lbl;
       el.disabled = disabled;
       el.style.cssText = `font-size:10px;font-family:var(--mono);font-weight:600;padding:3px 8px;border-radius:5px;cursor:${disabled?'default':'pointer'};transition:all .15s;border:1px solid ${disabled?'var(--border)':active?col:'var(--border)'};background:${disabled?'transparent':active?col+'22':'var(--surface2)'};color:${disabled?'var(--border)':active?col:'var(--muted)'};`;
-      if (!disabled) el.onclick = () => { setter(val); resRenderSearchChips(); resRenderSearch(); };
+      if (!disabled) el.onclick = () => { setter(val); resRefreshFiltered(() => { resRenderSearchChips(); resRenderSearch(); }); };
       row.appendChild(el);
     });
   };
@@ -11282,8 +12304,10 @@ function resRenderSearch() {
   }
 
   let filtered = all.filter(s => {
+    // Sem Type (Odd/Even) — global chip, now visible on this tab too
+    if (s._sem && !resParityOk(s._sem)) return false;
     // Course filter
-    if (RES_SEARCH_COURSE !== 'all' && (s.course||course||'').toUpperCase() !== RES_SEARCH_COURSE) {
+    if (RES_SEARCH_COURSE !== 'all' && resNormCourse(s.course||course||'') !== resNormCourse(RES_SEARCH_COURSE)) {
       // if student has no course field, rely on RES_DATA.course
       if (course !== RES_SEARCH_COURSE) return false;
     }
@@ -13506,6 +14530,33 @@ async function resDebugRefresh() {
         if (!isFlat && !isNested) {
           lines.push(`  ${red('⚠ Unknown format — keys: ')}${Object.keys(d).join(', ')}`);
         }
+      }
+    }
+
+    // ── 1c. Raw allocation_ doc ID dump — diagnose why Clean Bad Docs may
+    // silently miss a stray doc (char-level, so lookalike unicode / trailing
+    // whitespace / wrong prefix shows up instead of looking identical on screen)
+    lines.push('');
+    lines.push(`${yel('━━━ Raw allocation_ doc IDs (char-level) ━━━')}`);
+    {
+      const VALID = ['BCA','BBA','BCom'];
+      const allocSnap = await db.collection('app_data').get();
+      const allocDocs = allocSnap.docs.filter(d => d.id.toLowerCase().startsWith('allocation'));
+      if (!allocDocs.length) {
+        lines.push(dim('  (none found)'));
+      } else {
+        allocDocs.forEach(doc => {
+          const id = doc.id;
+          const startsExact = id.startsWith('allocation_');
+          const key = startsExact ? id.replace('allocation_', '') : id;
+          const course = key.split('_')[0] || '';
+          const wouldDelete = startsExact && !VALID.includes(course);
+          const codes = [...id].slice(0, 24).map(ch => ch.codePointAt(0).toString(16)).join(' ');
+          const flag = wouldDelete ? red('WOULD DELETE') : (startsExact ? grn('kept (valid course)') : red('SKIPPED — id does not start with "allocation_" exactly'));
+          lines.push(`  ${wht(id)}`);
+          lines.push(`    ${dim('starts with "allocation_":')} ${startsExact ? grn('yes') : red('no')}  ${dim('split[0]:')} "${course}"  ${flag}`);
+          lines.push(`    ${dim('codepoints (first 24 chars):')} ${dim(codes)}`);
+        });
       }
     }
 
