@@ -953,6 +953,23 @@
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ═══════════════════════════════════════════════════════════════
+       APP LOAD OVERLAY — centered pulsing logo (round GIF, no ring/box)
+    ═══════════════════════════════════════════════════════════════ */
+    .app-load-logo-wrap {
+      width: 140px; height: 140px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .app-load-logo {
+      width: 140px; height: 140px;
+      object-fit: contain;
+      animation: appLoadLogoPulse 1.4s ease-in-out infinite;
+    }
+    @keyframes appLoadLogoPulse {
+      0%, 100% { transform: scale(1);    opacity: 1; }
+      50%      { transform: scale(1.08); opacity: .85; }
+    }
     @keyframes lcbPulse {
       0%,100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.5); }
       50%      { box-shadow: 0 0 0 5px rgba(52,211,153,0); }
@@ -1299,6 +1316,23 @@
   </style>
 </head>
 <body>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     APP LOAD OVERLAY (full-page, centered logo, count-up timer)
+     Ported from the results.html loading-overlay pattern. Only wired
+     around genuine blocking waits (no-cache first login, semester
+     archive switch) — NOT used for small per-widget "Loading…" text,
+     which stays as-is. See appStartLoadTimer/appStopLoadTimer below.
+═══════════════════════════════════════════════════════════════ -->
+<div id="app-load-overlay" style="display:none;position:fixed;inset:0;z-index:99998;align-items:center;justify-content:center;flex-direction:column;gap:18px;background:transparent;pointer-events:none;">
+  <div class="app-load-logo-wrap">
+    <img src="davan_logo_2026.gif" alt="Davan" class="app-load-logo" onerror="this.style.display='none'">
+  </div>
+  <div style="text-align:center;background:rgba(8,10,16,.78);padding:8px 18px;border-radius:10px;">
+    <div id="app-load-msg" style="font-size:14px;color:#fff;font-weight:600;">Loading data…</div>
+    <div id="app-load-timer" style="font-size:12px;color:#9ca3af;font-family:monospace;margin-top:4px;">0s</div>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════════
      TOPBAR
@@ -10875,6 +10909,12 @@ async function onLoginSuccess() {
   // possibly-stale cache" from "this is confirmed current data" — causing a visible
   // flash of the wrong count before the real fetch resolves and re-renders. Flag it.
   window._allStudentsConfirmedFresh = false;
+  // v1051: no cache yet (first-ever login on this device/browser) — there's nothing
+  // to paint immediately, so the dashboard would otherwise sit blank until Firestore
+  // resolves. Show the full-page load overlay only for this genuine blocking case;
+  // the normal warm-cache path below stays instant/silent as before.
+  const _noCacheYet = !localStorage.getItem('davan_students');
+  if (_noCacheYet && typeof appStartLoadTimer === 'function') appStartLoadTimer('Loading your dashboard…');
   try { const c = localStorage.getItem('davan_students'); if (c) allStudents = JSON.parse(c); } catch(e) {}
   // Apply cached session_config immediately so switcher label + SESSION_CONFIG are correct
   // before the async RTDB/Firestore call returns (manager/VP especially rely on this)
@@ -10902,8 +10942,10 @@ async function onLoginSuccess() {
     // v954: LM_ALLOCATIONS is now fresh from the server — safe to check whether this
     // faculty has been allocated any subject this AY/sem.
     if (typeof facCheckAllocation === 'function') facCheckAllocation();
+    if (_noCacheYet && typeof appStopLoadTimer === 'function') appStopLoadTimer();
   }).catch(e => {
     console.error('[onLoginSuccess] loadFirestoreData failed:', e);
+    if (_noCacheYet && typeof appStopLoadTimer === 'function') appStopLoadTimer();
   });
   lmInit(); // re-run after login so faculty dropdown restriction applies with currentProfile set
   rcPhotosReady = rcPreloadPhotos(); // preload photos at login — rcRenderCard awaits this promise
@@ -13751,8 +13793,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1050;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '28-Jul-2026', time: '14:00', full: '28-Jul-2026 14:00 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1052;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '01-Aug-2026', time: '12:30', full: '01-Aug-2026 12:30 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -17834,6 +17876,47 @@ function gpHide(delay) {
 function gpError(message) {
   gpShow('❌', 'Error', message, 0, '');
   document.getElementById('gp-fill').style.background = '#8b0000';
+}
+
+// ---------------------------------------------------------------──
+//  APP LOAD OVERLAY — full-page centered logo, count-up timer.
+//  Ported from results.html. Use ONLY for genuine blocking waits
+//  (nothing meaningful on screen yet) — NOT for small per-widget
+//  refreshes, which should stay fast/silent (use gpShow or inline
+//  "Loading…" text instead). Call appStopLoadTimer() at EVERY exit
+//  path (success AND error) of whatever wraps it.
+// ---------------------------------------------------------------──
+let _appLoadTimerInterval = null;
+const APP_LOAD_MESSAGES = [
+  'Loading data…',
+  'Fetching from server…',
+  'Still loading — this can take a few seconds…',
+  'Almost there…',
+];
+
+function appStartLoadTimer(firstMessage) {
+  const overlay = document.getElementById('app-load-overlay');
+  const msgEl   = document.getElementById('app-load-msg');
+  const timerEl = document.getElementById('app-load-timer');
+  if (!overlay || !msgEl || !timerEl) return;
+  overlay.style.display = 'flex';
+  let secs = 0, msgIdx = 0;
+  timerEl.textContent = '0s';
+  msgEl.textContent = firstMessage || APP_LOAD_MESSAGES[0];
+  clearInterval(_appLoadTimerInterval);
+  _appLoadTimerInterval = setInterval(() => {
+    secs += 1;
+    timerEl.textContent = secs + 's';
+    const nextIdx = Math.min(Math.floor(secs / 2.5), APP_LOAD_MESSAGES.length - 1);
+    if (nextIdx !== msgIdx) { msgIdx = nextIdx; msgEl.textContent = APP_LOAD_MESSAGES[msgIdx]; }
+  }, 1000);
+}
+
+function appStopLoadTimer() {
+  clearInterval(_appLoadTimerInterval);
+  _appLoadTimerInterval = null;
+  const overlay = document.getElementById('app-load-overlay');
+  if (overlay) overlay.style.display = 'none';
 }
 
 
@@ -23144,6 +23227,8 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1052', date: '01-Aug-2026 IST', note: 'Fix: app-load-overlay (v1051) dimmed/blurred the whole dashboard behind it, which read as an unwanted full-screen dark flash on top of the already-visible page (e.g. admin dashboard cards) rather than a lightweight loading cue. Removed the background scrim + backdrop-filter blur entirely (transparent, pointer-events:none) — the logo now just floats over whatever is already on screen. Gave the message/timer text its own small dark pill background so it stays readable against light page content now that the full-screen dim is gone. CODE_BUILD=1052.' },
+  { v: 'v1051', date: '01-Aug-2026 IST', note: 'Feat: ported the results.html full-page loading overlay pattern (centered pulsing davan_logo_2026.gif, rotating status message, count-up timer — id-prefixed app-load-* so it cannot collide with the existing gp-* scrape progress bar). New: appStartLoadTimer()/appStopLoadTimer() helpers, sitting next to gpShow/gpHide/gpError. Audited every existing loading indicator in this file first (60+ small inline "Loading…" strings inside individual cards/tabs/tables, the gp-* sticky scrape-progress bar, button-level spinners) and left all of them as-is — the full-page overlay pattern is explicitly for genuine blocking waits only, not per-widget refreshes. Wired it to the two places that actually qualify: (1) onLoginSuccess(), but ONLY on the no-localStorage-cache branch (first-ever login on a device/browser, where the dashboard has nothing to paint until Firestore resolves) — the normal warm-cache instant-paint path is completely unchanged; (2) semSwitchTo() archive load, alongside the existing sem-switcher-loading sidebar text, covering every exit path (staging-mode return, no-archive-found return, and the success/error finally block) so the overlay can never get stuck showing. CODE_BUILD=1051.' },
   { v: 'v1050', date: '28-Jul-2026 IST', note: 'FIX: auth/quota-exceeded (Firebase password-verification quota) hit during bulk report-card photo uploads. ROOT CAUSE: _ensureAuth() (called once per photo inside _rcSavePhotoToFirebase, itself called per-file in bulk uploads) has no lock — if firebase.auth().currentUser was momentarily null when a bulk upload started (page reload, tab backgrounded, token refresh gap), every single photo in the batch independently called auth.signInWithEmailAndPassword() with the cached admin credentials in parallel, since none of the concurrent calls saw currentUser set yet (that only happens after each call\'s own await resolves). A batch of 50-100 photos could fire 50-100 real password-verification attempts in the same few seconds, tripping Firebase\'s quota. This only affects admin flows since _ensureAuth() is only called from report-card/bulk-upload code (rcDoSingleUploadPanel, rcDoBulkUpload, rcPushAllPhotosToFirebase) — faculty/student logins never call it. FIX: added a shared in-flight promise (_ensureAuthInFlight) — if a re-auth is already in progress, subsequent concurrent callers now await the SAME promise instead of starting their own signInWithEmailAndPassword call, collapsing any number of concurrent _ensureAuth() calls into at most one real Auth request. CODE_BUILD=1050.' },
   { v: 'v1049', date: '27-Jul-2026 IST', note: 'CRITICAL fix: same failure class as v1028 and v925 (documented below) — whole app crashed on every login with a SyntaxError followed by LM_TT_VER is not defined. Root cause: the v1048 changelog note (added when session_config/lpDb2Patch was fixed) contained four places where an apostrophe inside a possessive word was escaped with an extra, unnecessary backslash character in front of the backslash that was already there — doubling it up instead of using a single escape. That corrupted the JavaScript string it lived in and voided every top-level declaration after it in the same script block, including LM_TT_VER further down, which was never actually the problem, same red herring the v1028 note already called out. Also found and fixed one older instance of the identical extra-backslash mistake sitting in the v1047 note, present before this session, that had not yet caused a visible crash only because nothing after it happened to be load-bearing at the time. This entry deliberately describes the mistake in plain words rather than quoting the broken sequence literally, per the rule the v1028 note already established, since quoting it as an example is exactly how v1028s own first fix attempt reintroduced the same class of error. CODE_BUILD=1049.' },
   { v: 'v1048', date: '27-Jul-2026 IST', note: 'FIX: Semester Dates saved in the student portal (student_portal.html \u25b8 Controls \u25b8 Semester Dates) kept reverting after every calendar edit here (e.g. adding a holiday). ROOT CAUSE: _autoPushCalendarToPortal() runs automatically after any calendar save and used lpDb2Set (Firebase PUT = full node overwrite) to push the in-memory SESSION_CONFIG object to davan_pub/session_config \u2014 the SAME path the student portal\'s Semester Dates control writes to. SESSION_CONFIG defaults to a hardcoded placeholder (10 Jul\u201311 Nov 2026) whenever this screen\'s own Session Config editor hasn\'t been used that session, so the auto-push was blind-overwriting real saved dates with that placeholder on every single calendar edit. Fixed two ways: (1) added lpDb2Patch (Firebase PATCH = merge, not replace) and switched the calendar auto-push to use it, so it can no longer wipe fields it doesn\'t send; (2) added window.SESSION_CONFIG_IS_DEFAULT, true until _applySessionConfig() loads/receives a real saved config \u2014 while true, the auto-push omits startDate/endDate from its payload entirely rather than pushing the placeholder. The deliberate "Activate & Go Live" write (_scfgDoActivate, explicit admin action with real staged dates) is unchanged \u2014 only the silent automatic push was the problem. CODE_BUILD=1048.' },
@@ -26176,6 +26261,9 @@ async function semSwitchTo(key, silent) {
 
   // ── Load archive ──
   if (loading) loading.style.display = 'block';
+  // v1051: swapping in a full archived semester (students+timetable+allocations) is a
+  // genuine blocking wait — show the full-page overlay alongside the sidebar text.
+  if (typeof appStartLoadTimer === 'function') appStartLoadTimer('Loading archived semester…');
   _semCurrentKey = key;
   sessionStorage.setItem('davan_sem_key', key);
 
@@ -26230,6 +26318,7 @@ async function semSwitchTo(key, silent) {
         }
         if (!silent) dvToast('✎ Planning mode: ' + key.replace(/_/g,' ') + ' — build allocation & timetable', 'ok', 5000);
         if (loading) loading.style.display = 'none';
+        if (typeof appStopLoadTimer === 'function') appStopLoadTimer();
         return;
       }
       dvToast('⚠ No archive found for ' + key.replace(/_/g,' ') + ' — try archiving first', 'warn', 5000);
@@ -26237,6 +26326,7 @@ async function semSwitchTo(key, silent) {
       _semCurrentKey = '__live__';
       sessionStorage.removeItem('davan_sem_key');
       if (loading) loading.style.display = 'none';
+      if (typeof appStopLoadTimer === 'function') appStopLoadTimer();
       return;
     }
 
@@ -26285,6 +26375,7 @@ async function semSwitchTo(key, silent) {
     _semApplyReadOnly(false);
   } finally {
     if (loading) loading.style.display = 'none';
+    if (typeof appStopLoadTimer === 'function') appStopLoadTimer();
   }
 }
 
