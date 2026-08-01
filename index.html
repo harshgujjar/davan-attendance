@@ -13793,8 +13793,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1052;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '01-Aug-2026', time: '12:30', full: '01-Aug-2026 12:30 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1053;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '01-Aug-2026', time: '13:45', full: '01-Aug-2026 13:45 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -23227,6 +23227,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1053', date: '01-Aug-2026 IST', note: 'CRITICAL FIX: Report Card College Rank, Davan/Nutana Campus Rank, and Class Rank were all computed as pool.findIndex(x) + 1 or arr.forEach((s,i) => map.set(k, i+1)) -- raw array position after sorting by pct, with zero tie detection. This is the exact same bug class results.html itself was fixed for at r455 (dense competition ranking, ties share a rank). Confirmed live via screenshot: results.html student modal shows Aliya Firdose as College Rank #48 of 213 out of 306 (Davan campus rank #31) for BCom Sem II, matching its own resAssignRanks logic which already handles ties correctly -- but this file showed #79 of 351 out of 567 for the same student and semester, because every tied student ahead of her in the sorted pool was being counted as a separate distinct rank instead of sharing one. FIX: added rcAssignDenseRanks (mirrors results.html resAssignRanks exactly -- sort pool descending by pct, tied students share a rank, next distinct value is exactly previous rank + 1), applied at all 4 sites that used to do i+1 or findIndex+1: globalRankMap, ayParityRankMap, campusRankMap (feeds the Davan/Nutana Rank tile), and the Class Rank lookup inside processSlot. CODE_BUILD=1053.' },
   { v: 'v1052', date: '01-Aug-2026 IST', note: 'Fix: app-load-overlay (v1051) dimmed/blurred the whole dashboard behind it, which read as an unwanted full-screen dark flash on top of the already-visible page (e.g. admin dashboard cards) rather than a lightweight loading cue. Removed the background scrim + backdrop-filter blur entirely (transparent, pointer-events:none) — the logo now just floats over whatever is already on screen. Gave the message/timer text its own small dark pill background so it stays readable against light page content now that the full-screen dim is gone. CODE_BUILD=1052.' },
   { v: 'v1051', date: '01-Aug-2026 IST', note: 'Feat: ported the results.html full-page loading overlay pattern (centered pulsing davan_logo_2026.gif, rotating status message, count-up timer — id-prefixed app-load-* so it cannot collide with the existing gp-* scrape progress bar). New: appStartLoadTimer()/appStopLoadTimer() helpers, sitting next to gpShow/gpHide/gpError. Audited every existing loading indicator in this file first (60+ small inline "Loading…" strings inside individual cards/tabs/tables, the gp-* sticky scrape-progress bar, button-level spinners) and left all of them as-is — the full-page overlay pattern is explicitly for genuine blocking waits only, not per-widget refreshes. Wired it to the two places that actually qualify: (1) onLoginSuccess(), but ONLY on the no-localStorage-cache branch (first-ever login on a device/browser, where the dashboard has nothing to paint until Firestore resolves) — the normal warm-cache instant-paint path is completely unchanged; (2) semSwitchTo() archive load, alongside the existing sem-switcher-loading sidebar text, covering every exit path (staging-mode return, no-archive-found return, and the success/error finally block) so the overlay can never get stuck showing. CODE_BUILD=1051.' },
   { v: 'v1050', date: '28-Jul-2026 IST', note: 'FIX: auth/quota-exceeded (Firebase password-verification quota) hit during bulk report-card photo uploads. ROOT CAUSE: _ensureAuth() (called once per photo inside _rcSavePhotoToFirebase, itself called per-file in bulk uploads) has no lock — if firebase.auth().currentUser was momentarily null when a bulk upload started (page reload, tab backgrounded, token refresh gap), every single photo in the batch independently called auth.signInWithEmailAndPassword() with the cached admin credentials in parallel, since none of the concurrent calls saw currentUser set yet (that only happens after each call\'s own await resolves). A batch of 50-100 photos could fire 50-100 real password-verification attempts in the same few seconds, tripping Firebase\'s quota. This only affects admin flows since _ensureAuth() is only called from report-card/bulk-upload code (rcDoSingleUploadPanel, rcDoBulkUpload, rcPushAllPhotosToFirebase) — faculty/student logins never call it. FIX: added a shared in-flight promise (_ensureAuthInFlight) — if a re-auth is already in progress, subsequent concurrent callers now await the SAME promise instead of starting their own signInWithEmailAndPassword call, collapsing any number of concurrent _ensureAuth() calls into at most one real Auth request. CODE_BUILD=1050.' },
@@ -37222,12 +37223,37 @@ async function rcFetchResults(urn, isDI) {
     harvestFromLMAllocations();
     // Sort global pool by pct desc
     globalPool.sort((a,b) => b.pct - a.pct);
+    // rcAssignDenseRanks — MIRRORS results.html's resAssignRanks EXACTLY (r455 fix).
+    // Every rank map below used to be built as `arr.forEach((s,i)=>map.set(k,i+1))` —
+    // pure array position after sorting, with zero tie handling, so students with an
+    // identical % got split into consecutive ranks (e.g. a three-way tie at 86.7% shown
+    // as #48/#49/#50 instead of all three sharing #48). Confirmed live against
+    // results.html's own student modal (which already carries the r455 fix): Aliya
+    // Firdose is #48 College Rank / #31 Davan Rank there, but this file's old
+    // findIndex+1 logic produced #79/#40 for the exact same student because it never
+    // detected the ties ahead of her in the sorted pool. This helper implements the
+    // same dense competition ranking (ties share a rank; the next distinct value is
+    // exactly previous rank + 1, e.g. 1,2,2,3 not 1,2,2,4): sort the pool descending by
+    // pct first, then call this once per pool. Used at all 4 sites that used to do
+    // i+1 / findIndex+1: globalRankMap, ayParityRankMap, campusRankMap below, and the
+    // Class Rank findIndex in processSlot further down.
+    function rcAssignDenseRanks(sortedPool, keyFn) {
+      const ranks = new Map();
+      let lastPct = null, lastRank = 0;
+      sortedPool.forEach(s => {
+        const p = parseFloat(s.pct) || 0;
+        if (lastPct === null || p !== lastPct) { lastRank += 1; lastPct = p; }
+        const k = keyFn(s);
+        if (k && !ranks.has(k)) ranks.set(k, lastRank);
+      });
+      return ranks;
+    }
     // globalRankMap — keyed by 'urn|sem' (AY-agnostic fallback, used only if a
     // urn+sem+ay-specific parity pool lookup below comes up empty). Kept from the
     // earlier same-day fix: still correctly per-semester, just not ay-aware, which is
     // why it's a fallback rather than the primary source now.
-    const globalRankMap = new Map();
-    globalPool.forEach((s,i) => { const k = s.urn+'|'+s.sem; if (!globalRankMap.has(k)) globalRankMap.set(k, i+1); });
+    const globalRankMap = rcAssignDenseRanks(globalPool, s => s.urn+'|'+s.sem);
+
 
     // Per-(ay, parity) pools and rank maps — the real fix. Key format: 'ay|parity'.
     const _ayParityPools = new Map(); // 'ay|parity' → sorted array
@@ -37244,11 +37270,12 @@ async function rcFetchResults(urn, isDI) {
     _ayParityPools.forEach((arr, key) => {
       arr.sort((a,b) => b.pct - a.pct);
       ayParityTotals.set(key, arr.length);
-      arr.forEach((s,i) => {
-        const rk = s.urn + '|' + s.sem + '|' + s.ay;
-        if (!ayParityRankMap.has(rk)) ayParityRankMap.set(rk, i+1);
-      });
+      // Dense ranking (see rcAssignDenseRanks above) — ties share a rank instead of
+      // splitting into consecutive array positions.
+      const _rm = rcAssignDenseRanks(arr, s => s.urn + '|' + s.sem + '|' + s.ay);
+      _rm.forEach((v,k) => { if (!ayParityRankMap.has(k)) ayParityRankMap.set(k, v); });
     });
+
 
     // Per-(ay, parity, campus) pools and rank maps — CAMPUS RANK (25-Jul-2026), per
     // Harsha's request: a Nutana-only rank (e.g. "Nutana Rank #1/32") for NU students, or
@@ -37269,10 +37296,10 @@ async function rcFetchResults(urn, isDI) {
     _ayParityCampusPools.forEach((arr, key) => {
       arr.sort((a,b) => b.pct - a.pct);
       campusTotals.set(key, arr.length);
-      arr.forEach((s,i) => {
-        const rk = s.urn + '|' + s.sem + '|' + s.ay;
-        if (!campusRankMap.has(rk)) campusRankMap.set(rk, i+1);
-      });
+      // Dense ranking (see rcAssignDenseRanks above) — ties share a rank instead of
+      // splitting into consecutive array positions.
+      const _rm = rcAssignDenseRanks(arr, s => s.urn + '|' + s.sem + '|' + s.ay);
+      _rm.forEach((v,k) => { if (!campusRankMap.has(k)) campusRankMap.set(k, v); });
     });
     // ── ENROLLED totals (26-Jul-2026) — the denominators actually displayed ──
     // Same two scopes as the rank maps above, but counting the whole cohort instead of
@@ -37473,7 +37500,12 @@ async function rcFetchResults(urn, isDI) {
           : reg.filter(x => !(x.urn||x.usn||'').toUpperCase().includes('DI')));
         const rankedSec = secReg.filter(isFullPassLocal).sort((a,b)=>(parseFloat(b.pct||0)-parseFloat(a.pct||0)));
         const myPct = st.pct != null ? parseFloat(st.pct) : null;
-        const classRank = (!isBacklogRecord && myPct!=null && isFullPassLocal(st)) ? rankedSec.findIndex(x=>((x.urn||x.usn||'')).toUpperCase()===urnUC)+1 : null;
+        // Dense ranking (see rcAssignDenseRanks near globalRankMap above) — was
+        // findIndex+1 (raw array position), which split identical-% ties into
+        // consecutive ranks instead of sharing one, same bug class as College Rank.
+        const classRank = (!isBacklogRecord && myPct!=null && isFullPassLocal(st))
+          ? (rcAssignDenseRanks(rankedSec, x => ((x.urn||x.usn||'')).toUpperCase()).get(urnUC) || null)
+          : null;
         // sectionTotal = students in the same class (DI or NU section, or the whole
         // merged cohort). REVERTS v1041 (26-Jul-2026), on Harsha's explicit instruction:
         // v1041 had switched this from secReg.length (62, everyone enrolled) to

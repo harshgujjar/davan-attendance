@@ -17,6 +17,18 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.55 (2026-08-01) — CRITICAL FIX: College Rank, Class Rank, and
+  Davan/Nutana Campus Rank were all computed as pool.findIndex(s => ...) + 1
+  -- raw array position after sorting by pct, with zero tie detection. Same
+  bug class results.html was fixed for at its own r455 (dense competition
+  ranking, ties share a rank). Confirmed live via screenshot: results.html
+  student modal shows Aliya Firdose as College Rank #48 of 213 out of 306
+  (Davan campus rank #31) for BCom Sem II -- but this file showed #79 of
+  351 out of 567 for the same student/semester, because tied students ahead
+  of her in the sorted pool were each counted as a separate rank instead of
+  sharing one. FIX: added spAssignDenseRanks (mirrors results.html
+  resAssignRanks exactly), applied to college, cls, and campusPos (feeds
+  the di/nu Davan/Nutana Rank tiles) inside computeStudentRanks.
 VERSION : v7.54 (2026-07-27) — FIX (real root cause, not the v7.53 theory):
   the "0 holidays" bug was neither a timing issue (v7.53's fix, while a
   real separate improvement, didn't resolve this) nor an index.html
@@ -4345,7 +4357,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.54';
+const APP_VERSION = 'v7.55';
 const BUILD_DATE   = '25 Jul 2026, 11:20 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -9249,8 +9261,28 @@ async function computeStudentRanks(urn, course, semStr) {
     // Records with no parseable AY stay eligible rather than vanishing from the pool.
     const sameCohort = s => (!myParity || spParityOf(s.sem) === myParity)
                          && (myAy == null || s.ay == null || s.ay === myAy);
+    // spAssignDenseRanks — MIRRORS results.html's resAssignRanks EXACTLY (r455 fix).
+    // college/cls/campusPos below used to be `pool.findIndex(...)+1` — raw array
+    // position after sorting, with zero tie handling, so students tied on % got split
+    // into consecutive ranks instead of sharing one. Confirmed live against
+    // results.html's own student modal (already carrying the r455 fix): Aliya Firdose
+    // is #48 College Rank / #31 Davan Rank there, but this file's old findIndex+1 logic
+    // produced #79/#40 for the same student because it never detected the ties ahead
+    // of her in the sorted pool. Dense competition ranking: ties share a rank, the next
+    // distinct value is exactly previous rank + 1 (1,2,2,3 not 1,2,2,4).
+    const spAssignDenseRanks = (sortedPool, keyFn) => {
+      const ranks = new Map();
+      let lastPct = null, lastRank = 0;
+      sortedPool.forEach(s => {
+        const p = parseFloat(s.pct) || 0;
+        if (lastPct === null || p !== lastPct) { lastRank += 1; lastPct = p; }
+        const k = keyFn(s);
+        if (k && !ranks.has(k)) ranks.set(k, lastRank);
+      });
+      return ranks;
+    };
     const myParityPool  = allStudents.filter(sameCohort);   // already sorted % desc
-    const college       = myParityPool.findIndex(s => s.urn === myUrn) + 1;
+    const college        = spAssignDenseRanks(myParityPool, s => s.urn).get(myUrn) || 0;
     const collegeRanked = myParityPool.length;                        // passed everything
     const collegeTotal  = enrolledAll.filter(sameCohort).length;      // enrolled
 
@@ -9294,7 +9326,8 @@ async function computeStudentRanks(urn, course, semStr) {
       return true; // BBA/BCom, or a merged BCA cohort: whole course+sem is one class
     };
     const classPool = allStudents.filter(inMyClass);
-    const cls       = classPool.findIndex(s => s.urn === myUrn) + 1;
+    // Dense ranking (see spAssignDenseRanks above) — was findIndex+1.
+    const cls       = spAssignDenseRanks(classPool, s => s.urn).get(myUrn) || 0;
     const clsRanked = classPool.length;
     const clsTotal  = enrolledAll.filter(inMyClass).length;
 
@@ -9327,7 +9360,10 @@ async function computeStudentRanks(urn, course, semStr) {
     const myCampusIsDI = myUrn.includes('DI');
     const inMyCampus   = s => sameCohort(s) && (s.urn.includes('DI') === myCampusIsDI);
     const campusPool   = myParityPool.filter(s => s.urn.includes('DI') === myCampusIsDI);
-    const campusPos    = campusPool.findIndex(s => s.urn === myUrn) + 1;
+    // Dense ranking (see spAssignDenseRanks above) — was findIndex+1. This is the fix
+    // for the "Davan Rank" tile specifically (e.g. #40 of 213 shown wrong; should be
+    // dense-ranked against the same tied pool College Rank uses, campus-filtered).
+    const campusPos    = spAssignDenseRanks(campusPool, s => s.urn).get(myUrn) || 0;
     const campusRanked = campusPool.length;
     const campusTotal  = enrolledAll.filter(inMyCampus).length;
     const di = myCampusIsDI ? campusPos : 0;
