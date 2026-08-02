@@ -4011,6 +4011,7 @@ function _rtdbPubPath(col, id) {
     if (id === 'section_config_BCA_SemV') return 'davan_pub/section_config_BCA_SemV';
     if (id === 'self_study_subjects') return 'davan_pub/self_study_subjects';
     if (id === 'subperf_excluded_subjects') return 'davan_pub/subperf_excluded_subjects';
+    if (id === 'bothsem_relations') return 'davan_pub/bothsem_relations';
     if (id.startsWith('allocation_')) return 'davan_pub/allocations';
   }
   if (col === 'users') return 'davan_users/' + id;
@@ -5239,6 +5240,8 @@ async function resRenderBothSemMerit() {
   const lblEl  = document.getElementById('res-bothsem-threshold-label');
   if (!listEl) return;
   if (!Object.keys(RES_ALL_DOCS).length) await resLoadAllBatches();
+  await resEnsurePhoneBook();
+  await resEnsureRelationsLoaded();
 
   const { threshold, groups } = _getBothSemMeritData();
   if (lblEl) lblEl.textContent = threshold;
@@ -5267,15 +5270,39 @@ async function resRenderBothSemMerit() {
   listEl.innerHTML = groups.map(g => {
     const rows = g.students.map((q,i) => {
       const isSent = _waSentUrns.has(q.urn+'_both');
-      return `<tr onclick="resShowStudentModal('${q.urn}')" style="cursor:pointer;">
-        <td style="color:var(--muted);font-family:var(--mono);font-size:11px;">${i+1}</td>
-        <td style="font-family:var(--mono);font-size:10px;color:var(--muted);">${q.urn}</td>
-        <td style="font-weight:600;"><div style="display:flex;align-items:center;gap:7px;">${_resAvatar(q.urn,q.name,28)}<span>${q.name}</span></div></td>
-        <td style="font-family:var(--mono);font-weight:700;color:var(--ok);">Sem ${q.semA}: ${q.pctA.toFixed(1)}%</td>
-        <td style="font-family:var(--mono);font-weight:700;color:var(--ok);">Sem ${q.semB}: ${q.pctB.toFixed(1)}%</td>
+      const father   = (q.sA?.fatherName || q.sB?.fatherName || '').trim();
+      const relation = resGetRelation(q.urn);
+      const phone    = resGetPhone(q.urn);
+      const relOpts = ['', 'S/o', 'D/o', 'W/o'].map(r =>
+        `<option value="${r}" ${relation===r?'selected':''}>${r||'— relation —'}</option>`).join('');
+      return `<tr style="cursor:pointer;">
+        <td onclick="resShowStudentModal('${q.urn}')" style="color:var(--muted);font-family:var(--mono);font-size:11px;">${i+1}</td>
+        <td onclick="resShowStudentModal('${q.urn}')" style="font-family:var(--mono);font-size:10px;color:var(--muted);">${q.urn}</td>
+        <td onclick="resShowStudentModal('${q.urn}')" style="font-weight:600;"><div style="display:flex;align-items:center;gap:7px;">${_resAvatar(q.urn,q.name,28)}<span>${q.name}</span></div></td>
+        <td onclick="resShowStudentModal('${q.urn}')" style="font-family:var(--mono);font-weight:700;color:var(--ok);">Sem ${q.semA}: ${q.pctA.toFixed(1)}%</td>
+        <td onclick="resShowStudentModal('${q.urn}')" style="font-family:var(--mono);font-weight:700;color:var(--ok);">Sem ${q.semB}: ${q.pctB.toFixed(1)}%</td>
         <td><button id="wa-btn-both-${q.urn}" onclick="event.stopPropagation();bothSemMeritWASend('${q.urn}','${g.semA}','${g.semB}',this)"
           style="font-size:11px;padding:5px 12px;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;transition:all .2s;border:1px solid ${isSent?'var(--ok)':'#25d366'};background:${isSent?'rgba(34,197,94,.15)':'rgba(37,211,102,.1)'};color:${isSent?'var(--ok)':'#25d366'};"
           >${isSent?'✅ Sent':'📲 Send'}</button></td>
+      </tr>
+      <tr style="background:var(--bg);">
+        <td></td>
+        <td colspan="2" style="padding:4px 8px 10px;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);">
+            <span style="min-width:56px;">Father:</span>
+            <span style="color:var(--text);font-weight:600;">${father || '—'}</span>
+          </div>
+        </td>
+        <td colspan="3" style="padding:4px 8px 10px;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <select id="rel-sel-${q.urn}" onclick="event.stopPropagation();" onchange="event.stopPropagation();resHandleRelationChange('${q.urn}',this.value)"
+              style="font-size:11px;padding:4px 6px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:5px;">
+              ${relOpts}
+            </select>
+            <span id="rel-badge-${q.urn}" style="font-size:11px;font-weight:700;min-width:16px;display:inline-block;"></span>
+            <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">📞 ${phone || '<span style="color:var(--danger,#f66)">no phone on file</span>'}</span>
+          </div>
+        </td>
       </tr>`;
     }).join('');
     return `<div style="margin-bottom:20px;overflow-x:auto;">
@@ -5304,8 +5331,17 @@ function bothSemMeritWASend(urn, semA, semB, btn) {
   const time  = document.getElementById('res-excel-time')?.value  || '[Time TBD]';
   const venue = document.getElementById('res-excel-venue')?.value || '[Venue TBD]';
 
-  const msg = `🎯 Dear ${q.name.split(' ')[0]},
+  const father   = (q.sA?.fatherName || q.sB?.fatherName || '').trim();
+  const relation = resGetRelation(urn);
+  const phone    = resGetPhone(urn);
+  // Only include the relation line if BOTH a relation was picked AND a father name exists.
+  // No fallback word ("Ward of" etc.) — if relation isn't set, this line is simply omitted
+  // rather than guessed, since gender/relation can't be reliably inferred from the data.
+  const relationLine = (relation && father) ? `${relation} ${father}\n` : '';
+  const phoneLine    = phone ? `📞 ${phone}\n` : '';
 
+  const msg = `🎯 Dear ${q.name.split(' ')[0]},
+${relationLine}${phoneLine}
 Congratulations! 🎉
 
 We are proud to inform you that you have secured *${q.pctA.toFixed(1)}%* in Semester ${semA} and *${q.pctB.toFixed(1)}%* in Semester ${semB} — an outstanding, consistent performance across both semesters!
@@ -5327,15 +5363,19 @@ Davan Institute of Advanced Management Studies`;
   waShowModal(`🎯 ${q.name.split(' ')[0]} — Both-Sems Merit`, msg);
 }
 
-function resBothSemMeritExcel() {
+async function resBothSemMeritExcel() {
   if (typeof XLSX === 'undefined') { resToast('Error','SheetJS not loaded','error'); return; }
+  await resEnsurePhoneBook();
   const { threshold, groups } = _getBothSemMeritData();
   const total = groups.reduce((a,g)=>a+g.students.length,0);
   if (!total) { resToast('No data','No both-sem qualifiers found','warn'); return; }
 
-  const rows = [['Course','Sem Pair','URN','Name','Pct Sem A','Pct Sem B']];
+  const rows = [['Course','Sem Pair','URN','Name','Father Name','Relation','Phone','Pct Sem A','Pct Sem B']];
   groups.forEach(g => {
-    g.students.forEach(q => { rows.push([g.course, `${g.semA}↔${g.semB}`, q.urn, q.name, q.pctA.toFixed(1)+'%', q.pctB.toFixed(1)+'%']); });
+    g.students.forEach(q => {
+      const father = (q.sA?.fatherName || q.sB?.fatherName || '').trim();
+      rows.push([g.course, `${g.semA}↔${g.semB}`, q.urn, q.name, father, resGetRelation(q.urn), resGetPhone(q.urn), q.pctA.toFixed(1)+'%', q.pctB.toFixed(1)+'%']);
+    });
   });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([
@@ -5343,13 +5383,14 @@ function resBothSemMeritExcel() {
     [`Threshold: ${threshold}% in EACH sem  |  Total: ${total} students`],
     [], ...rows
   ]);
-  ws['!cols'] = [8,10,14,28,10,10].map(w=>({wch:w}));
+  ws['!cols'] = [8,10,14,28,24,10,14,10,10].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb, ws, 'Both-Sems Merit');
   XLSX.writeFile(wb, `BothSems_Merit_${threshold}pct_${new Date().toISOString().slice(0,10)}.xlsx`);
   resToast('Downloaded','Both-sems merit Excel saved','success');
 }
 
-function resBothSemMeritWAManagement() {
+async function resBothSemMeritWAManagement() {
+  await resEnsurePhoneBook();
   const { threshold, groups } = _getBothSemMeritData();
   const total = groups.reduce((a,g)=>a+g.students.length,0);
   if (!total) { resToast('No data','No both-sem qualifiers found','warn'); return; }
@@ -5366,7 +5407,14 @@ function resBothSemMeritWAManagement() {
 
   groups.forEach(g => {
     msg += `*${g.course} — Sem ${g.semA}↔${g.semB}* (${g.students.length} students)\n`;
-    g.students.forEach((q,i) => { msg += `  ${i+1}. ${q.name} — Sem ${g.semA}: ${q.pctA.toFixed(1)}%, Sem ${g.semB}: ${q.pctB.toFixed(1)}%\n`; });
+    g.students.forEach((q,i) => {
+      const father   = (q.sA?.fatherName || q.sB?.fatherName || '').trim();
+      const relation = resGetRelation(q.urn);
+      const phone    = resGetPhone(q.urn);
+      const fatherBit = (relation && father) ? ` (${relation} ${father})` : (father ? ` (Father: ${father})` : '');
+      const phoneBit  = phone ? ` · 📞${phone}` : '';
+      msg += `  ${i+1}. ${q.name}${fatherBit}${phoneBit} — Sem ${g.semA}: ${q.pctA.toFixed(1)}%, Sem ${g.semB}: ${q.pctB.toFixed(1)}%\n`;
+    });
     msg += '\n';
   });
 
@@ -5502,6 +5550,120 @@ function waMsgOpen() {
 }
 // Track which students have been WA-sent (URN → true)
 const _waSentUrns = new Set();
+
+// ── Contact info: relation (human-picked, saved to Firestore) + phone (looked up) ──
+// Relation (S/o · D/o · W/o) is deliberately NOT auto-guessed — no gender field
+// exists anywhere in the data, so getting it wrong would be worse than leaving it blank.
+// Saved to Firestore app_data/bothsem_relations ({ [URN]: relation }, one doc, merge-write)
+// so it survives across devices/browsers — localStorage is only an instant-paint cache
+// while the real Firestore doc loads in the background.
+// Phone is NOT manually entered — it already exists on every student in
+// app_data/students + archived semesters/students (see resEnsurePhoneBook below),
+// the same roster docs index.html reads s.phone from for its own WhatsApp sends.
+const RES_RELATION_KEY = 'res_relation_info_v1';
+function _resLoadRelationInfo() {
+  try { return JSON.parse(localStorage.getItem(RES_RELATION_KEY) || '{}'); } catch(e) { return {}; }
+}
+function _resSaveRelationInfoLocal(map) {
+  try { localStorage.setItem(RES_RELATION_KEY, JSON.stringify(map)); } catch(e) {}
+}
+const RES_RELATION_INFO = _resLoadRelationInfo(); // { [URN]: relation } — local cache, instant paint
+let _resRelationsServerLoaded = false;
+let _resRelationsLoadPromise = null;
+async function resEnsureRelationsLoaded() {
+  if (_resRelationsServerLoaded) return RES_RELATION_INFO;
+  if (_resRelationsLoadPromise) return _resRelationsLoadPromise;
+  _resRelationsLoadPromise = (async () => {
+    try {
+      const doc = await fsGet('app_data', 'bothsem_relations');
+      if (doc && typeof doc === 'object') {
+        Object.keys(doc).forEach(urn => { if (urn !== 'updatedAt') RES_RELATION_INFO[urn] = doc[urn]; });
+        _resSaveRelationInfoLocal(RES_RELATION_INFO);
+      }
+    } catch(e) { console.error('resEnsureRelationsLoaded', e); }
+    _resRelationsServerLoaded = true;
+    return RES_RELATION_INFO;
+  })();
+  return _resRelationsLoadPromise;
+}
+function resGetRelation(urn) {
+  return RES_RELATION_INFO[urn] || '';
+}
+// Saves to Firestore (merge — never wipes other students' picks), mirrors to RTDB
+// davan_pub/bothsem_relations, and returns true/false so the dropdown can show a
+// ✓ Saved / ✗ failed confirmation next to the control that was just changed.
+async function resSetRelation(urn, value) {
+  RES_RELATION_INFO[urn] = value;
+  _resSaveRelationInfoLocal(RES_RELATION_INFO);
+  const ok = await fsSetMerge('app_data', 'bothsem_relations', { [urn]: value, updatedAt: resNowIST ? resNowIST() : new Date().toISOString() });
+  return ok;
+}
+// Called directly from the dropdown's onchange — shows a small ✓ Saved / ✗ badge
+// next to that specific student's control so it's clear the pick actually reached
+// Firestore (not just the local dropdown state).
+async function resHandleRelationChange(urn, value) {
+  const badge = document.getElementById('rel-badge-' + urn);
+  if (badge) { badge.textContent = '⏳'; badge.style.color = 'var(--muted)'; badge.title = 'Saving…'; }
+  const ok = await resSetRelation(urn, value);
+  if (!badge) return;
+  if (ok) {
+    badge.textContent = '✅';
+    badge.style.color = 'var(--ok)';
+    badge.title = 'Saved to Firebase';
+    setTimeout(() => { if (badge.textContent === '✅') { badge.textContent = '✓'; badge.style.color = 'var(--muted)'; } }, 2500);
+  } else {
+    badge.textContent = '✗';
+    badge.style.color = 'var(--danger, #f66)';
+    badge.title = 'Save failed — check connection and try again';
+  }
+}
+
+// Phone lookup cache — built once from app_data/students PLUS every archived
+// semester's roster (semesters_<key>/students, per index.html's Archive Semester
+// feature). Students from an earlier semester (e.g. Sem V/VI BCom while the live
+// roster has since moved on) only exist in the archive snapshot, not the live one —
+// confirmed against index.html's archiveMeta/semSwitcherInit/app_data/archive_index.
+// Keyed by URN (uppercased). Live roster wins on conflict (checked last, overwrites).
+let RES_PHONE_BY_URN = null;   // null = not loaded yet; {} once loaded even if empty
+let _resPhoneLoadPromise = null;
+function _resMergePhonesFrom(map, doc) {
+  const list = doc?.data || doc || [];
+  (Array.isArray(list) ? list : []).forEach(s => {
+    const u = (s.urn || s.usn || '').toString().toUpperCase().trim();
+    const p = (s.phone || s.mobile || s.Phone || s.Mobile || '').toString().trim();
+    if (u && p) map[u] = p;
+  });
+}
+async function resEnsurePhoneBook() {
+  if (RES_PHONE_BY_URN) return RES_PHONE_BY_URN;
+  if (_resPhoneLoadPromise) return _resPhoneLoadPromise;
+  _resPhoneLoadPromise = (async () => {
+    const map = {};
+    // 1) Every archived semester — semesters_<key>/students, keys from archive_index.
+    //    Done first so the live roster (below) can overwrite with a more current number.
+    try {
+      const idx = await fsGet('app_data', 'archive_index');
+      const keys = idx && typeof idx === 'object' ? Object.keys(idx) : [];
+      await Promise.all(keys.map(async key => {
+        try {
+          const doc = await fsGet('semesters_' + key, 'students');
+          if (doc) _resMergePhonesFrom(map, doc);
+        } catch(e) { console.error('resEnsurePhoneBook archive', key, e); }
+      }));
+    } catch(e) { console.error('resEnsurePhoneBook archive_index', e); }
+    // 2) Live roster — takes priority on any URN collision.
+    try {
+      const doc = await fsGet('app_data', 'students');
+      if (doc) _resMergePhonesFrom(map, doc);
+    } catch(e) { console.error('resEnsurePhoneBook live', e); }
+    RES_PHONE_BY_URN = map;
+    return map;
+  })();
+  return _resPhoneLoadPromise;
+}
+function resGetPhone(urn) {
+  return (RES_PHONE_BY_URN && RES_PHONE_BY_URN[(urn||'').toUpperCase().trim()]) || '';
+}
 function meritWASendStudent(urn, btn) {
   const threshold = parseFloat(document.getElementById('res-merit-threshold')?.value||'85');
   const date  = document.getElementById('res-merit-date')?.value  || '[Date TBD]';
