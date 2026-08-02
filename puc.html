@@ -8773,6 +8773,12 @@ async function switchAY(ay) {
       await pscfgInit();
     }
   } catch(e) { console.warn('[switchAY pscfg]', e); }
+  // IA test dates and pass marks are now AY-scoped too — reload so
+  // Admin Settings and the Internals tab both reflect the new year.
+  try {
+    if (typeof pucIaDatesInit === 'function') await pucIaDatesInit();
+    if (typeof intLoadPassMark === 'function' && _intExam) await intLoadPassMark(_intExam);
+  } catch(e) { console.warn('[switchAY ia]', e); }
 }
 
 let allPucStudents = [];
@@ -28492,6 +28498,17 @@ async function pucCalSaveEvent(stream) {
     pucCalRenderUpcoming(stream);
     pucCalRenderStats(stream);
     pucCalRenderTable(stream);
+    // Auto-sync Session Configuration if it's currently open and showing
+    // this same stream + AY — an edit made directly in the Calendar (e.g.
+    // moving "Last Working Day for Students") should reflect there
+    // immediately, without a separate Import/Save step in that card.
+    if (name && /last working day/i.test(name) &&
+        typeof pscfgLoadTabIntoForm === 'function' &&
+        _pscfgStream === stream && _pscfgTab === activeAY &&
+        document.getElementById('panel-admin-settings')?.classList.contains('active')) {
+      await pscfgLoadTabIntoForm();
+      pscfgRenderSummary();
+    }
   } catch(e) {
     if (msg) { msg.style.color = 'var(--danger,#ef4444)'; msg.textContent = '❌ ' + e.message; }
   }
@@ -28499,6 +28516,7 @@ async function pucCalSaveEvent(stream) {
 
 async function pucCalDeleteEvent(stream, id) {
   if (!confirm('Delete this calendar event?')) return;
+  const deleted = _pucCalEvents[stream].find(x => x.id === id);
   _pucCalEvents[stream] = _pucCalEvents[stream].filter(x => x.id !== id);
   try {
     await db.collection('app_data').doc(pscfgCalDocFor(stream, activeAY)).set({ events: _pucCalEvents[stream] });
@@ -28506,6 +28524,13 @@ async function pucCalDeleteEvent(stream, id) {
     pucCalRenderUpcoming(stream);
     pucCalRenderStats(stream);
     pucCalRenderTable(stream);
+    if (deleted && deleted.name && /last working day/i.test(deleted.name) &&
+        typeof pscfgLoadTabIntoForm === 'function' &&
+        _pscfgStream === stream && _pscfgTab === activeAY &&
+        document.getElementById('panel-admin-settings')?.classList.contains('active')) {
+      await pscfgLoadTabIntoForm();
+      pscfgRenderSummary();
+    }
   } catch(e) {
     dvToast('❌ Delete failed: ' + e.message, 'error', 5000);
   }
@@ -28666,14 +28691,22 @@ function intApplyPillStyles() {
 }
 
 // ── Internals pass mark: save/load per-IA from Firestore ─────────────────────
+// AY-SCOPED (per explicit instruction — every AY-dependent setting should
+// vary by year, this one was overlooked earlier). Falls back to the
+// original flat doc if no AY-scoped doc exists yet, so existing saved
+// pass marks aren't lost — same non-destructive migration pattern used
+// for the Academic Calendar and Session Dates.
+const PUC_IA_PASS_LEGACY_DOC = 'puc_ia_pass_marks';
+function _intPassMarkDocFor(ay) { return PUC_IA_PASS_LEGACY_DOC + '_' + ay; }
+
 async function intSavePassMark() {
   const val = parseInt(document.getElementById('int-pass-mark')?.value);
   if (isNaN(val) || val < 1) return;
   intRender();
   try {
-    await db.collection('app_data').doc('puc_ia_pass_marks')
+    await db.collection('app_data').doc(_intPassMarkDocFor(activeAY))
       .set({ [_intExam]: val }, { merge: true });
-    dvToast(`✅ Pass mark ${val} saved for ${_intExam}`, 'ok', 2000);
+    dvToast(`✅ Pass mark ${val} saved for ${_intExam} (${activeAY})`, 'ok', 2000);
   } catch(e) {
     dvToast('⚠️ Could not save pass mark', 'warn', 2500);
   }
@@ -28681,8 +28714,13 @@ async function intSavePassMark() {
 
 async function intLoadPassMark(exam) {
   try {
-    const snap = await db.collection('app_data').doc('puc_ia_pass_marks').get();
-    const data = snap.exists ? snap.data() : {};
+    let snap = await db.collection('app_data').doc(_intPassMarkDocFor(activeAY)).get();
+    let data = snap.exists ? snap.data() : null;
+    if (!data) {
+      // Legacy fallback — original flat doc, never modified or deleted.
+      const legacy = await db.collection('app_data').doc(PUC_IA_PASS_LEGACY_DOC).get();
+      data = legacy.exists ? legacy.data() : {};
+    }
     const val  = data[exam] !== undefined ? data[exam] : 20;
     const inp  = document.getElementById('int-pass-mark');
     if (inp) inp.value = val;
@@ -29815,16 +29853,23 @@ function intRenderTable(students, container) {
 // ║  even though the calendar defaults happen to match today.          ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-const PUC_IA_DATES_DOC = 'puc_ia_dates';
+const PUC_IA_DATES_LEGACY_DOC = 'puc_ia_dates';
+function pucIaDatesDocFor(ay) { return PUC_IA_DATES_LEGACY_DOC + '_' + ay; }
 
 // In-memory cache: { 'IA - 1': {from:'', to:''}, ... } — all 5 keys always present
 let _pucIaDates = {};
 let _pucIaDatesLoaded = false;
+let _pucIaDatesLoadedAY = null; // which AY the cache above currently reflects
 
 async function pucIaDatesInit() {
   try {
-    const doc = await db.collection('app_data').doc(PUC_IA_DATES_DOC).get();
-    const data = doc.exists ? (doc.data() || {}) : {};
+    let doc = await db.collection('app_data').doc(pucIaDatesDocFor(activeAY)).get();
+    let data = doc.exists ? (doc.data() || {}) : null;
+    if (!data) {
+      // Legacy fallback — the original flat doc, never modified or deleted.
+      const legacy = await db.collection('app_data').doc(PUC_IA_DATES_LEGACY_DOC).get();
+      data = legacy.exists ? (legacy.data() || {}) : {};
+    }
     for (const key of Object.keys(INT_EXAM_KEYS)) {
       _pucIaDates[key] = { from: (data[key] && data[key].from) || '', to: (data[key] && data[key].to) || '' };
     }
@@ -29832,6 +29877,7 @@ async function pucIaDatesInit() {
     for (const key of Object.keys(INT_EXAM_KEYS)) _pucIaDates[key] = _pucIaDates[key] || { from:'', to:'' };
   }
   _pucIaDatesLoaded = true;
+  _pucIaDatesLoadedAY = activeAY;
   pucIaDatesRenderAdmin();
 }
 
@@ -29872,7 +29918,7 @@ async function asIaDatesSave() {
 
   if (Object.keys(payload).length) {
     try {
-      await db.collection('app_data').doc(PUC_IA_DATES_DOC).set(payload, { merge: true });
+      await db.collection('app_data').doc(pucIaDatesDocFor(activeAY)).set(payload, { merge: true });
     } catch(e) {}
   }
 
@@ -29946,6 +29992,23 @@ async function pucSessInit() {
   } catch(e) {
     // keep blanks on failure
   }
+  // Ensure the Academic Calendar is actually loaded for the CURRENT AY
+  // before computing End dates. Without this, on a fresh page load (before
+  // the Commerce/Science Calendar panels have ever been opened this
+  // session) _pucCalEvents[stream] is still an empty array, and the End
+  // date silently fell back to PUC_CAL_DEFAULTS' hardcoded placeholder
+  // ("Last Working Day for Students" = 23-May-2026) instead of the real,
+  // saved value — which is exactly the stale/wrong date this was causing.
+  try {
+    for (const stream of ['com','sci']) {
+      if (!_pucCalEvents[stream] || !_pucCalEvents[stream].length) {
+        const fresh = await pscfgReadCalendar(stream, activeAY);
+        _pucCalEvents[stream] = (fresh && fresh.length)
+          ? fresh
+          : (activeAY === PSCFG_LEGACY_CAL_AY ? PUC_CAL_DEFAULTS[stream] : []);
+      }
+    }
+  } catch(e) { console.warn('[pucSessInit cal preload]', e); }
   _pucSessLoaded = true;
   pucSessRenderDashboard();
   pucSessRenderAdmin();
@@ -30024,6 +30087,32 @@ function pucSessGetEndDate(segKey) {
   const events = _pucCalEvents[seg.cal] || [];
   let specific = '', shared = '';
   for (const e of events) {
+    if (!e.name || !/last working day/i.test(e.name)) continue;
+    const forVal = (e.for || '').trim();
+    const d = e.to || e.from;
+    if (!d) continue;
+    if (forVal === seg.term) { if (d > specific) specific = d; }
+    else if (!forVal || forVal === 'All') { if (d > shared) shared = d; }
+  }
+  return specific || shared;
+}
+
+// AY-aware version for Session Configuration: fetches that AY's actual
+// stored calendar fresh (via pscfgReadCalendar, which is correctly
+// AY-scoped with the 2026-27 legacy fallback), instead of trusting
+// _pucCalEvents — a single shared cache that's only ever populated when
+// the Commerce/Science Calendar PANEL is opened, and holds whichever AY
+// was loaded last. Reading that stale/wrong-AY cache from Session Config
+// was the actual cause of end dates like "31/03/2027" appearing under a
+// 2026-27 tab — it wasn't really that date, it was leftover data from a
+// different year's calendar still sitting in memory.
+async function pscfgGetEndDateForAY(segKey, ay, streamOverride) {
+  const seg = PUC_SESS_SEGMENTS[segKey];
+  if (!seg) return '';
+  const stream = streamOverride || seg.cal;
+  const events = await pscfgReadCalendar(stream, ay);
+  let specific = '', shared = '';
+  for (const e of (events||[])) {
     if (!e.name || !/last working day/i.test(e.name)) continue;
     const forVal = (e.for || '').trim();
     const d = e.to || e.from;
@@ -30155,16 +30244,29 @@ async function asSessionDatesSave() {
 // date to dateStr ('YYYY-MM-DD'), and saves to Firestore. If dateStr is
 // blank, removes the term-specific event (falls back to the shared one).
 async function pucSessSetEndDate(segKey, dateStr) {
+  return pucSessSetEndDateForAY(segKey, dateStr, activeAY);
+}
+
+// AY-parameterized version — used by Session Configuration, which can be
+// editing a DIFFERENT AY tab than whatever is currently active. Without
+// this, an edit made while viewing e.g. 2027-28 would have silently been
+// written into the CURRENT year's live calendar instead (pucSessSetEndDate
+// always used activeAY, ignoring which year was actually being edited).
+async function pucSessSetEndDateForAY(segKey, dateStr, ay) {
   const seg = PUC_SESS_SEGMENTS[segKey];
   if (!seg) return;
   const stream = seg.cal; // 'com' | 'sci'
-  const events = _pucCalEvents[stream] || (_pucCalEvents[stream] = []);
+  const isCurrentAY = (ay === activeAY);
+  // Only touch the shared in-memory cache when we're actually editing the
+  // currently-active AY (that's the only case the cache represents).
+  // For any other AY, read/write the AY-scoped doc directly and fresh.
+  const events = isCurrentAY
+    ? (_pucCalEvents[stream] || (_pucCalEvents[stream] = []))
+    : await pscfgReadCalendar(stream, ay);
 
-  // Find an existing event already scoped to this exact term
   let idx = events.findIndex(e => e.name && /last working day/i.test(e.name) && (e.for || '').trim() === seg.term);
 
   if (!dateStr) {
-    // Clear: remove the term-specific event (shared/all event, if any, remains)
     if (idx >= 0) events.splice(idx, 1);
   } else if (idx >= 0) {
     events[idx].from = dateStr;
@@ -30176,13 +30278,14 @@ async function pucSessSetEndDate(segKey, dateStr) {
   events.sort((a,b) => a.from.localeCompare(b.from));
 
   try {
-    await db.collection('app_data').doc(pscfgCalDocFor(stream, activeAY)).set({ events });
+    await db.collection('app_data').doc(pscfgCalDocFor(stream, ay)).set({ events });
   } catch(e) { return; }
 
-  // Refresh calendar UI if currently visible
-  if (typeof pucCalRenderUpcoming === 'function') pucCalRenderUpcoming(stream);
-  if (typeof pucCalRenderStats === 'function') pucCalRenderStats(stream);
-  if (typeof pucCalRenderTable === 'function') pucCalRenderTable(stream);
+  if (isCurrentAY) {
+    if (typeof pucCalRenderUpcoming === 'function') pucCalRenderUpcoming(stream);
+    if (typeof pucCalRenderStats === 'function') pucCalRenderStats(stream);
+    if (typeof pucCalRenderTable === 'function') pucCalRenderTable(stream);
+  }
 }
 
 // ── Auto-set start date on first attendance write ──────────────────
@@ -33006,14 +33109,20 @@ async function remSyncRoster(assignmentId, examKeyOverride) {
     return { added: 0, error: `No marks entered yet for ${what} in ${examKey} — nothing to sync until faculty enters marks for this exam.` };
   }
 
-  // Pass mark — same source as Internals tab (Firestore app_data/puc_ia_pass_marks).
+  // Pass mark — same source as Internals tab. AY-scoped now, with a
+  // fallback to the original flat doc if no AY-scoped value exists yet.
   // Stored keyed by the DISPLAY label (e.g. 'IA - 2'), not the internal key ('ia_2') —
   // matches intSavePassMark()'s actual write shape. Fallback 20 if not set.
   let passMark = 20;
   const examLabel = Object.keys(INT_EXAM_KEYS).find(k => INT_EXAM_KEYS[k] === examKey) || examKey;
   try {
-    const pmDoc = await db.collection('app_data').doc('puc_ia_pass_marks').get();
-    if (pmDoc.exists && pmDoc.data()[examLabel] !== undefined) passMark = Number(pmDoc.data()[examLabel]);
+    let pmDoc = await db.collection('app_data').doc(_intPassMarkDocFor(activeAY)).get();
+    let pmData = pmDoc.exists ? pmDoc.data() : null;
+    if (!pmData || pmData[examLabel] === undefined) {
+      const legacy = await db.collection('app_data').doc(PUC_IA_PASS_LEGACY_DOC).get();
+      pmData = legacy.exists ? legacy.data() : {};
+    }
+    if (pmData[examLabel] !== undefined) passMark = Number(pmData[examLabel]);
   } catch(e) {}
   console.log('[REM sync] examLabel=', examLabel, 'passMark=', passMark);
 
@@ -34573,6 +34682,7 @@ let _pm2SortMode = 'award';   // 2nd PUC: 'award' | 'class' | 'pct'
 let _pmSettings      = { threshold: 84.5, tier1: 94.5, tier2: 89.5, tier3: 84.5, toppersOn: true,
                           date: '', time: '', venue: '' };
 let _pm2pucCompletedData = null; // marksClassMap-shaped, lazy-loaded — completed 2nd PUC annual result (2PUC class keys), empty until the running batch finishes 2nd PUC (2027)
+let _pm2pucCompletedAY = null; // which AY the above data actually came from — used to key admission overrides to the correct year
 let _pm2pucLoading       = false;
 let _pmPassouts      = [];   // [{name,total,pct,phone}] manual entries, 2nd PUC only
 let _pmDegreeNames   = null; // Set of normalized names from results.html Sem I data (lazy)
@@ -34609,6 +34719,42 @@ function _pmResolvePhone(usn) {
 }
 function pmEditPhone(usn, val) {
   pmSavePhoneOverride(usn, val);
+}
+
+// ── Davan degree-college admission status (manual, per student) ────
+// The SOLE source of truth for whether a completed-2nd-PUC student gets
+// a scholarship amount vs. award-only. The automatic results.html
+// name-match (_pmHasJoinedDegree) is retained ONLY for the imported 2026
+// batch that already relied on it (backward compatibility for that
+// specific one-time import) — every REAL scraped 2nd PUC student, this
+// year and every year going forward, is decided purely by this manual
+// toggle. Default is "not joined" (unchecked / award-only) until you
+// explicitly mark someone — never assumed true.
+// Keyed by AY + usn, since a USN is only meaningful within the year that
+// student actually completed 2nd PUC.
+let _pmAdmissionOverrides = {}; // { "AY|usn": true|false }
+function _pmAdmKey(ay, usn) { return ay + '|' + usn; }
+async function pmLoadAdmissionOverrides() {
+  try {
+    const doc = await db.collection('app_data').doc('puc_merit_admissions').get();
+    _pmAdmissionOverrides = doc.exists ? (doc.data().map || {}) : {};
+  } catch(e) { console.warn('[pmLoadAdmissionOverrides]', e); _pmAdmissionOverrides = {}; }
+}
+async function pmSetAdmission(ay, usn, joined) {
+  if (!usn) return;
+  _pmAdmissionOverrides[_pmAdmKey(ay, usn)] = !!joined;
+  try {
+    await db.collection('app_data').doc('puc_merit_admissions').set({ map: _pmAdmissionOverrides }, { merge: true });
+  } catch(e) { console.warn('[pmSetAdmission]', e); }
+}
+// Checkbox handler — toggles, saves, and re-renders so the amount/award
+// label updates immediately. Keyed to _pm2pucCompletedAY (the AY the 2nd
+// PUC data actually came from), not activeAY — they can differ, since
+// pmLoad2PucCompletedData() searches forward/backward through AY_LIST.
+async function pmToggleAdmission(usn, checked) {
+  const ay = _pm2pucCompletedAY || activeAY;
+  await pmSetAdmission(ay, usn, checked);
+  pmRender();
 }
 // Inline phone edit from the main merit table row. `kind` is 'live' (usn
 // exists — save to the phone-override store) or 'manual' (no usn — the
@@ -34685,7 +34831,7 @@ let _pmInited = false;
 async function pmInit() {
   if (!_pmInited) {
     _pmInited = true;
-    await Promise.all([pmLoadSettings(), pmLoadPassouts(), pmLoadPhoneOverrides()]);
+    await Promise.all([pmLoadSettings(), pmLoadPassouts(), pmLoadPhoneOverrides(), pmLoadAdmissionOverrides()]);
   } else {
     await pmLoadSettings();
   }
@@ -34869,15 +35015,17 @@ async function pmLoad2PucCompletedData() {
   const rest = curIdx >= 0 ? list.filter((_,i) => i !== curIdx) : [];
   const order = curIdx >= 0 ? [list[curIdx], ...rest] : list.slice();
   let found = {};
+  let foundAY = activeAY; // fallback if nothing found at all
   for (const ay of order) {
     try {
       const r = await fetch(`${FB_URL}/puc_marks/${ay}/annual_examination.json`).then(r=>r.json());
       const bucket = r || {};
       const has2puc = Object.keys(bucket).some(k => (k||'').toUpperCase().includes('2PUC'));
-      if (has2puc) { found = bucket; break; }
+      if (has2puc) { found = bucket; foundAY = ay; break; }
     } catch(e) { console.warn('[pmLoad2PucCompletedData]', ay, e); }
   }
   _pm2pucCompletedData = found;
+  _pm2pucCompletedAY = foundAY; // the AY this data actually belongs to — used to key admission overrides correctly
   _pm2pucLoading = false;
   return _pm2pucCompletedData;
 }
@@ -35102,13 +35250,17 @@ function _pmGetPool() {
         r.awardLabel = 'ACADEMIC EXCELLENCE MERIT AWARD';
         return;
       }
-      // Manually confirmed admission (r._confirmedAdmission = true) skips
-      // the live cross-app degree-name lookup entirely and goes straight
-      // to tier-based amount — for imported/manual entries where Davan
-      // admission is already known for certain (e.g. from an official
-      // sheet), rather than depending on results.html's Sem I data upload
-      // having caught up yet.
-      const joinedDegree = r._confirmedAdmission === true || _pmHasJoinedDegree(r.name);
+      // Admission decision — per explicit instruction, the automatic
+      // results.html name-match is NO LONGER used for real students. The
+      // manual per-row toggle (_pmAdmissionOverrides) is the sole source
+      // of truth going forward, defaulting to "not joined" until you
+      // explicitly check someone. _confirmedAdmission is kept only for
+      // backward compatibility with the one-time 2026 manual import,
+      // which pre-dates this toggle and was entered with certainty at
+      // import time — it is not a live auto-match and never was.
+      const admKey = _pmAdmKey(_pm2pucCompletedAY || activeAY, r.usn || '');
+      const joinedDegree = r._confirmedAdmission === true
+        || (r.usn && _pmAdmissionOverrides[admKey] === true);
       const isTop3 = _pmSettings.toppersOn && r.rank <= 3;
       r.isTopper = isTop3;
       r.topperOrdinal = isTop3 ? (r.rank===1?'1st':r.rank===2?'2nd':'3rd') : null;
@@ -35271,12 +35423,12 @@ async function pmManualRefresh() {
 }
 
 async function pmRender() {
-  // Warm up degree-names cache in background (only matters for 2nd PUC
-  // top-3, but cheap to always keep fresh); re-render once loaded so the
-  // topper/scholarship split is accurate without the user re-clicking.
-  if (_pmLevel === '2' && _pmDegreeNames === null && !_pmDegreeLoading) {
-    _pmLoadDegreeNames().then(() => { if (_pmLevel === '2') pmRender(); });
-  }
+  // NOTE: the results.html degree-name auto-match (_pmLoadDegreeNames /
+  // _pmHasJoinedDegree) is no longer triggered here. Admission status for
+  // real students is decided entirely by the manual per-row checkbox
+  // (_pmAdmissionOverrides) — see pmToggleAdmission. The auto-match
+  // functions are kept in the file for the legacy import path but are no
+  // longer warmed up on every render.
 
   const listEl  = document.getElementById('pm-list');
   const cardsEl = document.getElementById('pm-summary-cards');
@@ -35358,6 +35510,22 @@ async function pmRender() {
       const noDavanTag = (_pmLevel==='2' && !r.amount)
         ? `<span style="font-size:9px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:2px 7px;border-radius:5px;margin-left:6px;">NO DAVAN ADMISSION</span>`
         : '';
+      // Manual admission checkbox — the SOLE source of truth for real
+      // (scraped) 2nd PUC students, replacing the old automatic
+      // results.html name-match entirely. Only shown for real students
+      // (has a usn) — imported/legacy entries with _confirmedAdmission or
+      // an explicit topper label already have their status locked in from
+      // the import itself and don't need this control.
+      let admissionToggle = '';
+      if (_pmLevel === '2' && r.usn && !r._importedTopperLabel && r._confirmedAdmission !== true) {
+        const admKey = _pmAdmKey(_pm2pucCompletedAY || activeAY, r.usn);
+        const isChecked = _pmAdmissionOverrides[admKey] === true;
+        admissionToggle = `<label onclick="event.stopPropagation();" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;cursor:pointer;font-size:9px;color:${isChecked?'#22c55e':'var(--muted)'};font-family:var(--mono);white-space:nowrap;">
+          <input type="checkbox" ${isChecked?'checked':''} onchange="pmToggleAdmission('${r.usn.replace(/'/g,"\\'")}',this.checked)"
+            style="width:13px;height:13px;cursor:pointer;accent-color:#22c55e;" />
+          Joined Davan
+        </label>`;
+      }
       // Show real class inline only when the current grouping ISN'T
       // already by class (otherwise it's redundant with the group header).
       const _curSortMode = _pmLevel === '2' ? _pm2SortMode : _pm1SortMode;
@@ -35386,7 +35554,7 @@ async function pmRender() {
         <td style="padding:6px 8px;border:1px solid var(--border);color:var(--accent);font-family:var(--mono);font-size:11px;font-weight:700;">${_pmRunningSl}</td>
         <td style="padding:6px 8px;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:11px;">${i+1}</td>
         <td style="padding:6px 8px;border:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--muted);">${r.usn||'—'}</td>
-        <td style="padding:6px 8px;border:1px solid var(--border);font-weight:600;">${photoCell}${r.name||''}${topperTag}${hundredTag}${noDavanTag}${classTag}</td>
+        <td style="padding:6px 8px;border:1px solid var(--border);font-weight:600;">${photoCell}${r.name||''}${topperTag}${hundredTag}${noDavanTag}${classTag}${admissionToggle}</td>
         <td style="padding:6px 8px;border:1px solid var(--border);font-family:var(--mono);font-weight:700;color:var(--ok);">${r.pct.toFixed(2)}%</td>
         <td style="padding:6px 8px;border:1px solid var(--border);font-family:var(--mono);font-weight:600;">${r.total||'—'}</td>
         <td style="padding:6px 8px;border:1px solid var(--border);font-family:var(--mono);font-weight:700;color:${r.amount?'#f0a500':'var(--muted)'};">${amtStr}</td>
@@ -35865,19 +36033,37 @@ async function pscfgSave() {
   };
   try {
     await db.collection('app_data').doc(PSCFG_DOC).set({ years: _pscfgAll }, { merge: true });
-    // Write the 4 segment date-pairs to the SHARED store that the
+    // Write the 4 segment START dates to the SHARED store that the
     // "Session Dates" card also reads/writes — single source of truth,
     // AY-scoped. An edit here shows up there and vice versa.
+    const segKeys = pscfgSegKeysForStream();
     const segPayload = {};
-    pscfgSegKeysForStream().forEach(k => {
+    segKeys.forEach(k => {
       const d = _pscfgSegDraft[k] || {};
-      segPayload[k] = { start: d.start || '', end: d.end || '' };
+      segPayload[k] = { start: d.start || '' };
     });
     await db.collection('app_data').doc(pucSessDocFor(ay)).set(segPayload, { merge: true });
+
+    // Complete the bi-directional link for END dates: they don't live in
+    // the session-dates doc at all — they ARE the calendar's "Last Working
+    // Day for Students" event. Only write back when the field actually
+    // changed from what the calendar currently has, using the AY-safe
+    // writer so this never silently touches the wrong year's calendar.
+    for (const k of segKeys) {
+      const d = _pscfgSegDraft[k] || {};
+      const newEnd = d.end || '';
+      const oldEnd = _pscfgCalEndCache[k] || '';
+      if (newEnd !== oldEnd) {
+        await pucSessSetEndDateForAY(k, newEnd, ay);
+      }
+    }
+    // Refresh our own cache to match what was just written.
+    for (const k of segKeys) _pscfgCalEndCache[k] = (_pscfgSegDraft[k]||{}).end || '';
+
     // If we just edited the CURRENT AY, refresh the other card + dashboard
     // so both views show the new values immediately.
     if (ay === activeAY) {
-      pscfgSegKeysForStream().forEach(k => {
+      segKeys.forEach(k => {
         _pucSessDates[k] = { start: (_pscfgSegDraft[k]||{}).start || '' };
       });
       if (typeof pucSessRenderAdmin === 'function')     pucSessRenderAdmin();
@@ -35962,33 +36148,48 @@ async function pscfgLoadTabIntoForm() {
   } catch(e) {
     for (const key of pscfgSegKeysForStream()) _pscfgSegDraft[key] = { start:'', end:'' };
   }
+  // Pre-fetch this AY's real "Last Working Day" dates for THIS stream —
+  // fresh from Firebase (AY-correct), not the shared _pucCalEvents cache.
+  _pscfgCalEndCache = {};
+  for (const key of pscfgSegKeysForStream()) {
+    try { _pscfgCalEndCache[key] = await pscfgGetEndDateForAY(key, _pscfgTab, _pscfgStream); }
+    catch(e) { _pscfgCalEndCache[key] = ''; }
+  }
   pscfgRenderSegments();
   pscfgRenderHolidays();
   pscfgRecalc();
   const msg = document.getElementById('pscfg-msg');
   if (msg) msg.textContent = '';
 }
+let _pscfgCalEndCache = {}; // key -> ISO date, refreshed per pscfgLoadTabIntoForm() call
 
 // Renders the same 4 segments (1PUC/2PUC x COM/SCI) as the Session Dates card.
 function pscfgRenderSegments() {
   const el = document.getElementById('pscfg-segments');
   if (!el) return;
   el.innerHTML = pscfgSegKeysForStream().map(key => {
+    // End date falls back to THIS AY's real "Last Working Day" event,
+    // freshly fetched in pscfgLoadTabIntoForm() — no stale cross-AY data.
+    // IMPORTANT: seed the draft itself with this fallback (not just the
+    // displayed input value) — otherwise the input SHOWS the calendar's
+    // date but the draft object stays empty until the field is manually
+    // touched, and saving with an untouched field would then write a
+    // blank end date, silently wiping the real calendar value it was
+    // only ever meant to be displaying.
     const seg = PUC_SESS_SEGMENTS[key];
-    const d   = _pscfgSegDraft[key] || { start:'', end:'' };
-    // End date falls back to the Academic Calendar's "Last Working Day"
-    // for this stream, exactly like the Session Dates card does.
-    const calEnd = (typeof pucSessGetEndDate === 'function' && _pscfgTab === activeAY)
-      ? pucSessGetEndDate(key) : '';
+    const calEnd = _pscfgCalEndCache[key] || '';
+    if (!_pscfgSegDraft[key]) _pscfgSegDraft[key] = { start:'', end:'' };
+    if (!_pscfgSegDraft[key].end && calEnd) _pscfgSegDraft[key].end = calEnd;
+    const d = _pscfgSegDraft[key];
     return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;">
       <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text);min-width:150px;">${seg.label}</span>
       <span style="font-size:10px;color:var(--muted);">Start:</span>
       <input type="date" value="${d.start||''}" onchange="pscfgEditSeg('${key}','start',this.value)"
         style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-family:var(--mono);font-size:11px;" />
       <span style="font-size:10px;color:var(--muted);">End:</span>
-      <input type="date" value="${d.end||calEnd||''}" onchange="pscfgEditSeg('${key}','end',this.value)"
+      <input type="date" value="${d.end||''}" onchange="pscfgEditSeg('${key}','end',this.value)"
         style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-family:var(--mono);font-size:11px;" />
-      ${(!d.end && calEnd) ? `<span style="font-size:9px;color:#60a5fa;">from calendar</span>` : ''}
+      ${(d.end && d.end===calEnd) ? `<span style="font-size:9px;color:#60a5fa;">from calendar</span>` : ''}
     </div>`;
   }).join('');
 }
@@ -36028,43 +36229,48 @@ function _pscfgCollectHolidays()         { return _pscfgHolidayDraft.filter(h =>
 // Pulls holiday-type events from the Academic Calendar for THIS AY's
 // window, merging without duplicating dates already listed manually.
 function pscfgImportFromCalendar() {
-  // Window = earliest segment start to latest segment end (same envelope
-  // the working-days calculator uses).
-  let start = '', end = '';
-  pscfgSegKeysForStream().forEach(k => {
-    const d = _pscfgSegDraft[k] || {};
-    const s = d.start || '';
-    let e = d.end || '';
-    if (!e && typeof pucSessGetEndDate === 'function' && _pscfgTab === activeAY) e = pucSessGetEndDate(k) || '';
-    if (s && (!start || s < start)) start = s;
-    if (e && (!end   || e > end))   end   = e;
-  });
-  if (!start || !end) { dvToast('Set segment start/end dates first', 'warn', 2500); return; }
+  // Imports EVERY holiday-type event from this stream's calendar for the
+  // currently selected AY — no longer gated by the session start/end
+  // window. That window is computed from the 4 segments' own dates, and
+  // when even ONE segment is missing its End date (e.g. no calendar event
+  // saved yet for that term), the whole window silently collapsed down to
+  // whatever tiny range was left — which meant most or all real holidays
+  // (mid-terms, festivals, parents' meetings, etc.) got filtered out even
+  // though they were correctly present in the calendar. The session dates
+  // and the holiday list are two separate concerns; a missing End date on
+  // one segment should never suppress importing holidays.
   const existing = new Set(_pscfgHolidayDraft.map(h => h.date).filter(Boolean));
   let added = 0;
-  [_pscfgStream].forEach(stream => {
-    (_pucCalEvents[stream] || []).forEach(ev => {
-      if (ev.type !== 'holiday') return;
-      // Expand multi-day ranges into individual dates
-      const from = ev.from, to = ev.to || ev.from;
-      if (!from) return;
-      let d = new Date(from + 'T00:00:00');
-      const endD = new Date(to + 'T00:00:00');
-      while (d <= endD) {
-        const iso = fmtIsoLocal(d);
-        if (iso >= start && iso <= end && !existing.has(iso)) {
-          existing.add(iso);
-          _pscfgHolidayDraft.push({ date: iso, name: ev.name || 'Holiday' });
-          added++;
-        }
-        d.setDate(d.getDate() + 1);
+  const skipped = []; // diagnostic — every non-holiday-type event, so it's visible WHY something didn't import
+  (_pucCalEvents[_pscfgStream] || []).forEach(ev => {
+    if (ev.type !== 'holiday') { skipped.push(`"${ev.name}" (type: "${ev.type}")`); return; }
+    // Expand multi-day ranges into individual dates
+    const from = ev.from, to = ev.to || ev.from;
+    if (!from) { skipped.push(`"${ev.name}" (no from-date)`); return; }
+    let d = new Date(from + 'T00:00:00');
+    const endD = new Date(to + 'T00:00:00');
+    while (d <= endD) {
+      const iso = fmtIsoLocal(d);
+      if (!existing.has(iso)) {
+        existing.add(iso);
+        _pscfgHolidayDraft.push({ date: iso, name: ev.name || 'Holiday' });
+        added++;
       }
-    });
+      d.setDate(d.getDate() + 1);
+    }
   });
+  console.log('[pscfgImportFromCalendar] stream=', _pscfgStream, 'total events in calendar=', (_pucCalEvents[_pscfgStream]||[]).length, 'imported=', added, 'skipped (non-holiday type):', skipped);
   _pscfgHolidayDraft.sort((a,b) => (a.date||'').localeCompare(b.date||''));
   pscfgRenderHolidays();
   pscfgRecalc();
-  dvToast(added ? `📅 Imported ${added} holiday date(s)` : 'No new holidays found in this window', added?'ok':'warn', 2800);
+  const totalInCal = (_pucCalEvents[_pscfgStream]||[]).length;
+  dvToast(added ? `📅 Imported ${added} holiday date(s) from ${totalInCal} calendar event(s)` : `No new holidays found — ${totalInCal} calendar event(s) checked`, added?'ok':'warn', 3200);
+  // On-screen diagnostic — shows exactly which events were NOT type
+  // "holiday" (so weren't imported) and why, without needing devtools.
+  const msgEl = document.getElementById('pscfg-msg');
+  if (msgEl && skipped.length) {
+    msgEl.innerHTML = `<span style="color:#f59e0b;">Skipped ${skipped.length} non-holiday event(s): ${skipped.slice(0,8).join(', ')}${skipped.length>8?'…':''}</span>`;
+  }
 }
 
 // ── Working days calculator ───────────────────────────────────────
@@ -36079,7 +36285,7 @@ function pscfgRecalc() {
     const d = _pscfgSegDraft[k] || {};
     const s = d.start || '';
     let e = d.end || '';
-    if (!e && typeof pucSessGetEndDate === 'function' && _pscfgTab === activeAY) e = pucSessGetEndDate(k) || '';
+    if (!e) e = _pscfgCalEndCache[k] || '';
     if (s && (!start || s < start)) start = s;
     if (e && (!end   || e > end))   end   = e;
   });
