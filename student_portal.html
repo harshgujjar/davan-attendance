@@ -1876,6 +1876,7 @@ textarea { padding-left: 11px; resize: vertical; min-height: 80px; }
 
 /* tab bar */
 .tab-bar { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; overflow-x: auto; flex-shrink: 0; scrollbar-width: none; }
+@keyframes tabFadeArrowPulse { 0%,100% { opacity: .4; transform: translateX(0); } 50% { opacity: 1; transform: translateX(3px); } }
 .tab-bar::-webkit-scrollbar { display: none; }
 .tab-btn { flex-shrink: 0; padding: 0 16px; height: 46px; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.18s; white-space: nowrap; }
 .tab-btn:hover { color: var(--text); }
@@ -2655,6 +2656,27 @@ body.dash-active .data-strip { display: block; }
 }
 
 /* ════════════════════════════════════════════════════
+   BRANDED LOADING OVERLAY — same pattern as results.html (davan_logo_2026.gif,
+   gentle pulse, count-up timer + rotating message). Used only for genuine
+   full-screen blocking waits (first login, Report Card open) — not the many
+   small per-widget "⏳ Loading…" spinners elsewhere in this file, which stay
+   as-is on purpose (same scoping decision results.html made explicitly).
+════════════════════════════════════════════════════ */
+.stu-load-spinner-wrap {
+  width: 120px; height: 120px;
+  display: flex; align-items: center; justify-content: center;
+}
+.stu-load-logo {
+  width: 120px; height: 120px;
+  object-fit: contain;
+  animation: stuLoadLogoPulse 1.4s ease-in-out infinite;
+}
+@keyframes stuLoadLogoPulse {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%      { transform: scale(1.08); opacity: .85; }
+}
+
+/* ════════════════════════════════════════════════════
    SCREENSHOT / PRINT PREVENTION
 ════════════════════════════════════════════════════ */
 #screenshot-overlay { display: none; }
@@ -3349,8 +3371,14 @@ body.dash-active .data-strip { display: block; }
       </div>
       <!-- Fade hint on the right edge — signals "more tabs, scroll →" instead of looking
            like a tab got cut off/broken when the row overflows its container. Pointer
-           events pass through so it never blocks clicking the tab underneath it. -->
-      <div style="position:absolute;top:0;right:0;bottom:0;width:22px;background:linear-gradient(to right, transparent, var(--surface));pointer-events:none;"></div>
+           events pass through so it never blocks clicking the tab underneath it.
+           Widened + added an explicit arrow (reported live: the plain 22px gradient
+           alone was too subtle — Engagement, added after Social Media, was getting
+           missed entirely rather than read as "scroll for more"). Arrow only shows
+           when the row is actually scrollable — see tabBarUpdateOverflowHint(). -->
+      <div id="tab-bar-fade" style="position:absolute;top:0;right:0;bottom:0;width:40px;background:linear-gradient(to right, transparent, var(--surface) 70%);pointer-events:none;display:none;align-items:center;justify-content:flex-end;padding-right:4px;">
+        <span style="font-size:14px;color:var(--accent);animation:tabFadeArrowPulse 1.4s ease-in-out infinite;">›</span>
+      </div>
     </div>
     <button onclick="doLogout()" style="flex-shrink:0;padding:0 18px;background:transparent;border:none;border-left:1px solid var(--border);color:var(--danger);font-family:var(--body,inherit);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">🚪 Sign Out</button>
   </div>
@@ -5113,21 +5141,96 @@ async function goToDashboard() {
 // v7.16: full-screen loader shown between login and the dashboard actually being ready
 // (theme applied + real semester data loaded), replacing the old flash of default-theme/
 // empty-panel dashboard while loadStudentDashboard()'s network calls were still in flight.
+// Rotating messages + count-up timer (not a countdown — load time genuinely varies
+// with network conditions and data size, so a countdown would imply a promise this
+// can't keep, same reasoning results.html used for its own version of this).
+const STU_LOAD_MESSAGES = [
+  'Loading your dashboard…',
+  'Fetching your latest data…',
+  'Still loading — larger accounts take a few seconds…',
+  'Almost there…',
+];
+// Minimum time the branded overlay stays on screen, explicitly requested so the logo
+// gets real visibility on every load rather than flashing past instantly once caching
+// made most loads fast. Real work is never delayed by this — only the moment the
+// overlay is allowed to disappear. If the actual load takes longer than this anyway,
+// the overlay simply hides the instant the real work finishes, same as before.
+const STU_LOAD_MIN_MS = 5000;
+let _stuLoadTimerInterval = null;
+let _stuLoadShownAt = 0;
+function _stuStartLoadTimer(msgEl, timerEl) {
+  if (!msgEl || !timerEl) return;
+  let secs = 0, msgIdx = 0;
+  timerEl.textContent = '0s';
+  msgEl.textContent = STU_LOAD_MESSAGES[0];
+  clearInterval(_stuLoadTimerInterval);
+  _stuLoadTimerInterval = setInterval(() => {
+    secs += 1;
+    timerEl.textContent = secs + 's';
+    const nextIdx = Math.min(Math.floor(secs / 2.5), STU_LOAD_MESSAGES.length - 1);
+    if (nextIdx !== msgIdx) { msgIdx = nextIdx; msgEl.textContent = STU_LOAD_MESSAGES[msgIdx]; }
+  }, 1000);
+}
+function _stuStopLoadTimer() {
+  clearInterval(_stuLoadTimerInterval);
+  _stuLoadTimerInterval = null;
+}
+// Actually hides the overlay — the real work is already done by the time this runs;
+// this just controls the visual disappearance.
+function _stuHideLoaderNow() {
+  const el = document.getElementById('stu-dash-loader');
+  if (el) el.style.display = 'none';
+  _stuStopLoadTimer();
+}
+// Enforces the minimum display time before hiding — called by both hideStuDashLoader
+// and hideStuRcLoader instead of hiding immediately.
+function _stuHideLoaderAfterMin() {
+  const elapsed = Date.now() - _stuLoadShownAt;
+  const remaining = STU_LOAD_MIN_MS - elapsed;
+  if (remaining > 0) setTimeout(_stuHideLoaderNow, remaining);
+  else _stuHideLoaderNow();
+}
 function showStuDashLoader() {
   let el = document.getElementById('stu-dash-loader');
   if (!el) {
     el = document.createElement('div');
     el.id = 'stu-dash-loader';
-    el.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:var(--bg);';
-    el.innerHTML = '<div class="spinner" style="width:32px;height:32px;border-width:3px;"></div>' +
-      '<div style="font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.05em;">Loading your dashboard…</div>';
+    el.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;background:var(--bg);';
+    el.innerHTML =
+      '<div class="stu-load-spinner-wrap"><img src="davan_logo_2026.gif" alt="Davan" class="stu-load-logo" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+        '<div style="display:none;width:120px;height:120px;border-radius:50%;background:rgba(240,165,0,0.12);align-items:center;justify-content:center;font-size:48px;animation:stuLoadLogoPulse 1.4s ease-in-out infinite;">🎓</div>' +
+      '</div>' +
+      '<div style="text-align:center;">' +
+        '<div id="stu-dash-loader-msg" style="font-family:var(--mono);font-size:13px;color:var(--text);font-weight:600;">Loading your dashboard…</div>' +
+        '<div id="stu-dash-loader-timer" style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:4px;">0s</div>' +
+      '</div>';
     document.body.appendChild(el);
   }
   el.style.display = 'flex';
+  _stuLoadShownAt = Date.now();
+  _stuStartLoadTimer(document.getElementById('stu-dash-loader-msg'), document.getElementById('stu-dash-loader-timer'));
 }
 function hideStuDashLoader() {
-  const el = document.getElementById('stu-dash-loader');
-  if (el) el.style.display = 'none';
+  _stuHideLoaderAfterMin();
+}
+
+// Same branded overlay for the Report Card's own load wait (rcLoadPrevResults +
+// rcLoadPhoto + rcLoadNotifications, awaited together in renderReportCard) — this
+// was the specific spot reported as slow-feeling on mobile (plain "⏳ Loading…"
+// with no sense of progress). Reuses the exact same DOM element/CSS/timer as the
+// dashboard loader above — only the message differs — rather than duplicating markup.
+function showStuRcLoader() {
+  let el = document.getElementById('stu-dash-loader');
+  if (!el) { showStuDashLoader(); el = document.getElementById('stu-dash-loader'); }
+  el.style.display = 'flex';
+  _stuLoadShownAt = Date.now();
+  const msgEl = document.getElementById('stu-dash-loader-msg');
+  const timerEl = document.getElementById('stu-dash-loader-timer');
+  if (msgEl) msgEl.textContent = 'Loading your report card…';
+  _stuStartLoadTimer(msgEl, timerEl);
+}
+function hideStuRcLoader() {
+  _stuHideLoaderAfterMin();
 }
 
 /* ════════════════════════════════════════════════════
@@ -5163,6 +5266,7 @@ function enterAdminDashboard() {
   if (sbUser) sbUser.textContent = u.username.toUpperCase() + ' · ' + u.role;
   showScreen('screen-admin');
   loadAllData();
+  setTimeout(tabBarUpdateOverflowHint, 50);
 }
 
 /* ════════════════════════════════════════════════════
@@ -5954,9 +6058,37 @@ function renderEgFeedbackList(kind, entries, elId) {
   el.innerHTML = html;
 }
 
+// Shows/hides the right-edge "more tabs, scroll →" hint based on the tab-bar's
+// actual scroll state — only visible when there really are hidden tabs (scrollWidth
+// exceeds clientWidth and we're not already scrolled to the end), so it never
+// lingers once the admin has scrolled Engagement (or anything else) into view.
+// Wired to the tab-bar's own scroll event (fires on every drag/swipe) plus every
+// switchTab call and window resize, since resizing the window changes how many
+// tabs fit before overflow.
+function tabBarUpdateOverflowHint() {
+  const bar = document.querySelector('.tab-bar');
+  const hint = document.getElementById('tab-bar-fade');
+  if (!bar || !hint) return;
+  const hasOverflow = bar.scrollWidth > bar.clientWidth + 2;
+  const atEnd = bar.scrollLeft + bar.clientWidth >= bar.scrollWidth - 2;
+  hint.style.display = (hasOverflow && !atEnd) ? 'flex' : 'none';
+}
+(function _tabBarOverflowWire() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const bar = document.querySelector('.tab-bar');
+    if (bar) bar.addEventListener('scroll', tabBarUpdateOverflowHint, { passive: true });
+    window.addEventListener('resize', tabBarUpdateOverflowHint);
+    // Initial check — admin tab bar may not be visible yet at DOMContentLoaded
+    // (still on login screen), so also retry shortly after login-driven renders.
+    tabBarUpdateOverflowHint();
+    setTimeout(tabBarUpdateOverflowHint, 1000);
+  });
+})();
+
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab===name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id==='tab-'+name));
+  tabBarUpdateOverflowHint();
   if (name === 'archives')      renderArchivesTab();
   if (name === 'exceptions')    loadExceptionsData();
   if (name === 'banned')        renderBannedTab();
@@ -12824,20 +12956,59 @@ async function rcLoadPhoto(urn) {
     'photos/' + urn + '.jpeg',
     urn + '.jpg',
   ];
-  for (const sp of storagePaths) {
+  // Fire all candidate paths in parallel instead of one-at-a-time — sequential
+  // awaits here meant up to 6 full network round-trips stacked back to back on a
+  // miss, which is barely noticeable on fast WiFi but became several extra seconds
+  // of real wait on mobile data (reported live: Report Card slow on mobile, fast
+  // on desktop — same requests, just higher per-request latency on mobile). Total
+  // wait is now bounded by the single slowest request, not their sum.
+  const hits = await Promise.all(storagePaths.map(async sp => {
     const storageUrl = 'https://firebasestorage.googleapis.com/v0/b/' + bucket + '/o/' + encodeURIComponent(sp) + '?alt=media';
     try {
       const r = await fetch(storageUrl, { method: 'HEAD' });
-      if (r.ok) {
-        console.log('[rcLoadPhoto] Storage hit:', sp);
-        _rcPhotoCache[urn] = storageUrl;
-        return storageUrl;
-      }
-    } catch(e) {}
+      return r.ok ? storageUrl : null;
+    } catch(e) { return null; }
+  }));
+  const found = hits.find(u => u);
+  if (found) {
+    console.log('[rcLoadPhoto] Storage hit:', found);
+    _rcPhotoCache[urn] = found;
+    return found;
   }
   console.log('[rcLoadPhoto] no photo found for', urn);
   _rcPhotoCache[urn] = null;
   return null;
+}
+
+// ── Session cache helpers (30-min TTL) — GLOBAL, reusable by any fetch in this
+// file, not just loadStudentDashboard's original local copy. Promoted here
+// because rcLoadPrevResults (Report Card) was found to re-download the ENTIRE
+// davan_pub/results node — every semester, every course, every student in the
+// institution — on every single Report Card open, with zero caching. Fine on a
+// fast desktop connection, but a real multi-second stall on mobile data (reported
+// live: "on mobile it is taking a lot of time... desktop is fast" — same fetch,
+// same bytes, just slower/higher-latency transport). Same 30-min TTL and
+// sessionStorage key prefix as the existing per-dashboard cache, so a value
+// warmed by one code path is reusable by the other without duplicating fetches.
+const RC_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+function rcCacheGet(key) {
+  try {
+    const raw = sessionStorage.getItem('davan_sc_' + key);
+    if (!raw) return null;
+    const { ts, val } = JSON.parse(raw);
+    if (Date.now() - ts > RC_CACHE_TTL) { sessionStorage.removeItem('davan_sc_' + key); return null; }
+    return val;
+  } catch(e) { return null; }
+}
+function rcCacheSet(key, val) {
+  try { sessionStorage.setItem('davan_sc_' + key, JSON.stringify({ ts: Date.now(), val })); } catch(e) {}
+}
+async function rcCachedGet(key, path) {
+  const hit = rcCacheGet(key);
+  if (hit !== null) { console.log('[CACHE HIT]', key); return hit; }
+  const val = await rtdbGet(path).catch(() => null);
+  if (val !== null) rcCacheSet(key, val);
+  return val;
 }
 
 async function rcLoadPrevResults(urn) {
@@ -12848,9 +13019,13 @@ async function rcLoadPrevResults(urn) {
   try {
     // Fetch results + allocation_each (per-sem faculty map) in parallel
     // Mirrors mother app rcFetchResults: allocation_each/<key>.subjects[{code,facultyDI,facultyNU}]
+    // Cached (30-min TTL, shared with loadStudentDashboard's own cache) — these are
+    // institution-wide, slow-changing datasets; re-downloading the whole thing on
+    // every single Report Card open was the actual cause of the multi-second mobile
+    // load time (same payload, but slow/high-latency mobile data made it visible).
     const [pub, allocEachRaw] = await Promise.all([
-      rtdbGet('davan_pub/results'),
-      rtdbGet('davan_pub/allocation_each').catch(() => null)
+      rcCachedGet('results', 'davan_pub/results'),
+      rcCachedGet('allocEach', 'davan_pub/allocation_each')
     ]);
     if (!pub) return [];
 
@@ -13046,22 +13221,29 @@ async function rcLoadNotifications(urn) {
   // Fetch from Firestore — matches mother app (fuLoadAll + ntLoadLogs)
   const out = { notifications: [], followups: [] };
   if (!_db) return out;
-  try {
-    const ntDoc = await _db.collection('davan_notification_logs').doc(urn).get();
-    if (ntDoc.exists) {
-      const d = ntDoc.data();
-      out.notifications = (d.notifications || []).slice().reverse().slice(0, 10);
-    }
-  } catch(e) { console.warn('[rcLoadNotifications/nt]', e.message); }
-  try {
-    const fuDoc = await _db.collection('davan_followup_logs').doc(urn).get();
-    if (fuDoc.exists) {
-      out.followups = (fuDoc.data().followups || [])
-        .slice()
-        .sort((a, b) => new Date(b.meetingDate || b.timestamp || b.createdAt || 0)
-                      - new Date(a.meetingDate || a.timestamp || a.createdAt || 0));
-    }
-  } catch(e) { console.warn('[rcLoadNotifications/fu]', e.message); }
+  // Two independent reads, run in parallel instead of sequentially — each is a full
+  // network round-trip and neither depends on the other's result. Sequential awaits
+  // here doubled the wait unnecessarily, compounding with the other slow fetches
+  // renderReportCard already waits on (same root cause as rcLoadPhoto/rcLoadPrevResults
+  // above — fine on fast WiFi, a real stall on mobile data).
+  const [ntResult, fuResult] = await Promise.allSettled([
+    _db.collection('davan_notification_logs').doc(urn).get(),
+    _db.collection('davan_followup_logs').doc(urn).get(),
+  ]);
+  if (ntResult.status === 'fulfilled' && ntResult.value.exists) {
+    const d = ntResult.value.data();
+    out.notifications = (d.notifications || []).slice().reverse().slice(0, 10);
+  } else if (ntResult.status === 'rejected') {
+    console.warn('[rcLoadNotifications/nt]', ntResult.reason && ntResult.reason.message);
+  }
+  if (fuResult.status === 'fulfilled' && fuResult.value.exists) {
+    out.followups = (fuResult.value.data().followups || [])
+      .slice()
+      .sort((a, b) => new Date(b.meetingDate || b.timestamp || b.createdAt || 0)
+                    - new Date(a.meetingDate || a.timestamp || a.createdAt || 0));
+  } else if (fuResult.status === 'rejected') {
+    console.warn('[rcLoadNotifications/fu]', fuResult.reason && fuResult.reason.message);
+  }
   return out;
 }
 
@@ -13082,12 +13264,18 @@ async function renderReportCard() {
   const loadEl = document.getElementById('rc-loading');
   const wrapEl = document.getElementById('rc-wrap');
   const hidEl  = document.getElementById('rc-hidden');
+  // Branded overlay shown on every Report Card open, per explicit request — the
+  // STU_LOAD_MIN_MS floor (5s) already guarantees it's visible for a real branding
+  // moment regardless of how fast rcLoadPrevResults actually resolves (cached or
+  // not), so there's no need to skip it just because the underlying fetch is fast.
+  showStuRcLoader();
   if (loadEl) loadEl.style.display = 'block';
   if (wrapEl) wrapEl.style.display = 'none';
 
   if (!canShow('attendance')) {
     if (loadEl) loadEl.style.display = 'none';
     if (hidEl)  hidEl.style.display  = 'block';
+    hideStuRcLoader();
     return;
   }
   if (hidEl) hidEl.style.display = 'none';
@@ -13124,6 +13312,7 @@ async function renderReportCard() {
     // Always hide spinner — even if fetch throws
     if (loadEl) loadEl.style.display = 'none';
     if (wrapEl) wrapEl.style.display = 'block';
+    hideStuRcLoader();
   }
   STATE._lastPrevResults = prevResults || [];
 
