@@ -17,6 +17,16 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.58 (2026-08-03) — FEAT: made the emoji summary tiles clickable filters
+  across all Engagement-tab feedback lists — Login Feedback responses
+  (renderLfResponseList/lfFilterByEmoji) and Calculator/Report-Card feedback
+  (renderEgFeedbackList/egFeedbackFilterByEmoji). Clicking a tile (e.g. 😍 or 😞)
+  filters the list below to only that emoji's responses, with a "Showing only X
+  (n) ✕ Clear filter" line and a highlighted border on the active tile; clicking
+  the same tile again clears the filter. Filter state is kept per question/kind so
+  filtering one list doesn't affect another, and entries are cached in STATE
+  (lfRawEntries / egFeedbackEntries) so filtering re-renders instantly from memory
+  instead of re-fetching from Firebase on every click.
 VERSION : v7.57 (2026-08-03) — FEAT: Engagement tab, two additions. (1) Added a
   "🗑️ Reset Usage Stats" button next to the SGPA/CGPA CALCULATOR — USAGE heading
   (egResetCalcOpens()) — deletes davan_pub/calcOpens entirely so testing-only opens
@@ -4566,8 +4576,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.57';
-const BUILD_DATE   = '03 Aug 2026, 05:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.58';
+const BUILD_DATE   = '03 Aug 2026, 06:10 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -6449,25 +6459,49 @@ function renderEgFeedbackList(kind, entries, elId) {
   const rtdbPath = kind === 'calc' ? 'davan_pub/calcFeedback' : 'davan_pub/rcFeedback';
   const counts = {};
   (entries||[]).forEach(f => { counts[f.emoji] = (counts[f.emoji]||0) + 1; });
+  // v7.58: same clickable emoji-filter tiles as renderLfResponseList — filter state kept
+  // per kind ('calc'/'rc') in STATE.egFeedbackFilter so the two lists don't clobber each
+  // other, and STATE.egFeedbackEntries caches the unfiltered entries so the click handler
+  // can re-render without another Firebase fetch.
+  STATE.egFeedbackFilter = STATE.egFeedbackFilter || {};
+  STATE.egFeedbackEntries = STATE.egFeedbackEntries || {};
+  STATE.egFeedbackEntries[kind] = entries;
+  const activeFilter = STATE.egFeedbackFilter[kind] || null;
   let html = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">';
   EG_EMOJI_SCALE.forEach(x => {
     const n = counts[x.e] || 0;
-    const dim = n === 0;
-    html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;text-align:center;min-width:74px;' + (dim?'opacity:0.4;':'') + '">' +
+    const isActive = activeFilter === x.e;
+    const dim = n === 0 && !isActive;
+    const border = isActive ? 'border:2px solid var(--accent);' : 'border:1px solid var(--border);';
+    html += '<div onclick="egFeedbackFilterByEmoji(\'' + kind + '\',\'' + x.e + '\',\'' + elId + '\')" title="Click to filter by this response" ' +
+      'style="cursor:pointer;background:var(--surface2);' + border + 'border-radius:10px;padding:10px 14px;text-align:center;min-width:74px;user-select:none;transition:transform .1s;' + (dim?'opacity:0.4;':'') + (isActive?'box-shadow:0 0 0 1px var(--accent);':'') + '" ' +
+      'onmousedown="this.style.transform=\'scale(0.94)\'" onmouseup="this.style.transform=\'\'" onmouseleave="this.style.transform=\'\'">' +
       '<div style="font-size:22px;">' + x.e + '</div>' +
       '<div style="font-size:14px;font-weight:700;font-family:var(--head);color:var(--accent);margin-top:2px;">' + n + '</div>' +
       '<div style="font-size:9px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;">' + x.label + '</div></div>';
   });
   html += '</div>';
+  if (activeFilter) {
+    const label = (EG_EMOJI_SCALE.find(x => x.e === activeFilter) || {}).label || '';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:11px;font-family:var(--mono);color:var(--muted);">' +
+      'Showing only ' + activeFilter + ' ' + label + ' (' + (counts[activeFilter]||0) + ')' +
+      ' <button onclick="egFeedbackFilterByEmoji(\'' + kind + '\',null,\'' + elId + '\')" style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:10px;padding:2px 8px;">✕ Clear filter</button></div>';
+  }
 
   if (!entries || !entries.length) {
     html += '<div class="empty-state" style="padding:20px;"><div class="empty-icon">😊</div>No feedback submitted yet.</div>';
     el.innerHTML = html;
     return;
   }
+  const filtered = activeFilter ? entries.filter(f => f.emoji === activeFilter) : entries;
+  if (activeFilter && !filtered.length) {
+    html += '<div style="font-size:11px;color:var(--muted);padding:6px 0 4px;">No responses match this filter.</div>';
+    el.innerHTML = html;
+    return;
+  }
 
   const fmtTs = ts => { const d = new Date(ts); return isNaN(d) ? '' : d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); };
-  const sorted = [...entries].sort((a,b) => (b.ts||0)-(a.ts||0));
+  const sorted = [...filtered].sort((a,b) => (b.ts||0)-(a.ts||0));
   html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">';
   sorted.forEach((f, i) => {
     // Delete button — testing/seed data produces feedback that isn't real, so each row
@@ -6485,6 +6519,15 @@ function renderEgFeedbackList(kind, entries, elId) {
   });
   html += '</div>';
   el.innerHTML = html;
+}
+// v7.58: toggles the active emoji filter for the calc/rc feedback lists and re-renders
+// from the cached (not re-fetched) entries — same click-to-filter, click-again-to-clear
+// behaviour as lfFilterByEmoji.
+function egFeedbackFilterByEmoji(kind, emoji, elId) {
+  STATE.egFeedbackFilter = STATE.egFeedbackFilter || {};
+  STATE.egFeedbackFilter[kind] = (STATE.egFeedbackFilter[kind] === emoji) ? null : emoji;
+  const entries = (STATE.egFeedbackEntries && STATE.egFeedbackEntries[kind]) || [];
+  renderEgFeedbackList(kind, entries, elId);
 }
 // Deletes one feedback entry by its Firebase key, then reloads just that list so the
 // aggregate counts up top stay in sync with the row that was just removed.
@@ -6682,9 +6725,11 @@ async function loadLfResponses() {
         '<div id="lf-resp-' + q.qid + '"></div></div>';
     });
     el.innerHTML = html;
+    STATE.lfRawEntries = STATE.lfRawEntries || {};
     STATE.lfQuestions.forEach(q => {
       const qRaw = raw && raw[q.qid];
       const entries = qRaw && typeof qRaw === 'object' ? Object.entries(qRaw).map(([key,val]) => Object.assign({_key:key}, val)) : [];
+      STATE.lfRawEntries[q.qid] = entries;
       renderLfResponseList(q.qid, entries, q.type === 'text' ? 'text' : 'emoji');
     });
   } catch(e) {
@@ -6722,21 +6767,45 @@ function renderLfResponseList(qid, entries, type) {
   }
   const counts = {};
   (entries||[]).forEach(f => { counts[f.emoji] = (counts[f.emoji]||0) + 1; });
+  // v7.58: CLICKABLE EMOJI FILTER TILES — clicking a tile filters the list below to only
+  // that emoji's responses; clicking the same tile again clears the filter. Filter state
+  // is kept per-question (STATE.lfFilter[qid]) so switching between questions' lists
+  // doesn't clobber each other's active filter, and survives a loadLfResponses() refresh
+  // (e.g. after deleting a row) until the admin explicitly changes or clears it.
+  STATE.lfFilter = STATE.lfFilter || {};
+  const activeFilter = STATE.lfFilter[qid] || null;
   html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">';
   EG_EMOJI_SCALE.forEach(x => {
     const n = counts[x.e] || 0;
-    html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;text-align:center;min-width:64px;' + (n===0?'opacity:0.4;':'') + '">' +
+    const isActive = activeFilter === x.e;
+    const dim = n === 0 && !isActive;
+    const border = isActive ? 'border:2px solid var(--accent);' : 'border:1px solid var(--border);';
+    html += '<div onclick="lfFilterByEmoji(\'' + qid + '\',\'' + x.e + '\')" title="Click to filter by this response" ' +
+      'style="cursor:pointer;background:var(--surface2);' + border + 'border-radius:10px;padding:8px 12px;text-align:center;min-width:64px;user-select:none;transition:transform .1s;' + (dim?'opacity:0.4;':'') + (isActive?'box-shadow:0 0 0 1px var(--accent);':'') + '" ' +
+      'onmousedown="this.style.transform=\'scale(0.94)\'" onmouseup="this.style.transform=\'\'" onmouseleave="this.style.transform=\'\'">' +
       '<div style="font-size:18px;">' + x.e + '</div>' +
       '<div style="font-size:12px;font-weight:700;font-family:var(--head);color:var(--accent);margin-top:1px;">' + n + '</div></div>';
   });
   html += '</div>';
+  if (activeFilter) {
+    const label = (EG_EMOJI_SCALE.find(x => x.e === activeFilter) || {}).label || '';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px;font-family:var(--mono);color:var(--muted);">' +
+      'Showing only ' + activeFilter + ' ' + label + ' (' + (counts[activeFilter]||0) + ')' +
+      ' <button onclick="lfFilterByEmoji(\'' + qid + '\',null)" style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:10px;padding:2px 8px;">✕ Clear filter</button></div>';
+  }
   if (!entries || !entries.length) {
     html += '<div style="font-size:11px;color:var(--muted);padding:6px 0 4px;">No responses yet.</div>';
     el.innerHTML = html;
     return;
   }
+  const filtered = activeFilter ? entries.filter(f => f.emoji === activeFilter) : entries;
+  if (activeFilter && !filtered.length) {
+    html += '<div style="font-size:11px;color:var(--muted);padding:6px 0 4px;">No responses match this filter.</div>';
+    el.innerHTML = html;
+    return;
+  }
   const fmtTs = ts => { const d = new Date(ts); return isNaN(d) ? '' : d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); };
-  const sorted = [...entries].sort((a,b) => (b.ts||0)-(a.ts||0));
+  const sorted = [...filtered].sort((a,b) => (b.ts||0)-(a.ts||0));
   html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">';
   sorted.forEach((f, i) => {
     html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;' + (i%2?'background:rgba(255,255,255,0.01);':'') + (i?'border-top:1px solid var(--border);':'') + '">' +
@@ -6748,6 +6817,17 @@ function renderLfResponseList(qid, entries, type) {
   });
   html += '</div>';
   el.innerHTML = html;
+}
+// v7.58: toggles the per-question emoji filter and re-renders just that question's
+// response list (not a full loadLfResponses() reload) — clicking the same emoji again
+// clears the filter. Needs the raw entries again since renderLfResponseList only keeps
+// what it's handed each call; STATE.lfRawEntries is cached per-qid by loadLfResponses
+// specifically so this click handler doesn't need its own Firebase round-trip.
+function lfFilterByEmoji(qid, emoji) {
+  STATE.lfFilter = STATE.lfFilter || {};
+  STATE.lfFilter[qid] = (STATE.lfFilter[qid] === emoji) ? null : emoji;
+  const entries = (STATE.lfRawEntries && STATE.lfRawEntries[qid]) || [];
+  renderLfResponseList(qid, entries, 'emoji');
 }
 async function deleteLfResponse(qid, key) {
   if (!confirm('Delete this feedback entry? Cannot be undone.')) return;

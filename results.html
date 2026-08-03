@@ -288,6 +288,7 @@
  r465/r466 | 01-Aug-2026 IST | FEAT + CHANGE, superseded/refined by r466 below (kept as one entry since r466 restructures what r465 first shipped, same session): (1) NEW "Both-Sems Merit" — pairs I↔II, III↔IV, V↔VI; a student qualifies only if they're a REGULAR student (URN-matched across RES_ALL_DOCS, same join key as Missing Writers) in BOTH sems of a pair AND individually clears the Min % threshold in EACH sem separately (not an average) — _getBothSemMeritData/resRenderBothSemMerit, own Excel + WA-Management (resBothSemMeritExcel/resBothSemMeritWAManagement), per-student WA send (bothSemMeritWASend). (2) CHANGE: Faculty Excellence (r322) used to source from RES_DATA — a single batch scoped by whichever Sem chip was active, so it only ever showed one semester's 100/100s at a time. _getFacultyExcellenceData now always pools ALL SIX semesters (I–VI) via RES_ALL_DOCS — same resSubjectCountsForStats guard (no labs, no split/50-mark 50+50 papers) still runs per-doc. Correctness fix made necessary by the pooling: subject codes are only unique within one semester's doc, so scorer/faculty lookups are scoped to each subject's own _sourceDoc.regular instead of a globally-pooled list — without this, a code like "101" reused in Sem I and Sem III could misattribute scorers across semesters. Entries carry a sem tag, sort by sem per faculty card; excellenceWASend and wa-btn IDs are keyed by urn+subjectCode (not urn alone) since a student can now have multiple 100/100s across different sems in one view. (3) NEW "Students Who Scored 100/100" — pivots the same Faculty-Excellence data (same guard, same all-6-sems source) by STUDENT instead of by faculty: one card per student listing every (subject, sem) they scored 100 in, own Excel (resStudents100Excel), WA-Management (resStudents100WAManagement), and per-student WA send (students100WASend) that lists all their perfect scores in one message.
 
  r466 | 01-Aug-2026 IST | CHANGE (reported live via screenshot — "make this as one more page rather then keeping above old data two pages"): r465 had stacked Both-Sems Merit + Faculty Excellence + Students-100 directly below the existing single-sem Merit list on the same long-scrolling Merit pane. Split into a brand-new "🌟 Excellence" tab (res-tab-btn-excellence / res-pane-excellence) alongside Merit in the topbar — resSetTab('excellence') → resRenderExcellenceChips()+resRenderExcellence(), same admin-only visibility as Merit/Rankings/Timetable (isFac hide block + resSetTab guard). The Merit pane is back to just its original single-sem list; the 3 sections live entirely on the new page with their own Course/Section chip row (res-excel-chip-course/section — no Semester chip, since all 3 sections intentionally span every sem by design) and their own ceremony date/time/venue fields (res-excel-date/time/venue, res-excel-threshold) — these were split into distinct IDs from res-merit-date/time/venue/threshold specifically to avoid a duplicate-ID bug: reusing the Merit pane's field IDs on the new page would have made getElementById silently return whichever instance rendered first, corrupting values across both pages. All Both-Sems/Faculty-Excellence/Students-100 functions (Excel, WA-Management, per-student/per-subject WA send) repointed to the new res-excel-* IDs.
+ r467 | 03-Aug-2026 IST | FEAT: Changed Marks detection on upload. resSaveUpload's merge (r-era design, unchanged by this) fully replaces the uploaded campus's student list with zero per-student/per-subject comparison against what was already saved — so if the university revises marks after an earlier scrape, a re-upload saves the correction silently with no record of what changed. New resCheckChangedMarks runs right after parsing (before Save is even reachable): fetches the existing results/<batchKey> doc read-only (same fsGet call resSaveUpload makes later), scopes the comparison to students of the campus actually being uploaded (resDiffAgainstSaved), and per subject-code compares total/result/letter-grade between old and new. Any student not previously present is skipped (that's a new admission, not a change) and any subject not previously present on that student is skipped (that's a new addition, not a change) — only genuine value flips surface. Results render in a new "⚠ Marks Changed vs Saved Data" card (res-changed-marks, above the existing upload preview) as a table: URN, name, subject, field, old value → new value; the card is hidden entirely when there is nothing to show or no prior doc exists for that batch key yet. Purely advisory — never blocks or alters the save path; a fetch failure is caught and logged, never surfaced as an error toast, since this check must not be able to stop an upload the old behaviour would have allowed. Hooked into resParseAndPreview's existing post-parse call site (same place resShowUploadPreview is called) and into resCancelUpload (hides the card so it can't outlive the upload it described).
  r444 | 31-Jul-2026 IST | FIX (root cause of the student portal showing no faculty): fsSetMerge wrote to FIRESTORE ONLY. _rtdbPubPath() existed purely as a READ fallback for manager/vp roles, so nothing in this file has ever written the DB1 RTDB copy at davan_pub/allocations — and sync_db1_to_db2.py reads that RTDB path, never Firestore. Every allocation edit therefore landed in Firestore, results.html read it back correctly, and the student portal kept serving whatever the RTDB mirror last contained — which is why exactly four B.COM subjects showed a dash in the portal while looking perfect in the admin, and why Repair Allocations correctly reported nothing to fix (Firestore really was complete). fsSetMerge now mirrors every write to its davan_pub RTDB path — allocation docs flat under davan_pub/allocations/<docId>, others at the mapped path — and logs the mirror. If the RTDB write is refused it does not fail the save; it warns in console and raises a sticky Saved but not mirrored toast naming the error, so a permissions problem can never again masquerade as saved data. My r443 note claiming fsSetMerge already mirrored was wrong and is corrected in place.
  r443 | 31-Jul-2026 IST | FEAT: Repair Allocations button (sidebar, above Clear All Allocation) to recover the faculty the r438 merge bug blanked. Diagnosis from the report: results.html itself showed every faculty correctly while the student portal showed a dash for exactly the four B.COM-2.x subjects — because the two read DIFFERENT sources. The faculty a subject was uploaded or auto-assigned with is stored on the RESULTS doc (doc.subjects[].faculty), which the wipe never touched, whereas the student portal reads the separate allocation_<batch> docs (mirrored to davan_pub/allocations and pushed to DB2 by sync_db1_to_db2.py), which is what got blanked. resRepairAllocations() walks every loaded batch, dry-runs first and shows exactly which assignments it would restore, then writes back only the faculty that exist in the results doc and are MISSING from the allocation doc — a name already present in the allocation is never overwritten, so the tool can be run repeatedly without risk. CORRECTION (see r444): the claim here that fsSetMerge also updated the RTDB mirror was wrong — it wrote to Firestore only, which is the real reason the portal stayed stale.
  r442 | 31-Jul-2026 IST | REGRESSION FIX (my bug, introduced in r438): faculty disappeared from subjects OTHER than Environmental Studies. r438's allocation merge ended with rows.forEach(r => merged[key] = r), which overwrote unconditionally — so any subject whose faculty happened to be EMPTY in the current in-memory view erased the good assignment already saved in Firestore. Two things made empty rows common: r440's resReconcileDocSubjects restores subjects missing from a batch with faculty:'' by design, and any subject whose allocation had not been applied in the session also carried ''. A single Save and Apply then blanked them all. Fix: an empty value now only wins when the user actually touched that dropdown — resFacultyEditCell marks the row _touched, the flag survives a filter rebuild, and the merge keeps the existing faculty for any untouched blank while still allowing a deliberate clear. Restored placeholder rows are skipped entirely unless a faculty was set on them. A console warning reports how many entries were preserved. Sorry — this one was mine, not pre-existing.
@@ -1615,6 +1616,18 @@
       </div>
       <div id="res-summary-entries"></div>
     </div>
+    <!-- Changed Marks vs already-saved data (r467) -->
+    <div class="preview-card" id="res-changed-marks" style="display:none;">
+      <div class="preview-header">
+        <span style="font-size:12px;font-family:var(--mono);color:var(--warn);">⚠ Marks Changed vs Saved Data</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-outline-muted" onclick="document.getElementById('res-changed-marks').style.display='none'">✖ Close</button>
+        </div>
+      </div>
+      <div class="preview-info" id="res-changed-marks-info"></div>
+      <div class="preview-scroll" style="max-height:340px;"><div id="res-changed-marks-table"></div></div>
+    </div>
+
     <!-- Upload preview -->
     <div class="preview-card" id="res-upload-preview" style="display:none;">
       <div class="preview-header">
@@ -1881,6 +1894,14 @@
             <div id="res-analysis-chip-section" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
           </div>
           </div>
+
+        <!-- DI vs NU campus summary (written/pass/fail/% — follows chips above) -->
+        <div id="res-di-nu-summary-wrap" style="display:none;margin-bottom:20px;">
+          <div class="analysis-card">
+            <h3>🏫 Campus Summary — Written / Pass / Fail / %</h3>
+            <div id="res-di-nu-summary-rows"></div>
+          </div>
+        </div>
 
         <!-- Subject difficulty ranking -->
         <div class="analysis-card" style="margin-bottom:20px;">
@@ -3545,8 +3566,8 @@ async function resClearAllocConfirmed(allocDocs) {
 //  reported live. All three now render from RES_BUILD/RES_BUILD_DATE, so a
 //  future bump only ever needs to change the two constants below.
 // ═══════════════════════════════════════════════════════════════
-const RES_BUILD = 'r466';
-const RES_BUILD_DATE = '01-Aug-2026';
+const RES_BUILD = 'r467';
+const RES_BUILD_DATE = '03-Aug-2026';
 function resRenderVersionFooter() {
   const label = RES_BUILD;
   const full  = 'Build ' + RES_BUILD + ' · ' + RES_BUILD_DATE;
@@ -9905,6 +9926,7 @@ async function resParseUploadedFiles() {
   resSetTab('overview');
   resConfirmUpload();  // show save banner on dashboard
   resShowUploadPreview(parsed);
+  resCheckChangedMarks(parsed);  // r467: warn if any mark differs from what's already saved
 }
 
 // ── Read file as ArrayBuffer → XLSX workbook ──
@@ -10277,6 +10299,134 @@ function resShowUploadPreview(parsed) {
   tableEl.innerHTML = html;
   previewDiv.style.display = '';
   previewDiv.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CHANGED MARKS DETECTION (r467)
+//  Compares the freshly-parsed upload against whatever is already
+//  saved in Firestore for this batch key, per student per subject,
+//  and surfaces every mark/result/grade that differs BEFORE Save.
+//  This does not change what resSaveUpload does — that still fully
+//  replaces the uploaded campus's student list (see r-comment there).
+//  This only makes visible what would otherwise change silently.
+// ═══════════════════════════════════════════════════════════════
+function resDiffAgainstSaved(newStudents, oldStudents) {
+  // Returns [{ urn, name, code, subjectName, field, oldVal, newVal }, ...]
+  const oldByUrn = new Map();
+  (oldStudents || []).forEach(s => {
+    const id = s.urn || s.usn;
+    if (id) oldByUrn.set(String(id).toUpperCase(), s);
+  });
+
+  const FIELDS = [
+    { key: 'total',  label: 'Marks' },
+    { key: 'result', label: 'Result' },
+    { key: 'grade',  label: 'Ltr. Grade' },
+  ];
+
+  const changes = [];
+  (newStudents || []).forEach(ns => {
+    const id = ns.urn || ns.usn;
+    if (!id) return;
+    const os = oldByUrn.get(String(id).toUpperCase());
+    if (!os) return; // new student — nothing to compare, not a "change"
+
+    Object.keys(ns.subjects || {}).forEach(code => {
+      const nd = ns.subjects[code];
+      const od = os.subjects ? os.subjects[code] : undefined;
+      if (!od) return; // subject not present before — new addition, not a change
+
+      FIELDS.forEach(f => {
+        const nv = nd[f.key];
+        const ov = od[f.key];
+        // Normalise for comparison: treat null/undefined/'' as equal,
+        // numbers compared numerically (avoids false '68'!=68 diffs).
+        const norm = v => (v === null || v === undefined) ? '' : v;
+        const same = (f.key === 'total')
+          ? (parseFloat(nv) || 0) === (parseFloat(ov) || 0) || (norm(nv) === norm(ov))
+          : String(norm(nv)).toLowerCase() === String(norm(ov)).toLowerCase();
+        if (!same) {
+          changes.push({
+            urn: ns.urn || ns.usn,
+            name: ns.name || os.name || '—',
+            code,
+            subjectName: nd.name || od.name || code,
+            field: f.label,
+            oldVal: (ov === null || ov === undefined || ov === '') ? '—' : ov,
+            newVal: (nv === null || nv === undefined || nv === '') ? '—' : nv,
+          });
+        }
+      });
+    });
+  });
+  return changes;
+}
+
+function resShowChangedMarks(changes, campusLabel) {
+  const card    = document.getElementById('res-changed-marks');
+  const infoEl  = document.getElementById('res-changed-marks-info');
+  const tableEl = document.getElementById('res-changed-marks-table');
+  if (!card || !infoEl || !tableEl) return;
+
+  if (!changes.length) {
+    card.style.display = 'none';
+    return;
+  }
+
+  const studentCount = new Set(changes.map(c => c.urn)).size;
+  infoEl.innerHTML =
+    `<strong style="color:var(--warn);">${changes.length}</strong> mark change(s) across ` +
+    `<strong>${studentCount}</strong> student(s)${campusLabel ? ' — ' + campusLabel : ''} ` +
+    `compared to what is currently saved. Review before you upload — saving will overwrite these.`;
+
+  const rows = changes.map(c => `
+    <tr>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${c.urn||'—'}</td>
+      <td>${c.name}</td>
+      <td style="font-size:12px;">${c.subjectName} <span style="color:var(--muted);font-size:10px;">(${c.code})</span></td>
+      <td style="font-size:11px;color:var(--muted);">${c.field}</td>
+      <td style="font-family:var(--mono);color:var(--danger);text-align:center;">${c.oldVal}</td>
+      <td style="font-family:var(--mono);color:var(--muted);text-align:center;">→</td>
+      <td style="font-family:var(--mono);color:var(--ok);font-weight:700;text-align:center;">${c.newVal}</td>
+    </tr>`).join('');
+
+  tableEl.innerHTML = `<table class="res-table">
+    <thead><tr>
+      <th>URN</th><th>Name</th><th>Subject</th><th>Field</th>
+      <th>Old</th><th></th><th>New</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+
+  card.style.display = '';
+  card.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+// Fetches the currently-saved doc for this batch key and runs the diff.
+// Called right after parsing, before the user reaches Save — mirrors the
+// same fsGet('results', key) call resSaveUpload makes later, so this is a
+// read-only preview and does not itself touch Firestore.
+async function resCheckChangedMarks(parsed) {
+  if (!parsed || !parsed.key) return;
+  try {
+    const existingDoc = await fsGet('results', parsed.key);
+    if (!existingDoc) {
+      document.getElementById('res-changed-marks')?.style && (document.getElementById('res-changed-marks').style.display = 'none');
+      return; // nothing saved yet for this batch — nothing to diff against
+    }
+    const uploadedCampus = (parsed.regular?.[0]?.campus || parsed.backlog?.[0]?.campus || '').toUpperCase();
+    const oldAll = [...(existingDoc.regular||[]), ...(existingDoc.backlog||[])];
+    const newAll = [...(parsed.regular||[]), ...(parsed.backlog||[])];
+    // Only compare within the campus actually being uploaded — the other
+    // campus's students in existingDoc are untouched by this upload anyway.
+    const oldScoped = uploadedCampus ? oldAll.filter(s => (s.campus||'').toUpperCase() === uploadedCampus) : oldAll;
+    const changes = resDiffAgainstSaved(newAll, oldScoped);
+    console.log('[resCheckChangedMarks]', parsed.key, uploadedCampus||'(all)', '→', changes.length, 'changed field(s)');
+    resShowChangedMarks(changes, uploadedCampus);
+  } catch(e) {
+    console.error('[resCheckChangedMarks] failed:', e);
+    // Fail silent-but-logged — this is an advisory check, must never block upload
+  }
 }
 
 
@@ -10677,6 +10827,8 @@ function resCancelUpload() {
   RES_UPLOAD_PARSED = null;
   const pv = document.getElementById('res-upload-preview');
   if (pv) pv.style.display='none';
+  const cm = document.getElementById('res-changed-marks');  // r467
+  if (cm) cm.style.display='none';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -12986,6 +13138,38 @@ function resRenderAnalysis() {
       <div style="text-align:right;">${_marksDisplay}${_subLabel}</div>
     </div>`;
   }).join('');
+
+  // ── DI vs NU campus summary (written/pass/fail/% — regular students only,
+  //    same as Dashboard's campus rows, but follows the finer Analysis chips
+  //    (Sem Type/Course/Semester/Section) instead of only the Dashboard's
+  //    coarse section toggle). Campus is a URN-based property independent of
+  //    course, so this shows for BCom/BBA too, not just BCA. ──
+  const diNuSummaryWrap = document.getElementById('res-di-nu-summary-wrap');
+  if (regular.length) {
+    diNuSummaryWrap.style.display = '';
+    const mkSummaryRow = (label, color, pool) => {
+      const appeared = pool.filter(s => s.result === 'PASS' || s.result === 'FAIL');
+      const written = appeared.length || pool.length;
+      const pass = pool.filter(s => s.result === 'PASS').length;
+      const fail = pool.filter(s => s.result === 'FAIL').length;
+      const pct = written ? ((pass/written)*100).toFixed(1) : '0';
+      const pctColor = parseFloat(pct)>=60?'var(--ok)':parseFloat(pct)>=40?'var(--warn)':'var(--danger)';
+      return `<div style="margin-bottom:8px;">
+        <div style="font-size:10px;font-weight:700;color:${color};letter-spacing:.06em;margin-bottom:6px;">${label}</div>
+        <div class="stat-cards">
+          <div class="stat-card"><div class="stat-icon">✍️</div><div class="stat-value">${written}</div><div class="stat-label">Total Written</div></div>
+          <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-value" style="color:var(--ok);">${pass}</div><div class="stat-label">Pass</div></div>
+          <div class="stat-card"><div class="stat-icon">❌</div><div class="stat-value" style="color:var(--danger);">${fail}</div><div class="stat-label">Fail</div></div>
+          <div class="stat-card"><div class="stat-icon">📊</div><div class="stat-value" style="color:${pctColor};">${pct}%</div><div class="stat-label">Pass %</div></div>
+        </div>
+      </div>`;
+    };
+    document.getElementById('res-di-nu-summary-rows').innerHTML =
+      mkSummaryRow('🏫 Nutana (NU)', '#a78bfa', regular.filter(isNU)) +
+      mkSummaryRow('🏫 Davan (DI)',  'var(--blue)', regular.filter(isDI));
+  } else {
+    diNuSummaryWrap.style.display = 'none';
+  }
 
   // ── DI vs NU subject breakdown ──
   const diNuWrap = document.getElementById('res-di-nu-detail-wrap');
