@@ -17,6 +17,21 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v7.57 (2026-08-03) — FEAT: Engagement tab, two additions. (1) Added a
+  "🗑️ Reset Usage Stats" button next to the SGPA/CGPA CALCULATOR — USAGE heading
+  (egResetCalcOpens()) — deletes davan_pub/calcOpens entirely so testing-only opens
+  (e.g. the 33 logged while testing) can be cleared before real students start using
+  it; confirms via a Firebase re-read that the path actually came back empty before
+  reporting success, rather than assuming the delete request succeeding meant the
+  data was gone. (2) Added a floating bottom-right confirm-toast (egToast(),
+  #eg-toast-wrap) shown for EVERY Engagement-tab save/toggle/add/remove action —
+  calc/report-card feedback strip toggles (saveGlobal), and all Login Feedback
+  question admin actions (lfAddQuestion/lfEditQuestion/lfSetQuestionType/
+  lfToggleQuestion/lfRemoveQuestion/lfResetAll). Each of these now re-reads its own
+  just-written RTDB path back from Firebase before toasting "confirmed in Firebase";
+  if the read-back doesn't match what was sent, it toasts a failure instead — so a
+  silent write failure (dropped network call, rules rejection) is never mistaken for
+  a successful save.
 VERSION : v7.55 (2026-08-01) — CRITICAL FIX: College Rank, Class Rank, and
   Davan/Nutana Campus Rank were all computed as pool.findIndex(s => ...) + 1
   -- raw array position after sorting by pct, with zero tie detection. Same
@@ -2719,6 +2734,31 @@ body.dash-active .data-strip { display: block; }
    SCREENSHOT / PRINT PREVENTION
 ════════════════════════════════════════════════════ */
 #screenshot-overlay { display: none; }
+
+/* v7.57: ADMIN CONFIRM TOAST — floating bottom-right toast used across the
+   Engagement tab (calc-usage reset, feedback toggles, login-feedback question
+   add/edit/toggle/remove) to confirm an action actually persisted in Firebase,
+   not just that the write request was sent. egToast() re-reads the just-written
+   path before showing "Saved" so a silent write failure (network drop, rules
+   rejection) shows as a failure toast instead of a false "Saved". */
+#eg-toast-wrap {
+  position: fixed; bottom: 22px; right: 22px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.eg-toast {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  border-radius: 8px; padding: 10px 16px; min-width: 220px; max-width: 340px;
+  font-size: 12.5px; font-family: var(--mono); color: var(--text);
+  box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  opacity: 0; transform: translateY(8px);
+  animation: egToastIn .18s ease forwards, egToastOut .25s ease forwards 2.6s;
+}
+.eg-toast.err { border-left-color: var(--danger); }
+.eg-toast .eg-toast-icon { font-size: 14px; flex-shrink: 0; }
+@keyframes egToastIn { to { opacity: 1; transform: translateY(0); } }
+@keyframes egToastOut { to { opacity: 0; transform: translateY(-6px); } }
 </style>
 </head>
 <body>
@@ -3995,7 +4035,10 @@ body.dash-active .data-strip { display: block; }
       <button class="btn btn-sm btn-ghost" onclick="loadEngagementData()" style="white-space:nowrap;margin-bottom:0;"><span class="spinner" id="eg-spinner"></span>🔄 Refresh</button>
     </div>
 
-    <div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:4px 0 8px;">🧮 SGPA/CGPA CALCULATOR — USAGE</div>
+    <div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:4px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <span>🧮 SGPA/CGPA CALCULATOR — USAGE</span>
+      <button id="eg-calc-reset-btn" class="btn btn-sm" style="border-color:var(--danger);color:var(--danger);text-transform:none;letter-spacing:normal;font-family:var(--body,inherit);margin-bottom:0;" onclick="egResetCalcOpens()" title="Testing-only: wipes all recorded calculator opens">🗑️ Reset Usage Stats</button>
+    </div>
     <div id="eg-calc-overview"></div>
     <div id="eg-calc-class-list" style="margin-top:14px;"></div>
     <div id="eg-calc-drilldown" style="margin-top:14px;"></div>
@@ -4523,8 +4566,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.56';
-const BUILD_DATE   = '03 Aug 2026, 04:45 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.57';
+const BUILD_DATE   = '03 Aug 2026, 05:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
    STATE
@@ -4914,6 +4957,59 @@ function snBtnHtml(link, source, compact) {
    None of these ever carry the student's actual typed SGPA/CGPA numbers —
    those stay in localStorage only (see egCalcLocalKey), by design.
 ════════════════════════════════════════════════════════════════ */
+/* v7.57: ADMIN CONFIRM TOAST — one floating toast per call, auto-dismisses in ~3s
+   via the CSS animation (egToastOut). Every Engagement-tab save/reset action below
+   calls this ONLY after it has re-read the relevant RTDB path back and confirmed the
+   value actually landed — so "Saved ✓" here always means "confirmed in Firebase",
+   never just "request sent". */
+function egToast(msg, ok) {
+  const wrap = document.getElementById('eg-toast-wrap');
+  if (!wrap) { alert(msg); return; }
+  const el = document.createElement('div');
+  el.className = 'eg-toast' + (ok === false ? ' err' : '');
+  el.innerHTML = '<span class="eg-toast-icon">' + (ok === false ? '✕' : '✓') + '</span><span>' + msg + '</span>';
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+/* v7.57: RESET SGPA/CGPA CALCULATOR — USAGE (testing-only reset).
+   Deletes the ENTIRE davan_pub/calcOpens log (all "opens" rows, all students/classes) —
+   this is a hard wipe of the counter shown as "TOTAL OPENS" / "UNIQUE STUDENTS" on the
+   Engagement tab, used to clear out test data (e.g. the 33 opens Gujjar logged himself
+   while testing) before real students start using the calculator. Does NOT touch
+   davan_pub/calcFeedback or davan_pub/rcFeedback (separate logs, separate buttons if
+   ever needed) and does NOT touch each student's localStorage CGPA entries (egCgpaKey) —
+   those were never part of this log to begin with (see the block above).
+   Verification: after the delete, this re-reads davan_pub/calcOpens back from Firebase.
+   Only if that second read comes back empty/null does it report success — if Firebase
+   still returns rows (write didn't take, rules blocked it, network issue, etc.) it
+   reports failure instead of a false "done". */
+async function egResetCalcOpens() {
+  const priorCount = (STATE.calcOpens || []).length;
+  if (!confirm('Reset SGPA/CGPA Calculator usage stats?\n\nThis permanently deletes all ' + priorCount + ' recorded "opens" (test + real) from Firebase. This cannot be undone.\n\nCalculator feedback (emoji ratings) is NOT affected.')) return;
+  const btn = document.getElementById('eg-calc-reset-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Resetting…'; }
+  try {
+    await rtdbDelete('davan_pub/calcOpens');
+    // Re-read from Firebase to CONFIRM the delete actually persisted, rather than
+    // trusting the fetch resolved without error.
+    const check = await rtdbGet('davan_pub/calcOpens');
+    const stillThere = check && typeof check === 'object' ? Object.keys(check).length : 0;
+    if (stillThere > 0) {
+      egToast('Reset failed — ' + stillThere + ' row(s) still in Firebase', false);
+    } else {
+      STATE.calcOpens = [];
+      renderEgCalcOverview();
+      renderEgCalcClassList();
+      const dd = document.getElementById('eg-calc-drilldown'); if (dd) dd.innerHTML = '';
+      egToast('Calculator usage reset — confirmed empty in Firebase', true);
+    }
+  } catch(e) {
+    egToast('Reset failed: ' + e.message, false);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🗑️ Reset Usage Stats'; }
+}
+
 function egTrackCalcOpen() {
   const u = STATE.studentUser || {};
   if (!u.urn) return;
@@ -6484,35 +6580,66 @@ async function lfAddQuestion() {
   try {
     const res = await rtdbPush('controls/loginFeedbackQuestions', { text: '', enabled: true, order, type: 'emoji' });
     const qid = res && res.name;
-    if (qid) STATE.lfQuestions.push({ qid, text: '', enabled: true, order, type: 'emoji' });
-    renderLfAdmin();
-  } catch(e) { alert('Error: ' + e.message); }
+    if (!qid) { egToast('Add question failed — no key returned by Firebase', false); return; }
+    // v7.57: verify — re-read this exact question node back from Firebase before
+    // treating it as added, so a silent push failure doesn't quietly leave the admin
+    // panel showing a question that was never actually saved.
+    const check = await rtdbGet('controls/loginFeedbackQuestions/' + qid);
+    if (check && typeof check === 'object') {
+      STATE.lfQuestions.push({ qid, text: '', enabled: true, order, type: 'emoji' });
+      renderLfAdmin();
+      egToast('Question added — confirmed in Firebase', true);
+    } else {
+      egToast('Add question NOT confirmed in Firebase', false);
+    }
+  } catch(e) { egToast('Add question failed: ' + e.message, false); alert('Error: ' + e.message); }
 }
 async function lfSetQuestionType(qid, type) {
   const q = (STATE.lfQuestions||[]).find(x => x.qid === qid);
   if (q) q.type = type;
-  try { await rtdbPatch('controls/loginFeedbackQuestions/' + qid, { type }); flashAlert('lf-save-notice','Saved'); }
-  catch(e) { alert('Save failed: ' + e.message); }
+  try {
+    await rtdbPatch('controls/loginFeedbackQuestions/' + qid, { type });
+    const check = await rtdbGet('controls/loginFeedbackQuestions/' + qid + '/type');
+    if (check === type) { flashAlert('lf-save-notice','Saved'); egToast('Question type saved — confirmed in Firebase', true); }
+    else egToast('Question type NOT confirmed — Firebase shows: ' + JSON.stringify(check), false);
+  }
+  catch(e) { egToast('Save failed: ' + e.message, false); alert('Save failed: ' + e.message); }
 }
 async function lfEditQuestion(qid, text) {
   const q = (STATE.lfQuestions||[]).find(x => x.qid === qid);
   if (q) q.text = text;
-  try { await rtdbPatch('controls/loginFeedbackQuestions/' + qid, { text }); flashAlert('lf-save-notice','Saved'); }
-  catch(e) { alert('Save failed: ' + e.message); }
+  try {
+    await rtdbPatch('controls/loginFeedbackQuestions/' + qid, { text });
+    const check = await rtdbGet('controls/loginFeedbackQuestions/' + qid + '/text');
+    if (check === text) { flashAlert('lf-save-notice','Saved'); egToast('Question text saved — confirmed in Firebase', true); }
+    else egToast('Question text NOT confirmed — Firebase shows: ' + JSON.stringify(check), false);
+  }
+  catch(e) { egToast('Save failed: ' + e.message, false); alert('Save failed: ' + e.message); }
 }
 async function lfToggleQuestion(qid, enabled) {
   const q = (STATE.lfQuestions||[]).find(x => x.qid === qid);
   if (q) q.enabled = enabled;
-  try { await rtdbPatch('controls/loginFeedbackQuestions/' + qid, { enabled }); flashAlert('lf-save-notice','Saved'); }
-  catch(e) { alert('Save failed: ' + e.message); }
+  try {
+    await rtdbPatch('controls/loginFeedbackQuestions/' + qid, { enabled });
+    const check = await rtdbGet('controls/loginFeedbackQuestions/' + qid + '/enabled');
+    if (check === enabled) { flashAlert('lf-save-notice','Saved'); egToast('Question ' + (enabled ? 'enabled' : 'disabled') + ' — confirmed in Firebase', true); }
+    else egToast('Toggle NOT confirmed — Firebase shows: ' + JSON.stringify(check), false);
+  }
+  catch(e) { egToast('Save failed: ' + e.message, false); alert('Save failed: ' + e.message); }
 }
 async function lfRemoveQuestion(qid) {
   if (!confirm('Remove this question? Its past responses stay on record but it will no longer be asked.')) return;
   try {
     await rtdbDelete('controls/loginFeedbackQuestions/' + qid);
-    STATE.lfQuestions = (STATE.lfQuestions||[]).filter(x => x.qid !== qid);
-    renderLfAdmin();
-  } catch(e) { alert('Error: ' + e.message); }
+    const check = await rtdbGet('controls/loginFeedbackQuestions/' + qid);
+    if (check === null || check === undefined) {
+      STATE.lfQuestions = (STATE.lfQuestions||[]).filter(x => x.qid !== qid);
+      renderLfAdmin();
+      egToast('Question removed — confirmed gone from Firebase', true);
+    } else {
+      egToast('Remove NOT confirmed — question still in Firebase', false);
+    }
+  } catch(e) { egToast('Remove failed: ' + e.message, false); alert('Error: ' + e.message); }
 }
 // Bumps the "round" counter — every student's per-round done-marker (both the
 // davan_pub/loginFeedbackDone/{urn} server flag and their localStorage copy) stops
@@ -6523,9 +6650,15 @@ async function lfResetAll() {
   const nextRound = (STATE.lfMeta && STATE.lfMeta.round || 1) + 1;
   try {
     await rtdbPatch('controls/global/loginFeedback', { round: nextRound });
-    STATE.lfMeta.round = nextRound;
-    flashAlert('lf-save-notice', 'Reset — will be asked again on next login');
-  } catch(e) { alert('Error: ' + e.message); }
+    const check = await rtdbGet('controls/global/loginFeedback/round');
+    if (check === nextRound) {
+      STATE.lfMeta.round = nextRound;
+      flashAlert('lf-save-notice', 'Reset — will be asked again on next login');
+      egToast('Reset to round ' + nextRound + ' — confirmed in Firebase', true);
+    } else {
+      egToast('Reset NOT confirmed — Firebase round is ' + JSON.stringify(check), false);
+    }
+  } catch(e) { egToast('Reset failed: ' + e.message, false); alert('Error: ' + e.message); }
 }
 // Admin "who answered what" view — one block per active question, same aggregate-tiles
 // + list-with-delete layout as renderEgFeedbackList, since it's the same shape of data
@@ -7347,9 +7480,26 @@ function renderControls() {
   renderOverrides('byClass','class-override-list');
   renderOverrides('byUrn','urn-override-list');
 }
+// v7.57: saveGlobal now VERIFIES the write — after PATCHing controls/global, it reads
+// controls/global/{flag} straight back from Firebase and only reports success if the
+// stored value actually matches what was just sent. Covers every toggle that calls this
+// (including the Engagement tab's Calculator/Report-Card feedback strip toggles), so
+// "Saved" always means "confirmed in Firebase", not just "request didn't throw".
 async function saveGlobal(flag, val) {
   STATE.controls.global[flag] = val;
-  try { await rtdbPatch('controls/global', { [flag]: val }); flashAlert('ctrl-save-notice','Saved'); } catch(e) { alert('Save failed: '+e.message); }
+  try {
+    await rtdbPatch('controls/global', { [flag]: val });
+    const check = await rtdbGet('controls/global/' + flag);
+    if (check === val) {
+      flashAlert('ctrl-save-notice','Saved');
+      egToast(flag + ' saved — confirmed in Firebase', true);
+    } else {
+      egToast(flag + ' save NOT confirmed — Firebase shows: ' + JSON.stringify(check), false);
+    }
+  } catch(e) {
+    egToast('Save failed: ' + e.message, false);
+    alert('Save failed: '+e.message);
+  }
 }
 /* v6.88: THEME — admin-controlled global odd/even reskin. applyTheme() just flips the
    data-theme attribute; every existing CSS rule already reads var(--bg)/var(--accent)/etc
@@ -16325,5 +16475,7 @@ window.addEventListener('keydown', function (e) {
     </div>
   </div>
 </div>
+<!-- v7.57: floating confirm-toast container — see egToast() -->
+<div id="eg-toast-wrap"></div>
 </body>
 </html>
