@@ -13960,14 +13960,37 @@ async function rcLoadPhoto(urn) {
 const RC_CACHE_DEFAULTS = { bgRefreshMinutes: 30, cacheTtlHours: 24 };
 let _rcCacheSettings = null; // resolved once per session, then reused
 let _rcCacheSettingsPromise = null;
+// Wraps any promise with a hard deadline — if it hasn't settled by ms, resolves
+// to fallbackVal instead of leaving the caller hanging forever. Needed because a
+// bad/unreachable connection doesn't always reject a fetch/Firestore call — it can
+// just hang indefinitely, and a plain try/catch does nothing against that (catch
+// only fires on a real rejection, not a stall). Directly caused the 113s-stuck
+// "Loading: Results, Notifications…" report — rcGetCacheSettings' Firestore read
+// had no deadline, so a bad connection that morning stalled it (and everything
+// awaiting it) forever instead of falling back to safe defaults quickly.
+function _stuWithTimeout(promise, ms, fallbackVal) {
+  return new Promise(resolve => {
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; resolve(fallbackVal); } }, ms);
+    promise.then(v => { if (!done) { done = true; clearTimeout(timer); resolve(v); } })
+           .catch(() => { if (!done) { done = true; clearTimeout(timer); resolve(fallbackVal); } });
+  });
+}
 async function rcGetCacheSettings() {
   if (_rcCacheSettings) return _rcCacheSettings;
   if (_rcCacheSettingsPromise) return _rcCacheSettingsPromise;
   _rcCacheSettingsPromise = (async () => {
     try {
       if (!_db) throw new Error('no Firestore');
-      const doc = await _db.collection('davan_config').doc('rc_cache_settings').get();
-      if (doc.exists) {
+      // 4s hard cap — this is a config lookup that should be near-instant; if it's
+      // not back in 4s, the connection is bad enough that waiting longer just
+      // delays the student's Report Card for no benefit. Falls back to known-safe
+      // defaults (30 min / 24h), same values used if this read fails outright.
+      const doc = await _stuWithTimeout(
+        _db.collection('davan_config').doc('rc_cache_settings').get(),
+        4000, null
+      );
+      if (doc && doc.exists) {
         const d = doc.data();
         _rcCacheSettings = {
           bgRefreshMinutes: (typeof d.bgRefreshMinutes === 'number' && d.bgRefreshMinutes > 0) ? d.bgRefreshMinutes : RC_CACHE_DEFAULTS.bgRefreshMinutes,
@@ -14007,8 +14030,11 @@ async function rcCachedGet(key, path, onBgUpdate) {
   const cached = rcCacheGetRaw(key);
   const age = cached ? (Date.now() - cached.ts) : Infinity;
 
+  // 20s hard cap on the actual data fetch — generous for a real (even slow-mobile)
+  // download of this payload, but stops a genuinely stuck connection from hanging
+  // the Report Card forever with no feedback beyond a stalled elapsed-time counter.
   const doFetch = async () => {
-    const val = await rtdbGet(path).catch(() => null);
+    const val = await _stuWithTimeout(rtdbGet(path), 20000, null);
     if (val !== null) rcCacheSet(key, val);
     return val;
   };
@@ -14033,9 +14059,11 @@ async function rcCachedGet(key, path, onBgUpdate) {
   return doFetch();
 }
 // Manual "Refresh Data" — always forces a real fetch regardless of cache age,
-// per explicit user request. Bypasses both TTL and throttle by design.
+// per explicit user request. Bypasses both TTL and throttle by design. Same 20s
+// hard cap as rcCachedGet's doFetch — an explicit refresh tap should still fail
+// gracefully rather than hang forever on a bad connection.
 async function rcForceRefresh(key, path) {
-  const val = await rtdbGet(path).catch(() => null);
+  const val = await _stuWithTimeout(rtdbGet(path), 20000, null);
   if (val !== null) rcCacheSet(key, val);
   return val;
 }
@@ -14272,17 +14300,24 @@ async function rcLoadNotifications(urn) {
   // here doubled the wait unnecessarily, compounding with the other slow fetches
   // renderReportCard already waits on (same root cause as rcLoadPhoto/rcLoadPrevResults
   // above — fine on fast WiFi, a real stall on mobile data).
+  // 15s hard cap per read via _stuWithTimeout — BUG FIX: Promise.allSettled only
+  // settles once EVERY input settles, so if either raw .get() call hung on a bad
+  // connection (doesn't reject, just never returns), allSettled hung right along
+  // with it — this was the actual cause of the 113s-stuck "Loading: Results,
+  // Notifications…" report. Wrapping each read in a timeout means allSettled
+  // always gets a real settle (fulfilled with null, if the deadline hit) within
+  // 15s, so this stage can never again hang indefinitely.
   const [ntResult, fuResult] = await Promise.allSettled([
-    _db.collection('davan_notification_logs').doc(urn).get(),
-    _db.collection('davan_followup_logs').doc(urn).get(),
+    _stuWithTimeout(_db.collection('davan_notification_logs').doc(urn).get(), 15000, null),
+    _stuWithTimeout(_db.collection('davan_followup_logs').doc(urn).get(), 15000, null),
   ]);
-  if (ntResult.status === 'fulfilled' && ntResult.value.exists) {
+  if (ntResult.status === 'fulfilled' && ntResult.value && ntResult.value.exists) {
     const d = ntResult.value.data();
     out.notifications = (d.notifications || []).slice().reverse().slice(0, 10);
   } else if (ntResult.status === 'rejected') {
     console.warn('[rcLoadNotifications/nt]', ntResult.reason && ntResult.reason.message);
   }
-  if (fuResult.status === 'fulfilled' && fuResult.value.exists) {
+  if (fuResult.status === 'fulfilled' && fuResult.value && fuResult.value.exists) {
     out.followups = (fuResult.value.data().followups || [])
       .slice()
       .sort((a, b) => new Date(b.meetingDate || b.timestamp || b.createdAt || 0)
