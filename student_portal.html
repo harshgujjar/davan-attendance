@@ -3356,6 +3356,7 @@ body.dash-active .data-strip { display: block; }
       <div class="page-title">REPORT CARD</div>
       <div class="page-sub">Attendance, internals, previous results & notifications.</div>
       <button class="rc-print-btn" onclick="window.print()">🖨 Print Report Card</button>
+      <div id="rc-cachebar" style="display:none;font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;align-items:center;gap:10px;margin:6px 0 10px;"></div>
       <div id="rc-loading" class="empty-state"><div class="empty-icon">⏳</div>Loading…</div>
       <div id="rc-wrap" style="display:none;">
         <!-- Student header with photo -->
@@ -3601,6 +3602,52 @@ body.dash-active .data-strip { display: block; }
         </div>
         <button class="btn btn-sm btn-primary" onclick="saveSocialLinks()">💾 Save Social &amp; Contact Links</button>
         <span id="social-links-save-notice" style="margin-left:10px;font-size:11px;color:var(--muted);font-family:var(--mono);"></span>
+      </div>
+    </div>
+    <!-- REPORT CARD CACHE SETTINGS — controls how long Report Card data (results,
+         faculty allocation) is served from cache before forcing a real re-fetch, and
+         how often a normal open silently re-checks for fresher data in the
+         background. Stored in FIRESTORE (davan_config/rc_cache_settings), not this
+         portal's RTDB — deliberately, so this setting stays reachable and editable
+         even if RTDB/DB2 is ever under load or slow (the exact scenario this
+         setting exists to relieve). If unreadable for any reason, the student
+         portal falls back to safe defaults (30 min / 24h) automatically. -->
+    <div class="ctrl-group" style="margin-top:16px;">
+      <div class="ctrl-group-header">⚡ Report Card Cache Settings</div>
+      <div style="padding:14px 4px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">
+          Report Card results data is cached on each student's device so it opens instantly
+          instead of re-downloading the whole institution's results every time. These two
+          settings control that caching. Stored separately from the main database (Firestore)
+          so this stays editable even if the main database is under heavy load.
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+          <div style="flex:1;min-width:220px;">
+            <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Background auto-refresh — check for new data after</label>
+            <select id="rc-cfg-bgmin" class="no-icon" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;">
+              <option value="30">30 minutes</option>
+              <option value="60">60 minutes</option>
+              <option value="120">2 hours</option>
+              <option value="180">3 hours</option>
+            </select>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px;">Below this age, opening Report Card serves cache with zero extra database reads.</div>
+          </div>
+          <div style="flex:1;min-width:220px;">
+            <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Cache validity — force full refresh after</label>
+            <select id="rc-cfg-ttldays" class="no-icon" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;">
+              <option value="1">1 day</option>
+              <option value="2">2 days</option>
+              <option value="3">3 days</option>
+              <option value="4">4 days</option>
+              <option value="5">5 days</option>
+              <option value="6">6 days</option>
+              <option value="7">7 days</option>
+            </select>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px;">Students can always tap "🔄 Refresh Data" on Report Card to force fresh data sooner.</div>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="saveRcCacheSettings()">💾 Save Cache Settings</button>
+        <span id="rc-cfg-save-notice" style="margin-left:10px;font-size:11px;color:var(--muted);font-family:var(--mono);"></span>
       </div>
     </div>
   </div>
@@ -5622,10 +5669,44 @@ function showStuRcLoader() {
   _stuRcLoaderToken = _stuLoadToken;
   const msgEl = document.getElementById('stu-dash-loader-msg');
   const timerEl = document.getElementById('stu-dash-loader-timer');
+  // Real diagnostics instead of fake rotating copy — see _stuRcSetStage(). Starts on
+  // the generic first message; renderReportCard immediately overwrites via _stuRcSetStage
+  // once the actual fetches kick off, so this is just the pre-fetch instant.
   _stuStartLoadTimer(msgEl, timerEl, STU_RC_LOAD_MESSAGES);
 }
 function hideStuRcLoader() {
   _stuHideLoaderAfterMin(_stuRcLoaderToken);
+}
+// ── Real-diagnostics overlay for Report Card loading ──
+// Replaces the old fake "rotating message by elapsed-time" illusion with what's
+// ACTUALLY happening: which of the (up to) three parallel fetches — photo, results,
+// notifications — is still outstanding, plus a live elapsed-seconds count. Lets a
+// slow load on mobile actually show WHY it's slow instead of a generic "Almost
+// there…" that keeps counting with no real information behind it.
+// Called from renderReportCard() as each stage starts/finishes.
+let _stuRcStageStart = 0;
+let _stuRcStageTimerInterval = null;
+function _stuRcSetStage(pending) {
+  // pending: array of stage labels still in flight, e.g. ['Results','Photo']
+  const msgEl = document.getElementById('stu-dash-loader-msg');
+  const timerEl = document.getElementById('stu-dash-loader-timer');
+  if (!msgEl || !timerEl) return;
+  clearInterval(_stuRcStageTimerInterval);
+  clearInterval(_stuLoadTimerInterval); // stop the generic rotating-message timer — diagnostics take over
+  _stuRcStageStart = Date.now();
+  const render = () => {
+    const secs = Math.floor((Date.now() - _stuRcStageStart) / 1000);
+    timerEl.textContent = secs + 's';
+    msgEl.textContent = pending.length
+      ? 'Loading: ' + pending.join(', ') + '…'
+      : 'Finishing up…';
+  };
+  render();
+  _stuRcStageTimerInterval = setInterval(render, 1000);
+}
+function _stuRcStopStageDiagnostics() {
+  clearInterval(_stuRcStageTimerInterval);
+  _stuRcStageTimerInterval = null;
 }
 
 /* ════════════════════════════════════════════════════
@@ -6887,7 +6968,7 @@ function switchTab(name) {
   if (name === 'engagement')    loadEngagementData();
   if (name === 'timetable')     autoSyncTimetableToPortal();
   if (name === 'theme')         applyTheme(STATE.controls.theme === 'even' ? 'even' : 'odd');
-  if (name === 'controls')      { loadSemesterDatesUI(); loadSocialLinksUI(); }
+  if (name === 'controls')      { loadSemesterDatesUI(); loadSocialLinksUI(); loadRcCacheSettingsUI(); }
   if (name === 'admincal') {
     // v6.85: Current AY → re-fetch live admin calendar (fetchAdminCalendar, Firestore
     // + RTDB fallback) so the tab always shows fresh synced events, same source
@@ -7653,6 +7734,47 @@ async function saveSocialLinks() {
     STATE.socialLinks = next;
     loadSocialLinksUI();
     flashAlert('social-links-save-notice','Saved');
+  } catch(e) { alert('Save failed: '+e.message); }
+}
+// ── Report Card cache settings admin UI ──
+// Reads/writes davan_config/rc_cache_settings in FIRESTORE (not this portal's RTDB)
+// — deliberately kept on a separate database/quota from DB2 so admin can always
+// reach and adjust this setting even if RTDB/DB2 is the thing under load, which is
+// exactly the scenario these settings exist to relieve. Mirrors the read-side
+// defaults/fallback in rcGetCacheSettings() (student-facing code) so both sides
+// agree on what "safe default" means if Firestore itself is ever unreachable.
+async function loadRcCacheSettingsUI() {
+  const bgSel = document.getElementById('rc-cfg-bgmin');
+  const ttlSel = document.getElementById('rc-cfg-ttldays');
+  if (!bgSel || !ttlSel) return;
+  try {
+    if (!_db) throw new Error('no Firestore');
+    const doc = await _db.collection('davan_config').doc('rc_cache_settings').get();
+    const d = doc.exists ? doc.data() : {};
+    bgSel.value = String(d.bgRefreshMinutes || RC_CACHE_DEFAULTS.bgRefreshMinutes);
+    ttlSel.value = String(Math.round((d.cacheTtlHours || RC_CACHE_DEFAULTS.cacheTtlHours) / 24) || 1);
+  } catch(e) {
+    console.warn('[loadRcCacheSettingsUI]', e.message);
+    bgSel.value = String(RC_CACHE_DEFAULTS.bgRefreshMinutes);
+    ttlSel.value = '1';
+  }
+}
+async function saveRcCacheSettings() {
+  const bgMin = parseInt((document.getElementById('rc-cfg-bgmin')||{}).value, 10) || RC_CACHE_DEFAULTS.bgRefreshMinutes;
+  const ttlDays = parseInt((document.getElementById('rc-cfg-ttldays')||{}).value, 10) || 1;
+  try {
+    if (!_db) throw new Error('Firestore unavailable');
+    await _db.collection('davan_config').doc('rc_cache_settings').set({
+      bgRefreshMinutes: bgMin,
+      cacheTtlHours: ttlDays * 24,
+      updatedAt: new Date().toISOString(),
+      updatedBy: (STATE.adminUser && STATE.adminUser.username) || 'admin',
+    }, { merge: true });
+    // Invalidate the in-memory settings cache read by rcGetCacheSettings() so this
+    // admin session's own student-side calls (if any) pick up the new value
+    // immediately rather than waiting for a page reload.
+    _rcCacheSettings = null;
+    flashAlert('rc-cfg-save-notice','Saved');
   } catch(e) { alert('Save failed: '+e.message); }
 }
 function renderOverrides(type, listId) {
@@ -13739,10 +13861,34 @@ function fixSubjectName(raw) {
 /* ════════════════════════════════════════════════════
    REPORT CARD — enhanced: photo, faculty, prev sem, notif
 ════════════════════════════════════════════════════ */
-let _rcPhotoCache = {}; // URN → url
+// URN → url (or null for "confirmed no photo"). Was in-memory only, so a
+// photo-less student paid the full 6-request Storage-guessing cost on EVERY
+// session (in-memory cache is wiped on reload/reopen). Now backed by
+// localStorage (7-day TTL — photos rarely change, and this just avoids
+// re-guessing, doesn't affect data freshness the way results caching does) so
+// a miss stays a miss across sessions too. Lookup/guessing logic itself is
+// unchanged — only WHERE the result is remembered.
+let _rcPhotoCache = {};
+const RC_PHOTO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+function _rcPhotoCacheGet(urn) {
+  if (_rcPhotoCache[urn] !== undefined) return _rcPhotoCache[urn];
+  try {
+    const raw = localStorage.getItem('davan_photo_' + urn);
+    if (!raw) return undefined;
+    const { ts, val } = JSON.parse(raw);
+    if (Date.now() - ts > RC_PHOTO_CACHE_TTL) { localStorage.removeItem('davan_photo_' + urn); return undefined; }
+    _rcPhotoCache[urn] = val;
+    return val;
+  } catch(e) { return undefined; }
+}
+function _rcPhotoCacheSet(urn, val) {
+  _rcPhotoCache[urn] = val;
+  try { localStorage.setItem('davan_photo_' + urn, JSON.stringify({ ts: Date.now(), val })); } catch(e) {}
+}
 
 async function rcLoadPhoto(urn) {
-  if (_rcPhotoCache[urn] !== undefined) return _rcPhotoCache[urn];
+  const cached = _rcPhotoCacheGet(urn);
+  if (cached !== undefined) return cached;
   // 1. Try RTDB davan_student_photos/{urn} — stored as string URL or object
   try {
     const raw = await rtdbGet('davan_student_photos/' + urn);
@@ -13753,7 +13899,7 @@ async function rcLoadPhoto(urn) {
       resolved = raw.url || raw.photo_url || raw.photoURL || raw.thumb || raw.image || null;
     }
     console.log('[rcLoadPhoto] RTDB raw:', typeof raw, raw, '→', resolved);
-    if (resolved) { _rcPhotoCache[urn] = resolved; return resolved; }
+    if (resolved) { _rcPhotoCacheSet(urn, resolved); return resolved; }
   } catch(e) { console.warn('[rcLoadPhoto] RTDB error', e); }
   // 2. Try Firebase Storage predictable paths
   const bucket = 'davan-student-portal.firebasestorage.app';
@@ -13781,46 +13927,120 @@ async function rcLoadPhoto(urn) {
   const found = hits.find(u => u);
   if (found) {
     console.log('[rcLoadPhoto] Storage hit:', found);
-    _rcPhotoCache[urn] = found;
+    _rcPhotoCacheSet(urn, found);
     return found;
   }
   console.log('[rcLoadPhoto] no photo found for', urn);
-  _rcPhotoCache[urn] = null;
+  _rcPhotoCacheSet(urn, null);
   return null;
 }
 
-// ── Session cache helpers (30-min TTL) — GLOBAL, reusable by any fetch in this
-// file, not just loadStudentDashboard's original local copy. Promoted here
-// because rcLoadPrevResults (Report Card) was found to re-download the ENTIRE
-// davan_pub/results node — every semester, every course, every student in the
-// institution — on every single Report Card open, with zero caching. Fine on a
-// fast desktop connection, but a real multi-second stall on mobile data (reported
-// live: "on mobile it is taking a lot of time... desktop is fast" — same fetch,
-// same bytes, just slower/higher-latency transport). Same 30-min TTL and
-// sessionStorage key prefix as the existing per-dashboard cache, so a value
-// warmed by one code path is reusable by the other without duplicating fetches.
-const RC_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-function rcCacheGet(key) {
+// ── Persistent, admin-configurable cache for Report Card data ──
+// v1: sessionStorage + hardcoded 30-min TTL. Problem: re-downloaded the ENTIRE
+// davan_pub/results node (every student/course/semester in the institution) on
+// every fresh session — fine on desktop WiFi, a real multi-second stall on mobile
+// data, and repeated every time a student closed/reopened the app since
+// sessionStorage doesn't survive that.
+// v2 (this version): localStorage (survives close/reopen — only a real cache-TTL
+// expiry or manual refresh clears it) + settings pulled from admin config instead
+// of hardcoded, so Harsha can tune both numbers live without a redeploy:
+//   - cacheTtlHours: how long a cached copy is considered usable at all before a
+//     forced full re-fetch (admin: 1–7 days). Serves INSTANTLY within this window.
+//   - bgRefreshMinutes: how old the cache has to be before a normal (non-forced)
+//     open ALSO fires a silent background re-check (admin: 30/60/120/180 min).
+//     Below this age, no network call happens at all — protects DB2 read volume
+//     at 500-student scale (this is the number Harsha already validated in
+//     production as safe).
+// Config lives in FIRESTORE (davan_config/rc_cache_settings), not RTDB — chosen
+// specifically so that if DB2 (RTDB) is ever choked/slow, admin can still reach
+// this setting to raise the threshold, rather than the fix depending on the same
+// system that's struggling. If the Firestore read itself fails/times out, falls
+// back to safe defaults (30 min / 24h) — never silently becomes MORE aggressive
+// than the known-safe values just because config was unreachable.
+const RC_CACHE_DEFAULTS = { bgRefreshMinutes: 30, cacheTtlHours: 24 };
+let _rcCacheSettings = null; // resolved once per session, then reused
+let _rcCacheSettingsPromise = null;
+async function rcGetCacheSettings() {
+  if (_rcCacheSettings) return _rcCacheSettings;
+  if (_rcCacheSettingsPromise) return _rcCacheSettingsPromise;
+  _rcCacheSettingsPromise = (async () => {
+    try {
+      if (!_db) throw new Error('no Firestore');
+      const doc = await _db.collection('davan_config').doc('rc_cache_settings').get();
+      if (doc.exists) {
+        const d = doc.data();
+        _rcCacheSettings = {
+          bgRefreshMinutes: (typeof d.bgRefreshMinutes === 'number' && d.bgRefreshMinutes > 0) ? d.bgRefreshMinutes : RC_CACHE_DEFAULTS.bgRefreshMinutes,
+          cacheTtlHours: (typeof d.cacheTtlHours === 'number' && d.cacheTtlHours > 0) ? d.cacheTtlHours : RC_CACHE_DEFAULTS.cacheTtlHours,
+        };
+      } else {
+        _rcCacheSettings = { ...RC_CACHE_DEFAULTS };
+      }
+    } catch(e) {
+      console.warn('[rcGetCacheSettings] falling back to defaults:', e.message);
+      _rcCacheSettings = { ...RC_CACHE_DEFAULTS };
+    }
+    return _rcCacheSettings;
+  })();
+  return _rcCacheSettingsPromise;
+}
+function rcCacheGetRaw(key) {
   try {
-    const raw = sessionStorage.getItem('davan_sc_' + key);
+    const raw = localStorage.getItem('davan_sc_' + key);
     if (!raw) return null;
-    const { ts, val } = JSON.parse(raw);
-    if (Date.now() - ts > RC_CACHE_TTL) { sessionStorage.removeItem('davan_sc_' + key); return null; }
-    return val;
+    return JSON.parse(raw); // { ts, val }
   } catch(e) { return null; }
 }
 function rcCacheSet(key, val) {
-  try { sessionStorage.setItem('davan_sc_' + key, JSON.stringify({ ts: Date.now(), val })); } catch(e) {}
+  try { localStorage.setItem('davan_sc_' + key, JSON.stringify({ ts: Date.now(), val })); } catch(e) {}
 }
-async function rcCachedGet(key, path) {
-  const hit = rcCacheGet(key);
-  if (hit !== null) { console.log('[CACHE HIT]', key); return hit; }
+// Returns cached value instantly if within cacheTtlHours (or null if absent/expired
+// beyond TTL, in which case caller must do a real fetch). ALSO fires a silent
+// background re-fetch (does not block/await, does not affect the return value)
+// if the cache is older than bgRefreshMinutes — patches storage + calls
+// onBgUpdate(newVal) if the caller wants to react (e.g. re-render) when fresher
+// data arrives after the fact.
+async function rcCachedGet(key, path, onBgUpdate) {
+  const settings = await rcGetCacheSettings();
+  const ttlMs = settings.cacheTtlHours * 60 * 60 * 1000;
+  const bgMs  = settings.bgRefreshMinutes * 60 * 1000;
+  const cached = rcCacheGetRaw(key);
+  const age = cached ? (Date.now() - cached.ts) : Infinity;
+
+  const doFetch = async () => {
+    const val = await rtdbGet(path).catch(() => null);
+    if (val !== null) rcCacheSet(key, val);
+    return val;
+  };
+
+  if (cached && age <= ttlMs) {
+    // Serve instantly from cache.
+    if (age > bgMs) {
+      // Old enough to warrant a silent background re-check, but not so old the
+      // synchronous path needs to wait on it — fire and forget.
+      doFetch().then(fresh => {
+        if (fresh !== null && JSON.stringify(fresh) !== JSON.stringify(cached.val)) {
+          console.log('[rcCachedGet] background refresh found new data:', key);
+          if (typeof onBgUpdate === 'function') onBgUpdate(fresh);
+        }
+      }).catch(()=>{});
+    }
+    console.log('[CACHE HIT]', key, 'age(min)=', Math.round(age/60000));
+    return cached.val;
+  }
+  // No cache, or past the outer TTL — must fetch for real before returning.
+  console.log('[CACHE MISS/EXPIRED]', key);
+  return doFetch();
+}
+// Manual "Refresh Data" — always forces a real fetch regardless of cache age,
+// per explicit user request. Bypasses both TTL and throttle by design.
+async function rcForceRefresh(key, path) {
   const val = await rtdbGet(path).catch(() => null);
   if (val !== null) rcCacheSet(key, val);
   return val;
 }
 
-async function rcLoadPrevResults(urn) {
+async function rcLoadPrevResults(urn, forceRefresh) {
   const results = [];
   const COURSES = ['BCA','BBA','BCom'];
   const SEMS    = ['I','II','III','IV','V','VI'];
@@ -13828,14 +14048,31 @@ async function rcLoadPrevResults(urn) {
   try {
     // Fetch results + allocation_each (per-sem faculty map) in parallel
     // Mirrors mother app rcFetchResults: allocation_each/<key>.subjects[{code,facultyDI,facultyNU}]
-    // Cached (30-min TTL, shared with loadStudentDashboard's own cache) — these are
-    // institution-wide, slow-changing datasets; re-downloading the whole thing on
-    // every single Report Card open was the actual cause of the multi-second mobile
-    // load time (same payload, but slow/high-latency mobile data made it visible).
-    const [pub, allocEachRaw] = await Promise.all([
-      rcCachedGet('results', 'davan_pub/results'),
-      rcCachedGet('allocEach', 'davan_pub/allocation_each')
-    ]);
+    // Cached in localStorage (admin-configurable TTL + background-refresh threshold,
+    // see rcCachedGet/rcGetCacheSettings above) — these are institution-wide,
+    // slow-changing datasets; re-downloading the whole thing on every single Report
+    // Card open was the actual cause of the multi-second mobile load time (same
+    // payload, but slow/high-latency mobile data made it visible). forceRefresh=true
+    // (manual "Refresh Data" tap) bypasses the cache entirely.
+    const [pub, allocEachRaw] = forceRefresh
+      ? await Promise.all([
+          rcForceRefresh('results', 'davan_pub/results'),
+          rcForceRefresh('allocEach', 'davan_pub/allocation_each')
+        ])
+      : await Promise.all([
+          rcCachedGet('results', 'davan_pub/results', () => {
+            // Background refresh found newer data than what we just rendered from
+            // cache — quietly re-render so the student sees it without any action,
+            // per "auto" half of the auto+manual refresh requirement. Only acts if
+            // the Report Card panel is still the one open (cheap re-render otherwise).
+            if (STATE.studentUser && document.getElementById('spanel-reportcard') &&
+                document.getElementById('spanel-reportcard').style.display !== 'none') {
+              console.log('[rcLoadPrevResults] applying background-refreshed results');
+              renderReportCard(false); // no branded overlay for a silent background update
+            }
+          }),
+          rcCachedGet('allocEach', 'davan_pub/allocation_each')
+        ]);
     if (!pub) return [];
 
     // Build global facMap: code → {facultyDI, facultyNU, faculty}
@@ -14056,6 +14293,44 @@ async function rcLoadNotifications(urn) {
   return out;
 }
 
+// ── "Last updated" bar + manual refresh button for Report Card ──
+// Shows how stale the cached results data is (from the 'results' cache entry's
+// timestamp) and gives an explicit escape hatch to force a real re-fetch right
+// now, independent of the admin-configured TTL/background-refresh throttle —
+// for the case a student knows new results/data just got uploaded and doesn't
+// want to wait for the next background check or full TTL expiry.
+function _stuRcRenderCacheBar(urn) {
+  const bar = document.getElementById('rc-cachebar');
+  if (!bar) return;
+  const cached = rcCacheGetRaw('results');
+  if (!cached) { bar.style.display = 'none'; return; }
+  const ageMs = Date.now() - cached.ts;
+  const mins  = Math.round(ageMs / 60000);
+  let ageStr;
+  if (mins < 1) ageStr = 'just now';
+  else if (mins < 60) ageStr = mins + ' min ago';
+  else if (mins < 1440) ageStr = Math.round(mins/60) + ' hr ago';
+  else ageStr = Math.round(mins/1440) + ' day(s) ago';
+  bar.style.display = 'flex';
+  bar.innerHTML =
+    '<span>Data updated: ' + ageStr + '</span>' +
+    '<button onclick="stuRefreshReportCard()" id="rc-refresh-btn" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:2px 8px;font-family:var(--mono);font-size:11px;cursor:pointer;">🔄 Refresh Data</button>';
+}
+// Manual refresh — always forces a real fetch, bypassing cache TTL and the
+// background-refresh throttle entirely, since this is an explicit user request.
+let _stuRcRefreshing = false;
+async function stuRefreshReportCard() {
+  if (_stuRcRefreshing) return;
+  _stuRcRefreshing = true;
+  const btn = document.getElementById('rc-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Refreshing…'; }
+  try {
+    await renderReportCard(true, true); // showBrandedLoader=true, forceRefresh=true
+  } finally {
+    _stuRcRefreshing = false;
+  }
+}
+
 // Toggle the Report Card's "CURRENT SEMESTER ATTENDANCE" subject cards open/closed.
 // Default state is HIDDEN (see rc-cursem-cards' inline display:none at render time in
 // renderReportCard) — this only flips visibility on click, it doesn't control the default.
@@ -14079,7 +14354,7 @@ function stuToggleCurSemAttendance() {
 // looking at the initial "Loading your dashboard…" screen. Background/initial-load call
 // sites now pass false so only an explicit Report Card panel open (switchStudentPanel)
 // shows the RC-specific branded overlay.
-async function renderReportCard(showBrandedLoader) {
+async function renderReportCard(showBrandedLoader, forceRefresh) {
   if (showBrandedLoader === undefined) showBrandedLoader = true;
   if (stuFreshGuard()) { stuApplyFreshAttendance(); return; }
   const loadEl = document.getElementById('rc-loading');
@@ -14117,13 +14392,26 @@ async function renderReportCard(showBrandedLoader) {
     });
   const isDI = urn.toUpperCase().includes('DI');
 
-  // Fetch photo, prev results, notifications in parallel
+  // Fetch photo, prev results, notifications in parallel — with REAL diagnostics
+  // (which stage is still outstanding + live elapsed time) shown on the loader
+  // instead of the old fake rotating messages, so a slow load on mobile actually
+  // shows WHY (e.g. "Loading: Results…" staying up means the institution-wide
+  // results download, not photo lookup or notifications, is the bottleneck).
   let photoUrl, prevResults, notifData;
+  const _pending = showBrandedLoader ? ['Photo', 'Results', 'Notifications'] : [];
+  if (showBrandedLoader) _stuRcSetStage(_pending);
+  const _track = (label, promise) => promise.then(v => {
+    if (showBrandedLoader) { const i = _pending.indexOf(label); if (i > -1) _pending.splice(i, 1); _stuRcSetStage(_pending); }
+    return v;
+  }).catch(e => {
+    if (showBrandedLoader) { const i = _pending.indexOf(label); if (i > -1) _pending.splice(i, 1); _stuRcSetStage(_pending); }
+    throw e;
+  });
   try {
     [photoUrl, prevResults, notifData] = await Promise.all([
-      rcLoadPhoto(urn),
-      rcLoadPrevResults(urn),
-      rcLoadNotifications(urn)
+      _track('Photo', rcLoadPhoto(urn)),
+      _track('Results', rcLoadPrevResults(urn, forceRefresh)),
+      _track('Notifications', rcLoadNotifications(urn))
     ]);
   } catch(e) {
     console.warn('[renderReportCard] fetch failed:', e.message);
@@ -14134,9 +14422,10 @@ async function renderReportCard(showBrandedLoader) {
     // Always hide spinner — even if fetch throws
     if (loadEl) loadEl.style.display = 'none';
     if (wrapEl) wrapEl.style.display = 'block';
-    if (showBrandedLoader) hideStuRcLoader();
+    if (showBrandedLoader) { _stuRcStopStageDiagnostics(); hideStuRcLoader(); }
   }
   STATE._lastPrevResults = prevResults || [];
+  _stuRcRenderCacheBar(urn);
 
   // ── HEADER with photo ──
   const hdr = document.getElementById('rc-student-header');
