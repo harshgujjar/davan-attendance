@@ -2663,7 +2663,11 @@ body.dash-active .data-strip { display: block; }
      C.P., Result) stay comfortably readable without needing much horizontal scroll. */
   .rc-subj-table { font-size: 11px !important; }
   .rc-subj-table th, .rc-subj-table td { padding: 6px 5px !important; }
-  .rc-col-faculty, .rc-col-grace { display: none !important; }
+  /* Faculty column: kept visible (per explicit request) — students scroll horizontally
+     to see it rather than losing it entirely. Was previously display:none here, which
+     looked like a data bug ("faculty missing on phone") when it was actually just this
+     rule. Grace stays hidden — usually 0/blank, genuinely low-value on a phone. */
+  .rc-col-grace { display: none !important; }
 
   /* SGPA worked-example table — subject names can be long ("BASIC ENGLISH
      RAINBOW-PART-IV (AN ANTHOLOGY...)"); cap the column width and truncate with
@@ -10319,10 +10323,6 @@ async function loadStudentDashboard() {
     if (STATE.studentData && STATE.studentData.subjects) {
       const _aem = STATE.allocEachMap || {};
       const _mals = STATE.motherAllocs || [];
-      // DEBUG (temporary — remove once faculty-missing report is resolved): confirms
-      // whether the underlying allocation data even loaded on this device/session at
-      // all, before blaming the per-subject matching logic below.
-      console.log('[FacultyDebug] allocEachMap keys:', Object.keys(_aem).length, '| motherAllocs entries:', _mals.length);
       STATE.studentData.subjects = STATE.studentData.subjects.map(sub => {
         const code = (sub.code || '').trim();
         const stripped = code.replace(/^(BCom|BCA|BBA)/i, '');
@@ -10384,17 +10384,6 @@ async function loadStudentDashboard() {
         const fDI = ae?.facultyDI || ma?.facultyDI || ma?.faculty || sub.facultyDI || '';
         const fNU = ae?.facultyNU || ma?.facultyNU || ma?.faculty || sub.facultyNU || '';
         const fAll= fDI || fNU || sub.faculty || '';
-        // DEBUG (temporary — remove once faculty-missing report is resolved): logs
-        // exactly why a subject ended up with no faculty — whether allocation_each
-        // (_aem) had no entry for this code, motherAllocs (_mals) had zero matches
-        // for this subject name, or both. Lets us tell apart "data problem for this
-        // student/class" vs "network problem on this device" instead of guessing.
-        if (!fAll) {
-          console.warn('[FacultyDebug] No faculty for', code, '|', resolvedName,
-            '| ae found:', !!ae, '| _aem keys:', Object.keys(_aem).length,
-            '| _mals total:', _mals.length, '| matches for this subject:', allMatches.length,
-            '| section:', _stuSection);
-        }
         if (fDI === (sub.facultyDI||'') && fNU === (sub.facultyNU||'') && fAll === (sub.faculty||'')) return sub; // unchanged
         return { ...sub, facultyDI: fDI, facultyNU: fNU, faculty: fAll };
       });
@@ -14128,9 +14117,6 @@ async function rcLoadPrevResults(urn, forceRefresh) {
     // DEBUG (temporary — remove once faculty-missing report is resolved): confirms
     // whether allocation_each actually came back with data on THIS device/session,
     // independent of the current-semester-cards debug logging added earlier.
-    console.log('[FacultyDebug/RC] pub:', !!pub, '| allocEachRaw keys:', allocEachRaw ? Object.keys(allocEachRaw).length : 0,
-      '| cached allocEach raw:', JSON.stringify(rcCacheGetRaw('allocEach')).slice(0,120));
-    STATE._facDebug = { pubOk: !!pub, allocEachRawKeys: allocEachRaw ? Object.keys(allocEachRaw).length : 0, perSubj: [] };
     if (!pub) return [];
 
     // Build global facMap: code → {facultyDI, facultyNU, faculty}
@@ -14158,9 +14144,6 @@ async function rcLoadPrevResults(urn, forceRefresh) {
         });
       });
     }
-    // DEBUG (temporary — remove once faculty-missing report is resolved)
-    console.log('[FacultyDebug/RC] facMap entries built:', Object.keys(facMap).length);
-    if (STATE._facDebug) STATE._facDebug.facMapEntries = Object.keys(facMap).length;
 
     const docs = typeof pub === 'object' ? Object.entries(pub) : [];
 
@@ -14255,18 +14238,6 @@ async function rcLoadPrevResults(urn, forceRefresh) {
         const _af  = facMap[code] || facMap[stripped] || facMap[_stuNormCode(code)] || facMap[_stuNormCode(stripped)] || slotSub || {};
         const _fDI = _af.facultyDI || _af.faculty || v.facultyDI || v.faculty || '';
         const _fNU = _af.facultyNU || _af.faculty || v.facultyNU || v.faculty || '';
-        // DEBUG (temporary — remove once faculty-missing report is resolved): record
-        // per-subject lookup outcome so we can see on-screen exactly which lookup
-        // (if any) hit, for this specific student's subject codes.
-        if (!STATE._facDebug) STATE._facDebug = {};
-        if (!STATE._facDebug.perSubj) STATE._facDebug.perSubj = [];
-        if (STATE._facDebug.perSubj.length < 12) {
-          STATE._facDebug.perSubj.push({
-            code, stripped, norm: _stuNormCode(code),
-            hit: facMap[code] ? 'exact' : facMap[stripped] ? 'stripped' : facMap[_stuNormCode(code)] ? 'norm' : facMap[_stuNormCode(stripped)] ? 'normStripped' : slotSub.facultyDI||slotSub.facultyNU ? 'slotSub' : 'MISS',
-            fDI: _fDI, fNU: _fNU
-          });
-        }
         return {
           code, name: dispName,
           facultyDI: _fDI,
@@ -14383,35 +14354,18 @@ function _stuRcRenderCacheBar(urn) {
   const bar = document.getElementById('rc-cachebar');
   if (!bar) return;
   const cached = rcCacheGetRaw('results');
-  const dbg = STATE._facDebug;
-  if (!cached && !dbg) { bar.style.display = 'none'; return; }
-  let ageStr = '—';
-  if (cached) {
-    const ageMs = Date.now() - cached.ts;
-    const mins  = Math.round(ageMs / 60000);
-    if (mins < 1) ageStr = 'just now';
-    else if (mins < 60) ageStr = mins + ' min ago';
-    else if (mins < 1440) ageStr = Math.round(mins/60) + ' hr ago';
-    else ageStr = Math.round(mins/1440) + ' day(s) ago';
-  }
+  if (!cached) { bar.style.display = 'none'; return; }
+  const ageMs = Date.now() - cached.ts;
+  const mins  = Math.round(ageMs / 60000);
+  let ageStr;
+  if (mins < 1) ageStr = 'just now';
+  else if (mins < 60) ageStr = mins + ' min ago';
+  else if (mins < 1440) ageStr = Math.round(mins/60) + ' hr ago';
+  else ageStr = Math.round(mins/1440) + ' day(s) ago';
   bar.style.display = 'flex';
-  bar.style.flexWrap = 'wrap';
-  // DEBUG (temporary — remove once faculty-missing report is resolved): shows the
-  // fetch/facMap diagnostics right on-screen since mobile browsers here have no
-  // console access. Small "🐞 ..." chip, safe to ignore otherwise.
-  const dbgHtml = dbg
-    ? ' &nbsp;<span style="opacity:0.7;">🐞 pub:' + (dbg.pubOk ? 'ok' : 'MISSING')
-      + ' allocEach:' + dbg.allocEachRawKeys + ' facMap:' + (dbg.facMapEntries ?? '?') + '</span>'
-      + (dbg.perSubj && dbg.perSubj.length
-          ? '<div style="width:100%;margin-top:6px;font-size:10px;line-height:1.6;opacity:0.8;">'
-            + dbg.perSubj.map(s => '🐞 ' + s.code + ' → ' + s.hit + (s.fDI ? ' (' + s.fDI + ')' : ' (no name)')).join('<br>')
-            + '</div>'
-          : '')
-    : '';
   bar.innerHTML =
-    '<span>Data updated: ' + ageStr + dbgHtml + '</span>' +
-    '<button onclick="stuRefreshReportCard()" id="rc-refresh-btn" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:2px 8px;font-family:var(--mono);font-size:11px;cursor:pointer;">🔄 Refresh Data</button>' +
-    '<button onclick="stuDebugClearRcCache();stuRefreshReportCard();" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:2px 8px;font-family:var(--mono);font-size:11px;cursor:pointer;">🧹 Clear Cache &amp; Retry</button>';
+    '<span>Data updated: ' + ageStr + '</span>' +
+    '<button onclick="stuRefreshReportCard()" id="rc-refresh-btn" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:2px 8px;font-family:var(--mono);font-size:11px;cursor:pointer;">🔄 Refresh Data</button>';
 }
 // Manual refresh — always forces a real fetch, bypassing cache TTL and the
 // background-refresh throttle entirely, since this is an explicit user request.
@@ -14426,14 +14380,6 @@ async function stuRefreshReportCard() {
   } finally {
     _stuRcRefreshing = false;
   }
-}
-// DEBUG (temporary — remove once faculty-missing report is resolved): call
-// stuDebugClearRcCache() from the browser console to wipe both cached RC keys
-// outright (not just force a re-fetch) and rule out a stale/corrupt localStorage
-// entry as the cause, independent of whatever rcForceRefresh does.
-function stuDebugClearRcCache() {
-  try { localStorage.removeItem('davan_sc_results'); localStorage.removeItem('davan_sc_allocEach'); } catch(e) {}
-  console.log('[FacultyDebug] cleared davan_sc_results + davan_sc_allocEach from localStorage');
 }
 
 // Toggle the Report Card's "CURRENT SEMESTER ATTENDANCE" subject cards open/closed.
