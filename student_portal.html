@@ -3768,9 +3768,16 @@ body.dash-active .data-strip { display: block; }
     <div class="section-desc">Manage student login entries. URN = login id, phone = default password.</div>
     <div id="stu-class-summary" style="display:none;margin-bottom:14px;"></div>
     <div class="alert info" id="stu-msg"><span class="alert-icon">ℹ</span><span id="stu-msg-text"></span></div>
-    <div id="stu-missing-label" style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;font-family:var(--mono);color:var(--danger);display:flex;align-items:center;justify-content:space-between;gap:10px;">
-      <span>⚠ Showing students WITHOUT a portal login. Click <strong>+ Create</strong> to add them, or <strong>Clear</strong> to go back.</span>
+    <div id="stu-missing-label" style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;font-family:var(--mono);color:var(--danger);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <span>⚠ Showing students WITHOUT a portal login. Click <strong>+ Create</strong> to add one, or select several and <strong>Bulk Create</strong>.</span>
       <button onclick="STATE._stuMissingMode=false;STATE._stuSummaryClass=null;renderStudentTable();" style="background:none;border:1px solid rgba(239,68,68,0.4);border-radius:6px;color:var(--danger);padding:4px 10px;font-size:11px;cursor:pointer;white-space:nowrap;">✕ Clear</button>
+    </div>
+    <div id="stu-bulk-bar" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;font-family:var(--mono);color:var(--text);align-items:center;justify-content:space-between;gap:10px;">
+      <span id="stu-bulk-count">0 selected</span>
+      <div style="display:flex;gap:8px;">
+        <button onclick="toggleSelectAllMissing()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 10px;font-size:11px;cursor:pointer;">Select All</button>
+        <button id="stu-bulk-create-btn" onclick="bulkCreateSelectedLogins()" class="btn btn-sm btn-primary" style="margin-top:0;padding:5px 12px;">+ Bulk Create Selected</button>
+      </div>
     </div>
     <div class="search-row">
       <input type="text" id="stu-search" placeholder="Search by name or URN…" class="no-icon" oninput="renderStudentTable()"/>
@@ -3778,7 +3785,7 @@ body.dash-active .data-strip { display: block; }
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>URN</th><th>Name</th><th>Class</th><th>Phone / Password</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+        <thead id="stu-table-head"><tr><th>URN</th><th>Name</th><th>Class</th><th>Phone / Password</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
         <tbody id="stu-table-body"><tr><td colspan="6"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr></tbody>
       </table>
     </div>
@@ -4627,7 +4634,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.58';
+const APP_VERSION = 'v7.68';
 const BUILD_DATE   = '03 Aug 2026, 06:10 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -4686,6 +4693,86 @@ let STATE = {
 /* ════════════════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════════════════ */
+function escapeHtml(str) {
+  return String(str==null?'':str).replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c]));
+}
+// Resolve a student record's semester parity ('odd'/'even') from whatever
+// sem field is present — davan_pub/students uses numeric strings ("1".."6"),
+// portal_students / archives sometimes use Roman numerals (I..VI). Falls back
+// to null (unknown) rather than guessing, so callers can decide how to treat it.
+// Normalizes a class label the same way everywhere it's read from raw
+// scraped data (davan_pub/students) — trims stray whitespace so records
+// like "Davan-BCA-Sem3-SecA " (trailing space) group under the same key
+// as "Davan-BCA-Sem3-SecA" instead of silently forming a second, invisible
+// bucket that inflates a summary card's count but never matches when the
+// admin clicks in (card said "2 missing", list showed fewer/none).
+function stuNormClass(c) { return (c||'').toString().trim(); }
+
+/* v7.65 — AY-aware class list filtering.
+   STATE.allClasses is a UNION of three sources: davan_pub/students, portal_students
+   (which retains passed-out + stale promoted records), and lessonPlan keys (which
+   are never cleared, so last semester's classes linger forever). That union is fine
+   as a lookup set, but wrong for a "pick a class" dropdown: in 2026-27 Odd it was
+   offering Sem2/Sem6 classes that don't exist this semester.
+   These helpers derive the semester parity currently being VIEWED and filter a class
+   list to match. Classes whose name has no parseable SemN are kept, not dropped —
+   better to show an oddly-named class than silently hide a real one. */
+function ayViewSemParity() {
+  // Past view is the 2025-26 EVEN archive; current view follows AY_CONFIG.
+  if (typeof _adminViewAY !== 'undefined' && _adminViewAY === '2025-26') return 'even';
+  return (typeof AY_CONFIG !== 'undefined' && AY_CONFIG.currentSem) ? AY_CONFIG.currentSem : 'odd';
+}
+function classSemParity(clsName) {
+  const m = /Sem\s*(\d+)/i.exec((clsName || '').toString());
+  if (!m) return null;                       // unparseable → caller keeps it
+  return (parseInt(m[1], 10) % 2 === 1) ? 'odd' : 'even';
+}
+function ayFilterClasses(list) {
+  const want = ayViewSemParity();
+  return (list || []).filter(c => {
+    const p = classSemParity(c);
+    return p === null || p === want;
+  });
+}
+/* v7.67: shared ordering + labelling for every class picker.
+   Natural sort (numeric:true) so Sem2 sorts before Sem10 rather than after —
+   plain .sort() is lexicographic and would get that wrong once a course ever
+   exceeds nine semesters. The serial number goes in the OPTION TEXT ONLY; the
+   option value stays the bare class name, because every consumer of these
+   selects compares .value against a raw class string (s.class === cls, etc.).
+   Prefixing the value would silently break those comparisons. */
+function aySortClasses(list) {
+  return [...new Set(list || [])].sort((a, b) =>
+    String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' }));
+}
+function ayNumberedLabel(i, cls) { return (i + 1) + '. ' + cls; }
+function stuSemParityOf(rec) {
+  const raw = (rec && (rec.sem ?? rec.semester ?? rec.Semester)) ;
+  const s = (raw==null?'':raw).toString().trim().toUpperCase();
+  if (!s) return null;
+  // Numeric: odd numbers (1,3,5) → odd; even numbers (2,4,6) → even
+  const n = parseInt(s, 10);
+  if (!isNaN(n) && n >= 1 && n <= 6) {
+    return n % 2 === 1 ? 'odd' : 'even';
+  }
+  // Roman: I,III,V → odd; II,IV,VI → even
+  if (['I','III','V'].includes(s)) return 'odd';
+  if (['II','IV','VI'].includes(s)) return 'even';
+  return null;
+}
+/* v7.65: some records carry no usable sem field at all, but their class name
+   still states the semester ("Davan-BCA-Sem2-SecA"). Without this fallback the
+   Students summary treated them as "unknown → keep" and rendered a phantom
+   card for a semester that isn't running, while the class dropdowns (which
+   parse the name) correctly hid it — the two screens disagreed. Prefer the
+   record's own sem field; fall back to the name only when it's absent. */
+function stuRecSemParity(rec) {
+  const byField = stuSemParityOf(rec);
+  if (byField !== null) return byField;
+  return classSemParity(stuNormClass(rec && (rec.cls || rec.class)));
+}
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
@@ -5193,7 +5280,24 @@ window._egStashedTerms = null;
 // this app, so an unset/not-yet-loaded flag never hides something admin didn't ask to hide.
 function canShowSocial(flag) {
   const g = STATE.controls && STATE.controls.global;
-  return !g || g[flag] !== false;
+  // v7.68: this used to be `return !g || g[flag] !== false`, which treats BOTH
+  // "admin never set this flag" and "controls failed to load / arrived empty"
+  // as permission to show. That's why the once-a-day toast still appeared for
+  // some students after the toggle was switched off: if the controls fetch
+  // returned null the student path sets global to {}, so g[flag] was undefined
+  // and `undefined !== false` let the nudge through, overriding the admin's
+  // explicit OFF. Resolution order now:
+  //   1. An explicit boolean for this flag always wins — this is what lets the
+  //      login-page footer work pre-login, where loadPreLoginSocialLinks()
+  //      fetches controls/global/socialLoginPage on its own before any session
+  //      exists and therefore before _controlsLoaded could be set.
+  //   2. Controls loaded but this flag was never set → default ON (unchanged;
+  //      correct for a fresh install where admin hasn't touched the switches).
+  //   3. Otherwise the value is simply unknown → suppress. A missed follow
+  //      prompt is harmless; a popup that ignores the admin's OFF is not.
+  if (g && typeof g === 'object' && typeof g[flag] === 'boolean') return g[flag];
+  if (STATE._controlsLoaded) return true;
+  return false;
 }
 function renderSocialBanner() {
   const el = document.getElementById('social-nudge-banner');
@@ -5864,9 +5968,10 @@ function stuStopHeartbeat() {
   }).catch(() => {});
   // v7.52: the socialLoginPage visibility toggle (Controls ▸ VISIBILITY CONTROLS) also
   // needs to be known BEFORE login — same reasoning as socialLinks above, since this
-  // footer renders on the login screen itself. STATE.controls.global stays whatever the
-  // top-level STATE default is ({}) until this resolves, so canShowSocial() below
-  // correctly defaults to visible in the meantime.
+  // footer renders on the login screen itself. v7.68: canShowSocial() now suppresses a
+  // nudge whose value it doesn't know rather than defaulting it visible, so the footer
+  // stays hidden until this fetch lands and sets an explicit boolean (an explicit value
+  // wins there regardless of _controlsLoaded, which can't be set pre-login).
   rtdbGet('controls/global/socialLoginPage').then(v => {
     if (v === null || v === undefined) return;
     STATE.controls.global.socialLoginPage = v;
@@ -5944,11 +6049,45 @@ async function adminSwitchAY(v) {
     STATE.ttClasses = [...ttClsSet].sort();
     if (typeof populateClassDropdowns === 'function') populateClassDropdowns();
   } catch(e) { console.warn('[adminSwitchAY]', e); }
+  // v7.62: the Students tab (portal logins + class strength) was never wired to
+  // this toggle at all — it kept showing live 2026-27 numbers under an
+  // "archived 2025-26" label, which is worse than just not having the toggle
+  // (looked authoritative, wasn't). Reload it here the same way the three
+  // datasets above already do: swap to davan_pub/archive/2025-26/portal_students
+  // + .../students when viewing Past, restore the live cached copies when
+  // switching back to Current — never re-fetch live data unnecessarily.
+  try {
+    if (v === '2025-26') {
+      if (!STATE._liveStudentsCache)    STATE._liveStudentsCache    = STATE.students;
+      if (!STATE._liveAllStudentsCache) STATE._liveAllStudentsCache = STATE.allStudents;
+      const [archPortalRaw, archStuRaw] = await Promise.all([
+        rtdbGet('davan_pub/archive/2025-26/portal_students').catch(()=>null),
+        rtdbGet('davan_pub/archive/2025-26/students').catch(()=>null)
+      ]);
+      STATE.students = archPortalRaw || {};
+      STATE.allStudents = archStuRaw && archStuRaw.data ? archStuRaw.data
+        : (Array.isArray(archStuRaw) ? archStuRaw : (archStuRaw ? Object.values(archStuRaw) : []));
+      if (!archPortalRaw && !archStuRaw) {
+        console.warn('[adminSwitchAY] No archived student data found at davan_pub/archive/2025-26/{portal_students,students} — Students tab will show empty until archiveAttendanceNow()/rollover has been run for this AY.');
+      }
+    } else {
+      if (STATE._liveStudentsCache)    { STATE.students = STATE._liveStudentsCache; STATE._liveStudentsCache = null; }
+      if (STATE._liveAllStudentsCache) { STATE.allStudents = STATE._liveAllStudentsCache; STATE._liveAllStudentsCache = null; }
+    }
+    STATE._stuMissingMode = false; STATE._stuSummaryClass = null; STATE.stuPage = 1;
+    if (typeof renderStudentTable === 'function' && document.getElementById('stu-table-body')) renderStudentTable();
+  } catch(e) { console.warn('[adminSwitchAY students]', e); }
   // Refresh the active tab.
   const active = document.querySelector('.tab-btn.active');
   const tab = active ? active.getAttribute('data-tab') : '';
   if (tab === 'timetable')  { const s=document.getElementById('tt-class-sel'); if (s && s.value) loadTimetable(); }
   if (tab === 'lessonplan') { const s=document.getElementById('lp-class-sel'); if (s && s.value) loadLessonPlan(); }
+  // v7.64: these tabs derive their content from STATE.allStudents / STATE.students,
+  // which v7.63 now swaps on AY change — re-render them so they don't sit showing
+  // the previous AY's content until the user manually switches tabs.
+  if (tab === 'exceptions') { if (typeof renderExceptionsTab === 'function') renderExceptionsTab(); }
+  if (tab === 'banned')     { if (typeof renderBannedTab === 'function') renderBannedTab(); }
+  if (tab === 'archives')   { if (typeof renderArchivesTab === 'function') renderArchivesTab(); }
   if (tab === 'admincal') {
     // v6.79p: admin calendar tab uses renderAdminCalendar (admin-cal-list), not the ticker.
     // In CURRENT view show fresh (no old events); in PAST view load the archived calendar.
@@ -7168,6 +7307,13 @@ function closeLiveStudentsModal() {
 }
 
 /* ── Show students missing portal login for a class ── */
+function stuCycleLoginSort() {
+  // newest → oldest → never-logged-in → back to newest
+  const order = { newest: 'oldest', oldest: 'never', never: 'newest' };
+  STATE.stuLoginSort = order[STATE.stuLoginSort || 'newest'];
+  STATE.stuPage = 1;
+  renderStudentTable();
+}
 function stuShowMissing(cls, cardEl) {
   // Toggle off if same card clicked again
   if (STATE._stuSummaryClass === cls && STATE._stuMissingMode) {
@@ -7476,6 +7622,7 @@ async function loadAllData() {
       byClass: (ctrlRaw && ctrlRaw.byClass) || {},
       byUrn:   (ctrlRaw && ctrlRaw.byUrn)   || {}
     };
+    STATE._controlsLoaded = true; // v7.68: see canShowSocial()
     // v7.48: Admin-editable social/contact links (Controls ▸ Social & Contact Links).
     // Defaults match parent_ptm.html's own links so both apps point at the same places
     // out of the box; admin can repoint any of them without a code deploy.
@@ -7564,21 +7711,39 @@ async function loadAllData() {
 function populateClassDropdowns() {
   // Student filter + lesson plan → portal class names
   // Student filter + lesson plan → portal class names
+  // v7.65: scope these pickers to the semester parity actually being viewed —
+  // STATE.allClasses is a historical union and was offering e.g. Sem2/Sem6 during
+  // an Odd semester (see ayFilterClasses).
+  const ayClasses = aySortClasses(ayFilterClasses(STATE.allClasses));
   ['stu-class-filter','lp-class-sel'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     const prev = el.value;
     while (el.options.length > 1) el.remove(1);
-    STATE.allClasses.forEach(cls => { const o=document.createElement('option'); o.value=cls; o.textContent=cls; el.appendChild(o); });
-    if (prev) el.value = prev;
+    ayClasses.forEach((cls, i) => {
+      const o=document.createElement('option');
+      o.value=cls; o.textContent=ayNumberedLabel(i, cls);
+      el.appendChild(o);
+    });
+    // Only restore the previous selection if it still exists in this AY's list,
+    // otherwise the control keeps a value the user can no longer see or re-pick.
+    if (prev && ayClasses.includes(prev)) el.value = prev;
   });
-  // By Class override dropdown
+  // By Class override dropdown. Same parity filter, but union back in any class
+  // that ALREADY has an override saved — otherwise an override set last semester
+  // becomes invisible and therefore impossible to clear from this screen.
   const clsSel = document.getElementById('cls-key-input');
   if (clsSel && clsSel.tagName === 'SELECT') {
     const prev = clsSel.value;
+    const withOverrides = Object.keys((STATE.controls && STATE.controls.byClass) || {});
+    const ovrClasses = aySortClasses([...ayClasses, ...withOverrides]);
     while (clsSel.options.length > 1) clsSel.remove(1);
-    STATE.allClasses.forEach(cls => { const o=document.createElement('option'); o.value=cls; o.textContent=cls; clsSel.appendChild(o); });
-    if (prev) clsSel.value = prev;
+    ovrClasses.forEach((cls, i) => {
+      const o=document.createElement('option');
+      o.value=cls; o.textContent=ayNumberedLabel(i, cls);
+      clsSel.appendChild(o);
+    });
+    if (prev && ovrClasses.includes(prev)) clsSel.value = prev;
   }
   // Admin TT class chips → mother-app class names from davan_pub/timetable data.
   // Kept in sync with a hidden #tt-class-sel select so loadTimetable()/renderAdminTT()/
@@ -7590,15 +7755,15 @@ function populateClassDropdowns() {
     // shows immediately instead of resetting to empty and needing a re-pick.
     let saved = ''; try { saved = sessionStorage.getItem('admin_tt_class') || ''; } catch(e) {}
     const prev = ttSel.value || saved;
-    const ttClasses = STATE.ttClasses || STATE.allClasses || [];
+    const ttClasses = aySortClasses(STATE.ttClasses || STATE.allClasses || []);
     ttSel.innerHTML = '<option value=""></option><option value="__ALL__">All Classes</option>';
-    ttClasses.forEach(cls => {
-      const o = document.createElement('option'); o.value = cls; o.textContent = cls; ttSel.appendChild(o);
+    ttClasses.forEach((cls, i) => {
+      const o = document.createElement('option'); o.value = cls; o.textContent = ayNumberedLabel(i, cls); ttSel.appendChild(o);
     });
     // Build the chip row: 🗂️ All Classes chip first, then one chip per class.
-    const chipHtml = ['__ALL__', ...ttClasses].map(cls => {
-      const label = cls === '__ALL__' ? '🗂️ All Classes' : cls;
-      return '<button class="notice-chip" data-cls="' + cls + '" onclick="selectTTClassChip(\'' + cls + '\')">' + label + '</button>';
+    const chipHtml = ['__ALL__', ...ttClasses].map((cls, idx) => {
+      const label = cls === '__ALL__' ? '🗂️ All Classes' : ayNumberedLabel(idx - 1, cls);
+      return '<button class="notice-chip" data-cls="' + cls + '" onclick="selectTTClassChip(\'' + String(cls).replace(/'/g,"\\'") + '\')">' + label + '</button>';
     }).join('');
     ttChipWrap.innerHTML = chipHtml;
     if (prev && [...ttSel.options].some(o => o.value === prev)) {
@@ -7606,19 +7771,19 @@ function populateClassDropdowns() {
     }
   }
   // Notice class chips — LIVE classes only (this AY's 9), not the full historical set.
-  const _liveCls = STATE.liveClasses && STATE.liveClasses.length ? STATE.liveClasses : STATE.allClasses;
+  const _liveCls = aySortClasses(STATE.liveClasses && STATE.liveClasses.length ? STATE.liveClasses : STATE.allClasses);
   ['notice-class-chips','banner-class-chips'].forEach(id => {
     const wrap = document.getElementById(id);
     if (!wrap) return;
-    wrap.innerHTML = _liveCls.map(c =>
-      '<button class="notice-chip" data-cls="'+c+'" onclick="selectNoticeChip(this,\''+id+'\')">'+c+'</button>'
+    wrap.innerHTML = _liveCls.map((c, i) =>
+      '<button class="notice-chip" data-cls="'+c+'" onclick="selectNoticeChip(this,\''+id+'\')">'+ayNumberedLabel(i, c)+'</button>'
     ).join('');
   });
   // Broadcast chips
   const bwrap = document.getElementById('broadcast-class-chips');
   if (bwrap) {
-    bwrap.innerHTML = _liveCls.map(c =>
-      '<button class="notice-chip" data-cls="'+c+'" onclick="setBroadcastTarget(\'class\',\''+c+'\')">'+c+'</button>'
+    bwrap.innerHTML = _liveCls.map((c, i) =>
+      '<button class="notice-chip" data-cls="'+c+'" onclick="setBroadcastTarget(\'class\',\''+String(c).replace(/'/g,"\\'")+'\')">'+ayNumberedLabel(i, c)+'</button>'
     ).join('');
   }
 }
@@ -7896,25 +8061,58 @@ function renderStudentTable() {
   // ── Class Portal Login Summary ──
   const summaryEl = document.getElementById('stu-class-summary');
   if (summaryEl) {
-    const allStu = STATE.allStudents || []; // full student DB (davan_pub/students)
+    // Scope to the current semester type (Odd/Even) per AY_CONFIG.currentSem —
+    // matches the "VIEWING: Current — 2026-27 Odd" convention used elsewhere.
+    // Records with no resolvable sem field are kept (better to show them than
+    // silently drop students whose sem data is missing/malformed).
+    const allStu = (STATE.allStudents || []).filter(s => {
+      const p = stuRecSemParity(s);
+      return p === null || p === ayViewSemParity();
+    });
     if (allStu.length || all.length) {
       // Class strength from full student DB
       const strength = {}; // class → total students
       allStu.forEach(s => {
-        const c = s.cls || s.class || '(No Class)';
+        const c = stuNormClass(s.cls || s.class) || '(No Class)';
         if (c) strength[c] = (strength[c]||0) + 1;
       });
-      // Portal logins created from STATE.students
+      // Portal logins created, counted PER CLASS BY URN MEMBERSHIP rather than
+      // by grouping login records under their own stored `class` field.
+      // Why: davan_pub/students (source of truth for class assignment) and
+      // davan_pub/portal_students (where the login's own `class` field lives)
+      // can drift out of sync — a student's class label gets updated in one
+      // place but not the other, a login was created before a section split,
+      // etc. When that happens, grouping logins by their own `class` field
+      // silently misfiles them under a different key, undercounting a class
+      // that in reality has 100% of its logins created (confirmed bug: a
+      // class showed "61/63, 2 no portal login" on the card while the actual
+      // missing-login list below — which checks by URN — correctly found 0
+      // missing, because the 2 "missing" logins existed but were filed under
+      // a mismatched class string). Counting by URN membership against each
+      // class's own student list makes the numerator and the missing-list
+      // impossible to disagree, since both now use the same source of truth.
+      const portalUrnSet = new Set(Object.keys(STATE.students).map(u => u.toUpperCase().trim()));
       const created = {}; // class → portal logins count
-      all.forEach(s => {
-        const c = s.class || '(No Class)';
-        created[c] = (created[c]||0) + 1;
+      Object.keys(strength).forEach(c => {
+        created[c] = allStu.filter(s => {
+          const sc = stuNormClass(s.cls || s.class) || '(No Class)';
+          if (sc !== c) return false;
+          const urn = (s.urn||s.URN||'').toString().toUpperCase().trim();
+          return urn && portalUrnSet.has(urn);
+        }).length;
       });
       // All classes union
       const allCls = [...new Set([...Object.keys(strength), ...Object.keys(created)])].sort();
       if (allCls.length) {
         const totalStr = allStu.length || all.length;
-        const totalCre = all.length;
+        // Scoped the same way as each class's `created` count above — logins
+        // belonging to a current-sem student URN — so the ALL CLASSES total
+        // agrees with the sum of the per-class numbers instead of counting
+        // every login ever created (including other semesters/archived).
+        const totalCre = allStu.filter(s => {
+          const urn = (s.urn||s.URN||'').toString().toUpperCase().trim();
+          return urn && portalUrnSet.has(urn);
+        }).length;
         const totalMissing = Math.max(0, totalStr - totalCre);
         summaryEl.innerHTML =
           '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">'
@@ -7953,49 +8151,98 @@ function renderStudentTable() {
 
   // ── If showing "missing portal login" mode for a class ──
   if (STATE._stuMissingMode && STATE._stuSummaryClass) {
-    const allStu = STATE.allStudents || [];
-    const portalUrns = new Set(Object.keys(STATE.students).map(u=>u.toUpperCase()));
+    // Same current-sem scoping as the summary cards above, so the missing-login
+    // list matches whatever "N no portal login" count the admin clicked into.
+    const allStu = (STATE.allStudents || []).filter(s => {
+      const p = stuRecSemParity(s);
+      return p === null || p === ayViewSemParity();
+    });
+    const portalUrns = new Set(Object.keys(STATE.students).map(u=>u.toUpperCase().trim()));
     let missing = allStu.filter(s => {
-      const u = (s.urn||s.URN||'').toString().toUpperCase();
+      const u = (s.urn||s.URN||'').toString().toUpperCase().trim();
       return u && !portalUrns.has(u);
     });
     if (STATE._stuSummaryClass !== '__all__') {
-      missing = missing.filter(s => (s.cls||s.class||'') === STATE._stuSummaryClass);
+      missing = missing.filter(s => stuNormClass(s.cls||s.class) === STATE._stuSummaryClass);
     }
     const tbody = document.getElementById('stu-table-body');
     const missingLabel = document.getElementById('stu-missing-label');
     if (missingLabel) missingLabel.style.display = 'block';
+    const thead = document.getElementById('stu-table-head');
+    if (thead) thead.innerHTML = '<tr><th style="width:34px;"><input type="checkbox" id="stu-missing-select-all" onchange="toggleSelectAllMissing(this.checked)" style="width:16px;height:16px;cursor:pointer;"></th><th>URN</th><th>Name</th><th>Class</th><th>Phone / Password</th><th>Status</th><th>Last Login</th><th>Actions</th></tr>';
     if (!missing.length) {
-      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">✅</div>All students in this class have a portal login!</div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">✅</div>All students in this class have a portal login!</div></td></tr>';
+      document.getElementById('stu-bulk-bar').style.display = 'none';
     } else {
-      tbody.innerHTML = missing.map(s => {
+      // Newest first
+      const missingOrdered = missing.slice().reverse();
+      // Stash raw records so click handlers read data-attributes instead of
+      // interpolating student data (name/URN) into an onclick string — that was
+      // what caused the "unescaped line break" SyntaxError when a name/URN had
+      // an unusual character in it.
+      STATE._stuMissingRows = {};
+      tbody.innerHTML = missingOrdered.map((s, i) => {
         const name = s.name||s.Name||s.student_name||'—';
         const urn  = s.urn||s.URN||'—';
-        const cls  = s.cls||s.class||'—';
+        const cls  = stuNormClass(s.cls||s.class) || '—';
         const phone= s.phone||s.mobile||s.Phone||'—';
+        const rowKey = 'mrow'+i;
+        STATE._stuMissingRows[rowKey] = { urn, name, cls, phone };
         return `<tr style="background:rgba(239,68,68,0.04);">
-          <td><span style="font-family:var(--mono);color:var(--accent);">${urn}</span></td>
-          <td><span style="color:var(--text);">${name}</span></td>
-          <td><span class="badge badge-muted">${cls}</span></td>
-          <td style="font-family:var(--mono);font-size:12px;">${phone}</td>
+          <td><input type="checkbox" class="stu-missing-check" data-rowkey="${rowKey}" style="width:16px;height:16px;cursor:pointer;"></td>
+          <td><span style="font-family:var(--mono);color:var(--accent);">${escapeHtml(urn)}</span></td>
+          <td><span style="color:var(--text);">${escapeHtml(name)}</span></td>
+          <td><span class="badge badge-muted">${escapeHtml(cls)}</span></td>
+          <td style="font-family:var(--mono);font-size:12px;">${escapeHtml(phone)}</td>
           <td><span class="badge badge-danger" style="background:rgba(239,68,68,0.15);color:var(--danger);border:1px solid rgba(239,68,68,0.3);">No Login</span></td>
           <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">—</td>
-          <td><button class="btn btn-sm btn-primary" onclick="openStudentModal(null,'${urn}','${name.replace(/'/g,"\\'")}','${cls}','${phone}')" style="margin-top:0;padding:4px 10px;">+ Create</button></td>
+          <td><button class="btn btn-sm btn-primary stu-missing-create-btn" data-rowkey="${rowKey}" style="margin-top:0;padding:4px 10px;">+ Create</button></td>
         </tr>`;
       }).join('');
+      tbody.onclick = function(ev) {
+        const btn = ev.target.closest('.stu-missing-create-btn');
+        if (btn) {
+          const row = STATE._stuMissingRows[btn.dataset.rowkey];
+          if (row) openStudentModal(null, row.urn, row.name, row.cls, row.phone);
+          return;
+        }
+      };
+      tbody.onchange = function(ev) {
+        if (ev.target.classList.contains('stu-missing-check')) updateBulkCreateBar();
+      };
     }
     document.getElementById('stu-pagination').innerHTML = '';
+    updateBulkCreateBar();
     return;
   }
 
   // ── Normal mode ──
   const missingLabel = document.getElementById('stu-missing-label');
   if (missingLabel) missingLabel.style.display = 'none';
+  const bulkBar = document.getElementById('stu-bulk-bar');
+  if (bulkBar) bulkBar.style.display = 'none';
+  const theadNormal = document.getElementById('stu-table-head');
+  // Last Login header is clickable — toggles newest-first / oldest-first / never-logged-in-first.
+  const llArrow = STATE.stuLoginSort === 'oldest' ? ' ▲' : STATE.stuLoginSort === 'never' ? ' ⚠' : ' ▼';
+  if (theadNormal) theadNormal.innerHTML = '<tr><th>URN</th><th>Name</th><th>Class</th><th>Phone / Password</th><th>Status</th><th style="cursor:pointer;user-select:none;" onclick="stuCycleLoginSort()" title="Click to change sort">Last Login'+llArrow+'</th><th>Actions</th></tr>';
 
   STATE.stuFiltered = all.filter(s => {
     const mq  = !q   || (s.name||'').toLowerCase().includes(q) || (s.urn||'').toLowerCase().includes(q);
     const mcls= !cls || s.class===cls;
     return mq && mcls;
+  });
+  // Sort by lastLogin per STATE.stuLoginSort (default: newest-first, so recent
+  // activity is what you see without hunting through pages).
+  const sortMode = STATE.stuLoginSort || 'newest';
+  STATE.stuFiltered.sort((a, b) => {
+    const la = a.lastLogin || 0, lb = b.lastLogin || 0;
+    if (sortMode === 'never') {
+      // Students who have NEVER logged in first, then newest-first among the rest.
+      if (!la && lb) return -1;
+      if (la && !lb) return 1;
+      return lb - la;
+    }
+    return sortMode === 'oldest' ? (la - lb) : (lb - la);
   });
   const total=STATE.stuFiltered.length;
   const pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
@@ -8011,9 +8258,9 @@ function renderStudentTable() {
         <td><span style="font-family:var(--mono);color:var(--accent);">${s.urn||'—'}</span></td>
         <td><span class="asc-name-link" onclick="ascOpen('${s.urn}')">${s.name||'—'}</span></td>
         <td><span class="badge badge-muted">${s.class||'—'}</span></td>
-        <td style="font-family:var(--mono);font-size:12px;">${s.phone||'<span style="color:var(--muted)">—</span>'}</td>
+        <td style="font-family:var(--mono);font-size:12px;">${s.phone?escapeHtml(s.phone):'<span style="color:var(--muted)">—</span>'}</td>
         <td><span class="badge ${s.passwordChanged?'badge-ok':'badge-warn'}">${s.passwordChanged?'Changed':'Default'}</span></td>
-        <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${fmtDate(s.lastLogin)}</td>
+        <td style="font-family:var(--mono);font-size:11px;color:${s.lastLogin?'var(--muted)':'var(--danger)'};">${s.lastLogin?fmtDate(s.lastLogin):'Never logged in'}</td>
         <td><button class="btn btn-sm btn-ghost" onclick="openStudentModal('${s.urn}')" style="margin-top:0;padding:4px 10px;">Edit</button></td>
       </tr>`).join('');
   }
@@ -8024,6 +8271,16 @@ function renderStudentTable() {
 }
 
 function openStudentModal(urn, prefillUrn, prefillName, prefillCls, prefillPhone) {
+  // v7.62: Students tab now genuinely shows archived 2025-26 data when that AY
+  // is selected (previously it silently kept showing live data under an
+  // "archived" label). Now that it's real archived data, editing/creating
+  // against it must be blocked — a write here would go to davan_pub/portal_students
+  // (the LIVE path) while the form is populated from archived records, which
+  // would corrupt current-year data with stale info.
+  if (typeof _adminViewAY !== 'undefined' && _adminViewAY === '2025-26') {
+    alert('This is archived 2025-26 data (read-only). Switch "VIEWING" back to Current in the top bar to create or edit logins.');
+    return;
+  }
   STATE.editingUrn=urn; hideAlert('modal-err'); hideAlert('modal-ok');
   document.getElementById('modal-title').textContent = urn ? 'EDIT STUDENT' : 'ADD STUDENT';
   document.getElementById('modal-reset-section').style.display = urn ? 'block' : 'none';
@@ -8034,7 +8291,11 @@ function openStudentModal(urn, prefillUrn, prefillName, prefillCls, prefillPhone
     document.getElementById('m-urn').value=s.urn||urn;
     document.getElementById('m-name').value=s.name||'';
     document.getElementById('m-class').value=s.class||'';
-    document.getElementById('m-phone').value='';
+    // Show the current phone/password if we have it on file (stored since this
+    // fix). Older records saved before this only ever stored the password
+    // hash, so there's genuinely nothing to show for them — a hash can't be
+    // reversed back into a phone number.
+    document.getElementById('m-phone').value = s.phone || '';
   } else {
     document.getElementById('m-urn').value=prefillUrn||'';
     document.getElementById('m-name').value=prefillName||'';
@@ -8060,7 +8321,7 @@ async function saveStudent() {
     let payload={ urn, name, class:cls };
     if (phone) {
       if (!/^[0-9]{10}$/.test(phone)) { showAlert('modal-err','Phone must be exactly 10 digits.'); return; }
-      payload.password=await sha256(phone); payload.passwordChanged=false;
+      payload.password=await sha256(phone); payload.passwordChanged=false; payload.phone=phone;
     } else if (!existing.password) {
       showAlert('modal-err','Phone required for new student.'); return;
     }
@@ -8082,10 +8343,78 @@ async function resetStudentPassword() {
   if (!/^[0-9]{10}$/.test(newPhone)) { showAlert('modal-err','New phone must be exactly 10 digits.'); return; }
   try {
     const hash=await sha256(newPhone);
-    await rtdbPatch('davan_pub/portal_students/'+urn, { password:hash, passwordChanged:false });
-    if (STATE.students[urn]) { STATE.students[urn].password=hash; STATE.students[urn].passwordChanged=false; }
+    await rtdbPatch('davan_pub/portal_students/'+urn, { password:hash, passwordChanged:false, phone:newPhone });
+    if (STATE.students[urn]) { STATE.students[urn].password=hash; STATE.students[urn].passwordChanged=false; STATE.students[urn].phone=newPhone; }
     showAlert('modal-ok','Password reset to new phone number.'); document.getElementById('m-new-phone').value='';
+    renderStudentTable();
   } catch(e) { showAlert('modal-err','Error: '+e.message); }
+}
+
+/* ════════════════════════════════════════════════════
+   BULK CREATE (missing-login mode)
+════════════════════════════════════════════════════ */
+function updateBulkCreateBar() {
+  const bar = document.getElementById('stu-bulk-bar');
+  if (!bar) return;
+  if (!STATE._stuMissingMode) { bar.style.display = 'none'; return; }
+  const checks = document.querySelectorAll('.stu-missing-check');
+  if (!checks.length) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  const selected = document.querySelectorAll('.stu-missing-check:checked').length;
+  document.getElementById('stu-bulk-count').textContent = selected + ' selected';
+  const btn = document.getElementById('stu-bulk-create-btn');
+  btn.disabled = selected === 0;
+  btn.style.opacity = selected === 0 ? '0.5' : '1';
+  const selectAll = document.getElementById('stu-missing-select-all');
+  if (selectAll) selectAll.checked = selected > 0 && selected === checks.length;
+}
+function toggleSelectAllMissing(forceState) {
+  const checks = document.querySelectorAll('.stu-missing-check');
+  const shouldCheck = typeof forceState === 'boolean'
+    ? forceState
+    : !(document.querySelectorAll('.stu-missing-check:checked').length === checks.length && checks.length > 0);
+  checks.forEach(c => c.checked = shouldCheck);
+  updateBulkCreateBar();
+}
+async function bulkCreateSelectedLogins() {
+  if (typeof _adminViewAY !== 'undefined' && _adminViewAY === '2025-26') {
+    alert('This is archived 2025-26 data (read-only). Switch "VIEWING" back to Current in the top bar to create logins.');
+    return;
+  }
+  const checks = Array.from(document.querySelectorAll('.stu-missing-check:checked'));
+  if (!checks.length) return;
+  const rows = checks.map(c => STATE._stuMissingRows[c.dataset.rowkey]).filter(Boolean);
+  if (!rows.length) return;
+  // Validate every selected row has a usable 10-digit phone before writing anything —
+  // phone doubles as the default password, so we can't silently skip/guess it.
+  const bad = rows.filter(r => !/^[0-9]{10}$/.test((r.phone||'').toString().trim()));
+  if (bad.length) {
+    alert('Cannot bulk create: ' + bad.length + ' selected student(s) have no valid 10-digit phone number on file (e.g. ' + bad[0].urn + '). Please use "+ Create" individually for those and enter a phone manually, or fix the phone in the source data first.');
+    return;
+  }
+  if (!confirm('Create portal logins for ' + rows.length + ' student(s)? Default password = their phone number.')) return;
+  const btn = document.getElementById('stu-bulk-create-btn');
+  btn.disabled = true; const origText = btn.textContent; btn.textContent = 'Creating…';
+  let ok = 0, fail = 0, failList = [];
+  for (const r of rows) {
+    try {
+      const urn = (r.urn||'').toString().trim().toUpperCase();
+      const phone = (r.phone||'').toString().trim();
+      const payload = { urn, name: r.name, class: r.cls, password: await sha256(phone), passwordChanged: false, phone, lastLogin: null };
+      await rtdbPatch('davan_pub/portal_students/'+urn, payload);
+      STATE.students[urn] = { ...(STATE.students[urn]||{}), ...payload };
+      if (r.cls && !STATE.allClasses.includes(r.cls)) { STATE.allClasses.push(r.cls); STATE.allClasses.sort(); }
+      ok++;
+    } catch(e) { fail++; failList.push((r.urn||'?') + ': ' + e.message); }
+  }
+  populateClassDropdowns();
+  btn.disabled = false; btn.textContent = origText;
+  if (fail) {
+    alert('Created ' + ok + ' login(s). ' + fail + ' failed:\n' + failList.join('\n'));
+  } else {
+    flashAlert('stu-msg', ok + ' portal login(s) created successfully.');
+  }
+  renderStudentTable();
 }
 
 /* ════════════════════════════════════════════════════
@@ -9517,17 +9846,6 @@ async function loadLessonPlan() {
     list.innerHTML = ''; list.appendChild(placeholder); placeholder.style.display = 'block';
     return;
   }
-  // v6.79o: In CURRENT view the 2026-27 lesson plan hasn't been scraped yet — the live
-  // davan_pub/lessonPlan still holds last-year's data. Show a fresh state instead of stale
-  // LP. (Past view reads the archived LP normally via _adminViewAY.)
-  if (_adminViewAY === 'current' && _adminLPIsStale()) {
-    document.getElementById('lp-add-btn').style.display = 'inline-flex';
-    list.innerHTML = '<div class="empty-state" style="padding:34px 16px;">' +
-      '<div class="empty-icon">🆕</div>' +
-      '<div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:4px;">Lesson plan not scraped yet for 2026-27</div>' +
-      '<div style="font-size:12px;color:var(--muted);max-width:380px;margin:0 auto;">The current-year syllabus progress will appear here once it is scraped. Switch “VIEWING” to Past — 2025-26 to see last year\'s lesson plan.</div></div>';
-    return;
-  }
   list.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div>';
   try {
     const [manualData, scrapedAll] = await Promise.all([
@@ -9535,6 +9853,22 @@ async function loadLessonPlan() {
       STATE.adminLPAll ? Promise.resolve(STATE.adminLPAll) : rtdbGet(_adminPath('lessonPlan')).catch(() => null)
     ]);
     if (scrapedAll) STATE.adminLPAll = scrapedAll;
+    // v7.66 FIX: this staleness check used to run BEFORE the fetch above. But
+    // _adminLPIsStale() inspects STATE.adminLPAll, which is only populated by
+    // adminSwitchAY() or by the fetch above — loadAllData() never sets it (it
+    // loads the separate root `lessonPlan` node into STATE.adminLP). So on a
+    // fresh page load, with the AY dropdown untouched, the check ran against
+    // undefined, found no timestamps, declared the LP "not scraped yet", and
+    // returned early — permanently hiding a lesson plan that was scraped and
+    // present. The check has to come after the data it judges.
+    if (_adminViewAY === 'current' && _adminLPIsStale()) {
+      document.getElementById('lp-add-btn').style.display = 'inline-flex';
+      list.innerHTML = '<div class="empty-state" style="padding:34px 16px;">' +
+        '<div class="empty-icon">🆕</div>' +
+        '<div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:4px;">Lesson plan not scraped yet for 2026-27</div>' +
+        '<div style="font-size:12px;color:var(--muted);max-width:380px;margin:0 auto;">The current-year syllabus progress will appear here once it is scraped. Switch “VIEWING” to Past — 2025-26 to see last year\'s lesson plan.</div></div>';
+      return;
+    }
     STATE.lessonPlan = manualData || {};
     STATE.currentScrapedLP = filterLPForStudent(scrapedAll || {}, cls);
     document.getElementById('lp-add-btn').style.display = 'inline-flex';
@@ -9559,7 +9893,14 @@ function _adminLPIsStale() {
         else if (v && typeof v === 'object') scan(v);
       } };
     scan(lp);
-    if (!newest) return true;
+    // v7.66: previously `if (!newest) return true` — i.e. "no timestamp found"
+    // was treated as "not scraped". But a scrape whose records simply don't
+    // carry updated_at/updatedAt/scrapedAt keys would then be hidden despite
+    // being real, current data. Only claim "not scraped" when there is no LP
+    // content at all; if content exists but carries no readable timestamp we
+    // can't prove it's stale, so show it rather than hide real data behind a
+    // message telling the admin to go scrape something they already scraped.
+    if (!newest) return !lp || Object.keys(lp).length === 0;
     return newest < start.getTime();
   } catch(e) { return true; }
 }
@@ -10167,10 +10508,21 @@ async function loadStudentDashboard() {
   // v6.79h: purge any previously-cached motherTT (timetable) so returning students
   // with a stale 30-min cache from before the semester change get the fresh timetable.
   try { sessionStorage.removeItem('davan_sc_motherTT'); } catch(e) {}
+  // v7.68: same reasoning — students still carrying a `controls` entry cached by an
+  // earlier build would otherwise keep honouring pre-toggle visibility flags until
+  // that entry expired. Drop it once so the fresh fetch below is authoritative.
+  try { sessionStorage.removeItem('davan_sc_controls'); } catch(e) {}
   try {
     const [studentsRaw, controls, notices, timetable, lessonPlan, motherTTRaw, motherAllocsRaw, metaRaw, bannerRaw, broadcastRaw, ovRaw, calRaw, allocEachRaw, semCfgRaw] = await Promise.all([
       cachedGet('students',    'davan_pub/students'),
-      cachedGet('controls',    'controls'),
+      // v7.68: controls is NO LONGER cached. It carries the visibility switches
+      // (attendance/internals/timetable/... and the 4 social nudges), so a 30-min
+      // sessionStorage TTL meant a student who loaded the app before admin flipped
+      // a toggle kept acting on the old value for up to half an hour — which is
+      // exactly why the once-a-day toast kept appearing for "a few students" after
+      // it was switched off. It's one small node; fetch it fresh every load so
+      // admin toggles take effect on the student's next page load, not 30 min later.
+      rtdbGet('controls').catch(() => null),
       cachedGet('notices',     'notices'),
       cls ? cachedGet('tt_'+encodeURIComponent(cls), 'timetable/' + encodeURIComponent(cls)) : Promise.resolve(null),
       cachedGet('lessonPlan',  'davan_pub/lessonPlan'),
@@ -10195,6 +10547,10 @@ async function loadStudentDashboard() {
       byClass: (controls && controls.byClass) || {},
       byUrn:   (controls && controls.byUrn)   || {}
     };
+    // v7.68: only true when the controls node actually came back. canShowSocial()
+    // requires this before showing any social nudge, so a failed/empty fetch can no
+    // longer fall back to "show it anyway" and override an admin's OFF switch.
+    STATE._controlsLoaded = !!(controls && controls.global);
     // v7.48: Same bug shape as the theme/session_config fixes noted above — social/contact
     // links must load on the student path too, not just admin's, or students see the
     // hardcoded defaults forever regardless of what admin edits in Controls.
@@ -15595,6 +15951,20 @@ function renderExceptionsTab() {
     loadEl.style.display = 'block'; wrapEl.style.display = 'none'; return;
   }
   loadEl.style.display = 'none'; wrapEl.style.display = 'block';
+  // v7.64: warn up front that this setting is global, not per-AY (see saveExceptions).
+  let warnEl = document.getElementById('exc-ay-warning');
+  if (!warnEl) {
+    warnEl = document.createElement('div');
+    warnEl.id = 'exc-ay-warning';
+    warnEl.style.cssText = 'display:none;background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.35);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;font-family:var(--mono);color:#f59e0b;';
+    wrapEl.insertBefore(warnEl, wrapEl.firstChild);
+  }
+  if (typeof _adminViewAY !== 'undefined' && _adminViewAY === '2025-26') {
+    warnEl.innerHTML = '\u26a0 Read-only: you are VIEWING archived 2025-26 data, so this list shows last year\u2019s subjects. LP Exceptions are a single global setting (not stored per academic year) \u2014 switch VIEWING back to Current to make changes.';
+    warnEl.style.display = 'block';
+  } else {
+    warnEl.style.display = 'none';
+  }
   _excRenderChips();
   _excRender();
 }
@@ -15609,6 +15979,11 @@ function excSetCourse(course) {
 function excSearch(val) { STATE._excSearch = val; _excRender(); }
 
 function excToggle(cb) {
+  if (typeof _adminViewAY !== 'undefined' && _adminViewAY === '2025-26') {
+    cb.checked = !cb.checked; // revert
+    alert('Read-only while VIEWING archived 2025-26 data. Switch back to Current to change LP Exceptions.');
+    return;
+  }
   const code  = cb.dataset.code;
   const lbl   = cb.closest('label');
   const nameEl = lbl && lbl.querySelector('span > span:first-child');
@@ -15629,6 +16004,16 @@ function excToggle(cb) {
 }
 
 async function saveExceptions() {
+  // v7.64: LP exceptions live at a single global path (controls/lpExceptions) —
+  // they are NOT archived per academic year. Since v7.63 made STATE.allStudents
+  // swap to archived data when the AY toggle is set to Past, _excBuildMap()
+  // would build validKeys from LAST year's subjects while this function strips
+  // every key not in that set — silently deleting all current-year exceptions.
+  // Block the save entirely in archive view rather than risk that.
+  if (typeof _adminViewAY !== 'undefined' && _adminViewAY === '2025-26') {
+    alert('LP Subject Exceptions are a single global setting (not stored per academic year).\n\nYou are currently VIEWING archived 2025-26 data, so the subject list below is last year\'s. Saving now would wipe your current-year exceptions.\n\nSwitch "VIEWING" back to Current to edit exceptions.');
+    return;
+  }
   const map = _excBuildMap();
   const validKeys = new Set(Object.keys(map));
   // Only persist entries that exist in current alloc/attendance data (strip stale)
@@ -15671,12 +16056,19 @@ function renderBannedTab() {
   // classes — same archive-style grouping as the Notice/Banner/Broadcast passout picker.
   const chipWrap = document.getElementById('ban-class-chips');
   if (chipWrap) {
-    const liveClasses = (STATE.liveClasses && STATE.liveClasses.length) ? STATE.liveClasses : (STATE.allClasses || []);
+    // v7.66 FIX: this row used STATE.liveClasses, which comes from STATE.ttClasses —
+    // mother-app TIMETABLE names ("I YEAR BCA (A)"). But renderBanTable() filters with
+    // `s.class === cls`, and s.class is the PORTAL name ("Davan-BCA-Sem1-SecA"). The two
+    // formats can never be equal, so every class chip here returned "No students found".
+    // Use the portal class names instead, parity-filtered to the AY being viewed — that
+    // matches s.class exactly and still keeps old/alumni classes out of the row (the
+    // reason liveClasses was originally chosen).
+    const liveClasses = aySortClasses(ayFilterClasses(STATE.allClasses || []));
     const allChip = `<button class="notice-chip${STATE.banFilterClass===''?' active':''}"
       onclick="setBanClass('')" style="font-size:11px;">All</button>`;
-    const chips = liveClasses.map(c =>
+    const chips = liveClasses.map((c, i) =>
       `<button class="notice-chip${STATE.banFilterClass===c?' active':''}"
-        onclick="setBanClass('${c}')" style="font-size:11px;">${c}</button>`
+        onclick="setBanClass('${c.replace(/'/g,"\\'")}')" style="font-size:11px;">${ayNumberedLabel(i, c)}</button>`
     ).join('');
     chipWrap.innerHTML = allChip + chips;
   }
@@ -15820,6 +16212,14 @@ function renderCurrentBanned() {
 }
 
 async function toggleBan(urn) {
+  // v7.64: bans are global (controls/bannedStudents), not per-AY. The student
+  // roster shown here comes from STATE.students, which swaps to archived data
+  // when VIEWING is set to Past — so banning from that view would apply a live
+  // ban based on a stale roster. Block it for consistency with the other tabs.
+  if (typeof _adminViewAY !== 'undefined' && _adminViewAY === '2025-26') {
+    alert('Bans are a global setting and apply to live accounts, but you are VIEWING archived 2025-26 data.\n\nSwitch "VIEWING" back to Current to change bans.');
+    return;
+  }
   const banned = STATE.bannedStudents || [];
   const idx    = banned.indexOf(urn);
   if (idx >= 0) banned.splice(idx, 1);
