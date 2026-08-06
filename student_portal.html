@@ -257,6 +257,88 @@ VERSION : v7.42 (2026-07-27) — FIX: topbar calendar ticker (v7.41's speed
   so the other restore path had no way to call it. Promoted it to a
   top-level function and call it from both entry paths, after
   loadStudentDashboard() so STATE.calendarData is populated first.
+VERSION : v7.93 (2026-08-06) — FIX: v7.92 stopped NEW negative photo results
+  from being cached, but did nothing about negative entries already sitting
+  in localStorage from before that fix — so a student could still show no
+  photo on one screen (reading an old poisoned entry) while showing correctly
+  on another (freshly re-checked), inconsistent within the same session.
+  Reported live: M D Huzaif ur Rahaman's photo displayed on the Report Card
+  page but not in the admin student-card popup opened from Login Activity —
+  same rcLoadPhoto()/cache, same URN, different screens, because one had
+  already been freshly re-checked post-v7.92 and the other was still reading
+  a stale leftover. Fixed: _rcPhotoCacheGet() now treats any stored negative
+  value as a leftover from the old caching behavior rather than a trustworthy
+  "confirmed no photo" — it's discarded and re-checked fresh the moment it's
+  encountered, self-healing every affected URN on its next lookup instead of
+  waiting out the original 7-day TTL.
+VERSION : v7.92 (2026-08-06) — FIX: Student photos that displayed correctly
+  earlier could silently go blank later in the same session with no code
+  change in between (reported: Alisha Khanum's photo showed in the raw log
+  list, then disappeared in the class drilldown card minutes later).
+  Root cause: _rcPhotoCacheSet() cached BOTH positive hits and negative "no
+  photo found anywhere" results in localStorage for the same 7-day TTL. Any
+  transient failure — RTDB briefly returning null, a Storage/Cloudinary HEAD
+  request timing out on a slow connection — got permanently remembered as
+  "this student has no photo" for a full week, even though the photo
+  genuinely exists and would load fine on a retry. This is pre-existing
+  behavior, not something introduced by v7.90/v7.91's chip-filter fixes.
+  Fixed: only a confirmed positive hit (real photo URL) is now persisted to
+  localStorage with the 7-day TTL. A miss is kept in-memory only for the
+  current page load (so one screen with 50 students doesn't re-fire the
+  same lookups repeatedly) and is never written to localStorage — so every
+  fresh page load re-checks RTDB/Storage/Cloudinary from scratch instead of
+  trusting a possibly-stale "no photo" verdict from earlier.
+VERSION : v7.91 (2026-08-06) — FIX: Login Activity — Sem 1 (and other chip)
+  filters stopped showing student photos in the raw log list, though the
+  same photos loaded fine with no filter applied. Root cause: rcLoadPhoto()
+  is async (RTDB read, then up to 6 parallel Storage HEAD requests as
+  fallback); when a chip tap re-ran renderLoginActivity() before an
+  in-flight photo fetch from the PREVIOUS render had resolved, that older
+  fetch would land after la-list's HTML had already been rebuilt — writing
+  into a stale/now-missing avatar element or the wrong slot, so the photo
+  silently never appeared. Added a render-generation counter
+  (STATE._laRenderGen): each render stamps its own generation, and the
+  photo-load callback now checks it's still the current generation before
+  touching the DOM, discarding results from any render that's since been
+  superseded. Applies to every call path (chip clicks, search typing,
+  class-summary card clicks, refresh), not just the Sem/Section chips.
+VERSION : v7.90 (2026-08-06) — FIX: Semester and Section chips never
+  highlighted when clicked, and the filter silently matched nothing. Root
+  cause: laSetFilter() stored the clicked chip's LABEL text (e.g. "Sem 1")
+  as the filter value, but laRenderChipBar() then re-added the "Sem "/"Sec "
+  prefix on top of that stored value when deciding which chip to highlight
+  (building "Sem Sem 1"), which never equals "Sem 1" — so the chip never lit
+  up. Filtering used the same double-prefixed value against class names,
+  which also never matched. Fixed by storing RAW values only ('1'..'6',
+  'A'..'C', course code, AY string) in STATE._laFilt, with the "Sem "/"Sec "
+  prefix now added purely for display via a display-formatter passed into
+  laChipGroup(). Highlighting and filtering both now work correctly.
+VERSION : v7.89 (2026-08-06) — FIX: Login Activity chip panel redesigned per
+  admin feedback (v7.88's layout wasn't good) — Course + Semester now pack
+  onto one row and Section + Academic Year onto a second row (matching the
+  admin's reference layout), instead of one full-width row per category.
+  Added a ● Live / ↻ Reset button directly inside the chip panel (top-right
+  of the Course+Semester row) — previously there was no reset control
+  visible in the panel at all; the old standalone Live button up near the
+  search box was removed since it's now redundant.
+VERSION : v7.88 (2026-08-06) — FIX: v7.87's Course/Semester/Section/AY chips
+  were placed above the whole Login Activity tab and were filtering the class
+  -summary cards / analytics / drilldown too — admin only wanted them on the
+  RAW LOGIN LOG list at the bottom. Moved the chip bar to sit directly above
+  that raw log table (under a new "📋 RAW LOGIN LOG" label) and scoped the
+  filtering so it only ever touches that list's rows/count; class-summary
+  cards, analytics and drilldowns now always show full unfiltered data,
+  matching how they worked before this feature. Live button still resets
+  the four chips to All and re-shows the full log, most recent first.
+VERSION : v7.87 (2026-08-06) — FEAT: Login Activity — re-added Course /
+  Semester / Section / Academic Year filter chips (previously removed in
+  v7.84), styled as rounded pill chips matching the admin's reference design.
+  Academic Year chips order fixed to current AY first (2026-27) then previous
+  (2025-26), not alphabetical. All four chip rows default to "All". The
+  existing Live pill now doubles as "reset all filters + drilldown to All and
+  show current data" — clicking it while any chip is non-"All" or a drilldown
+  is open snaps straight back to the default live view (most recent logins).
+  Scoped entirely to the Login Activity tab; no other tab/filter touched.
 VERSION : v7.41 (2026-07-27) — FIX: topbar calendar ticker used a fixed 30s
   scroll animation regardless of content length. With only 1-2 upcoming
   events (the common case) the short strip whipped across the screen in
@@ -4088,7 +4170,6 @@ body.dash-active .data-strip { display: block; }
       <button class="btn btn-sm btn-ghost" onclick="loadLoginActivity()" style="white-space:nowrap;margin-bottom:0;"><span class="spinner" id="la-spinner"></span>🔄 Refresh</button>
       <button class="btn btn-sm" onclick="clearLoginActivity()" style="white-space:nowrap;margin-bottom:0;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:var(--danger);">🗑 Clear All</button>
     </div>
-    <div id="la-count" style="font-size:11px;font-family:var(--mono);color:var(--muted);margin-bottom:10px;"></div>
     <div id="la-class-summary" style="display:none;margin-bottom:14px;"></div>
     <div id="la-analytics" style="display:none;margin-bottom:16px;"></div>
     <div id="la-drilldown" style="display:none;margin-bottom:16px;"></div>
@@ -4096,10 +4177,25 @@ body.dash-active .data-strip { display: block; }
       <div class="modal" style="max-width:640px;">
         <button class="modal-close" onclick="laCloseWaModal()">✕</button>
         <div class="modal-title">📱 WhatsApp Login Reminder</div>
-        <div style="font-size:11px;color:var(--muted);margin:8px 0 12px;">Opens WhatsApp with a pre-filled message per student — portal link + their own URN. No password is included; the message tells them the default password is their registered phone number.</div>
+        <div style="font-size:11px;color:var(--muted);margin:8px 0 12px;">One ready-to-paste message per class — names every student who hasn't logged in, with login steps and why-to-use-it points. Copy it and paste into that class's WhatsApp group. No password is included; the message only tells them the default password is their own registered phone number.</div>
         <div id="la-wa-body" style="max-height:60vh;overflow-y:auto;"></div>
       </div>
     </div>
+    <div id="la-wa-single-modal" class="modal-overlay">
+      <div class="modal" style="max-width:520px;">
+        <button class="modal-close" onclick="laCloseWaSingleModal()">✕</button>
+        <div class="modal-title">📱 <span id="la-wa-single-title">WhatsApp Login Reminder</span></div>
+        <div style="font-size:11px;color:var(--muted);margin:8px 0 10px;">Edit the message below if needed, then copy it and paste into this class's WhatsApp group.</div>
+        <textarea id="la-wa-single-text" style="width:100%;min-height:280px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--mono);font-size:11px;padding:10px;line-height:1.5;resize:vertical;"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button id="la-wa-single-copy" onclick="laCopySingleWaText()" style="flex:1;padding:9px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.15);color:var(--ok);">📋 Copy message</button>
+          <button onclick="laResetSingleWaText()" title="Discard edits and restore the original message" style="padding:9px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);">↺ Reset</button>
+        </div>
+      </div>
+    </div>
+    <div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:4px 0 10px;">📋 RAW LOGIN LOG</div>
+    <div id="la-chipbar" style="margin-bottom:14px;"></div>
+    <div id="la-count" style="font-size:11px;font-family:var(--mono);color:var(--muted);margin-bottom:10px;"></div>
     <div id="la-empty" style="display:none;" class="empty-state"><div class="empty-icon">📋</div>No login activity yet.</div>
     <div id="la-list"></div>
   </div>
@@ -4194,7 +4290,7 @@ body.dash-active .data-strip { display: block; }
       <div class="field"><label>Class *</label><input type="text" id="m-class" placeholder="e.g. III-BCA-A" class="no-icon"/></div>
     </div>
     <div class="field"><label>Full Name *</label><input type="text" id="m-name" placeholder="Student full name" class="no-icon"/></div>
-    <div class="field"><label>Phone (10 digits — default password)</label><input type="text" id="m-phone" placeholder="10-digit phone number" class="no-icon" maxlength="10"/></div>
+    <div class="field"><label>Phone (10 digits — default password)</label><input type="text" id="m-phone" placeholder="10-digit phone number" class="no-icon" maxlength="10"/><div id="m-phone-hint" style="display:none;font-size:10px;color:var(--warn);margin-top:4px;">⚠ From the student roster, not confirmed as their current password — they may have already changed it after first login.</div></div>
     <div id="modal-reset-section" style="display:none;">
       <div style="margin:14px 0;border-top:1px solid var(--border);"></div>
       <div style="font-size:12px;font-family:var(--mono);color:var(--muted);margin-bottom:10px;">RESET PASSWORD</div>
@@ -4653,7 +4749,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.72';
+const APP_VERSION = 'v7.93';
 const BUILD_DATE   = '03 Aug 2026, 06:10 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -4738,6 +4834,24 @@ function stuNormClass(c) { return (c||'').toString().trim(); }
    These helpers derive the semester parity currently being VIEWED and filter a class
    list to match. Classes whose name has no parseable SemN are kept, not dropped —
    better to show an oddly-named class than silently hide a real one. */
+// AY boundary = Jul 1 (year N) – Jun 30 (year N+1), the college's own
+// convention (passout end of June, new AY starts July). Used by the Login
+// Activity AY filter chips (v7.78) — needs to be a standalone function since
+// both renderLoginActivity() and laRenderAnalytics() use it independently.
+function laAyOf(ts) {
+  const d = new Date(ts);
+  const y = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; // Jul=6 (0-indexed)
+  return y + '-' + String((y+1)%100).padStart(2,'0');
+}
+function ayShift(ay, delta) {
+  // '2026-27' + (-1) -> '2025-26'. Used only for display labels — never for
+  // any comparison/filtering logic, which stays on AY_CONFIG.currentAY as-is.
+  const m = /^(\d{4})-(\d{2})$/.exec((ay||'').toString());
+  if (!m) return ay;
+  const startYYYY = parseInt(m[1],10) + delta;
+  const endYY = (startYYYY + 1) % 100;
+  return startYYYY + '-' + String(endYY).padStart(2,'0');
+}
 function ayViewSemParity() {
   // Past view is the 2025-26 EVEN archive; current view follows AY_CONFIG.
   if (typeof _adminViewAY !== 'undefined' && _adminViewAY === '2025-26') return 'even';
@@ -4747,6 +4861,67 @@ function classSemParity(clsName) {
   const m = /Sem\s*(\d+)/i.exec((clsName || '').toString());
   if (!m) return null;                       // unparseable → caller keeps it
   return (parseInt(m[1], 10) % 2 === 1) ? 'odd' : 'even';
+}
+function classSemNumber(clsName) {
+  const m = /Sem\s*(\d+)/i.exec((clsName || '').toString());
+  return m ? parseInt(m[1], 10) : null;
+}
+// v7.82: course + section extraction from a class name like
+// "Davan-BCA-Sem3-SecA" — used for the Login Activity filter chips (class /
+// course / section, alongside the existing AY chip). Returns null for a
+// piece that can't be parsed rather than guessing, matching the existing
+// convention in classSemParity/classSemNumber above.
+function classCourse(clsName) {
+  const m = /^[A-Za-z]+-([A-Za-z]+)-Sem/i.exec((clsName || '').toString());
+  return m ? m[1].toUpperCase() : null;
+}
+function classSection(clsName) {
+  const m = /Sec\s*([A-Za-z0-9]+)/i.exec((clsName || '').toString());
+  return m ? m[1].toUpperCase() : null;
+}
+// v7.76: URN admission-year extraction. Davan URN format is a fixed-width code
+// where positions 4-5 are the 2-digit admission year (e.g. U13DI26M0011 → '26'
+// → admitted 2026-27; U13NU23M0005 → '23' → admitted 2023-24). Used only for
+// the Sem6 passout-staleness check below — deliberately NOT used to change any
+// grouping/labeling, since the admin was explicit that Odd/Even + current-AY
+// is the whole model; this is a secondary data-quality signal, not a new
+// header scheme.
+function urnAdmissionYear(urn) {
+  const m = /^U\d{2}[A-Z]{2}(\d{2})/i.exec((urn || '').toString().trim());
+  return m ? parseInt(m[1], 10) : null;
+}
+// For a Sem6 class, checks whether its students' admission years line up with
+// a 3-year-program batch that SHOULD be finishing this AY. A 3-year program
+// means Sem6 = 3rd year = admission year + 2 AYs of study, finishing at the
+// end of that 3rd AY. So for current AY '2026-27' (curAY2=26), the expected
+// Sem6 admission-year digits are 24 (24→25→26, finishing June '27... but per
+// the admin's confirmed timeline batch '23 finished Sem6 IN 2025-26, i.e. the
+// expected batch sitting in Sem6 during CURRENT AY 26 is the '24 batch).
+// Returns null if the class isn't Sem6 or has no students to check.
+function sem6PassoutFlag(cls, curAY) {
+  if (classSemNumber(cls) !== 6) return null;
+  const curYY = parseInt((curAY||'').toString().slice(0,4).slice(-2), 10);
+  if (isNaN(curYY)) return null;
+  const expectedBatchYY = curYY - 2; // e.g. current 26 → expected batch 24
+  const roster = laLiveRoster().filter(s => (s.cls||s.class||'') === cls);
+  if (!roster.length) return null;
+  const batchYears = roster.map(s => urnAdmissionYear(s.urn||s.URN)).filter(y => y !== null);
+  if (!batchYears.length) return null;
+  const staleCount = batchYears.filter(y => y < expectedBatchYY).length;
+  const majorityYear = batchYears.sort((a,b) =>
+    batchYears.filter(v=>v===a).length - batchYears.filter(v=>v===b).length
+  ).pop();
+  const startYY = (majorityYear + 2) % 100; // final (3rd) AY of the program
+  const endYY = (majorityYear + 3) % 100;
+  const startStr = startYY < 10 ? '0' + startYY : String(startYY);
+  const endStr = endYY < 10 ? '0' + endYY : String(endYY);
+  return {
+    majorityYear,
+    expectedBatchYY,
+    staleCount,
+    isStale: staleCount > 0 && staleCount >= roster.length * 0.5, // majority stale, not just a stray repeater
+    passoutAY: '20' + startStr + '-' + endStr
+  };
 }
 function ayFilterClasses(list) {
   const want = ayViewSemParity();
@@ -7164,8 +7339,25 @@ function renderLoginActivity() {
   const listEl=document.getElementById('la-list'),emptyEl=document.getElementById('la-empty'),countEl=document.getElementById('la-count');
   const summaryEl=document.getElementById('la-class-summary');
   if(!listEl) return;
+  // v7.91: generation token — every call bumps this, and the async photo
+  // loader below checks it's still current before touching the DOM. Chip
+  // clicks fire renderLoginActivity() rapidly (search typing, chip taps,
+  // class-summary clicks all call it too), and rcLoadPhoto() is async —
+  // without this guard, a photo fetch kicked off by an OLDER render can
+  // resolve after a NEWER render has already rebuilt la-list with fresh
+  // avatar element ids, silently writing into (or missing) the wrong slot
+  // and making photos appear to "not load" after any filter/search change.
+  STATE._laRenderGen = (STATE._laRenderGen || 0) + 1;
+  const myGen = STATE._laRenderGen;
   const q=((document.getElementById('la-search')||{}).value||'').trim().toLowerCase();
   let rows=STATE.loginActivity||[];
+
+  // v7.89: Course/Semester/Section/Academic Year filter chips apply ONLY to
+  // the raw login-log list at the bottom of this tab (la-list/la-count) —
+  // NOT to the class-summary cards or analytics/drilldowns above. The
+  // Live/Reset control now lives inside the chip panel itself (laRenderChipBar)
+  // rather than as a separate button up near the search box.
+  STATE._laFilt = STATE._laFilt || { course: 'All', sem: 'All', section: 'All', ay: 'All' };
 
   // ── Class login summary (uses ALL rows, unfiltered, unique per URN) ──
   if (summaryEl && rows.length) {
@@ -7206,14 +7398,26 @@ function renderLoginActivity() {
         </div>`;
     STATE._liveStudents = liveStudents; // cache for modal
     STATE._laUnique = unique; // cache for drill-downs below
-    const allClasses = [...new Set([...Object.keys(byClass), ...Object.keys(classStrength)])].sort();
-    const cards = allClasses.map(c => {
+    const allClasses = aySortClasses([...new Set([...Object.keys(byClass), ...Object.keys(classStrength)])]);
+    const cardHtml = (c) => {
       const loggedIn = byClass[c] || 0;
       const strength = classStrength[c] || 0;
       const notYet = Math.max(0, strength - loggedIn);
       const pct = strength ? Math.round(loggedIn/strength*100) : (loggedIn>0?100:0);
       const color = pct===100?'var(--ok)':pct>50?'var(--warn)':'var(--danger)';
       const isActive = STATE._laDrillClass === c;
+      // v7.76: Sem6-only, informational — flags when a Sem6 class's students'
+      // URN admission years look OLDER than the batch that should be finishing
+      // this AY (3-year program: Sem6 = admission year + 2 AYs). Does not
+      // change grouping/headers per the admin's explicit instruction; it's a
+      // secondary "this data might be stale" signal shown only on the card.
+      const curAYForBadge = (typeof AY_CONFIG !== 'undefined' && AY_CONFIG.currentAY) ? AY_CONFIG.currentAY : '';
+      const s6 = curAYForBadge ? sem6PassoutFlag(c, curAYForBadge) : null;
+      const passoutBadge = s6
+        ? (s6.isStale
+            ? `<div style="margin-top:5px;font-size:9px;font-family:var(--mono);color:var(--danger);">⚠ ${s6.staleCount}/${strength||'?'} look like the ${'20'+String(s6.majorityYear).padStart(2,'0')}-${String((s6.majorityYear+1)%100).padStart(2,'0')} batch — should have passed out ${s6.passoutAY}. Check for stale roster data.</div>`
+            : `<div style="margin-top:5px;font-size:9px;font-family:var(--mono);color:var(--muted);">🎓 Passing out ${s6.passoutAY}</div>`)
+        : '';
       return `<div onclick="laShowClassDrill('${c.replace(/'/g,"\\'")}')"
         style="background:${isActive?'rgba(240,165,0,0.12)':'var(--surface2)'};border:1px solid ${isActive?'rgba(240,165,0,0.5)':'var(--border)'};border-radius:8px;padding:8px 12px;min-width:160px;cursor:pointer;transition:border-color .15s;"
         title="Click to see who has and hasn't logged in">
@@ -7221,17 +7425,131 @@ function renderLoginActivity() {
         <div style="font-size:18px;font-family:var(--mono);font-weight:700;color:${color};">${loggedIn}<span style="font-size:12px;color:var(--muted);">/${strength||'?'}</span></div>
         <div style="font-size:10px;font-family:var(--mono);color:var(--muted);">${strength?`<span style="color:var(--danger);">${notYet} still to login</span>`:'have logged in'}</div>
         <div style="height:3px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden;"><div style="width:${pct}%;height:100%;background:${color};border-radius:2px;"></div></div>
+        ${passoutBadge}
       </div>`;
+    };
+    // v7.76: "ODD SEMESTERS" / "EVEN SEMESTERS" with no year was ambiguous —
+    // that label recurs every single term forever, so it never told you WHICH
+    // year's Odd or Even you were looking at. Both sections now carry the AY
+    // actually running right now (AY_CONFIG.currentAY — same source that
+    // drives the "VIEWING: Current — 2026-27 Odd" dropdown up top), not a
+    // hardcoded year and not something computed independently from today's
+    // date. When AY_CONFIG rolls over next year this updates automatically.
+    // The section matching AY_CONFIG.currentSem is marked "· LIVE NOW" since
+    // only one of Odd/Even is actually the running term at any point — the
+    // other section's classes exist in the roster but aren't this term's.
+    const curAY = (typeof AY_CONFIG !== 'undefined' && AY_CONFIG.currentAY) ? AY_CONFIG.currentAY : '';
+    const curSem = (typeof AY_CONFIG !== 'undefined' && AY_CONFIG.currentSem) ? AY_CONFIG.currentSem : 'odd';
+    // v7.77: drop classes with ZERO current roster strength (classStrength=0,
+    // shown as "N/?" before this fix) EXCEPT Sem6 — confirmed by the admin.
+    // Root cause: byClass[c] counts each student's most-recent LOGIN EVENT's
+    // class field, which is a historical snapshot frozen at whatever class
+    // they were in when they logged in — it never updates when they're
+    // promoted. So "Davan-BBA-Sem4-SecA: 2 logged in" was real, but it meant
+    // "2 students logged in while they were Sem4, before being promoted",
+    // not "2 current Sem4 students" — nobody is actually in that class
+    // anymore (classStrength=0 confirms it). Sem6 is kept because a
+    // zero-strength Sem6 with historical logins IS the passout signal the
+    // admin wants (sem6PassoutFlag below) — that's a different, useful case
+    // from Sem2/Sem4 leftovers, which are pure noise once the batch has
+    // moved on to Sem3/Sem5.
+    //
+    // Before hiding a class, VERIFY every student who logged in under it is
+    // actually accounted for in the current roster (promoted to some other
+    // class) — this is the check the admin asked for ("make sure they are in
+    // next sem"), not a blind hide. Anything that fails this check is a real
+    // gap (student vanished, not just promoted) and gets surfaced via
+    // console.warn rather than silently dropped, since silently hiding a
+    // student who actually left the roster would defeat the whole point of
+    // this diagnostic.
+    const liveRosterUrns = new Set(laLiveRoster().map(s => (s.urn||s.URN||'').toString().toUpperCase()).filter(Boolean));
+    const hiddenStaleClasses = [];
+    const staleUnverified = [];
+    const isHideableStale = (c) => {
+      const semNum = classSemNumber(c);
+      // Only Sem2/Sem4 specifically — the exact leftover case the admin
+      // described. Sem6 is excluded (passout signal). Unparseable class
+      // names (semNum === null, the "Other/Unrecognized" bucket) are left
+      // alone entirely rather than swept in by a loose "!== 6" check — we
+      // can't confirm what an unrecognized class even is, so hiding it would
+      // risk silently dropping something that actually needs attention.
+      if (semNum !== 2 && semNum !== 4) return false;
+      const strength = classStrength[c] || 0;
+      const historical = byClass[c] || 0;
+      if (!historical) return false; // no historical logins either — nothing to hide, would've been empty anyway
+      if (strength === 0) return true; // pure zero-strength case, as before
+      // v7.80: STRAGGLERS case — strength isn't zero, but it's a tiny remnant
+      // next to a much larger historical login count for the same class name
+      // (e.g. "Davan-BCA-Sem2-SecA: 10 historical logins, only 2 left in the
+      // roster"). Same math as the drilldown's straggler warning (v7.78), just
+      // applied BEFORE the card renders instead of only after clicking in —
+      // the admin correctly pointed out that surfacing this only inside the
+      // drilldown still left a misleading "10/2, 0 still to login" card
+      // sitting on the main grid looking like a normal active class.
+      if (historical > strength * 2 && historical - strength >= 3) return true;
+      return false;
+    };
+    const strollUrnsByClass = {}; // hidden class -> [{urn,name}] still stuck under it in the roster
+    [...allClasses].forEach(c => {
+      if (!isHideableStale(c)) return;
+      hiddenStaleClasses.push(c);
+      // Verify: every URN whose most-recent login was tagged with this stale
+      // class should exist SOMEWHERE in the current roster now.
+      const candidates = unique.filter(r => (r.class||'') === c);
+      candidates.forEach(r => {
+        const u = (r.urn||'').toUpperCase();
+        if (u && !liveRosterUrns.has(u)) staleUnverified.push({ urn: r.urn, name: r.name, staleClass: c });
+      });
+      // v7.80: the stragglers case specifically — students who ARE still
+      // sitting in davan_pub/students, just stuck under this now-hidden stale
+      // class name (not promoted in the source data, even though their login
+      // history shows everyone else in this class moved on). Hiding the card
+      // must not make these silently disappear from view entirely — log them
+      // so they're still findable and fixable in the roster.
+      if ((classStrength[c] || 0) > 0) {
+        const stillHere = laLiveRoster().filter(s => (s.cls||s.class||'') === c)
+          .map(s => ({ urn: s.urn||s.URN||'', name: s.name||s.Name||'' }));
+        if (stillHere.length) strollUrnsByClass[c] = stillHere;
+      }
     });
+    if (staleUnverified.length) {
+      console.warn('[Login Activity] ' + staleUnverified.length + ' student(s) had their last login under a now-hidden stale class (e.g. old Sem2/Sem4) but are NOT found anywhere in the current roster — they may have left college rather than been promoted. Use a class\'s "❓ why no class-strength total" drill-down (still reachable by class name search) to review:', staleUnverified);
+    }
+    if (Object.keys(strollUrnsByClass).length) {
+      console.warn('[Login Activity] The following classes were hidden as stale (most students promoted onward), but a few students are STILL tagged with the old class name in davan_pub/students — these are data-entry stragglers worth fixing at the source:', strollUrnsByClass);
+    }
+    const allClassesVisible = allClasses.filter(c => !hiddenStaleClasses.includes(c));
+    const oddCls = allClassesVisible.filter(c => classSemParity(c) === 'odd');
+    const evenCls = allClassesVisible.filter(c => classSemParity(c) === 'even');
+    const otherCls = allClassesVisible.filter(c => classSemParity(c) === null);
+    const sectionHtml = (label, list, accentColor, isLive) => !list.length ? '' :
+      `<div style="margin-bottom:12px;">
+        <div style="font-size:10px;font-family:var(--mono);color:${accentColor};text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;font-weight:700;">${label} <span style="color:var(--muted);font-weight:400;">(${list.length} classes)</span>${isLive?' <span style="color:var(--ok);">● LIVE NOW</span>':''}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">${list.map(cardHtml).join('')}</div>
+      </div>`;
+    // v7.77: the Even header's YEAR now follows what's actually inside it,
+    // not always curAY. Confirmed by the admin: when Odd is the live term
+    // (as it is right now), whatever remains in "Even" after hiding stale
+    // Sem2/Sem4 leftovers is Sem6 data belonging to LAST year's Even term
+    // (2025-26), not this year's upcoming Even term — those are different
+    // things and deserve different year labels. When Even genuinely IS the
+    // live term, it correctly stays curAY like Odd does.
+    const evenAY = (curSem === 'even') ? curAY : ayShift(curAY, -1);
     summaryEl.innerHTML = liveHtml
-      + '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Login Summary by Class <span style="color:var(--muted);font-size:10px;">(unique students — click a card to see who has/hasn\'t logged in)</span></div>'
-      + '<div style="display:flex;flex-wrap:wrap;gap:8px;">' + cards.join('') + '</div>';
+      + '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Login Summary by Class <span style="color:var(--muted);font-size:10px;">(unique students — click a card to see who has/hasn\'t logged in)</span></div>'
+      + sectionHtml('🟠 ' + curAY + ' · ODD SEMESTERS — I, III, V', oddCls, 'var(--warn)', curSem === 'odd')
+      + sectionHtml('🔵 ' + evenAY + ' · EVEN SEMESTERS — II, IV, VI' + (curSem === 'odd' ? ' (passed-out Sem6 only)' : ''), evenCls, '#3b82f6', curSem === 'even')
+      + sectionHtml('⚪ OTHER / UNRECOGNIZED', otherCls, 'var(--muted)', false);
     summaryEl.style.display = 'block';
   } else if (summaryEl) { summaryEl.style.display = 'none'; }
 
-  laRenderAnalytics();
-  laRenderDrilldown();
+  try { laRenderAnalytics(); } catch(e) { console.error('[Login Activity] laRenderAnalytics failed:', e); }
+  try { laRenderDrilldown(); } catch(e) { console.error('[Login Activity] laRenderDrilldown failed:', e); }
 
+  // ── Raw log table only, from here down: chip bar + chip filtering apply
+  // to this list alone, not to the summary/analytics/drilldown sections above.
+  laRenderChipBar();
+  rows = laApplyChipFilters(rows);
   if(q) rows=rows.filter(r=>(r.urn||'').toLowerCase().includes(q)||(r.name||'').toLowerCase().includes(q));
   if(countEl) countEl.textContent=rows.length+' login'+(rows.length!==1?'s':'')+' recorded'+(q?' (filtered)':'')+' — refreshes live as students log in';
   if(!rows.length){listEl.innerHTML='';if(emptyEl)emptyEl.style.display='block';return;}
@@ -7256,6 +7574,7 @@ function renderLoginActivity() {
     const elId='la-av-'+i+'-'+(r.urn||'x').replace(/[^A-Za-z0-9]/g,'');
     rcLoadPhoto(r.urn).then(url=>{
       if(!url) return;
+      if (STATE._laRenderGen !== myGen) return; // stale render — a newer one has already rebuilt la-list
       const el=document.getElementById(elId);
       if(!el) return;
       el.innerHTML='<img src="'+url+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.textContent=\''+nameInitials(r.name||'').replace(/'/g,"\\'")+'\';">';
@@ -7341,6 +7660,93 @@ function laEverLoggedInSet() {
 }
 STATE._laRangeDays = STATE._laRangeDays || 7;
 function laSetRange(days) { STATE._laRangeDays = days; renderLoginActivity(); }
+// v7.88: single Live/Reset control for the RAW LOG chips only. Resets
+// Course/Semester/Section/AY chips back to All and re-shows the full,
+// unfiltered log (most recent first). Does NOT touch the class-summary
+// cards / analytics / drilldown above — those were never affected by these
+// chips in the first place, so there's nothing there to reset.
+function laResetToLive() {
+  STATE._laFilt = { course: 'All', sem: 'All', section: 'All', ay: 'All' };
+  renderLoginActivity();
+}
+// v7.88: chip bar for Course / Semester / Section / Academic Year — filters
+// the RAW LOGIN LOG table only (la-list/la-count), styled to match the
+// reference pill design (rounded, teal-active on dark surface). Picking any
+// chip other than "All" flips the header button from "Live" to "↻ Reset to
+// Live" (handled in renderLoginActivity).
+function laSetFilter(key, val) {
+  STATE._laFilt = STATE._laFilt || { course: 'All', sem: 'All', section: 'All', ay: 'All' };
+  STATE._laFilt[key] = val;
+  renderLoginActivity();
+}
+function laChipGroup(label, options, activeVal, key, displayFn) {
+  const df = displayFn || (v => v);
+  const chips = options.map(opt => {
+    const isActive = opt === activeVal;
+    return '<button type="button" onclick="laSetFilter(\''+key+'\',\''+opt.replace(/'/g,"\\'")+'\')" style="'
+      + 'padding:5px 14px;border-radius:20px;font-size:12px;font-family:var(--mono);font-weight:700;cursor:pointer;white-space:nowrap;'
+      + 'border:1px solid ' + (isActive ? 'var(--accent)' : 'var(--border)') + ';'
+      + 'background:' + (isActive ? 'var(--accent)' : 'var(--surface2)') + ';'
+      + 'color:' + (isActive ? '#08201d' : 'var(--muted)') + ';'
+      + 'transition:background .12s,border-color .12s;'
+      + '">' + df(opt) + '</button>';
+  }).join('');
+  return '<span style="font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">' + label + '</span>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + chips + '</div>';
+}
+function laRenderChipBar() {
+  const bar = document.getElementById('la-chipbar');
+  if (!bar) return;
+  const f = STATE._laFilt || { course: 'All', sem: 'All', section: 'All', ay: 'All' };
+  const allClasses = Object.keys(STATE.students || {}).length
+    ? aySortClasses([...new Set(Object.values(STATE.students||{}).map(s => s.class).filter(Boolean))])
+    : aySortClasses([...new Set((STATE.loginActivity||[]).map(r => r.class).filter(Boolean))]);
+  // Options are stored/compared as RAW values ('1'..'6', 'A'..'C', course
+  // code, AY string) — the "Sem "/"Sec " prefix is added only at display
+  // time via displayFn. Previously the stored filter value was the prefixed
+  // LABEL itself while the active-chip check re-added the prefix on top of
+  // it (building 'Sem Sem 1'), so the selected chip never lit up and the
+  // filter compared against a double-prefixed string that never matched a
+  // real class name — that's what v7.89 was actually breaking.
+  const courses = ['All', ...new Set(allClasses.map(classCourse).filter(Boolean))];
+  const sections = ['All', ...new Set(allClasses.map(classSection).filter(Boolean))].sort((a,b)=> a==='All'?-1:b==='All'?1:a.localeCompare(b));
+  const sems = ['All','1','2','3','4','5','6'];
+  // Academic Year chips: current AY first (2026-27), then previous (2025-26) —
+  // matches the admin's explicit order request, not alphabetical/derived order.
+  const curAY = (typeof AY_CONFIG !== 'undefined' && AY_CONFIG.currentAY) ? AY_CONFIG.currentAY : '2026-27';
+  const prevAY = ayShift(curAY, -1);
+  const ays = ['All', curAY, prevAY];
+  const isLive = f.course==='All' && f.sem==='All' && f.section==='All' && f.ay==='All';
+  const resetBtn = '<button type="button" onclick="laResetToLive()" style="'
+    + 'padding:5px 14px;border-radius:20px;font-size:11px;font-family:var(--mono);font-weight:700;cursor:pointer;white-space:nowrap;margin-left:auto;'
+    + 'border:1px solid ' + (isLive ? 'rgba(34,197,94,0.3)' : 'var(--danger)') + ';'
+    + 'background:' + (isLive ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.12)') + ';'
+    + 'color:' + (isLive ? 'var(--ok)' : 'var(--danger)') + ';">'
+    + (isLive ? '● Live' : '↻ Reset') + '</button>';
+  bar.innerHTML = '<div style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
+      + laChipGroup('COURSE', courses, f.course, 'course')
+      + laChipGroup('SEMESTER', sems, f.sem, 'sem', v => v==='All'?'All':'Sem '+v)
+      + resetBtn
+    + '</div>'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+      + laChipGroup('SECTION', sections, f.section, 'section', v => v==='All'?'All':'Sec '+v)
+      + laChipGroup('ACADEMIC YEAR', ays, f.ay, 'ay')
+    + '</div>'
+    + '</div>';
+}
+function laApplyChipFilters(rows) {
+  const f = STATE._laFilt || { course: 'All', sem: 'All', section: 'All', ay: 'All' };
+  if (f.course==='All' && f.sem==='All' && f.section==='All' && f.ay==='All') return rows;
+  return rows.filter(r => {
+    const cls = r.class || '';
+    if (f.course!=='All' && classCourse(cls) !== f.course) return false;
+    if (f.sem!=='All' && String(classSemNumber(cls)) !== String(f.sem)) return false;
+    if (f.section!=='All' && classSection(cls) !== f.section) return false;
+    if (f.ay!=='All' && laAyOf(r.loginAt) !== f.ay) return false;
+    return true;
+  });
+}
 
 // Hour-of-day distribution — total login/heartbeat events per hour (0–23,
 // local time), within the same N-day range as the daily bar chart, so the
@@ -7368,9 +7774,21 @@ function laHourLabel(h) {
 function laRenderAnalytics() {
   const el = document.getElementById('la-analytics');
   if (!el) return;
-  const rows = STATE.loginActivity || [];
-  if (!rows.length) { el.style.display = 'none'; return; }
+  // v7.81 FIX: the panel-visibility check was gating on the AY-FILTERED rows
+  // (rows.length), but that variable only feeds the repeat-visit breakdown
+  // below — not the Total/Ever/Never stat cards, which correctly read from
+  // the full unfiltered log via laTotalStudentCount()/laEverLoggedInSet().
+  // Result: picking a year chip that filtered rows down to zero hid the
+  // ENTIRE panel, including the stat cards that were supposed to stay fixed
+  // regardless of the filter — exactly the "not happening" behavior reported.
+  // The emptiness guard must only ask "is there ANY login data at all", using
+  // the unfiltered log, same as laEverLoggedInSet() does.
+  if (!(STATE.loginActivity || []).length) { el.style.display = 'none'; return; }
   el.style.display = 'block';
+
+  // v7.84: filter system removed per admin request — repeat-visit breakdown
+  // now always covers ALL recorded login history, no chip filtering.
+  const rows = STATE.loginActivity || [];
 
   const days = STATE._laRangeDays || 7;
   const daily = laBuildDailyStats(days);
@@ -7422,8 +7840,15 @@ function laRenderAnalytics() {
       ${sub?`<div style="font-size:10px;color:var(--muted);margin-top:2px;">${sub}</div>`:''}
     </div>`;
 
+  const chartsHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">'
+      + '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);">Unique students per day <span style="opacity:.7;">(click a bar for details)</span></div>'
+      + '<div style="display:flex;gap:4px;">' + rangeBtn(7,'7d') + rangeBtn(14,'14d') + rangeBtn(30,'30d') + '</div>'
+    + '</div>'
+    + '<div style="display:flex;align-items:flex-end;gap:3px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 8px 6px;overflow-x:auto;">' + barsHtml + '</div>'
+    + laRenderHourChart(days);
+
   el.innerHTML =
-    '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">📊 Login Analytics <span style="color:var(--accent);text-transform:none;letter-spacing:normal;">— always current year (' + (typeof AY_CONFIG!=='undefined'?AY_CONFIG.currentAY:'') + ')</span>, independent of the VIEWING toggle above</div>'
+    '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">📊 Login Analytics <span style="color:var(--accent);text-transform:none;letter-spacing:normal;">— all recorded logins</span></div>'
     + '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">'
       + statCard('Total students', totalStudents, '', 'var(--text)')
       + statCard('Ever logged in', everCount, totalStudents?Math.round(everCount/totalStudents*100)+'% of all students':'', 'var(--ok)', "laShowNeverEverDrill('ever')")
@@ -7435,12 +7860,7 @@ function laRenderAnalytics() {
       + statCard('2–5 times', fewTimes, 'occasional users', 'var(--text)')
       + statCard('6+ times', regular, 'regular users', 'var(--ok)')
     + '</div>'
-    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">'
-      + '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);">Unique students per day <span style="opacity:.7;">(click a bar for details)</span></div>'
-      + '<div style="display:flex;gap:4px;">' + rangeBtn(7,'7d') + rangeBtn(14,'14d') + rangeBtn(30,'30d') + '</div>'
-    + '</div>'
-    + '<div style="display:flex;align-items:flex-end;gap:3px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 8px 6px;overflow-x:auto;">' + barsHtml + '</div>'
-    + laRenderHourChart(days);
+    + chartsHtml;
 }
 
 function laRenderHourChart(days) {
@@ -7495,6 +7915,12 @@ function laShowClassDrill(cls) {
   STATE._laDrillClass = STATE._laDrillMode ? cls : null;
   STATE._laDrillKey = null;
   renderLoginActivity(); // re-render summary cards too, to highlight the active one
+  // v7.86: scroll the drilldown into view, matching laShowDayDrill/
+  // laShowNeverEverDrill — without this, a class card click that DID work
+  // could still look like nothing happened if the resulting panel rendered
+  // below the visible viewport.
+  const el = document.getElementById('la-drilldown');
+  if (el && STATE._laDrillMode) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 // ── Ever/Never stat-card drill-down ──
 function laShowNeverEverDrill(which) {
@@ -7507,6 +7933,23 @@ function laShowNeverEverDrill(which) {
 function laCloseDrill() {
   STATE._laDrillMode = null; STATE._laDrillKey = null; STATE._laDrillClass = null;
   renderLoginActivity();
+}
+// v7.74: ban directly from the "left college" diagnostic list, without leaving
+// Login Activity to hunt the student down in the Banned tab manually. Confirms
+// first (banning blocks login), reuses the real toggleBan() so the write path,
+// AY-view guard, and Banned tab stay in sync, then updates just this row's
+// button in place rather than re-running the whole drilldown (which would also
+// require an extra Firebase read to see the write reflected).
+async function laBanFromDrill(urn) {
+  if (!urn) return;
+  const lookup = laStudentLookup();
+  const name = lookup[urn.toUpperCase()]?.name || urn;
+  if (!confirm('Ban ' + name + ' (' + urn + ')?\n\nThis blocks them from logging into the student portal. Use this only if you\'ve confirmed they\'ve left the college — banning is reversible from the Banned tab.')) return;
+  await toggleBan(urn);
+  // Swap this row's button for a confirmation without re-running the full drilldown.
+  document.querySelectorAll('button[onclick*="laBanFromDrill(\'' + urn.replace(/'/g,"\\'") + '\')"]').forEach(btn => {
+    btn.outerHTML = '<span style="font-size:10px;color:var(--danger);font-weight:600;">🚫 Banned</span>';
+  });
 }
 function laStudentLookup() {
   // URN -> {name, class, phone} from whichever source has the fullest info.
@@ -7556,12 +7999,20 @@ function laDrillTableGrouped(groups, opts) {
     return '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">No students to show.</div>';
   }
   let allStudents = [];
-  const html = groups.filter(g => g.students.length).map(g => {
+  const html = groups.filter(g => g.students.length).map((g, idx) => {
     allStudents = allStudents.concat(g.students);
+    // v7.75: per-class "Send" button in the header itself, in addition to the
+    // full modal — copies that one class's message straight to the clipboard
+    // without opening anything else. Index must match STATE._laWaPending's
+    // ordering (set by the caller right before this renders) since
+    // laCopyGroupMessage(idx) reads from that array by position.
+    const waBtn = opts.showWaButtons
+      ? `<button onclick="laShowSingleWaDialog(${idx}, event)" title="Open this class's WhatsApp message to review or edit before copying" style="padding:4px 10px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.15);color:var(--ok);white-space:nowrap;">📱 WhatsApp msg</button>`
+      : '';
     return `<div style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:7px 7px 0 0;padding:7px 12px;">
-        <span style="font-size:12px;font-weight:700;color:var(--text);">🏫 ${escapeHtml(g.cls)}</span>
-        <span style="font-size:11px;font-family:var(--mono);color:var(--muted);">${g.students.length} student${g.students.length!==1?'s':''}</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:7px 7px 0 0;padding:7px 12px;">
+        <span style="font-size:12px;font-weight:700;color:var(--text);">🏫 ${escapeHtml(g.cls)} <span style="font-family:var(--mono);color:var(--muted);font-weight:400;">(${g.students.length})</span></span>
+        ${waBtn}
       </div>
       <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;">
         ${laDrillTable(g.students, opts)}
@@ -7572,9 +8023,9 @@ function laDrillTableGrouped(groups, opts) {
 }
 // Photo avatar cell — tap to zoom via the existing rcZoomPhoto lightbox (same
 // one Report Card / Login Activity's live-students list already use).
-function laAvatarHtml(urn, name, i) {
+function laAvatarHtml(urn, name, i, prefix) {
   const initials = nameInitials(name || '');
-  const id = 'la-dt-av-' + i + '-' + (urn||'x').replace(/[^A-Za-z0-9]/g,'');
+  const id = 'la-dt-av-' + (prefix||'') + i + '-' + (urn||'x').replace(/[^A-Za-z0-9]/g,'');
   return `<div id="${id}" data-urn="${urn||''}" style="width:28px;height:28px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--muted);font-family:var(--head);cursor:pointer;" onclick="laZoomAvatar('${id}')">${initials}</div>`;
 }
 function laZoomAvatar(id) {
@@ -7582,10 +8033,10 @@ function laZoomAvatar(id) {
   const img = el && el.querySelector('img');
   if (img && img.src) rcZoomPhoto(img.src);
 }
-function laLoadAvatars(list) {
+function laLoadAvatars(list, prefix) {
   list.forEach((s, i) => {
     if (!s.urn) return;
-    const id = 'la-dt-av-' + i + '-' + (s.urn||'x').replace(/[^A-Za-z0-9]/g,'');
+    const id = 'la-dt-av-' + (prefix||'') + i + '-' + (s.urn||'x').replace(/[^A-Za-z0-9]/g,'');
     rcLoadPhoto(s.urn).then(url => {
       if (!url) return;
       const el = document.getElementById(id);
@@ -7611,59 +8062,145 @@ function laExportCurrentDrill() {
   if (c && c.list && c.list.length) laExportCsv(c.list, c.filename);
 }
 
-/* ── WhatsApp login-reminder modal ──
+/* ── WhatsApp login-reminder modal (v7.73 — GROUP broadcast message) ──
    Reads STATE._laWaPending, an array of { cls, students: [{urn,name,phone,...}] }
    set by laRenderDrilldown() just before showing the "WhatsApp reminder" button
-   (see the 'class' and 'never' branches above). One wa.me link per student —
-   portal URL + their own URN, explicitly NO password, so the message never
-   contains anything sensitive even though the default password happens to be
-   the student's own phone number. */
+   (see the 'class' and 'never' branches above).
+
+   Rewritten from individual per-student wa.me links to ONE composed message per
+   class that the admin copies and pastes into that class's WhatsApp group —
+   this is how the admin actually operates (class WhatsApp groups exist; sending
+   179 individual chat-opens does not scale and was the wrong shape for the
+   request). The message lists every missing student by name + URN so nobody in
+   the group is unsure whether it's aimed at them, includes login steps and a
+   short "why bother" benefits list, and never includes anyone's phone/password —
+   only the instruction that the default password is their own phone number. */
 const LA_PORTAL_URL = 'https://harshgujjar.github.io/davan-attendance/student_portal.html';
-function laWaMessage(s) {
-  return 'Hi ' + (s.name || 'there') + ',\n\n'
-    + 'Your Davan & Nutana student portal login is ready — please log in and explore:\n'
-    + LA_PORTAL_URL + '\n\n'
-    + 'Your URN (login ID): ' + (s.urn || '') + '\n'
-    + 'Password: your 10-digit registered mobile number\n\n'
-    + 'Please change your password after your first login.\n\n'
+function laGroupMessage(cls, students) {
+  const names = students.map((s,i) => (i+1) + '. ' + (s.name||'—') + ' (' + (s.urn||'—') + ')').join('\n');
+  return '🎓 *' + cls + ' — Student Portal Reminder* 🎓\n\n'
+    + 'The following ' + students.length + ' student' + (students.length!==1?'s have':' has') + ' *not yet logged in* to the student portal. Please log in today:\n\n'
+    + names + '\n\n'
+    + '🔗 *Portal link:*\n' + LA_PORTAL_URL + '\n\n'
+    + '*HOW TO LOGIN:*\n'
+    + '1️⃣ Open the link above\n'
+    + '2️⃣ Tap the *STUDENT* tab\n'
+    + '3️⃣ *URN:* your University Register Number (as listed above, CAPITAL letters)\n'
+    + '4️⃣ *Password:* your own *10-digit mobile number* registered with the college\n'
+    + '5️⃣ Tap LOGIN, then change your password from the ☰ menu\n\n'
+    + '*WHY LOG IN:*\n'
+    + '✅ Check your attendance % anytime\n'
+    + '✅ View internal marks (IA-1, IA-2)\n'
+    + '✅ Weekly timetable + faculty names\n'
+    + '✅ Syllabus progress (Lesson Plan)\n'
+    + '✅ Notices from the college, instantly\n'
+    + '✅ Report Card + CGPA calculator\n'
+    + '✅ Library catalogue & your issued books\n\n'
+    + '❓ URN or number not working? Contact the college office.\n\n'
     + '— Davan & Nutana Group of Institutions';
 }
-function laWaLink(s) {
-  const phone = (s.phone || '').toString().replace(/\D/g,'');
-  const text = encodeURIComponent(laWaMessage(s));
-  // With a known 10-digit number, open the chat directly (add 91 for India);
-  // without one, fall back to the generic composer so the office can still
-  // paste in a number manually rather than losing the message entirely.
-  return phone.length === 10 ? `https://wa.me/91${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+function laCopyGroupMessage(idx, ev) {
+  const groups = STATE._laWaPending || [];
+  const g = groups[idx];
+  if (!g) return;
+  const msg = laGroupMessage(g.cls, g.students);
+  // Feedback goes on whichever button was actually clicked — this fires from
+  // both the modal's per-class button (id="la-wa-copy-N") and the inline
+  // "Copy msg" button on the grouped drilldown table's class header, which
+  // has no matching id, so relying only on getElementById would silently
+  // give no feedback when triggered from the table.
+  const clickedBtn = (ev && ev.currentTarget) || (typeof event !== 'undefined' ? event.currentTarget : null);
+  navigator.clipboard.writeText(msg).then(() => {
+    const btn = clickedBtn || document.getElementById('la-wa-copy-' + idx);
+    if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = orig; }, 1800); }
+  }).catch(() => {
+    // Clipboard API can fail on non-HTTPS/old browsers — fall back to a
+    // selectable textarea the admin can manually copy from (only present
+    // when triggered from inside the modal, which has one per class).
+    const ta = document.getElementById('la-wa-fallback-' + idx);
+    if (ta) { ta.style.display = 'block'; ta.select(); }
+    else alert('Could not copy automatically. Message:\n\n' + msg);
+  });
+}
+function laCopyAllGroupsMessage() {
+  const groups = (STATE._laWaPending || []).filter(g => g.students.length);
+  if (!groups.length) return;
+  const combined = groups.map(g => laGroupMessage(g.cls, g.students)).join('\n\n═══════════════════\n\n');
+  navigator.clipboard.writeText(combined).then(() => {
+    const btn = document.getElementById('la-wa-copy-all');
+    if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied all!'; setTimeout(() => { btn.textContent = orig; }, 1800); }
+  }).catch(() => {});
 }
 function laOpenWaModal() {
-  const groups = STATE._laWaPending || [];
+  const groups = (STATE._laWaPending || []).filter(g => g.students.length);
   const body = document.getElementById('la-wa-body');
   if (!body) return;
-  if (!groups.length || !groups.some(g => g.students.length)) {
+  if (!groups.length) {
     body.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">No students to message.</div>';
   } else {
-    body.innerHTML = groups.filter(g => g.students.length).map(g => `
-      <div style="margin-bottom:14px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">🏫 ${escapeHtml(g.cls)} <span style="color:var(--muted);font-weight:400;">(${g.students.length})</span></div>
-        ${g.students.map((s,i) => {
-          const hasPhone = /^\d{10}$/.test((s.phone||'').toString());
-          return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;margin-bottom:6px;">
-            <div style="flex:1;min-width:0;">
-              <div style="font-size:12px;font-weight:600;color:var(--text);">${escapeHtml(s.name||'—')}</div>
-              <div style="font-size:11px;font-family:var(--mono);color:var(--accent);">${escapeHtml(s.urn||'')}</div>
-              ${!hasPhone ? '<div style="font-size:10px;color:var(--warn);">⚠ no phone on file — link opens WhatsApp\'s contact picker</div>' : ''}
-            </div>
-            <a href="${laWaLink(s)}" target="_blank" rel="noopener" style="flex-shrink:0;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:var(--ok);">Send</a>
-          </div>`;
-        }).join('')}
-      </div>`).join('');
+    const multiClass = groups.length > 1;
+    body.innerHTML =
+      (multiClass ? `<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">Below is <b style="color:var(--text);">one separate message per class</b> — copy each one individually and paste it into that class's own WhatsApp group.</div>
+        <button id="la-wa-copy-all" onclick="laCopyAllGroupsMessage()" style="width:100%;margin-bottom:14px;padding:8px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);">⚠ Advanced: copy all ${groups.length} messages combined into one clipboard paste (only useful if pasting into a single shared group — most classes have separate groups, use "Copy message" on each box below instead)</button>` : '')
+      + groups.map((g, idx) => {
+        const msg = laGroupMessage(g.cls, g.students);
+        return `<div style="margin-bottom:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);padding:8px 12px;">
+            <span style="font-size:12px;font-weight:700;color:var(--text);">🏫 ${escapeHtml(g.cls)} <span style="color:var(--muted);font-weight:400;">(${g.students.length} student${g.students.length!==1?'s':''})</span></span>
+            <button id="la-wa-copy-${idx}" onclick="laCopyGroupMessage(${idx}, event)" style="padding:5px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.15);color:var(--ok);">📋 Copy message</button>
+          </div>
+          <div style="padding:10px 12px;max-height:220px;overflow-y:auto;white-space:pre-wrap;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.5;background:var(--surface);">${escapeHtml(msg)}</div>
+          <textarea id="la-wa-fallback-${idx}" readonly style="display:none;width:100%;height:80px;margin:0;border:none;border-top:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--mono);font-size:10px;padding:8px;">${msg}</textarea>
+        </div>`;
+      }).join('');
   }
   const modal = document.getElementById('la-wa-modal');
   if (modal) modal.classList.add('show');
 }
 function laCloseWaModal() {
   const modal = document.getElementById('la-wa-modal');
+  if (modal) modal.classList.remove('show');
+}
+// ── Single-class WhatsApp dialog — opened from the per-class "WhatsApp msg"
+// button. Shows that one class's message in an editable textarea (the admin
+// asked to be able to add/adjust text before copying, not just silently
+// copy the generated message) with a Reset button to restore the original
+// if their edits go sideways. Reuses STATE._laWaPending the same way
+// laCopyGroupMessage does, so it works from both the inline table buttons
+// and the "Review" modal's per-class rows.
+let LA_WA_SINGLE_ORIGINAL = '';
+function laShowSingleWaDialog(idx, ev) {
+  const groups = STATE._laWaPending || [];
+  const g = groups[idx];
+  if (!g) return;
+  const msg = laGroupMessage(g.cls, g.students);
+  LA_WA_SINGLE_ORIGINAL = msg;
+  const titleEl = document.getElementById('la-wa-single-title');
+  const textEl = document.getElementById('la-wa-single-text');
+  if (titleEl) titleEl.textContent = g.cls + ' — ' + g.students.length + ' student' + (g.students.length!==1?'s':'');
+  if (textEl) textEl.value = msg;
+  const copyBtn = document.getElementById('la-wa-single-copy');
+  if (copyBtn) copyBtn.textContent = '📋 Copy message';
+  const modal = document.getElementById('la-wa-single-modal');
+  if (modal) modal.classList.add('show');
+}
+function laCopySingleWaText() {
+  const textEl = document.getElementById('la-wa-single-text');
+  if (!textEl) return;
+  navigator.clipboard.writeText(textEl.value).then(() => {
+    const btn = document.getElementById('la-wa-single-copy');
+    if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = orig; }, 1800); }
+  }).catch(() => {
+    textEl.select();
+    alert('Could not copy automatically — the text is selected, use Ctrl+C / Cmd+C to copy manually.');
+  });
+}
+function laResetSingleWaText() {
+  const textEl = document.getElementById('la-wa-single-text');
+  if (textEl) textEl.value = LA_WA_SINGLE_ORIGINAL;
+}
+function laCloseWaSingleModal() {
+  const modal = document.getElementById('la-wa-single-modal');
   if (modal) modal.classList.remove('show');
 }
 
@@ -7697,6 +8234,78 @@ function laRenderDrilldown() {
     const cls = STATE._laDrillClass;
     const allStu = laLiveRoster().length ? laLiveRoster() : Object.values(STATE.students||{});
     const classStudents = allStu.filter(s => (s.cls||s.class||'') === cls);
+
+    // v7.74: "?" diagnostic. A class shows N/? when students logged in under
+    // this class name at some point, but the CURRENT roster (davan_pub/students)
+    // has no one under this exact class string. That happens when a student's
+    // portal login record's `class` field gets updated after promotion (e.g.
+    // Sem4 → Sem5) but their login history still has old rows tagged Sem4 —
+    // OR when a student simply isn't in the current roster anymore at all
+    // (left the college). Rather than showing an empty "no strength data"
+    // list, cross-reference each such student against the live roster by URN
+    // so the admin can tell "promoted, fine" apart from "gone, ban them".
+    if (!classStudents.length) {
+      const everSet = laEverLoggedInSet();
+      const liveByUrn = {};
+      allStu.forEach(s => { const u=(s.urn||s.URN||'').toString().toUpperCase(); if (u) liveByUrn[u] = s; });
+      // Students whose most recent login was tagged with this class (from `unique`,
+      // cached as STATE._laUnique by the summary-card builder above).
+      const candidates = (STATE._laUnique || []).filter(r => (r.class||'') === cls);
+      const moved = [], vanished = [];
+      candidates.forEach(r => {
+        const u = (r.urn||'').toString().toUpperCase();
+        const nowRec = liveByUrn[u];
+        const info = { urn: r.urn||'', name: r.name||nowRec?.name||nowRec?.Name||'', class: cls, phone: r.phone||nowRec?.phone||'', currentClass: nowRec ? (nowRec.cls||nowRec.class||'') : null };
+        if (nowRec && (nowRec.cls||nowRec.class||'') && (nowRec.cls||nowRec.class) !== cls) moved.push(info);
+        else if (!nowRec) vanished.push(info);
+        // else: nowRec exists with class still === cls, which can't reach this
+        // branch (classStudents would be non-empty) — kept unhandled deliberately.
+      });
+      title = `❓ ${escapeHtml(cls)} — why no class-strength total`;
+      const bannedSet = STATE._bannedUrnSet || new Set((STATE.bannedStudents||[]).map(u=>u.toUpperCase()));
+      const vanishedRowsHtml = vanished.length ? vanished.map((s,i) => {
+        const isBanned = bannedSet.has((s.urn||'').toUpperCase());
+        return `<tr>
+          <td style="padding:6px 8px 6px 10px;">${laAvatarHtml(s.urn, s.name, i, 'van')}</td>
+          <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent);">${escapeHtml(s.urn)}</td>
+          <td style="padding:6px 10px;font-size:12px;"><span class="asc-name-link" onclick="ascOpen('${s.urn}')">${escapeHtml(s.name||'—')}</span></td>
+          <td style="padding:6px 10px;">
+            ${isBanned
+              ? '<span style="font-size:10px;color:var(--danger);font-weight:600;">🚫 Already banned</span>'
+              : `<button onclick="laBanFromDrill('${(s.urn||'').replace(/'/g,"\\'")}')" style="padding:4px 10px;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;border:1px solid rgba(239,68,68,0.4);background:rgba(239,68,68,0.12);color:var(--danger);">+ Add to Banned</button>`}
+          </td>
+        </tr>`;
+      }).join('') : '';
+      bodyHtml =
+        `<div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5;">
+          Students last logged in under <b style="color:var(--text);">${escapeHtml(cls)}</b> but aren't counted in that class's current total.
+        </div>`
+        + (vanished.length ? `<div style="margin-bottom:14px;">
+            <div style="font-size:12px;font-weight:700;color:var(--danger);margin-bottom:6px;">✗ Not found in the current roster (${vanished.length})</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Not listed under any class right now — likely left college, transferred, or dropped from the scrape. Review and ban if confirmed inactive.</div>
+            <div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
+              <table style="width:100%;border-collapse:collapse;">
+                <thead style="position:sticky;top:0;background:var(--surface2);"><tr>
+                  <th style="padding:6px 8px;"></th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;">URN</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;">Name</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;">Action</th>
+                </tr></thead>
+                <tbody>${vanishedRowsHtml}</tbody>
+              </table>
+            </div>
+          </div>` : '<div style="font-size:12px;color:var(--ok);margin-bottom:10px;">✓ Nobody from this class is missing from the roster.</div>')
+        + (moved.length ? `<details style="margin-top:4px;">
+            <summary style="cursor:pointer;font-size:11px;color:var(--muted);user-select:none;">↗ ${moved.length} student${moved.length!==1?'s were':' was'} just promoted to a new class (no action needed) — click to view</summary>
+            <div style="margin-top:8px;">${laDrillTable(moved.map(s => ({...s, class: s.currentClass ? cls + ' → ' + s.currentClass : cls})), {})}</div>
+          </details>` : '')
+        + (!moved.length && !vanished.length ? '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">No login history found for this class name — it may be a data-entry class name that was never actually used.</div>' : '');
+      exportList = vanished.length ? vanished : null;
+      exportName = 'left_college_' + cls + '.csv';
+      laFinishDrilldown(el, title, bodyHtml, exportList, exportName);
+      if (vanished.length) laLoadAvatars(vanished, 'van');
+      return;
+    }
     const everSet = laEverLoggedInSet();
     const loggedIn = [], notYet = [];
     classStudents.forEach(s => {
@@ -7704,11 +8313,25 @@ function laRenderDrilldown() {
       const info = { urn: s.urn||s.URN||'', name: s.name||s.Name||lookup[u]?.name||'', class: cls, phone: s.phone||s.mobile||lookup[u]?.phone||'' };
       if (u && everSet.has(u)) loggedIn.push(info); else notYet.push(info);
     });
+    // v7.78: "stragglers" warning — this class has SOME current roster
+    // strength (so it didn't hit the zero-strength "?" diagnostic above), but
+    // the historical login count for this exact class name is much larger.
+    // That combination (e.g. "Davan-BCA-Sem2-SecA: 10 historical logins, only
+    // 2 in the current roster") usually means the class got promoted/renamed
+    // in davan_pub/students but a couple of records were missed — not a
+    // display bug, a genuine leftover in the source data worth checking.
+    const historicalCount = (STATE._laUnique || []).filter(r => (r.class||'') === cls).length;
+    const strollBadge = (historicalCount > classStudents.length * 2 && historicalCount - classStudents.length >= 3)
+      ? `<div style="font-size:11px;color:var(--warn);background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:7px;padding:8px 10px;margin-bottom:10px;">
+          ⚠ ${historicalCount} students have logged in under this class historically, but only ${classStudents.length} remain in the current roster. This class was likely promoted/renamed and a few records (shown under "✓ Logged in" below) may not have been updated — worth checking <b>davan_pub/students</b> for stragglers still tagged with this class name.
+        </div>`
+      : '';
     title = `🏫 ${escapeHtml(cls)} — ${loggedIn.length} logged in, ${notYet.length} never logged in`;
     const notYetSel = STATE._laClassView === 'out';
     STATE._laWaPending = notYetSel ? [{ cls, students: notYet }] : null;
     bodyHtml =
-      '<div style="display:flex;gap:6px;margin-bottom:10px;">'
+      strollBadge
+      + '<div style="display:flex;gap:6px;margin-bottom:10px;">'
         + `<button onclick="STATE._laClassView='in';laRenderDrilldown();" style="flex:1;padding:6px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid ${!notYetSel?'var(--ok)':'var(--border)'};background:${!notYetSel?'rgba(34,197,94,0.1)':'transparent'};color:${!notYetSel?'var(--ok)':'var(--text)'};">✓ Logged in (${loggedIn.length})</button>`
         + `<button onclick="STATE._laClassView='out';laRenderDrilldown();" style="flex:1;padding:6px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid ${notYetSel?'var(--danger)':'var(--border)'};background:${notYetSel?'rgba(239,68,68,0.1)':'transparent'};color:${notYetSel?'var(--danger)':'var(--text)'};">✗ Never logged in (${notYet.length})</button>`
       + '</div>'
@@ -7742,13 +8365,15 @@ function laRenderDrilldown() {
     title = mode === 'ever'
       ? `✓ ${list.length} student${list.length!==1?'s':''} who have logged in at least once — grouped by class`
       : `✗ ${list.length} student${list.length!==1?'s':''} who have NEVER logged in — grouped by class`;
-    bodyHtml =
-      (mode === 'never' && list.length ? `<button onclick="laOpenWaModal()" style="width:100%;margin-bottom:10px;padding:8px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.12);color:var(--ok);">📱 WhatsApp reminder to all ${list.length} students</button>` : '')
-      + laDrillTableGrouped(classNames.map(c => ({ cls: c, students: byClass[c] })), { showCount: mode === 'ever' });
+    const waGroups = classNames.map(c => ({ cls: c, students: byClass[c] }));
+    STATE._laWaPending = mode === 'never' ? waGroups : null;
+    bodyHtml = laDrillTableGrouped(waGroups, { showCount: mode === 'ever', showWaButtons: mode === 'never' });
     exportList = list; exportName = (mode === 'ever' ? 'ever_logged_in.csv' : 'never_logged_in.csv');
-    STATE._laWaPending = mode === 'never' ? classNames.map(c => ({ cls: c, students: byClass[c] })) : null;
   }
 
+  laFinishDrilldown(el, title, bodyHtml, exportList, exportName);
+}
+function laFinishDrilldown(el, title, bodyHtml, exportList, exportName) {
   STATE._laExportCache = { list: exportList || [], filename: exportName };
   el.innerHTML =
     '<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface2);">'
@@ -8818,11 +9443,23 @@ function openStudentModal(urn, prefillUrn, prefillName, prefillCls, prefillPhone
     document.getElementById('m-urn').value=s.urn||urn;
     document.getElementById('m-name').value=s.name||'';
     document.getElementById('m-class').value=s.class||'';
-    // Show the current phone/password if we have it on file (stored since this
-    // fix). Older records saved before this only ever stored the password
-    // hash, so there's genuinely nothing to show for them — a hash can't be
-    // reversed back into a phone number.
-    document.getElementById('m-phone').value = s.phone || '';
+    // Show the current phone/password if we have it on file (stored since
+    // v7.60). Records created BEFORE that fix only ever stored the password
+    // hash on portal_students — a hash can't be reversed back into a phone
+    // number, so there's genuinely nothing to recover from that record alone.
+    // v7.75: but davan_pub/students (the scraped class roster, a separate
+    // node from portal_students) independently carries each student's
+    // registered phone number, and was never touched by the pre-v7.60 gap.
+    // Fall back to it so pre-v7.60 records aren't stuck showing blank forever
+    // just because their portal_students entry predates the fix.
+    let phone = s.phone || '';
+    const hintEl = document.getElementById('m-phone-hint');
+    if (!phone) {
+      const rosterMatch = laLiveRoster().find(r => (r.urn||r.URN||'').toString().toUpperCase() === urn.toUpperCase());
+      phone = rosterMatch ? (rosterMatch.phone||rosterMatch.mobile||'') : '';
+      if (hintEl) hintEl.style.display = phone ? 'block' : 'none';
+    } else if (hintEl) { hintEl.style.display = 'none'; }
+    document.getElementById('m-phone').value = phone;
   } else {
     document.getElementById('m-urn').value=prefillUrn||'';
     document.getElementById('m-name').value=prefillName||'';
@@ -14755,6 +15392,21 @@ function fixSubjectName(raw) {
 // re-guessing, doesn't affect data freshness the way results caching does) so
 // a miss stays a miss across sessions too. Lookup/guessing logic itself is
 // unchanged — only WHERE the result is remembered.
+//
+// v7.92: FIX — a NEGATIVE result (photo not found anywhere) was being cached
+// for the same 7 days as a positive hit. Any transient failure (RTDB cold-
+// connect returning null, a Storage/Cloudinary HEAD request timing out,
+// flaky mobile network) got permanently remembered as "no photo exists" for
+// that student, even when the photo genuinely does exist and would have
+// loaded fine on a retry seconds later. Symptom reported live: a student's
+// avatar photo displayed correctly earlier, then silently went blank later
+// in the same session/day with no code change in between — classic stale-
+// negative-cache behavior. Fix: only positive hits (an actual photo URL)
+// are persisted with the 7-day TTL; a miss is now cached in-memory only for
+// this page load (so we don't hammer the network 20x while scrolling one
+// list), and is NOT written to localStorage — so the next full page load
+// always re-checks from scratch instead of trusting a possibly-stale "no
+// photo" verdict.
 let _rcPhotoCache = {};
 const RC_PHOTO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 function _rcPhotoCacheGet(urn) {
@@ -14763,6 +15415,14 @@ function _rcPhotoCacheGet(urn) {
     const raw = localStorage.getItem('davan_photo_' + urn);
     if (!raw) return undefined;
     const { ts, val } = JSON.parse(raw);
+    // v7.93: a stored negative ('val' falsy) can only be a LEFTOVER from
+    // before the v7.92 fix — the current code never writes a negative to
+    // localStorage anymore, only positives. Treating that leftover as
+    // "undefined" (not yet checked) rather than a confirmed miss means it
+    // self-heals on the very next load instead of sitting poisoned until
+    // its original 7-day TTL runs out. localStorage.removeItem cleans it
+    // up so this check is a one-time correction per URN, not a repeat cost.
+    if (!val) { localStorage.removeItem('davan_photo_' + urn); return undefined; }
     if (Date.now() - ts > RC_PHOTO_CACHE_TTL) { localStorage.removeItem('davan_photo_' + urn); return undefined; }
     _rcPhotoCache[urn] = val;
     return val;
@@ -14770,7 +15430,14 @@ function _rcPhotoCacheGet(urn) {
 }
 function _rcPhotoCacheSet(urn, val) {
   _rcPhotoCache[urn] = val;
-  try { localStorage.setItem('davan_photo_' + urn, JSON.stringify({ ts: Date.now(), val })); } catch(e) {}
+  if (val) {
+    // Positive hit only — safe to trust for a full week.
+    try { localStorage.setItem('davan_photo_' + urn, JSON.stringify({ ts: Date.now(), val })); } catch(e) {}
+  } else {
+    // Negative result — remember for THIS page load only, never persisted,
+    // so a future reload always gets a fresh, real check.
+    try { localStorage.removeItem('davan_photo_' + urn); } catch(e) {}
+  }
 }
 
 async function rcLoadPhoto(urn) {
@@ -14808,14 +15475,36 @@ async function rcLoadPhoto(urn) {
     const storageUrl = 'https://firebasestorage.googleapis.com/v0/b/' + bucket + '/o/' + encodeURIComponent(sp) + '?alt=media';
     try {
       const r = await fetch(storageUrl, { method: 'HEAD' });
+      console.log('[rcLoadPhoto] Storage try:', storageUrl, '→', r.status);
       return r.ok ? storageUrl : null;
-    } catch(e) { return null; }
+    } catch(e) { console.warn('[rcLoadPhoto] Storage error:', storageUrl, e); return null; }
   }));
   const found = hits.find(u => u);
   if (found) {
     console.log('[rcLoadPhoto] Storage hit:', found);
     _rcPhotoCacheSet(urn, found);
     return found;
+  }
+  // 3. Try Cloudinary (davan_students/{urn}.ext) — confirmed live source seen
+  // in admission-photo URLs (e.g. res.cloudinary.com/dat0khbet/image/upload/
+  // v.../davan_students/{urn}.jpg). The version segment (v1774413478) is
+  // per-upload and can't be guessed, but Cloudinary serves the same asset
+  // fine with that segment omitted, so we try the versionless form directly.
+  const cloudName = 'dat0khbet';
+  const cloudinaryExts = ['jpg', 'jpeg', 'png'];
+  const cloudinaryHits = await Promise.all(cloudinaryExts.map(async ext => {
+    const cUrl = 'https://res.cloudinary.com/' + cloudName + '/image/upload/davan_students/' + urn + '.' + ext;
+    try {
+      const r = await fetch(cUrl, { method: 'HEAD' });
+      console.log('[rcLoadPhoto] Cloudinary try:', cUrl, '→', r.status);
+      return r.ok ? cUrl : null;
+    } catch(e) { console.warn('[rcLoadPhoto] Cloudinary error:', cUrl, e); return null; }
+  }));
+  const cFound = cloudinaryHits.find(u => u);
+  if (cFound) {
+    console.log('[rcLoadPhoto] Cloudinary hit:', cFound);
+    _rcPhotoCacheSet(urn, cFound);
+    return cFound;
   }
   console.log('[rcLoadPhoto] no photo found for', urn);
   _rcPhotoCacheSet(urn, null);
