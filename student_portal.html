@@ -1344,6 +1344,15 @@ LOG (newest first):
 <meta property="og:title" content="Davan Student Portal"/>
 <meta property="og:description" content="Sign in to the Davan Institute of Advanced Management Studies student portal — Davangere. View attendance, internals, timetable and more."/>
 <meta property="og:image" content="https://harshgujjar.github.io/davan-attendance/davan_degree.png"/>
+<!-- v7.70: added explicit type/dimensions — some crawlers (WhatsApp's included)
+     skip rendering an og:image if it can't quickly confirm the file is a real,
+     reasonably-sized image. If davan_degree.png isn't roughly square (WhatsApp's
+     preview crops to a square thumbnail) or is very large, replace it with a
+     dedicated ~512x512 PNG for a cleaner preview — this doesn't affect the
+     favicon/apple-touch-icon links above, which can keep using the original file. -->
+<meta property="og:image:type" content="image/png"/>
+<meta property="og:image:width" content="512"/>
+<meta property="og:image:height" content="512"/>
 <meta property="og:url" content="https://harshgujjar.github.io/davan-attendance/student_portal.html"/>
 <meta property="og:type" content="website"/>
 <meta name="twitter:card" content="summary"/>
@@ -4081,6 +4090,16 @@ body.dash-active .data-strip { display: block; }
     </div>
     <div id="la-count" style="font-size:11px;font-family:var(--mono);color:var(--muted);margin-bottom:10px;"></div>
     <div id="la-class-summary" style="display:none;margin-bottom:14px;"></div>
+    <div id="la-analytics" style="display:none;margin-bottom:16px;"></div>
+    <div id="la-drilldown" style="display:none;margin-bottom:16px;"></div>
+    <div id="la-wa-modal" class="modal-overlay">
+      <div class="modal" style="max-width:640px;">
+        <button class="modal-close" onclick="laCloseWaModal()">✕</button>
+        <div class="modal-title">📱 WhatsApp Login Reminder</div>
+        <div style="font-size:11px;color:var(--muted);margin:8px 0 12px;">Opens WhatsApp with a pre-filled message per student — portal link + their own URN. No password is included; the message tells them the default password is their registered phone number.</div>
+        <div id="la-wa-body" style="max-height:60vh;overflow-y:auto;"></div>
+      </div>
+    </div>
     <div id="la-empty" style="display:none;" class="empty-state"><div class="empty-icon">📋</div>No login activity yet.</div>
     <div id="la-list"></div>
   </div>
@@ -4634,7 +4653,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.68';
+const APP_VERSION = 'v7.72';
 const BUILD_DATE   = '03 Aug 2026, 06:10 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 /* ════════════════════════════════════════════════════
@@ -7186,6 +7205,7 @@ function renderLoginActivity() {
           No students currently active
         </div>`;
     STATE._liveStudents = liveStudents; // cache for modal
+    STATE._laUnique = unique; // cache for drill-downs below
     const allClasses = [...new Set([...Object.keys(byClass), ...Object.keys(classStrength)])].sort();
     const cards = allClasses.map(c => {
       const loggedIn = byClass[c] || 0;
@@ -7193,7 +7213,10 @@ function renderLoginActivity() {
       const notYet = Math.max(0, strength - loggedIn);
       const pct = strength ? Math.round(loggedIn/strength*100) : (loggedIn>0?100:0);
       const color = pct===100?'var(--ok)':pct>50?'var(--warn)':'var(--danger)';
-      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:160px;">
+      const isActive = STATE._laDrillClass === c;
+      return `<div onclick="laShowClassDrill('${c.replace(/'/g,"\\'")}')"
+        style="background:${isActive?'rgba(240,165,0,0.12)':'var(--surface2)'};border:1px solid ${isActive?'rgba(240,165,0,0.5)':'var(--border)'};border-radius:8px;padding:8px 12px;min-width:160px;cursor:pointer;transition:border-color .15s;"
+        title="Click to see who has and hasn't logged in">
         <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px;">${c}</div>
         <div style="font-size:18px;font-family:var(--mono);font-weight:700;color:${color};">${loggedIn}<span style="font-size:12px;color:var(--muted);">/${strength||'?'}</span></div>
         <div style="font-size:10px;font-family:var(--mono);color:var(--muted);">${strength?`<span style="color:var(--danger);">${notYet} still to login</span>`:'have logged in'}</div>
@@ -7201,10 +7224,13 @@ function renderLoginActivity() {
       </div>`;
     });
     summaryEl.innerHTML = liveHtml
-      + '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Login Summary by Class <span style="color:var(--muted);font-size:10px;">(unique students)</span></div>'
+      + '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Login Summary by Class <span style="color:var(--muted);font-size:10px;">(unique students — click a card to see who has/hasn\'t logged in)</span></div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:8px;">' + cards.join('') + '</div>';
     summaryEl.style.display = 'block';
   } else if (summaryEl) { summaryEl.style.display = 'none'; }
+
+  laRenderAnalytics();
+  laRenderDrilldown();
 
   if(q) rows=rows.filter(r=>(r.urn||'').toLowerCase().includes(q)||(r.name||'').toLowerCase().includes(q));
   if(countEl) countEl.textContent=rows.length+' login'+(rows.length!==1?'s':'')+' recorded'+(q?' (filtered)':'')+' — refreshes live as students log in';
@@ -7236,6 +7262,507 @@ function renderLoginActivity() {
     }).catch(()=>{});
   });
 }
+/* ════════════════════════════════════════════════════
+   LOGIN ACTIVITY — DAILY ANALYTICS + DRILL-DOWNS (v7.69)
+   Everything below reads STATE.loginActivity (raw rows, one per login/
+   heartbeat — see stuLogin()/stuRecordHeartbeat()) and STATE.students
+   (portal logins) / STATE.allStudents (class roster) as ground truth.
+   Nothing here writes to Firebase — it's read-only analysis of data
+   that's already being recorded.
+════════════════════════════════════════════════════ */
+
+// Local calendar day key (not UTC) so "today" lines up with IST, matching
+// how every other date display in this app already works.
+function laDayKey(ts) {
+  const d = new Date(ts);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function laDayLabel(key) {
+  const [y,m,d] = key.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  // v7.72: weekday added ("Thu, 06 Aug") — logins have a strong day-of-week
+  // pattern (weekday vs weekend usage differs a lot), and the bare date alone
+  // made that pattern invisible without mentally mapping each date to a day.
+  return dt.toLocaleDateString('en-IN', { weekday:'short' }) + ', ' + dt.toLocaleDateString('en-IN', { day:'2-digit', month:'short' });
+}
+function laDayShort(key) {
+  const [y,m,d] = key.split('-').map(Number);
+  return new Date(y, m-1, d).toLocaleDateString('en-IN', { weekday:'short' });
+}
+function laDayDate(key) {
+  const [y,m,d] = key.split('-').map(Number);
+  return new Date(y, m-1, d).toLocaleDateString('en-IN', { day:'2-digit', month:'short' });
+}
+// Build the last N days of stats: for each day, unique students who logged in
+// (deduped by URN) and total login/heartbeat events (repeat visits included).
+function laBuildDailyStats(days) {
+  const rows = STATE.loginActivity || [];
+  const byDay = {}; // dayKey -> { urns:Set, total:Number }
+  rows.forEach(r => {
+    if (!r.loginAt) return;
+    const key = laDayKey(r.loginAt);
+    if (!byDay[key]) byDay[key] = { urns: new Set(), total: 0 };
+    byDay[key].total++;
+    if (r.urn) byDay[key].urns.add(r.urn.toUpperCase());
+  });
+  const today = new Date();
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const e = byDay[key];
+    out.push({ key, label: laDayLabel(key), unique: e ? e.urns.size : 0, total: e ? e.total : 0, urns: e ? e.urns : new Set() });
+  }
+  return out;
+}
+function laTotalStudentCount() {
+  // v7.71: this must NEVER follow the admin's AY "VIEWING" toggle. STATE.allStudents
+  // is swapped to archived 2025-26 data when that toggle is set to Past (see
+  // adminSwitchAY, v7.63) — Login Activity has no "past" mode of its own and was
+  // silently inheriting whatever the Students tab happened to be showing, which
+  // made the total (and therefore Ever/Never %) jump around depending on a toggle
+  // that has nothing to do with this tab. Always reads the live cached roster.
+  const allStu = laLiveRoster();
+  if (allStu.length) return new Set(allStu.map(s => (s.urn||s.URN||'').toString().toUpperCase()).filter(Boolean)).size;
+  return Object.keys(STATE.students || {}).length;
+}
+// Always the CURRENT-year roster regardless of the admin's AY viewing toggle —
+// prefers the cached live copy (kept by adminSwitchAY when it swaps to archive
+// view) so Login Activity stays correct even while Students tab is showing 2025-26.
+function laLiveRoster() {
+  if (STATE._liveAllStudentsCache) return STATE._liveAllStudentsCache;
+  return STATE.allStudents || [];
+}
+// All URNs that have EVER had at least one login/heartbeat row.
+function laEverLoggedInSet() {
+  const set = new Set();
+  (STATE.loginActivity || []).forEach(r => { if (r.urn) set.add(r.urn.toUpperCase()); });
+  return set;
+}
+STATE._laRangeDays = STATE._laRangeDays || 7;
+function laSetRange(days) { STATE._laRangeDays = days; renderLoginActivity(); }
+
+// Hour-of-day distribution — total login/heartbeat events per hour (0–23,
+// local time), within the same N-day range as the daily bar chart, so the
+// two charts always describe the same window. Events, not unique students,
+// because "what time do students log in" is about traffic timing — the same
+// student logging in twice at 9am is genuinely two 9am events for that
+// question, unlike the daily-unique chart which is about reach.
+function laBuildHourStats(days) {
+  const rows = STATE.loginActivity || [];
+  const cutoff = Date.now() - days * 86400000;
+  const hours = Array.from({length: 24}, (_, h) => ({ hour: h, count: 0 }));
+  rows.forEach(r => {
+    if (!r.loginAt || r.loginAt < cutoff) return;
+    const h = new Date(r.loginAt).getHours();
+    hours[h].count++;
+  });
+  return hours;
+}
+function laHourLabel(h) {
+  const period = h < 12 ? 'AM' : 'PM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return h12 + period;
+}
+
+function laRenderAnalytics() {
+  const el = document.getElementById('la-analytics');
+  if (!el) return;
+  const rows = STATE.loginActivity || [];
+  if (!rows.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+
+  const days = STATE._laRangeDays || 7;
+  const daily = laBuildDailyStats(days);
+  const totalStudents = laTotalStudentCount();
+  const everSet = laEverLoggedInSet();
+  const everCount = everSet.size;
+  const neverCount = Math.max(0, totalStudents - everCount);
+
+  // Repeat-visit distribution across ALL recorded history (not just the
+  // selected range) — how many students logged in once vs many times.
+  const perStudentCount = {};
+  rows.forEach(r => { if (r.urn) { const u = r.urn.toUpperCase(); perStudentCount[u] = (perStudentCount[u]||0) + 1; } });
+  const counts = Object.values(perStudentCount);
+  const oneTime   = counts.filter(c => c === 1).length;
+  const fewTimes  = counts.filter(c => c >= 2 && c <= 5).length;
+  const regular   = counts.filter(c => c > 5).length;
+
+  // Today vs yesterday, for a quick trend arrow.
+  const todayStat = daily[daily.length - 1] || { unique: 0, total: 0 };
+  const ydayStat  = daily[daily.length - 2] || { unique: 0, total: 0 };
+  const trendDelta = todayStat.unique - ydayStat.unique;
+  const trendHtml = daily.length >= 2
+    ? (trendDelta > 0 ? `<span style="color:var(--ok);">▲ ${trendDelta} vs yesterday</span>`
+      : trendDelta < 0 ? `<span style="color:var(--danger);">▼ ${Math.abs(trendDelta)} vs yesterday</span>`
+      : `<span style="color:var(--muted);">= same as yesterday</span>`)
+    : '';
+
+  const maxUnique = Math.max(1, ...daily.map(d => d.unique));
+  const barsHtml = daily.map(d => {
+    const h = Math.max(3, Math.round((d.unique / maxUnique) * 64));
+    const isToday = d.key === laDayKey(Date.now());
+    const isWeekend = [0,6].includes(new Date(d.key + 'T00:00:00').getDay());
+    return `<div onclick="laShowDayDrill('${d.key}')" title="${d.label}: ${d.unique} unique · ${d.total} total logins — click for details"
+      style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;flex:1;min-width:0;">
+      <div style="font-size:9px;font-family:var(--mono);color:var(--muted);">${d.unique||''}</div>
+      <div style="width:100%;max-width:26px;height:${h}px;background:${isToday?'var(--accent)':isWeekend?'rgba(168,85,247,0.4)':'rgba(240,165,0,0.45)'};border-radius:3px 3px 0 0;transition:height .2s;"></div>
+      <div style="font-size:9px;font-weight:${isToday?'700':'400'};font-family:var(--mono);color:${isToday?'var(--accent)':isWeekend?'#a855f7':'var(--muted)'};white-space:nowrap;">${laDayShort(d.key)}</div>
+      <div style="font-size:8px;font-family:var(--mono);color:var(--muted);white-space:nowrap;opacity:.75;">${laDayDate(d.key)}</div>
+    </div>`;
+  }).join('');
+
+  const rangeBtn = (d, lbl) => `<button onclick="laSetRange(${d})" style="padding:4px 10px;border-radius:6px;font-size:11px;font-family:var(--mono);cursor:pointer;
+    border:1px solid ${days===d?'var(--accent)':'var(--border)'};background:${days===d?'var(--accent)':'transparent'};color:${days===d?'#000':'var(--text)'};font-weight:${days===d?'700':'400'};">${lbl}</button>`;
+
+  const statCard = (label, value, sub, color, onclick) => `<div ${onclick?`onclick="${onclick}" style="cursor:pointer;"`:''}
+      style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;flex:1;min-width:130px;">
+      <div style="font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${label}</div>
+      <div style="font-size:20px;font-weight:700;font-family:var(--mono);color:${color};">${value}</div>
+      ${sub?`<div style="font-size:10px;color:var(--muted);margin-top:2px;">${sub}</div>`:''}
+    </div>`;
+
+  el.innerHTML =
+    '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">📊 Login Analytics <span style="color:var(--accent);text-transform:none;letter-spacing:normal;">— always current year (' + (typeof AY_CONFIG!=='undefined'?AY_CONFIG.currentAY:'') + ')</span>, independent of the VIEWING toggle above</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">'
+      + statCard('Total students', totalStudents, '', 'var(--text)')
+      + statCard('Ever logged in', everCount, totalStudents?Math.round(everCount/totalStudents*100)+'% of all students':'', 'var(--ok)', "laShowNeverEverDrill('ever')")
+      + statCard('Never logged in', neverCount, totalStudents?Math.round(neverCount/totalStudents*100)+'% of all students':'', neverCount?'var(--danger)':'var(--ok)', "laShowNeverEverDrill('never')")
+      + statCard('Today', todayStat.unique + ' unique', trendHtml + (todayStat.total?` · ${todayStat.total} total logins`:''), 'var(--accent)', "laShowDayDrill('"+laDayKey(Date.now())+"')")
+    + '</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
+      + statCard('Logged in once', oneTime, 'came, never returned', 'var(--warn)')
+      + statCard('2–5 times', fewTimes, 'occasional users', 'var(--text)')
+      + statCard('6+ times', regular, 'regular users', 'var(--ok)')
+    + '</div>'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">'
+      + '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);">Unique students per day <span style="opacity:.7;">(click a bar for details)</span></div>'
+      + '<div style="display:flex;gap:4px;">' + rangeBtn(7,'7d') + rangeBtn(14,'14d') + rangeBtn(30,'30d') + '</div>'
+    + '</div>'
+    + '<div style="display:flex;align-items:flex-end;gap:3px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 8px 6px;overflow-x:auto;">' + barsHtml + '</div>'
+    + laRenderHourChart(days);
+}
+
+function laRenderHourChart(days) {
+  const hourly = laBuildHourStats(days);
+  const total = hourly.reduce((s,h) => s + h.count, 0);
+  if (!total) return '';
+  const maxCount = Math.max(1, ...hourly.map(h => h.count));
+  const peak = hourly.reduce((best, h) => h.count > best.count ? h : best, hourly[0]);
+  // Group into 3-hour bands for a plain-language summary line under the chart —
+  // easier to act on ("most logins happen 6–9pm") than reading 24 individual bars.
+  const bands = [
+    { label: 'Early morning (12–6am)', range: [0,6] },
+    { label: 'Morning (6am–12pm)', range: [6,12] },
+    { label: 'Afternoon (12–6pm)', range: [12,18] },
+    { label: 'Evening (6pm–12am)', range: [18,24] },
+  ].map(b => ({ ...b, count: hourly.slice(b.range[0], b.range[1]).reduce((s,h)=>s+h.count,0) }));
+  const topBand = bands.reduce((best,b) => b.count > best.count ? b : best, bands[0]);
+
+  const barsHtml = hourly.map(h => {
+    const hgt = Math.max(2, Math.round((h.count / maxCount) * 60));
+    const isPeak = h.hour === peak.hour && h.count > 0;
+    const showLabel = h.hour % 3 === 0; // every 3rd hour to avoid label crowding
+    return `<div title="${laHourLabel(h.hour)}: ${h.count} login${h.count!==1?'s':''}"
+      style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:0;cursor:default;">
+      <div style="width:100%;max-width:14px;height:${hgt}px;background:${isPeak?'var(--accent)':'rgba(59,130,246,0.4)'};border-radius:2px 2px 0 0;"></div>
+      <div style="font-size:7px;font-family:var(--mono);color:var(--muted);white-space:nowrap;height:9px;">${showLabel?laHourLabel(h.hour):''}</div>
+    </div>`;
+  }).join('');
+
+  return '<div style="margin-top:16px;">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">'
+      + '<div style="font-size:11px;font-family:var(--mono);color:var(--muted);">What time do students log in <span style="opacity:.7;">(last ' + days + 'd, by hour of day)</span></div>'
+      + '<div style="font-size:11px;font-family:var(--mono);color:var(--accent);">🕐 Peak: ' + laHourLabel(peak.hour) + ' (' + peak.count + ' logins)</div>'
+    + '</div>'
+    + '<div style="display:flex;align-items:flex-end;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 8px 6px;">' + barsHtml + '</div>'
+    + '<div style="font-size:10px;color:var(--muted);margin-top:6px;">Most logins happen in the <span style="color:var(--text);font-weight:600;">' + topBand.label + '</span> — ' + topBand.count + ' of ' + total + ' logins (' + Math.round(topBand.count/total*100) + '%) in the last ' + days + ' days.</div>'
+  + '</div>';
+}
+
+// ── Day drill-down: who logged in that day (unique + how many times each), and total events ──
+function laShowDayDrill(dayKey) {
+  STATE._laDrillMode = STATE._laDrillMode === 'day' && STATE._laDrillKey === dayKey ? null : 'day';
+  STATE._laDrillKey = STATE._laDrillMode ? dayKey : null;
+  STATE._laDrillClass = null;
+  laRenderDrilldown();
+  const el = document.getElementById('la-drilldown');
+  if (el && STATE._laDrillMode) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+// ── Class card drill-down: who in this class has logged in vs never has ──
+function laShowClassDrill(cls) {
+  STATE._laDrillMode = STATE._laDrillMode === 'class' && STATE._laDrillClass === cls ? null : 'class';
+  STATE._laDrillClass = STATE._laDrillMode ? cls : null;
+  STATE._laDrillKey = null;
+  renderLoginActivity(); // re-render summary cards too, to highlight the active one
+}
+// ── Ever/Never stat-card drill-down ──
+function laShowNeverEverDrill(which) {
+  STATE._laDrillMode = STATE._laDrillMode === which ? null : which;
+  STATE._laDrillKey = null; STATE._laDrillClass = null;
+  laRenderDrilldown();
+  const el = document.getElementById('la-drilldown');
+  if (el && STATE._laDrillMode) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function laCloseDrill() {
+  STATE._laDrillMode = null; STATE._laDrillKey = null; STATE._laDrillClass = null;
+  renderLoginActivity();
+}
+function laStudentLookup() {
+  // URN -> {name, class, phone} from whichever source has the fullest info.
+  const map = {};
+  laLiveRoster().forEach(s => {
+    const u = (s.urn||s.URN||'').toString().toUpperCase();
+    if (u) map[u] = { name: s.name||s.Name||'', class: s.cls||s.class||'', phone: s.phone||s.mobile||'' };
+  });
+  Object.entries(STATE.students || {}).forEach(([urn, s]) => {
+    const u = urn.toUpperCase();
+    if (!map[u]) map[u] = { name: s.name||'', class: s.class||'', phone: s.phone||'' };
+  });
+  return map;
+}
+function laDrillTable(list, opts) {
+  opts = opts || {};
+  if (!list.length) return '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">No students to show.</div>';
+  const rows = list.map((s,i) => `<tr>
+      <td style="padding:6px 8px 6px 10px;">${laAvatarHtml(s.urn, s.name, i)}</td>
+      <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent);">${escapeHtml(s.urn)}</td>
+      <td style="padding:6px 10px;font-size:12px;"><span class="asc-name-link" onclick="ascOpen('${s.urn}')">${escapeHtml(s.name||'—')}</span></td>
+      <td style="padding:6px 10px;font-size:11px;color:var(--muted);">${escapeHtml(s.class||'—')}</td>
+      ${opts.showCount ? `<td style="padding:6px 10px;font-family:var(--mono);font-size:11px;text-align:center;color:${s.count>5?'var(--ok)':s.count>1?'var(--text)':'var(--warn)'};">${s.count}</td>` : ''}
+      ${opts.showLast ? `<td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--muted);">${s.last?fmtDate(s.last):'—'}</td>` : ''}
+    </tr>`).join('');
+  const html = `<div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead style="position:sticky;top:0;background:var(--surface2);"><tr>
+        <th style="padding:6px 8px;"></th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;">URN</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;">Name</th>
+        <th style="padding:6px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;">Class</th>
+        ${opts.showCount ? '<th style="padding:6px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;">Times</th>' : ''}
+        ${opts.showLast ? '<th style="padding:6px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;">Last Login</th>' : ''}
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  laLoadAvatars(list);
+  return html;
+}
+// URN -> "cls" -> rows, rendered as one table per class with its own header and
+// count, instead of one long mixed list — so "who's missing" is readable per
+// class instead of needing to cross-reference the Class column by eye.
+function laDrillTableGrouped(groups, opts) {
+  opts = opts || {};
+  if (!groups.length || !groups.some(g => g.students.length)) {
+    return '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">No students to show.</div>';
+  }
+  let allStudents = [];
+  const html = groups.filter(g => g.students.length).map(g => {
+    allStudents = allStudents.concat(g.students);
+    return `<div style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:7px 7px 0 0;padding:7px 12px;">
+        <span style="font-size:12px;font-weight:700;color:var(--text);">🏫 ${escapeHtml(g.cls)}</span>
+        <span style="font-size:11px;font-family:var(--mono);color:var(--muted);">${g.students.length} student${g.students.length!==1?'s':''}</span>
+      </div>
+      <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;">
+        ${laDrillTable(g.students, opts)}
+      </div>
+    </div>`;
+  }).join('');
+  return html;
+}
+// Photo avatar cell — tap to zoom via the existing rcZoomPhoto lightbox (same
+// one Report Card / Login Activity's live-students list already use).
+function laAvatarHtml(urn, name, i) {
+  const initials = nameInitials(name || '');
+  const id = 'la-dt-av-' + i + '-' + (urn||'x').replace(/[^A-Za-z0-9]/g,'');
+  return `<div id="${id}" data-urn="${urn||''}" style="width:28px;height:28px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--muted);font-family:var(--head);cursor:pointer;" onclick="laZoomAvatar('${id}')">${initials}</div>`;
+}
+function laZoomAvatar(id) {
+  const el = document.getElementById(id);
+  const img = el && el.querySelector('img');
+  if (img && img.src) rcZoomPhoto(img.src);
+}
+function laLoadAvatars(list) {
+  list.forEach((s, i) => {
+    if (!s.urn) return;
+    const id = 'la-dt-av-' + i + '-' + (s.urn||'x').replace(/[^A-Za-z0-9]/g,'');
+    rcLoadPhoto(s.urn).then(url => {
+      if (!url) return;
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = `<img src="${url}" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.textContent='${nameInitials(s.name||'').replace(/'/g,"\\'")}';">`;
+    }).catch(()=>{});
+  });
+}
+function laExportCsv(list, filename) {
+  const header = 'URN,Name,Class\n';
+  const body = list.map(s => `"${(s.urn||'').replace(/"/g,'""')}","${(s.name||'').replace(/"/g,'""')}","${(s.class||'').replace(/"/g,'""')}"`).join('\n');
+  const blob = new Blob([header + body], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+// Export button reads from STATE._laExportCache rather than having the list
+// JSON-embedded into an onclick attribute — a name/URN containing a quote or
+// apostrophe would otherwise break the generated HTML the same way the old
+// missing-login "+ Create" button broke (see v7.60 fix history).
+function laExportCurrentDrill() {
+  const c = STATE._laExportCache;
+  if (c && c.list && c.list.length) laExportCsv(c.list, c.filename);
+}
+
+/* ── WhatsApp login-reminder modal ──
+   Reads STATE._laWaPending, an array of { cls, students: [{urn,name,phone,...}] }
+   set by laRenderDrilldown() just before showing the "WhatsApp reminder" button
+   (see the 'class' and 'never' branches above). One wa.me link per student —
+   portal URL + their own URN, explicitly NO password, so the message never
+   contains anything sensitive even though the default password happens to be
+   the student's own phone number. */
+const LA_PORTAL_URL = 'https://harshgujjar.github.io/davan-attendance/student_portal.html';
+function laWaMessage(s) {
+  return 'Hi ' + (s.name || 'there') + ',\n\n'
+    + 'Your Davan & Nutana student portal login is ready — please log in and explore:\n'
+    + LA_PORTAL_URL + '\n\n'
+    + 'Your URN (login ID): ' + (s.urn || '') + '\n'
+    + 'Password: your 10-digit registered mobile number\n\n'
+    + 'Please change your password after your first login.\n\n'
+    + '— Davan & Nutana Group of Institutions';
+}
+function laWaLink(s) {
+  const phone = (s.phone || '').toString().replace(/\D/g,'');
+  const text = encodeURIComponent(laWaMessage(s));
+  // With a known 10-digit number, open the chat directly (add 91 for India);
+  // without one, fall back to the generic composer so the office can still
+  // paste in a number manually rather than losing the message entirely.
+  return phone.length === 10 ? `https://wa.me/91${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+}
+function laOpenWaModal() {
+  const groups = STATE._laWaPending || [];
+  const body = document.getElementById('la-wa-body');
+  if (!body) return;
+  if (!groups.length || !groups.some(g => g.students.length)) {
+    body.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">No students to message.</div>';
+  } else {
+    body.innerHTML = groups.filter(g => g.students.length).map(g => `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">🏫 ${escapeHtml(g.cls)} <span style="color:var(--muted);font-weight:400;">(${g.students.length})</span></div>
+        ${g.students.map((s,i) => {
+          const hasPhone = /^\d{10}$/.test((s.phone||'').toString());
+          return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;margin-bottom:6px;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:600;color:var(--text);">${escapeHtml(s.name||'—')}</div>
+              <div style="font-size:11px;font-family:var(--mono);color:var(--accent);">${escapeHtml(s.urn||'')}</div>
+              ${!hasPhone ? '<div style="font-size:10px;color:var(--warn);">⚠ no phone on file — link opens WhatsApp\'s contact picker</div>' : ''}
+            </div>
+            <a href="${laWaLink(s)}" target="_blank" rel="noopener" style="flex-shrink:0;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:var(--ok);">Send</a>
+          </div>`;
+        }).join('')}
+      </div>`).join('');
+  }
+  const modal = document.getElementById('la-wa-modal');
+  if (modal) modal.classList.add('show');
+}
+function laCloseWaModal() {
+  const modal = document.getElementById('la-wa-modal');
+  if (modal) modal.classList.remove('show');
+}
+
+function laRenderDrilldown() {
+  const el = document.getElementById('la-drilldown');
+  if (!el) return;
+  const mode = STATE._laDrillMode;
+  if (!mode) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  const lookup = laStudentLookup();
+  const rows = STATE.loginActivity || [];
+
+  let title = '', bodyHtml = '', exportList = null, exportName = 'export.csv';
+
+  if (mode === 'day') {
+    const key = STATE._laDrillKey;
+    const dayRows = rows.filter(r => r.loginAt && laDayKey(r.loginAt) === key);
+    const perStudent = {};
+    dayRows.forEach(r => {
+      if (!r.urn) return;
+      const u = r.urn.toUpperCase();
+      if (!perStudent[u]) perStudent[u] = { urn: r.urn, name: r.name, class: r.class, count: 0, last: 0 };
+      perStudent[u].count++;
+      if (r.loginAt > perStudent[u].last) perStudent[u].last = r.loginAt;
+    });
+    const list = Object.values(perStudent).sort((a,b) => b.last - a.last);
+    title = `📅 ${laDayLabel(key)} — ${list.length} unique student${list.length!==1?'s':''}, ${dayRows.length} total login${dayRows.length!==1?'s':''}`;
+    bodyHtml = laDrillTable(list, { showCount: true, showLast: true });
+    exportList = list; exportName = 'logins_' + key + '.csv';
+  } else if (mode === 'class') {
+    const cls = STATE._laDrillClass;
+    const allStu = laLiveRoster().length ? laLiveRoster() : Object.values(STATE.students||{});
+    const classStudents = allStu.filter(s => (s.cls||s.class||'') === cls);
+    const everSet = laEverLoggedInSet();
+    const loggedIn = [], notYet = [];
+    classStudents.forEach(s => {
+      const u = (s.urn||s.URN||'').toString().toUpperCase();
+      const info = { urn: s.urn||s.URN||'', name: s.name||s.Name||lookup[u]?.name||'', class: cls, phone: s.phone||s.mobile||lookup[u]?.phone||'' };
+      if (u && everSet.has(u)) loggedIn.push(info); else notYet.push(info);
+    });
+    title = `🏫 ${escapeHtml(cls)} — ${loggedIn.length} logged in, ${notYet.length} never logged in`;
+    const notYetSel = STATE._laClassView === 'out';
+    STATE._laWaPending = notYetSel ? [{ cls, students: notYet }] : null;
+    bodyHtml =
+      '<div style="display:flex;gap:6px;margin-bottom:10px;">'
+        + `<button onclick="STATE._laClassView='in';laRenderDrilldown();" style="flex:1;padding:6px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid ${!notYetSel?'var(--ok)':'var(--border)'};background:${!notYetSel?'rgba(34,197,94,0.1)':'transparent'};color:${!notYetSel?'var(--ok)':'var(--text)'};">✓ Logged in (${loggedIn.length})</button>`
+        + `<button onclick="STATE._laClassView='out';laRenderDrilldown();" style="flex:1;padding:6px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid ${notYetSel?'var(--danger)':'var(--border)'};background:${notYetSel?'rgba(239,68,68,0.1)':'transparent'};color:${notYetSel?'var(--danger)':'var(--text)'};">✗ Never logged in (${notYet.length})</button>`
+      + '</div>'
+      + (notYetSel && notYet.length ? `<button onclick="laOpenWaModal()" style="width:100%;margin-bottom:10px;padding:8px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.12);color:var(--ok);">📱 WhatsApp reminder to these ${notYet.length} student${notYet.length!==1?'s':''}</button>` : '')
+      + laDrillTable(notYetSel ? notYet : loggedIn, {});
+    exportList = notYetSel ? notYet : loggedIn;
+    exportName = (notYetSel ? 'never_logged_in_' : 'logged_in_') + cls + '.csv';
+  } else if (mode === 'ever' || mode === 'never') {
+    const everSet = laEverLoggedInSet();
+    const allStu = laLiveRoster().length ? laLiveRoster() : Object.values(STATE.students||{});
+    const perStudentCount = {};
+    rows.forEach(r => { if (r.urn) perStudentCount[r.urn.toUpperCase()] = (perStudentCount[r.urn.toUpperCase()]||0) + 1; });
+    const list = [];
+    const seenUrns = new Set();
+    allStu.forEach(s => {
+      const u = (s.urn||s.URN||'').toString().toUpperCase();
+      if (!u || seenUrns.has(u)) return; seenUrns.add(u);
+      const has = everSet.has(u);
+      if ((mode === 'ever' && has) || (mode === 'never' && !has)) {
+        list.push({ urn: s.urn||s.URN||'', name: s.name||s.Name||lookup[u]?.name||'', class: s.cls||s.class||'(No Class)', phone: s.phone||s.mobile||lookup[u]?.phone||'', count: perStudentCount[u]||0 });
+      }
+    });
+    // v7.71: grouped by class rather than one flat mixed list — a 172-row list
+    // spanning every class made it impossible to tell "what happened in which
+    // class" at a glance, which is exactly the complaint this fixes.
+    const byClass = {};
+    list.forEach(s => { (byClass[s.class] = byClass[s.class] || []).push(s); });
+    const classNames = aySortClasses(Object.keys(byClass));
+    classNames.forEach(c => byClass[c].sort((a,b) => mode==='ever' ? (b.count||0)-(a.count||0) : (a.name||'').localeCompare(b.name||'')));
+
+    title = mode === 'ever'
+      ? `✓ ${list.length} student${list.length!==1?'s':''} who have logged in at least once — grouped by class`
+      : `✗ ${list.length} student${list.length!==1?'s':''} who have NEVER logged in — grouped by class`;
+    bodyHtml =
+      (mode === 'never' && list.length ? `<button onclick="laOpenWaModal()" style="width:100%;margin-bottom:10px;padding:8px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.12);color:var(--ok);">📱 WhatsApp reminder to all ${list.length} students</button>` : '')
+      + laDrillTableGrouped(classNames.map(c => ({ cls: c, students: byClass[c] })), { showCount: mode === 'ever' });
+    exportList = list; exportName = (mode === 'ever' ? 'ever_logged_in.csv' : 'never_logged_in.csv');
+    STATE._laWaPending = mode === 'never' ? classNames.map(c => ({ cls: c, students: byClass[c] })) : null;
+  }
+
+  STATE._laExportCache = { list: exportList || [], filename: exportName };
+  el.innerHTML =
+    '<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface2);">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
+        + '<div style="font-size:13px;font-weight:600;color:var(--text);">' + title + '</div>'
+        + '<div style="display:flex;gap:6px;">'
+          + (exportList && exportList.length ? `<button onclick="laExportCurrentDrill()" style="padding:4px 10px;border-radius:6px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;">⬇ CSV</button>` : '')
+          + '<button onclick="laCloseDrill()" style="padding:4px 10px;border-radius:6px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;">✕ Close</button>'
+        + '</div>'
+      + '</div>'
+      + bodyHtml
+    + '</div>';
+}
+
 async function clearLoginActivity(){
   if(!confirm('Clear all login activity? Cannot be undone.')) return;
   try{await rtdbDelete('controls/loginActivity');STATE.loginActivity=[];renderLoginActivity();}catch(e){alert('Error: '+e.message);}
