@@ -13793,8 +13793,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1053;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '01-Aug-2026', time: '13:45', full: '01-Aug-2026 13:45 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1056;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '07-Aug-2026', time: '11:30', full: '07-Aug-2026 11:30 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -14755,47 +14755,117 @@ function wgtLastAlert() {
 
 function wgtCollegeSubjects() {
   // Returns an HTML string with multiple widget cards for college subjects
-  // Uses LM_ALLOCATIONS — counts unique subjects per course and per section-group
-  const alloc = (typeof LM_ALLOCATIONS !== 'undefined' && LM_ALLOCATIONS && LM_ALLOCATIONS.length)
+  // Uses LM_ALLOCATIONS. Each row in LM_ALLOCATIONS = one subject taught in one
+  // section of one semester of one course, so:
+  //   - "slots"          = alloc.length for that scope (raw row count; a subject
+  //                         taught in 2 sections of the same sem counts as 2)
+  //   - "unique subjects"= distinct subject NAMES in that scope (that same
+  //                         subject taught in 2 sections counts as 1)
+  // Both numbers are shown at every level (overall / per-course / per-sem /
+  // per-section) so nothing is silently collapsed.
+  const rawAlloc = (typeof LM_ALLOCATIONS !== 'undefined' && LM_ALLOCATIONS && LM_ALLOCATIONS.length)
     ? LM_ALLOCATIONS : [];
+  if (!rawAlloc.length) return wgtCard('📚','College Subjects','—','No allocation data','var(--muted)',null);
+
+  // v1055/v1056: Allocation rows can exist for a course+sem that currently has
+  // ZERO enrolled students (e.g. a semester between admission cycles, or an old
+  // allocation nobody cleared). Counting those as "subjects" is misleading —
+  // there is no live class for them.
+  //
+  // IMPORTANT: student records do NOT carry a plain s.sem field. Each student
+  // has stu.class in the portal-key format "Davan-<COURSE>-Sem<N>-Sec<L>"
+  // (e.g. "Davan-BBA-Sem5-SecA") — confirmed by lcbTtClassToStudentClass()
+  // and the class-string parser at ~line 19430. v1055's filter compared
+  // s.sem (always undefined) against a.sem (Roman numeral) and never matched
+  // anything, so it silently fell back to unfiltered data every time.
+  // Fix: parse stu.class with the same regex the rest of the app already
+  // uses, convert the numeric sem to Roman numeral, and build the live
+  // course+sem set from THAT.
+  const _romanSem = n => (['I','II','III','IV','V','VI'][n-1] || String(n));
+  const _studentsReady = (typeof allStudents !== 'undefined') && Array.isArray(allStudents) && allStudents.length
+    && (typeof window._allStudentsConfirmedFresh === 'undefined' || window._allStudentsConfirmedFresh);
+  let alloc = rawAlloc;
+  if (_studentsReady) {
+    const liveCourseSem = new Set();
+    allStudents.forEach(s => {
+      const m = (s.class || '').match(/^Davan-([^-]+)-Sem(\d+)-Sec([A-Z])$/i);
+      if (!m) return;
+      const course = m[1].toUpperCase();
+      const semRoman = _romanSem(parseInt(m[2], 10));
+      liveCourseSem.add(course + '|' + semRoman);
+    });
+    const filtered = rawAlloc.filter(a =>
+      liveCourseSem.has((a.course||'').toUpperCase() + '|' + (a.sem||''))
+    );
+    // Only trust the filtered set if it actually removed something sane —
+    // if it wiped out everything (e.g. a class-string format nobody has hit
+    // yet), fall back to raw so the widget never goes silently blank.
+    if (filtered.length) alloc = filtered;
+  }
   if (!alloc.length) return wgtCard('📚','College Subjects','—','No allocation data','var(--muted)',null);
 
-  // Total unique subjects across all courses
-  const totalSubs = new Set(alloc.map(a => a.subject)).size;
+  function _sw(sem) { const n=parseInt(sem)||0; return n||sem||'—'; } // raw sem number label
+  function _sl(section) { const m=(section||'').match(/\(([A-Z])\)/i); return m?m[1].toUpperCase():(section||''); }
 
-  // Per course unique subjects
-  const courseSubs = {};
+  // Totals across everything
+  const totalSlots = alloc.length;
+  const totalUniqueSubs = new Set(alloc.map(a => a.subject)).size;
+
+  // Group rows by course
+  const byCourse = {};
   alloc.forEach(a => {
     const c = (a.course || '').toUpperCase();
-    if (!courseSubs[c]) courseSubs[c] = new Set();
-    courseSubs[c].add(a.subject);
+    if (!byCourse[c]) byCourse[c] = [];
+    byCourse[c].push(a);
   });
 
-  // Per section (course+section letter) unique subjects — uppercase course key to avoid BCom/BCOM mismatch
-  const sectionSubs = {};
-  function _sw(sem) { const n=parseInt(sem)||0; return n<=2?'1st':n<=4?'2nd':'3rd'; }
-  function _sl(section) { const m=(section||'').match(/\(([A-Z])\)/i); return m?m[1].toUpperCase():section; }
-  alloc.forEach(a => {
-    const key = _sw(a.sem)+' '+(a.course||'').toUpperCase()+' '+_sl(a.section);
-    if (!sectionSubs[key]) sectionSubs[key] = new Set();
-    sectionSubs[key].add(a.subject);
-  });
+  const courseOrder = ['BBA','BCA','BCOM'];
+  const sortedCourses = Object.keys(byCourse).sort((a,b)=>courseOrder.indexOf(a)-courseOrder.indexOf(b));
 
-  // Build overall card
-  const courseOrder = ['BBA','BCA','BCOM'].map(x=>x.toUpperCase());
-  const sortedCourses = Object.keys(courseSubs).sort((a,b)=>courseOrder.indexOf(a)-courseOrder.indexOf(b));
+  // Overall card: total slots is the headline (matches "how many subject-classes
+  // exist to teach"), unique subject count shown alongside so both are visible.
+  let subLine = sortedCourses.map(c => c+' '+byCourse[c].length+' (uniq '+new Set(byCourse[c].map(a=>a.subject)).size+')').join(' · ');
+  let cards = wgtCard('📚','College Subjects', totalSlots, 'Unique: '+totalUniqueSubs+' · '+subLine, '#a78bfa', null);
 
-  let subLine = sortedCourses.map(c => c+' '+(courseSubs[c]?.size||0)).join(' · ');
-
-  let cards = wgtCard('📚','College Subjects', totalSubs, subLine, '#a78bfa', null);
-
-  // Per-course cards with per-section breakdown
+  // Per-course cards
   sortedCourses.forEach(course => {
-    const cnt = courseSubs[course]?.size || 0;
-    const secKeys = Object.keys(sectionSubs).filter(k => k.includes(' '+course+' '));
-    const secLine = secKeys.sort().map(k => { const parts=k.split(' '); const sec=parts[parts.length-1]; return sec+': '+(sectionSubs[k]?.size||0); }).join(' · ');
+    const rows = byCourse[course];
+    const courseSlots = rows.length;
+    const courseUnique = new Set(rows.map(a=>a.subject)).size;
+
+    // Group this course's rows by semester
+    const bySem = {};
+    rows.forEach(a => {
+      const sem = _sw(a.sem);
+      if (!bySem[sem]) bySem[sem] = [];
+      bySem[sem].push(a);
+    });
+    const sortedSems = Object.keys(bySem).sort((a,b)=>(parseInt(a)||0)-(parseInt(b)||0));
+
+    // Build one line per semester: "Sem 1: 7 (uniq 7)" and if >1 section that
+    // semester, append per-section slot counts e.g. "[A:7 · B:7]"
+    const semLines = sortedSems.map(sem => {
+      const semRows = bySem[sem];
+      const semSlots = semRows.length;
+      const semUnique = new Set(semRows.map(a=>a.subject)).size;
+
+      const bySection = {};
+      semRows.forEach(a => {
+        const sec = _sl(a.section) || '—';
+        if (!bySection[sec]) bySection[sec] = [];
+        bySection[sec].push(a);
+      });
+      const sectionKeys = Object.keys(bySection).sort();
+      const sectionPart = sectionKeys.length > 1
+        ? ' [' + sectionKeys.map(sec => sec+':'+bySection[sec].length).join(' · ') + ']'
+        : '';
+
+      return 'Sem ' + sem + ': ' + semSlots + ' (uniq ' + semUnique + ')' + sectionPart;
+    });
+
     const color = course==='BBA'?'#f59e0b':course==='BCA'?'#60a5fa':'#34d399';
-    cards += wgtCard('📖', course+' Subjects', cnt, secLine || course+' all sections', color, null);
+    const subHtml = 'Unique: ' + courseUnique + '<br>' + semLines.join('<br>');
+    cards += wgtCard('📖', course+' Subjects', courseSlots, subHtml, color, null);
   });
 
   return cards;
@@ -23227,6 +23297,9 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1056', date: '07-Aug-2026 IST', note: 'CRITICAL FIX to v1055\'s live-student filter: it compared s.sem (a field that DOES NOT EXIST on student records — always undefined) against a.sem, so the filter never matched a single row, silently fell back to unfiltered raw allocations every render, and BBA Sem III kept showing "9 (uniq 9)" even with zero enrolled III-sem BBA students. Root cause: student docs carry no plain sem field at all — the real semester info lives packed inside stu.class as a portal-key string "Davan-<COURSE>-Sem<N>-Sec<L>" (e.g. "Davan-BBA-Sem5-SecA"), the same format already parsed elsewhere in the app by lcbTtClassToStudentClass() and the class-string regex at ~line 19430. FIX: filter now parses stu.class with that same regex, extracts course + numeric sem, converts sem to Roman numeral (matching LM_ALLOCATIONS convention) and builds the live course+sem set from that instead of a nonexistent field. Same safety fallback retained: if parsing yields zero live combos (unexpected class-string format), the widget falls back to unfiltered raw allocations rather than going blank. CODE_BUILD=1056.' },
+  { v: 'v1055', date: '07-Aug-2026 IST', note: 'FIX: wgtCollegeSubjects() (v1054) still counted allocation rows for a course+sem with ZERO currently-enrolled students -- e.g. BBA Sem III showed "9 (uniq 9)" even though there are no BBA III students this session, because LM_ALLOCATIONS can retain stale/pre-configured rows for a semester nobody is actually running yet. FIX: added a live-course-sem filter before any counting happens -- built from allStudents (Set of course+sem combos with at least 1 real student this session), any allocation row whose course+sem is not in that set is dropped entirely, so semesters with no students contribute zero subjects/slots to every card and breakdown line. Guarded so this never produces a false-empty widget: filter only applies once allStudents is loaded and confirmed fresh (window._allStudentsConfirmedFresh), and if the filtered set would wipe out every row (e.g. a sem-format mismatch between allocations and student records) the widget falls back to the unfiltered raw allocation count rather than showing nothing. NOTE: this filter had a bug fixed in v1056 — see above. CODE_BUILD=1055.' },
+  { v: 'v1054', date: '07-Aug-2026 IST', note: 'FIX: Dashboard College/BBA/BCA/BCOM Subjects widgets were collapsing subjects with the same name across different semesters and sections into one count via new Set(alloc.map(a=>a.subject)) -- so a course running two semesters concurrently (e.g. BBA Sem I and Sem V, 7 subjects each) showed a single misleadingly-low "unique subject name" total (21) instead of anything resembling the real per-semester workload (14 for those two sems alone), and a subject taught in 2 sections (e.g. DBMS in A and B) was silently counted once. Root cause: the widget only ever computed courseSubs[course] = Set of subject NAMES with no semester or section dimension, so all of that structure was thrown away before rendering. FIX: wgtCollegeSubjects() rewritten to group LM_ALLOCATIONS rows by course, then by semester, then by section, and now shows BOTH numbers at every level -- raw row/slot count (a subject in 2 sections = 2) AND unique subject-name count (same subject = 1) -- with a per-semester line and, when a semester has more than one section, a further per-section slot breakdown, e.g. "Sem 1: 7 (uniq 7)" / "Sem 5: 7 (uniq 7) [A:4 · B:3]". Headline card value is now total slots (matches real teaching load), not the collapsed unique-name figure. CODE_BUILD=1054.' },
   { v: 'v1053', date: '01-Aug-2026 IST', note: 'CRITICAL FIX: Report Card College Rank, Davan/Nutana Campus Rank, and Class Rank were all computed as pool.findIndex(x) + 1 or arr.forEach((s,i) => map.set(k, i+1)) -- raw array position after sorting by pct, with zero tie detection. This is the exact same bug class results.html itself was fixed for at r455 (dense competition ranking, ties share a rank). Confirmed live via screenshot: results.html student modal shows Aliya Firdose as College Rank #48 of 213 out of 306 (Davan campus rank #31) for BCom Sem II, matching its own resAssignRanks logic which already handles ties correctly -- but this file showed #79 of 351 out of 567 for the same student and semester, because every tied student ahead of her in the sorted pool was being counted as a separate distinct rank instead of sharing one. FIX: added rcAssignDenseRanks (mirrors results.html resAssignRanks exactly -- sort pool descending by pct, tied students share a rank, next distinct value is exactly previous rank + 1), applied at all 4 sites that used to do i+1 or findIndex+1: globalRankMap, ayParityRankMap, campusRankMap (feeds the Davan/Nutana Rank tile), and the Class Rank lookup inside processSlot. CODE_BUILD=1053.' },
   { v: 'v1052', date: '01-Aug-2026 IST', note: 'Fix: app-load-overlay (v1051) dimmed/blurred the whole dashboard behind it, which read as an unwanted full-screen dark flash on top of the already-visible page (e.g. admin dashboard cards) rather than a lightweight loading cue. Removed the background scrim + backdrop-filter blur entirely (transparent, pointer-events:none) — the logo now just floats over whatever is already on screen. Gave the message/timer text its own small dark pill background so it stays readable against light page content now that the full-screen dim is gone. CODE_BUILD=1052.' },
   { v: 'v1051', date: '01-Aug-2026 IST', note: 'Feat: ported the results.html full-page loading overlay pattern (centered pulsing davan_logo_2026.gif, rotating status message, count-up timer — id-prefixed app-load-* so it cannot collide with the existing gp-* scrape progress bar). New: appStartLoadTimer()/appStopLoadTimer() helpers, sitting next to gpShow/gpHide/gpError. Audited every existing loading indicator in this file first (60+ small inline "Loading…" strings inside individual cards/tabs/tables, the gp-* sticky scrape-progress bar, button-level spinners) and left all of them as-is — the full-page overlay pattern is explicitly for genuine blocking waits only, not per-widget refreshes. Wired it to the two places that actually qualify: (1) onLoginSuccess(), but ONLY on the no-localStorage-cache branch (first-ever login on a device/browser, where the dashboard has nothing to paint until Firestore resolves) — the normal warm-cache instant-paint path is completely unchanged; (2) semSwitchTo() archive load, alongside the existing sem-switcher-loading sidebar text, covering every exit path (staging-mode return, no-archive-found return, and the success/error finally block) so the overlay can never get stuck showing. CODE_BUILD=1051.' },
