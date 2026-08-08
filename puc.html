@@ -40,6 +40,23 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v5.202 2026-08-08  FIX: Student profile card's Internals results tab (the  ║
+║          side-by-side IA-1/IA-2/… table) was applying ONE pass mark to      ║
+║          every IA column — whichever value happened to be sitting in the    ║
+║          Internals panel's #int-pass-mark input for the currently-selected  ║
+║          IA. Since each IA can legitimately have its OWN pass mark (saved   ║
+║          independently via intSavePassMark(), e.g. IA-1=20, IA-2=15), this  ║
+║          meant a student's IA-1 marks could show the wrong PASS/FAIL if     ║
+║          IA-1 and IA-2 had different thresholds. Fixed by fetching the      ║
+║          FULL per-IA pass mark map (new: _intGetAllPassMarks()) once per    ║
+║          card render, and having every per-cell PASS/FAIL check in the      ║
+║          side-by-side table look up its OWN column's IA-specific value      ║
+║          instead of reusing the selected IA's value. The summary tiles      ║
+║          (PASS/FAIL/TOTAL/SCORE%/ranks) still correctly use only the        ║
+║          selected IA's pass mark, since they're scoped to that one exam —   ║
+║          unaffected, verified. Footer line now reads "Pass mark: IA-1=20,   ║
+║          IA-2=15" per-column instead of a single blanket number.            ║
+║                                                                              ║
 ║  v5.201 2026-08-08  FEATURE: "Absent list · by date" WhatsApp message       ║
 ║          footer reworked for the absent-mode message. Instead of the        ║
 ║          generic "attends regularly" line, it now computes the actual      ║
@@ -8771,7 +8788,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.201";
+const APP_VERSION = "v5.202";
 
 // ── Manually allocated USNs (v5.178) ─────────────────────────────────────────
 // Single source of truth for students whose portal record has NO USN/URN and
@@ -22604,9 +22621,18 @@ async function mrmRenderResults(body) {
   // Ensure prior-year faculty allocation is loaded (puc_faculty_allocation/2025-26/by_section)
   if (isPriorYear && typeof mrLoadFacAlloc === 'function') await mrLoadFacAlloc();
 
-  // ── Determine pass mark: internals uses int-pass-mark (20), annual uses mr-pass-mark (35)
+  // ── Determine pass mark: internals uses a PER-IA map (each IA can have its
+  //    own pass mark — IA-1 and IA-2 are not required to match), annual uses
+  //    mr-pass-mark (35). `passMark` below stays as the SELECTED IA's value
+  //    (still needed for the summary tiles, which are scoped to _mrmSelectedIA
+  //    only) but the side-by-side table itself looks up each column's own
+  //    value from `_intPassMarkMap` instead of reusing this single number.
+  let _intPassMarkMap = {};
+  if (_mrmResultMode === 'internals') {
+    _intPassMarkMap = await _intGetAllPassMarks(activeAY);
+  }
   const passMark = _mrmResultMode === 'internals'
-    ? parseInt(document.getElementById('int-pass-mark')?.value || 20)
+    ? (_intPassMarkMap[_mrmSelectedIA] !== undefined ? _intPassMarkMap[_mrmSelectedIA] : 20)
     : mrGetCurrentPassMark();
 
   // ── For Internals mode: source data from _intCache (Internals panel Firebase data)
@@ -22717,7 +22743,7 @@ async function mrmRenderResults(body) {
         if (arr.some(r => (r.usn||'').toLowerCase() === _intUsnLow)) { _modalSeg = seg; break outer; }
       }
     }
-    const _modalPassMark = parseInt(document.getElementById('int-pass-mark')?.value || 20);
+    const _modalPassMark = _intPassMarkMap[_mrmSelectedIA] !== undefined ? _intPassMarkMap[_mrmSelectedIA] : 20;
     // Collect all students in this segment for the selected IA
     const _modalAllStudents = [];
     for (const cls of (INT_SEG_CLASSES[_modalSeg] || [])) {
@@ -22846,7 +22872,8 @@ async function mrmRenderResults(body) {
         const v     = cc.marks?.[ia];
         const isAB  = v===undefined||v===null||v==='AB';
         const num   = !isAB&&!isNaN(Number(v))?Number(v):null;
-        const pass  = num!==null&&num>=passMark;
+        const _iaPassMark = _intPassMarkMap[ia] !== undefined ? _intPassMarkMap[ia] : passMark;
+        const pass  = num!==null&&num>=_iaPassMark;
         const clr   = isAB?'var(--muted)':pass?'#22c55e':'#ef4444';
         cells += `<td style="text-align:center;padding:6px 8px;color:${clr};font-weight:700;border-left:1px solid var(--border);background:${bg};">${isAB?'AB':v}</td>
                   <td style="text-align:center;padding:6px 8px;color:${clr};font-weight:700;font-size:10px;background:${bg};">${isAB?'AB':pass?'PASS':'FAIL'}</td>`;
@@ -22864,7 +22891,7 @@ async function mrmRenderResults(body) {
 
     html += `</tbody></table></div>
     <div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-top:8px;">
-      Pass mark: ${passMark} · showing ${availableIAs.length} test${availableIAs.length===1?'':'s'} side by side —
+      Pass mark: ${availableIAs.map(ia => `${MR_EXAM_SHORT[ia]||ia}=${_intPassMarkMap[ia] !== undefined ? _intPassMarkMap[ia] : 20}`).join(', ')} · showing ${availableIAs.length} test${availableIAs.length===1?'':'s'} side by side —
       summary tiles &amp; rank above are for <span style="color:#f0a500;">${examLabel}</span> (change with the dropdown).
     </div>
     <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
@@ -28932,6 +28959,30 @@ async function intLoadPassMark(exam) {
     const inp  = document.getElementById('int-pass-mark');
     if (inp) inp.value = val;
   } catch(e) { /* silent — default 20 stays */ }
+}
+
+// Fetch the FULL per-IA pass mark map for one AY — each IA (IA-1, IA-2, …)
+// can have its own pass mark, saved via intSavePassMark(). Used anywhere
+// that shows more than one IA at once (e.g. the student profile's
+// side-by-side Internals table), where a single passMark value would
+// incorrectly apply one IA's threshold to every column. Falls back to the
+// legacy flat doc, then to 20, exactly like intLoadPassMark() does per-exam.
+async function _intGetAllPassMarks(ay) {
+  const out = {};
+  try {
+    let snap = await db.collection('app_data').doc(_intPassMarkDocFor(ay)).get();
+    let data = snap.exists ? snap.data() : null;
+    if (!data) {
+      const legacy = await db.collection('app_data').doc(PUC_IA_PASS_LEGACY_DOC).get();
+      data = legacy.exists ? legacy.data() : {};
+    }
+    MR_EXAM_ORDER.forEach(ia => { out[ia] = data[ia] !== undefined ? Number(data[ia]) : 20; });
+    // Also pick up any exam key beyond the known IA-1..5 list (e.g. a future "Mid Term").
+    Object.keys(data || {}).forEach(k => { if (out[k] === undefined) out[k] = Number(data[k]); });
+  } catch(e) {
+    MR_EXAM_ORDER.forEach(ia => { out[ia] = 20; });
+  }
+  return out;
 }
 
 async function intInit() {
