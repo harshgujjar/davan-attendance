@@ -4807,7 +4807,7 @@ const BUILD_DATE   = '03 Aug 2026, 06:10 PM IST'; // v6.90: update alongside APP
 // on EVERY future student widget fix/update — this is the auto-increment
 // rule established 11-Aug-2026, same discipline as the faculty widget's
 // existing THIS_APK_VERSION/LATEST_APK contract.
-const LATEST_STUDENT_WIDGET_APK = { apkVersion: 4, apkUrl: 'https://harshgujjar.github.io/davan-attendance/DavanWidget.apk' };
+const LATEST_STUDENT_WIDGET_APK = { apkVersion: 5, apkUrl: 'https://harshgujjar.github.io/davan-attendance/DavanWidget.apk' };
 
 // Publishes LATEST_STUDENT_WIDGET_APK to DB2 so the student widget (v1+)
 // can read it directly and nag on the widget face when it's behind.
@@ -4820,6 +4820,74 @@ async function stuPublishLatestWidgetApk() {
       apkUrl:     LATEST_STUDENT_WIDGET_APK.apkUrl
     });
   } catch (e) { console.warn('[StudentWidgetHealth] student_widget_latest publish failed:', e && e.message); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// STUDENT WIDGET PAIRING (11-Aug-2026) — THE MISSING LINK, added
+// after a real device test showed the widget correctly generating a
+// pair code and opening this page on tap, but pairing never
+// completing because this write-side half didn't exist yet.
+// Mirrors index.html's proven v998 ?wdev= capture pattern exactly —
+// same safety design: the widget can ONLY be paired by someone who
+// completes a real URN+password login, never by a bare tap or link.
+// ══════════════════════════════════════════════════════════════
+
+// Captures ?wdev=<code> from the URL on page load (the widget opens
+// student_portal.html?wdev=<code> when tapped in its unpaired state —
+// see StudentWidgetProvider.buildOpenPortalPendingIntent in the APK).
+// Stores it for this browser/device and cleans the URL. The ACTUAL
+// pairing write happens in stuCompleteWidgetPairing(), called from
+// goToDashboard() after a real login succeeds — this function only
+// captures and remembers the code, it never writes anything by itself.
+(function () {
+  try {
+    const q = new URLSearchParams(location.search);
+    const wdev = (q.get('wdev') || '').trim().toUpperCase();
+    if (wdev && /^[A-Z0-9]{4,12}$/.test(wdev)) {
+      localStorage.setItem('davan_student_widget_pair_code', wdev);
+      q.delete('wdev');
+      history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q.toString() : '') + location.hash);
+      console.log('[StudentWidgetPair] Captured pair code ' + wdev + ' — will complete pairing after login.');
+    }
+  } catch (e) { /* never block page load */ }
+})();
+
+// Writes davan_pub/student_widget_active/<pairCode> = {urn, name, class,
+// updatedAt} — the exact node StudentPairing.fetchPairedIdentity() in the
+// APK reads. Called from goToDashboard() on every successful login (not
+// just when a pair code was just captured) so an already-paired device
+// also gets its identity refreshed if the student's name/class changed
+// since pairing (e.g. promoted to a new semester/class).
+async function stuCompleteWidgetPairing() {
+  try {
+    const pairCode = localStorage.getItem('davan_student_widget_pair_code');
+    if (!pairCode || !STATE.studentUser) return;
+    await rtdbSet('davan_pub/student_widget_active/' + pairCode, {
+      urn:       STATE.studentUser.urn,
+      name:      STATE.studentUser.name,
+      class:     STATE.studentUser.class,
+      updatedAt: Date.now()
+    });
+    console.log('[StudentWidgetPair] Paired widget ' + pairCode + ' to ' + STATE.studentUser.urn);
+  } catch (e) { console.warn('[StudentWidgetPair] pairing write failed:', e && e.message); }
+}
+
+// Removes this device's pairing on logout — mirrors index.html's
+// davanWidgetSync() logout branch, which deletes widget_active_dev/<code>
+// so the widget correctly reverts to "Please log in" / unpaired instead
+// of continuing to show a previous student's stale data. Deliberately
+// does NOT clear davan_student_widget_pair_code from localStorage — the
+// device keeps remembering ITS OWN pair code permanently (that's the
+// widget's own identity, generated once by the APK); only the RTDB
+// identity node is removed so re-login (by the same or a different
+// student) starts from a clean "not paired" state again.
+async function stuClearWidgetPairing() {
+  try {
+    const pairCode = localStorage.getItem('davan_student_widget_pair_code');
+    if (!pairCode) return;
+    await rtdbDelete('davan_pub/student_widget_active/' + pairCode);
+    console.log('[StudentWidgetPair] Cleared pairing for widget ' + pairCode);
+  } catch (e) { console.warn('[StudentWidgetPair] clear failed:', e && e.message); }
 }
 
 /* ════════════════════════════════════════════════════
@@ -5855,6 +5923,12 @@ async function goToDashboard() {
   // self-nag if it's behind — mirrors index.html's wcpPublishLatestApk()
   // call pattern. Best-effort, never blocks dashboard load.
   stuPublishLatestWidgetApk();
+  // Complete/refresh widget pairing if this device has a pair code stored
+  // (either just captured via ?wdev= this session, or from a previous
+  // visit) — THIS is the actual write that makes the widget flip from
+  // "Not paired" to showing real data. Best-effort, never blocks
+  // dashboard load.
+  stuCompleteWidgetPairing();
   // Show bottom nav
   const nav = document.getElementById('stu-bottom-nav');
   if (nav) nav.classList.add('visible');
@@ -6134,6 +6208,12 @@ function doLogout() {
   // Close welcome toast backdrop if open
   closeWelcomeToast();
   stuStopHeartbeat();
+  // Clear this device's widget pairing on student logout — mirrors
+  // index.html's davanWidgetSync() logout branch (deletes the identity
+  // node, keeps the device's own pair code remembered locally) so the
+  // widget correctly reverts to unpaired instead of showing stale data
+  // for whoever logs in next on this device.
+  if (STATE.studentUser) stuClearWidgetPairing();
   sessionStorage.removeItem('admin_session');
   sessionStorage.removeItem('stu_session');
   localStorage.removeItem('admin_remember');
