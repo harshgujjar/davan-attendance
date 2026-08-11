@@ -41171,7 +41171,14 @@ async function facAlertNotifyAdmin(title, body) {
     console.log('[AdminNotif] Firestore doc exists=' + doc.exists);
     if (doc.exists) {
       const data = doc.data();
-      const adminSubs = data['admin'] || data[adminKey] || [];
+      // v1105 FIX: was `data['admin'] || data[adminKey]` — same case-mismatch bug as
+      // v1102/v1103/v1104 (subs written under "Admin" capital, this looked up lowercase
+      // 'admin' first and stopped there via ||, silently missing the real devices sitting
+      // under the capital-A key). facAlertGetSubs('admin') already has the correct
+      // merge-all-case-variants-and-dedupe logic (v1102) — reuse it instead of duplicating
+      // a second, broken lookup here.
+      faSubscriptions = data; // keep in-memory cache fresh for facAlertGetSubs to read
+      const adminSubs = (typeof facAlertGetSubs === 'function') ? facAlertGetSubs('admin') : (data['admin'] || data['Admin'] || data[adminKey] || []);
       console.log('[AdminNotif] data keys=' + Object.keys(data).join(',') + ' | adminSubs.length=' + adminSubs.length);
       if (adminSubs.length && faWorkerUrl) {
         console.log('[AdminNotif] Sending to worker with ' + adminSubs.length + ' sub(s)...');
@@ -41189,6 +41196,10 @@ async function facAlertNotifyAdmin(title, body) {
         const failed = parsed.failed ?? 0;
         const failedSids = parsed.failedSids || [];
         console.log('[AdminNotif] sent=' + sent + ' failed=' + failed + ' failedSids=' + failedSids.length);
+        // v: mirror into visible Alert Log so real login pushes are auditable, not just Diag/manual sends
+        if (typeof facAlertLogEntry === 'function') {
+          facAlertLogEntry(`[LOGIN-PUSH] ${title.replace('🔑 ','').replace(' just logged in','')} → status:${res.status} sent:${sent} failed:${failed}`);
+        }
         // Auto-prune expired/failed subscriptions from Firestore
         if (failedSids.length) {
           try {
@@ -41203,16 +41214,28 @@ async function facAlertNotifyAdmin(title, body) {
         // If worker delivered 0 pushes despite having subs — all expired, re-subscribe needed
         if (sent === 0 && adminSubs.length > 0) {
           console.warn('[AdminNotif] Worker delivered 0 — all admin subs are expired. Admin needs to re-subscribe.');
+          if (typeof facAlertLogEntry === 'function') {
+            facAlertLogEntry('⚠️ [LOGIN-PUSH] Delivered 0 — admin subs may be expired, re-subscribe this device');
+          }
         }
         return;
       } else {
         console.warn('[AdminNotif] No admin subs or no faWorkerUrl — adminSubs.length=' + adminSubs.length + ' faWorkerUrl=' + faWorkerUrl);
+        if (typeof facAlertLogEntry === 'function') {
+          facAlertLogEntry('❌ [LOGIN-PUSH] Skipped — adminSubs=' + adminSubs.length + ' faWorkerUrl=' + (faWorkerUrl?'set':'EMPTY'));
+        }
       }
     } else {
       console.warn('[AdminNotif] FA_SUBS_DOC does not exist in Firestore');
+      if (typeof facAlertLogEntry === 'function') {
+        facAlertLogEntry('❌ [LOGIN-PUSH] Skipped — ' + FA_SUBS_DOC + ' doc missing in Firestore');
+      }
     }
   } catch(e) {
     console.error('[AdminNotif] Firestore/fetch error:', e.message, e);
+    if (typeof facAlertLogEntry === 'function') {
+      facAlertLogEntry('❌ [LOGIN-PUSH] Error: ' + e.message);
+    }
   }
   // Fallback: local SW notification if no admin subscription stored
   console.log('[AdminNotif] Falling back to local SW notification | permission=' + Notification.permission);
