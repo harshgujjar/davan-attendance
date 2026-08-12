@@ -3606,8 +3606,8 @@ async function resClearAllocConfirmed(allocDocs) {
 //  reported live. All three now render from RES_BUILD/RES_BUILD_DATE, so a
 //  future bump only ever needs to change the two constants below.
 // ═══════════════════════════════════════════════════════════════
-const RES_BUILD = 'r467';
-const RES_BUILD_DATE = '03-Aug-2026';
+const RES_BUILD = 'r468';
+const RES_BUILD_DATE = '13-Aug-2026';
 function resRenderVersionFooter() {
   const label = RES_BUILD;
   const full  = 'Build ' + RES_BUILD + ' · ' + RES_BUILD_DATE;
@@ -11017,6 +11017,57 @@ async function resSaveUpload() {
 
     const r1 = await fsSet('results', b.key, mergedDoc);
     console.log('[resSaveUpload] fsSet results/', b.key, '→', r1);
+
+    // ── r468: MIRROR THIS BATCH TO THE DB1 RTDB PUBLIC COPY ────────────────
+    // WHY THIS EXISTS (13-Aug-2026, diagnosed live against real data):
+    // fsSetMerge() mirrors to RTDB, but fsSet() does NOT — and results save
+    // through fsSet. So an upload wrote Firestore and stopped there. The
+    // RTDB copy (which sync_db1_to_db2.py reads, and which is the ONLY route
+    // to DB2 and therefore to the student portal and the Android widget) was
+    // only ever refreshed by index.html's ☁️ Sync to Cloud button, which is
+    // not part of the upload workflow and in practice was rarely clicked.
+    //
+    // The visible symptom: BCA_SemII_2026 in Firestore had fatherName for
+    // all 147 students, while DB1 RTDB had it for only 77 — exactly the NU
+    // count, i.e. the mirror was frozen at whatever state predated the DI
+    // re-import. Ashoka T S showed his father in the report card but not on
+    // the widget, and no amount of re-uploading fixed it, because uploading
+    // was never the step that was failing.
+    //
+    // Writing the CHILD path only (davan_pub/results/<key>) is deliberate:
+    // sync_db1_to_db2.py copies the whole davan_pub/results node with a
+    // full .set(), so a .set() on the PARENT from here would wipe every
+    // other batch. Same reasoning already documented at r445 for
+    // allocations. Measured at ~163 KB for a 147-student batch — a single
+    // child write of that size succeeds comfortably, which is exactly why
+    // this works where index.html's all-batches-in-one-write does not.
+    let mirrorOk = false;
+    try {
+      const _sanKeys = (obj) => {
+        if (obj === null || obj === undefined) return obj;
+        if (Array.isArray(obj)) return obj.map(item => _sanKeys(item));
+        if (typeof obj !== 'object') return obj;
+        const out = {};
+        Object.entries(obj).forEach(([k, v]) => {
+          out[k.replace(/\./g, '_').replace(/[#$\/\[\]]/g, '_')] = _sanKeys(v);
+        });
+        return out;
+      };
+      const payload = _sanKeys(mergedDoc);
+      const kb = Math.round(JSON.stringify(payload).length / 1024);
+      await rtdb.ref('davan_pub/results/' + b.key).set(payload);
+      mirrorOk = true;
+      console.log('[resSaveUpload] mirrored to DB1 RTDB davan_pub/results/' + b.key, '(' + kb + ' KB)');
+    } catch (me) {
+      console.error('[resSaveUpload] RTDB MIRROR FAILED for davan_pub/results/' + b.key, me);
+      // LOUD, not a console.warn. The whole reason this bug survived so long
+      // is that index.html swallowed the identical failure into a warn while
+      // still showing a success toast. A half-saved upload must say so.
+      resToast('Saved to Firestore — NOT mirrored',
+        b.key + ' saved, but the public RTDB copy failed (' + (me && me.message) + '). ' +
+        'The student portal and widget will NOT see this until it is mirrored.',
+        'error', 0, 'mirror-fail');
+    }
     if (!RES_BATCHES.includes(b.key)) RES_BATCHES.push(b.key);
     const r2 = await fsSetMerge('app_data','results_index', { batches: RES_BATCHES });
     console.log('[resSaveUpload] fsSet app_data/results_index →', r2);
@@ -11055,10 +11106,21 @@ async function resSaveUpload() {
     resRenderAll();
     const uploaded = (b.regular?.length||0) + (b.backlog?.length||0);
     const total = mergedRegular.length + mergedBacklog.length;
-    resSetStatus('✅ Saved — ' + b.key + (uploadedCampus ? ' (' + uploadedCampus + ')' : ''), 'var(--ok)');
+    // r468: the status/toast now state the MIRROR result, not just the
+    // Firestore write. Previously a save that reached Firestore but never
+    // reached RTDB reported plain success, which is how the DB2 copy sat
+    // months out of date without anyone noticing.
+    resSetStatus('✅ Saved — ' + b.key + (uploadedCampus ? ' (' + uploadedCampus + ')' : '') +
+      (mirrorOk ? ' · mirrored' : ' · NOT MIRRORED'), mirrorOk ? 'var(--ok)' : 'var(--danger)');
     setTimeout(() => resSetStatus(''), 4000);
-    resToast('Results Saved', b.key + ' · ' + uploaded + ' uploaded [' + (uploadedCampus||'?') + '] · ' + total + ' total in batch', 'success');
-    resLogEvent('ok', 'Results uploaded: ' + b.key + ' ' + uploadedCampus, uploaded + ' new · ' + total + ' total merged');
+    if (mirrorOk) {
+      resToast('Results Saved', b.key + ' · ' + uploaded + ' uploaded [' + (uploadedCampus||'?') + '] · ' +
+        total + ' total in batch · mirrored to RTDB. Next: run sync_db1_to_db2.py to reach the student portal.',
+        'success', 7000);
+    }
+    resLogEvent(mirrorOk ? 'ok' : 'err',
+      'Results uploaded: ' + b.key + ' ' + uploadedCampus + (mirrorOk ? '' : ' (RTDB MIRROR FAILED)'),
+      uploaded + ' new · ' + total + ' total merged');
     resSummaryRender();
   } catch(e) {
     console.error('[resSaveUpload] ERROR:', e);

@@ -11107,6 +11107,12 @@ async function onLoginSuccess() {
       } catch(e) { console.warn('[Admin auto-sync] Photos failed:', e.message); }
 
       // 5. Results -> davan_pub/results
+      // 13-Aug-2026: SECOND copy of the same all-in-one-write bug fixed in
+      // syncStudentsToFirestore(). This one is worse because it runs
+      // AUTOMATICALLY, so a partial mirror could be produced with nobody
+      // having pressed anything — which is how DB1 RTDB ended up holding
+      // fatherName for 77 of 147 Sem II students while Firestore had all
+      // 147. Now one write per document, each failure named in the console.
       try {
         const resultsSnap = await db.collection('results').get();
         if (!resultsSnap.empty) {
@@ -11125,11 +11131,20 @@ async function onLoginSuccess() {
             });
             return out;
           };
-          const resultsObj = {};
-          resultsSnap.forEach(doc => { resultsObj[doc.id] = _sanitizeRtdbKeys(doc.data()); });
-          await rtdb.ref('davan_pub/results').set(resultsObj);
+          let _ok = 0, _fail = [];
+          for (const doc of resultsSnap.docs) {
+            try {
+              await rtdb.ref('davan_pub/results/' + doc.id).set(_sanitizeRtdbKeys(doc.data()));
+              _ok++;
+            } catch (de) {
+              _fail.push(doc.id);
+              console.error('[Admin auto-sync] Results mirror FAILED for', doc.id, '—', de.code || '', de.message);
+            }
+          }
+          console.log('[Admin auto-sync] Results mirror: ' + _ok + ' ok' +
+            (_fail.length ? ', ' + _fail.length + ' FAILED (' + _fail.join(', ') + ')' : ''));
         }
-      } catch(e) { console.warn('[Admin auto-sync] Results failed:', e.message); }
+      } catch(e) { console.error('[Admin auto-sync] Results failed to read Firestore:', e.message); }
 
       // 6. Timetable -> davan_pub/timetable
       try {
@@ -18589,7 +18604,29 @@ async function syncStudentsToFirestore() {
             }
           }
         } catch(pe) { console.warn('[Sync] Photo mirror failed (non-critical):', pe.message); }
-        // Mirror results collection to public path so manager/VP can see previous sem results
+        // ── Mirror results collection to the public RTDB path ────────────────
+        // REWRITTEN 13-Aug-2026. The previous version built ONE object
+        // containing every results document and wrote it with a single
+        // rtdb.ref('davan_pub/results').set(resultsObj). Two things were
+        // wrong with that, and together they hid a months-old data gap:
+        //
+        //  1. SIZE. A single 147-student batch measures ~163 KB once the
+        //     new per-subject ledger fields are included. Across every
+        //     batch ever uploaded that one write runs to megabytes, which
+        //     is where RTDB write limits and timeouts begin. A per-document
+        //     write of 163 KB succeeds comfortably — verified live.
+        //
+        //  2. SILENCE. The failure landed in `console.warn(... non-critical)`
+        //     while the success toast still announced "students, photos &
+        //     results pushed". So a sync that pushed no results at all
+        //     looked identical to one that worked. Symptom: DB1 RTDB held
+        //     fatherName for 77 of 147 Sem II students (exactly the NU
+        //     count, i.e. frozen before the DI re-import) while Firestore
+        //     had all 147 — and nothing on screen ever said so.
+        //
+        // Now: one write per document, each failure counted and named, and
+        // the outcome reported to the caller so the toast can tell the truth.
+        let _resMirrorOk = 0, _resMirrorFail = 0, _resFailNames = [];
         try {
           const resultsSnap = await db.collection('results').get();
           if (!resultsSnap.empty) {
@@ -18601,11 +18638,27 @@ async function syncStudentsToFirestore() {
               Object.entries(obj).forEach(([k,v]) => { out[k.replace(/\./g,'_').replace(/[#$\/\[\]]/g,'_')] = _sanKeys(v); });
               return out;
             };
-            const resultsObj = {};
-            resultsSnap.forEach(doc => { resultsObj[doc.id] = _sanKeys(doc.data()); });
-            await rtdb.ref('davan_pub/results').set(resultsObj);
+            // Sequential on purpose. Firing 12+ multi-hundred-KB writes in
+            // parallel is how you rediscover the same limits from the other
+            // direction; this runs once a day at most, so it can be patient.
+            for (const doc of resultsSnap.docs) {
+              try {
+                const payload = _sanKeys(doc.data());
+                await rtdb.ref('davan_pub/results/' + doc.id).set(payload);
+                _resMirrorOk++;
+                console.log('[Sync] results mirror OK:', doc.id,
+                  '(' + Math.round(JSON.stringify(payload).length / 1024) + ' KB)');
+              } catch (de) {
+                _resMirrorFail++; _resFailNames.push(doc.id);
+                console.error('[Sync] results mirror FAILED for', doc.id, '—', de.code || '', de.message);
+              }
+            }
+            console.log('[Sync] results mirror summary: ' + _resMirrorOk + ' ok, ' + _resMirrorFail + ' failed');
           }
-        } catch(re) { console.warn('[Sync] Results mirror failed (non-critical):', re.message); }
+        } catch(re) {
+          _resMirrorFail++; _resFailNames.push('(read results collection)');
+          console.error('[Sync] Results mirror FAILED to read Firestore:', re.message);
+        }
         // Mirror user profiles so _fetchProfile works on file:// for all roles
         try {
           const usersSnap = await db.collection('users').get();
@@ -18625,8 +18678,20 @@ async function syncStudentsToFirestore() {
         firestore_saved_at: new Date().toISOString(),
       });
     }
-    liveShowToast('☁️ Synced to Cloud', allStudents.length + ' students, photos & results pushed — Manager can now see all data', '✅', 5000);
-    dvToast('✅ ' + allStudents.length + ' students synced to Firestore + RTDB public mirror', 'ok', 4000);
+    // 13-Aug-2026: this toast used to claim "students, photos & results
+    // pushed" no matter what the results mirror actually did. It now
+    // reports the real counts, and shouts if any batch failed.
+    if (_resMirrorFail > 0) {
+      liveShowToast('⚠️ Synced — BUT ' + _resMirrorFail + ' result batch(es) FAILED',
+        allStudents.length + ' students and photos pushed. Results mirrored: ' + _resMirrorOk +
+        ' ok, ' + _resMirrorFail + ' failed (' + _resFailNames.join(', ') + '). ' +
+        'Those batches will NOT reach the student portal — see console.', '⚠️', 0);
+      dvToast('⚠ Results mirror incomplete: ' + _resFailNames.join(', '), 'error', 8000);
+    } else {
+      liveShowToast('☁️ Synced to Cloud',
+        allStudents.length + ' students, photos & ' + _resMirrorOk + ' result batch(es) pushed — Manager can now see all data', '✅', 5000);
+      dvToast('✅ ' + allStudents.length + ' students + ' + _resMirrorOk + ' result batches synced to Firestore + RTDB public mirror', 'ok', 4000);
+    }
   } catch(e) {
     dvToast('❌ Sync failed: ' + e.message, 'error', 5000);
     console.error('[Sync] Failed:', e);
