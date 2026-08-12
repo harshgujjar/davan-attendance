@@ -4290,6 +4290,10 @@ body.dash-active .data-strip { display: block; }
         <b>{next}</b> = the very next topic after it, which is what should be covered today.
         A line whose placeholder comes back empty is dropped automatically, so nothing shows as a dangling label.
       </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="btn btn-sm btn-secondary" id="wc-notif-onoff-btn" onclick="wcToggleClassReminders()" style="margin-bottom:0;font-size:12px;">🔔 Class reminders: …</button>
+        <span style="font-size:11px;color:var(--muted);">Master switch for every student. Turning this off stops the 15-minute class reminders on all widgets from their next sync. The 8 PM tomorrow summary is not affected.</span>
+      </div>
       <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">TITLE</label>
       <input type="text" id="wc-notif-title" class="no-icon" style="width:100%;margin:5px 0 10px;font-family:var(--mono);font-size:12px;"/>
       <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">BODY</label>
@@ -4915,8 +4919,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v7.96';
-const BUILD_DATE   = '12 Aug 2026, 11:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v7.97';
+const BUILD_DATE   = '13 Aug 2026, 12:20 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
 // APP_VERSION above. APP_VERSION tracks this PWA's own release number;
@@ -4936,7 +4940,7 @@ const BUILD_DATE   = '12 Aug 2026, 11:30 PM IST'; // v6.90: update alongside APP
 // (com.davan.studentwidget, "Davan Student"), separate from the faculty
 // DavanWidget app — hence its own APK filename below. Upload the built
 // DavanStudentWidget.apk to that URL when publishing a new version.
-const LATEST_STUDENT_WIDGET_APK = { apkVersion: 21, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
+const LATEST_STUDENT_WIDGET_APK = { apkVersion: 22, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
 
 // Publishes LATEST_STUDENT_WIDGET_APK to DB2 so the student widget (v1+)
 // can read it directly and nag on the widget face when it's behind.
@@ -5015,6 +5019,71 @@ async function stuCompleteWidgetPairing() {
 // widget's own identity, generated once by the APK); only the RTDB
 // identity node is removed so re-login (by the same or a different
 // student) starts from a clean "not paired" state again.
+/* ══════════════════════════════════════════════════════════════
+   v7.97 — MANUAL PAIR-CODE ENTRY.
+
+   THE BUG THIS FIXES. stuCompleteWidgetPairing() writes to whatever code
+   is in localStorage, and localStorage is only ever set by a ?wdev= in the
+   URL. That is fine the first time. But when the app is REINSTALLED (or its
+   data cleared), the widget generates a brand new pair code — while the
+   browser still remembers the OLD one. Logging in then writes the identity
+   to a dead code, the widget keeps reading its new one, finds nothing, and
+   sits on "Widget not paired" forever no matter how many times the student
+   logs in. Opening the portal by typing the URL or from a bookmark — which
+   is what most people do — never carries ?wdev=, so nothing corrects it.
+
+   Reported 12-Aug: widget showed GGV8VV after a reinstall while the browser
+   was still pairing GZS9GS.
+
+   The w14 "Get the App" guide already told students to "enter that code in
+   the portal" — describing a screen that did not exist. This is it. */
+async function stuPairByCode(rawCode) {
+  const code = String(rawCode || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{4,12}$/.test(code)) {
+    alert('That does not look like a widget code. It is the 6 characters shown on the widget, e.g. GGV8VV.');
+    return false;
+  }
+  if (!STATE.studentUser || !STATE.studentUser.urn) {
+    alert('Please log in first.');
+    return false;
+  }
+  try {
+    // Retire the previously-remembered code if it is a different one, so a
+    // reinstall does not leave an orphan node still claiming this student
+    // (which is what makes the admin PAIRED count drift upward).
+    const old = localStorage.getItem('davan_student_widget_pair_code');
+    if (old && old !== code) {
+      rtdbDelete('davan_pub/student_widget_active/' + old).catch(() => {});
+    }
+    await rtdbSet('davan_pub/student_widget_active/' + code, {
+      urn: STATE.studentUser.urn,
+      name: STATE.studentUser.name,
+      class: STATE.studentUser.class,
+      updatedAt: Date.now()
+    });
+    localStorage.setItem('davan_student_widget_pair_code', code);
+    console.log('[StudentWidgetPair] Manually paired ' + code + ' to ' + STATE.studentUser.urn);
+    return true;
+  } catch (e) {
+    alert('Could not link the widget: ' + e.message);
+    return false;
+  }
+}
+
+async function stuPairFromInput() {
+  const inp = document.getElementById('getapp-pair-code');
+  const out = document.getElementById('getapp-pair-result');
+  if (!inp) return;
+  const ok = await stuPairByCode(inp.value);
+  if (out) {
+    out.style.display = 'block';
+    out.innerHTML = ok
+      ? '<span style="color:var(--ok);font-weight:600;">✓ Linked. Your widget will show your details within about a minute — tap 🔄 on the widget to see it sooner.</span>'
+      : '<span style="color:var(--danger);">Not linked. Check the code shown on the widget and try again.</span>';
+  }
+  if (ok) inp.value = '';
+}
+
 async function stuClearWidgetPairing() {
   try {
     const pairCode = localStorage.getItem('davan_student_widget_pair_code');
@@ -18346,13 +18415,40 @@ async function wcLoadNotifTemplate() {
   const b = document.getElementById('wc-notif-body');
   if (t) t.value = (node && node.classTitle) || WC_NOTIF_DEFAULT_TITLE;
   if (b) b.value = (node && node.classBody)  || WC_NOTIF_DEFAULT_BODY;
+  STATE._wcClassRemindersOn = !(node && node.classEnabled === false);
+  wcRenderNotifOnOff();
 }
+/* v7.97: master on/off for class reminders across every widget.
+   Stored on the same node as the wording so the widget picks both up in a
+   single read it is already making. Absent => ON, matching every other
+   default in this file: a feature that has never been configured should
+   work, not sit silently disabled. */
+async function wcToggleClassReminders() {
+  const now = (STATE._wcClassRemindersOn !== false);
+  try {
+    await rtdbPatch('davan_pub/student_widget_notif_template', { classEnabled: !now, updatedAt: Date.now() });
+    STATE._wcClassRemindersOn = !now;
+    wcRenderNotifOnOff();
+    flashWcSaved();
+  } catch (e) { alert('Save failed: ' + e.message); }
+}
+function wcRenderNotifOnOff() {
+  const b = document.getElementById('wc-notif-onoff-btn');
+  if (!b) return;
+  const on = (STATE._wcClassRemindersOn !== false);
+  b.textContent = on ? '🔔 Class reminders: ON for all — tap to turn off'
+                     : '🔕 Class reminders: OFF for all — tap to turn on';
+  b.style.color = on ? 'var(--ok)' : 'var(--danger)';
+}
+
 async function wcSaveNotifTemplate() {
   const t = (document.getElementById('wc-notif-title').value || '').trim();
   const b = (document.getElementById('wc-notif-body').value || '').trim();
   if (!b) { alert('The body cannot be empty.'); return; }
   try {
-    await rtdbSet('davan_pub/student_widget_notif_template', {
+    // PATCH, not SET: a set() here would drop classEnabled and silently
+    // re-enable reminders every time the wording is edited.
+    await rtdbPatch('davan_pub/student_widget_notif_template', {
       classTitle: t || WC_NOTIF_DEFAULT_TITLE,
       classBody: b,
       updatedAt: Date.now()
@@ -18661,7 +18757,14 @@ function renderGetAppPanel() {
     ${step(1, 'Download', 'Tap the orange button above. The file will save to your Downloads folder.')}
     ${step(2, 'Install it', 'Open the downloaded file and tap <b>Install</b>. Your phone may warn about installing from an unknown source &mdash; allow it. This app is made by the college and is not on the Play Store.')}
     ${step(3, 'Add the widget to your home screen', 'Press and hold on any empty space on your home screen, tap <b>Widgets</b>, find <b>Davan Student</b>, and drag it onto your screen. Make it as tall as you can &mdash; a bigger widget shows more.')}
-    ${step(4, 'Link it to your account', 'The widget will show a 6-letter code. Come back to this portal, log in, and enter that code when asked. Your name and photo will appear within a minute.')}
+    ${step(4, 'Link it to your account', 'The widget shows a 6-character code. Type it in the box below and tap Link. Your name and photo will appear on the widget within about a minute.'
+      + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+      + '<input type="text" id="getapp-pair-code" maxlength="12" placeholder="e.g. GGV8VV" class="no-icon" '
+      + 'style="flex:1;min-width:150px;max-width:220px;font-family:var(--mono);font-size:15px;letter-spacing:.12em;text-transform:uppercase;text-align:center;"/>'
+      + '<button class="btn btn-sm" style="margin-bottom:0;" onclick="stuPairFromInput()">🔗 Link widget</button>'
+      + '</div>'
+      + '<div id="getapp-pair-result" style="display:none;margin-top:8px;font-size:12px;"></div>'
+      + '<div style="margin-top:8px;font-size:11.5px;color:var(--muted);">If you reinstalled the app, the code changes — link it again with the NEW code.</div>')}
     ${step(5, 'Turn on class reminders', 'The widget will show a yellow strip saying <b>Class reminders off &mdash; tap to fix</b>. Tap it and allow all three: <b>Notifications</b>, <b>Battery / background</b>, and <b>Alarms &amp; reminders</b>. Without these your phone will block the reminders.')}
 
     <div style="background:rgba(251,191,36,0.07);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:14px 16px;margin-top:6px;">
