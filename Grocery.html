@@ -3,8 +3,17 @@
 <head>
 <!--
   GROCERY TRACKER — grocery.html
-  v2.3 — 2026-06-20
+  v3.9 — 2026-08-12
   CHANGELOG:
+  v3.9 — Edit Order & Enter Bill: "last: ₹X" hint now shows TWO previous rates
+          instead of one — the most recent order's rate (green, "last: ₹X")
+          and the order before that ("2mo ago: ₹X", muted). buildRateMap now
+          also returns map2 (itemId -> [mostRecentRate, secondMostRecentRate])
+          alongside the existing map/prevMap.
+  v3.8 — Edit Order & Enter Bill table now shows "last: ₹X" under each Rate
+          input (last known rate for that item at this shop) and a live
+          "▲ X% higher" / "▼ X% lower" / "= same as last" badge under the Amt
+          field as the user types today's rate/amount, using buildRateMap.
   v2.3 — Fix: quantity inputs for "pcs"/"packet"/"bunch" items (soap, eggs, etc.)
           allowed fractional values (step=0.5 was hardcoded everywhere, so the
           spinner arrows or a stray edit could land on values like 1.6 pieces,
@@ -317,8 +326,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .compare-rate{font-weight:600}
 .compare-rate.cheaper{color:var(--green)}
 .compare-cheaper-tag{font-size:9px;color:var(--green);margin-left:4px}
-.compare-prev{font-size:9px;color:var(--muted);margin-left:6px}
+.compare-prev{font-size:11px;color:var(--text-2);font-weight:600;margin-left:6px}
 .compare-gate-msg{text-align:center;padding:20px 14px;color:var(--muted);font-size:12px}
+.compare-tabs{display:flex;gap:6px;margin-bottom:10px;background:var(--card2);border-radius:10px;padding:3px}
+.compare-tab{flex:1;text-align:center;font-size:11px;font-weight:600;padding:7px 0;border-radius:8px;color:var(--muted);cursor:pointer}
+.compare-tab.active{background:var(--card);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.compare-shop-group{margin-bottom:14px}
+.compare-shop-group-title{font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:6px;padding-left:2px}
+.compare-trend-up{color:var(--red);font-weight:700}
+.compare-trend-down{color:var(--green);font-weight:700}
+.compare-trend-flat{color:var(--text-2);font-weight:600}
+.compare-prev-row{padding-top:2px;opacity:.85}
 
 /* SPLIT ORDER (Phase 3) */
 .split-card{background:linear-gradient(90deg,var(--green-soft),transparent);border:1px solid var(--green);border-radius:10px;padding:12px;margin-top:10px}
@@ -680,12 +698,16 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   </div>
 </div>
 
-<!-- ========== MODAL: CROSS-SHOP COMPARISON (Phase 3) ========== -->
+<!-- ========== MODAL: CROSS-SHOP / SAME-SHOP COMPARISON (Phase 3) ========== -->
 <div class="modal-overlay" id="modal-compare">
   <div class="modal">
     <div class="modal-title">
-      <span>📊 Cross-Shop Comparison</span>
+      <span>📊 Comparison</span>
       <span class="modal-close" onclick="closeModal('modal-compare')">✕</span>
+    </div>
+    <div class="compare-tabs">
+      <div class="compare-tab active" id="compare-tab-cross" onclick="switchCompareTab('cross')">Cross-Shop</div>
+      <div class="compare-tab" id="compare-tab-same" onclick="switchCompareTab('same')">Same-Shop</div>
     </div>
     <div id="compare-body"><div class="loading">Loading...</div></div>
   </div>
@@ -714,7 +736,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.7';
+const APP_VERSION = '3.9';
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -1202,8 +1224,10 @@ async function startChecklist() {
 }
 
 async function buildRateMap(shopId) {
-  const map = {};      // itemId -> most recent actualRate
-  const prevMap = {};  // itemId -> the rate before that (for price-change flag)
+  const map = {};       // itemId -> most recent actualRate
+  const prevMap = {};   // itemId -> nearest earlier DIFFERENT rate (for price-change flag)
+  const map2 = {};      // itemId -> [rate from most recent order, rate from 2nd most recent order]
+                         // (order-recency based, unlike prevMap which skips equal values)
   try {
     const snap = await db.collection(COL.orders)
       .where('shopId','==',shopId)
@@ -1214,12 +1238,14 @@ async function buildRateMap(shopId) {
       const items = data.items||[];
       items.forEach(it=>{
         if (it.actualRate == null) return;
+        if (!map2[it.itemId]) map2[it.itemId] = [];
+        if (map2[it.itemId].length < 2) map2[it.itemId].push(it.actualRate);
         if (!map[it.itemId]) { map[it.itemId] = it.actualRate; return; }
         if (!prevMap[it.itemId] && it.actualRate !== map[it.itemId]) prevMap[it.itemId] = it.actualRate;
       });
     });
   } catch(e) { console.error('buildRateMap failed:', e); }
-  return { map, prevMap };
+  return { map, prevMap, map2 };
 }
 
 function renderChecklist() {
@@ -1708,9 +1734,17 @@ function fmtTs(ts) {
 
 // editMode: when true on a delivered order, shows the editable bill table pre-filled
 // with the saved actual rate/amount instead of the read-only summary.
-function renderOrderDetailView(orderId, order, editMode) {
+async function renderOrderDetailView(orderId, order, editMode) {
   document.getElementById('modal-order-title').textContent =
     `${order.shopName} — ${formatMonth(order.month)}`;
+
+  // Fetch last-known rate per item at this shop (used to show "last: ₹X" hints
+  // and a live higher/lower comparison as the user types today's rate/amt).
+  const isDeliveredOrSnapshot = order.status === 'delivered' || order.status === 'snapshot';
+  const willShowEditable = order.status === 'ordered' || order.status === 'draft' || (isDeliveredOrSnapshot && editMode);
+  const rateMapResult = willShowEditable ? await buildRateMap(order.shopId) : { map:{}, map2:{} };
+  window._billRateMap = rateMapResult.map;
+  window._billRateHistMap = rateMapResult.map2;
 
   const orderedStr = fmtTs(order.orderedAt);
   const deliveredStr = fmtTs(order.deliveredAt);
@@ -1745,16 +1779,26 @@ function renderOrderDetailView(orderId, order, editMode) {
       const dispName = it.name + (it.variant?` (${it.variant})`:'');
       const rateVal = it.actualRate!=null ? it.actualRate : '';
       const amtVal = it.actualAmt!=null ? it.actualAmt : '';
+      const rateHist = window._billRateHistMap ? (window._billRateHistMap[it.itemId] || []) : [];
+      // rateHist[0] = most recent order's rate (shown green), rateHist[1] = the one before that (muted)
+      let lastRateHint = `<div id="last-rate-${i}"></div>`;
+      if (rateHist.length) {
+        const parts = [];
+        if (rateHist[0] != null) parts.push(`<span style="color:var(--green);font-weight:600">last: ₹${rateHist[0]}</span>`);
+        if (rateHist[1] != null) parts.push(`<span style="color:var(--muted)">2mo ago: ₹${rateHist[1]}</span>`);
+        lastRateHint = `<div id="last-rate-${i}" style="font-size:9px;margin-top:2px;line-height:1.6">${parts.join('<br>')}</div>`;
+      }
       html += `<tr id="bill-row-${i}">
         <td style="font-size:11px">${dispName}<br><span style="font-size:9px;color:var(--muted)">${it.nameKn||''}</span></td>
         <td><input type="number" class="bill-qty-input" id="qty-${i}" value="${it.qty}" ${qtyAttrs(it.unit)}
           oninput="recalcBillRow(${i})"></td>
         <td><input type="number" id="rate-${i}" placeholder="—" min="0" step="0.5" value="${rateVal}"
+          data-item-id="${it.itemId}"
           oninput="calcAmt(${i}, parseFloat(document.getElementById('qty-${i}').value)||${it.qty})"
-          style="width:64px"></td>
+          style="width:64px">${lastRateHint}</td>
         <td><input type="number" id="amt-${i}" placeholder="—" min="0" value="${amtVal}"
           oninput="calcRate(${i}, parseFloat(document.getElementById('qty-${i}').value)||${it.qty})"
-          style="width:64px"></td>
+          style="width:64px"><div id="rate-diff-${i}" style="font-size:9px;margin-top:2px"></div></td>
         <td><span style="cursor:pointer;color:var(--red);font-size:14px" onclick="removeBillRow(${i})">✕</span></td>
       </tr>`;
     });
@@ -1869,10 +1913,32 @@ async function deleteOrderFinal(orderId) {
   }
 }
 
+// Shows a live "X% higher/lower than last time" badge under the Amt cell,
+// comparing today's entered rate to the last known rate for this item at this shop.
+function updateRateDiffBadge(i) {
+  const badge = document.getElementById('rate-diff-'+i);
+  if (!badge) return;
+  const rateEl = document.getElementById('rate-'+i);
+  const rate = parseFloat(rateEl?.value);
+  const itemId = rateEl?.dataset?.itemId;
+  const lastRate = window._billRateMap ? window._billRateMap[itemId] : null;
+  if (isNaN(rate) || lastRate == null) { badge.textContent = ''; return; }
+  const diff = rate - lastRate;
+  const pct = Math.round((diff / lastRate) * 100);
+  if (diff === 0) {
+    badge.innerHTML = `<span style="color:var(--muted)">= same as last</span>`;
+  } else if (diff > 0) {
+    badge.innerHTML = `<span style="color:var(--red-text)">▲ ${pct}% higher</span>`;
+  } else {
+    badge.innerHTML = `<span style="color:var(--green)">▼ ${Math.abs(pct)}% lower</span>`;
+  }
+}
+
 function calcAmt(i, qty) {
   const rate = parseFloat(document.getElementById('rate-'+i)?.value);
   const q = parseFloat(document.getElementById('qty-'+i)?.value)||qty;
   if (!isNaN(rate)) document.getElementById('amt-'+i).value = (rate*q).toFixed(2);
+  updateRateDiffBadge(i);
   updateBillTotal();
 }
 
@@ -1880,6 +1946,7 @@ function calcRate(i, qty) {
   const amt = parseFloat(document.getElementById('amt-'+i)?.value);
   const q = parseFloat(document.getElementById('qty-'+i)?.value)||qty;
   if (!isNaN(amt) && q) document.getElementById('rate-'+i).value = (amt/q).toFixed(2);
+  updateRateDiffBadge(i);
   updateBillTotal();
 }
 
@@ -2806,8 +2873,22 @@ async function buildItemShopRateHistory() {
   return history;
 }
 
+let _compareTab = 'cross';
+let _compareHistoryCache = null; // shared between both tabs within one modal open
+
+function switchCompareTab(tab) {
+  _compareTab = tab;
+  document.getElementById('compare-tab-cross').classList.toggle('active', tab==='cross');
+  document.getElementById('compare-tab-same').classList.toggle('active', tab==='same');
+  if (tab==='cross') renderCrossShopCompare(_compareHistoryCache);
+  else renderSameShopCompare(_compareHistoryCache);
+}
+
 async function openCompareModal() {
   openModal('modal-compare');
+  _compareTab = 'cross';
+  document.getElementById('compare-tab-cross').classList.add('active');
+  document.getElementById('compare-tab-same').classList.remove('active');
   const body = document.getElementById('compare-body');
   body.innerHTML = '<div class="loading">Loading...</div>';
   try {
@@ -2819,53 +2900,122 @@ async function openCompareModal() {
       return;
     }
 
-    const history = await buildItemShopRateHistory();
-    const itemIds = Object.keys(history).filter(id => Object.keys(history[id]).length >= 2);
-
-    if (!itemIds.length) {
-      body.innerHTML = `<div class="compare-gate-msg">No item yet has delivered bills from 2+ different shops.<br>Comparisons appear once the same item has been bought from at least two shops.</div>`;
-      return;
-    }
-
-    let html = '';
-    itemIds.forEach(itemId=>{
-      const byShop = history[itemId];
-      const shopIds = Object.keys(byShop);
-      // Cheapest shop = lowest most-recent rate
-      let cheapestShopId = null, cheapestRate = Infinity;
-      shopIds.forEach(sid=>{
-        const r = byShop[sid][0].rate;
-        if (r < cheapestRate) { cheapestRate = r; cheapestShopId = sid; }
-      });
-      const sample = byShop[shopIds[0]][0];
-      const dispName = sample.name + (sample.variant?` (${sample.variant})`:'');
-
-      html += `<div class="compare-item-card">
-        <div class="compare-item-name">${dispName}${sample.nameKn?` <span class="compare-item-kn">/ ${sample.nameKn}</span>`:''}</div>`;
-
-      shopIds.forEach(sid=>{
-        const shopName = allShops[sid]?.name || 'Unknown shop';
-        const entries = byShop[sid];
-        const curr = entries[0];
-        const prev = entries[1];
-        const isCheaper = sid === cheapestShopId;
-        html += `<div class="compare-row">
-          <span class="compare-shop-name">${shopName}</span>
-          <span>
-            <span class="compare-rate${isCheaper?' cheaper':''}">₹${curr.rate}/${curr.unit}</span>
-            ${isCheaper?'<span class="compare-cheaper-tag">← cheaper</span>':''}
-            ${prev?`<span class="compare-prev">(prev ₹${prev.rate})</span>`:''}
-          </span>
-        </div>`;
-      });
-      html += `</div>`;
-    });
-
-    body.innerHTML = html;
+    _compareHistoryCache = await buildItemShopRateHistory();
+    renderCrossShopCompare(_compareHistoryCache);
   } catch(e) {
     console.error('openCompareModal failed:', e);
     body.innerHTML = '<div class="empty">Error loading comparison</div>';
   }
+}
+
+function renderCrossShopCompare(history) {
+  const body = document.getElementById('compare-body');
+  const itemIds = Object.keys(history).filter(id => Object.keys(history[id]).length >= 2);
+
+  if (!itemIds.length) {
+    body.innerHTML = `<div class="compare-gate-msg">No item yet has delivered bills from 2+ different shops.<br>Comparisons appear once the same item has been bought from at least two shops.</div>`;
+    return;
+  }
+
+  let html = '';
+  itemIds.forEach(itemId=>{
+    const byShop = history[itemId];
+    const shopIds = Object.keys(byShop);
+    // Cheapest shop = lowest most-recent rate
+    let cheapestShopId = null, cheapestRate = Infinity;
+    shopIds.forEach(sid=>{
+      const r = byShop[sid][0].rate;
+      if (r < cheapestRate) { cheapestRate = r; cheapestShopId = sid; }
+    });
+    const sample = byShop[shopIds[0]][0];
+    const dispName = sample.name + (sample.variant?` (${sample.variant})`:'');
+
+    html += `<div class="compare-item-card">
+      <div class="compare-item-name">${dispName}${sample.nameKn?` <span class="compare-item-kn">/ ${sample.nameKn}</span>`:''}</div>`;
+
+    shopIds.forEach(sid=>{
+      const shopName = allShops[sid]?.name || 'Unknown shop';
+      const entries = byShop[sid];
+      const curr = entries[0];
+      const prev = entries[1];
+      const isCheaper = sid === cheapestShopId;
+      html += `<div class="compare-row">
+        <span class="compare-shop-name">${shopName}</span>
+        <span>
+          <span class="compare-rate${isCheaper?' cheaper':''}">₹${curr.rate}/${curr.unit}</span>
+          ${isCheaper?'<span class="compare-cheaper-tag">← cheaper</span>':''}
+          ${prev?`<span class="compare-prev">(prev ₹${prev.rate})</span>`:''}
+        </span>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+
+  body.innerHTML = html;
+}
+
+// Same-Shop tab: for each shop, show items that have delivered rate entries
+// across 2+ months at that SAME shop, with a month-over-month trend indicator.
+// Reuses the same history map (itemId -> shopId -> [{month, rate}] sorted desc).
+function renderSameShopCompare(history) {
+  const body = document.getElementById('compare-body');
+
+  // Regroup by shop: shopId -> [{itemId, name, nameKn, unit, variant, entries}]
+  const byShop = {};
+  Object.keys(history).forEach(itemId=>{
+    Object.keys(history[itemId]).forEach(sid=>{
+      const entries = history[itemId][sid];
+      if (entries.length < 2) return; // need 2+ months at this same shop
+      if (!byShop[sid]) byShop[sid] = [];
+      byShop[sid].push({ itemId, entries });
+    });
+  });
+
+  const shopIds = Object.keys(byShop);
+  if (!shopIds.length) {
+    body.innerHTML = `<div class="compare-gate-msg">No item yet has delivered bills from the same shop across 2+ months.<br>Same-shop trends appear once an item repeats at one shop in a later month.</div>`;
+    return;
+  }
+
+  // Sort shops by name for stable display
+  shopIds.sort((a,b)=>(allShops[a]?.name||'').localeCompare(allShops[b]?.name||''));
+
+  let html = '';
+  shopIds.forEach(sid=>{
+    const shopName = allShops[sid]?.name || 'Unknown shop';
+    html += `<div class="compare-shop-group">
+      <div class="compare-shop-group-title">${shopName}</div>`;
+
+    byShop[sid].forEach(({entries})=>{
+      const curr = entries[0];
+      const prev = entries[1];
+      const dispName = curr.name + (curr.variant?` (${curr.variant})`:'');
+      const diff = curr.rate - prev.rate;
+      const pct = prev.rate ? (Math.abs(diff)/prev.rate*100) : 0;
+      let trendClass = 'compare-trend-flat', trendIcon = '→', diffLabel = 'no change';
+      if (diff > 0) { trendClass='compare-trend-up'; trendIcon='↑'; diffLabel=`+₹${diff} (+${pct.toFixed(0)}%)`; }
+      else if (diff < 0) { trendClass='compare-trend-down'; trendIcon='↓'; diffLabel=`-₹${Math.abs(diff)} (-${pct.toFixed(0)}%)`; }
+
+      html += `<div class="compare-item-card">
+        <div class="compare-item-name">${dispName}${curr.nameKn?` <span class="compare-item-kn">/ ${curr.nameKn}</span>`:''}</div>
+        <div class="compare-row">
+          <span class="compare-shop-name">${curr.month}</span>
+          <span>
+            <span class="compare-rate">₹${curr.rate}/${curr.unit}</span>
+            <span class="${trendClass}">${trendIcon} ${diffLabel}</span>
+          </span>
+        </div>
+        <div class="compare-row compare-prev-row">
+          <span class="compare-shop-name">prev (${prev.month})</span>
+          <span class="compare-prev">₹${prev.rate}/${prev.unit}</span>
+        </div>
+      </div>`;
+    });
+
+    html += `</div>`;
+  });
+
+  body.innerHTML = html;
 }
 
 // ─── PHASE 3: SPLIT ORDER SUGGESTION ─────────────────────────────────────────
