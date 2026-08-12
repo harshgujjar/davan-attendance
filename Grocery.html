@@ -3,8 +3,27 @@
 <head>
 <!--
   GROCERY TRACKER — grocery.html
-  v3.10 — 2026-08-12
+  v3.12 — 2026-08-12
   CHANGELOG:
+  v3.12 — History list cards for draft orders now show an inline "📤 Mark
+          Ordered" button (new quickMarkOrdered() fn) so you can flip
+          draft -> ordered right from the list, without opening the detail
+          modal. Uses event.stopPropagation() so it doesn't also trigger the
+          card's openOrderDetail(). Carries over whatever actualRate/actualAmt
+          is already saved on the doc (no live bill inputs to read from a
+          collapsed card). The in-modal "Mark as Ordered" button from v3.11
+          is unchanged and still reads the live bill-table inputs.
+  v3.11 — 2026-08-12
+  CHANGELOG:
+  v3.11 — Draft orders in the History detail modal now have a "📤 Mark as
+          Ordered" button (new markOrdered() fn) that flips status:'draft'
+          -> 'ordered' and stamps orderedAt, using whatever qty/rate/amt is
+          currently in the bill inputs. Unlike sendWhatsApp()'s fresh-order
+          path, this does NOT wipe actualRate/actualAmt back to null, so
+          rates already entered on a draft survive the transition. Sits
+          alongside the existing "Save Bill & Mark Delivered" button —
+          drafts can now go draft -> ordered -> delivered, or skip straight
+          to delivered as before.
   v3.10 — Draft/ordered (not-yet-delivered) orders in the History detail modal
           now have: a Shop & Month editor (dropdown + month picker + Save
           button, writes shopId/shopName/month on the order doc) and a
@@ -742,7 +761,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.10';
+const APP_VERSION = '3.12';
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -1695,6 +1714,7 @@ async function loadHistory() {
           <div style="text-align:right">
             <div class="hist-amt">${amt}</div>
             <span class="badge badge-${o.status||'draft'}">${isSnapshot?'🌐 snapshot':(o.status||'draft')}</span>
+            ${o.status==='draft'?`<div><button class="btn btn-outline btn-sm" style="margin-top:4px;padding:2px 8px;font-size:10px" onclick="event.stopPropagation();quickMarkOrdered('${o.id}')">📤 Mark Ordered</button></div>`:''}
           </div>
         </div>
         ${o.notes?`<div class="hist-note">"${o.notes}"</div>`:''}
@@ -1839,6 +1859,13 @@ async function renderOrderDetailView(orderId, order, editMode) {
         <button class="btn btn-outline" style="flex:1" onclick="cancelEditBill('${orderId}')">Cancel</button>
         <button class="btn btn-green" style="flex:1" onclick="saveEditedBill('${orderId}')">✅ Save Changes</button>
       </div>`;
+    } else if (order.status === 'draft') {
+      html += `<div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-outline" style="flex:1" onclick="markOrdered('${orderId}')">📤 Mark as Ordered</button>
+      </div>
+      <button class="btn btn-green btn-full" style="margin-top:8px" onclick="saveBill('${orderId}')">
+        ✅ Save Bill & Mark Delivered
+      </button>`;
     } else {
       html += `<button class="btn btn-green btn-full" style="margin-top:14px" onclick="saveBill('${orderId}')">
         ✅ Save Bill & Mark Delivered
@@ -2144,6 +2171,66 @@ function setRating(r) {
   window._selectedRating = r;
   document.getElementById('rating-good').className = 'rating-btn' + (r==='good'?' sel-good':'');
   document.getElementById('rating-bad').className = 'rating-btn' + (r==='bad'?' sel-bad':'');
+}
+
+// Moves a draft to status:'ordered' — keeps whatever qty/rate/amt is currently
+// in the bill inputs (doesn't wipe them the way sendWhatsApp()'s fresh-order
+// path does), and stamps orderedAt. Does NOT touch deliveredAt.
+// Same draft -> ordered transition as markOrdered(), but callable directly from
+// the History list card (no modal open, no live bill-table inputs to read) —
+// so it just carries over whatever actualRate/actualAmt is already saved on
+// the order doc as-is.
+async function quickMarkOrdered(orderId) {
+  await authReady;
+  try {
+    await db.collection(COL.orders).doc(orderId).update({
+      status: 'ordered',
+      orderedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    showToast('Marked as ordered ✓','success');
+    loadHistory();
+  } catch(e) {
+    console.error('quickMarkOrdered failed:', e);
+    showToast('Could not update order','error');
+  }
+}
+
+async function markOrdered(orderId) {
+  await authReady;
+  const order = window._currentBillOrder;
+  if (!order) return;
+  const removed = window._billRemovedRows || new Set();
+  const updatedItems = (order.items||[]).map((it,i)=>{
+    if (removed.has(i)) return null; // skip removed rows
+    const qtyEl = document.getElementById('qty-'+i);
+    const rateEl = document.getElementById('rate-'+i);
+    const amtEl = document.getElementById('amt-'+i);
+    const qty = clampQty(qtyEl?.value || it.qty, it.unit);
+    let rate = parseFloat(rateEl?.value)||null;
+    let amt = parseFloat(amtEl?.value)||null;
+    if (amt!=null && rate==null && qty) rate = parseFloat((amt/qty).toFixed(2));
+    if (rate!=null && amt==null) amt = parseFloat((rate*qty).toFixed(2));
+    return { ...it, qty, actualRate: rate, actualAmt: amt };
+  }).filter(Boolean);
+
+  if (updatedItems.length===0) { showToast('No items left to order','warn'); return; }
+
+  const actualTotal = updatedItems.reduce((s,i)=>s+(i.actualAmt||0),0);
+
+  try {
+    await db.collection(COL.orders).doc(orderId).update({
+      items: updatedItems,
+      actualTotal: actualTotal>0 ? parseFloat(actualTotal.toFixed(2)) : null,
+      status: 'ordered',
+      orderedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    closeModal('modal-order');
+    showToast('Marked as ordered ✓','success');
+    loadHistory();
+  } catch(e) {
+    console.error('markOrdered failed:', e);
+    showToast('Could not update order','error');
+  }
 }
 
 async function saveBill(orderId) {
