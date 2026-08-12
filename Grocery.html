@@ -3,8 +3,14 @@
 <head>
 <!--
   GROCERY TRACKER — grocery.html
-  v3.9 — 2026-08-12
+  v3.10 — 2026-08-12
   CHANGELOG:
+  v3.10 — Draft/ordered (not-yet-delivered) orders in the History detail modal
+          now have: a Shop & Month editor (dropdown + month picker + Save
+          button, writes shopId/shopName/month on the order doc) and a
+          Delete Draft button with the same confirm-panel pattern already
+          used for delivered orders/snapshots. Previously only delivered
+          orders and snapshots could be edited (shop/month) or deleted.
   v3.9 — Edit Order & Enter Bill: "last: ₹X" hint now shows TWO previous rates
           instead of one — the most recent order's rate (green, "last: ₹X")
           and the order before that ("2mo ago: ₹X", muted). buildRateMap now
@@ -736,7 +742,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.9';
+const APP_VERSION = '3.10';
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -1838,6 +1844,30 @@ async function renderOrderDetailView(orderId, order, editMode) {
         ✅ Save Bill & Mark Delivered
       </button>`;
     }
+
+    // Edit shop/month + Delete — available for draft/ordered orders too (not just delivered/snapshot)
+    if (!isDelivered && !isSnapshot) {
+      const shopOpts = Object.values(allShops).filter(s=>s.active).sort((a,b)=>a.name.localeCompare(b.name))
+        .map(s=>`<option value="${s.id}" ${s.id===order.shopId?'selected':''}>${s.name}</option>`).join('');
+      html += `<div class="card-title" style="margin-top:16px">Shop &amp; Month</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <select id="edit-order-shop" style="flex:1">${shopOpts}</select>
+        <input type="month" id="edit-order-month" value="${order.month||''}" style="flex:1">
+      </div>
+      <button class="btn btn-outline btn-full" style="margin-bottom:10px" onclick="saveOrderShopMonth('${orderId}')">💾 Save Shop &amp; Month</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-red btn-full" onclick="confirmDeleteOrder('${orderId}')">🗑️ Delete Draft</button>
+      </div>
+      <div id="delete-confirm-panel" style="display:none;margin-top:10px;padding:12px;background:var(--red-soft);border-radius:10px">
+        <div style="font-size:12px;color:var(--red-text);font-weight:600;margin-bottom:10px">
+          ⚠️ Delete this order permanently? This cannot be undone.
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline" style="flex:1" onclick="cancelDeleteOrder()">Cancel</button>
+          <button class="btn btn-red" style="flex:1" onclick="deleteOrderFinal('${orderId}')">Yes, Delete</button>
+        </div>
+      </div>`;
+    }
   } else {
     // Delivered — show read-only summary
     html += `<table class="bill-table">
@@ -1888,6 +1918,34 @@ function editDeliveredBill(orderId) {
 function cancelEditBill(orderId) {
   window._billRemovedRows = new Set();
   renderOrderDetailView(orderId, window._currentBillOrder, false);
+}
+
+// Lets the shop and/or month be changed on a draft/ordered order (not yet delivered).
+// Updates shopId, shopName, and month on the order doc, then re-renders the modal.
+async function saveOrderShopMonth(orderId) {
+  await authReady;
+  const shopSel = document.getElementById('edit-order-shop');
+  const monthInp = document.getElementById('edit-order-month');
+  const newShopId = shopSel?.value;
+  const newMonth = monthInp?.value;
+  if (!newShopId || !newMonth) { showToast('Pick a shop and month','error'); return; }
+  const newShop = allShops[newShopId];
+  if (!newShop) { showToast('Invalid shop','error'); return; }
+  try {
+    await db.collection(COL.orders).doc(orderId).update({
+      shopId: newShopId,
+      shopName: newShop.name,
+      month: newMonth
+    });
+    showToast('Shop & month updated','success');
+    const doc = await db.collection(COL.orders).doc(orderId).get();
+    const order = { id: doc.id, ...doc.data() };
+    window._currentBillOrder = order;
+    renderOrderDetailView(orderId, order, false);
+  } catch(e) {
+    console.error(e);
+    showToast('Could not update order','error');
+  }
 }
 
 function confirmDeleteOrder(orderId) {
