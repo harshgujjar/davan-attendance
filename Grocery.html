@@ -3,8 +3,62 @@
 <head>
 <!--
   GROCERY TRACKER — grocery.html
-  v3.12 — 2026-08-12
+  v3.17 — 2026-08-12
   CHANGELOG:
+  v3.18 — Fixed "Fix Capitalization" reporting "Nothing to fix" when the shop
+          master was already correctly cased but old order docs still had
+          stale shopName/item-name snapshots from before v3.16's cascade
+          existed. The cascade previously only ran for shops/items that
+          needed fixing IN THAT RUN, so an already-fixed shop's stale old
+          orders were silently skipped forever. It now always compares every
+          past order's stored names against the current master data,
+          independent of whether the master itself needed a fix this time.
+  v3.17 — Added a Sl No. (#) column to every item-listing table/card: order
+          detail (view + edit bill), Summary tab (delivered shops + online
+          snapshots), and the Compare modal (both cross-shop and same-shop
+          tabs, numbered per item card).
+  v3.16 — Fixed "Fix Capitalization" utility: it title-cased the shop master
+          doc but never updated the shopName snapshot already stored on past
+          order docs, so old order-history rows kept showing the un-fixed
+          casing forever. It now cascades fixed shop names into every past
+          order's shopName field too, same as it already did for items.
+  v3.15 — Item names and shop names are now auto title-cased on save (new
+          toTitleCase() helper: "medium avalki" -> "Medium Avalki"), so new
+          items/shops always display consistently regardless of how typed.
+          Added a one-time Admin utility "🔤 Fix Capitalization (Items, Shops
+          & Past Bills)" (normalizeAllNamesCapitalization()) that title-cases
+          every existing item/shop name in the master lists AND cascades the
+          fix into every past order's stored item-name snapshot (orders keep
+          a name copy at order time, not a live reference, so old bills
+          needed a separate pass — reuses the same items/shops write pattern
+          as cleanupDuplicateItems). Idempotent — reports "Nothing to fix" if
+          run again with nothing left to change. nameKn (Kannada) fields are
+          untouched, as title-casing is a Latin-script concept.
+  v3.14 — 2026-08-12
+  CHANGELOG:
+  v3.14 — Fixed buildPrevMonthRateMap: it previously only checked the SINGLE
+          nearest earlier delivered order at the shop, so an item skipped in
+          that order (e.g. not ordered last month, but ordered 3 months ago)
+          showed no "was ₹X" comparison at all even though real history
+          existed. Now walks ALL earlier delivered orders (newest-first) and
+          finds each item's own most recent purchase independently, so the
+          "was ₹X (Mon YYYY)" comparison always reflects that item's true
+          last-bought rate regardless of gaps in between.
+  v3.13 — 2026-08-12
+  CHANGELOG:
+  v3.13 — Read-only delivered/snapshot bill view (the "view details" modal, not
+          the edit-bill table) now shows each item's rate from the nearest
+          earlier delivered order at the same shop, right under this month's
+          rate: "was ₹X (Mon YYYY)" plus a ▲/▼ indicator with the per-unit and
+          total ₹ difference (red ▲ = price went up, green ▼ = went down). New
+          buildPrevMonthRateMap(shopId, month, excludeOrderId) fetches delivered
+          orders for the shop, filters to months strictly before the one being
+          viewed, and reads rates from the single nearest such order (not the
+          multi-order buildRateMap used by the editable bill table, which is
+          "most recent overall" rather than "immediately before this specific
+          order"). Only runs for the read-only view (editMode false); the
+          existing "last: ₹X / 2mo ago: ₹X" hints in the editable table are
+          unchanged.
   v3.12 — History list cards for draft orders now show an inline "📤 Mark
           Ordered" button (new quickMarkOrdered() fn) so you can flip
           draft -> ordered right from the list, without opening the detail
@@ -610,6 +664,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     <div id="admin-items-list" style="max-height:300px;overflow-y:auto"></div>
     <button class="btn btn-outline btn-full" style="margin-top:10px" onclick="openAddItemModal()">➕ Add New Item</button>
     <button class="btn btn-outline btn-full" style="margin-top:8px" onclick="cleanupDuplicateItems()">🧹 Remove Duplicate Items</button>
+    <button class="btn btn-outline btn-full" style="margin-top:8px" onclick="normalizeAllNamesCapitalization()">🔤 Fix Capitalization (Items, Shops &amp; Past Bills)</button>
   </div>
 
 
@@ -761,7 +816,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.12';
+const APP_VERSION = '3.15';
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -1273,6 +1328,36 @@ async function buildRateMap(shopId) {
   return { map, prevMap, map2 };
 }
 
+// buildPrevMonthRateMap: for a SPECIFIC delivered order being viewed (given its
+// shopId + month), return itemId -> { rate, month } — the rate from that
+// item's OWN most recent earlier purchase at this shop, independent of which
+// order it came from. (An item may have been skipped in the immediately
+// preceding order/orders; this still finds its last real purchase rate,
+// e.g. "ordered 3 months ago, skipped since" still shows a comparison.)
+async function buildPrevMonthRateMap(shopId, month, excludeOrderId) {
+  const map = {};
+  try {
+    const snap = await db.collection(COL.orders)
+      .where('shopId','==',shopId)
+      .where('status','==','delivered')
+      .limit(40).get();
+    const docs = snap.docs
+      .filter(d=>d.id!==excludeOrderId)
+      .map(d=>d.data())
+      .filter(d=>d.month && d.month < month)
+      .sort((a,b)=>b.month.localeCompare(a.month)); // most recent earlier month first
+    docs.forEach(data=>{
+      (data.items||[]).forEach(it=>{
+        if (it.actualRate == null) return;
+        // Keep only the first (i.e. most recent) match per item, since docs
+        // is already sorted newest-earlier-month first.
+        if (!map[it.itemId]) map[it.itemId] = { rate: it.actualRate, month: data.month };
+      });
+    });
+  } catch(e) { console.error('buildPrevMonthRateMap failed:', e); }
+  return map;
+}
+
 function renderChecklist() {
   const cats = {};
   checklistItems.forEach(it=>{
@@ -1772,6 +1857,15 @@ async function renderOrderDetailView(orderId, order, editMode) {
   window._billRateMap = rateMapResult.map;
   window._billRateHistMap = rateMapResult.map2;
 
+  // For the READ-ONLY delivered/snapshot view (not editing), fetch the previous
+  // month's rate per item at this shop so we can show a "was ₹X last month"
+  // comparison with an up/down arrow and the ₹ amount difference.
+  const isDeliveredOrSnapshotView = order.status === 'delivered' || order.status === 'snapshot';
+  const needsPrevMonthMap = isDeliveredOrSnapshotView && !editMode;
+  const prevMonthRateMap = needsPrevMonthMap
+    ? await buildPrevMonthRateMap(order.shopId, order.month, orderId)
+    : {};
+
   const orderedStr = fmtTs(order.orderedAt);
   const deliveredStr = fmtTs(order.deliveredAt);
   const isSnapshot = order.status === 'snapshot';
@@ -1800,7 +1894,7 @@ async function renderOrderDetailView(orderId, order, editMode) {
       Enter what the shop actually charged. <b>Rate</b> = price per ${order.items?.[0]?.unit||'unit'} (e.g. ₹40/kg). <b>Amt</b> = total for that item (Qty × Rate). Fill in either Rate or Amt — the other fills in automatically.
     </div>
     <table class="bill-table" id="bill-items-table">
-      <tr><th>Item</th><th>Qty</th><th>Rate ₹<br><span style="font-weight:400;font-size:9px;color:var(--muted)">per unit</span></th><th>Amt ₹<br><span style="font-weight:400;font-size:9px;color:var(--muted)">total</span></th><th></th></tr>`;
+      <tr><th>#</th><th>Item</th><th>Qty</th><th>Rate ₹<br><span style="font-weight:400;font-size:9px;color:var(--muted)">per unit</span></th><th>Amt ₹<br><span style="font-weight:400;font-size:9px;color:var(--muted)">total</span></th><th></th></tr>`;
     (order.items||[]).forEach((it,i)=>{
       const dispName = it.name + (it.variant?` (${it.variant})`:'');
       const rateVal = it.actualRate!=null ? it.actualRate : '';
@@ -1815,6 +1909,7 @@ async function renderOrderDetailView(orderId, order, editMode) {
         lastRateHint = `<div id="last-rate-${i}" style="font-size:9px;margin-top:2px;line-height:1.6">${parts.join('<br>')}</div>`;
       }
       html += `<tr id="bill-row-${i}">
+        <td style="font-size:11px;color:var(--muted)">${i+1}</td>
         <td style="font-size:11px">${dispName}<br><span style="font-size:9px;color:var(--muted)">${it.nameKn||''}</span></td>
         <td><input type="number" class="bill-qty-input" id="qty-${i}" value="${it.qty}" ${qtyAttrs(it.unit)}
           oninput="recalcBillRow(${i})"></td>
@@ -1898,15 +1993,39 @@ async function renderOrderDetailView(orderId, order, editMode) {
   } else {
     // Delivered — show read-only summary
     html += `<table class="bill-table">
-      <tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>`;
-    (order.items||[]).forEach(it=>{
+      <tr><th>#</th><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>`;
+    (order.items||[]).forEach((it,i)=>{
       const dispName = it.name + (it.variant?` (${it.variant})`:'');
       const rate = it.actualRate!=null ? `₹${it.actualRate}` : '—';
       const amt = it.actualAmt!=null ? `₹${it.actualAmt}` : '—';
+
+      // Previous-month rate comparison (only when both this month's and last
+      // month's rate are known numbers for this item).
+      let rateCompareHtml = '';
+      const prevEntry = prevMonthRateMap[it.itemId];
+      if (it.actualRate != null && prevEntry && prevEntry.rate != null) {
+        const rateDiff = it.actualRate - prevEntry.rate;
+        if (rateDiff !== 0) {
+          const dirColor = rateDiff > 0 ? 'var(--red-text)' : 'var(--green)';
+          const arrow = rateDiff > 0 ? '▲' : '▼';
+          const amtDiffPerUnit = Math.abs(rateDiff);
+          const amtDiffTotal = Math.abs(rateDiff) * (it.qty || 0);
+          rateCompareHtml = `<div style="font-size:9px;margin-top:2px;line-height:1.5">
+            <span style="color:var(--muted)">was ₹${prevEntry.rate} (${formatMonth(prevEntry.month)})</span><br>
+            <span style="color:${dirColor};font-weight:600">${arrow} ₹${amtDiffPerUnit}/${it.unit} · ₹${amtDiffTotal.toFixed(2).replace(/\.00$/,'')} total</span>
+          </div>`;
+        } else {
+          rateCompareHtml = `<div style="font-size:9px;margin-top:2px;color:var(--muted)">
+            same as ${formatMonth(prevEntry.month)} (₹${prevEntry.rate})
+          </div>`;
+        }
+      }
+
       html += `<tr>
+        <td style="font-size:11px;color:var(--muted)">${i+1}</td>
         <td style="font-size:11px">${dispName}<br><span style="font-size:9px;color:var(--muted)">${it.nameKn||''}</span></td>
         <td>${it.qty} ${it.unit}</td>
-        <td>${rate}/${it.unit}</td>
+        <td>${rate}/${it.unit}${rateCompareHtml}</td>
         <td>${amt}</td>
       </tr>`;
     });
@@ -2374,6 +2493,16 @@ function itemDupeKey(it) {
   ].join('|');
 }
 
+// Capitalizes the first letter of every word: "medium avalki" -> "Medium
+// Avalki". Used to normalize item names and shop names on save so display
+// is consistent everywhere (list, checklist, bills, WhatsApp messages, etc.)
+// regardless of how the text was typed in. Only touches Latin-script name
+// fields (name/shop name) — nameKn (Kannada) fields are left untouched since
+// title-casing doesn't apply to that script.
+function toTitleCase(str) {
+  return (str||'').replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
 // One-time cleanup: groups all items in the master by itemDupeKey(), keeps
 // the OLDEST doc in each group (safest choice — older items are more likely
 // to be the ones referenced by past order history, since order docs store
@@ -2439,6 +2568,139 @@ async function toggleShopActive(id, val) {
   populateShopSelect();
 }
 
+// One-time normalization utility: title-cases every item name and shop name
+// currently in the master lists AND cascades the same fix into every past
+// order's stored item-name snapshots (orders keep a copy of the name at
+// order time, not a live reference — see cascadeItemRenameToOrders above —
+// so old bills would otherwise keep showing the un-capitalized text forever
+// even after the master item is fixed). Idempotent: running it again with
+// nothing left to fix reports "Nothing to fix".
+async function normalizeAllNamesCapitalization() {
+  await authReady;
+
+  const itemFixes = Object.values(allItems).filter(it => it.name && toTitleCase(it.name) !== it.name);
+  const shopFixes = Object.values(allShops).filter(s => s.name && toTitleCase(s.name) !== s.name);
+
+  // Pre-scan past orders for stale shopName/item-name snapshots that no
+  // longer match the CURRENT master data — this catches orders left behind
+  // by a previous run (master needed fixing then, cascaded, but this step
+  // used to only trigger off *this run's* itemFixes/shopFixes, so a shop
+  // already fixed earlier was silently skipped forever). Doing this scan
+  // unconditionally (not gated on itemFixes/shopFixes.length) is the actual
+  // fix for "master already correct but old bills still show old text".
+  const snapPre = await db.collection(COL.orders).get();
+  const orderDocsPre = snapPre.docs.map(d=>({ ref:d.ref, data:d.data() }));
+  let staleOrderCount = 0;
+  orderDocsPre.forEach(o=>{
+    let stale = false;
+    if (Array.isArray(o.data.items)) {
+      o.data.items.forEach(it=>{
+        const master = allItems[it.itemId];
+        if (master && master.name && it.name !== master.name) stale = true;
+      });
+    }
+    const shopMaster = allShops[o.data.shopId];
+    if (shopMaster && shopMaster.name && o.data.shopName !== shopMaster.name) stale = true;
+    if (stale) staleOrderCount++;
+  });
+
+  if (!itemFixes.length && !shopFixes.length && !staleOrderCount) {
+    showToast('Nothing to fix — already capitalized ✓','success');
+    return;
+  }
+
+  const confirmed = confirm(
+    `This will fix capitalization on ${itemFixes.length} item(s), ${shopFixes.length} shop(s), ` +
+    `and update ${staleOrderCount} past bill(s) with stale names. Continue?`
+  );
+  if (!confirmed) return;
+
+  try {
+    // 1) Fix item master docs.
+    if (itemFixes.length) {
+      const chunks = [];
+      for (let i=0; i<itemFixes.length; i+=450) chunks.push(itemFixes.slice(i, i+450));
+      for (const chunk of chunks) {
+        const batch = db.batch();
+        chunk.forEach(it => batch.update(db.collection(COL.items).doc(it.id), { name: toTitleCase(it.name) }));
+        await batch.commit();
+      }
+      itemFixes.forEach(it => { allItems[it.id].name = toTitleCase(it.name); });
+    }
+
+    // 2) Fix shop master docs.
+    if (shopFixes.length) {
+      const chunks = [];
+      for (let i=0; i<shopFixes.length; i+=450) chunks.push(shopFixes.slice(i, i+450));
+      for (const chunk of chunks) {
+        const batch = db.batch();
+        chunk.forEach(s => batch.update(db.collection(COL.shops).doc(s.id), { name: toTitleCase(s.name) }));
+        await batch.commit();
+      }
+      shopFixes.forEach(s => { allShops[s.id].name = toTitleCase(s.name); });
+    }
+
+    // 3) Cascade fixed item names AND fixed shop names into every past
+    // order doc. Orders store both items[].name and shopName as snapshots
+    // taken at order time (not a live lookup — see cascadeItemRenameToOrders
+    // above), so fixing the item/shop master alone leaves every old bill
+    // showing the un-capitalized text forever unless we rewrite those
+    // snapshots here too.
+    // Cascade against CURRENT master data (allItems/allShops, already
+    // updated in-memory above), not just the itemFixes/shopFixes computed
+    // at the top of this run. This is what makes the cascade also pick up
+    // orders left stale by an earlier run — it no longer matters whether
+    // the master needed fixing THIS time, only whether the order's
+    // snapshot currently disagrees with the master.
+    let ordersTouched = 0;
+    {
+      const toUpdate = [];
+      orderDocsPre.forEach(o=>{
+        let changed = false;
+        const update = {};
+
+        if (Array.isArray(o.data.items)) {
+          let itemsChanged = false;
+          const updatedItems = o.data.items.map(it=>{
+            const master = allItems[it.itemId];
+            if (master && master.name && it.name !== master.name) { itemsChanged = true; return { ...it, name: master.name }; }
+            return it;
+          });
+          if (itemsChanged) { update.items = updatedItems; changed = true; }
+        }
+
+        const shopMaster = allShops[o.data.shopId];
+        if (shopMaster && shopMaster.name && o.data.shopName !== shopMaster.name) {
+          update.shopName = shopMaster.name;
+          changed = true;
+        }
+
+        if (changed) toUpdate.push({ ref:o.ref, update });
+      });
+      const chunks = [];
+      for (let i=0; i<toUpdate.length; i+=450) chunks.push(toUpdate.slice(i, i+450));
+      for (const chunk of chunks) {
+        const batch = db.batch();
+        chunk.forEach(u => batch.update(u.ref, u.update));
+        await batch.commit();
+      }
+      ordersTouched = toUpdate.length;
+    }
+
+    renderAdminItems();
+    renderAdminShops();
+    populateShopSelect();
+    showToast(
+      `Fixed ${itemFixes.length} item(s), ${shopFixes.length} shop(s), ${ordersTouched} past bill(s) ✓`,
+      'success'
+    );
+  } catch(e) {
+    console.error('normalizeAllNamesCapitalization failed:', e);
+    showToast('Could not fix capitalization','error');
+  }
+}
+
+
 async function toggleItemActive(id, val) {
   await authReady;
   await db.collection(COL.items).doc(id).update({ active: val });
@@ -2473,7 +2735,7 @@ function editShop(id) { openShopModal(id); }
 
 async function saveShop() {
   await authReady;
-  const name = document.getElementById('shop-name').value.trim();
+  const name = toTitleCase(document.getElementById('shop-name').value.trim());
   if (!name) { showToast('Shop name is required','warn'); return; }
   const data = {
     name,
@@ -2567,7 +2829,7 @@ async function cascadeItemRenameToOrders(itemId, newFields) {
 
 async function saveNewItem() {
   await authReady;
-  const name = document.getElementById('ai-name').value.trim();
+  const name = toTitleCase(document.getElementById('ai-name').value.trim());
   if (!name) { showToast('Item name is required','warn'); return; }
   let category = document.getElementById('ai-category').value;
   if (category === '__new__') {
@@ -2919,17 +3181,18 @@ function renderSummaryMonth(month) {
     html += `<div style="margin-bottom:14px">
       <div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--accent)">${o.shopName||'—'}</div>
       <table class="summary-table">
-        <tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amt</th></tr>
-        ${(o.items||[]).map(it=>{
+        <tr><th>#</th><th>Item</th><th>Qty</th><th>Rate</th><th>Amt</th></tr>
+        ${(o.items||[]).map((it,i)=>{
           const dispName = it.name+(it.variant?` (${it.variant})`:'');
           return `<tr>
+            <td style="color:var(--muted)">${i+1}</td>
             <td>${dispName}<br><span style="font-size:9px;color:var(--muted)">${it.nameKn||''}</span></td>
             <td>${it.qty} ${it.unit}</td>
             <td>${it.actualRate!=null?'₹'+it.actualRate:'—'}</td>
             <td>${it.actualAmt!=null?'₹'+it.actualAmt:'—'}</td>
           </tr>`;
         }).join('')}
-        <tr class="summary-total-row"><td colspan="3">Shop Total</td><td>₹${shopTotal.toFixed(0)}</td></tr>
+        <tr class="summary-total-row"><td colspan="4">Shop Total</td><td>₹${shopTotal.toFixed(0)}</td></tr>
       </table>
     </div>`;
   });
@@ -2946,17 +3209,18 @@ function renderSummaryMonth(month) {
       html += `<div style="margin-bottom:10px">
         <div style="font-size:11px;font-weight:700;margin-bottom:4px">${o.shopName||'—'}</div>
         <table class="summary-table">
-          <tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amt</th></tr>
-          ${(o.items||[]).map(it=>{
+          <tr><th>#</th><th>Item</th><th>Qty</th><th>Rate</th><th>Amt</th></tr>
+          ${(o.items||[]).map((it,i)=>{
             const dispName = it.name+(it.variant?` (${it.variant})`:'');
             return `<tr>
+              <td style="color:var(--muted)">${i+1}</td>
               <td>${dispName}</td>
               <td>${it.qty} ${it.unit}</td>
               <td>${it.actualRate!=null?'₹'+it.actualRate:'—'}</td>
               <td>${it.actualAmt!=null?'₹'+it.actualAmt:'—'}</td>
             </tr>`;
           }).join('')}
-          <tr class="summary-total-row"><td colspan="3">Snapshot Total</td><td>₹${snapTotal.toFixed(0)}</td></tr>
+          <tr class="summary-total-row"><td colspan="4">Snapshot Total</td><td>₹${snapTotal.toFixed(0)}</td></tr>
         </table>
       </div>`;
     });
@@ -3063,7 +3327,7 @@ function renderCrossShopCompare(history) {
   }
 
   let html = '';
-  itemIds.forEach(itemId=>{
+  itemIds.forEach((itemId,idx)=>{
     const byShop = history[itemId];
     const shopIds = Object.keys(byShop);
     // Cheapest shop = lowest most-recent rate
@@ -3076,7 +3340,7 @@ function renderCrossShopCompare(history) {
     const dispName = sample.name + (sample.variant?` (${sample.variant})`:'');
 
     html += `<div class="compare-item-card">
-      <div class="compare-item-name">${dispName}${sample.nameKn?` <span class="compare-item-kn">/ ${sample.nameKn}</span>`:''}</div>`;
+      <div class="compare-item-name"><span style="color:var(--muted);font-weight:400">${idx+1}.</span> ${dispName}${sample.nameKn?` <span class="compare-item-kn">/ ${sample.nameKn}</span>`:''}</div>`;
 
     shopIds.forEach(sid=>{
       const shopName = allShops[sid]?.name || 'Unknown shop';
@@ -3131,7 +3395,7 @@ function renderSameShopCompare(history) {
     html += `<div class="compare-shop-group">
       <div class="compare-shop-group-title">${shopName}</div>`;
 
-    byShop[sid].forEach(({entries})=>{
+    byShop[sid].forEach(({entries},idx)=>{
       const curr = entries[0];
       const prev = entries[1];
       const dispName = curr.name + (curr.variant?` (${curr.variant})`:'');
@@ -3142,7 +3406,7 @@ function renderSameShopCompare(history) {
       else if (diff < 0) { trendClass='compare-trend-down'; trendIcon='↓'; diffLabel=`-₹${Math.abs(diff)} (-${pct.toFixed(0)}%)`; }
 
       html += `<div class="compare-item-card">
-        <div class="compare-item-name">${dispName}${curr.nameKn?` <span class="compare-item-kn">/ ${curr.nameKn}</span>`:''}</div>
+        <div class="compare-item-name"><span style="color:var(--muted);font-weight:400">${idx+1}.</span> ${dispName}${curr.nameKn?` <span class="compare-item-kn">/ ${curr.nameKn}</span>`:''}</div>
         <div class="compare-row">
           <span class="compare-shop-name">${curr.month}</span>
           <span>
