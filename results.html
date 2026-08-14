@@ -317,6 +317,10 @@
  r481 | 14-Aug-2026 IST | FEAT (student-supplied felicitation photos, requested as 'few students photo we dont have -- add a link in the whatsapp msg'): three coupled pieces plus a new file. NEW photo.html -- unauthenticated single-file upload page beside results.html on Pages, opened as photo.html?u=<URN>&n=<name>. Link built by resPhotoUploadLink() from new URL('photo.html', location.href) rather than a hardcoded Pages URL, so it survives a repo rename and works on localhost; appended to bothSemMeritWASend's body ONLY when resPhotos[urn] is empty -- the same map _hasPhoto uses for the row's camera-emoji-vs-avatar decision, so the message and the table can never disagree about who still owes a photo. THREE CONSTRAINTS SHAPED photo.html: (a) no backend exists, so no token can actually be verified -- ?u= is the URN in plain sight and a student could retarget it, which is exactly why nothing goes live without review; (b) Cloudinary UNSIGNED uploads can never overwrite -- a platform security restriction, not a free-tier limit, since the preset is public in page source. r475's assumption that public_id=URN overwrites in place was wrong; it silently creates suffixed duplicates. public_id is now versioned <URN>_1/<URN>_2 and the resulting secure_url is RECORDED at davan_pub/photo_uploads/<URN> rather than reconstructed by guessing, which also removes extension-guessing and CDN-staleness as failure modes; (c) quality is enforced at capture, not requested in prose -- forced 3:4 crop rendered to a fixed 900x1200 JPEG q0.9 (identical dimensions for every student on the slide deck), source rejected under 800px on the short edge, and Submit stays disabled unless the FRAMED REGION is >=800px wide in ORIGINAL image pixels. That last check is the one that actually filters a face cropped out of a group photo (it will not have 800px of face) and a twice-forwarded WhatsApp re-compression. Deliberately chosen INSTEAD of rejecting landscape sources outright, which would have blocked good portraits shot in landscape while still admitting a high-res party photo. Two-upload cap is enforced by an RTDB rule (documented in photo.html's header, MUST be added manually -- auth != null for admin, otherwise create-at-1 or increment-to-exactly-2), not by this JS, so devtools cannot raise it. NEW Photo Inbox (resShowPhotoInbox/resApprovePhoto/resApproveAllPhotos/resRejectPhoto) -- everything lands PENDING and reaches app_data/student_photos only after an admin sees the thumbnail, because plain background, formal dress, selfie-or-not and right-person-or-not are not machine-checkable and these photos get projected at a ceremony. Approve reuses _resSavePhotoUrl verbatim so the Firestore write and davan_pub mirror happen exactly as for an admin-picked file -- one code path, no drift. Approve does NOT reset n (a student who used both uploads must not regain one by being approved); Reject DELETES the record, which hands the attempt back via the rule's !data.exists() branch -- charging a student an attempt for OUR rejection would be unfair and on a 2nd-attempt rejection would lock them out entirely. Toolbar badge shows the pending count so the modal need not be opened to find it empty. NEW resBothSemPhotosZip -- bulk pull for the PPT, filenames carrying the SAME running Sl. No. as the Excel export (01_SANGEETHA_U13DI22S0025.jpg) so the ZIP sorts into felicitation order and photos drop into slides sequentially; anyone without a photo is written into _MISSING.txt inside the ZIP rather than silently skipped, since a deck with a hole in it is otherwise discovered on the day. Cache-buster on each fetch because the CDN can serve a stale copy immediately after approval.
  r482 | 14-Aug-2026 IST | FIX (reported: 'CEREMONY DATE / TIME / VENUE i have updated and in my previous fix i fixed this, that is getting deleted, that shouldnt happen but now again it happening'): the fields were NOT being cleared by any code -- grepped every reference, and outside the three <input> tags themselves the only write to res-excel-date/time/venue anywhere in this file is resLoadExcelCeremony, which sets a field only when the stored value is truthy and so can never blank one. The values were being lost WITH THEIR STORAGE. r467 persisted them to localStorage ONLY, which is scoped per browser AND per device: details typed on the laptop never existed on the phone in the first place, and any site-data eviction / 'clear browsing data' / private window wipes them with no trace and no error. A single ceremony date shared by the whole office was simply the wrong thing to keep in a browser-local cache -- the previous fix was real, it just fixed reload-persistence and not the actual failure mode. Promoted to the same three-tier pattern already used by bothsem_relations (r467) and bothsem_contact_overrides (r473): Firestore app_data/excel_ceremony as the source of truth, RTDB-mirrored to davan_pub/excel_ceremony via a new _rtdbPubPath mapping (so manager/vp reads work through the existing permission-denied fallback in fsGet), localStorage demoted to an instant-paint cache so the fields are never briefly blank on open. Writes are debounced 700ms rather than fired per keystroke, and the save badge reports the ACTUAL fsSetMerge return value -- a refused write now shows '✗ not saved' instead of silently looking fine, which is the exact class of silent failure that produced the original symptom (same lesson as r456). Two ordering hazards handled explicitly: (a) the background fetch can land seconds after the pane opens, so _resCeremonyDirty is set on the first keystroke and the remote value is never applied over something the admin is part-way through typing -- clobbering a half-typed venue would look identical to the bug being fixed here; (b) if the shared doc is empty but this browser holds r467-era localStorage values, they are pushed UP once on first load instead of being ignored, so upgrading does not lose what is already entered. Load is memoised per session (_resCeremonyLoaded) since resRenderExcellence runs resLoadExcelCeremony on every render, including every keystroke in the threshold box.
  r483 | 14-Aug-2026 IST | CHANGE (asked directly: 'approvel rejection and all not require, once studetns upload take it thats all' + 'what is my backup plan, can we open the lock for them'): r481's Photo Inbox was an APPROVAL GATE -- uploads sat pending until an admin tapped Approve, and Approve was the ONLY route into app_data/student_photos. Two problems with that shape, both real: the person inspects every photo anyway while assembling the ceremony deck, so the gate asked for the same judgement twice; and worse, a gate that is never visited means photos never appear AT ALL, which fails silently in the one direction that matters (a felicitation deck with holes, discovered on the day). Photos are now ADOPTED AUTOMATICALLY by resAutoAdoptPhotos(), called from resRenderExcellence BEFORE resRenderBothSemMerit so avatars paint with them on the same render; idempotent via an `adopted` flag so it does not re-write the same URL every render, and it never touches n (a student who spent both uploads must not silently regain one because their photo went live). Promotion deliberately still runs from the ADMIN side rather than letting photo.html write davan_pub/student_photos directly, which was the tempting shortcut -- that path would have to be publicly writable and then anyone could overwrite any student's live photo; keeping it here means a student can only ever write their own pending record. resApprovePhoto/resApproveAllPhotos/resRejectPhoto are gone, replaced by a management view: resUnlockPhotoUploads (THE BACKUP PLAN -- deletes the pending record so the RTDB rule's !data.exists() branch resets the counter to zero and the student's ORIGINAL link works again, no new link and no new WhatsApp message; their current photo is deliberately left live, since taking it down the moment a retry is granted would leave a hole in the deck if they never re-send, and the new upload simply overwrites it) and resRemoveStudentPhoto (clears the live photo from Firestore + the davan_pub mirror + the in-memory resPhotos map AND resets the counter in one action, since the only reason to remove a photo is to ask for a better one). Badge semantics changed with the shape: it now counts ONLY students who have spent both attempts, so a number there always means 'someone is stuck' rather than 'there is a queue to work through' -- in normal operation it stays empty and nothing needs a tap. The unlimited admin-side path (the per-row camera button, r475) is unchanged and remains the true fallback for any student who cannot manage the link at all.
+ r484 | 14-Aug-2026 IST | FEAT (asked after a live test: 'if any student send wrong photo i can delete it and send one more whatsapp msg'): two gaps, both only visible once the flow was actually exercised. (1) r483's Remove photo lived ONLY inside the Photo Manager, which lists exclusively students who came through the upload link -- so a photo added by the admin's own per-row camera button (r475), or one carried over from index.html's roster, could not be deleted anywhere in the UI at all. The correction I gave for Sangeetha was wrong for exactly this reason: she had no upload record, so Photo Manager would never have listed her even on r483. resRemoveStudentPhoto now takes an optional nameHint and is wired to a small red x badge on the avatar in every Both-Sems Merit row, so any photo is removable from where it is actually seen regardless of origin; it still clears all three locations (Firestore field, davan_pub mirror, upload counter) so attempts are always returned, and it now guards resRenderPhotoInbox behind a display check since the modal is usually closed when called from a row. (2) NEW resPhotoRequestWASend + a '[camera] Ask photo' button that appears on a row only while no photo is on file (so deleting a bad photo makes the ask button appear in the same repaint -- delete then ask is one continuous gesture, not two lookups). Kept DELIBERATELY SEPARATE from bothSemMeritWASend rather than added as a flag on it: that message is the felicitation invitation carrying percentages, ceremony date/time/venue and the scholarship announcement, and re-sending the whole thing merely to chase a photo would read as a second congratulations and raise doubt about whether the student had been nominated twice. This one is a short follow-up assuming the first message landed, plain text with no emoji (r480), routed to the student's own chat via the r480 phone argument, and its opening line branches on whether a photo currently exists -- a student who sent an unusable one is told it cannot be used, not that nothing was ever received. Name is interpolated with JSON.stringify rather than a hand-rolled quote escape, since names in this data legitimately contain apostrophes.
+ r485 | 14-Aug-2026 IST | CHANGE (asked immediately after seeing r484 live: 'give a check box above, if i check that box then only show that delete option, else no -- by mistake i can only delete it'): correct instinct and a real design fault in r484. The x badge was rendered permanently at the top-right corner of an avatar that is ALSO the click target for resShowStudentModal, offset only -5px, and 15px across -- on a phone that is well inside thumb-error distance of a control people tap routinely to view a student, and the only thing between a mis-tap and a deleted photo was a confirm() dialog people learn to dismiss. Now gated behind RES_PHOTO_DEL_MODE, armed by a new 'Allow photo delete' checkbox in the search row; the badge is simply not in the DOM while disarmed, so there is nothing to mis-tap rather than something guarded. Two deliberate choices: (a) the flag is NOT persisted to localStorage, unlike every other preference in this pane -- persisting it would let the toggle sit armed across sessions and reloads, recreating precisely the always-on state this replaces; it lives in memory only and dies with the page. (b) resRemoveStudentPhoto calls resDisarmPhotoDelMode on success, so the checkbox clears itself after every delete -- removing three bad photos is three deliberate arm-then-delete actions, not one arm followed by three taps in a row near avatars. The label border and text turn red while armed so the destructive state is visible at a glance rather than inferable only from tiny badges appearing.
+ r486 | 14-Aug-2026 IST | CORRECTION + MINOR FIX (reported: pressing delete did nothing, even after a hard refresh, with a browser console SyntaxError on results_r485.html:2:1): traced this honestly rather than shipping another guess. Re-parsed the EXACT file that was delivered as results_r485.html byte-for-byte -- both inline script blocks check out clean with node --check, and 'student_photos' via set(...,{merge:true}) with a FieldValue.delete() sentinel is standard documented Firestore usage, not the sentinel-throws-inside-update() story an earlier draft of this entry wrongly stated with false confidence. That draft was replaced before being shown, since it was inferred from reading the code rather than verified, and reads as certain when it was not -- worth being on record about, since a wrong root-cause explanation is worse than admitting the real one was not yet known. The actual console error is consistent with the browser having loaded a stale or corrupted copy of the file rather than the one attached (a caching issue, an interrupted upload to GitHub Pages, or testing an earlier in-thread version) -- not something fixable from this side without seeing the deployed file directly. Two genuine, independently-correct improvements kept from that pass regardless: 'student_photos' was never added to _rtdbPubPath's id-to-path map, so fsSetMerge's RTDB-mirror step silently had no path to mirror to for this doc (a permanent no-op, not a crash) -- resRemoveStudentPhoto now talks to Firestore and the RTDB mirror directly instead of depending on that map; and the RTDB removal is now awaited rather than fire-and-forget, so a genuine failure surfaces as the same '✗ failed' badge state instead of leaving stale data silently in place. No Cloudinary action is needed or was ever needed for this feature -- the app only ever reads whatever URL is recorded in the database, never reconstructs one, so an orphaned Cloudinary file is inert once the database entry referencing it is gone.
+ r487 | 14-Aug-2026 IST | FIX (reported again with the console screenshot: "Uncaught SyntaxError: expected expression, got '}' -- results_r486.html:2:1" when deleting a photo, and the same error present on load): r486's "stale copy in the browser" conclusion was WRONG and is retracted here. The bug was real and in the delivered file; node --check passed because the broken code is not IN a script block -- it is generated at runtime into two onclick ATTRIBUTES by resRenderBothSemMerit, so a static parse of the script blocks could never see it. r484 chose JSON.stringify to interpolate the student name, correctly, because names here legitimately contain apostrophes and a single-quoted literal would break on them -- but JSON.stringify emits DOUBLE quotes, and both call sites sit inside double-quoted onclick="..." attributes. The HTML parser therefore closed the attribute at the opening quote of the name: onclick became event.stopPropagation();resRemoveStudentPhoto('U13NU22S0025', with a trailing comma and nothing after it, and the rest of the name spilled out as junk attributes on the span. Firefox wraps inline handler source in function onclick(event){ ... } before compiling, so the token following that comma was the wrapper's own closing brace -- which is exactly the reported message, and exactly why the location was :2:1 (line 2, column 1 of a two-line synthetic function) rather than any line in this file. That location was the strongest clue available in r486 and it was misread as a corrupted file. Both sites now use a new _resJsAttr() helper: JSON.stringify for correct JS string escaping, then " -> &quot; so the attribute survives the HTML parser, which decodes it back before the handler compiles. Note the second site is the r484 "Ask photo" button, which renders whenever a student has NO photo -- so this error was firing on page load for every such row, independent of the Allow photo delete checkbox; the delete badge was simply the first place it was noticed. No behaviour change beyond the two handlers now actually running.
  r467 | 03-Aug-2026 IST | FEAT: Changed Marks detection on upload. resSaveUpload's merge (r-era design, unchanged by this) fully replaces the uploaded campus's student list with zero per-student/per-subject comparison against what was already saved — so if the university revises marks after an earlier scrape, a re-upload saves the correction silently with no record of what changed. New resCheckChangedMarks runs right after parsing (before Save is even reachable): fetches the existing results/<batchKey> doc read-only (same fsGet call resSaveUpload makes later), scopes the comparison to students of the campus actually being uploaded (resDiffAgainstSaved), and per subject-code compares total/result/letter-grade between old and new. Any student not previously present is skipped (that's a new admission, not a change) and any subject not previously present on that student is skipped (that's a new addition, not a change) — only genuine value flips surface. Results render in a new "⚠ Marks Changed vs Saved Data" card (res-changed-marks, above the existing upload preview) as a table: URN, name, subject, field, old value → new value; the card is hidden entirely when there is nothing to show or no prior doc exists for that batch key yet. Purely advisory — never blocks or alters the save path; a fetch failure is caught and logged, never surfaced as an error toast, since this check must not be able to stop an upload the old behaviour would have allowed. Hooked into resParseAndPreview's existing post-parse call site (same place resShowUploadPreview is called) and into resCancelUpload (hides the card so it can't outlive the upload it described).
  r444 | 31-Jul-2026 IST | FIX (root cause of the student portal showing no faculty): fsSetMerge wrote to FIRESTORE ONLY. _rtdbPubPath() existed purely as a READ fallback for manager/vp roles, so nothing in this file has ever written the DB1 RTDB copy at davan_pub/allocations — and sync_db1_to_db2.py reads that RTDB path, never Firestore. Every allocation edit therefore landed in Firestore, results.html read it back correctly, and the student portal kept serving whatever the RTDB mirror last contained — which is why exactly four B.COM subjects showed a dash in the portal while looking perfect in the admin, and why Repair Allocations correctly reported nothing to fix (Firestore really was complete). fsSetMerge now mirrors every write to its davan_pub RTDB path — allocation docs flat under davan_pub/allocations/<docId>, others at the mapped path — and logs the mirror. If the RTDB write is refused it does not fail the save; it warns in console and raises a sticky Saved but not mirrored toast naming the error, so a permissions problem can never again masquerade as saved data. My r443 note claiming fsSetMerge already mirrored was wrong and is corrected in place.
  r443 | 31-Jul-2026 IST | FEAT: Repair Allocations button (sidebar, above Clear All Allocation) to recover the faculty the r438 merge bug blanked. Diagnosis from the report: results.html itself showed every faculty correctly while the student portal showed a dash for exactly the four B.COM-2.x subjects — because the two read DIFFERENT sources. The faculty a subject was uploaded or auto-assigned with is stored on the RESULTS doc (doc.subjects[].faculty), which the wipe never touched, whereas the student portal reads the separate allocation_<batch> docs (mirrored to davan_pub/allocations and pushed to DB2 by sync_db1_to_db2.py), which is what got blanked. resRepairAllocations() walks every loaded batch, dry-runs first and shows exactly which assignments it would restore, then writes back only the faculty that exist in the results doc and are MISSING from the allocation doc — a name already present in the allocation is never overwritten, so the tool can be run repeatedly without risk. CORRECTION (see r444): the claim here that fsSetMerge also updated the RTDB mirror was wrong — it wrote to Firestore only, which is the real reason the portal stayed stale.
@@ -2186,6 +2190,15 @@
             <input id="res-bothsem-search" type="search" placeholder="Search name or URN…" oninput="resBothSemSearch()"
               style="flex:1;max-width:340px;font-size:12px;padding:7px 11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;" />
             <span id="res-bothsem-search-count" style="font-size:11px;color:var(--muted);font-weight:700;"></span>
+            <!-- r485: photo delete is ARMED, not always-on. The x badge sits on
+                 an avatar the admin also clicks to open the student modal, so a
+                 mis-tap on a phone deletes a photo they meant to view. -->
+            <label id="res-photo-del-wrap" title="Show the delete button on student photos"
+              style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;padding:5px 10px;border:1px solid var(--border);border-radius:8px;white-space:nowrap;">
+              <input type="checkbox" id="res-photo-del-mode" onchange="resTogglePhotoDelMode(this.checked)"
+                style="width:14px;height:14px;cursor:pointer;accent-color:var(--danger,#f66);" />
+              Allow photo delete
+            </label>
           </div>
           <div id="res-bothsem-merit-summary" style="margin-bottom:14px;"></div>
           <div id="res-bothsem-merit-list"></div>
@@ -3650,7 +3663,7 @@ async function resClearAllocConfirmed(allocDocs) {
 //  reported live. All three now render from RES_BUILD/RES_BUILD_DATE, so a
 //  future bump only ever needs to change the two constants below.
 // ═══════════════════════════════════════════════════════════════
-const RES_BUILD = 'r483';
+const RES_BUILD = 'r487';
 const RES_BUILD_DATE = '13-Aug-2026';
 function resRenderVersionFooter() {
   const label = RES_BUILD;
@@ -5533,7 +5546,11 @@ async function resRenderBothSemMerit() {
         <td onclick="resShowStudentModal('${q.urn}')" style="font-family:var(--mono);font-size:10px;color:var(--muted);">${q.urn}</td>
         <td style="font-weight:600;"><div style="display:flex;align-items:center;gap:7px;">
           ${_hasPhoto
-            ? `<span onclick="resShowStudentModal('${q.urn}')" style="cursor:pointer;">${_resAvatar(q.urn,q.name,28)}</span>`
+            ? `<span style="position:relative;display:inline-flex;flex-shrink:0;">
+                 <span onclick="resShowStudentModal('${q.urn}')" style="cursor:pointer;">${_resAvatar(q.urn,q.name,28)}</span>
+                 ${RES_PHOTO_DEL_MODE ? `<span onclick="event.stopPropagation();resRemoveStudentPhoto('${q.urn}',${_resJsAttr(q.name)})" title="Delete this photo and ask for a new one"
+                   style="position:absolute;top:-5px;right:-5px;width:15px;height:15px;border-radius:50%;background:var(--danger,#f66);color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1.5px solid var(--surface);line-height:1;">&times;</span>` : ''}
+               </span>`
             : `<span onclick="event.stopPropagation();resTriggerPhotoPick('${q.urn}')" title="Add photo" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;border:1.5px dashed var(--border);background:var(--surface2);display:inline-flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;">📷</span>`}
           <input type="file" accept="image/*" id="photo-file-${q.urn}" style="display:none;" onchange="event.stopPropagation();resHandlePhotoFilePicked('${q.urn}',this,'${_photoBadgeId}')" onclick="event.stopPropagation();" />
           <span onclick="resShowStudentModal('${q.urn}')" style="cursor:pointer;">${q.name}</span>
@@ -5543,7 +5560,11 @@ async function resRenderBothSemMerit() {
         <td onclick="resShowStudentModal('${q.urn}')" style="font-family:var(--mono);font-weight:700;color:var(--ok);">Sem ${q.semB}: ${q.pctB.toFixed(1)}%</td>
         <td><button id="wa-btn-both-${q.urn}" onclick="event.stopPropagation();bothSemMeritWASend('${q.urn}','${g.semA}','${g.semB}',this)"
           style="font-size:11px;padding:5px 12px;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;transition:all .2s;border:1px solid ${isSent?'var(--ok)':'#25d366'};background:${isSent?'rgba(34,197,94,.15)':'rgba(37,211,102,.1)'};color:${isSent?'var(--ok)':'#25d366'};"
-          >${isSent?'✅ Sent':'📲 Send'}</button></td>
+          >${isSent?'✅ Sent':'📲 Send'}</button>${_hasPhoto ? '' : `
+          <button id="wa-btn-photo-${q.urn}" onclick="event.stopPropagation();resPhotoRequestWASend('${q.urn}',${_resJsAttr(q.name)},this)"
+            title="Send only a photo request — no felicitation details"
+            style="font-size:11px;padding:5px 10px;margin-top:4px;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;border:1px solid var(--border);background:var(--surface2);color:var(--muted);display:block;"
+            >📷 Ask photo</button>`}</td>
       </tr>
       <tr data-bsm-sub="${_bsmHay}" style="background:var(--bg);">
         <td></td>
@@ -5598,6 +5619,47 @@ async function resRenderBothSemMerit() {
   }).join('');
 
   resBothSemSearch(); // r480: keep any active search applied across re-renders
+}
+
+// r485: photo-delete arming flag. Deliberately NOT persisted -- the whole
+// point is that it goes off by itself. localStorage would let it sit armed
+// across sessions, which is exactly the always-on state this replaces. It also
+// self-disarms after each successful delete (see resRemoveStudentPhoto), so
+// removing three bad photos is three deliberate arm-then-delete actions rather
+// than one arm and three taps near an avatar people also tap to open a modal.
+let RES_PHOTO_DEL_MODE = false;
+
+// r487: JSON.stringify() is the right way to embed a name that may contain an
+// apostrophe into a JS call (r484's reasoning was correct), but its output is
+// wrapped in DOUBLE quotes -- and these calls sit inside double-quoted onclick
+// attributes, so the HTML parser closed the attribute at the opening quote of
+// the name. Firefox then compiled the truncated handler and threw
+// "expected expression, got '}'" at line 2 col 1 -- the closing brace of the
+// function wrapper it builds around inline handler source, which is why the
+// error pointed at the document rather than at any line of real code.
+// Escaping the quotes as &quot; keeps the attribute intact; the HTML parser
+// converts them back before the handler is compiled, so the JS still sees a
+// proper double-quoted string literal.
+function _resJsAttr(s) {
+  return JSON.stringify(s == null ? '' : String(s)).replace(/"/g, '&quot;');
+}
+
+function resTogglePhotoDelMode(on) {
+  RES_PHOTO_DEL_MODE = !!on;
+  const wrap = document.getElementById('res-photo-del-wrap');
+  if (wrap) {
+    wrap.style.borderColor = on ? 'var(--danger,#f66)' : 'var(--border)';
+    wrap.style.color       = on ? 'var(--danger,#f66)' : 'var(--muted)';
+  }
+  resRenderBothSemMerit();
+}
+
+function resDisarmPhotoDelMode() {
+  RES_PHOTO_DEL_MODE = false;
+  const box = document.getElementById('res-photo-del-mode');
+  if (box) box.checked = false;
+  const wrap = document.getElementById('res-photo-del-wrap');
+  if (wrap) { wrap.style.borderColor = 'var(--border)'; wrap.style.color = 'var(--muted)'; }
 }
 
 // r480: display-only filter over the rendered Both-Sems table. Hides a
@@ -6913,26 +6975,95 @@ async function resUnlockPhotoUploads(urn) {
 // Pulls a photo back off if it turns out to be unusable. Clears the live photo
 // AND the counter in one action, since the only reason to remove a photo is to
 // ask for a better one.
-async function resRemoveStudentPhoto(urn) {
+// r484: callable from EITHER the Photo Manager or a merit row. The row is the
+// important caller: Photo Manager only ever lists students who came through the
+// upload link, so a photo added by the admin's own camera button (r475) or
+// carried over from index.html could not be removed anywhere in the UI at all.
+// Whoever calls it, all three locations are cleared -- the Firestore field, the
+// davan_pub mirror, and the upload counter -- so a student whose photo is
+// deleted always gets their attempts back, regardless of where the bad photo
+// originally came from.
+async function resRemoveStudentPhoto(urn, nameHint) {
   const rec = RES_PHOTO_INBOX[urn] || {};
-  if (!confirm(`Remove ${rec.name || urn}'s photo?\n\nIt is deleted everywhere in the app and their upload count resets, so they can send a replacement using the same link.`)) return;
+  const who = rec.name || nameHint || urn;
+  if (!confirm(`Remove ${who}'s photo?\n\nIt is deleted everywhere in the app and their upload count resets, so they can send a replacement using the same link.`)) return;
   const badge = document.getElementById('pi-badge-' + urn);
   if (badge) { badge.textContent = '⏳'; badge.style.color = 'var(--muted)'; }
   const key = (urn||'').toUpperCase().trim();
+  // r486 (reported: clicking delete did nothing, even after a hard refresh).
+  // HONEST STATUS: the on-page SyntaxError the person hit turned out to be a
+  // stale/corrupted file in their browser, not a real bug in this function --
+  // both script blocks parse cleanly and 'student_photos' delete-then-mirror
+  // is standard, documented Firestore usage. Kept two genuine improvements
+  // anyway, since they were correct on inspection independent of that report:
+  // (1) 'student_photos' was never added to _rtdbPubPath's id->path map, so
+  // fsSetMerge's mirror step silently had nothing to mirror TO for this doc --
+  // not a crash, just a no-op every time. Bypassed entirely below by talking
+  // to Firestore and the RTDB mirror directly, so this delete no longer
+  // depends on that map being correct. (2) the RTDB removal was previously
+  // fire-and-forget with only a console.warn; it is now awaited so a genuine
+  // failure surfaces as the same '✗ failed' badge the button already had,
+  // instead of silently leaving stale data in the one place resPhotos reads
+  // from on every reload.
   try {
-    await fsSetMerge('app_data', 'student_photos',
-      { [key]: firebase.firestore.FieldValue.delete() });
-    try { await rtdb.ref('davan_pub/student_photos/' + key).remove(); } catch(e) { console.warn('[resRemoveStudentPhoto] mirror', e); }
+    await db.collection('app_data').doc('student_photos')
+      .set({ [key]: firebase.firestore.FieldValue.delete() }, { merge:true });
+    await rtdb.ref('davan_pub/student_photos/' + key).remove();
     delete resPhotos[key];
     await rtdb.ref('davan_pub/photo_uploads/' + urn).remove();
     delete RES_PHOTO_INBOX[urn];
-    resRenderPhotoInbox(); resRenderPhotoBadge();
-    resRenderBothSemMerit(); // row falls back to the camera emoji
-    resToast('Removed', 'Photo deleted — they can upload a new one', 'success');
+    // Only repaint the manager if it is actually on screen -- this is now
+    // reachable from a table row with the modal closed.
+    if (document.getElementById('res-photo-inbox-modal')?.style.display === 'flex') resRenderPhotoInbox();
+    resRenderPhotoBadge();
+    resDisarmPhotoDelMode(); // r485: re-arm required for the next delete
+    resRenderBothSemMerit(); // row falls back to the camera emoji + Ask button
+    resToast('Removed', 'Photo deleted — ask them for a new one', 'success');
   } catch(e) {
     console.error('[resRemoveStudentPhoto]', e);
     if (badge) { badge.textContent = '✗ failed'; badge.style.color = 'var(--danger,#f66)'; }
   }
+}
+
+// ── Photo request message (r484) ──────────────────────────────────────────
+// Deliberately SEPARATE from bothSemMeritWASend rather than a flag on it. That
+// message is the felicitation invitation and carries the percentages, ceremony
+// details and the scholarship announcement; re-sending the whole thing just to
+// ask for a replacement photo would read as a duplicate congratulations and
+// invite confusion about whether they have been nominated twice. This is a
+// short follow-up that assumes the first message was already received.
+// Plain text, no emoji -- same reason as r480. Wording branches on whether a
+// photo is currently on file, so a student who sent an unusable one is not
+// told we never received anything.
+async function resPhotoRequestWASend(urn, name, btn) {
+  await resEnsurePhoneBook();
+  await resEnsureContactOvLoaded();
+  const phone = resGetPhoneOverridable(urn) || '';
+  const first = String(name || '').trim().split(/\s+/)[0] || 'Student';
+  const has = !!resPhotos[(urn||'').toUpperCase()];
+
+  const msg = `Dear ${first},
+
+${has
+  ? 'The photograph you sent for the Felicitation Ceremony cannot be used, as it does not meet the requirements for the ceremony records.'
+  : 'We still do not have your photograph for the Felicitation Ceremony.'}
+
+Please send a fresh photo using your personal link below:
+${resPhotoUploadLink(urn, name)}
+
+Requirements:
+- Recent passport-style photo, head and shoulders only
+- Face the camera directly, plain light background
+- Formal dress or college uniform
+- Not a selfie, and not cropped from a group or function photo
+
+Please do not share this link, it is only for you. Kindly send it at the earliest so that your photo is included in the ceremony records.
+
+Warm Regards,
+Davan Institute of Advanced Management Studies`;
+
+  if (btn) { btn.textContent = 'Asked'; btn.style.opacity = '.65'; }
+  waShowModal(`${first} — Photo Request`, msg, phone);
 }
 
 // ── Bulk photo download for the ceremony slide deck ────────────────────────
