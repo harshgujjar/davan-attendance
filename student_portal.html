@@ -17,6 +17,66 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.05 (2026-08-14) — CRITICAL FIX: the RTDB download quota blowout, and
+  its real cause. DB2 hit 51.9 GB against Spark's 10 GB/month cap (41.9 GB over,
+  graph flatlines 12-Aug), Firebase throttled the database, and writes started
+  being rejected — which is why student widget reports froze and v8.04 had to be
+  written to stop the admin panel presenting a 2-day-old snapshot as fact. A read
+  loop broke the write path; the whole widget investigation was downstream of this.
+  ROOT CAUSE: startBroadcastPoll() ran setInterval(..., 10000) doing TWO rtdbGets
+  per tick (live_broadcast + live_banner) for the life of the tab, foreground or
+  background = 17,280 requests/day PER OPEN SESSION. Whole DB is 8.85 MB; 51.9 GB
+  is ~5,900 full-database downloads, ~195/day — a loop, not user traffic.
+  FIXED THREE WAYS, each sufficient alone: (1) visibility gate — hidden tab clears
+  the timer entirely, not just skips it, so a backgrounded PWA costs nothing (this
+  is most of the saving; the cost was never students actively reading); (2) interval
+  10s -> 60s via LIVE_POLL_MS, with an immediate tick on start and on tab-return so
+  perceived latency does not regress; (3) new LIVE_FEED_URL points at a Cloudflare
+  Worker (live-worker.js, shipped alongside) that reads the two nodes once per 30s
+  and serves all students from edge cache — Firebase now takes a FIXED ~2,880
+  reads/day for this feature regardless of whether 5 or 500 students are online,
+  and Cloudflare bills no egress. Client count is decoupled from RTDB cost.
+  NOT an SDK onValue listener, deliberately: Spark caps SIMULTANEOUS CONNECTIONS at
+  100, so persistent listeners would swap a bandwidth ceiling for a connection
+  ceiling and silently lock out student 101. Polling a cache is the right shape.
+  LIVE_FEED_URL = '' falls back to reading Firebase directly (still gated, still
+  60s), so this file is safe to ship BEFORE the Worker is deployed and a Worker
+  outage degrades instead of killing broadcasts. Also fixed in passing: the banner
+  was fetched INSIDE the early-returning broadcast block, so if no broadcast had
+  ever been sent the banner was never evaluated at all — now checked every tick.
+  stopBroadcastPoll() added and called on sign-out (a signed-out tab kept polling).
+VERSION : v8.04 (2026-08-14) — FIX + FEAT, both from one real incident: a paired
+  student (U13DI25S0027, motorola edge 50 pro) whose widget face read [w26 · v8.03]
+  while this portal insisted "⬆ v21 outdated · last seen 2 d ago". Evidence chain:
+  the face's "v8.03" can ONLY come from student_widget_latest.portalVersion, which
+  is written by stuPublishLatestWidgetApk() — and v8.03 shipped 13 Aug, so the
+  widget READ that node within a day, while report.ts stayed 2 days cold. Reads
+  work; writes to davan_pub/student_widget_report do not. (Widget-side conclusion,
+  not fixed here: the face is printing latest.apkVersion rather than its own
+  THIS_APK_VERSION, which is also why a w21 build never showed the update nag —
+  fix belongs in StudentFetchWorker.kt. Prime suspect for the dead write is an
+  RTDB rules tightening on davan_pub.)
+  (1) FIX — the portal was stating a frozen snapshot as current fact. New
+  WC_STALE_MS (24h) + st.stale in wcGetStudentStatus(): a report older than a day
+  no longer produces an "outdated" verdict (the version we hold is not evidence of
+  what is installed now), and no longer feeds NOTIF OFF / REMINDERS DEAD either —
+  those read the same frozen node, so a silent phone was padding live-fault counts.
+  Row badge renders "🕑 w21 · stale (2 d)" in danger red instead of the confident
+  outdated chip, with a banner saying every line under it (including the reassuring
+  green "✓ Class reminders working") is LAST KNOWN state, plus the three usual
+  causes. New STALE summary card + "🕑 Stale (not reporting)" filter chip; table
+  filters carry the same !st.stale guard so chip and card can never disagree.
+  (2) FEAT — download funnel. The APK is a static file on GitHub Pages, which
+  publishes no per-file download stats, so "has anyone downloaded it" was
+  unanswerable anywhere (GitHub only counts downloads on RELEASE assets — moving
+  the APK to a Release would give a real count via the API). New
+  stuLogApkDownload() on the Get The App button writes
+  davan_pub/student_widget_dl_clicks/<URN> {name,class,taps,firstAt,lastAt,ver} —
+  read-then-patch so repeat taps stay one row per student and a key count answers
+  "how many students". Fire-and-forget, all failures swallowed to console: a
+  logging write must never block a student getting the app. New DOWNLOAD TAPS card
+  shows unique students · total taps → paired, i.e. top and bottom of the funnel
+  side by side, since a tap is NOT an install and must never be quoted alone.
 VERSION : v7.58 (2026-08-03) — FEAT: made the emoji summary tiles clickable filters
   across all Engagement-tab feedback lists — Login Feedback responses
   (renderLfResponseList/lfFilterByEmoji) and Calculator/Report-Card feedback
@@ -4258,6 +4318,7 @@ body.dash-active .data-strip { display: block; }
       <button class="notice-chip" id="wc-status-paired"    onclick="setWcStatusFilter('paired')"    style="font-size:11px;">✓ Paired</button>
       <button class="notice-chip" id="wc-status-unpaired"  onclick="setWcStatusFilter('unpaired')"  style="font-size:11px;">— Not paired</button>
       <button class="notice-chip" id="wc-status-outdated"  onclick="setWcStatusFilter('outdated')"  style="font-size:11px;">⬆ Outdated</button>
+      <button class="notice-chip" id="wc-status-stale"     onclick="setWcStatusFilter('stale')"     style="font-size:11px;">🕑 Stale (not reporting)</button>
       <button class="notice-chip" id="wc-status-banned"    onclick="setWcStatusFilter('banned')"    style="font-size:11px;">🚫 Widget-banned</button>
       <button class="notice-chip" id="wc-status-notifoff" onclick="setWcStatusFilter('notifoff')" style="font-size:11px;">🔕 Notif off</button>
       <button class="notice-chip" id="wc-status-reminderbroken" onclick="setWcStatusFilter('reminderbroken')" style="font-size:11px;">⚠ Reminders dead</button>
@@ -4954,8 +5015,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.03';
-const BUILD_DATE   = '13 Aug 2026, 02:40 AM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v8.05';
+const BUILD_DATE   = '14 Aug 2026, 07:45 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
 // APP_VERSION above. APP_VERSION tracks this PWA's own release number;
@@ -6455,6 +6516,7 @@ function doLogout() {
   // Close welcome toast backdrop if open
   closeWelcomeToast();
   stuStopHeartbeat();
+  stopBroadcastPoll();   // v8.05: a signed-out tab must not keep polling the live feed
   // Clear this device's widget pairing on student logout — mirrors
   // index.html's davanWidgetSync() logout branch (deletes the identity
   // node, keeps the device's own pair code remembered locally) so the
@@ -13133,15 +13195,92 @@ function showBroadcastToast(msg) {
   saveBellItem({ type:'broadcast', msg });
 }
 
+/* ════════════════════════════════════════════════════
+   v8.05 — LIVE FEED: OFF FIREBASE, AND OFF THE 10-SECOND CLOCK
+
+   WHAT THIS REPLACED, AND WHAT IT COST:
+   the old startBroadcastPoll() ran setInterval(…, 10000) and did TWO
+   rtdbGet calls per tick — live_broadcast and live_banner — for as long
+   as the tab existed, whether or not anyone was looking at it. That is
+   17,280 RTDB requests per day PER OPEN SESSION. On 14-Aug-2026 it took
+   the DB2 project to 51.9 GB of downloads against Spark's 10 GB/month
+   cap, the database was throttled, and the first visible symptom was
+   completely unrelated-looking: student widget reports silently stopped
+   being written, so the admin panel served a frozen two-day-old snapshot
+   as current fact (see v8.04). A read loop broke the write path.
+
+   THREE INDEPENDENT FIXES, EACH ENOUGH ON ITS OWN:
+
+   1. VISIBILITY GATE. A backgrounded tab polls nothing. This alone is
+      most of the saving, because the dominant cost was never students
+      actively reading the portal — it was phones with the PWA left open
+      in the background for hours.
+
+   2. INTERVAL 10s → 60s. Nothing here is worth ten-second latency; a
+      broadcast that lands within a minute is indistinguishable to a
+      human reading a toast.
+
+   3. THE FEED MOVES OFF FIREBASE. LIVE_FEED_URL points at a Cloudflare
+      Worker (live-worker.js, shipped alongside this file) that reads the
+      two nodes ONCE per cache window and serves every student from its
+      own edge cache. This is the structural fix: Firebase now takes a
+      fixed ~2,880 reads/day for this feature no matter whether 5 students
+      or 500 are online — client count is fully decoupled from RTDB
+      egress. Cloudflare bills no egress at all.
+
+   WHY NOT AN SDK onValue LISTENER (the obvious answer): Spark caps
+   SIMULTANEOUS CONNECTIONS at 100. Persistent listeners would have swapped
+   a bandwidth ceiling for a connection ceiling and locked out student 101
+   entirely — a worse failure, and a silent one. Polling a cache is the
+   right shape here. On Blaze (200k connections) a listener becomes viable;
+   it is still not necessary.
+
+   FALLBACK IS DELIBERATE: leave LIVE_FEED_URL as '' and everything below
+   reads Firebase directly exactly as before, just gated and at 60s. So
+   this file is safe to ship BEFORE the Worker is deployed, and a Worker
+   outage degrades to the old path instead of killing broadcasts.
+════════════════════════════════════════════════════ */
+// Set this to the deployed Worker URL, e.g.
+//   'https://davan-live.<your-subdomain>.workers.dev/live'
+// Empty string = read Firebase directly (fallback mode).
+const LIVE_FEED_URL = '';
+const LIVE_POLL_MS  = 60000;   // was 10000 — see note above
+
 let _broadcastPollTimer = null;
 let _lastBroadcastTs = 0;
-function startBroadcastPoll() {
-  if (_broadcastPollTimer) return; // already running
-  _broadcastPollTimer = setInterval(async () => {
+let _liveVisHooked = false;
+
+// One fetch for BOTH nodes. Via the Worker that is a single request
+// returning {broadcast, banner}; in fallback mode it is the same two
+// rtdbGets the old code did. Callers do not care which path ran.
+async function _liveFetchFeed() {
+  if (LIVE_FEED_URL) {
     try {
-      const data = await rtdbGet('davan_pub/live_broadcast').catch(()=>null);
-      if (!data || !data.msg || !data.ts) return;
-      if (data.ts <= _lastBroadcastTs) return;
+      const res = await fetch(LIVE_FEED_URL, { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const j = await res.json();
+      return { broadcast: j.broadcast || null, banner: j.banner || null };
+    } catch (e) {
+      // Worker down / DNS / offline — fall through to Firebase rather
+      // than dropping broadcasts entirely. Logged once per tick, quietly.
+      console.warn('[LiveFeed] worker fetch failed, using Firebase:', e && e.message);
+    }
+  }
+  const [broadcast, banner] = await Promise.all([
+    rtdbGet('davan_pub/live_broadcast').catch(() => null),
+    rtdbGet('davan_pub/live_banner').catch(() => null)
+  ]);
+  return { broadcast, banner };
+}
+
+async function _liveFeedTick() {
+  // Second guard behind the visibility gate: covers the case where the
+  // tab is hidden between an interval firing and this running.
+  if (document.hidden) return;
+  try {
+    const { broadcast: data, banner } = await _liveFetchFeed();
+
+    if (data && data.msg && data.ts && data.ts > _lastBroadcastTs) {
       _lastBroadcastTs = data.ts;
       const urn = (STATE.studentUser && STATE.studentUser.urn || '').toUpperCase();
       const cls = STATE.studentUser && STATE.studentUser.class || '';
@@ -13154,22 +13293,55 @@ function startBroadcastPoll() {
         || (data.target==='class' && data.targetValue===cls)
         || (data.target==='urn'   && data.targetValue===urn);
       if (shows) showBroadcastToast(data.msg);
-      // Also re-fetch banner
-      const banner = await rtdbGet('davan_pub/live_banner').catch(()=>null);
-      if (banner) {
-        const myStatus = (STATE.studentUser && STATE.studentUser.status) || '';
-        const myPassoutAY = (STATE.studentUser && STATE.studentUser.passoutAY) || '';
-        const bs = banner.target==='all'
-          || (banner.target==='passout' && myStatus==='passout'
-                && (!(banner.passoutAYs && banner.passoutAYs.length) || banner.passoutAYs.includes(myPassoutAY))
-                && (!(banner.passoutClasses && banner.passoutClasses.length) || banner.passoutClasses.includes(cls)))
-          || (banner.target==='class' && Array.isArray(banner.targetClasses) && banner.targetClasses.length
-                ? banner.targetClasses.includes(cls) : (banner.target==='class' && banner.targetValue===cls))
-          || (banner.target==='urn'   && banner.targetValue===urn);
-        if (bs) renderLiveBanner(banner); else { const b=document.getElementById('live-banner-bar'); if(b){b.style.display='none';} }
+    }
+
+    /* v8.05: the banner is now evaluated on EVERY tick, not only when a
+       new broadcast arrived. The old code fetched it inside the
+       early-returning broadcast block, so if no broadcast had ever been
+       sent (data.msg missing) the banner was never checked at all — a
+       banner set by admin would not appear until a broadcast happened to
+       fire. Same targeting logic, just reachable now. */
+    if (banner) {
+      const urn = (STATE.studentUser && STATE.studentUser.urn || '').toUpperCase();
+      const cls = STATE.studentUser && STATE.studentUser.class || '';
+      const myStatus = (STATE.studentUser && STATE.studentUser.status) || '';
+      const myPassoutAY = (STATE.studentUser && STATE.studentUser.passoutAY) || '';
+      const bs = banner.target==='all'
+        || (banner.target==='passout' && myStatus==='passout'
+              && (!(banner.passoutAYs && banner.passoutAYs.length) || banner.passoutAYs.includes(myPassoutAY))
+              && (!(banner.passoutClasses && banner.passoutClasses.length) || banner.passoutClasses.includes(cls)))
+        || (banner.target==='class' && Array.isArray(banner.targetClasses) && banner.targetClasses.length
+              ? banner.targetClasses.includes(cls) : (banner.target==='class' && banner.targetValue===cls))
+        || (banner.target==='urn'   && banner.targetValue===urn);
+      if (bs) renderLiveBanner(banner); else { const b=document.getElementById('live-banner-bar'); if(b){b.style.display='none';} }
+    }
+  } catch(e) {}
+}
+
+function startBroadcastPoll() {
+  if (_broadcastPollTimer) return; // already running
+  _liveFeedTick();                 // once immediately, don't wait 60s
+  _broadcastPollTimer = setInterval(_liveFeedTick, LIVE_POLL_MS);
+
+  // Visibility gate. Hidden tab => timer cleared entirely (not just
+  // skipped), so a backgrounded PWA costs literally nothing. On return,
+  // tick at once so a student who reopens the app sees a broadcast
+  // immediately rather than up to a minute later.
+  if (!_liveVisHooked) {
+    _liveVisHooked = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (_broadcastPollTimer) { clearInterval(_broadcastPollTimer); _broadcastPollTimer = null; }
+      } else if (STATE.studentUser && !_broadcastPollTimer) {
+        _liveFeedTick();
+        _broadcastPollTimer = setInterval(_liveFeedTick, LIVE_POLL_MS);
       }
-    } catch(e) {}
-  }, 10000); // poll every 10s
+    });
+  }
+}
+
+function stopBroadcastPoll() {
+  if (_broadcastPollTimer) { clearInterval(_broadcastPollTimer); _broadcastPollTimer = null; }
 }
 
 /* Update sidebar profile block */
@@ -17994,6 +18166,9 @@ async function toggleBan(urn) {
 ════════════════════════════════════════════════════ */
 STATE.wcStatusFilter = STATE.wcStatusFilter || '';
 STATE.wcFilterClass  = STATE.wcFilterClass  || '';
+// v8.04: a widget report older than this is treated as "device not
+// reporting", not as fact about that phone. See wcGetStudentStatus().
+const WC_STALE_MS = 24 * 60 * 60 * 1000;
 STATE._wcReports  = {}; // pairCode -> {apkVersion, notifOn, ts}
 STATE._wcActive   = {}; // pairCode -> {urn, name, class, urgentMessage}
 STATE._wcUrnToPairCode = {}; // urn -> pairCode (derived by joining active nodes)
@@ -18006,12 +18181,20 @@ async function loadWidgetCtrlData() {
   const listEl = document.getElementById('wc-student-list');
   if (listEl) listEl.innerHTML = '<div style="padding:20px 0;color:var(--muted);font-size:12px;">⏳ Loading widget status…</div>';
   try {
-    const [reportsRaw, activeRaw, bannedRaw, latestRaw] = await Promise.all([
+    const [reportsRaw, activeRaw, bannedRaw, latestRaw, dlRaw] = await Promise.all([
       rtdbGet('davan_pub/student_widget_report').catch(() => null),
       rtdbGet('davan_pub/student_widget_active').catch(() => null),
       rtdbGet('controls/bannedStudents').catch(() => null),
       rtdbGet('davan_pub/student_widget_latest').catch(() => null),
+      // v8.04: download tap log — top of the install funnel (stuLogApkDownload)
+      rtdbGet('davan_pub/student_widget_dl_clicks').catch(() => null),
     ]);
+    // Unique students who tapped vs total taps. Both matter: 40 taps from
+    // 3 students is a very different story from 40 taps from 40.
+    const dl = dlRaw && typeof dlRaw === 'object' && !Array.isArray(dlRaw) ? dlRaw : {};
+    STATE._wcDlClicks = dl;
+    STATE._wcDlUnique = Object.keys(dl).length;
+    STATE._wcDlTotal  = Object.values(dl).reduce((n, r) => n + ((r && r.taps) || 0), 0);
     STATE._wcReports = reportsRaw && typeof reportsRaw === 'object' ? reportsRaw : {};
     STATE._wcActive  = activeRaw  && typeof activeRaw  === 'object' ? activeRaw  : {};
     STATE._wcLatestApkVersion = (latestRaw && latestRaw.apkVersion) || 0;
@@ -18072,7 +18255,7 @@ function renderWcClassChips() {
 function setWcClass(cls) { STATE.wcFilterClass = cls; renderWcClassChips(); renderWcTable(); }
 function setWcStatusFilter(status) {
   STATE.wcStatusFilter = status;
-  ['all','paired','unpaired','outdated','banned','notifoff','reminderbroken'].forEach(s => {
+  ['all','paired','unpaired','outdated','stale','banned','notifoff','reminderbroken'].forEach(s => {
     const el = document.getElementById('wc-status-' + (s === 'all' ? 'all' : s));
     if (el) el.classList.toggle('active', (status === '' && s === 'all') || status === s);
   });
@@ -18094,8 +18277,28 @@ function wcGetStudentStatus(urn) {
   }
   const report = STATE._wcReports[pairCode] || null;
   const active = STATE._wcActive[pairCode] || null;
-  const outdated = !!(report && STATE._wcLatestApkVersion && report.apkVersion < STATE._wcLatestApkVersion);
-  return { paired: true, outdated, banned: isWidgetBanned || isFullyBanned, pairCode, report, active };
+  /* v8.04 — STALE REPORTS MUST NOT BE READ AS VERDICTS.
+     Everything this function knows about a phone comes from
+     student_widget_report/<pairCode>, which the APK rewrites on every
+     fetch. If that node stops being written — RTDB rules blocking the
+     write, the worker never running, the app force-stopped — the node
+     does not go away, it FREEZES. The portal then keeps re-serving a
+     two-day-old snapshot as though it were current, and the row states
+     "v21 outdated" and "✓ Class reminders working" with total confidence
+     about a device it has not heard from since Tuesday.
+     That is worse than saying nothing: it sends you chasing an APK
+     version when the real fault is that the device is not reporting AT
+     ALL. So anything older than WC_STALE_MS is flagged stale, and stale
+     suppresses the outdated verdict (the version we hold is simply not
+     evidence of what is installed now) — it does NOT suppress the raw
+     numbers, which still render, just labelled as the old readings they
+     are. 24h is deliberately generous: the widget's own cycle is ~30
+     min, so a full day of silence is unambiguous, not a missed tick. */
+  const ts    = report && report.ts ? report.ts : 0;
+  const stale = !!(report && (!ts || (Date.now() - ts) > WC_STALE_MS));
+  const outdated = !!(report && !stale && STATE._wcLatestApkVersion && report.apkVersion < STATE._wcLatestApkVersion);
+  return { paired: true, outdated, stale, reportAgeMs: ts ? (Date.now() - ts) : 0,
+           banned: isWidgetBanned || isFullyBanned, pairCode, report, active };
 }
 
 /* v7.94: THE 677 BUG. Every count and the student list itself ran over
@@ -18121,15 +18324,19 @@ function renderWcSummary() {
   const el = document.getElementById('wc-summary');
   if (!el) return;
   const all = wcLiveStudents();
-  let paired = 0, unpaired = 0, outdated = 0, banned = 0, notifOff = 0, reminderBroken = 0;
+  let paired = 0, unpaired = 0, outdated = 0, stale = 0, banned = 0, notifOff = 0, reminderBroken = 0;
   all.forEach(s => {
     const st = wcGetStudentStatus(s.urn);
     if (st.banned) banned++;
     if (st.paired) {
       paired++;
-      if (st.outdated) outdated++;
-      if (st.report && st.report.notifOn === false) notifOff++;
-      if (st.report && st.report.reminderReady === false) reminderBroken++;
+      if (st.stale) stale++;
+      if (st.outdated) outdated++;   // v8.04: mutually exclusive with stale
+      // v8.04: notifOff / reminderBroken are read off the SAME frozen node,
+      // so a stale device must not be counted as a live fault either — it
+      // would pad "REMINDERS DEAD" with phones we simply cannot hear from.
+      if (!st.stale && st.report && st.report.notifOn === false) notifOff++;
+      if (!st.stale && st.report && st.report.reminderReady === false) reminderBroken++;
     } else unpaired++;
   });
   // v7.94: cards are clickable — each one sets the status filter below, so
@@ -18145,7 +18352,8 @@ function renderWcSummary() {
   el.innerHTML =
     cell('PAIRED', paired, 'var(--ok)', 'paired', 'Students whose widget is installed and linked') +
     cell('NOT PAIRED', unpaired, 'var(--muted)', 'unpaired', 'Live students with no widget linked yet') +
-    cell('OUTDATED', outdated, 'var(--warn)', 'outdated', 'Paired but running an older APK than published') +
+    cell('OUTDATED', outdated, 'var(--warn)', 'outdated', 'Paired, reporting, and running an older APK than published') +
+    cell('STALE', stale, 'var(--danger)', 'stale', 'Paired but has not reported in over 24h — its version and reminder status are unknown, not confirmed') +
     cell('WIDGET-BANNED', banned, 'var(--danger)', 'banned', 'Widget blocked; portal login still allowed') +
     cell('NOTIF OFF', notifOff, 'var(--danger)', 'notifoff', 'Android is blocking this app notifications') +
     cell('REMINDERS DEAD', reminderBroken, 'var(--danger)', 'reminderbroken', 'Paired but class reminders cannot be delivered') +
@@ -18153,6 +18361,20 @@ function renderWcSummary() {
       <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:.05em;">LIVE STUDENTS</div>
       <div style="font-size:20px;font-weight:700;color:var(--text);margin-top:2px;">${all.length}</div>
       <div style="font-size:9px;color:var(--muted);margin-top:1px;">this AY only</div>
+    </div>` +
+    /* v8.04: THE FUNNEL. The APK is a static file on GitHub Pages, which
+       publishes no download statistics whatsoever — so "has anybody even
+       downloaded it" was unanswerable from any dashboard, GitHub's
+       included. The Download button now logs a tap per student, which
+       gives the top of the funnel; PAIRED is the bottom. The gap between
+       the two numbers is the diagnosis: 0 taps is a promotion problem
+       (students don't know the page exists), many taps but few pairs is
+       an install/permissions problem (sideload warning, unknown-sources
+       block, or the pairing step losing them). */
+    `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:130px;">
+      <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:.05em;">DOWNLOAD TAPS</div>
+      <div style="font-size:20px;font-weight:700;color:var(--accent);margin-top:2px;">${STATE._wcDlUnique || 0}</div>
+      <div style="font-size:9px;color:var(--muted);margin-top:1px;">students · ${STATE._wcDlTotal || 0} taps → ${paired} paired</div>
     </div>`;
 }
 
@@ -18173,9 +18395,13 @@ function renderWcTable() {
     if (status === 'paired')   return st.paired;
     if (status === 'unpaired') return !st.paired;
     if (status === 'outdated') return st.paired && st.outdated;
+    if (status === 'stale')    return st.paired && st.stale;
     if (status === 'banned')   return st.banned;
-    if (status === 'notifoff')       return st.paired && st.report && st.report.notifOn === false;
-    if (status === 'reminderbroken') return st.paired && st.report && st.report.reminderReady === false;
+    // v8.04: !st.stale mirrors renderWcSummary exactly — chip and card must
+    // never disagree about who is in a bucket (same rule as wcGetStudentStatus
+    // being the single source of truth).
+    if (status === 'notifoff')       return st.paired && !st.stale && st.report && st.report.notifOn === false;
+    if (status === 'reminderbroken') return st.paired && !st.stale && st.report && st.report.reminderReady === false;
     return true;
   }).slice(0, 50); // same 420-student scale cap as Banned Students
 
@@ -18192,9 +18418,15 @@ function renderWcTable() {
 
     let statusBadge = '<span style="font-size:10px;color:var(--muted);">— not paired</span>';
     if (st.paired) {
-      statusBadge = st.outdated
-        ? `<span style="font-size:10px;font-weight:700;color:var(--warn);">⬆ v${st.report ? st.report.apkVersion : '?'} outdated</span>`
-        : `<span style="font-size:10px;font-weight:700;color:var(--ok);">✓ up to date</span>`;
+      // v8.04: stale outranks both verdicts — we genuinely do not know
+      // this phone's state, and saying so is the useful answer.
+      if (st.stale) {
+        statusBadge = `<span style="font-size:10px;font-weight:700;color:var(--danger);">🕑 w${st.report && st.report.apkVersion ? st.report.apkVersion : '?'} · stale (${wcAgoLabel(st.report && st.report.ts)})</span>`;
+      } else {
+        statusBadge = st.outdated
+          ? `<span style="font-size:10px;font-weight:700;color:var(--warn);">⬆ v${st.report ? st.report.apkVersion : '?'} outdated</span>`
+          : `<span style="font-size:10px;font-weight:700;color:var(--ok);">✓ up to date</span>`;
+      }
     }
 
     return `<div style="padding:10px 14px;border-radius:8px;margin-bottom:6px;
@@ -18281,6 +18513,15 @@ function wcDeviceLine(st) {
   bits.push('🕑 last seen ' + wcAgoLabel(r.ts));
   if (r.apkVersion) bits.push('w' + r.apkVersion);
 
+  /* v8.04: when the report is stale every line below it is a LAST-KNOWN
+     reading, including the reassuring green "✓ Class reminders working".
+     Banner says so once, above them, rather than annotating each line. */
+  const staleBanner = st.stale ? `<div style="margin-top:4px;font-size:10px;color:var(--danger);">
+      🕑 This phone has not reported since ${wcAgoLabel(r.ts)} — everything below is its LAST KNOWN state, not current.
+      Version, reminder status and diagnostics are all frozen at that moment.
+      <span style="color:var(--muted);">Likely: RTDB write rules on davan_pub/student_widget_report, app force-stopped, or battery restriction killing the worker.</span>
+    </div>` : '';
+
   let fault = '';
   if (r.reminderReady === false) {
     // problem is a short human string the widget already computes, e.g.
@@ -18310,7 +18551,7 @@ function wcDeviceLine(st) {
     ? `<div style="margin-top:3px;font-size:10px;color:var(--warn);font-family:var(--mono);">💥 ${String(r.crashSummary).slice(0,140)}</div>`
     : '';
 
-  return `<div style="margin-top:5px;font-size:10px;color:var(--muted);font-family:var(--mono);">${bits.join('  ·  ')}</div>${fault}${crash}${dbgBlock}`;
+  return `<div style="margin-top:5px;font-size:10px;color:var(--muted);font-family:var(--mono);">${bits.join('  ·  ')}</div>${staleBanner}${fault}${crash}${dbgBlock}`;
 }
 
 function wcLessonPlanState(urn) {
@@ -18980,6 +19221,45 @@ async function stuApplyAppPageVisibility() {
   });
 }
 
+/* v8.04 — DOWNLOAD TAP LOG.
+   GitHub Pages serves the APK as a plain static file and publishes no
+   per-file download counts, so nothing anywhere could answer "has anyone
+   downloaded this yet". This records the one event we CAN see: a student
+   tapping the button while logged in, so the tap is attributable to a URN
+   with no extra identity plumbing.
+
+   WHAT THIS NUMBER IS NOT: it is a tap, not an install. A student can tap
+   and abandon at the unknown-sources warning, or tap from three devices.
+   Treated as the TOP of the funnel and always shown next to PAIRED (the
+   bottom), never quoted alone as "installs".
+
+   Deliberately fire-and-forget: no await on the anchor's default action,
+   and every failure is swallowed to console. A logging write must never
+   be able to stop a student getting the app — this whole feature is worth
+   less than one successful download. */
+async function stuLogApkDownload() {
+  try {
+    const u = STATE.studentUser;
+    if (!u || !u.urn) return;                   // admin previewing the page — don't log
+    const urn  = String(u.urn).toUpperCase();
+    const path = 'davan_pub/student_widget_dl_clicks/' + urn;
+    // Read-then-patch rather than a push-per-tap: at ~450 students this
+    // node stays one small object keyed by URN, and repeat taps by the
+    // same student stay one row (taps++) instead of flooding the log —
+    // which keeps "how many STUDENTS tapped" a straight key count.
+    let prev = null;
+    try { prev = await rtdbGet(path); } catch (e) { prev = null; }
+    await rtdbPatch(path, {
+      name:    u.name  || '',
+      class:   u.class || '',
+      taps:    ((prev && prev.taps) || 0) + 1,
+      firstAt: (prev && prev.firstAt) || Date.now(),
+      lastAt:  Date.now(),
+      ver:     LATEST_STUDENT_WIDGET_APK.apkVersion   // which build they were offered
+    });
+  } catch (e) { console.warn('[GetApp] download log failed:', e && e.message); }
+}
+
 function renderGetAppPanel() {
   const el = document.getElementById('getapp-body');
   if (!el) return;
@@ -19003,7 +19283,7 @@ function renderGetAppPanel() {
         It also reminds you <b>15 minutes before every class</b>, and sends tomorrow timetable every night at 8 PM.
       </div>
       <div style="margin-top:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <a href="${url}" target="_blank" rel="noopener"
+        <a href="${url}" target="_blank" rel="noopener" onclick="stuLogApkDownload()"
            style="display:inline-flex;align-items:center;gap:9px;background:var(--accent);color:#1a1400;font-weight:700;font-size:14px;padding:11px 20px;border-radius:9px;text-decoration:none;">
           <span style="font-size:20px;">⬇️</span> Download the app
         </a>
