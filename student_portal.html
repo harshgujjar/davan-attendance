@@ -17,6 +17,60 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.08 (2026-08-15) — SECURITY FIX + audit trail.
+  THE HOLE: stuCompleteWidgetPairing() fired on EVERY login and blindly overwrote
+  student_widget_active/<code> with whoever just logged in, where <code> comes from
+  localStorage — which belongs to the BROWSER, not the student. So any login on a
+  browser that had ever carried a ?wdev= code silently reassigned that physical
+  widget, and the phone's owner then saw a stranger's attendance, father's name and
+  mobile number on their home screen. Observed 15-Aug: widget GGV8VV displayed
+  NIKHIL R HAMSI to a device that had never signed in as him. Logout had the same
+  bug wearing a different hat — it deleted whatever node localStorage pointed at,
+  which is what stranded GGV8VV on "Widget not paired" at 21:56.
+  THE RULE NOW: an automatic pairing write may only CREATE a node or REFRESH one
+  already owned by the same URN. Taking over someone else's widget requires
+  stuPairByCode() — physically reading 6 characters off that phone's screen, which
+  is proof of possession; stale localStorage is not. Logout likewise only clears a
+  pairing that is actually ours. Manual takeover stays allowed but is logged with
+  the previous owner: allowed is not the same as invisible.
+  AUDIT TRAIL: davan_pub/student_login_log (every login attempt, allowed or blocked,
+  WITH the browser's remembered pair code — the field that identifies which browser
+  owns which widget) and davan_pub/student_widget_pair_log (every pairing create,
+  refresh, takeover, refusal and clear). Both readable in the admin Widget tab under
+  ACTIVITY LOG, because the Firebase console is not usable on the admin's phone.
+  KNOWN LIMIT, not fixable retroactively: the maintenance gate is client-side, so a
+  student still running a CACHED v8.05 has no gate to run and logs in normally
+  (observed: U13NU25S0031 on v8.05 during an active halt). Clients pick the switch
+  up when they load v8.06+.
+VERSION : v8.07 (2026-08-15) — FEAT: widget halt now drives davan_pub/widget_halt
+  {on,msg} as well as the ban list. w27+ reads that flag and renders a proper
+  "Under maintenance" screen (student's name and pairing KEPT, amber not danger red,
+  admin's own message shown); w26 knows nothing about it and still needs the ban-list
+  half, which shows "Access suspended" — wrong wording for a pause but it does stop
+  the fetch. Both written so a mixed fleet is covered; delete the ban-list half once
+  every device is on w27+, because telling a student their access is suspended when
+  it is not has a real cost. Resume clears both. LATEST_STUDENT_WIDGET_APK -> 27.
+VERSION : v8.06 (2026-08-15) — FEAT: two kill switches, built because the 14-Aug
+  quota incident had no OFF button. Both work on the w26 APK already installed.
+  (1) WIDGET HALT. The only stop signal w26 honours is controls/bannedStudents —
+  StudentPairing.isBanned() reads it every cycle and returns BEFORE buildFullStats(),
+  so a listed student skips all nine whole-node reads. maintHaltWidgets() adds every
+  paired URN there; maintResumeWidgets() removes exactly what it added, tracked in
+  davan_pub/maint_widget_halt, so a genuinely banned student is never un-banned by
+  Resume. loginStudent() SUBTRACTS the halt mirror from its ban check, so halting
+  widgets does not lock anyone out of the portal.
+  NOTE FOR LATER: controls/widgetBannedStudents — what the per-student "Ban widget"
+  button writes — appears NOWHERE in the w26 source. That button has never stopped a
+  widget, only changed this portal's display. Left as-is; the halt deliberately does
+  not use it. Next APK should read it (and a proper davan_pub/widget_halt flag, so a
+  halt can show "under maintenance" on the face instead of the ban screen).
+  (2) PORTAL MAINTENANCE MODE. davan_pub/portal_maintenance {on,msg,allowUrns[]}.
+  Blocks student logins with a custom message; admins always get in; allow-listed
+  URNs pass so a fix can be verified against one real account before readmitting 400.
+  Gate sits after the ban check (a banned student gets the ban message, not this one)
+  and before the password check, so no credential work runs while the portal is shut.
+  FAIL-OPEN by design: if the flag read throws, students are let in — a dead database
+  must not also become a locked portal. Read at login only, never polled.
 VERSION : v8.05 (2026-08-14) — CRITICAL FIX: the RTDB download quota blowout, and
   its real cause. DB2 hit 51.9 GB against Spark's 10 GB/month cap (41.9 GB over,
   graph flatlines 12-Aug), Firebase throttled the database, and writes started
@@ -4307,6 +4361,9 @@ body.dash-active .data-strip { display: block; }
          poll. Explained inline so nobody has to guess again. -->
     <div id="wc-publish-explain" style="font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:14px;line-height:1.6;"></div>
 
+    <!-- v8.06: KILL SWITCHES. Rendered by renderMaintPanel(). -->
+    <div id="wc-maint-panel" style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;background:var(--surface);"></div>
+
     <!-- Class chips — reuses the same current-AY class list as Banned -->
     <div id="wc-class-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
 
@@ -5015,8 +5072,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.05';
-const BUILD_DATE   = '14 Aug 2026, 07:45 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v8.08';
+const BUILD_DATE   = '15 Aug 2026, 10:40 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
 // APP_VERSION above. APP_VERSION tracks this PWA's own release number;
@@ -5036,7 +5093,7 @@ const BUILD_DATE   = '14 Aug 2026, 07:45 PM IST'; // v6.90: update alongside APP
 // (com.davan.studentwidget, "Davan Student"), separate from the faculty
 // DavanWidget app — hence its own APK filename below. Upload the built
 // DavanStudentWidget.apk to that URL when publishing a new version.
-const LATEST_STUDENT_WIDGET_APK = { apkVersion: 26, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
+const LATEST_STUDENT_WIDGET_APK = { apkVersion: 27, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
 
 // Publishes LATEST_STUDENT_WIDGET_APK to DB2 so the student widget (v1+)
 // can read it directly and nag on the widget face when it's behind.
@@ -5092,16 +5149,80 @@ async function stuPublishLatestWidgetApk() {
 // just when a pair code was just captured) so an already-paired device
 // also gets its identity refreshed if the student's name/class changed
 // since pairing (e.g. promoted to a new semester/class).
+/* ══════════════════════════════════════════════════════════════
+   v8.08 — PAIRING OWNERSHIP GUARD + AUDIT LOG
+
+   THE HOLE THIS CLOSES. stuCompleteWidgetPairing() fires on EVERY login
+   and blindly overwrote student_widget_active/<code> with whoever just
+   logged in, where <code> comes from localStorage. localStorage belongs
+   to the BROWSER, not the student. So any login on a browser that has
+   ever carried a ?wdev= code silently reassigned that physical widget to
+   the person logging in — and the phone's owner then saw a stranger's
+   attendance, father's name and mobile number on their home screen.
+   Observed 15-Aug: a widget paired to GGV8VV displayed NIKHIL R HAMSI to
+   a device that had never signed in as him.
+
+   THE RULE NOW: a silent, automatic pairing write may only CREATE a node
+   or REFRESH one that already belongs to the same URN. Taking a widget
+   that currently belongs to someone else requires stuPairByCode() — the
+   student physically reading the 6 characters off that phone's screen and
+   typing them in. That is a real-world proof of possession; a stale
+   localStorage entry is not.
+
+   Same logic on logout: only delete the node if it is still ours. Deleting
+   another student's pairing on our way out is the same bug wearing a
+   different hat, and it is what left GGV8VV unpaired at 21:56.
+
+   Both paths write to davan_pub/student_widget_pair_log so the next time a
+   widget changes hands there is a record of exactly which login did it,
+   from which browser, instead of reconstructing it from screenshots. */
+async function stuLogPairEvent(code, prevUrn, newUrn, via, blocked) {
+  try {
+    await rtdbPush('davan_pub/student_widget_pair_log', {
+      code: code || '', prevUrn: prevUrn || '', newUrn: newUrn || '',
+      via: via || '', blocked: !!blocked, at: Date.now(),
+      ua: (navigator.userAgent || '').slice(0, 120)
+    });
+  } catch (e) { /* logging must never break pairing */ }
+}
+
+/* Every login attempt, allowed or blocked, with the pair code this browser
+   is carrying. That last field is the one that matters: it is what lets you
+   find the browser responsible for a hijacked widget, because it records
+   the localStorage code AT THE MOMENT OF LOGIN rather than after the fact. */
+async function stuLogLoginEvent(urn, name, outcome) {
+  try {
+    await rtdbPush('davan_pub/student_login_log', {
+      urn: urn || '', name: name || '', outcome: outcome || '',
+      pairCode: localStorage.getItem('davan_student_widget_pair_code') || '',
+      at: Date.now(), ua: (navigator.userAgent || '').slice(0, 120)
+    });
+  } catch (e) {}
+}
+
 async function stuCompleteWidgetPairing() {
   try {
     const pairCode = localStorage.getItem('davan_student_widget_pair_code');
     if (!pairCode || !STATE.studentUser) return;
+    const me = String(STATE.studentUser.urn || '').toUpperCase();
+
+    // OWNERSHIP CHECK — the whole fix.
+    let existing = null;
+    try { existing = await rtdbGet('davan_pub/student_widget_active/' + pairCode); } catch (e) { existing = null; }
+    const owner = existing && existing.urn ? String(existing.urn).toUpperCase() : '';
+    if (owner && owner !== me) {
+      console.warn('[StudentWidgetPair] REFUSED: ' + pairCode + ' belongs to ' + owner + ', not ' + me + '. Use manual code entry to re-pair.');
+      stuLogPairEvent(pairCode, owner, me, 'auto', true);
+      return;   // leave the real owner's widget alone
+    }
+
     await rtdbSet('davan_pub/student_widget_active/' + pairCode, {
       urn:       STATE.studentUser.urn,
       name:      STATE.studentUser.name,
       class:     STATE.studentUser.class,
       updatedAt: Date.now()
     });
+    if (!owner) stuLogPairEvent(pairCode, '', me, 'auto', false);
     console.log('[StudentWidgetPair] Paired widget ' + pairCode + ' to ' + STATE.studentUser.urn);
   } catch (e) { console.warn('[StudentWidgetPair] pairing write failed:', e && e.message); }
 }
@@ -5151,12 +5272,23 @@ async function stuPairByCode(rawCode) {
     if (old && old !== code) {
       rtdbDelete('davan_pub/student_widget_active/' + old).catch(() => {});
     }
+    // v8.08: a manual code entry IS allowed to take over a widget that
+    // belongs to someone else — typing the 6 characters off the screen is
+    // proof you are holding that phone. But it is logged with the previous
+    // owner, because "allowed" is not the same as "invisible".
+    let prevOwner = '';
+    try {
+      const ex = await rtdbGet('davan_pub/student_widget_active/' + code);
+      prevOwner = ex && ex.urn ? String(ex.urn).toUpperCase() : '';
+    } catch (e) {}
+
     await rtdbSet('davan_pub/student_widget_active/' + code, {
       urn: STATE.studentUser.urn,
       name: STATE.studentUser.name,
       class: STATE.studentUser.class,
       updatedAt: Date.now()
     });
+    stuLogPairEvent(code, prevOwner, String(STATE.studentUser.urn).toUpperCase(), 'manual', false);
     localStorage.setItem('davan_student_widget_pair_code', code);
     console.log('[StudentWidgetPair] Manually paired ' + code + ' to ' + STATE.studentUser.urn);
     return true;
@@ -5184,7 +5316,23 @@ async function stuClearWidgetPairing() {
   try {
     const pairCode = localStorage.getItem('davan_student_widget_pair_code');
     if (!pairCode) return;
+    /* v8.08: only unpair a widget that is actually OURS. Previously logout
+       deleted whatever node this browser's localStorage pointed at, so
+       signing out could unpair a widget belonging to a different student —
+       exactly what stranded GGV8VV on "Widget not paired" at 21:56 on
+       15-Aug. If the node belongs to someone else, leave it: their widget
+       is not ours to switch off. */
+    const me = String((STATE.studentUser && STATE.studentUser.urn) || '').toUpperCase();
+    let existing = null;
+    try { existing = await rtdbGet('davan_pub/student_widget_active/' + pairCode); } catch (e) { existing = null; }
+    const owner = existing && existing.urn ? String(existing.urn).toUpperCase() : '';
+    if (owner && me && owner !== me) {
+      console.warn('[StudentWidgetPair] logout did NOT clear ' + pairCode + ' — it belongs to ' + owner);
+      stuLogPairEvent(pairCode, owner, me, 'logout', true);
+      return;
+    }
     await rtdbDelete('davan_pub/student_widget_active/' + pairCode);
+    stuLogPairEvent(pairCode, owner, '', 'logout', false);
     console.log('[StudentWidgetPair] Cleared pairing for widget ' + pairCode);
   } catch (e) { console.warn('[StudentWidgetPair] clear failed:', e && e.message); }
 }
@@ -5554,8 +5702,25 @@ async function loginStudent() {
     const banArr  = banList && typeof banList === 'object' && !Array.isArray(banList)
                     ? Object.keys(banList)
                     : (Array.isArray(banList) ? banList : []);
-    if (banArr.includes(urn)) {
+    /* v8.06: subtract maintenance halts. maintHaltWidgets() parks URNs in
+       controls/bannedStudents because that is the ONLY stop signal the w26
+       APK honours — but those students are not banned, and must still be
+       able to use the portal. Genuine bans are unaffected: a real ban is in
+       bannedStudents and NOT in the halt mirror, so it survives this. */
+    const _haltedForMaint = await maintHaltedSet();
+    if (banArr.includes(urn) && !_haltedForMaint.has(urn)) {
       showAlert('stu-login-err','Your account has been suspended. Please contact your administrator.');
+      return;
+    }
+    /* v8.06: MAINTENANCE GATE. After the ban check (a banned student should
+       get the ban message, not a maintenance one) and before the password
+       check, so no credential work happens while the portal is closed.
+       Allow-listed URNs pass through — that is the whole point: verify a fix
+       against one real account before readmitting 400. */
+    const _maint = await maintGetFlag();
+    if (_maint.on && !_maint.allowUrns.includes(urn)) {
+      stuLogLoginEvent(urn, '', 'blocked-maintenance');   // v8.08
+      showAlert('stu-login-err', _maint.msg || MAINT_DEFAULT_MSG);
       return;
     }
     // ── PASSWORD CHECK (master password bypasses hash check) ──
@@ -6237,6 +6402,11 @@ async function goToDashboard() {
   // "Not paired" to showing real data. Best-effort, never blocks
   // dashboard load.
   stuCompleteWidgetPairing();
+  // v8.08: record the login itself, with this browser's remembered pair
+  // code — the field that identifies which browser owns which widget.
+  stuLogLoginEvent(
+    String((STATE.studentUser && STATE.studentUser.urn) || '').toUpperCase(),
+    (STATE.studentUser && STATE.studentUser.name) || '', 'login');
   // Show bottom nav
   const nav = document.getElementById('stu-bottom-nav');
   if (nav) nav.classList.add('visible');
@@ -18173,6 +18343,271 @@ STATE._wcReports  = {}; // pairCode -> {apkVersion, notifOn, ts}
 STATE._wcActive   = {}; // pairCode -> {urn, name, class, urgentMessage}
 STATE._wcUrnToPairCode = {}; // urn -> pairCode (derived by joining active nodes)
 
+/* ════════════════════════════════════════════════════════════
+   v8.06 — TWO KILL SWITCHES
+
+   Built after the 14-Aug quota incident, where the only way to stop
+   traffic was to have no way to stop traffic. Both switches exist to
+   answer one question: how do I make it STOP, right now, without a
+   rebuild and without touching 400 phones.
+
+   SWITCH 1 — WIDGET HALT (works on the w26 APK already installed).
+   The only node w26 honours as a stop signal is controls/bannedStudents:
+   StudentPairing.isBanned() reads it every cycle and returns BEFORE
+   buildFullStats(), so a listed student never performs the nine
+   whole-node reads. That is exactly the halt we want and it needs no new
+   APK.
+
+   Note controls/widgetBannedStudents — what the per-student "Ban widget"
+   button writes — appears NOWHERE in the w26 source. That button has
+   never stopped a widget; it only changes this portal's own display.
+   Left alone here (it is a separate feature with its own history), but
+   the halt deliberately does NOT use it, because it does nothing.
+
+   The cost of using the real ban list is that loginStudent() checks the
+   same list, so a naive halt would also lock every student out of the
+   portal. Hence maintHaltedSet(): halt URNs are mirrored to
+   davan_pub/maint_widget_halt and SUBTRACTED from the portal's login ban
+   check, so a widget halt never touches portal access. Genuine bans are
+   untouched — a student banned for real stays banned, because their URN
+   is in bannedStudents but NOT in the halt mirror.
+
+   SWITCH 2 — PORTAL MAINTENANCE MODE, with an allow-list. Blocks student
+   logins and shows a message, while named URNs still get in — so you can
+   verify a fix against one real account before letting 400 back in.
+   Admins are never blocked; locking yourself out of the switch that
+   unlocks everyone is not a failure mode worth having.
+
+   FAIL-OPEN, DELIBERATELY: if the flag read throws, students are let in.
+   A dead database must not become a locked portal on top. The flag is
+   one small node read at login only — it is not polled.
+════════════════════════════════════════════════════════════ */
+const MAINT_FLAG_PATH = 'davan_pub/portal_maintenance';
+const MAINT_HALT_PATH = 'davan_pub/maint_widget_halt';
+const MAINT_DEFAULT_MSG = 'The student app is under maintenance right now. Please check back a little later.';
+
+async function maintGetFlag() {
+  try {
+    const n = await rtdbGet(MAINT_FLAG_PATH);
+    if (!n || typeof n !== 'object') return { on: false, msg: '', allowUrns: [] };
+    return {
+      on: n.on === true,
+      msg: n.msg || MAINT_DEFAULT_MSG,
+      allowUrns: Array.isArray(n.allowUrns) ? n.allowUrns.map(u => String(u).toUpperCase()) : []
+    };
+  } catch (e) { return { on: false, msg: '', allowUrns: [] }; }  // fail-open
+}
+
+// URNs halted for maintenance rather than genuinely banned.
+async function maintHaltedSet() {
+  try {
+    const n = await rtdbGet(MAINT_HALT_PATH);
+    const arr = n && n.urns && typeof n.urns === 'object' ? Object.keys(n.urns) : [];
+    return new Set(arr.map(u => String(u).toUpperCase()));
+  } catch (e) { return new Set(); }
+}
+
+/* ── SWITCH 1: halt / resume every paired widget ── */
+async function maintHaltWidgets() {
+  const paired = (STATE._wcActive && Object.values(STATE._wcActive) || [])
+    .map(a => (a && a.urn ? String(a.urn).toUpperCase() : '')).filter(Boolean);
+  const uniq = Array.from(new Set(paired));
+  if (!uniq.length) { alert('No paired widgets found to halt.'); return; }
+  if (!confirm(`Halt ${uniq.length} widget(s)?\n\nTheir next sync stops before downloading any data. Portal login is NOT affected. Reversible from this same panel.`)) return;
+
+  const banNode = (await rtdbGet('controls/bannedStudents').catch(() => null)) || {};
+  const existing = (banNode && typeof banNode === 'object' && !Array.isArray(banNode))
+    ? Object.assign({}, banNode)
+    : {};
+  // Record ONLY the URNs this halt is adding. Anyone already banned for
+  // real is left out of the mirror, so Resume cannot un-ban them.
+  const added = {};
+  uniq.forEach(u => { if (!existing[u]) { existing[u] = true; added[u] = true; } });
+
+  /* v8.07 — TWO HALT MECHANISMS, ON PURPOSE.
+     w27+ reads davan_pub/widget_halt and shows a proper "Under maintenance"
+     screen that keeps the student's name and pairing intact. w26 knows
+     nothing about that flag; the only stop signal it honours is the ban
+     list, which shows "Access suspended" — wrong wording for a pause, but
+     it does stop the fetch, and stopping the fetch is the point.
+     Both are written so a mixed fleet is fully covered. Once every device
+     is on w27+ the ban-list half can be deleted, and should be: telling a
+     student their access is suspended when it is not is a real cost. */
+  const msgEl = document.getElementById('maint-msg');
+  await rtdbSet('davan_pub/widget_halt', {
+    on: true,
+    msg: (msgEl && msgEl.value.trim()) || MAINT_DEFAULT_MSG,
+    at: Date.now()
+  });
+  await rtdbSet('controls/bannedStudents', existing);
+  await rtdbSet(MAINT_HALT_PATH, { urns: added, at: Date.now(), count: Object.keys(added).length });
+  alert(`Halted ${Object.keys(added).length} widget(s). They stop fetching on their next cycle (within ~30 min).\n\nw27+ shows "Under maintenance"; w26 shows "Access suspended".`);
+  loadWidgetCtrlData();
+}
+
+async function maintResumeWidgets() {
+  const halted = await maintHaltedSet();
+  if (!halted.size) { alert('No maintenance halt is currently active.'); return; }
+  if (!confirm(`Resume ${halted.size} widget(s)?`)) return;
+
+  const banNode = (await rtdbGet('controls/bannedStudents').catch(() => null)) || {};
+  const next = {};
+  // Rebuild the ban list keeping everything that was NOT part of the halt.
+  if (banNode && typeof banNode === 'object' && !Array.isArray(banNode)) {
+    Object.keys(banNode).forEach(k => { if (!halted.has(k.toUpperCase())) next[k] = banNode[k]; });
+  }
+  await rtdbSet('davan_pub/widget_halt', { on: false, msg: '', at: Date.now() });
+  await rtdbSet('controls/bannedStudents', next);
+  await rtdbSet(MAINT_HALT_PATH, { urns: {}, at: Date.now(), count: 0 });
+  alert('Widgets resumed. They pick data up again on their next cycle.');
+  loadWidgetCtrlData();
+}
+
+/* ── SWITCH 2: portal maintenance mode ── */
+async function maintTogglePortal() {
+  const cur = await maintGetFlag();
+  const turningOn = !cur.on;
+  if (turningOn && !confirm('Turn ON maintenance mode?\n\nStudents will see the maintenance message instead of logging in. Admins and any allow-listed URNs still get in.')) return;
+  const msgEl = document.getElementById('maint-msg');
+  const allowEl = document.getElementById('maint-allow');
+  const allowUrns = (allowEl ? allowEl.value : '')
+    .split(/[\s,]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  await rtdbSet(MAINT_FLAG_PATH, {
+    on: turningOn,
+    msg: (msgEl && msgEl.value.trim()) || MAINT_DEFAULT_MSG,
+    allowUrns,
+    updatedAt: Date.now()
+  });
+  renderMaintPanel();
+}
+
+async function maintSaveSettings() {
+  const cur = await maintGetFlag();
+  const msgEl = document.getElementById('maint-msg');
+  const allowEl = document.getElementById('maint-allow');
+  await rtdbSet(MAINT_FLAG_PATH, {
+    on: cur.on,
+    msg: (msgEl && msgEl.value.trim()) || MAINT_DEFAULT_MSG,
+    allowUrns: (allowEl ? allowEl.value : '').split(/[\s,]+/).map(s => s.trim().toUpperCase()).filter(Boolean),
+    updatedAt: Date.now()
+  });
+  alert('Saved. Applies to the next login attempt.');
+  renderMaintPanel();
+}
+
+async function renderMaintPanel() {
+  const el = document.getElementById('wc-maint-panel');
+  if (!el) return;
+  const flag = await maintGetFlag();
+  const halted = await maintHaltedSet();
+  const pairedCount = Object.keys(STATE._wcActive || {}).length;
+
+  el.innerHTML = `
+    <div style="font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--muted);margin-bottom:10px;">🛑 KILL SWITCHES</div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:6px;">
+      <span style="font-size:12px;font-weight:700;">1. Student widgets</span>
+      ${halted.size
+        ? `<span style="font-size:11px;color:var(--danger);font-weight:700;">HALTED — ${halted.size} widget(s)</span>
+           <button class="btn btn-secondary" onclick="maintResumeWidgets()" style="font-size:12px;">▶️ Resume widgets</button>`
+        : `<span style="font-size:11px;color:var(--ok);">running — ${pairedCount} paired</span>
+           <button class="btn btn-secondary" onclick="maintHaltWidgets()" style="font-size:12px;">🛑 Halt all widgets</button>`}
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.6;">
+      Stops every paired widget from fetching, on the APK already installed — no update needed. Takes effect on each phone's next cycle (up to ~30 min). Portal login is NOT affected. Fully reversible.
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:6px;">
+      <span style="font-size:12px;font-weight:700;">2. Student portal</span>
+      ${flag.on
+        ? `<span style="font-size:11px;color:var(--danger);font-weight:700;">MAINTENANCE MODE ON</span>
+           <button class="btn btn-secondary" onclick="maintTogglePortal()" style="font-size:12px;">▶️ Turn OFF</button>`
+        : `<span style="font-size:11px;color:var(--ok);">open to students</span>
+           <button class="btn btn-secondary" onclick="maintTogglePortal()" style="font-size:12px;">🛑 Turn ON</button>`}
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.6;">
+      Blocks student logins and shows the message below. Admins always get in. Put URNs in the allow-list to test with real accounts while everyone else is held out.
+    </div>
+    <textarea id="maint-msg" rows="2" placeholder="Message shown to students"
+      style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:12px;margin-bottom:6px;">${(flag.msg || MAINT_DEFAULT_MSG).replace(/</g,'&lt;')}</textarea>
+    <input id="maint-allow" type="text" placeholder="Allow these URNs (space or comma separated)"
+      value="${(flag.allowUrns || []).join(' ')}"
+      style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:12px;font-family:var(--mono);margin-bottom:8px;">
+    <button class="btn btn-secondary" onclick="maintSaveSettings()" style="font-size:12px;">💾 Save message + allow-list</button>
+
+    <!-- v8.08: activity log, readable here because the Firebase console is
+         not usable on this phone. Two feeds that answer two questions:
+         who is logging in (and from which browser), and which widget
+         changed hands. -->
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <span style="font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--muted);">📋 ACTIVITY LOG</span>
+        <button class="btn btn-secondary" onclick="renderMaintLogs()" style="font-size:11px;">🔄 Refresh</button>
+        <button class="btn btn-secondary" onclick="maintClearLogs()" style="font-size:11px;">🗑 Clear</button>
+      </div>
+      <div id="maint-logs" style="font-size:11px;font-family:var(--mono);color:var(--muted);">Loading…</div>
+    </div>`;
+  renderMaintLogs();
+}
+
+/* Newest 40 of each feed. push() keys are chronological, so Object.entries
+   in key order is already time order — no timestamp sort needed. */
+async function renderMaintLogs() {
+  const el = document.getElementById('maint-logs');
+  if (!el) return;
+  el.innerHTML = 'Loading…';
+  let logins = {}, pairs = {};
+  try { logins = (await rtdbGet('davan_pub/student_login_log')) || {}; } catch (e) {}
+  try { pairs  = (await rtdbGet('davan_pub/student_widget_pair_log')) || {}; } catch (e) {}
+
+  const fmt = ts => { try { return new Date(ts).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); } catch (e) { return ''; } };
+  const esc = s => String(s || '').replace(/</g, '&lt;');
+  // Rough browser name — enough to tell "the phone in my hand" from
+  // "some other device", without pretending to be device fingerprinting.
+  const brow = ua => {
+    const s = String(ua || '');
+    if (/OPR\//.test(s)) return 'Opera';
+    if (/Firefox/.test(s)) return 'Firefox';
+    if (/Edg\//.test(s)) return 'Edge';
+    if (/Chrome/.test(s)) return 'Chrome';
+    if (/Safari/.test(s)) return 'Safari';
+    return '?';
+  };
+
+  const lRows = Object.values(logins).sort((a,b) => (b.at||0)-(a.at||0)).slice(0, 40).map(r => {
+    const blocked = String(r.outcome||'').indexOf('blocked') === 0;
+    return `<div style="padding:3px 0;border-bottom:1px solid var(--border);">
+      <span style="color:${blocked ? 'var(--danger)' : 'var(--ok)'};">${blocked ? '⛔' : '✓'}</span>
+      ${esc(r.urn)} <span style="color:var(--text);">${esc(r.name)}</span>
+      · ${fmt(r.at)} · ${brow(r.ua)}
+      ${r.pairCode ? `· <span style="color:var(--accent);">widget ${esc(r.pairCode)}</span>` : ''}
+    </div>`;
+  }).join('');
+
+  const pRows = Object.values(pairs).sort((a,b) => (b.at||0)-(a.at||0)).slice(0, 40).map(r => `
+    <div style="padding:3px 0;border-bottom:1px solid var(--border);">
+      <span style="color:${r.blocked ? 'var(--warn)' : 'var(--ok)'};">${r.blocked ? '🛡 refused' : '🔗 ' + esc(r.via)}</span>
+      · <span style="color:var(--accent);">${esc(r.code)}</span>
+      · ${r.prevUrn ? esc(r.prevUrn) + ' → ' : ''}${esc(r.newUrn) || '(cleared)'}
+      · ${fmt(r.at)} · ${brow(r.ua)}
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div style="font-weight:700;color:var(--text);margin:6px 0 4px;">Student logins (newest first)</div>
+    ${lRows || '<div style="padding:4px 0;">Nothing logged yet.</div>'}
+    <div style="font-weight:700;color:var(--text);margin:12px 0 4px;">Widget pairing changes</div>
+    ${pRows || '<div style="padding:4px 0;">Nothing logged yet.</div>'}`;
+}
+
+async function maintClearLogs() {
+  if (!confirm('Clear both activity logs? This cannot be undone.')) return;
+  try {
+    await rtdbSet('davan_pub/student_login_log', null);
+    await rtdbSet('davan_pub/student_widget_pair_log', null);
+  } catch (e) { alert('Could not clear: ' + e.message); }
+  renderMaintLogs();
+}
+
 async function renderWidgetCtrlTab() {
   await loadWidgetCtrlData();
 }
@@ -18234,6 +18669,7 @@ async function loadWidgetCtrlData() {
   renderWcClassChips();
   renderWcSummary();
   renderWcTable();
+  renderMaintPanel();   // v8.06 kill switches
   wcRenderPublishExplain();
   wcRenderDownloadBtn();
   wcLoadUrgentLog();
