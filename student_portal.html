@@ -17,6 +17,49 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.11 (2026-08-16) — FEAT: Data Usage tab. Answers the two questions the
+  Firebase console cannot: are we on track to blow the 10 GB free tier, and WHO is
+  responsible. Console reports bytes with NO per-user attribution, so both figures
+  are self-reported: the portal counts rtdbGet calls (single choke point, so a new
+  call site cannot be forgotten), the widget counts completed cycles.
+  COUNTS OPS, NOT BYTES, on purpose: neither client can see transfer size or
+  TLS/header overhead, so a byte figure would be a 60-80% estimate, and a limit
+  warning you cannot trust is worse than none. Counts are real, and post-w27 every
+  op costs roughly the same, so ranking is sound — which is the actual question.
+  GB projection is calibrated against Google's own figure, typed in by the admin,
+  rather than derived from counts; uncalibrated it shows "—" instead of a
+  confident wrong number. Table flags anyone at >=5x the median, the shape of a
+  device stuck in a retry loop — the thing to catch on day 3 of a 400-student
+  rollout, not day 20.
+  MEASUREMENT COSTS NOTHING ON THE PORTAL SIDE: counts accumulate in memory and
+  ride along on the heartbeat write that already happens. Instrumenting a system
+  that just broke from too much traffic must not itself add traffic. Widget side
+  is one ServerValue.increment per cycle (8/day at the 3h default), server-side so
+  two devices on one URN add up instead of clobbering each other.
+VERSION : v8.10 (2026-08-16) — FEAT: per-page widget locks. Lock ONE page (Today /
+  Internals / Last sem / Attendance / Notices) instead of halting the whole widget:
+  davan_pub/page_locks/<pageIdx> = {locked, msg, allowUrns[]}. Keys are page
+  INDEXES matching StudentWidgetPageState, not names — the renderer switches on the
+  index, and a name would need a mapping table in two codebases that could drift.
+  w27 resolves locks per student at FETCH time and feeds them into the existing
+  canShow() gates, so a locked page's data is never fetched or cached on the phone
+  at all — this is a data gate, not a UI hide. Student sees a card addressed by
+  name ("Dear Ashoka, ...") so a blank page reads as a deliberate admin action
+  rather than a broken app, and the footer arrows stay visible so they can page off
+  it. allowUrns exempts named students, for the "hold results back from the college
+  but verify the page with one student first" workflow. DEFAULT OPEN: a missing
+  node, missing field or failed read all mean unlocked — an admin control that
+  failed closed would take pages from 400 students on one bad network moment.
+VERSION : v8.09 (2026-08-16) — FEAT: widget fetch interval is now admin-controlled.
+  Hard-coding 30 minutes into the APK is what let a wrong value run for months
+  across every installed device with no way to correct it without a rebuild and a
+  reinstall on every phone. The right number depends on how often
+  sync_db1_to_db2.py runs — an operational decision that changes without anyone
+  touching Kotlin. Dropdown (1/2/3/6/12h, default 3) writes fetchHours onto the
+  SAME davan_pub/widget_halt node w27 already reads every cycle for the halt flag,
+  so fleet-wide retuning costs ZERO extra reads. Saved by MERGE, not .set() — that
+  node also carries the halt flag, and overwriting it would silently resume every
+  halted widget. Requires w27+; older APKs ignore the field.
 VERSION : v8.08 (2026-08-15) — SECURITY FIX + audit trail.
   THE HOLE: stuCompleteWidgetPairing() fired on EVERY login and blindly overwrote
   student_widget_active/<code> with whoever just logged in, where <code> comes from
@@ -3702,6 +3745,7 @@ body.dash-active .data-strip { display: block; }
     <button class="admin-sb-item" onclick="switchTab('exceptions');closeAdminSidebar()">🚫 Exceptions</button>
     <button class="admin-sb-item" onclick="switchTab('banned');closeAdminSidebar()">🔒 Banned</button>
     <button class="admin-sb-item" onclick="switchTab('widgetctrl');closeAdminSidebar()">📱 Widget</button>
+    <button class="admin-sb-item" onclick="switchTab('datausage');closeAdminSidebar()">📊 Data Usage</button>
     <button class="admin-sb-item" onclick="switchTab('loginactivity');closeAdminSidebar()">📋 Login Activity</button>
     <button class="admin-sb-item" onclick="switchTab('socialmedia');closeAdminSidebar()">📣 Social Media</button>
     <button class="admin-sb-item" onclick="switchTab('engagement');closeAdminSidebar()">📊 Engagement</button>
@@ -3727,6 +3771,7 @@ body.dash-active .data-strip { display: block; }
         <button class="tab-btn"        data-tab="exceptions" onclick="switchTab('exceptions')">🚫 Exceptions</button>
         <button class="tab-btn"        data-tab="banned"     onclick="switchTab('banned')">🔒 Banned</button>
         <button class="tab-btn"        data-tab="widgetctrl" onclick="switchTab('widgetctrl')">📱 Widget</button>
+        <button class="tab-btn"        data-tab="datausage" onclick="switchTab('datausage')">📊 Data Usage</button>
         <button class="tab-btn"        data-tab="loginactivity" onclick="switchTab('loginactivity')">📋 Login Activity</button>
         <button class="tab-btn"        data-tab="socialmedia" onclick="switchTab('socialmedia')">📣 Social Media</button>
         <button class="tab-btn"        data-tab="engagement" onclick="switchTab('engagement')">📊 Engagement</button>
@@ -4271,6 +4316,13 @@ body.dash-active .data-strip { display: block; }
       <div style="font-size:12px;font-family:var(--mono);color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">Active Overrides</div>
       <div id="ov-list"><div style="font-size:12px;font-family:var(--mono);color:var(--muted);">No active overrides.</div></div>
     </div>
+  </div>
+
+  <!-- DATA USAGE TAB (v8.11) -->
+  <div class="tab-content" id="tab-datausage">
+    <div class="section-title">DATA USAGE</div>
+    <div class="section-desc">Who is using the database, and are you inside the free tier.</div>
+    <div id="du-body">Loading…</div>
   </div>
 
   <!-- LESSON PLAN TAB -->
@@ -5072,8 +5124,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.08';
-const BUILD_DATE   = '15 Aug 2026, 10:40 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v8.11';
+const BUILD_DATE   = '16 Aug 2026, 11:00 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
 // APP_VERSION above. APP_VERSION tracks this PWA's own release number;
@@ -5560,6 +5612,10 @@ async function rtdbGet(path) {
   await getAuthToken();
   const res = await fetch(`${DB_URL}/${path}.json${authSep()}`);
   if (!res.ok) throw new Error('RTDB read error ' + res.status);
+  // v8.11: single choke point for every portal read, so the usage counter
+  // cannot miss one or be forgotten at a new call site. In-memory only —
+  // flushed by the heartbeat that already writes (see usageFlush()).
+  if (typeof usageNoteRead === 'function') usageNoteRead();
   return res.json();
 }
 // v6.92: Academic calendar now reads ONLY from DB2 (davan_pub/calendar) per explicit
@@ -6402,6 +6458,7 @@ async function goToDashboard() {
   // "Not paired" to showing real data. Best-effort, never blocks
   // dashboard load.
   stuCompleteWidgetPairing();
+  usageFlush(STATE.studentUser, { sessions: 1 });   // v8.11
   // v8.08: record the login itself, with this browser's remembered pair
   // code — the field that identifies which browser owns which widget.
   stuLogLoginEvent(
@@ -6741,6 +6798,52 @@ function doLogout() {
 ════════════════════════════════════════════════════ */
 let _stuHeartbeatTimer = null;
 const STU_HEARTBEAT_MIN_GAP_MS = 5 * 60 * 1000; // don't log more than once per 5 min
+/* ══════════════════════════════════════════════════════════
+   v8.11 — READ COUNTER (the "who is using the quota" tracker)
+
+   WHAT IT COUNTS AND WHY IT COUNTS THAT: database READS per student per
+   day, not bytes. Firebase gives no per-user attribution at all — the
+   console knows 52 GB left the database and has no idea which phone asked
+   — so any per-student figure has to be self-reported by the client. A
+   byte figure would have to be ESTIMATED (the SDK does not expose transfer
+   size, and nothing client-side can see TLS/header overhead), landing
+   around 60-80% of what Google actually bills. A limit warning you cannot
+   trust is worse than no warning. A read COUNT is a real number, and since
+   w27 every read costs roughly the same, counts rank students correctly —
+   which is the actual question: is anyone abnormal?
+
+   COST OF MEASURING: zero extra writes on this side. The count accumulates
+   in memory and rides along on the heartbeat write that already happens.
+   Instrumenting a system that just broke from too much traffic must not
+   itself add traffic.
+
+   Server-side increment ({".sv":{"increment":n}}) so two devices for the
+   same student cannot clobber each other's total.
+══════════════════════════════════════════════════════════ */
+let _usageReadCount = 0;
+function usageNoteRead() { _usageReadCount++; }
+
+function usageDateKey() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+async function usageFlush(u, extra) {
+  try {
+    if (!u || !u.urn) return;
+    const n = _usageReadCount;
+    _usageReadCount = 0;
+    if (!n && !extra) return;
+    const body = { reads: { '.sv': { increment: n } } };
+    if (extra && extra.sessions) body.sessions = { '.sv': { increment: extra.sessions } };
+    body.name = u.name || '';
+    body.class = u.class || '';
+    await fetch(DB_URL + '/davan_pub/usage/' + usageDateKey() + '/' + String(u.urn).toUpperCase() + '.json', {
+      method: 'PATCH', body: JSON.stringify(body)
+    });
+  } catch (e) { /* never let measurement break the app */ }
+}
+
 function stuRecordHeartbeat(u) {
   if (!u || !u.urn) return;
   const lastKey = 'stu_lastHeartbeat_' + u.urn;
@@ -6748,6 +6851,7 @@ function stuRecordHeartbeat(u) {
   const now = Date.now();
   if (now - last < STU_HEARTBEAT_MIN_GAP_MS) return; // too soon, skip
   sessionStorage.setItem(lastKey, String(now));
+  usageFlush(u);   // v8.11: rides along, no extra write of its own
   rtdbPush('controls/loginActivity', {
     urn:     u.urn,
     name:    u.name  || '',
@@ -7933,6 +8037,7 @@ function switchTab(name) {
   if (name === 'exceptions')    loadExceptionsData();
   if (name === 'banned')        renderBannedTab();
   if (name === 'widgetctrl')    renderWidgetCtrlTab();
+  if (name === 'datausage')     renderDataUsageTab();
   if (name === 'lessonplan')    { if (document.getElementById('lp-class-sel').value) loadLessonPlan(); }
   if (name === 'loginactivity') loadLoginActivity();
   if (name === 'socialmedia')   loadSocialClicks();
@@ -18434,9 +18539,13 @@ async function maintHaltWidgets() {
      is on w27+ the ban-list half can be deleted, and should be: telling a
      student their access is suspended when it is not is a real cost. */
   const msgEl = document.getElementById('maint-msg');
+  // v8.09: preserve fetchHours — it shares this node, and clobbering it would
+  // silently reset every widget in the fleet to the 3-hour default.
+  const _prevCfg = (await rtdbGet('davan_pub/widget_halt').catch(() => null)) || {};
   await rtdbSet('davan_pub/widget_halt', {
     on: true,
     msg: (msgEl && msgEl.value.trim()) || MAINT_DEFAULT_MSG,
+    fetchHours: _prevCfg.fetchHours || 3,
     at: Date.now()
   });
   await rtdbSet('controls/bannedStudents', existing);
@@ -18456,7 +18565,10 @@ async function maintResumeWidgets() {
   if (banNode && typeof banNode === 'object' && !Array.isArray(banNode)) {
     Object.keys(banNode).forEach(k => { if (!halted.has(k.toUpperCase())) next[k] = banNode[k]; });
   }
-  await rtdbSet('davan_pub/widget_halt', { on: false, msg: '', at: Date.now() });
+  const _cfg = (await rtdbGet('davan_pub/widget_halt').catch(() => null)) || {};
+  await rtdbSet('davan_pub/widget_halt', {
+    on: false, msg: '', fetchHours: _cfg.fetchHours || 3, at: Date.now()
+  });
   await rtdbSet('controls/bannedStudents', next);
   await rtdbSet(MAINT_HALT_PATH, { urns: {}, at: Date.now(), count: 0 });
   alert('Widgets resumed. They pick data up again on their next cycle.');
@@ -18535,6 +18647,33 @@ async function renderMaintPanel() {
       style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:12px;font-family:var(--mono);margin-bottom:8px;">
     <button class="btn btn-secondary" onclick="maintSaveSettings()" style="font-size:12px;">💾 Save message + allow-list</button>
 
+    <!-- v8.09: widget fetch interval. Lives on the SAME davan_pub/widget_halt
+         node the widget already reads every cycle for the halt flag, so
+         controlling the fleet's polling rate costs zero extra reads. -->
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
+      <div style="font-size:12px;font-weight:700;margin-bottom:4px;">⏱ Widget fetch interval</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.6;">
+        How often each student widget fetches on its own. The sync script runs twice a day (1:00 pm, 5:30 pm), so anything faster than that re-downloads identical data — a 30-minute cycle was what caused the August quota blowout. Students can always tap ⟳ for instant data, and class reminders are unaffected (they run from the on-device cache and never touch the network). Applies on each widget's next cycle; needs w27+.
+      </div>
+      <select id="maint-fetch-hours" onchange="maintSaveFetchHours()"
+        style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:12px;font-family:var(--mono);">
+        <option value="1">Every 1 hour</option>
+        <option value="2">Every 2 hours</option>
+        <option value="3">Every 3 hours (recommended)</option>
+        <option value="6">Every 6 hours</option>
+        <option value="12">Every 12 hours</option>
+      </select>
+    </div>
+
+    <!-- v8.10: per-page locks. -->
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px;">
+      <div style="font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--muted);margin-bottom:6px;">🔒 WIDGET PAGE LOCKS</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.6;">
+        Lock a single widget page instead of halting the whole widget. Locked pages show the student a message addressed to them by name, and the underlying data is never sent to the phone at all — not merely hidden. Allow-listed URNs still see the page, so you can verify it with one student before releasing to everyone. All pages open by default. Needs w27+.
+      </div>
+      <div id="maint-page-locks"></div>
+    </div>
+
     <!-- v8.08: activity log, readable here because the Firebase console is
          not usable on this phone. Two feeds that answer two questions:
          who is logging in (and from which browser), and which widget
@@ -18548,10 +18687,99 @@ async function renderMaintPanel() {
       <div id="maint-logs" style="font-size:11px;font-family:var(--mono);color:var(--muted);">Loading…</div>
     </div>`;
   renderMaintLogs();
+  renderPageLocks();
+  try {
+    const cfg = await rtdbGet('davan_pub/widget_halt');
+    const sel = document.getElementById('maint-fetch-hours');
+    if (sel && cfg && cfg.fetchHours) sel.value = String(cfg.fetchHours);
+  } catch (e) {}
 }
 
 /* Newest 40 of each feed. push() keys are chronological, so Object.entries
    in key order is already time order — no timestamp sort needed. */
+/* v8.10 — PER-PAGE LOCKS.
+   Page keys are the widget's page INDEXES (0=Today … 4=Notices), matching
+   StudentWidgetPageState, because the renderer switches on the index — a name
+   would need a mapping table in two codebases that could drift apart. */
+const MAINT_PAGES = [
+  { idx: 0, label: 'Today (schedule, lesson plan)' },
+  { idx: 1, label: 'Internals' },
+  { idx: 2, label: 'Last sem results' },
+  { idx: 3, label: 'Attendance' },
+  { idx: 4, label: 'Notices' }
+];
+
+async function renderPageLocks() {
+  const el = document.getElementById('maint-page-locks');
+  if (!el) return;
+  let locks = {};
+  try { locks = (await rtdbGet('davan_pub/page_locks')) || {}; } catch (e) {}
+  el.innerHTML = MAINT_PAGES.map(p => {
+    const L = locks[String(p.idx)] || {};
+    const on = L.locked === true;
+    const allow = Array.isArray(L.allowUrns) ? L.allowUrns.join(' ') : '';
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:6px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:700;flex:1;">${p.label}</span>
+        <span style="font-size:10px;font-weight:700;color:${on ? 'var(--danger)' : 'var(--ok)'};">${on ? '🔒 LOCKED' : '✓ open'}</span>
+        <button class="btn btn-secondary" onclick="maintTogglePageLock(${p.idx})" style="font-size:11px;">${on ? 'Unlock' : 'Lock'}</button>
+      </div>
+      <input id="lock-msg-${p.idx}" type="text" placeholder="Message shown to the student"
+        value="${String(L.msg || '').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+        style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px;font-size:11px;margin-top:6px;">
+      <input id="lock-allow-${p.idx}" type="text" placeholder="Allow these URNs (space separated)"
+        value="${allow}"
+        style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px;font-size:11px;font-family:var(--mono);margin-top:4px;">
+      <button class="btn btn-secondary" onclick="maintSavePageLock(${p.idx})" style="font-size:11px;margin-top:4px;">💾 Save this page</button>
+    </div>`;
+  }).join('');
+}
+
+async function _maintWritePageLock(idx, locked) {
+  const msgEl = document.getElementById('lock-msg-' + idx);
+  const allowEl = document.getElementById('lock-allow-' + idx);
+  await rtdbSet('davan_pub/page_locks/' + idx, {
+    locked: !!locked,
+    msg: (msgEl && msgEl.value.trim()) || '',
+    allowUrns: (allowEl ? allowEl.value : '').split(/[\s,]+/).map(x => x.trim().toUpperCase()).filter(Boolean),
+    at: Date.now()
+  });
+  renderPageLocks();
+}
+
+async function maintTogglePageLock(idx) {
+  let cur = null;
+  try { cur = await rtdbGet('davan_pub/page_locks/' + idx); } catch (e) {}
+  const turningOn = !(cur && cur.locked === true);
+  if (turningOn && !confirm('Lock this page?\n\nStudents will see your message instead of the page, and its data will stop being sent to their phones. Allow-listed URNs still see it.')) return;
+  await _maintWritePageLock(idx, turningOn);
+}
+
+async function maintSavePageLock(idx) {
+  let cur = null;
+  try { cur = await rtdbGet('davan_pub/page_locks/' + idx); } catch (e) {}
+  await _maintWritePageLock(idx, cur && cur.locked === true);
+  alert('Saved. Widgets apply it on their next cycle.');
+}
+
+async function maintSaveFetchHours() {
+  const el = document.getElementById('maint-fetch-hours');
+  if (!el) return;
+  const hrs = parseInt(el.value, 10) || 3;
+  try {
+    // Merge, never overwrite: this node also carries the halt flag and its
+    // message, and a .set() here would silently resume every halted widget.
+    const cur = (await rtdbGet('davan_pub/widget_halt').catch(() => null)) || {};
+    await rtdbSet('davan_pub/widget_halt', {
+      on:  cur.on === true,
+      msg: cur.msg || '',
+      fetchHours: hrs,
+      at: Date.now()
+    });
+    alert('Widget fetch interval set to ' + hrs + ' hour(s). Each widget applies it on its next cycle.');
+  } catch (e) { alert('Could not save: ' + e.message); }
+}
+
 async function renderMaintLogs() {
   const el = document.getElementById('maint-logs');
   if (!el) return;
@@ -18606,6 +18834,157 @@ async function maintClearLogs() {
     await rtdbSet('davan_pub/student_widget_pair_log', null);
   } catch (e) { alert('Could not clear: ' + e.message); }
   renderMaintLogs();
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   v8.11 — DATA USAGE TAB
+
+   Answers two questions the Firebase console cannot:
+     1. Are we on track to blow the 10 GB/month free tier?
+     2. WHO is responsible?
+
+   HONESTY ABOUT WHAT THIS IS. Firebase provides no per-user attribution,
+   so everything here is self-reported by the clients: the portal counts
+   its own rtdbGet calls, the widget counts its own completed cycles.
+   That makes this a RANKING tool, not a bill. It cannot see the sync
+   script, the scraper, admin console browsing, or protocol overhead — so
+   the projection is calibrated against the one authoritative number
+   (Google's own GB figure, entered by the admin) rather than pretending
+   to derive GB from counts alone. Without that anchor the page would
+   confidently under-report and be more dangerous than useful.
+══════════════════════════════════════════════════════════ */
+const DU_FREE_GB = 10;
+
+function duDateKey(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+async function renderDataUsageTab() {
+  const el = document.getElementById('du-body');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Loading usage…</div>';
+
+  let usage = {};
+  try { usage = (await rtdbGet('davan_pub/usage')) || {}; } catch (e) {}
+
+  // Month to date
+  const now = new Date();
+  const monthPrefix = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  const perUrn = {};      // urn -> {name, class, reads, widgetFetches, sessions}
+  const perDay = {};      // date -> total ops
+  let totReads = 0, totWidget = 0;
+
+  Object.keys(usage).forEach(day => {
+    if (!day.startsWith(monthPrefix)) return;
+    const students = usage[day] || {};
+    let dayTotal = 0;
+    Object.keys(students).forEach(urn => {
+      const r = students[urn] || {};
+      const reads = Number(r.reads || 0);
+      const wf = Number(r.widgetFetches || 0);
+      const rec = perUrn[urn] || (perUrn[urn] = { name: r.name || '', class: r.class || '', reads: 0, widget: 0, sessions: 0 });
+      if (r.name) rec.name = r.name;
+      if (r.class) rec.class = r.class;
+      rec.reads += reads; rec.widget += wf; rec.sessions += Number(r.sessions || 0);
+      totReads += reads; totWidget += wf;
+      dayTotal += reads + wf;
+    });
+    perDay[day] = dayTotal;
+  });
+
+  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const actualGb = Number(localStorage.getItem('du_actual_gb') || 0);
+  // Calibrate against the console figure when the admin supplies it. This is
+  // the ONLY way to turn counts into a trustworthy GB projection — see header.
+  const opsSoFar = totReads + totWidget;
+  const gbPerOp = (actualGb > 0 && opsSoFar > 0) ? (actualGb / opsSoFar) : 0;
+  const projected = gbPerOp > 0 ? (gbPerOp * opsSoFar / dayOfMonth * daysInMonth) : 0;
+  const pct = projected > 0 ? Math.round(projected / DU_FREE_GB * 100) : 0;
+  const verdict = projected <= 0 ? 'Enter the console figure below to project.'
+    : projected < DU_FREE_GB * 0.7 ? '✅ Comfortably inside the free tier'
+    : projected < DU_FREE_GB ? '⚠️ Close to the limit — watch it'
+    : '🚨 On track to EXCEED the free tier';
+
+  const rows = Object.entries(perUrn)
+    .map(([urn, r]) => ({ urn, ...r, total: r.reads + r.widget }))
+    .sort((a,b) => b.total - a.total);
+  const median = rows.length ? rows[Math.floor(rows.length/2)].total : 0;
+
+  el.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+      ${duCard('PORTAL READS', totReads.toLocaleString(), 'this month')}
+      ${duCard('WIDGET FETCHES', totWidget.toLocaleString(), 'this month')}
+      ${duCard('STUDENTS SEEN', rows.length, 'reporting')}
+      ${duCard('PROJECTED', projected > 0 ? projected.toFixed(1) + ' GB' : '—', 'month end vs ' + DU_FREE_GB + ' GB')}
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px;">${verdict}</div>
+      ${projected > 0 ? `<div style="height:8px;background:var(--bg);border-radius:4px;overflow:hidden;margin-bottom:6px;">
+        <div style="height:100%;width:${Math.min(pct,100)}%;background:${pct>=100?'var(--danger)':pct>=70?'var(--warn)':'var(--ok)'};"></div>
+      </div><div style="font-size:11px;color:var(--muted);">${pct}% of the free tier at the current rate, day ${dayOfMonth} of ${daysInMonth}.</div>` : ''}
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">
+        Counts here are self-reported by the apps — Firebase gives no per-user attribution, so this ranks students reliably but cannot bill them. It also cannot see the sync script, the scraper, or your own console browsing. Enter Google's own figure to calibrate the projection:
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+        <input id="du-actual" type="number" step="0.1" placeholder="GB from Firebase console" value="${actualGb || ''}"
+          style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px;font-size:12px;width:190px;">
+        <button class="btn btn-secondary" onclick="duSaveActual()" style="font-size:11px;">Calibrate</button>
+      </div>
+    </div>
+
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.05em;margin-bottom:6px;">HEAVIEST USERS — median is ${median} ops</div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <tr style="color:var(--muted);font-size:10px;text-align:left;">
+          <th style="padding:5px;">#</th><th style="padding:5px;">Student</th>
+          <th style="padding:5px;">Portal</th><th style="padding:5px;">Widget</th>
+          <th style="padding:5px;">Total</th><th style="padding:5px;">vs median</th>
+        </tr>
+        ${rows.slice(0,25).map((r,i) => {
+          const mult = median > 0 ? (r.total / median) : 0;
+          // 5x the median is the shape of a device stuck in a retry loop, which
+          // is exactly what this page exists to surface on day 3 of a rollout.
+          const hot = mult >= 5;
+          return `<tr style="border-top:1px solid var(--border);${hot?'background:rgba(239,68,68,.08);':''}">
+            <td style="padding:5px;color:var(--muted);">${i+1}</td>
+            <td style="padding:5px;"><span style="font-family:var(--mono);color:var(--accent);">${r.urn}</span> ${(r.name||'').replace(/</g,'&lt;')}<div style="font-size:10px;color:var(--muted);">${(r.class||'').replace(/</g,'&lt;')}</div></td>
+            <td style="padding:5px;">${r.reads.toLocaleString()}</td>
+            <td style="padding:5px;">${r.widget.toLocaleString()}</td>
+            <td style="padding:5px;font-weight:700;">${r.total.toLocaleString()}</td>
+            <td style="padding:5px;${hot?'color:var(--danger);font-weight:700;':'color:var(--muted);'}">${mult ? mult.toFixed(1)+'×' : '—'}${hot?' ⚠':''}</td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="6" style="padding:10px;color:var(--muted);">No usage recorded yet. Data appears once students on v8.11+ log in, or widgets on w27+ sync.</td></tr>'}
+      </table>
+    </div>
+
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.05em;margin:16px 0 6px;">DAILY TOTAL (ops)</div>
+    ${Object.keys(perDay).sort().reverse().slice(0,14).map(d => {
+      const max = Math.max(1, ...Object.values(perDay));
+      const w = Math.round(perDay[d] / max * 100);
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;font-size:11px;">
+        <span style="font-family:var(--mono);color:var(--muted);width:82px;">${d}</span>
+        <div style="flex:1;height:12px;background:var(--bg);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${w}%;background:var(--accent);"></div></div>
+        <span style="font-family:var(--mono);width:64px;text-align:right;">${perDay[d].toLocaleString()}</span>
+      </div>`;
+    }).join('') || '<div style="font-size:11px;color:var(--muted);">Nothing yet.</div>'}`;
+}
+
+function duCard(label, value, sub) {
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:120px;">
+    <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:.05em;">${label}</div>
+    <div style="font-size:20px;font-weight:700;margin-top:2px;">${value}</div>
+    <div style="font-size:9px;color:var(--muted);margin-top:1px;">${sub}</div>
+  </div>`;
+}
+
+function duSaveActual() {
+  const el = document.getElementById('du-actual');
+  if (!el) return;
+  localStorage.setItem('du_actual_gb', String(parseFloat(el.value) || 0));
+  renderDataUsageTab();
 }
 
 async function renderWidgetCtrlTab() {
