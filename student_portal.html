@@ -17,6 +17,16 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.13 (2026-08-16) — FIX: usage writes were unauthenticated, so the Data
+  Usage tab showed zeros on both v8.11 and v8.12. usageFlush() used a bare fetch()
+  with no ?auth= token while every other write in this file goes through
+  rtdbPatch() -> getAuthToken() + authSep(); the writes were rejected and a
+  catch-all swallowed the error, so nothing surfaced anywhere. The bare call
+  existed only to set keepalive:true on pagehide, which rtdbPatch does not expose
+  — that path now builds the authenticated URL by hand instead of dropping the
+  token to get the flag. Failures now log to console AND return the counts to the
+  in-memory tally so the next flush retries them: silent swallowing is what let an
+  auth bug survive two releases while the page confidently reported zero.
 VERSION : v8.12 (2026-08-16) — FIX: the usage counter could not see ADMIN sessions.
   v8.11 flushed only on the student heartbeat, so a day of admin work — which is
   the heaviest traffic in the building, since loadAllData() pulls ~15 whole nodes
@@ -5135,8 +5145,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.12';
-const BUILD_DATE   = '16 Aug 2026, 08:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v8.13';
+const BUILD_DATE   = '16 Aug 2026, 08:45 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
 // APP_VERSION above. APP_VERSION tracks this PWA's own release number;
@@ -6881,19 +6891,40 @@ function usageStartAutoFlush() {
 }
 
 async function usageFlush(u, extra, keepalive) {
+  const n = _usageReadCount;
   try {
     if (!u || !u.urn) return;
-    const n = _usageReadCount;
     _usageReadCount = 0;
     if (!n && !extra) return;
     const body = { reads: { '.sv': { increment: n } } };
     if (extra && extra.sessions) body.sessions = { '.sv': { increment: extra.sessions } };
     body.name = u.name || '';
     body.class = u.class || '';
-    await fetch(DB_URL + '/davan_pub/usage/' + usageDateKey() + '/' + String(u.urn).toUpperCase() + '.json', {
-      method: 'PATCH', body: JSON.stringify(body), keepalive: !!keepalive
-    });
-  } catch (e) { /* never let measurement break the app */ }
+    const path = 'davan_pub/usage/' + usageDateKey() + '/' + String(u.urn).toUpperCase();
+
+    /* v8.13 FIX: this used to be a bare fetch() with NO ?auth= token, so every
+       write was rejected and the tab showed zeros forever. Every other write in
+       this file goes through rtdbPatch(), which awaits getAuthToken() and
+       appends authSep() — matching that is the whole fix. The bare call was
+       written to allow keepalive:true on pagehide, which rtdbPatch does not
+       expose; that path now builds the same authenticated URL by hand instead
+       of dropping the token to get the flag. */
+    if (keepalive) {
+      await getAuthToken();
+      await fetch(`${DB_URL}/${path}.json${authSep()}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body), keepalive: true
+      });
+    } else {
+      await rtdbPatch(path, body);
+    }
+  } catch (e) {
+    // v8.13: was silently swallowed, which is exactly why an auth bug survived
+    // two releases while the page reported zeros. Put the counts back so the
+    // next flush retries them rather than losing them.
+    _usageReadCount += n;
+    console.warn('[Usage] flush failed (will retry on next flush):', e && e.message);
+  }
 }
 
 function stuRecordHeartbeat(u) {
