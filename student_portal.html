@@ -17,6 +17,17 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.12 (2026-08-16) — FIX: the usage counter could not see ADMIN sessions.
+  v8.11 flushed only on the student heartbeat, so a day of admin work — which is
+  the heaviest traffic in the building, since loadAllData() pulls ~15 whole nodes
+  and development means a hundred reloads — recorded exactly zero. A usage tracker
+  blind to its own operator reports "0 ops" while the quota drains, which is worse
+  than no tracker because it actively misleads. Now usageIdentity() resolves either
+  a student or the logged-in admin (keyed __ADMIN__<username>, so admin rows sort
+  into the same table and stay obvious), and usageStartAutoFlush() flushes every
+  2 min, on tab hide, and on pagehide with keepalive:true so a closing tab's
+  counts are not cancelled mid-flight. No-op at zero, so an idle tab writes
+  nothing.
 VERSION : v8.11 (2026-08-16) — FEAT: Data Usage tab. Answers the two questions the
   Firebase console cannot: are we on track to blow the 10 GB free tier, and WHO is
   responsible. Console reports bytes with NO per-user attribution, so both figures
@@ -5124,8 +5135,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.11';
-const BUILD_DATE   = '16 Aug 2026, 11:00 AM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v8.12';
+const BUILD_DATE   = '16 Aug 2026, 08:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
 // APP_VERSION above. APP_VERSION tracks this PWA's own release number;
@@ -6459,6 +6470,7 @@ async function goToDashboard() {
   // dashboard load.
   stuCompleteWidgetPairing();
   usageFlush(STATE.studentUser, { sessions: 1 });   // v8.11
+  usageStartAutoFlush();                            // v8.12
   // v8.08: record the login itself, with this browser's remembered pair
   // code — the field that identifies which browser owns which widget.
   stuLogLoginEvent(
@@ -6718,6 +6730,7 @@ function doAdminLogin() {
 }
 
 function enterAdminDashboard() {
+  usageStartAutoFlush();   // v8.12: admin sessions are counted too
   const u = STATE.adminUser;
   const nameEl = document.getElementById('topbar-user-name');
   nameEl.textContent = u.username.toUpperCase() + ' · ' + u.role;
@@ -6828,7 +6841,46 @@ function usageDateKey() {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
-async function usageFlush(u, extra) {
+/* v8.12 — WHO THE COUNTER IS FOR.
+   Originally this only ever flushed on the STUDENT heartbeat, which meant
+   admin sessions were invisible — and admin sessions are the heaviest ones
+   in the building, because loadAllData() pulls ~15 whole nodes and a day of
+   development is a hundred of those. A usage tracker that cannot see its
+   own operator's traffic reports zeros while the quota drains, which is
+   worse than no tracker: it actively misleads.
+   Admin rows are keyed __ADMIN__<username> so they sort into the same table
+   and are instantly distinguishable from a student URN. */
+function usageIdentity() {
+  if (STATE.studentUser && STATE.studentUser.urn) {
+    return { urn: String(STATE.studentUser.urn).toUpperCase(),
+             name: STATE.studentUser.name || '', class: STATE.studentUser.class || '' };
+  }
+  if (STATE.adminUser && STATE.adminUser.username) {
+    return { urn: '__ADMIN__' + String(STATE.adminUser.username).toUpperCase(),
+             name: STATE.adminUser.username, class: 'ADMIN / ' + (STATE.adminUser.role || '') };
+  }
+  return null;   // logged out — nothing to attribute
+}
+
+/* Flush triggers, in order of reliability:
+   - every 2 min while reads have accumulated (covers long admin sessions)
+   - on tab hide (covers switching away)
+   - on pagehide with keepalive (covers closing the tab, where a normal
+     fetch would be cancelled mid-flight)
+   Each is a no-op when the counter is zero, so an idle tab writes nothing. */
+function usageStartAutoFlush() {
+  if (window._usageTimer) return;
+  window._usageTimer = setInterval(() => { const id = usageIdentity(); if (id) usageFlush(id); }, 120000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { const id = usageIdentity(); if (id) usageFlush(id); }
+  });
+  window.addEventListener('pagehide', () => {
+    const id = usageIdentity();
+    if (id && _usageReadCount > 0) usageFlush(id, null, true);
+  });
+}
+
+async function usageFlush(u, extra, keepalive) {
   try {
     if (!u || !u.urn) return;
     const n = _usageReadCount;
@@ -6839,7 +6891,7 @@ async function usageFlush(u, extra) {
     body.name = u.name || '';
     body.class = u.class || '';
     await fetch(DB_URL + '/davan_pub/usage/' + usageDateKey() + '/' + String(u.urn).toUpperCase() + '.json', {
-      method: 'PATCH', body: JSON.stringify(body)
+      method: 'PATCH', body: JSON.stringify(body), keepalive: !!keepalive
     });
   } catch (e) { /* never let measurement break the app */ }
 }
