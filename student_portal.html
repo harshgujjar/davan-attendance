@@ -17,6 +17,47 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.16 (2026-08-17) — FEAT: Diagnostics tab. Answers "the portal is burning
+  GB — WHICH READS?", which the Data Usage tab cannot: that one says WHO, this says
+  WHAT. rtdbGet() now reads the body as text before parsing, so per-path byte
+  totals are MEASURED, not estimated — for the portal every read is a REST fetch
+  and body length is the payload Firebase billed for. (The widget still counts
+  fetches, because the Firebase SDK never exposes transfer size.) Cost is one
+  JSON.parse of a string already in memory: no second request, no clone().
+  Path segments that look like identifiers (URN / date / push key / numeric id)
+  collapse to <URN>, <DATE>, <PUSHKEY>, <ID>, so one fat node cannot hide behind
+  450 small ones. Rows at >=25% of session traffic are flagged red.
+  Also: window.onerror + unhandledrejection into a 50-entry localStorage ring
+  buffer. Every failure in this app has so far vanished into a console that cannot
+  be copied on a phone — which is how the v8.11 auth bug survived two releases
+  while the page confidently reported zeros. Ring buffer, so a crash loop cannot
+  fill storage and take the portal down. Stored in localStorage NOT Firebase on
+  purpose: diagnostics about a database problem must not need that database.
+  📋 Copy report emits versions, UA, PWA-vs-browser mode, session totals and rate,
+  top 30 paths, last 25 errors, plus a free-text "what I see" box — the one line
+  that tells a fresh reader where to look.
+VERSION : v8.15 (2026-08-16) — FEAT: per-student usage detail. Photo avatar on each
+  row (from davan_student_photos, loaded ONCE per render — 450 separate reads
+  would be its own quota problem), and tapping a row expands: photo, last seen,
+  reads/fetches/sessions, READS PER SESSION and SESSIONS PER DAY, PWA-vs-browser
+  split, browser and device, a 14-day per-day bar chart, and the last 12 logins
+  with time, surface and device.
+  WHY THOSE TWO DERIVED FIGURES: the table says who is heavy, this says WHY, and
+  the fix differs. 100 reads over 3 sessions means the app is expensive per load
+  (fix loadAllData); 100 reads over 40 sessions means someone is reloading (fix
+  caching or the UI). Sessions/day is the reload detector — normal is 1-3.
+  Mode is captured via display-mode:standalone, NOT the user-agent: an installed
+  PWA and a browser tab are the same browser and identical in UA, but a PWA keeps
+  running in the background where a tab gets killed — exactly the shape of the
+  v8.05 broadcast-poll leak. Recorded at flush time as pwaSessions/browserSessions
+  plus lastMode/lastBrowser/lastDevice; login log rows gain mode too.
+VERSION : v8.14 (2026-08-16) — FEAT: export on the Data Usage tab. 📋 Copy builds a
+  readable text report (totals, top 40 users with vs-median multiples, daily
+  totals); ⬇ CSV downloads the full table. Both read STATE._duRows — the exact
+  array the table rendered from — rather than recomputing, because an export that
+  disagrees with the screen is worse than no export. navigator.clipboard can be
+  blocked on mobile browsers, so a failed copy falls back to a selectable textarea
+  instead of failing silently.
 VERSION : v8.13 (2026-08-16) — FIX: usage writes were unauthenticated, so the Data
   Usage tab showed zeros on both v8.11 and v8.12. usageFlush() used a bare fetch()
   with no ?auth= token while every other write in this file goes through
@@ -3767,6 +3808,7 @@ body.dash-active .data-strip { display: block; }
     <button class="admin-sb-item" onclick="switchTab('banned');closeAdminSidebar()">🔒 Banned</button>
     <button class="admin-sb-item" onclick="switchTab('widgetctrl');closeAdminSidebar()">📱 Widget</button>
     <button class="admin-sb-item" onclick="switchTab('datausage');closeAdminSidebar()">📊 Data Usage</button>
+    <button class="admin-sb-item" onclick="switchTab('diagnostics');closeAdminSidebar()">🩺 Diagnostics</button>
     <button class="admin-sb-item" onclick="switchTab('loginactivity');closeAdminSidebar()">📋 Login Activity</button>
     <button class="admin-sb-item" onclick="switchTab('socialmedia');closeAdminSidebar()">📣 Social Media</button>
     <button class="admin-sb-item" onclick="switchTab('engagement');closeAdminSidebar()">📊 Engagement</button>
@@ -3793,6 +3835,7 @@ body.dash-active .data-strip { display: block; }
         <button class="tab-btn"        data-tab="banned"     onclick="switchTab('banned')">🔒 Banned</button>
         <button class="tab-btn"        data-tab="widgetctrl" onclick="switchTab('widgetctrl')">📱 Widget</button>
         <button class="tab-btn"        data-tab="datausage" onclick="switchTab('datausage')">📊 Data Usage</button>
+        <button class="tab-btn"        data-tab="diagnostics" onclick="switchTab('diagnostics')">🩺 Diagnostics</button>
         <button class="tab-btn"        data-tab="loginactivity" onclick="switchTab('loginactivity')">📋 Login Activity</button>
         <button class="tab-btn"        data-tab="socialmedia" onclick="switchTab('socialmedia')">📣 Social Media</button>
         <button class="tab-btn"        data-tab="engagement" onclick="switchTab('engagement')">📊 Engagement</button>
@@ -4344,6 +4387,15 @@ body.dash-active .data-strip { display: block; }
     <div class="section-title">DATA USAGE</div>
     <div class="section-desc">Who is using the database, and are you inside the free tier.</div>
     <div id="du-body">Loading…</div>
+  </div>
+
+  <!-- DIAGNOSTICS TAB (v8.16) -->
+  <div class="tab-content" id="tab-diagnostics">
+    <div class="section-title">DIAGNOSTICS</div>
+    <div class="section-desc">Which reads are costing you, and what has gone wrong.</div>
+    <input id="diag-note" type="text" placeholder="What are you seeing? (included in the copied report)"
+      style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px;font-size:12px;margin-bottom:12px;">
+    <div id="diag-body">Loading…</div>
   </div>
 
   <!-- LESSON PLAN TAB -->
@@ -5145,8 +5197,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.13';
-const BUILD_DATE   = '16 Aug 2026, 08:45 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v8.16';
+const BUILD_DATE   = '17 Aug 2026, 12:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
 // APP_VERSION above. APP_VERSION tracks this PWA's own release number;
@@ -5268,7 +5320,8 @@ async function stuLogLoginEvent(urn, name, outcome) {
     await rtdbPush('davan_pub/student_login_log', {
       urn: urn || '', name: name || '', outcome: outcome || '',
       pairCode: localStorage.getItem('davan_student_widget_pair_code') || '',
-      at: Date.now(), ua: (navigator.userAgent || '').slice(0, 120)
+      at: Date.now(), ua: (navigator.userAgent || '').slice(0, 120),
+      mode: usageDetectMode()   // v8.15: PWA vs browser, indistinguishable from UA alone
     });
   } catch (e) {}
 }
@@ -5637,7 +5690,16 @@ async function rtdbGet(path) {
   // cannot miss one or be forgotten at a new call site. In-memory only —
   // flushed by the heartbeat that already writes (see usageFlush()).
   if (typeof usageNoteRead === 'function') usageNoteRead();
-  return res.json();
+  /* v8.16: read the body as TEXT first so its length can be measured, then
+     parse. For the portal, download bytes are not an estimate — every read is
+     a REST fetch and the body length is the payload Firebase billed for. (The
+     WIDGET cannot do this: the Firebase SDK never exposes transfer size, which
+     is why the Data Usage tab counts widget FETCHES rather than bytes.)
+     Cost of measuring is one extra JSON.parse of a string already in memory —
+     no second network call, no clone(). */
+  const txt = await res.text();
+  if (typeof diagNoteRead === 'function') diagNoteRead(path, txt.length);
+  return txt ? JSON.parse(txt) : null;
 }
 // v6.92: Academic calendar now reads ONLY from DB2 (davan_pub/calendar) per explicit
 // instruction — nothing in the student app should load from DB1. Previously this fetched
@@ -6860,6 +6922,42 @@ function usageDateKey() {
    worse than no tracker: it actively misleads.
    Admin rows are keyed __ADMIN__<username> so they sort into the same table
    and are instantly distinguishable from a student URN. */
+/* v8.15 — HOW they are using it, not just how much.
+   "Is this student hammering the PWA or is a widget looping?" needs the mode
+   recorded at the moment of use; a user-agent string alone cannot tell an
+   installed PWA from the same browser with a tab open, because they are the
+   same browser. display-mode:standalone is the only reliable signal, and it
+   is only available client-side, so it must be captured here and stored. */
+function usageDetectMode() {
+  try {
+    if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return 'pwa';
+    if (window.navigator.standalone === true) return 'pwa';   // iOS Safari
+  } catch (e) {}
+  return 'browser';
+}
+
+function usageBrowserName(ua) {
+  const s = String(ua || '');
+  if (/OPR\//.test(s)) return 'Opera';
+  if (/SamsungBrowser/.test(s)) return 'Samsung';
+  if (/Firefox/.test(s)) return 'Firefox';
+  if (/Edg\//.test(s)) return 'Edge';
+  if (/Chrome/.test(s)) return 'Chrome';
+  if (/Safari/.test(s)) return 'Safari';
+  return 'Other';
+}
+
+function usageDeviceName(ua) {
+  const s = String(ua || '');
+  const m = s.match(/\(([^)]+)\)/);
+  if (!m) return '';
+  // Android UAs put the model after the Android version; keep it short so the
+  // detail panel stays readable on a phone.
+  const parts = m[1].split(';').map(x => x.trim());
+  const model = parts.find(x => /^[A-Z]/.test(x) && !/^Linux|^Android|^U$|^wv$/.test(x));
+  return (model || parts[parts.length - 1] || '').slice(0, 28);
+}
+
 function usageIdentity() {
   if (STATE.studentUser && STATE.studentUser.urn) {
     return { urn: String(STATE.studentUser.urn).toUpperCase(),
@@ -6897,9 +6995,19 @@ async function usageFlush(u, extra, keepalive) {
     _usageReadCount = 0;
     if (!n && !extra) return;
     const body = { reads: { '.sv': { increment: n } } };
-    if (extra && extra.sessions) body.sessions = { '.sv': { increment: extra.sessions } };
+    if (extra && extra.sessions) {
+      body.sessions = { '.sv': { increment: extra.sessions } };
+      // Per-mode session counters, so the detail panel can say "12 PWA / 3 browser"
+      // rather than just a total that hides which surface is being hammered.
+      const modeKey = usageDetectMode() === 'pwa' ? 'pwaSessions' : 'browserSessions';
+      body[modeKey] = { '.sv': { increment: extra.sessions } };
+    }
     body.name = u.name || '';
     body.class = u.class || '';
+    body.lastMode = usageDetectMode();
+    body.lastBrowser = usageBrowserName(navigator.userAgent);
+    body.lastDevice = usageDeviceName(navigator.userAgent);
+    body.lastAt = Date.now();
     const path = 'davan_pub/usage/' + usageDateKey() + '/' + String(u.urn).toUpperCase();
 
     /* v8.13 FIX: this used to be a bare fetch() with NO ?auth= token, so every
@@ -8121,6 +8229,7 @@ function switchTab(name) {
   if (name === 'banned')        renderBannedTab();
   if (name === 'widgetctrl')    renderWidgetCtrlTab();
   if (name === 'datausage')     renderDataUsageTab();
+  if (name === 'diagnostics')   renderDiagnosticsTab();
   if (name === 'lessonplan')    { if (document.getElementById('lp-class-sel').value) loadLessonPlan(); }
   if (name === 'loginactivity') loadLoginActivity();
   if (name === 'socialmedia')   loadSocialClicks();
@@ -18950,6 +19059,13 @@ async function renderDataUsageTab() {
 
   let usage = {};
   try { usage = (await rtdbGet('davan_pub/usage')) || {}; } catch (e) {}
+  // v8.15: photos and the login log power the expandable detail panel.
+  // Loaded once here rather than per-row — 450 photo URLs is one small node,
+  // but 450 separate reads would be its own quota problem.
+  try { await stuEnsurePhotoIndex(); } catch (e) {}
+  let loginLog = {};
+  try { loginLog = (await rtdbGet('davan_pub/student_login_log')) || {}; } catch (e) {}
+  STATE._duLoginLog = loginLog;
 
   // Month to date
   const now = new Date();
@@ -18966,10 +19082,21 @@ async function renderDataUsageTab() {
       const r = students[urn] || {};
       const reads = Number(r.reads || 0);
       const wf = Number(r.widgetFetches || 0);
-      const rec = perUrn[urn] || (perUrn[urn] = { name: r.name || '', class: r.class || '', reads: 0, widget: 0, sessions: 0 });
+      const rec = perUrn[urn] || (perUrn[urn] = { name: r.name || '', class: r.class || '', reads: 0, widget: 0, sessions: 0,
+                                                   pwa: 0, browser: 0, days: {}, lastBrowser: '', lastDevice: '', lastMode: '', lastAt: 0 });
       if (r.name) rec.name = r.name;
       if (r.class) rec.class = r.class;
       rec.reads += reads; rec.widget += wf; rec.sessions += Number(r.sessions || 0);
+      // v8.15: keep the per-day and per-mode detail for the expandable panel.
+      rec.pwa += Number(r.pwaSessions || 0);
+      rec.browser += Number(r.browserSessions || 0);
+      rec.days[day] = (rec.days[day] || 0) + reads + wf;
+      if (Number(r.lastAt || 0) >= rec.lastAt) {
+        rec.lastAt = Number(r.lastAt || 0);
+        rec.lastBrowser = r.lastBrowser || rec.lastBrowser;
+        rec.lastDevice = r.lastDevice || rec.lastDevice;
+        rec.lastMode = r.lastMode || rec.lastMode;
+      }
       totReads += reads; totWidget += wf;
       dayTotal += reads + wf;
     });
@@ -18994,6 +19121,11 @@ async function renderDataUsageTab() {
     .map(([urn, r]) => ({ urn, ...r, total: r.reads + r.widget }))
     .sort((a,b) => b.total - a.total);
   const median = rows.length ? rows[Math.floor(rows.length/2)].total : 0;
+  // v8.14: the export must be EXACTLY what is rendered — recomputing it in the
+  // copy handler would let the two drift apart, and a report that disagrees
+  // with the screen is worse than no report.
+  STATE._duRows = rows; STATE._duPerDay = perDay; STATE._duMedian = median;
+  STATE._duTotals = { reads: totReads, widget: totWidget, projected: projected };
 
   el.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
@@ -19018,7 +19150,11 @@ async function renderDataUsageTab() {
       </div>
     </div>
 
-    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.05em;margin-bottom:6px;">HEAVIEST USERS — median is ${median} ops</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.05em;flex:1;">HEAVIEST USERS — median is ${median} ops</span>
+      <button class="btn btn-secondary" onclick="duCopyReport()" style="font-size:11px;">📋 Copy</button>
+      <button class="btn btn-secondary" onclick="duDownloadCsv()" style="font-size:11px;">⬇ CSV</button>
+    </div>
     <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <tr style="color:var(--muted);font-size:10px;text-align:left;">
@@ -19031,14 +19167,25 @@ async function renderDataUsageTab() {
           // 5x the median is the shape of a device stuck in a retry loop, which
           // is exactly what this page exists to surface on day 3 of a rollout.
           const hot = mult >= 5;
-          return `<tr style="border-top:1px solid var(--border);${hot?'background:rgba(239,68,68,.08);':''}">
+          const photo = (STATE._photoIndex || {})[r.urn] || '';
+          const av = photo
+            ? `<img src="${photo}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:1px solid var(--border);" loading="lazy">`
+            : `<div style="width:34px;height:34px;border-radius:50%;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);">${(r.name||'?').trim().charAt(0)}</div>`;
+          return `<tr onclick="duToggleDetail('${r.urn}')" style="border-top:1px solid var(--border);cursor:pointer;${hot?'background:rgba(239,68,68,.08);':''}">
             <td style="padding:5px;color:var(--muted);">${i+1}</td>
-            <td style="padding:5px;"><span style="font-family:var(--mono);color:var(--accent);">${r.urn}</span> ${(r.name||'').replace(/</g,'&lt;')}<div style="font-size:10px;color:var(--muted);">${(r.class||'').replace(/</g,'&lt;')}</div></td>
+            <td style="padding:5px;">
+              <div style="display:flex;gap:8px;align-items:center;">
+                ${av}
+                <div><span style="font-family:var(--mono);color:var(--accent);">${r.urn}</span> ${(r.name||'').replace(/</g,'&lt;')}
+                <div style="font-size:10px;color:var(--muted);">${(r.class||'').replace(/</g,'&lt;')} · tap for detail</div></div>
+              </div>
+            </td>
             <td style="padding:5px;">${r.reads.toLocaleString()}</td>
             <td style="padding:5px;">${r.widget.toLocaleString()}</td>
             <td style="padding:5px;font-weight:700;">${r.total.toLocaleString()}</td>
             <td style="padding:5px;${hot?'color:var(--danger);font-weight:700;':'color:var(--muted);'}">${mult ? mult.toFixed(1)+'×' : '—'}${hot?' ⚠':''}</td>
-          </tr>`;
+          </tr>
+          <tr id="du-detail-${r.urn}" style="display:none;"><td colspan="6" style="padding:0;"><div id="du-detail-body-${r.urn}"></div></td></tr>`;
         }).join('') || '<tr><td colspan="6" style="padding:10px;color:var(--muted);">No usage recorded yet. Data appears once students on v8.11+ log in, or widgets on w27+ sync.</td></tr>'}
       </table>
     </div>
@@ -19063,11 +19210,362 @@ function duCard(label, value, sub) {
   </div>`;
 }
 
+/* v8.14 — EXPORT. The admin reads this on a phone, where selecting text out of
+   a table is impractical, and the whole point of the page is to be able to SHOW
+   someone the numbers. Two formats: a readable text block for pasting into a
+   chat, and CSV for a spreadsheet. */
+/* v8.15 — PER-STUDENT DETAIL PANEL.
+   The table answers "who is heavy". This answers "why", which is the part that
+   tells you what to CHANGE: a student with 100 reads across 3 sessions is using
+   the app normally and the app is expensive; the same 100 reads across 40
+   sessions is someone reloading, and the fix is different. Mode split (PWA vs
+   browser) matters because an installed PWA keeps a tab alive in the background
+   where a browser tab gets killed — which was exactly the shape of the
+   broadcast-poll leak fixed in v8.05. */
+function duToggleDetail(urn) {
+  const row = document.getElementById('du-detail-' + urn);
+  const body = document.getElementById('du-detail-body-' + urn);
+  if (!row || !body) return;
+  if (row.style.display !== 'none') { row.style.display = 'none'; return; }
+  row.style.display = '';
+  const r = (STATE._duRows || []).find(x => x.urn === urn);
+  if (!r) { body.innerHTML = '<div style="padding:10px;">No detail.</div>'; return; }
+
+  const log = STATE._duLoginLog || {};
+  const mine = Object.values(log)
+    .filter(e => String(e.urn || '').toUpperCase() === urn)
+    .sort((a, b) => (b.at || 0) - (a.at || 0));
+
+  const fmt = ts => { try { return new Date(ts).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); } catch (e) { return '—'; } };
+  const photo = (STATE._photoIndex || {})[urn] || '';
+  const days = Object.keys(r.days || {}).sort().reverse();
+  const maxDay = Math.max(1, ...Object.values(r.days || {}));
+  const perSession = r.sessions > 0 ? Math.round(r.reads / r.sessions) : 0;
+
+  // Sessions per day is the reload-detector: normal use is 1-3 a day.
+  const activeDays = days.length || 1;
+  const sessPerDay = (r.sessions / activeDays).toFixed(1);
+
+  body.innerHTML = `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;margin:4px 0 10px;padding:12px;">
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+        ${photo ? `<img src="${photo}" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--border);">` : ''}
+        <div style="flex:1;min-width:190px;">
+          <div style="font-weight:700;font-size:14px;">${(r.name||'').replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:var(--muted);font-family:var(--mono);">${r.urn} · ${(r.class||'').replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+            Last seen ${r.lastAt ? fmt(r.lastAt) : '—'}
+            ${r.lastMode ? ' · <b style="color:var(--text);">' + (r.lastMode === 'pwa' ? 'installed app (PWA)' : 'mobile browser') + '</b>' : ''}
+            ${r.lastBrowser ? ' · ' + r.lastBrowser : ''}${r.lastDevice ? ' · ' + r.lastDevice.replace(/</g,'&lt;') : ''}
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+        ${duMini('PORTAL READS', r.reads)}
+        ${duMini('WIDGET FETCHES', r.widget)}
+        ${duMini('SESSIONS', r.sessions)}
+        ${duMini('READS / SESSION', perSession)}
+        ${duMini('SESSIONS / DAY', sessPerDay)}
+      </div>
+
+      <div style="margin-top:12px;font-size:11px;">
+        <b>How they open it:</b>
+        <span style="color:var(--accent);">${r.pwa} installed-app</span> ·
+        <span style="color:var(--muted);">${r.browser} browser</span>
+        ${(r.pwa + r.browser) === 0 ? '<span style="color:var(--muted);"> (not recorded before v8.15)</span>' : ''}
+      </div>
+
+      <div style="margin-top:12px;font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.05em;">DAILY OPS</div>
+      ${days.slice(0,14).map(d => `<div style="display:flex;align-items:center;gap:8px;margin-top:3px;font-size:11px;">
+        <span style="font-family:var(--mono);color:var(--muted);width:80px;">${d}</span>
+        <div style="flex:1;height:10px;background:var(--surface);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${Math.round(r.days[d]/maxDay*100)}%;background:var(--accent);"></div></div>
+        <span style="font-family:var(--mono);width:52px;text-align:right;">${r.days[d]}</span>
+      </div>`).join('') || '<div style="font-size:11px;color:var(--muted);">No daily data.</div>'}
+
+      <div style="margin-top:12px;font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.05em;">RECENT LOGINS (${mine.length})</div>
+      ${mine.slice(0,12).map(e => `<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--border);">
+        ${String(e.outcome||'').indexOf('blocked')===0 ? '⛔' : '✓'} ${fmt(e.at)}
+        · ${e.mode === 'pwa' ? 'installed app' : e.mode === 'browser' ? 'browser' : '—'}
+        · ${usageBrowserName(e.ua)}
+        ${e.ua ? ' · <span style="color:var(--muted);">' + usageDeviceName(e.ua).replace(/</g,'&lt;') + '</span>' : ''}
+      </div>`).join('') || '<div style="font-size:11px;color:var(--muted);">No logins recorded (login log starts at v8.08).</div>'}
+    </div>`;
+}
+
+function duMini(label, value) {
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 10px;min-width:88px;">
+    <div style="font-size:9px;color:var(--muted);font-family:var(--mono);letter-spacing:.04em;">${label}</div>
+    <div style="font-size:15px;font-weight:700;">${value}</div>
+  </div>`;
+}
+
+function duBuildReport() {
+  const rows = STATE._duRows || [], t = STATE._duTotals || {}, perDay = STATE._duPerDay || {};
+  const L = [];
+  L.push('DAVAN PORTAL — DATA USAGE  (' + new Date().toLocaleString('en-IN') + ')');
+  L.push('Portal v' + APP_VERSION.replace(/^v/, '') + ' · month-to-date');
+  L.push('');
+  L.push('Portal reads : ' + (t.reads || 0));
+  L.push('Widget fetches: ' + (t.widget || 0));
+  L.push('Students seen : ' + rows.length + '   Median: ' + (STATE._duMedian || 0) + ' ops');
+  if (t.projected > 0) L.push('Projected     : ' + t.projected.toFixed(1) + ' GB vs ' + DU_FREE_GB + ' GB free');
+  L.push('');
+  L.push('HEAVIEST USERS');
+  rows.slice(0, 40).forEach((r, i) => {
+    const mult = STATE._duMedian ? (r.total / STATE._duMedian).toFixed(1) + 'x' : '-';
+    L.push(String(i+1).padStart(2) + '. ' + r.urn + '  ' + (r.name || '') +
+           '  [' + (r.class || '') + ']  portal=' + r.reads + ' widget=' + r.widget +
+           ' total=' + r.total + ' (' + mult + ')');
+  });
+  L.push('');
+  L.push('DAILY TOTALS');
+  Object.keys(perDay).sort().reverse().forEach(d => L.push('  ' + d + '  ' + perDay[d]));
+  return L.join('\n');
+}
+
+async function duCopyReport() {
+  const text = duBuildReport();
+  try {
+    // navigator.clipboard needs a secure context and can be blocked on some
+    // mobile browsers, so there is a real fallback rather than a silent failure.
+    await navigator.clipboard.writeText(text);
+    alert('Report copied — paste it anywhere.');
+  } catch (e) {
+    duShowCopyFallback(text);
+  }
+}
+
+function duShowCopyFallback(text) {
+  const el = document.getElementById('du-body');
+  if (!el) return;
+  const box = document.createElement('div');
+  box.style.cssText = 'margin:12px 0;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);';
+  box.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Copy blocked by the browser — select all in the box below and copy manually.</div>';
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.rows = 12;
+  ta.style.cssText = 'width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:11px;font-family:var(--mono);';
+  box.appendChild(ta);
+  el.insertBefore(box, el.firstChild);
+  ta.focus(); ta.select();
+}
+
+function duDownloadCsv() {
+  const rows = STATE._duRows || [];
+  const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const lines = [['urn','name','class','portal_reads','widget_fetches','total','vs_median'].join(',')];
+  rows.forEach(r => lines.push([r.urn, r.name || '', r.class || '', r.reads, r.widget, r.total,
+    STATE._duMedian ? (r.total / STATE._duMedian).toFixed(2) : ''].map(esc).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'davan_data_usage_' + usageDateKey() + '.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
 function duSaveActual() {
   const el = document.getElementById('du-actual');
   if (!el) return;
   localStorage.setItem('du_actual_gb', String(parseFloat(el.value) || 0));
   renderDataUsageTab();
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   v8.16 — DIAGNOSTICS ENGINE
+
+   Built to answer one question directly: the portal is burning tens of GB a
+   month — WHICH READS? The Data Usage tab says who; this says what. Those
+   need different instrumentation, which is why it is a separate page rather
+   than another column.
+
+   PATH GROUPING. davan_pub/students_by_urn/U13DI25S0027 and ...S0028 are the
+   same read from a diagnosis point of view, but 450 separate rows would bury
+   the one node that actually matters. Segments that look like identifiers
+   (URNs, dates, push keys) collapse to <ID>, so the table shows
+   "davan_pub/students_by_urn/<ID>  ×450  1.2 MB" — one line that tells you
+   both the shape and the cost.
+
+   ERRORS. window.onerror and unhandledrejection into a 50-entry ring buffer
+   in localStorage. Every failure in this app has so far vanished into a
+   console that cannot be copied on a phone — which is exactly how the v8.11
+   auth bug survived two releases while the page reported zeros. A ring
+   buffer is used rather than an unbounded list so a crash loop cannot fill
+   storage and take the portal down with it.
+
+   Deliberately localStorage, not Firebase: diagnostics about a database
+   problem must not need that database to be working.
+══════════════════════════════════════════════════════════════ */
+const DIAG_ERR_KEY = 'davan_diag_errors';
+const DIAG_ERR_MAX = 50;
+STATE._diagPaths = STATE._diagPaths || {};   // grouped path -> {n, bytes, max}
+STATE._diagStart = Date.now();
+
+function diagGroupPath(path) {
+  return String(path).split('/').map(seg => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(seg)) return '<DATE>';
+    if (/^-[A-Za-z0-9_-]{15,}$/.test(seg)) return '<PUSHKEY>';
+    if (/^U\d{2}[A-Z]{2}\d{2}[A-Z]\d{4}$/i.test(seg)) return '<URN>';
+    if (/^\d+$/.test(seg) && seg.length > 3) return '<ID>';
+    return seg;
+  }).join('/');
+}
+
+function diagNoteRead(path, bytes) {
+  try {
+    const k = diagGroupPath(path);
+    const r = STATE._diagPaths[k] || (STATE._diagPaths[k] = { n: 0, bytes: 0, max: 0 });
+    r.n++; r.bytes += bytes; if (bytes > r.max) r.max = bytes;
+  } catch (e) {}
+}
+
+function diagLogError(kind, msg, extra) {
+  try {
+    const list = JSON.parse(localStorage.getItem(DIAG_ERR_KEY) || '[]');
+    list.push({
+      at: Date.now(), kind: kind,
+      msg: String(msg || '').slice(0, 300),
+      where: String(extra || '').slice(0, 200),
+      ver: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '?'),
+      tab: (STATE && STATE.currentTab) || ''
+    });
+    while (list.length > DIAG_ERR_MAX) list.shift();
+    localStorage.setItem(DIAG_ERR_KEY, JSON.stringify(list));
+  } catch (e) { /* storage full or blocked — never let logging throw */ }
+}
+
+(function diagInstallHandlers() {
+  try {
+    window.addEventListener('error', e => {
+      diagLogError('js', e.message, (e.filename || '') + ':' + (e.lineno || ''));
+    });
+    window.addEventListener('unhandledrejection', e => {
+      const r = e.reason;
+      diagLogError('promise', (r && r.message) || String(r), (r && r.stack || '').split('\n')[1] || '');
+    });
+  } catch (e) {}
+})();
+
+function diagBytes(b) {
+  if (b >= 1048576) return (b / 1048576).toFixed(2) + ' MB';
+  if (b >= 1024) return (b / 1024).toFixed(1) + ' KB';
+  return b + ' B';
+}
+
+function renderDiagnosticsTab() {
+  const el = document.getElementById('diag-body');
+  if (!el) return;
+  const rows = Object.entries(STATE._diagPaths)
+    .map(([path, r]) => ({ path, ...r, avg: Math.round(r.bytes / r.n) }))
+    .sort((a, b) => b.bytes - a.bytes);
+  const totalBytes = rows.reduce((s, r) => s + r.bytes, 0);
+  const totalReads = rows.reduce((s, r) => s + r.n, 0);
+  const mins = Math.max(1, Math.round((Date.now() - STATE._diagStart) / 60000));
+  const errs = (() => { try { return JSON.parse(localStorage.getItem(DIAG_ERR_KEY) || '[]'); } catch (e) { return []; } })();
+  const fmt = ts => { try { return new Date(ts).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); } catch (e) { return ''; } };
+
+  el.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+      ${duCard('DOWNLOADED', diagBytes(totalBytes), 'this session · ' + mins + ' min')}
+      ${duCard('READS', totalReads, 'across ' + rows.length + ' paths')}
+      ${duCard('PROJECTED', diagBytes(Math.round(totalBytes / mins * 60)), 'per hour at this rate')}
+      ${duCard('ERRORS', errs.length, 'captured on this device')}
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.05em;flex:1;">HEAVIEST PATHS — this session</span>
+      <button class="btn btn-secondary" onclick="renderDiagnosticsTab()" style="font-size:11px;">🔄 Refresh</button>
+      <button class="btn btn-secondary" onclick="diagCopyReport()" style="font-size:11px;">📋 Copy report</button>
+      <button class="btn btn-secondary" onclick="diagClear()" style="font-size:11px;">🗑 Reset</button>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.6;">
+      Real response sizes, measured on every read this session — not estimates. Reload the portal, use it normally for a minute, then come back here: the top row is what to fix first. Paths ending &lt;URN&gt; or &lt;DATE&gt; are grouped so one fat node is not hidden behind 450 small ones.
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <tr style="color:var(--muted);font-size:10px;text-align:left;">
+          <th style="padding:5px;">Path</th><th style="padding:5px;">Reads</th>
+          <th style="padding:5px;">Total</th><th style="padding:5px;">Avg</th><th style="padding:5px;">Largest</th>
+        </tr>
+        ${rows.slice(0, 30).map(r => {
+          const share = totalBytes ? Math.round(r.bytes / totalBytes * 100) : 0;
+          return `<tr style="border-top:1px solid var(--border);${share >= 25 ? 'background:rgba(239,68,68,.08);' : ''}">
+            <td style="padding:5px;font-family:var(--mono);font-size:11px;word-break:break-all;">${r.path.replace(/</g,'&lt;')}
+              <div style="font-size:9px;color:${share>=25?'var(--danger)':'var(--muted)'};">${share}% of session traffic</div></td>
+            <td style="padding:5px;">${r.n}</td>
+            <td style="padding:5px;font-weight:700;">${diagBytes(r.bytes)}</td>
+            <td style="padding:5px;color:var(--muted);">${diagBytes(r.avg)}</td>
+            <td style="padding:5px;color:var(--muted);">${diagBytes(r.max)}</td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="5" style="padding:10px;color:var(--muted);">No reads yet this session. Move around the app, then Refresh.</td></tr>'}
+      </table>
+    </div>
+
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.05em;margin:16px 0 6px;">ERRORS (newest first)</div>
+    ${errs.slice().reverse().slice(0, 20).map(e => `<div style="border-top:1px solid var(--border);padding:5px 0;font-size:11px;">
+      <span style="color:var(--danger);">${e.kind}</span> · <span style="color:var(--muted);">${fmt(e.at)} · ${e.ver}${e.tab ? ' · ' + e.tab : ''}</span>
+      <div style="font-family:var(--mono);font-size:10px;word-break:break-all;">${String(e.msg).replace(/</g,'&lt;')}</div>
+      ${e.where ? `<div style="font-family:var(--mono);font-size:9px;color:var(--muted);word-break:break-all;">${String(e.where).replace(/</g,'&lt;')}</div>` : ''}
+    </div>`).join('') || '<div style="font-size:11px;color:var(--muted);">No errors captured. Good.</div>'}`;
+}
+
+function diagBuildReport() {
+  const rows = Object.entries(STATE._diagPaths)
+    .map(([path, r]) => ({ path, ...r, avg: Math.round(r.bytes / r.n) }))
+    .sort((a, b) => b.bytes - a.bytes);
+  const totalBytes = rows.reduce((s, r) => s + r.bytes, 0);
+  const mins = Math.max(1, Math.round((Date.now() - STATE._diagStart) / 60000));
+  const errs = (() => { try { return JSON.parse(localStorage.getItem(DIAG_ERR_KEY) || '[]'); } catch (e) { return []; } })();
+  const L = [];
+  L.push('DAVAN PORTAL — DIAGNOSTICS');
+  L.push('Portal ' + APP_VERSION + ' · built ' + BUILD_DATE);
+  L.push('Captured ' + new Date().toLocaleString('en-IN') + ' · session ' + mins + ' min');
+  L.push('UA: ' + (navigator.userAgent || '').slice(0, 110));
+  L.push('Mode: ' + (typeof usageDetectMode === 'function' ? usageDetectMode() : '?'));
+  L.push('');
+  L.push('SESSION DOWNLOAD: ' + diagBytes(totalBytes) + ' over ' + rows.reduce((s,r)=>s+r.n,0) + ' reads');
+  L.push('RATE: ' + diagBytes(Math.round(totalBytes / mins * 60)) + '/hour at this rate');
+  L.push('');
+  L.push('HEAVIEST PATHS (path | reads | total | avg | largest)');
+  rows.slice(0, 30).forEach(r => {
+    const share = totalBytes ? Math.round(r.bytes / totalBytes * 100) : 0;
+    L.push('  ' + r.path + ' | ' + r.n + ' | ' + diagBytes(r.bytes) + ' | ' + diagBytes(r.avg) + ' | ' + diagBytes(r.max) + ' | ' + share + '%');
+  });
+  L.push('');
+  L.push('ERRORS (' + errs.length + ')');
+  errs.slice().reverse().slice(0, 25).forEach(e => {
+    L.push('  [' + e.kind + '] ' + new Date(e.at).toLocaleString('en-IN') + ' ' + e.ver + (e.tab ? ' ' + e.tab : ''));
+    L.push('      ' + e.msg);
+    if (e.where) L.push('      at ' + e.where);
+  });
+  const note = (document.getElementById('diag-note') || {}).value || '';
+  if (note.trim()) { L.push(''); L.push('WHAT I SEE: ' + note.trim()); }
+  return L.join('\n');
+}
+
+async function diagCopyReport() {
+  const text = diagBuildReport();
+  try { await navigator.clipboard.writeText(text); alert('Diagnostics copied — paste it to share.'); }
+  catch (e) {
+    // Same fallback as the usage export: mobile browsers block clipboard often
+    // enough that a silent failure here would make the page useless.
+    const el = document.getElementById('diag-body');
+    const box = document.createElement('div');
+    box.style.cssText = 'margin:10px 0;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);';
+    box.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Copy blocked — select all below and copy manually.</div>';
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.rows = 14;
+    ta.style.cssText = 'width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px;font-size:11px;font-family:var(--mono);';
+    box.appendChild(ta); el.insertBefore(box, el.firstChild); ta.focus(); ta.select();
+  }
+}
+
+function diagClear() {
+  if (!confirm('Reset path counters and clear the error log?')) return;
+  STATE._diagPaths = {}; STATE._diagStart = Date.now();
+  try { localStorage.removeItem(DIAG_ERR_KEY); } catch (e) {}
+  renderDiagnosticsTab();
 }
 
 async function renderWidgetCtrlTab() {
