@@ -17,7 +17,38 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v8.24 (2026-08-17) — PERF: stop downloading the login history on every page load.
+VERSION : v8.28 (2026-08-17) — FEAT: quota heartbeat on the LOGIN screen. The dashboard was
+          already covered (davan_meta is read fresh every load), but nobody covered login: with
+          the quota exhausted, loginStudent() failed on its first read and told the student
+          "Something went wrong. Check your connection." — blaming their phone for our problem,
+          at the moment they are most likely to keep retrying and burn what quota remains. Now
+          one 67-byte uncached read runs when the login screen appears, and a failed login names
+          the real cause and the date it clears.
+          v8.27 (2026-08-17) — FIX: the freshness banner said "1 September", hardcoded. The
+          monthly download quota resets on the BILLING date, which rolls forward every month;
+          it is not a fixed calendar day. Now computed as the next occurrence, with
+          controls/global/quotaResetDay to override if the real billing day is not the 1st.
+          v8.26 (2026-08-17) — FEAT: freshness banner. Two different things make the screen
+          lie and they look identical to a student: (1) the database is over its monthly
+          download quota, RTDB answers 402/429, every read fails and the portal silently shows
+          whatever sessionStorage still holds; (2) reads work but the scraper has not run. The
+          top bar already reported (2) via "Last scraped"; nothing reported (1) — the dangerous
+          one, because a student checking an attendance shortage cannot tell a working portal
+          from a frozen one. rtdbGet now flags 402/429 at the single read choke point (so a new
+          call site cannot forget to participate) and a red banner appears ABOVE the greeting
+          naming the age of the data and when normal service resumes.
+          v8.25 (2026-08-17) — FIX: saved-login dropdown now appears reliably and selecting a
+          URN fills the saved password. The panel had TWO off-screen honeypot inputs whose
+          stated job was to absorb autofill, plus autocomplete="off" on the URN and
+          autocomplete="new-password" on the password — three separate instructions telling the
+          browser not to remember these credentials. The dropdown appearing "sometimes" was
+          Firefox guessing against those instructions. Removed the honeypots and wrapped the
+          fields in a real <form> with name="username"/autocomplete="username" and
+          name="password"/autocomplete="current-password". The form element is required:
+          browsers will not reliably offer a username dropdown for loose inputs. display:contents
+          keeps the card layout identical. Sign In is now type=submit, so Enter works from
+          either field and password managers see a proper submit.
+          v8.24 (2026-08-17) — PERF: stop downloading the login history on every page load.
           Both the student and admin loads fetched rtdbGet('controls') — the WHOLE node. That
           was fine when controls held a handful of toggles, but controls/loginActivity is
           pushed to on every login and has grown to ~845 KB. Every one of 402 students was
@@ -3261,18 +3292,35 @@ body.dash-active .data-strip { display: block; }
 
         <!-- STUDENT TAB -->
         <div class="tab-panel active" id="lpanel-student">
-          <!-- honeypot: absorbs browser autofill -->
-          <input type="text" name="username" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" tabindex="-1" aria-hidden="true"/>
-          <input type="password" name="password" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" tabindex="-1" aria-hidden="true"/>
+          <!-- v8.25: the honeypot pair that used to sit here existed to ABSORB
+               browser autofill, and together with autocomplete="off" on the URN
+               and autocomplete="new-password" on the password it told every
+               browser not to remember or offer these credentials. That is why
+               the saved-URN dropdown appeared only sometimes — Firefox was
+               falling back to heuristics against explicit instructions.
+
+               Students log in from their own phones, several times a week, with
+               a password that is their own phone number. Suppressing the
+               password manager here bought nothing and cost them retyping.
+
+               Now: a real <form> with name= and standard autocomplete tokens,
+               which is what browsers key their credential store on. A form is
+               required — Firefox will not reliably offer a username dropdown
+               for loose inputs, however they are labelled. display:contents
+               keeps the existing card layout untouched. -->
+          <form id="stu-login-form" style="display:contents"
+                onsubmit="event.preventDefault(); loginStudent(); return false;">
           <div class="card-title">STUDENT LOGIN</div>
           <div class="card-desc">Sign in with your URN. Your password is the <strong style="color:var(--accent);">phone number submitted to college</strong>.</div>
+          <div id="df-login-banner"></div>
           <div class="alert error" id="stu-login-err"><span class="alert-icon">⚠</span><span id="stu-login-err-msg"></span></div>
           <div class="field">
             <label for="urn-input">University Register Number (URN)</label>
             <div class="input-wrap">
-              <input type="text" id="urn-input" placeholder="e.g. 21BCA001" autocomplete="off" autocapitalize="characters" value="" 
+              <input type="text" id="urn-input" name="username" placeholder="e.g. 21BCA001"
+                     autocomplete="username" autocapitalize="characters" value=""
                      oninput="previewUrnName(this.value)"
-                     onkeydown="if(event.key==='Enter')document.getElementById('pwd-input').focus()"/>
+                     onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('pwd-input').focus();}"/>
               <span class="icon">🪪</span>
             </div>
           </div>
@@ -3283,7 +3331,8 @@ body.dash-active .data-strip { display: block; }
           <div class="field">
             <label for="pwd-input">Password</label>
             <div class="input-wrap">
-              <input type="password" id="pwd-input" placeholder="Default: your 10-digit phone number" value="" autocomplete="new-password" onkeydown="if(event.key==='Enter')loginStudent()"/>
+              <input type="password" id="pwd-input" name="password" placeholder="Default: your 10-digit phone number"
+                     value="" autocomplete="current-password"/>
               <span class="icon">🔒</span>
               <button class="pwd-toggle" type="button" onclick="togglePwd('pwd-input')">👁</button>
             </div>
@@ -3292,10 +3341,11 @@ body.dash-active .data-strip { display: block; }
             <input type="checkbox" id="stu-remember" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;"/>
             <span style="font-size:12px;font-family:var(--mono);color:var(--muted);">Remember me on this device</span>
           </div>
-          <button class="btn btn-primary" id="stu-login-btn" onclick="loginStudent()">
+          <button class="btn btn-primary" id="stu-login-btn" type="submit">
             <span class="spinner" id="stu-login-spinner"></span>
             <span id="stu-login-btn-text">Sign In</span>
           </button>
+          </form>
           <p style="text-align:center;margin-top:13px;font-size:11px;color:var(--muted);font-family:var(--mono);">Forgot password? Contact your administrator.</p>
           <div id="login-follow-footer"></div>
         </div>
@@ -3578,6 +3628,10 @@ body.dash-active .data-strip { display: block; }
       <!-- v7.18: Greeting line now sits where dash-sem-note used to be (top of dashboard);
            dash-sem-note itself moved below the celebration/Perfect-Attendance section
            (see stu-archive-view-banner / sd-celeb-section), per user request. -->
+      <!-- v8.26: sits ABOVE the greeting deliberately. A student who opens the
+           portal to check a shortage must see "this is frozen" before they read
+           a number and act on it. -->
+      <div id="df-banner"></div>
       <div id="dash-greeting" style="margin-top:12px;margin-bottom:18px;font-size:15px;font-weight:600;color:var(--text);"></div>
 
       <!-- Social follow — dismissible banner (source='banner'). Placed above the summary
@@ -5295,7 +5349,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.24';
+const APP_VERSION = 'v8.28';
 const BUILD_DATE   = '17 Aug 2026, 12:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -5796,10 +5850,104 @@ async function rtdbGetQuery(path, query) {
   return txt ? JSON.parse(txt) : null;
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+   v8.26 · FRESHNESS — is what you are looking at actually current?
+
+   Two different things can make the screen lie, and they look identical to
+   a student:
+
+     1. The database is over its download quota. RTDB answers 402 (or 429)
+        and every read fails. The portal then shows whatever sessionStorage
+        still holds — real data, silently hours or days old.
+     2. Reads succeeded but the SCRAPER has not run, so the numbers are
+        genuinely current in the database and genuinely stale in the world.
+
+   The top bar already reports the second ("Last scraped: …"). Nothing
+   reported the first, which is the dangerous one: a student checking
+   attendance shortage before a Friday deadline cannot tell a working
+   portal from a frozen one.
+
+   DF tracks it at the one place every read passes through, so a new call
+   site cannot forget to participate.                                     */
+const DF = { liveReads: 0, cacheHits: 0, failed: 0, overQuota: false,
+             lastLive: 0, firstError: '' };
+
+/* The monthly download quota resets on the billing date, which rolls forward
+   every month — it is not a fixed calendar day. Default to the 1st of next
+   month and let admin override from DB2 if the real billing date differs. */
+function dfResetDateText() {
+  const cfg = (STATE && STATE.controls && STATE.controls.global) || {};
+  const day = parseInt(cfg.quotaResetDay, 10) || 1;
+  const now = new Date();
+  let d = new Date(now.getFullYear(), now.getMonth(), day);
+  if (d <= now) d = new Date(now.getFullYear(), now.getMonth() + 1, day);
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
+}
+
+function dfBannerHTML() {
+  if (DF.overQuota) {
+    const when = DF.lastLive ? new Date(DF.lastLive).toLocaleString('en-IN') : 'earlier';
+    return '<div style="background:#7f1d1d;color:#fff;padding:10px 14px;font-size:13px;'
+         + 'border-radius:8px;margin-bottom:12px;line-height:1.45;">'
+         + '<b>⚠ Live updates are unavailable.</b><br>'
+         + 'The database has reached its monthly limit, so this page is showing saved data from '
+         + when + '. Attendance and marks may have changed since then. '
+         + 'Normal service returns on ' + dfResetDateText() + '.</div>';
+  }
+  if (DF.failed && !DF.liveReads) {
+    return '<div style="background:#78350f;color:#fff;padding:10px 14px;font-size:13px;'
+         + 'border-radius:8px;margin-bottom:12px;">'
+         + '<b>⚠ Could not reach the server.</b> Showing saved data — pull down to retry.</div>';
+  }
+  return '';
+}
+
+/* v8.28 · HEARTBEAT
+   One deliberately uncached read at app start, purely to answer "is the
+   database reachable right now?".
+
+   The dashboard already reads davan_meta fresh on every load, so a logged-in
+   student was covered. Nobody was covering the LOGIN screen: with the quota
+   exhausted, loginStudent() fails on its first read and the student is told
+   "Something went wrong. Check your connection." — which blames their phone
+   for our problem, and is the one moment they are most likely to keep
+   retrying.
+
+   davan_meta is 67 bytes. Running it before anyone types anything costs
+   nothing and means the banner is driven by the database's actual state
+   rather than by whether some other read happened to be attempted. */
+async function dfHeartbeat() {
+  try {
+    await rtdbGet('davan_meta');          // sets DF.lastLive on success
+  } catch (e) {
+    // rtdbGet has already recorded 402/429 in DF; nothing more to do here.
+  }
+  dfPaint();
+  const box = document.getElementById('df-login-banner');
+  if (box) box.innerHTML = dfBannerHTML();
+}
+
+function dfPaint() {
+  const el = document.getElementById('df-banner');
+  if (el) el.innerHTML = dfBannerHTML();
+}
+
 async function rtdbGet(path) {
   await getAuthToken();
   const res = await fetch(`${DB_URL}/${path}.json${authSep()}`);
-  if (!res.ok) throw new Error('RTDB read error ' + res.status);
+  if (!res.ok) {
+    /* 402 is RTDB's over-quota reply; 429 is rate limiting. Both mean the
+       data is unreachable rather than absent, which is a different message
+       to the student. */
+    if (res.status === 402 || res.status === 429) {
+      DF.overQuota = true;
+      DF.firstError = DF.firstError || (path + ' → ' + res.status);
+      dfPaint();
+    }
+    DF.failed++;
+    throw new Error('RTDB read error ' + res.status);
+  }
+  DF.liveReads++; DF.lastLive = Date.now();
   // v8.11: single choke point for every portal read, so the usage counter
   // cannot miss one or be forgotten at a new call site. In-memory only —
   // flushed by the heartbeat that already writes (see usageFlush()).
@@ -6092,7 +6240,12 @@ async function loginStudent() {
     goToDashboard();
   } catch(err) {
     console.error('Login error:', err);
-    showAlert('stu-login-err','Something went wrong. Check your connection.');
+    /* v8.28: do not blame the student's connection for our quota. DF knows
+       which it was, because every read passes through rtdbGet. */
+    showAlert('stu-login-err', DF.overQuota
+      ? 'The portal is temporarily unavailable — the database has reached its monthly limit. '
+        + 'Normal service returns on ' + dfResetDateText() + '. This is not a problem with your phone.'
+      : 'Something went wrong. Check your connection.');
   } finally {
     setLoading('stu-login-btn','stu-login-spinner','stu-login-btn-text', false, 'Sign In');
   }
@@ -7070,6 +7223,7 @@ function doLogout() {
   if (admP) admP.value = '';
   if (admR) admR.checked = false;
   showScreen('screen-login');
+  if (typeof dfHeartbeat === 'function') dfHeartbeat();   // v8.28
   switchLoginTab('student');
 }
 
@@ -13374,7 +13528,7 @@ async function loadStudentDashboard() {
   }
   async function cachedGet(key, path) {
     const hit = scGet(key);
-    if (hit !== null) { console.log('[CACHE HIT]', key); return hit; }
+    if (hit !== null) { console.log('[CACHE HIT]', key); DF.cacheHits++; return hit; }
     const val = await rtdbGet(path).catch(() => null);
     if (val !== null) scSet(key, val);
     return val;
@@ -14583,6 +14737,7 @@ function updateSidebarProfile() {
 // dash-sem-note used to be (that block now renders further down, after the
 // celebration/Perfect-Attendance section, per user request).
 function stuRenderGreeting(u) {
+  dfPaint();   // v8.26: freshness first, greeting second
   const box = document.getElementById('dash-greeting');
   if (!box) return;
   const hr = new Date().getHours();
