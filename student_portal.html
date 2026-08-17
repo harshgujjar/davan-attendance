@@ -17,7 +17,24 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v8.28 (2026-08-17) — FEAT: quota heartbeat on the LOGIN screen. The dashboard was
+VERSION : v8.30 (2026-08-17) — UX: the widget pairing log showed two bare URNs per row, which
+          is the hardest possible way to read a log whose entire subject is WHO holds a widget.
+          Both sides now resolve to name + photo against the roster already in admin memory —
+          which also fixes entries logged before this change, since the resolution happens at
+          render rather than at write. (The v8.23 avatar line here referenced r.urn, a field
+          this log never had, so it had been rendering nothing.)
+          v8.29 (2026-08-17) — CHANGE: the widget now follows the LAST student to log in on
+          that device, not the first. Previously whoever paired first kept it permanently and
+          every later login was refused SILENTLY — six students logging in on one phone produced
+          five invisible refusals, a widget stuck on the first, and refresh doing nothing because
+          refresh re-reads the same unchanged node. Nothing on screen explained any of it.
+          The old guard assumed a remembered pair code is not proof of holding the phone, but it
+          nearly is: the code only reaches localStorage when the portal is opened FROM that
+          widget via ?wdev=. Trade-off accepted and stated: borrow a friend's phone to check
+          attendance and you take their widget with you — so every takeover is logged with the
+          previous owner, and controls/global/widgetFirstOwnerWins = true restores the old
+          behaviour from DB2 without a rebuild. Either outcome is now shown on the dashboard.
+          v8.28 (2026-08-17) — FEAT: quota heartbeat on the LOGIN screen. The dashboard was
           already covered (davan_meta is read fresh every load), but nobody covered login: with
           the quota exhausted, loginStudent() failed on its first read and told the student
           "Something went wrong. Check your connection." — blaming their phone for our problem,
@@ -5349,7 +5366,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.28';
+const APP_VERSION = 'v8.30';
 const BUILD_DATE   = '17 Aug 2026, 12:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -5488,10 +5505,46 @@ async function stuCompleteWidgetPairing() {
     let existing = null;
     try { existing = await rtdbGet('davan_pub/student_widget_active/' + pairCode); } catch (e) { existing = null; }
     const owner = existing && existing.urn ? String(existing.urn).toUpperCase() : '';
-    if (owner && owner !== me) {
+
+    /* ══════════════════════════════════════════════════════════════════
+       v8.29 · WHO OWNS THIS DEVICE'S WIDGET
+
+       Until now: whoever paired first kept it forever, and every later
+       login on that phone was refused SILENTLY. Six students logging in
+       on one device meant five silent refusals and a widget stuck on the
+       first — with nothing on screen to explain it, and refresh doing
+       nothing, because refresh re-reads the same unchanged node.
+
+       The old reasoning was that a remembered pair code is not proof you
+       hold the phone. But it very nearly is: the code only reaches
+       localStorage when the portal is opened FROM that widget, carrying
+       ?wdev=. A different device cannot have it without someone typing
+       it deliberately, and typing it is the manual path that was always
+       allowed anyway.
+
+       So the default is now LAST LOGIN ON THIS DEVICE WINS, which is what
+       a student expects: sign in on your phone, your widget shows you.
+
+       The trade-off is real and worth stating: a student who borrows a
+       friend's phone to check attendance now takes that friend's widget
+       with them, and the friend finds out when their widget shows the
+       wrong name. That is why every takeover is logged with the previous
+       owner, and why the switch below exists — set
+       controls/global/widgetFirstOwnerWins = true in DB2 to restore the
+       old protect-the-first-owner behaviour without a rebuild.
+       ══════════════════════════════════════════════════════════════════ */
+    const firstOwnerWins = !!(STATE.controls && STATE.controls.global
+                              && STATE.controls.global.widgetFirstOwnerWins);
+    if (owner && owner !== me && firstOwnerWins) {
       console.warn('[StudentWidgetPair] REFUSED: ' + pairCode + ' belongs to ' + owner + ', not ' + me + '. Use manual code entry to re-pair.');
       stuLogPairEvent(pairCode, owner, me, 'auto', true);
+      STATE._widgetRefusedOwner = owner;   // surfaced on the dashboard
       return;   // leave the real owner's widget alone
+    }
+    if (owner && owner !== me) {
+      console.log('[StudentWidgetPair] TAKEOVER: ' + pairCode + ' moving from ' + owner + ' to ' + me);
+      stuLogPairEvent(pairCode, owner, me, 'auto-takeover', false);
+      STATE._widgetTookFrom = owner;
     }
 
     await rtdbSet('davan_pub/student_widget_active/' + pairCode, {
@@ -14738,6 +14791,22 @@ function updateSidebarProfile() {
 // celebration/Perfect-Attendance section, per user request).
 function stuRenderGreeting(u) {
   dfPaint();   // v8.26: freshness first, greeting second
+  /* v8.29: pairing used to succeed or fail in total silence, which is why a
+     widget stuck on the wrong student looked like a bug with no cause. Say
+     what happened, either way. */
+  const wb = document.getElementById('df-banner');
+  if (wb && STATE._widgetRefusedOwner) {
+    wb.innerHTML += '<div style="background:#78350f;color:#fff;padding:9px 13px;font-size:12.5px;'
+      + 'border-radius:8px;margin-bottom:12px;">The widget on this phone belongs to '
+      + String(STATE._widgetRefusedOwner) + ' and has not been changed. '
+      + 'Ask your administrator if it should be yours.</div>';
+    STATE._widgetRefusedOwner = null;
+  } else if (wb && STATE._widgetTookFrom) {
+    wb.innerHTML += '<div style="background:#1e3a5f;color:#fff;padding:9px 13px;font-size:12.5px;'
+      + 'border-radius:8px;margin-bottom:12px;">The widget on this phone now shows your details '
+      + '(it previously showed ' + String(STATE._widgetTookFrom) + ').</div>';
+    STATE._widgetTookFrom = null;
+  }
   const box = document.getElementById('dash-greeting');
   if (!box) return;
   const hr = new Date().getHours();
@@ -19854,13 +19923,30 @@ async function renderMaintLogs() {
     </div>`;
   }).join('');
 
+  /* v8.30: the pair log stores URNs only — it is written at pairing time, when
+     the browser knows its own student but not the other party's. Two bare URNs
+     side by side is the hardest possible way to read a log about WHO holds a
+     widget. Resolve both against the roster the admin already has in memory,
+     so names and faces appear on entries logged long before this change. */
+  const _roster = {};
+  (STATE.allStudents || []).forEach(s => {
+    if (s && s.urn) _roster[String(s.urn).toUpperCase().trim()] = s.name || '';
+  });
+  const who = (urn) => {
+    const U = String(urn || '').toUpperCase().trim();
+    if (!U) return '';
+    const nm = _roster[U] || '';
+    return davanAvatarHTML(U, nm || U, { size: 18 })
+         + ' <span style="color:var(--text);">' + esc(nm || U) + '</span>'
+         + (nm ? ' <span style="opacity:.55;font-size:10px;">' + esc(U) + '</span>' : '');
+  };
+
   const pRows = Object.values(pairs).sort((a,b) => (b.at||0)-(a.at||0)).slice(0, 40).map(r => `
-    <div style="padding:3px 0;border-bottom:1px solid var(--border);">
-      ${r.urn ? davanAvatarHTML(r.urn, r.name || r.urn, { size: 18 }) : ''}
+    <div style="padding:5px 0;border-bottom:1px solid var(--border);">
       <span style="color:${r.blocked ? 'var(--warn)' : 'var(--ok)'};">${r.blocked ? '🛡 refused' : '🔗 ' + esc(r.via)}</span>
       · <span style="color:var(--accent);">${esc(r.code)}</span>
-      · ${r.prevUrn ? esc(r.prevUrn) + ' → ' : ''}${esc(r.newUrn) || '(cleared)'}
       · ${fmt(r.at)} · ${brow(r.ua)}
+      <div style="margin-top:2px;">${r.prevUrn ? who(r.prevUrn) + ' <span style="opacity:.6;">→</span> ' : ''}${r.newUrn ? who(r.newUrn) : '<span style="opacity:.6;">(cleared)</span>'}</div>
     </div>`).join('');
 
   el.innerHTML = `
