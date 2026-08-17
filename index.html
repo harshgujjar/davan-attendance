@@ -10305,8 +10305,14 @@ async function davanWidgetSync(user, profile) {
       // this gate never disagree:
       //   - No pairCode yet (never paired/opened via widget tap)              → NOT gated (nothing to gate; first login)
       //   - Paired but NO widget_apk_report node at all                       → outdated (pre-w95 builds can never self-report — e.g. the w88 Roopa case)
-      //   - Has a report, apkVersion < LATEST_APK.apkVersion                  → outdated
-      //   - Has a report, apkVersion >= LATEST_APK.apkVersion                 → up to date, normal ttSlots
+      //   - Has a report, apkVersion < MIN_SUPPORTED_APK                      → outdated (v1116: hard floor, NOT "behind latest")
+      //   - Has a report, apkVersion >= MIN_SUPPORTED_APK                     → normal ttSlots, even if behind LATEST_APK
+      //
+      // v1116 SCOPE CHANGE: being merely behind LATEST_APK.apkVersion no longer
+      // gates anyone. That case is now a soft, tappable one-line nag rendered by
+      // the widget itself off davan_pub/widget_latest (APK w95+), which downloads
+      // and installs the new APK in place. Only builds below MIN_SUPPORTED_APK
+      // lose their real timetable here.
       //
       // IMPORTANT SCOPE: this only affects what gets WRITTEN to widget_pin,
       // i.e. what the ANDROID WIDGET shows. It does not touch the PWA's own
@@ -10327,7 +10333,11 @@ async function davanWidgetSync(user, profile) {
           const rep = repSnap.val();
           if (!rep || typeof rep.apkVersion !== 'number') {
             _wGateOutdated = true; // paired, never self-reported → pre-w95, definitionally outdated
-          } else if (rep.apkVersion < LATEST_APK.apkVersion) {
+          } else if (rep.apkVersion < MIN_SUPPORTED_APK) {
+            // v1116: was `< LATEST_APK.apkVersion` — that made EVERY routine version
+            // bump blank the timetable of every not-yet-updated faculty. The gate now
+            // fires only below the hard floor; being merely behind the latest build is
+            // handled by the soft tappable nag on the widget face instead.
             _wGateOutdated = true;
           }
         }
@@ -10729,6 +10739,9 @@ function wcpInit() {
 async function wcpCheckWidgetHealth() {
   try {
     if (!rtdb || !currentUser) return;
+    // v1117: same memoized resolution the publisher awaits — without this the
+    // banner would compare against the stale floor constant and under-report.
+    try { await wcpResolveLatestApk(); } catch (e) {}
     const banner = document.getElementById('wcp-health-banner');
     const body   = document.getElementById('wcp-health-banner-body');
     if (!banner || !body) return;
@@ -10838,6 +10851,9 @@ function wcpSnoozeHealthBanner() {
 async function wcpPublishLatestApk() {
   try {
     if (!rtdb) return;
+    // v1117: resolve real version + sha-pinned URL first (memoized, so the
+    // health check and this call share one resolution per page load).
+    await wcpResolveLatestApk();
     await rtdb.ref('davan_pub/widget_latest').set({
       apkVersion: LATEST_APK.apkVersion,
       apkUrl:     LATEST_APK.apkUrl
@@ -14000,15 +14016,168 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1115;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '13-Aug-2026', time: '19:20', full: '13-Aug-2026 19:20 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1119;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '17-Aug-2026', time: '18:45', full: '17-Aug-2026 18:45 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
 // wcpCheckWidgetHealth), and (b) the APK itself (w95+) can read this node directly and
 // nag on the widget face too. RULE: bump LATEST_APK here in lockstep with every APK
 // build.gradle versionCode bump — they must always match on release.
-const LATEST_APK = { apkVersion: 111, apkUrl: 'https://harshgujjar.github.io/davan-attendance/DavanWidget.apk' };
+// v1116: apkUrl uses raw.githubusercontent.com, NOT the github.com/.../blob/ page
+// (which serves an HTML preview, not the binary) and not GitHub Releases. Verified
+// to return the real APK bytes as application/octet-stream, which is what the
+// widget's ACTION_VIEW download intent needs. The ?v=<versionCode> suffix is a
+// CACHE BUSTER, not a real parameter: the filename in the repo never changes, so
+// GitHub's CDN and Chrome would otherwise keep serving the previously downloaded
+// APK for a while -- the actual cause of the "installed the new build but the
+// portal still reports the old wNNN" symptom in v1114. Bump ?v= with apkVersion,
+// always, on the same line.
+// v1118: apkVersion here is the FLOOR = the newest build KNOWN to actually exist
+// in the field/repo. It must NEVER be set optimistically to a build that has not
+// been uploaded yet: wcpResolveLatestApk() only ever raises this number, so a
+// forward-dated floor makes the portal publish "latest = wNNN" while the repo
+// still holds an older binary -- widgets then nag, download the OLD apk, keep
+// self-reporting the old version, and nag forever (observed live at v1117 with
+// floor=121 against a w113 binary). Set to 113 = the build actually sitting in
+// the repo. Do NOT hand-bump this on release; installing the new APK on any one
+// phone raises it automatically via that widget's own self-report.
+const LATEST_APK = { apkVersion: 113, apkUrl: 'https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/DavanWidget.apk?v=113' };
+// v1116 — MIN_SUPPORTED_APK: the *gate* floor, deliberately DECOUPLED from
+// LATEST_APK.apkVersion above. Read this before touching either number.
+//   LATEST_APK.apkVersion  → "a newer build exists" — drives the SOFT nag only
+//                            (one tappable line on the widget face via
+//                            davan_pub/widget_latest, plus the in-portal banner).
+//                            Bumping this NEVER takes anyone's timetable away.
+//   MIN_SUPPORTED_APK      → "this build is too old to trust" — drives the HARD
+//                            gate in davanWidgetSync() that REPLACES ttSlots with
+//                            a single fake "UPDATE NEEDED" slot, i.e. blanks the
+//                            faculty's real timetable on the home screen.
+// Before v1116 the gate used LATEST_APK.apkVersion, so every routine version bump
+// silently blanked the board for every faculty who had not yet updated (e.g. the
+// 111→121 bump would have blanked every w111–w120 device mid-term). Now a normal
+// release = bump LATEST_APK only; everyone keeps their real timetable and just
+// sees the tappable update line. Raise MIN_SUPPORTED_APK ONLY when an old build is
+// genuinely broken/harmful and being blanked is better than being wrong.
+// Kept at 95 because w95 is the first build that can read widget_latest at all —
+// anything older physically cannot show the nag, so the gate is its only signal.
+const MIN_SUPPORTED_APK = 95;
+
+// =====================================================================
+// v1117 — AUTO-RESOLVED APK RELEASE INFO (no more hand-edited numbers)
+// =====================================================================
+// Replaces the two manual edits v1116 required on every release
+// (LATEST_APK.apkVersion + the ?v= cache buster). Both are now derived:
+//
+//  (1) apkVersion  <- MAX of every widget's OWN self-report at
+//      davan_pub/widget_apk_report/*/apkVersion. Each APK w95+ writes its
+//      real BuildConfig.VERSION_CODE there on every fetch, so the highest
+//      number in the field IS the newest build actually installed anywhere.
+//      Since the release workflow is "build -> upload -> install on my own
+//      phone to test", that first install publishes the new version for
+//      everyone else automatically. Never goes DOWN: the const below is a
+//      floor, so a wiped/re-paired estate can't drag the ceiling backwards.
+//
+//  (2) apkUrl  <- the raw URL PINNED TO THE LATEST COMMIT SHA of the APK
+//      path, via the public GitHub commits API. A sha-pinned raw URL is
+//      immutable content, so it needs no ?v= cache buster at all and can
+//      never serve a stale binary — the failure mode v1116 worked around.
+//
+// Everything degrades safely: on any failure (API rate limit, offline, no
+// reports yet) the values fall back to the literal const + ?v=<version>,
+// i.e. exactly v1116 behaviour. Result cached in localStorage for 6h so a
+// campus full of faculty sharing one IP can't burn the API's 60/hr limit.
+const APK_REPO_OWNER  = 'harshgujjar';
+const APK_REPO_NAME   = 'davan-attendance';
+const APK_REPO_BRANCH = 'main';
+const APK_REPO_PATH   = 'DavanWidget.apk';
+const APK_BASE_URL    = 'https://raw.githubusercontent.com/' + APK_REPO_OWNER + '/' +
+                        APK_REPO_NAME + '/' + APK_REPO_BRANCH + '/' + APK_REPO_PATH;
+// Sanity ceiling: ignore absurd self-reports (corrupt node / hand-edited RTDB).
+// A device claiming w9999 must never nag the whole estate into a loop.
+const APK_VERSION_CEILING = 400;
+const APK_SHA_CACHE_KEY   = 'davan_apk_sha_cache';
+const APK_SHA_CACHE_MS    = 6 * 60 * 60 * 1000;
+
+let _wcpApkResolvePromise = null;
+async function wcpResolveLatestApk() {
+  if (_wcpApkResolvePromise) return _wcpApkResolvePromise;   // memoized per page load
+  _wcpApkResolvePromise = (async () => {
+
+    // ---- (1) ceiling = highest version any widget has self-reported ----
+    try {
+      if (rtdb) {
+        const snap = await rtdb.ref('davan_pub/widget_apk_report').once('value');
+        const all  = snap.val() || {};
+        let hi = 0;
+        Object.keys(all).forEach(function (k) {
+          const v = all[k] && all[k].apkVersion;
+          if (typeof v === 'number' && v > hi && v <= APK_VERSION_CEILING) hi = v;
+        });
+        if (hi > LATEST_APK.apkVersion) {
+          console.log('[ApkResolve] apkVersion auto-raised to w' + hi + ' from field self-reports');
+          LATEST_APK.apkVersion = hi;
+        }
+      }
+    } catch (e) { console.warn('[ApkResolve] self-report scan failed:', e && e.message); }
+
+    // ---- (2) apkUrl pinned to the APK file's latest commit sha ----
+    let sha = '';
+    try {
+      const cached = JSON.parse(localStorage.getItem(APK_SHA_CACHE_KEY) || 'null');
+      // v1118: the cache is keyed on the RESOLVED VERSION as well as age. Without
+      // that, the 6h TTL actively breaks the release it is meant to support: you
+      // upload a new APK, log in, and the stale cached sha makes the portal publish
+      // a download URL pinned to the PREVIOUS binary. A version change is proof the
+      // file moved, so it must force a re-lookup regardless of TTL.
+      if (cached && cached.sha &&
+          (Date.now() - cached.ts) < APK_SHA_CACHE_MS &&
+          cached.ver === LATEST_APK.apkVersion) {
+        sha = cached.sha;
+      }
+    } catch (e) {}
+
+    if (!sha) {
+      try {
+        const api = 'https://api.github.com/repos/' + APK_REPO_OWNER + '/' + APK_REPO_NAME +
+                    '/commits?path=' + encodeURIComponent(APK_REPO_PATH) +
+                    '&sha=' + APK_REPO_BRANCH + '&per_page=1';
+        const r = await fetch(api, { cache: 'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          if (Array.isArray(j) && j[0] && j[0].sha) {
+            sha = j[0].sha;
+            try { localStorage.setItem(APK_SHA_CACHE_KEY, JSON.stringify({ sha: sha, ts: Date.now(), ver: LATEST_APK.apkVersion })); } catch (e) {}
+          }
+        } else {
+          console.warn('[ApkResolve] commits API HTTP ' + r.status + ' — falling back to ?v= buster');
+        }
+      } catch (e) { console.warn('[ApkResolve] commits API failed:', e && e.message); }
+    }
+
+    LATEST_APK.apkUrl = sha
+      ? ('https://raw.githubusercontent.com/' + APK_REPO_OWNER + '/' + APK_REPO_NAME + '/' + sha + '/' + APK_REPO_PATH)
+      : (APK_BASE_URL + '?v=' + LATEST_APK.apkVersion);
+
+    console.log('[ApkResolve] resolved -> w' + LATEST_APK.apkVersion + ' @ ' + LATEST_APK.apkUrl);
+    return LATEST_APK;
+  })();
+  return _wcpApkResolvePromise;
+}
+
+// v1118 — console escape hatch: drops the sha cache and re-resolves + re-publishes
+// immediately, without waiting for a re-login or the 6h TTL. Run wcpForceApkRefresh()
+// from DevTools right after uploading a new APK if you want to confirm the published
+// node by eye instead of trusting the next login to do it.
+async function wcpForceApkRefresh() {
+  try { localStorage.removeItem(APK_SHA_CACHE_KEY); } catch (e) {}
+  _wcpApkResolvePromise = null;
+  await wcpResolveLatestApk();
+  await wcpPublishLatestApk();
+  console.log('[ApkResolve] FORCED -> w' + LATEST_APK.apkVersion + ' @ ' + LATEST_APK.apkUrl);
+  return LATEST_APK;
+}
+window.wcpForceApkRefresh = wcpForceApkRefresh;
 const APP_VERSION = { major: CODE_BUILD, lastUpdated: null };
 function getISTDateTime() {
   const now = new Date();
@@ -15115,6 +15284,80 @@ function wgtCampusStrength(campus) {
   return wgtCard(icon, label + ' Strength', total, sub, color, null);
 }
 
+// =====================================================================
+// v1119 — WIDGET VERSION card (AT A GLANCE, admin + faculty)
+// =====================================================================
+// Shows the APK build installed on THIS device, from the widget's own
+// self-report at davan_pub/widget_apk_report/<pairCode>, against the
+// auto-resolved latest (wcpResolveLatestApk, v1117-18). CLICKABLE ONLY WHEN
+// BEHIND: an up-to-date card must not be a tappable link, or faculty will tap
+// it out of habit and re-download an APK they already have. Renders a
+// placeholder synchronously (the two dashboard renderers are sync) then fills
+// it in via wgtFillWidgetVersion(), same deferred pattern used elsewhere.
+function wgtWidgetVersion() {
+  return '<div id="wgt-widget-version-slot">'
+       + wgtCard('📲', 'Widget Version', '…', 'Checking installed build', 'var(--muted)', null)
+       + '</div>';
+}
+
+async function wgtFillWidgetVersion() {
+  const slot = document.getElementById('wgt-widget-version-slot');
+  if (!slot) return;
+  try {
+    try { await wcpResolveLatestApk(); } catch (e) {}
+    const latest = LATEST_APK.apkVersion;
+    const url    = LATEST_APK.apkUrl;
+    const wPair  = (localStorage.getItem('davan_widget_pair_code') || '').trim();
+
+    let installed = 0, haveReport = false;
+    if (wPair && rtdb) {
+      try {
+        const snap = await rtdb.ref('davan_pub/widget_apk_report/' + wPair).once('value');
+        if (snap.exists() && typeof snap.val().apkVersion === 'number') {
+          haveReport = true;
+          installed  = snap.val().apkVersion;
+        }
+      } catch (e) { console.warn('[WidgetVersionCard] report read failed:', e && e.message); }
+    }
+
+    let value, sub, color, clickable = false;
+    if (!wPair) {
+      value = 'Not paired'; color = 'var(--muted)';
+      sub   = 'Tap your home-screen widget once to pair this device';
+    } else if (!haveReport) {
+      value = 'Unknown'; color = '#f87171'; clickable = true;
+      sub   = 'Paired, but this build cannot report its version (pre-w95).<br>'
+            + 'Latest is <strong>w' + latest + '</strong> — tap to download';
+    } else if (installed >= latest) {
+      value = 'w' + installed; color = '#34d399';
+      sub   = '\u2713 Up to date · latest is w' + latest;
+    } else {
+      value = 'w' + installed; color = '#fbbf24'; clickable = true;
+      sub   = 'Update available: <strong>w' + installed + ' \u2192 w' + latest + '</strong><br>'
+            + 'Tap to download &amp; install';
+    }
+
+    const inner = '<div style="background:var(--surface);border:1px solid ' + (clickable ? color : 'var(--border)')
+      + ';border-radius:12px;padding:16px 14px;display:flex;flex-direction:column;gap:6px;min-height:100px;">'
+      + '<div style="font-size:22px;line-height:1;">\ud83d\udcf2</div>'
+      + '<div style="font-size:11px;color:var(--muted);font-family:var(--mono);letter-spacing:.5px;text-transform:uppercase;">Widget Version</div>'
+      + '<div style="font-size:24px;font-weight:800;color:' + color + ';line-height:1.1;">' + value + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:2px;">' + sub + '</div>'
+      + (clickable ? '<div style="font-size:10px;color:' + color + ';margin-top:auto;padding-top:6px;font-weight:700;">\u2b07\ufe0f tap to update \u2192</div>' : '')
+      + '</div>';
+
+    // Only wrap in a link when genuinely behind. download attr is deliberately
+    // omitted: cross-origin downloads ignore it, and Chrome must be allowed to
+    // hand the .apk to the system installer rather than rename it.
+    slot.innerHTML = clickable
+      ? '<a href="' + url + '" rel="noopener" style="text-decoration:none;display:block;" title="Download widget w' + latest + '">' + inner + '</a>'
+      : inner;
+  } catch (e) {
+    console.warn('[WidgetVersionCard] render failed:', e && e.message);
+    slot.innerHTML = wgtCard('\ud83d\udcf2', 'Widget Version', '—', 'Check failed', 'var(--muted)', null);
+  }
+}
+
 // ── Render functions ─────────────────────────────────────────────────────────
 
 // Admin dashboard widgets — show skeletons first, render after 1 tick
@@ -15155,10 +15398,12 @@ function wgtRenderAdmin() {
         wgtTotalFaculty(),
         wgtCampusStrength('DI'),
         wgtCampusStrength('NU'),
+        wgtWidgetVersion(),          // v1119
       ].join('');
     } finally {
       if (_outOfScope) allStudents = _savedStudents; // restore real data
     }
+    wgtFillWidgetVersion();          // v1119 — async fill, must run AFTER innerHTML
   }, 60);
 }
 
@@ -15166,7 +15411,7 @@ function wgtRenderAdmin() {
 function wgtRenderFaculty() {
   const el = document.getElementById('fdb-widget-row');
   if (!el) return;
-  wgtShowSkeletons('fdb-widget-row', 6);
+  wgtShowSkeletons('fdb-widget-row', 7);   // v1119: +1 for Widget Version
   setTimeout(() => {
     const _outOfScope = ((typeof _legacyDataInScope === 'function') && !_legacyDataInScope())
                        || !window._allStudentsConfirmedFresh;
@@ -15180,10 +15425,12 @@ function wgtRenderFaculty() {
         wgtTodayClasses(true),
         wgtNextHoliday(),
         wgtLastAlert(),
+        wgtWidgetVersion(),          // v1119 — faculty see their own build too
       ].join('');
     } finally {
       if (_outOfScope) allStudents = _savedStudents;
     }
+    wgtFillWidgetVersion();          // v1119
   }, 60);
 }
 
@@ -23665,7 +23912,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#c8cdd8">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #7a8494; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">1044</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">1119</span></span>
       &nbsp;·&nbsp;
       Updated: <span id="footer-date">24-Jul-2026</span>, <span id="footer-time">13:45</span> IST
       &nbsp;·&nbsp;
@@ -23920,6 +24167,10 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1119', date: '17-Aug-2026 IST', note: 'FEAT (user request): new AT A GLANCE card "Widget Version", added after Nutana Strength on the ADMIN dashboard and also to the FACULTY dashboard row so every faculty sees their own build without asking. Shows the APK version installed on THAT device, read from the widget self-report at davan_pub/widget_apk_report/<pairCode>, compared against the auto-resolved latest (wcpResolveLatestApk, v1117/v1118). Four states: not paired (grey, inert, tells them to tap the widget once to pair); paired but unable to self-report i.e. pre-w95 (red, tappable); installed >= latest (green, w-number + tick, DELIBERATELY INERT); installed < latest (amber, shows "wNNN -> wMMM" and a download arrow, tappable). CLICKABLE ONLY WHEN BEHIND, per the request and for a real reason -- an always-tappable card gets tapped out of habit and re-downloads an APK the user already has, which is exactly how a 2.3MB file gets pulled repeatedly on a metered phone. The link href is the same sha-pinned apkUrl the widget nag uses, so the card and the widget face can never offer different binaries. The download attribute is intentionally NOT set: it is ignored cross-origin anyway, and Chrome must be left free to hand the .apk to the system installer rather than rename it. Implementation note: both dashboard renderers build innerHTML synchronously, so wgtWidgetVersion() emits a placeholder card into a #wgt-widget-version-slot div and the async wgtFillWidgetVersion() replaces it after the RTDB read resolves -- called after the innerHTML assignment, never before, or the slot would not exist yet. Faculty skeleton count raised 6 -> 7 to match the new card; admin placeholder count already allowed 15 against 13 real cards. CODE_BUILD=1119.' },
+  { v: 'v1118', date: '17-Aug-2026 IST', note: 'FIX (live bug, reported from the console immediately after v1117 shipped: ApkResolve printed "resolved -> w121" although no w121 APK had ever been uploaded). ROOT CAUSE: LATEST_APK.apkVersion had been set forward to 121 in v1116 as an aspirational value, and wcpResolveLatestApk() only ever RAISES that number from field self-reports -- so the literal acted as an unconditional assertion of a build that did not exist. Worse than cosmetic: the resolver had correctly sha-pinned apkUrl to the CURRENT repo commit, which still holds the w113 binary, so the portal was publishing latest=w121 pointing at a w113 download. Any widget acting on that would nag, fetch w113, keep self-reporting 113, and nag permanently -- the exact loop v1116 set out to prevent. FIX: floor lowered to 113 (the build genuinely in the repo) and the comment now states the invariant explicitly -- this literal is the newest build KNOWN TO EXIST, never a forward-dated one, and it is not hand-bumped on release; installing the new APK on any single phone raises it via that widget self-report. (2) SECOND BUG found while fixing, would have broken the very next release: the 6h sha cache was keyed on age ALONE, so uploading a new APK and logging in would serve the cached sha and publish a URL pinned to the PREVIOUS binary. Cache entry now also stores ver and is discarded when the resolved apkVersion differs, since a version change is proof the file moved. (3) Added wcpForceApkRefresh() on window -- clears the sha cache, re-resolves and re-publishes on the spot, so a new upload can be verified from DevTools without waiting for a re-login or the TTL. CODE_BUILD=1118.' },
+  { v: 'v1117', date: '17-Aug-2026 IST', note: 'AUTO-RESOLVED APK RELEASE INFO (user request: "cant it be auto") -- removes BOTH hand-edited numbers v1116 still required per release. New wcpResolveLatestApk(), memoized once per page load and awaited by both wcpPublishLatestApk() and wcpCheckWidgetHealth() so they can never disagree. (1) apkVersion is now the MAX apkVersion across all of davan_pub/widget_apk_report/* -- every APK w95+ already writes its real BuildConfig.VERSION_CODE there on every fetch, so the highest number in the field is by definition the newest build installed anywhere, and the existing habit of installing a fresh build on the admin phone first IS what publishes it to everyone else. The LATEST_APK literal is kept as a FLOOR only (never resolves downward, so a wiped or re-paired estate cannot drag the ceiling backwards) and APK_VERSION_CEILING=400 rejects absurd self-reports from a corrupt or hand-edited node, which would otherwise nag the entire estate into a permanent loop. (2) apkUrl is now the raw.githubusercontent URL PINNED TO THE LATEST COMMIT SHA of DavanWidget.apk, resolved via the public GitHub commits API -- sha-pinned raw content is immutable, so the whole stale-cache problem the v1116 ?v= buster worked around stops existing rather than being worked around. Verified against live headers before choosing this: raw.githubusercontent.com sends access-control-allow-origin:* (so the browser fetch is permitted) but NO Last-Modified, and its ETag is not a CORS-safelisted response header, so neither could be read from JS -- the commits API is the only header-independent way to get a content identity. sha cached in localStorage for 6h (davan_apk_sha_cache) because the unauthenticated API allows 60 req/hr PER IP and a campus of faculty shares one NAT address. Every failure path degrades to exactly v1116 behaviour: literal floor version + ?v=<version> buster. NET EFFECT ON WORKFLOW: build -> upload DavanWidget.apk to the repo -> install it on your own phone once; nothing in this file is ever edited for a widget release again. CODE_BUILD=1117.' },
+  { v: 'v1116', date: '17-Aug-2026 IST', note: 'WIDGET UPDATE + GATE DECOUPLING (explicit user request: "i dont want that kind of bump in 121, i want one line to any version of widget to show new version is available and once i tap new one should download and ask to install"). (1) LATEST_APK bumped 111->121 with a host+cache-buster change, matched to the actual upload workflow (APK committed to the davan-attendance repo root under the FIXED name DavanWidget.apk via the GitHub web uploader on main). apkUrl now raw.githubusercontent.com/harshgujjar/davan-attendance/main/DavanWidget.apk?v=121 -- verified live to return the real binary as application/octet-stream (2.3MB APK), which is what the widget ACTION_VIEW intent needs; a github.com/.../blob/ URL would serve an HTML preview page instead and no GitHub Releases step is involved. Because the repo filename never changes, ?v=<versionCode> is appended purely as a cache buster -- without it the GitHub CDN and Chrome keep handing out the previously downloaded APK, which is the real mechanism behind the "installed the new build but the portal still reports the old wNNN" symptom investigated in v1114. RULE: bump ?v= together with apkVersion on the same line, every release. VERIFIED AT TIME OF THIS BUILD: the APK actually sitting at that path was still w113 (versionName 113), i.e. 8 builds stale -- the new binary must be uploaded before this constant means anything. (2) ROOT FIX: the v1037 widget gate in davanWidgetSync() compared each device self-reported apkVersion against LATEST_APK.apkVersion, so EVERY routine version bump instantly replaced the real ttSlots with the single fake "UPDATE NEEDED" slot for every faculty not yet updated -- the 111->121 bump alone would have blanked the home-screen timetable of every w111-w120 device mid-term. New constant MIN_SUPPORTED_APK (=95) is now the ONLY thing the gate compares against; LATEST_APK.apkVersion drives the SOFT nag only. Two independent numbers now: bump LATEST_APK on every release (nag, harmless), raise MIN_SUPPORTED_APK only when an old build is genuinely broken and blanking is better than being wrong. 95 chosen because w95 is the first build able to read davan_pub/widget_latest at all -- older builds physically cannot render the nag, so the gate stays their only signal (preserves the w88 Roopa case). (3) Faculty on any w95+ build now keep their real timetable and additionally see the one tappable line "WARNING Update available -- tap to download" on the widget face, which opens apkUrl, downloads the APK and hands it to the system installer; same release keystore means it updates in place with no uninstall. No APK change needed for this -- widget w121 already reads widget_latest {apkVersion, apkUrl} and wires the tap target. NOTE: davan_pub/widget_latest is published from this file by wcpPublishLatestApk() on every login, so editing LATEST_APK here IS the publish step -- do not hand-edit that RTDB node, it gets overwritten on the next login. CODE_BUILD=1116.' },
   { v: 'v1115', date: '14-Aug-2026 IST', note: 'WIDGET UPDATE: LATEST_APK.apkVersion 110\u2192111. This is a REAL functional fix, not a routine bump -- widget w111 fixes lesson plan by pointing fetchLessonPlans() at davan-student-portal (the Firebase project the Lesson Plan module in THIS file actually reads/writes, via LP_PORTAL_URL/LP_PORTAL_CFG ~line 8978), instead of the main davan-attendance-2026 project it was incorrectly querying since w95. Root-caused via the w109 lpDiag field (surfaced in Who is getting these as of v1113): a fully synced, gate-clear w110 device reported lessonPlan node missing for a faculty with real timetable data -- proving the node genuinely does not exist at the URL the widget was reading, which was never fixable by any faculty-name or class-matching logic (the entire w109 fix). See DavanWidget w111 README for full detail -- this file has nothing further to change for that bug; the fix lives entirely in the widget source and requires faculty to update past w110. CODE_BUILD=1115.' },
   { v: 'v1114', date: '14-Aug-2026 IST', note: 'FIX: the top-of-page 📲 Widget update available banner (wcpCheckWidgetHealth) said only that -- no version numbers at all -- so there was no way to tell from the banner itself whether it was a stale self-report or a genuinely old install, reported directly by the user after installing what they believed was the latest APK and still seeing the nag with no way to check. Banner now states both numbers explicitly: You are on wNNN, latest is wMMM (or pre-w95 (unknown build) for a paired device that has never been able to self-report). Both values (apkVersion, LATEST_APK.apkVersion) were already in scope in this exact function, this only adds the missing text. NOTE for the underlying installed-but-still-nagged symptom: the widget Kotlin source (reportApkStatusAndCheckUpdate, FirebaseFetchWorker.kt) writes its self-report unconditionally on every successful fetch regardless of gate state, so a genuinely-installed newer build should self-correct on its NEXT fetch/refresh tap -- if the banner still shows an old wNNN after that, the installed APK is not actually the new build (stale download / wrong file at the hosted URL), not a portal-side bug. CODE_BUILD=1114.' },
   { v: 'v1113', date: '14-Aug-2026 IST', note: 'FIX: lpDiag (lesson-plan diagnostic string, written by widget w109+ on every sync to davan_pub/widget_notif_log/<pairCode>) was never actually rendered anywhere in this file -- the field existed live in RTDB the whole time, but Who is getting these (wnRenderLog) only ever printed name/pairCode/scheduledToday/lead/next/nightly/device/SDK, so reading it required opening Firebase console by hand, which the user explicitly cannot do. One-line fix: wnRenderLog now prints a blue \ud83d\udcd8 LP: ... row under the existing schedule line whenever r.lpDiag is present, showing the exact nodes=N facMatch=M want=\'...\' string plus row count, and the saw=... faculty-name list when facMatch=0 -- the fastest way to tell a name-spelling mismatch apart from a genuinely empty lessonPlan node without any further widget rebuild. No new RTDB read -- lpDiag was already inside the same object this panel already fetches; this only adds the missing render line. CODE_BUILD=1113.' },
