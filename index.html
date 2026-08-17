@@ -10749,17 +10749,17 @@ async function wcpCheckWidgetHealth() {
     const snoozed = sessionStorage.getItem('wcp_health_snoozed') === '1';
 
     const wPair = (localStorage.getItem('davan_widget_pair_code') || '').trim();
-    let apkVersion = 0, notifOn = true, haveApkReport = false;
-    if (wPair) {
-      try {
-        const repSnap = await rtdb.ref('davan_pub/widget_apk_report/' + wPair).once('value');
-        if (repSnap.exists()) {
-          haveApkReport = true;
-          apkVersion = repSnap.val().apkVersion || 0;
-          notifOn    = repSnap.val().notifOn !== false; // default true (unknown = assume on)
-        }
-      } catch (e) { console.warn('[WidgetHealth] widget_apk_report read failed:', e && e.message); }
-    }
+    // v1120: route through wcpReadOwnApkReport() so a STALE node (old pair code
+    // left behind by a fresh install) is flagged instead of being reported as the
+    // installed build. A stale report is treated as "no usable report": we know
+    // the widget exists but not which build it runs, so nothing downstream may
+    // print a version number from it.
+    const _rep = await wcpReadOwnApkReport();
+    const _repStale   = _rep.stale;
+    let apkVersion    = _repStale ? 0 : _rep.apkVersion;
+    let notifOn       = _repStale ? true : _rep.notifOn;
+    let haveApkReport = _rep.haveReport && !_repStale;
+
 
     // v1004 — populate the installed-widget-version line in the control panel.
     // Three states: (a) has report → show real build + up-to-date/behind; (b)
@@ -10797,6 +10797,14 @@ async function wcpCheckWidgetHealth() {
     }
 
     const lines = [];
+    // v1120: pushed here, AFTER the lines array exists — computing the stale
+    // flag earlier is fine, but touching lines before its const declaration is a
+    // temporal-dead-zone ReferenceError that would kill the whole banner.
+    if (_repStale) {
+      lines.push('<div style="margin-bottom:6px;">\u26a0\ufe0f This browser is still paired to an <strong>old widget code</strong>, ' +
+        'so the installed build cannot be read (the last report from it is stale). ' +
+        'Tap your home-screen widget once to re-pair, then reload this page.</div>');
+    }
     let outdated = false;
     if (haveApkReport) {
       outdated = apkVersion > 0 && apkVersion < LATEST_APK.apkVersion;
@@ -14016,8 +14024,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1119;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '17-Aug-2026', time: '18:45', full: '17-Aug-2026 18:45 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1120;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '17-Aug-2026', time: '19:20', full: '17-Aug-2026 19:20 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -14098,6 +14106,53 @@ const APK_BASE_URL    = 'https://raw.githubusercontent.com/' + APK_REPO_OWNER + 
 const APK_VERSION_CEILING = 400;
 const APK_SHA_CACHE_KEY   = 'davan_apk_sha_cache';
 const APK_SHA_CACHE_MS    = 6 * 60 * 60 * 1000;
+
+// =====================================================================
+// v1120 — STALE PAIRING DETECTION
+// =====================================================================
+// davan_pub/widget_apk_report is keyed by the widget's own 6-char pair code,
+// which the APK generates and stores in its SharedPrefs. A fresh install (or a
+// clear-data) WIPES those prefs, so the widget generates a BRAND NEW code and
+// starts reporting under it — while this browser's localStorage still holds the
+// OLD code from whenever the widget was last tapped. The old node is never
+// deleted, so it sits in RTDB forever frozen at whatever build was installed
+// back then. Reading it gives a confidently-wrong answer: observed live as the
+// portal insisting "You are on w98" on a device physically running w122.
+//
+// A LIVE widget rewrites its report on every fetch — the periodic job is every
+// 30 minutes — so a report whose ts is hours old cannot belong to a widget that
+// is currently running. That makes ts, not the version number, the thing to
+// trust. WIDGET_REPORT_STALE_MS is deliberately generous (6h, i.e. 12 missed
+// cycles) so a genuinely-live widget on a phone that was merely asleep or
+// offline for a while is never wrongly called stale.
+const WIDGET_REPORT_STALE_MS = 6 * 60 * 60 * 1000;
+
+// Returns { haveReport, apkVersion, notifOn, ts, stale }. stale=true means the
+// node exists but is too old to be believed — callers must NOT present its
+// apkVersion as the installed build; they should ask the user to re-pair.
+async function wcpReadOwnApkReport() {
+  const out = { haveReport: false, apkVersion: 0, notifOn: true, ts: 0, stale: false };
+  const wPair = (localStorage.getItem('davan_widget_pair_code') || '').trim();
+  if (!wPair || !rtdb) return out;
+  try {
+    const snap = await rtdb.ref('davan_pub/widget_apk_report/' + wPair).once('value');
+    if (!snap.exists()) return out;
+    const v = snap.val() || {};
+    out.haveReport = true;
+    out.apkVersion = typeof v.apkVersion === 'number' ? v.apkVersion : 0;
+    out.notifOn    = v.notifOn !== false;
+    out.ts         = typeof v.ts === 'number' ? v.ts : 0;
+    // ts absent entirely = a very old build that never wrote it; treat as stale
+    // rather than trusted, since we have no way to age it.
+    out.stale = (out.ts === 0) || ((Date.now() - out.ts) > WIDGET_REPORT_STALE_MS);
+    if (out.stale) {
+      console.warn('[WidgetHealth] pair code ' + wPair + ' report is stale (ts=' +
+                   (out.ts ? new Date(out.ts).toISOString() : 'none') +
+                   ') — widget likely re-paired after a fresh install');
+    }
+  } catch (e) { console.warn('[WidgetHealth] own apk report read failed:', e && e.message); }
+  return out;
+}
 
 let _wcpApkResolvePromise = null;
 async function wcpResolveLatestApk() {
@@ -15309,21 +15364,25 @@ async function wgtFillWidgetVersion() {
     const url    = LATEST_APK.apkUrl;
     const wPair  = (localStorage.getItem('davan_widget_pair_code') || '').trim();
 
-    let installed = 0, haveReport = false;
-    if (wPair && rtdb) {
-      try {
-        const snap = await rtdb.ref('davan_pub/widget_apk_report/' + wPair).once('value');
-        if (snap.exists() && typeof snap.val().apkVersion === 'number') {
-          haveReport = true;
-          installed  = snap.val().apkVersion;
-        }
-      } catch (e) { console.warn('[WidgetVersionCard] report read failed:', e && e.message); }
-    }
+    // v1120: shared reader that also ages the node. A fresh install gives the
+    // widget a NEW pair code, orphaning the old node at whatever build it last
+    // reported — this card was showing that dead node's number as the installed
+    // build (seen live: "w98" on a phone actually running w122).
+    const rep        = await wcpReadOwnApkReport();
+    const haveReport = rep.haveReport && !rep.stale;
+    const installed  = haveReport ? rep.apkVersion : 0;
 
     let value, sub, color, clickable = false;
     if (!wPair) {
       value = 'Not paired'; color = 'var(--muted)';
       sub   = 'Tap your home-screen widget once to pair this device';
+    } else if (rep.stale) {
+      // Deliberately shows NO version number. Printing rep.apkVersion here is
+      // exactly the bug — the number is real but belongs to a widget that no
+      // longer exists, and it is worse than useless because it looks credible.
+      value = 'Re-pair'; color = '#fbbf24';
+      sub   = 'Paired to an old widget code, so the installed build is unknown.<br>'
+            + 'Tap your home-screen widget once, then reload.';
     } else if (!haveReport) {
       value = 'Unknown'; color = '#f87171'; clickable = true;
       sub   = 'Paired, but this build cannot report its version (pre-w95).<br>'
@@ -23912,7 +23971,7 @@ document.getElementById('bulk-send-overlay')?.addEventListener('click', (e) => {
       © 2026 <strong style="color:#c8cdd8">Davan Institute of Advanced Management Studies</strong>
     </div>
     <div style="font-size: 11px; color: #7a8494; font-family: monospace; margin-top: 0px;">
-      <span id="footer-version">Version: v<span id="footer-version-num">1119</span></span>
+      <span id="footer-version">Version: v<span id="footer-version-num">1120</span></span>
       &nbsp;·&nbsp;
       Updated: <span id="footer-date">24-Jul-2026</span>, <span id="footer-time">13:45</span> IST
       &nbsp;·&nbsp;
@@ -24167,6 +24226,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1120', date: '17-Aug-2026 IST', note: 'FIX (reported live with a screenshot: the v1119 Widget Version card AND the top health banner both insisted "You are on w98, latest is w122" on the very phone that was physically running w122). ROOT CAUSE: davan_pub/widget_apk_report is keyed by the widget APK\u2019s own 6-char pair code, which lives in the APK\u2019s SharedPrefs. A fresh install or clear-data WIPES those prefs, so getPairCode() mints a BRAND NEW code and the widget starts reporting under it -- while this browser\u2019s localStorage davan_widget_pair_code still holds the OLD code from whenever the widget was last tapped. Nothing ever deletes the old node, so it stays in RTDB frozen at whatever build was installed back then (w98 here), and every read against the stale code returned that number. Note the auto-resolver was simultaneously correct: it scans ALL report nodes and had already found the real w122, which is why the same banner could say "latest is w122" while claiming the device was on w98 -- the two numbers came from different nodes. FIX: new wcpReadOwnApkReport() reads the node AND AGES IT. A live widget rewrites its report on every fetch (periodic job = 30 min), so a report whose ts is hours old cannot belong to a running widget; ts, not apkVersion, is the trustworthy field. WIDGET_REPORT_STALE_MS = 6h (12 missed cycles) is deliberately generous so a phone merely asleep or offline is never wrongly flagged. A report with no ts at all is also treated as stale, since it cannot be aged. Both surfaces now route through this helper and, when stale, print NO version number at all -- the card reads "Re-pair" in amber and the banner adds an explicit line -- because showing the real-but-orphaned number is worse than showing nothing: it looks entirely credible. Both tell the user to tap the home-screen widget once (which re-pairs via ?wdev=<newcode>) and reload. Implementation caveat recorded: the stale flag is computed early in wcpCheckWidgetHealth but its banner line MUST be pushed after `const lines = []`, since touching lines before that declaration is a temporal-dead-zone ReferenceError that would silently kill the entire banner. CODE_BUILD=1120.' },
   { v: 'v1119', date: '17-Aug-2026 IST', note: 'FEAT (user request): new AT A GLANCE card "Widget Version", added after Nutana Strength on the ADMIN dashboard and also to the FACULTY dashboard row so every faculty sees their own build without asking. Shows the APK version installed on THAT device, read from the widget self-report at davan_pub/widget_apk_report/<pairCode>, compared against the auto-resolved latest (wcpResolveLatestApk, v1117/v1118). Four states: not paired (grey, inert, tells them to tap the widget once to pair); paired but unable to self-report i.e. pre-w95 (red, tappable); installed >= latest (green, w-number + tick, DELIBERATELY INERT); installed < latest (amber, shows "wNNN -> wMMM" and a download arrow, tappable). CLICKABLE ONLY WHEN BEHIND, per the request and for a real reason -- an always-tappable card gets tapped out of habit and re-downloads an APK the user already has, which is exactly how a 2.3MB file gets pulled repeatedly on a metered phone. The link href is the same sha-pinned apkUrl the widget nag uses, so the card and the widget face can never offer different binaries. The download attribute is intentionally NOT set: it is ignored cross-origin anyway, and Chrome must be left free to hand the .apk to the system installer rather than rename it. Implementation note: both dashboard renderers build innerHTML synchronously, so wgtWidgetVersion() emits a placeholder card into a #wgt-widget-version-slot div and the async wgtFillWidgetVersion() replaces it after the RTDB read resolves -- called after the innerHTML assignment, never before, or the slot would not exist yet. Faculty skeleton count raised 6 -> 7 to match the new card; admin placeholder count already allowed 15 against 13 real cards. CODE_BUILD=1119.' },
   { v: 'v1118', date: '17-Aug-2026 IST', note: 'FIX (live bug, reported from the console immediately after v1117 shipped: ApkResolve printed "resolved -> w121" although no w121 APK had ever been uploaded). ROOT CAUSE: LATEST_APK.apkVersion had been set forward to 121 in v1116 as an aspirational value, and wcpResolveLatestApk() only ever RAISES that number from field self-reports -- so the literal acted as an unconditional assertion of a build that did not exist. Worse than cosmetic: the resolver had correctly sha-pinned apkUrl to the CURRENT repo commit, which still holds the w113 binary, so the portal was publishing latest=w121 pointing at a w113 download. Any widget acting on that would nag, fetch w113, keep self-reporting 113, and nag permanently -- the exact loop v1116 set out to prevent. FIX: floor lowered to 113 (the build genuinely in the repo) and the comment now states the invariant explicitly -- this literal is the newest build KNOWN TO EXIST, never a forward-dated one, and it is not hand-bumped on release; installing the new APK on any single phone raises it via that widget self-report. (2) SECOND BUG found while fixing, would have broken the very next release: the 6h sha cache was keyed on age ALONE, so uploading a new APK and logging in would serve the cached sha and publish a URL pinned to the PREVIOUS binary. Cache entry now also stores ver and is discarded when the resolved apkVersion differs, since a version change is proof the file moved. (3) Added wcpForceApkRefresh() on window -- clears the sha cache, re-resolves and re-publishes on the spot, so a new upload can be verified from DevTools without waiting for a re-login or the TTL. CODE_BUILD=1118.' },
   { v: 'v1117', date: '17-Aug-2026 IST', note: 'AUTO-RESOLVED APK RELEASE INFO (user request: "cant it be auto") -- removes BOTH hand-edited numbers v1116 still required per release. New wcpResolveLatestApk(), memoized once per page load and awaited by both wcpPublishLatestApk() and wcpCheckWidgetHealth() so they can never disagree. (1) apkVersion is now the MAX apkVersion across all of davan_pub/widget_apk_report/* -- every APK w95+ already writes its real BuildConfig.VERSION_CODE there on every fetch, so the highest number in the field is by definition the newest build installed anywhere, and the existing habit of installing a fresh build on the admin phone first IS what publishes it to everyone else. The LATEST_APK literal is kept as a FLOOR only (never resolves downward, so a wiped or re-paired estate cannot drag the ceiling backwards) and APK_VERSION_CEILING=400 rejects absurd self-reports from a corrupt or hand-edited node, which would otherwise nag the entire estate into a permanent loop. (2) apkUrl is now the raw.githubusercontent URL PINNED TO THE LATEST COMMIT SHA of DavanWidget.apk, resolved via the public GitHub commits API -- sha-pinned raw content is immutable, so the whole stale-cache problem the v1116 ?v= buster worked around stops existing rather than being worked around. Verified against live headers before choosing this: raw.githubusercontent.com sends access-control-allow-origin:* (so the browser fetch is permitted) but NO Last-Modified, and its ETag is not a CORS-safelisted response header, so neither could be read from JS -- the commits API is the only header-independent way to get a content identity. sha cached in localStorage for 6h (davan_apk_sha_cache) because the unauthenticated API allows 60 req/hr PER IP and a campus of faculty shares one NAT address. Every failure path degrades to exactly v1116 behaviour: literal floor version + ?v=<version> buster. NET EFFECT ON WORKFLOW: build -> upload DavanWidget.apk to the repo -> install it on your own phone once; nothing in this file is ever edited for a widget release again. CODE_BUILD=1117.' },
