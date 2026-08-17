@@ -17,7 +17,17 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v8.23 (2026-08-17) — Avatars extended to the Widget Control student list and the
+VERSION : v8.24 (2026-08-17) — PERF: stop downloading the login history on every page load.
+          Both the student and admin loads fetched rtdbGet('controls') — the WHOLE node. That
+          was fine when controls held a handful of toggles, but controls/loginActivity is
+          pushed to on every login and has grown to ~845 KB. Every one of 402 students was
+          downloading the college's entire login history to read six small flags: 38% of a
+          measured admin session, and on the student path larger than everything Phase 4 saved.
+          Now both fetch only the named children they use. Caching was NOT the fix — v7.68 is
+          right that toggles must apply on the next load — asking for less was.
+          Also: admin login-activity read is now orderBy=\"$key\"&limitToLast=500 via the new
+          rtdbGetQuery(), so its cost stops growing with the age of the installation.
+          v8.23 (2026-08-17) — Avatars extended to the Widget Control student list and the
           pairing-change feed, per the v8.21 helper. The pairing feed especially: it is a log
           about WHO holds a widget, and two URNs side by side are far harder to read than two
           faces.
@@ -5285,7 +5295,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.23';
+const APP_VERSION = 'v8.24';
 const BUILD_DATE   = '17 Aug 2026, 12:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -5770,6 +5780,22 @@ async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
+/* v8.24: rtdbGet with a REST query string, so a caller can ask Firebase to
+   trim server-side instead of downloading a node and slicing it here. Shares
+   the same usage/diagnostics accounting as rtdbGet — the whole point of that
+   single choke point is that no read escapes it. */
+async function rtdbGetQuery(path, query) {
+  await getAuthToken();
+  const sep = authSep();
+  const url = `${DB_URL}/${path}.json` + (sep ? sep + '&' : '?') + query;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('RTDB read error ' + res.status);
+  if (typeof usageNoteRead === 'function') usageNoteRead();
+  const txt = await res.text();
+  if (typeof diagNoteRead === 'function') diagNoteRead(path + '?' + query, txt.length);
+  return txt ? JSON.parse(txt) : null;
+}
+
 async function rtdbGet(path) {
   await getAuthToken();
   const res = await fetch(`${DB_URL}/${path}.json${authSep()}`);
@@ -8749,7 +8775,16 @@ function switchTab(name) {
 /* ══ ADMIN — Login Activity ══ */
 async function loadLoginActivity() {
   const sp=document.getElementById('la-spinner'); if(sp) sp.classList.add('show');
-  try { const raw=await rtdbGet('controls/loginActivity').catch(()=>null); STATE.loginActivity=raw&&typeof raw==='object'?Object.values(raw).sort((a,b)=>(b.loginAt||0)-(a.loginAt||0)):[]; } catch(e){ STATE.loginActivity=[]; }
+  /* v8.24: was an unbounded read of the whole login history, which only ever
+     grows. orderBy/limitToLast asks Firebase for the newest 500 and lets it
+     discard the rest server-side, so the wire cost stops tracking the age of
+     the installation. Push keys are chronological, so ordering by key is the
+     same as ordering by time — no index needed. */
+  try {
+    const raw = await rtdbGetQuery('controls/loginActivity', 'orderBy="$key"&limitToLast=500').catch(()=>null);
+    STATE.loginActivity = raw && typeof raw === 'object'
+      ? Object.values(raw).sort((a,b)=>(b.loginAt||0)-(a.loginAt||0)) : [];
+  } catch(e){ STATE.loginActivity=[]; }
   const sp2=document.getElementById('la-spinner'); if(sp2) sp2.classList.remove('show');
   renderLoginActivity();
 }
@@ -10168,7 +10203,16 @@ async function loadAllData() {
     // bad call degrades that one section instead of taking down the whole admin dashboard.
     const [stuRaw, ctrlRaw, noticesRaw, studsArr, metaRaw, bannerRaw, bcastRaw, ovRaw, ttRaw, allocRaw, calRaw, excRaw, banRaw, lpKeysRaw, semCfgRaw] = await Promise.all([
       rtdbGet('davan_pub/portal_students').catch(()=>null),
-      rtdbGet('controls').catch(()=>null),
+      /* v8.24: was rtdbGet('controls') — the whole node, 845 KB, 38% of an
+         entire admin session. Only three children are used below, and the
+         weight is elsewhere: loginActivity and the other logs living under
+         the same parent. Fetching the three children in parallel costs three
+         small reads instead of one enormous one. */
+      Promise.all([
+        rtdbGet('controls/global').catch(()=>null),
+        rtdbGet('controls/byClass').catch(()=>null),
+        rtdbGet('controls/byUrn').catch(()=>null)
+      ]).then(([g, c, u]) => ({ global: g, byClass: c, byUrn: u })).catch(()=>null),
       rtdbGet('notices').catch(()=>null),
       rtdbGet('davan_pub/students').catch(()=>null),
       rtdbGet('davan_meta').catch(()=>null),
@@ -13353,7 +13397,31 @@ async function loadStudentDashboard() {
       // exactly why the once-a-day toast kept appearing for "a few students" after
       // it was switched off. It's one small node; fetch it fresh every load so
       // admin toggles take effect on the student's next page load, not 30 min later.
-      rtdbGet('controls').catch(() => null),
+      /* v8.24: THE SINGLE BIGGEST READ IN THE SYSTEM. This was rtdbGet('controls')
+         — the whole node — on EVERY student page load. The comment above called
+         it "one small node", and it was, when written. It is not any more:
+         controls/loginActivity is pushed to on every login and now dominates the
+         parent, taking the node to ~845 KB. So every one of 402 students has been
+         downloading the entire login history of the college to read six small
+         flags. Measured at 38% of an admin session; on the student path it dwarfs
+         everything Phase 4 saved.
+
+         The fix is not caching — the v7.68 reasoning above is right, toggles must
+         take effect on the next load. The fix is to stop asking for the logs.
+         Six named children, fetched in parallel, are a few KB in total and the
+         freshness guarantee is unchanged.
+
+         Whatever else lands under controls/ later cannot silently re-inflate this. */
+      Promise.all([
+        rtdbGet('controls/global').catch(() => null),
+        rtdbGet('controls/byClass').catch(() => null),
+        rtdbGet('controls/byUrn').catch(() => null),
+        rtdbGet('controls/socialLinks').catch(() => null),
+        rtdbGet('controls/theme').catch(() => null),
+        rtdbGet('controls/lpExceptions').catch(() => null)
+      ]).then(([g, c, u, s, t, e]) => ({
+        global: g, byClass: c, byUrn: u, socialLinks: s, theme: t, lpExceptions: e
+      })).catch(() => null),
       cachedGet('notices',     'notices'),
       cls ? cachedGet('tt_'+encodeURIComponent(cls), 'timetable/' + encodeURIComponent(cls)) : Promise.resolve(null),
       cachedGet('lessonPlan',  'davan_pub/lessonPlan'),
