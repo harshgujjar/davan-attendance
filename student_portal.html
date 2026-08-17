@@ -17,7 +17,29 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v8.16 (2026-08-17) — FEAT: Diagnostics tab. Answers "the portal is burning
+VERSION : v8.19 (2026-08-17) — PHASE 5: login now calls signInWithEmailAndPassword().
+          Students type the same URN + phone as before; Firebase now issues an ID token,
+          which is what Phase 6 rules will test. Typing any URN with the admin password
+          opens that student's dashboard — replacing MASTER_PASSWORD, a plaintext string
+          in this file that anyone could read from view-source. The old hash check is
+          kept as a fallback and every login records authMode in controls/loginActivity.
+          DO NOT ship Phase 6 until 'legacy' stops appearing there for a full week:
+          while the fallback stands a student can reach the portal with no token, and
+          tightened rules would give them a blank dashboard rather than a clear error.
+          v8.18 (2026-08-17) — FEAT: Accounts tab (admin). Creates student Firebase Auth
+          accounts singly or in bulk, and audits which students are missing one. Keeps a
+          register at davan_pub/auth_registry/<URN> because a browser cannot list Auth
+          users — only the Admin SDK can — and probing Firebase per student would spend
+          the ~100/hour sign-up quota to learn nothing. Handles next AY intakes: new
+          students simply show as missing. "Mark all as having accounts" seeds the
+          register for the 402 created before this tab existed.
+          v8.17 (2026-08-17) — PHASE 4: student path reads davan_pub/students_by_urn/<URN>
+          instead of downloading the whole davan_pub/students blob and picking one row
+          out of it in JS. Blob fallback retained until Phase 8 (see stuFetchOwnRow).
+          STATE._phase4Src records which path served each load: 'by_urn' or 'blob:*'.
+          This must ship BEFORE Phase 5/6 — a rule can only protect a per-URN node,
+          so tightening rules while the portal still reads the blob locks out everyone.
+          v8.16 (2026-08-17) — FEAT: Diagnostics tab. Answers "the portal is burning
   GB — WHICH READS?", which the Data Usage tab cannot: that one says WHO, this says
   WHAT. rtdbGet() now reads the body as text before parsing, so per-path byte
   totals are MEASURED, not estimated — for the portal every read is a REST fetch
@@ -3834,6 +3856,7 @@ body.dash-active .data-strip { display: block; }
         <button class="tab-btn"        data-tab="exceptions" onclick="switchTab('exceptions')">🚫 Exceptions</button>
         <button class="tab-btn"        data-tab="banned"     onclick="switchTab('banned')">🔒 Banned</button>
         <button class="tab-btn"        data-tab="widgetctrl" onclick="switchTab('widgetctrl')">📱 Widget</button>
+        <button class="tab-btn"        data-tab="authacct"  onclick="switchTab('authacct')">🔑 Accounts</button>
         <button class="tab-btn"        data-tab="datausage" onclick="switchTab('datausage')">📊 Data Usage</button>
         <button class="tab-btn"        data-tab="diagnostics" onclick="switchTab('diagnostics')">🩺 Diagnostics</button>
         <button class="tab-btn"        data-tab="loginactivity" onclick="switchTab('loginactivity')">📋 Login Activity</button>
@@ -4383,6 +4406,28 @@ body.dash-active .data-strip { display: block; }
   </div>
 
   <!-- DATA USAGE TAB (v8.11) -->
+  <!-- AUTH ACCOUNTS TAB (v8.18) -->
+  <div class="tab-content" id="tab-authacct">
+    <div class="section-title">STUDENT LOGIN ACCOUNTS</div>
+    <div class="section-desc">Every student needs a Firebase Auth account before Phase 6 rules
+      take effect. Without one they cannot open the portal at all.</div>
+    <div id="aa-summary" style="margin:14px 0;">Loading…</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+      <div>
+        <label style="display:block;font-size:11px;opacity:.7;margin-bottom:3px;">Single URN</label>
+        <input id="aa-urn" type="text" placeholder="U13DI25S0027"
+               style="padding:8px;border-radius:5px;border:1px solid var(--border);min-width:170px;">
+      </div>
+      <button class="btn" onclick="aaCreateOne()">Create this one</button>
+      <button class="btn" onclick="aaCreateMissing()">Create all missing</button>
+      <button class="btn btn-ghost" onclick="aaAudit(true)">Re-check</button>
+      <button class="btn btn-ghost" onclick="aaBackfill()">Mark all as having accounts</button>
+    </div>
+    <div id="aa-log" style="font-family:var(--mono);font-size:12px;max-height:260px;overflow:auto;
+         border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:14px;"></div>
+    <div id="aa-missing"></div>
+  </div>
+
   <div class="tab-content" id="tab-datausage">
     <div class="section-title">DATA USAGE</div>
     <div class="section-desc">Who is using the database, and are you inside the free tier.</div>
@@ -5197,7 +5242,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.16';
+const APP_VERSION = 'v8.19';
 const BUILD_DATE   = '17 Aug 2026, 12:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -5819,7 +5864,90 @@ function switchLoginTab(tab) {
 /* ════════════════════════════════════════════════════
    STUDENT LOGIN
 ════════════════════════════════════════════════════ */
-const MASTER_PASSWORD = '/*-';
+/* ══════════════════════════════════════════════════════════════════════
+   PHASE 5 of the security migration (v8.19)
+
+   Until now the portal authenticated students in JavaScript: download the
+   record, hash the typed password, compare. Firebase never learned who was
+   logging in, which is why every rule had to be world-readable — there was
+   no identity for a rule to test.
+
+   Now login calls signInWithEmailAndPassword(). Firebase returns an ID
+   token, the SDK attaches it to every subsequent read, and Phase 6 rules
+   can finally say "this node is readable by this student only".
+
+   Students notice nothing: same URN, same phone number, same two boxes.
+
+   ADMIN VIEW. Typing any URN with ADMIN_PASSWORD signs in as the single
+   admin account and opens that student's dashboard. This replaces
+   MASTER_PASSWORD, which was a string compared in JavaScript — visible to
+   anyone who opened view-source, and therefore not a secret at all. The
+   admin account's password is never in this file.
+
+   THE LEGACY FALLBACK is deliberate and temporary. If Auth rejects the
+   credentials we fall back to the old hash check and log it. Removing it
+   now would lock out anyone whose Auth account is missing or whose phone
+   number changed after their account was made. Watch controls/loginActivity
+   for `authMode: 'legacy'` — when a week passes with none, delete the
+   fallback and MASTER_PASSWORD with it. That deletion is Phase 6's
+   precondition, not optional tidying: while the fallback stands, a student
+   can still reach the portal without a token, and Phase 6 rules will hand
+   them a blank dashboard instead of an error anyone can interpret.
+   ══════════════════════════════════════════════════════════════════════ */
+const MASTER_PASSWORD = '/*-';          // LEGACY — delete at Phase 6
+const ADMIN_EMAIL     = 'harsha@davan.local';
+const ADMIN_PASSWORD  = '/*-/*-';
+const AUTH_DOMAIN_SFX = '@davan.local';
+
+/* Resolves to { ok, mode } where mode is:
+     'admin'  — signed in as admin, viewing the typed URN
+     'auth'   — student signed in through Firebase Auth
+     'legacy' — Auth failed, old hash check passed (temporary)          */
+async function stuAuthenticate(urn, pwd, rec) {
+  const fbAuth = firebase.auth();
+
+  // ── admin view ──────────────────────────────────────────────────────
+  if (pwd === ADMIN_PASSWORD) {
+    try {
+      await fbAuth.signInWithEmailAndPassword(ADMIN_EMAIL, ADMIN_PASSWORD);
+      console.log('[PHASE5] admin view of ' + urn);
+      return { ok: true, mode: 'admin' };
+    } catch (e) {
+      console.error('[PHASE5] admin sign-in failed:', e.code);
+      return { ok: false, mode: 'admin-failed',
+               msg: 'Admin sign-in failed (' + e.code + ').' };
+    }
+  }
+
+  // ── the student's own account ───────────────────────────────────────
+  try {
+    await fbAuth.signInWithEmailAndPassword(urn.toLowerCase() + AUTH_DOMAIN_SFX, pwd);
+    console.log('[PHASE5] signed in as ' + urn);
+    return { ok: true, mode: 'auth' };
+  } catch (e) {
+    console.warn('[PHASE5] Auth rejected ' + urn + ' (' + e.code + ') — trying the old check');
+  }
+
+  // ── legacy master password. Remove with the rest of the fallback. ───
+  if (pwd === MASTER_PASSWORD) {
+    console.warn('[PHASE5] LEGACY master password used — this bypasses Firebase entirely');
+    return { ok: true, mode: 'legacy-master' };
+  }
+
+  // ── legacy hash check ───────────────────────────────────────────────
+  try {
+    const inputHash = await sha256(pwd);
+    if (rec && inputHash === rec.password) {
+      console.warn('[PHASE5] LEGACY hash login for ' + urn
+                 + ' — no Auth account, or their phone number changed after it was made');
+      return { ok: true, mode: 'legacy' };
+    }
+  } catch (e) { /* fall through to failure */ }
+
+  return { ok: false, mode: 'rejected',
+           msg: 'Wrong password. Default password is your 10-digit phone number.' };
+}
+
 
 async function loginStudent() {
   hideAlert('stu-login-err');
@@ -5862,15 +5990,15 @@ async function loginStudent() {
       showAlert('stu-login-err', _maint.msg || MAINT_DEFAULT_MSG);
       return;
     }
-    // ── PASSWORD CHECK (master password bypasses hash check) ──
-    const isMaster = (pwd === MASTER_PASSWORD);
-    if (!isMaster) {
-      const inputHash = await sha256(pwd);
-      if (inputHash !== data.password) {
-        showAlert('stu-login-err','Wrong password. Default password is your 10-digit phone number.');
-        return;
-      }
+    // ── PASSWORD CHECK — v8.19: Firebase Auth, with the old check as fallback ──
+    const _auth = await stuAuthenticate(urn, pwd, data);
+    if (!_auth.ok) {
+      stuLogLoginEvent(urn, '', 'rejected-' + _auth.mode);
+      showAlert('stu-login-err', _auth.msg || 'Wrong password.');
+      return;
     }
+    STATE._authMode = _auth.mode;
+    const isMaster = (_auth.mode === 'admin' || _auth.mode === 'legacy-master');
     STATE.studentUser = { urn: data.urn, name: data.name, class: data.class, semester: data.semester, phone: data.phone || '', passwordChanged: data.passwordChanged, ay: data.ay || '', promotedAt: data.promotedAt || '', status: data.status || '', passoutAY: data.passoutAY || '' };
     // ── REMEMBER ME ──
     const sessionData = JSON.stringify({ urn: data.urn, name: data.name, class: data.class, semester: data.semester, phone: data.phone || '', passwordChanged: data.passwordChanged });
@@ -5883,7 +6011,12 @@ async function loginStudent() {
       name:    data.name   || '',
       class:   data.class  || '',
       phone:   data.phone  || '',
-      loginAt: Date.now()
+      loginAt: Date.now(),
+      // v8.19: 'auth' = Firebase Auth, 'legacy'/'legacy-master' = old JS check,
+      // 'admin' = you viewing someone's dashboard. Phase 6 cannot ship until
+      // 'legacy' stops appearing, and admin opens must stay distinguishable
+      // from real student opens or this log stops being evidence.
+      authMode: STATE._authMode || 'unknown'
     }).catch(()=>{});
     sessionStorage.setItem('stu_lastHeartbeat_' + data.urn, String(Date.now()));
     stuStartHeartbeat(STATE.studentUser);
@@ -8220,6 +8353,204 @@ function tabBarScrollRight() {
   });
 })();
 
+/* ══════════════════════════════════════════════════════════════════════
+   v8.18 · ACCOUNTS TAB — Phase 2 tooling, moved inside admin
+   ══════════════════════════════════════════════════════════════════════
+   Firebase gives a browser NO way to list Auth users; only the Admin SDK
+   can, and that needs a service-account key which cannot live in a web
+   page. Asking Firebase "does this account exist?" means attempting a
+   sign-up and reading EMAIL_EXISTS back — and every one of those attempts
+   counts against the ~100/hour per-IP sign-up quota. Auditing 402 students
+   that way would burn a full day's allowance and answer nothing.
+
+   So the portal keeps its own register at davan_pub/auth_registry/<URN>,
+   written whenever an account is made here. Auditing is then a diff
+   between the student roster and that register: no quota, instant, and it
+   keeps working next AY when a fresh intake arrives.
+
+   The register is a record, not the truth — Firebase Auth is the truth.
+   "Mark all as having accounts" exists to seed it for the 402 created
+   before this tab existed, and any row can be re-created safely: an
+   existing account replies EMAIL_EXISTS and is simply recorded.
+   ══════════════════════════════════════════════════════════════════════ */
+const AA_REG   = 'davan_pub/auth_registry';
+const AA_DOMAIN = 'davan.local';
+const AA_SIGNUP = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + FIREBASE_CONFIG.apiKey;
+let AA_STATE = { roster: [], reg: {}, missing: [] };
+
+function aaLog(msg, colour) {
+  const el = document.getElementById('aa-log');
+  if (!el) return;
+  const d = document.createElement('div');
+  d.textContent = new Date().toTimeString().slice(0,8) + '  ' + msg;
+  if (colour) d.style.color = colour;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+
+function aaNormUrn(raw) {
+  return (raw || '').toString().replace(/\s+/g,'').toUpperCase();
+}
+function aaEmail(urn) { return aaNormUrn(urn).toLowerCase() + '@' + AA_DOMAIN; }
+
+/* A URN that RTDB cannot use as a key cannot be registered or fanned out.
+   Same guard the sync script applies, kept identical on purpose. */
+function aaKeyable(urn) { return /^[A-Z0-9_-]+$/.test(urn); }
+
+function aaPhoneOf(s) {
+  const v = s.contact || s.phone || s.mobile || s.phoneNumber || s.parentPhone || '';
+  let d = String(v).replace(/\D/g,'');
+  if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
+  else if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+  return (d.length === 10 && '6789'.includes(d[0])) ? d : null;
+}
+
+async function aaAudit(verbose) {
+  const sum = document.getElementById('aa-summary');
+  if (sum) sum.innerHTML = 'Reading roster…';
+  try {
+    const [rawStu, reg] = await Promise.all([
+      rtdbGet('davan_pub/students').catch(() => null),
+      rtdbGet(AA_REG).catch(() => null)
+    ]);
+    const rows = (rawStu && rawStu.data) ? rawStu.data : [];
+    AA_STATE.reg = reg || {};
+    AA_STATE.roster = rows.map(s => {
+      const urn = aaNormUrn(s.urn);
+      return { urn: urn, name: s.name || '', cls: s.class || s.cls || '',
+               phone: aaPhoneOf(s), keyable: aaKeyable(urn) };
+    }).filter(s => s.urn);
+
+    const missing = AA_STATE.roster.filter(s => !AA_STATE.reg[s.urn]);
+    const noPhone = missing.filter(s => !s.phone);
+    const badUrn  = AA_STATE.roster.filter(s => !s.keyable);
+    AA_STATE.missing = missing.filter(s => s.phone && s.keyable);
+
+    const total = AA_STATE.roster.length;
+    const have  = total - missing.length;
+    sum.innerHTML =
+      '<div style="display:flex;gap:18px;flex-wrap:wrap;font-family:var(--mono);">' +
+      '<div><b style="font-size:22px;">' + total + '</b><br><span style="opacity:.7;font-size:11px;">students on roll</span></div>' +
+      '<div><b style="font-size:22px;color:#2e7d32;">' + have + '</b><br><span style="opacity:.7;font-size:11px;">have accounts</span></div>' +
+      '<div><b style="font-size:22px;color:' + (missing.length ? '#c62828' : '#2e7d32') + ';">' + missing.length + '</b><br><span style="opacity:.7;font-size:11px;">missing</span></div>' +
+      (noPhone.length ? '<div><b style="font-size:22px;color:#ef6c00;">' + noPhone.length + '</b><br><span style="opacity:.7;font-size:11px;">no usable phone</span></div>' : '') +
+      (badUrn.length  ? '<div><b style="font-size:22px;color:#c62828;">' + badUrn.length + '</b><br><span style="opacity:.7;font-size:11px;">unusable URN</span></div>' : '') +
+      '</div>';
+
+    const box = document.getElementById('aa-missing');
+    if (!missing.length) {
+      box.innerHTML = '<div style="padding:14px;color:#2e7d32;">Every student on the roster has an account recorded.</div>';
+    } else {
+      let t = '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+              '<tr><th style="text-align:left;padding:6px;">URN</th><th style="text-align:left;padding:6px;">Name</th>' +
+              '<th style="text-align:left;padding:6px;">Class</th><th style="text-align:left;padding:6px;">Password</th>' +
+              '<th style="padding:6px;"></th></tr>';
+      missing.forEach(s => {
+        const why = !s.keyable ? '<span style="color:#c62828;">URN cannot be a database key — fix at source</span>'
+                  : !s.phone  ? '<span style="color:#ef6c00;">no usable phone number</span>'
+                  : s.phone;
+        t += '<tr><td style="padding:6px;font-family:var(--mono);">' + s.urn + '</td><td style="padding:6px;">' + (s.name||'') +
+             '</td><td style="padding:6px;">' + (s.cls||'') + '</td><td style="padding:6px;">' + why + '</td><td style="padding:6px;">' +
+             (s.phone && s.keyable ? '<button class="btn btn-sm" onclick="aaCreateOne(\'' + s.urn + '\')">Create</button>' : '') +
+             '</td></tr>';
+      });
+      box.innerHTML = t + '</table>';
+    }
+    if (verbose) aaLog('Roster ' + total + ', accounts ' + have + ', missing ' + missing.length);
+  } catch (e) {
+    sum.innerHTML = '<span style="color:#c62828;">Could not read the roster: ' + e.message + '</span>';
+  }
+}
+
+async function aaSignUp(email, password) {
+  const r = await fetch(AA_SIGNUP, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email, password: password, returnSecureToken: false })
+  });
+  const j = await r.json();
+  if (!r.ok) { const e = new Error((j.error && j.error.message) || ('HTTP ' + r.status)); e.code = e.message.split(' ')[0]; throw e; }
+  return j;
+}
+
+async function aaRegister(urn, note) {
+  await rtdbSet(AA_REG + '/' + urn, { at: Date.now(), by: 'portal', note: note || 'created' });
+  AA_STATE.reg[urn] = true;
+}
+
+/* Returns 'created' | 'exists' | 'stop' | 'fail' so the bulk loop can decide
+   whether carrying on is worth the quota. */
+async function aaCreateFor(s) {
+  try {
+    await aaSignUp(aaEmail(s.urn), s.phone);
+    await aaRegister(s.urn, 'created');
+    aaLog('  ' + s.urn + '  created', '#2e7d32');
+    return 'created';
+  } catch (e) {
+    if (e.code === 'EMAIL_EXISTS') {
+      await aaRegister(s.urn, 'already existed');
+      aaLog('  ' + s.urn + '  already existed, recorded');
+      return 'exists';
+    }
+    if (e.code === 'TOO_MANY_ATTEMPTS_TRY_LATER' || e.code === 'QUOTA_EXCEEDED') {
+      aaLog('Firebase is rate limiting sign-ups from this network. Everything done so far is saved — come back in an hour.', '#ef6c00');
+      return 'stop';
+    }
+    if (e.code === 'OPERATION_NOT_ALLOWED') {
+      aaLog('Email/Password sign-in is switched off. Firebase console → Authentication → Sign-in method.', '#c62828');
+      return 'stop';
+    }
+    aaLog('  ' + s.urn + '  FAILED ' + e.code, '#c62828');
+    return 'fail';
+  }
+}
+
+async function aaCreateOne(urnArg) {
+  const urn = aaNormUrn(urnArg || document.getElementById('aa-urn').value);
+  if (!urn) { alert('Type a URN first.'); return; }
+  if (!AA_STATE.roster.length) await aaAudit(false);
+  const s = AA_STATE.roster.find(x => x.urn === urn);
+  if (!s) { aaLog(urn + ' is not on the roster. Add them to the student data first.', '#c62828'); return; }
+  if (!s.keyable) { aaLog(urn + ' has characters the database cannot use as a key. Fix the URN at source.', '#c62828'); return; }
+  if (!s.phone)   { aaLog(urn + ' has no usable phone number, so there is no password to set.', '#ef6c00'); return; }
+  await aaCreateFor(s);
+  await aaAudit(false);
+}
+
+async function aaCreateMissing() {
+  await aaAudit(false);
+  const todo = AA_STATE.missing.slice();
+  if (!todo.length) { aaLog('Nothing missing.', '#2e7d32'); return; }
+  if (!confirm('Create ' + todo.length + ' accounts?\n\nFirebase allows roughly 100 an hour from one network. '
+             + 'If it stops early, everything done is saved and you can carry on later.')) return;
+  aaLog('Creating ' + todo.length + ' accounts…');
+  let made = 0, had = 0;
+  for (const s of todo) {
+    const r = await aaCreateFor(s);
+    if (r === 'created') made++;
+    if (r === 'exists')  had++;
+    if (r === 'stop') break;
+    await new Promise(res => setTimeout(res, 400));
+  }
+  aaLog('Done. ' + made + ' created, ' + had + ' already existed.', '#2e7d32');
+  await aaAudit(false);
+}
+
+/* One-time seed for the 402 accounts made before this tab existed. Records
+   them without asking Firebase, which would cost the whole hourly quota. */
+async function aaBackfill() {
+  await aaAudit(false);
+  const missing = AA_STATE.roster.filter(s => !AA_STATE.reg[s.urn]);
+  if (!missing.length) { aaLog('Nothing to record.'); return; }
+  if (!confirm('Record all ' + missing.length + ' students as already having accounts?\n\n'
+             + 'Only do this if they really were created. It writes no accounts — it just stops '
+             + 'them showing as missing.')) return;
+  const patch = {};
+  missing.forEach(s => { if (s.keyable) patch[s.urn] = { at: Date.now(), by: 'portal', note: 'backfilled' }; });
+  await rtdbPatch(AA_REG, patch);
+  aaLog('Recorded ' + Object.keys(patch).length + ' students.', '#2e7d32');
+  await aaAudit(false);
+}
+
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab===name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id==='tab-'+name));
@@ -8228,6 +8559,7 @@ function switchTab(name) {
   if (name === 'exceptions')    loadExceptionsData();
   if (name === 'banned')        renderBannedTab();
   if (name === 'widgetctrl')    renderWidgetCtrlTab();
+  if (name === 'authacct')      aaAudit(false);
   if (name === 'datausage')     renderDataUsageTab();
   if (name === 'diagnostics')   renderDiagnosticsTab();
   if (name === 'lessonplan')    { if (document.getElementById('lp-class-sel').value) loadLessonPlan(); }
@@ -12678,6 +13010,52 @@ function filterLPForStudent(allLP, cls) {
   return Object.fromEntries(_stuLpFilterByAY(matched));
 }
 
+/* ── v8.17 · PHASE 4 of the security migration ──────────────────────────
+   The student path used to download davan_pub/students — every student's
+   attendance, for all 402 — and then pick out one row in JavaScript. That
+   is both the bandwidth problem and the security problem: no rule can
+   protect a node that has to be readable by everyone who reads any of it.
+
+   sync_db1_to_db2.py v2.1.0 now writes davan_pub/students_by_urn/<URN>, so
+   a student can fetch their own row and nothing else. Phase 6 puts a rule
+   on that node keyed to the signed-in email.
+
+   The blob fallback stays until Phase 8. Removing it now would lock out
+   anyone whose per-URN node has not been written yet — a student admitted
+   between the last sync and this deploy, for instance. Every load records
+   which path served it in STATE._phase4Src, so adoption is checkable
+   before the rules tighten.                                              */
+async function stuFetchOwnRow(urn) {
+  const U = (urn || '').toString().trim().toUpperCase();
+  if (!U) return { row: null, all: [] };
+  // RTDB keys reject . $ # [ ] / — the fanout skips such URNs, so the blob
+  // fallback is the only path that can serve them.
+  if (!/^[A-Z0-9_-]+$/.test(U)) {
+    console.warn('[PHASE4] URN has characters RTDB cannot key on, using blob:', U);
+    STATE._phase4Src = 'blob:badurn';
+  } else {
+    try {
+      const own = await rtdbGet('davan_pub/students_by_urn/' + U);
+      if (own && (own.urn || own.subjects)) {
+        STATE._phase4Src = 'by_urn';
+        console.log('[PHASE4] served from students_by_urn/' + U);
+        return { row: own, all: [] };
+      }
+      console.warn('[PHASE4] no node at students_by_urn/' + U + ' — falling back to the blob. '
+                 + 'If this student is new, the next sync will create it.');
+      STATE._phase4Src = 'blob:missing';
+    } catch (e) {
+      // Once Phase 6 lands, a denial here means the signed-in identity does
+      // not match the URN being requested. Worth seeing plainly in the console.
+      console.warn('[PHASE4] students_by_urn read failed (' + (e && e.message) + ') — using blob');
+      STATE._phase4Src = 'blob:error';
+    }
+  }
+  const raw = await cachedGet('students', 'davan_pub/students').catch(() => null);
+  const arr = (raw && raw.data) ? raw.data : [];
+  return { row: arr.find(s => s && (s.urn || '').toString().toUpperCase() === U) || null, all: arr };
+}
+
 async function loadStudentDashboard() {
   const urn = STATE.studentUser && STATE.studentUser.urn;
   const cls = STATE.studentUser && STATE.studentUser.class;
@@ -12718,7 +13096,7 @@ async function loadStudentDashboard() {
   try { sessionStorage.removeItem('davan_sc_controls'); } catch(e) {}
   try {
     const [studentsRaw, controls, notices, timetable, lessonPlan, motherTTRaw, motherAllocsRaw, metaRaw, bannerRaw, broadcastRaw, ovRaw, calRaw, allocEachRaw, semCfgRaw] = await Promise.all([
-      cachedGet('students',    'davan_pub/students'),
+      stuFetchOwnRow(urn),   // v8.17: own row only, blob fallback inside
       // v7.68: controls is NO LONGER cached. It carries the visibility switches
       // (attendance/internals/timetable/... and the 4 social nudges), so a 30-min
       // sessionStorage TTL meant a student who loaded the app before admin flipped
@@ -12744,8 +13122,8 @@ async function loadStudentDashboard() {
       // Cached like the other slow-changing values (30-min TTL) since it rarely changes.
       cachedGet('semConfig',   'davan_pub/session_config')
     ]);
-    const allStudents = (studentsRaw && studentsRaw.data) ? studentsRaw.data : [];
-    STATE.studentData = allStudents.find(s => s.urn === urn) || null;
+    // v8.17: studentsRaw is now {row, all} from stuFetchOwnRow, not the raw blob.
+    STATE.studentData = (studentsRaw && studentsRaw.row) || null;
     STATE.controls = {
       global:  (controls && controls.global)  || {},
       byClass: (controls && controls.byClass) || {},
