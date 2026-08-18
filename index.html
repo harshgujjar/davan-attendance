@@ -94,16 +94,26 @@
                ntRenderReport, and rcSearch dropdown.
 
   ── INTERNALS SYSTEM STATE ───────────────────────────────────────
-  Firestore            : internals collection
-  int_default_1        : 1st Internal — hardcoded as INT_DEFAULT_DATA in HTML.
-                         3 dates: 2026-04-01 (16), 2026-04-02 (16), 2026-04-03 (15).
-                         47 slots total. Blank slots: Apr-03 III BCA 11:30am,
-                         Apr-03 I BCA 01:30pm.
-  int_1777043174043    : 2nd Internal — 0 slots (user deleted or being rebuilt).
+  Firestore            : internals collection. Every doc now stamped with
+                         meta.semKey (e.g. "2026-27_odd", via intActiveSemKey()).
+                         intLoadList() filters to the AY/sem-type being viewed;
+                         untagged legacy docs bucket under LEGACY_DATA_SEMKEY so
+                         they only show when that archive is selected. No more
+                         hardcoded INT_DEFAULT_DATA fallback — empty sem shows
+                         intEmptyStateHtml() instead.
+  Batches/subjects     : New internals auto-source batches (name/strength/shift)
+                         from LM_CLASS_META via intBuildBatchesForActiveSem(),
+                         scoped to getSemsForType(SESSION_CONFIG.semType).
+                         Subjects per slot come from live LM_ALLOCATIONS (was
+                         hardcoded LM_ALLOC_DEFAULT — now falls back to it only
+                         if LM_ALLOCATIONS is empty). Exam dates auto-match a
+                         calendar type:'exam' event via intMatchCalendarExam(n).
+                         Faculty incharge remains manual — carries forward via
+                         intEditNew()'s "prev internal" template as before.
 
   ── INTERNALS EDIT KEY LOGIC ─────────────────────────────────────
   INT_TEMPLATE_SLOTS   : Set in intEditNew() AND intEditLoad() from last INT_LIST
-                         entry (other than current) with slots > 0 = int_default_1.
+                         entry (other than current) with slots > 0.
   intRebuildSlotsGrid(): Maps new dates by index to template dates. Only fills
                          empty cells (alreadyFilled check).
   intRefillFromTemplate(): Amber button — ignores existingSlots, force-replaces
@@ -5243,13 +5253,23 @@
             </div>
             <div style="display:flex;flex-direction:column;gap:4px;">
               <span style="font-size:10px;color:var(--muted);letter-spacing:1px;">TYPE</span>
-              <select id="cal-type" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;">
+              <select id="cal-type" onchange="calToggleInternalNum()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;">
                 <option value="holiday">Holiday</option>
                 <option value="working">Working Day (despite holiday)</option>
                 <option value="event">College Event</option>
                 <option value="exam">Exam / Internals</option>
                 <option value="vacc">VACC / Skill Program</option>
                 <option value="other">Other</option>
+              </select>
+            </div>
+            <div id="cal-internal-num-wrap" style="display:none;flex-direction:column;gap:4px;">
+              <span style="font-size:10px;color:var(--muted);letter-spacing:1px;">WHICH INTERNAL?</span>
+              <select id="cal-internal-num" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;">
+                <option value="">— not an internal exam —</option>
+                <option value="1">1st Internal</option>
+                <option value="2">2nd Internal</option>
+                <option value="3">3rd Internal</option>
+                <option value="4">4th Internal</option>
               </select>
             </div>
             <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
@@ -5877,6 +5897,7 @@
             </select>
             <button id="int-edit-refresh-btn" onclick="intEditLoad(true)" title="Force reload from Firestore" style="padding:8px 10px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;font-size:15px;cursor:pointer;line-height:1;">↻</button>
             <button onclick="intEditNew()" style="padding:8px 16px;background:var(--accent);color:#000;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">+ New Internal</button>
+            <span id="int-autosave-tick-top" style="display:none;align-items:center;gap:5px;color:#22c55e;font-size:12px;font-family:var(--mono);border:1px solid rgba(34,197,94,0.3);background:rgba(34,197,94,0.1);border-radius:6px;padding:6px 12px;" title="Saved to Firebase">✅ Saved</span>
           </div>
           <div id="int-edit-form" style="display:none;"></div>
         </div>
@@ -14112,8 +14133,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1124;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '17-Aug-2026', time: '19:20', full: '17-Aug-2026 19:20 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1125;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '19-Aug-2026', time: '12:00', full: '19-Aug-2026 12:00 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -24420,6 +24441,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1125', date: '19-Aug-2026 IST', note: 'Internals module — AY/sem-scoping fix plus a full editing overhaul (multi-session work, consolidated into this build). ROOT CAUSE originally reported: Internal Timetable ignored SESSION_CONFIG entirely, always falling back to a hardcoded April 2026 sample or stale cross-AY data. FIX: every internal doc now stamped with meta.semKey; intLoadList() filters strictly to the active AY+sem, untagged legacy docs bucket under LEGACY_DATA_SEMKEY so old data only shows when that archive is explicitly selected; INT_DEFAULT_DATA hardcoded fallback removed entirely in favor of a real empty state. Batches now sourced from REAL live enrollment (allStudents via the same _strParseClass the Class Strength dashboard uses) instead of LM_CLASS_META fixed-capacity numbers, so a class with zero real admissions correctly shows zero rows. Subjects sourced from live LM_ALLOCATIONS (was the frozen LM_ALLOC_DEFAULT sample) with faculty name + real photo (tap-to-zoom) shown per subject; split-class subjects (e.g. Kannada/Hindi) merge into one combined entry via three independent signals (shared timetable code, splitWith, or fixed language-group membership) so at least one always catches real data regardless of which metadata fields are populated. Exam dates auto-match a calendar event via a new structured "Which Internal?" dropdown on the Academic Calendar form (eliminates free-text typo risk), falling back to text matching for older events. Time slots switched from fixed-duration bare strings to independently-editable {start,end} pairs matching the real variable-length schedule, with an inline popover next to each date for quick edits without scrolling to the full grid. Added debounced auto-save (writes confirm silently, no form-rebuild) plus a persistent top-toolbar "Saved" indicator and per-field/per-slot confirmation ticks tied specifically to the manual Save button. Two silent-failure bugs found and fixed along the way: an unguarded null DOM read that could abort a save with zero error feedback if the form was mid-rebuild, and a stale "Saving..." status text that never reset on success. Sitting tab date sync fixed separately (same class of staleness bug — only auto-synced from the linked Internal when its own saved value was completely empty, so once any date was ever saved it never re-synced). CODE_BUILD=1125.' },
   { v: 'v1124', date: '18-Aug-2026 IST', note: 'TWO FIXES, both from live user reports. (1) WHATSAPP FAIL-COUNT MISMATCH: message read \'failed in 1 subject\' followed by FIVE subject names across two semesters (BUSINESS ANALYSIS AND MARKET DYNAMICS, FINANCIAL ACCOUNTING, plus three more). ROOT CAUSE: the count (fail) and the list (failSubjects) were computed from two different scopes that were never reconciled. fail comes from d.dataset.fail == lastFail, set at the card-render call site as the fail count of ONLY the most recent semester (see rcRenderCard, ~line 37976: prevResults[prevResults.length-1]). failSubjects, however, flatMapped every cached semester in prevResults with no such restriction -- so a student who failed once in an earlier semester and again in the latest one showed a count scoped to one semester next to a list built from all of them, and the mismatch grew with every extra semester of result history loaded. FIX: failSubjects now derives from the exact same single semester the count came from (_waLastSem = prevResults[prevResults.length-1], mirroring rcRenderCard\'s own lastSem pick since rcWhatsApp had no lastSem of its own), so the number in \'failed in N subject(s)\' and the named list can no longer disagree. rcDownloadWord was checked and does not share this bug -- it prints one full table per semester with its own per-subject Result column rather than deriving a flattened list, so each semester\'s fails are already shown in their own correct context. (2) PARENT NAMES TEMPLATE, per explicit feedback that dumping all 402 students (including 2nd/3rd-year students who already have a university-published name) made the sheet unusable as a worklist: rcParentDownloadTemplate rewritten to (a) filter to students where rcParentNames() resolves BOTH father and mother empty -- typically Sem I / first-year, the actual gap this feature exists for -- (b) emit ONE SHEET PER COURSE (BCA/BBA/BCom) via XLSX.utils.book_append_sheet, reusing rcParseCls() (the same helper already powering the Report Card\'s own course/sem/section filter chips) rather than re-deriving that parsing a second time, and (c) sort rows by section then alphabetically by name within each section, matching how a physical admission register reads. A student who already has a name from any source no longer appears at all. rcParentHandleFile updated in lockstep: previously read only wb.SheetNames[0], which would have silently dropped the BBA and BCom sheets the moment the template went multi-sheet; now loops every sheet, applies the existing header-name column detection independently per sheet, accumulates matches across all of them, and reports in the success toast how many sheets were read versus skipped (e.g. a sheet with no recognizable header, or one left untouched) so a partially-filled workbook is not silently under-imported. CODE_BUILD=1124.' },
   { v: 'v1123', date: '18-Aug-2026 IST', note: 'FEAT (user request, following v1122): bulk Excel workflow for the Parent Names manager, so 400 students do not have to be typed or pasted by hand. (1) DOWNLOAD TEMPLATE: new button generates a .xlsx via the SheetJS lib already loaded in this app (same one the Academic Calendar import at ~line 4451/v1047 uses) containing every current student pre-filled -- URN, Name, Class -- plus two BLANK columns to type into (Father, Mother) and a sixth read-only column showing whether that student already has a name and from where (University vs Manual), so the sheet doubles as a gap audit: scanning that column shows at a glance which rows are worth filling and which already have a university-published name that would be overwritten for nothing. Rows are pre-sorted by class then name to match how a physical admission register is usually organized. (2) IMPORT FILLED EXCEL: reads the returned file by HEADER NAME rather than column position/index, so a reordered sheet, a deleted audit column, or a header typed slightly differently (Father vs FatherName vs Father Name, checked in that order) all still parse correctly instead of silently reading the wrong column -- the exact failure mode a positional read would have hit the first time someone reordered or trimmed the template. Rows with no URN or with both name columns still blank are skipped silently as not-yet-filled-in, not treated as errors; a completely unreadable header (no URN/USN column found at all) throws a clear toast naming the problem instead of importing garbage. (3) REUSES THE EXISTING PIPELINE rather than adding a parallel one: parsed rows are written into the same textarea the manual-paste flow reads, then rcParentPreview() and rcParentSave() run unchanged -- so merge-not-replace, the unknown-URN warning, and the university-always-wins precedence from v1122 apply identically whether the admin pasted by hand or imported a file. Export current (renamed "Export current (backup)" to distinguish it from the new template, since both are downloads but serve different purposes) is unchanged. CODE_BUILD=1123.' },
   { v: 'v1122', date: '18-Aug-2026 IST', note: 'ROOT FIX for v1121 plus the missing-source case behind it. (1) THE BUG: v1121 shipped the parent-name resolver but father/mother still rendered nothing for a student who demonstrably HAS results (AISHWARYA M, U13DI24C0002, BCom Sem V with published Sem IV marks). Cause found by reading rcFetchResults line by line rather than trusting the earlier read: the results.push() at the end of processSlot is an explicit WHITELIST literal -- _course, _sem, sgpa, pct, cgpa, the five rank fields, subjects -- NOT a {...st} spread. Every field not named there is discarded the moment the row is cached, so fatherName/motherName were being dropped one line before rcResultsCache ever saw them. The {...st} spread that DOES preserve them (further down, the secondary path) is a different function and is not what the Report Card calls. Confirmed schema from the user: results/<Course>_Sem<Roman>_<Year> -> regular[i].fatherName / motherName, same for backlog[i]. Both keys are now named explicitly in that push, with ?? fallbacks for father_name/fathername/FatherName spellings since results.html owns the write side. NOTE the lesson for any future field: adding a key to the results docs is not enough, it must ALSO be named in this whitelist or it silently vanishes here. (2) THE REAL GAP: fatherName is authored by the UNIVERSITY and only exists once a result sheet is published, so a first-year / Sem I student legitimately has no upstream source at all -- no amount of resolver work can surface a value that was never written. New manual store at app_data/student_parents { data: { URN: {f,m} } }, edited from a new PARENT NAMES button on the Report Card toolbar: paste three tab-separated columns straight out of Excel (URN, Father, Mother), Preview shows a parsed table flagging any URN not present in the current student list before anything is written, Export current downloads the saved set back out as .tsv for round-tripping. Parser also accepts comma or 2+ space separation and skips a URN/USN header row, because a hand-typed line is rarely tab separated. SAVE MERGES rather than replaces -- a bare set() of just the pasted rows would silently wipe the other 400 already stored, which is the obvious way this feature would have destroyed data on its second use. (3) PRECEDENCE, deliberate and stated: rcParentNames now reads result rows FIRST, the manual store second, allStudents last. The manual value is a stand-in for missing university data, so it must never overwrite a real published one -- the day results arrive the correct name takes over automatically and the manual row simply stops being consulted, no cleanup needed. The returned object carries a .manual flag so a future UI can badge a hand-entered name if that is ever wanted. Loaded once at login next to rcPhotosReady (rcParentsReady) and awaited by rcRenderCard exactly like photos, so no render races the fetch; saving re-renders the open card in place. CODE_BUILD=1122.' },
@@ -27527,6 +27549,7 @@ async function semSwitchTo(key, silent) {
   if (typeof appStartLoadTimer === 'function') appStartLoadTimer('Loading archived semester…');
   _semCurrentKey = key;
   sessionStorage.setItem('davan_sem_key', key);
+  intResetForSemSwitch(); // clear Internals editor state before loading the archived/staging sem
 
   try {
     const semBase = 'semesters_' + key;
@@ -27564,6 +27587,7 @@ async function semSwitchTo(key, silent) {
         _semApplyReadOnly(false); // not read-only — allow editing
         if (typeof renderAll === 'function') renderAll();
         if (typeof allocRenderEditor === 'function') allocRenderEditor();
+        if (typeof intLoadList === 'function') intLoadList(); // re-scope Internals to this planning sem
         // Show staging banner
         if (banner) {
           // DB key '_odd'=Sem2,4,6(Even) | '_even'=Sem1,3,5(Odd). semMeta displayType is already correct.
@@ -27610,6 +27634,7 @@ async function semSwitchTo(key, silent) {
     if (typeof renderAll === 'function') renderAll();
     if (typeof allocRenderViewer === 'function') allocRenderViewer();
     if (typeof ttSetViewMode === 'function') ttSetViewMode('class');
+    if (typeof intLoadList === 'function') intLoadList(); // re-scope Internals to this archived sem
 
     // Switch to read-only mode
     _semApplyReadOnly(true);
@@ -27649,11 +27674,13 @@ async function semRestoreLive(silent) {
   _semCurrentKey  = '__live__';   // CRITICAL: reset so _legacyDataInScope() sees live AY (v927)
   try { sessionStorage.removeItem('davan_sem_key'); } catch(e) {}
   _semLiveSnap = null; // clear snap so next archive load creates a fresh one
+  intResetForSemSwitch(); // clear Internals editor state — new AY must never show stale times/batches
 
   try {
     // Reload from Firestore (same as login flow)
     await loadFirestoreData();
     if (typeof renderAll === 'function') renderAll();
+    if (typeof intLoadList === 'function') intLoadList(); // re-scope Internals to the now-live AY
     if (!silent) dvToast('🟢 Back to live data', 'ok', 3000);
   } catch(e) {
     console.warn('[SemSwitcher] Live restore failed, using memory:', e.message);
@@ -43994,95 +44021,130 @@ function lbRenderLog() {
 
 
 // ══════════════════════════════════════════════════════════════
-// DEFAULT INTERNAL TIMETABLE — from 1st Internal Apr 2026
-// Used as fallback if Firebase has no internals yet
-// Admin can overwrite by saving via Create/Edit tab
+// AY / SEM-TYPE SCOPING for Internals
+// Every internal doc is stamped with meta.semKey (e.g. "2026-27_odd"),
+// same format as _ttActiveSemKey(). Old pre-scoping docs (saved before
+// this feature existed) have no semKey — they are treated as belonging
+// to LEGACY_DATA_SEMKEY so they stay visible under that archived sem
+// and never leak into the live view.
 // ══════════════════════════════════════════════════════════════
-const INT_DEFAULT_DATA = {
-  meta: {
-    title: "1st Internal Time Table. From 1st, 2nd, 3rd April : 2026",
-    venue: "Davan Nutana College, LIC Colony, BIET Road, Dvg",
-    sem: 2, year: 2026, n: 1,
-    instructions: [
-      "During the Internal test, i.e. regular offline classes will not be held.",
-      "Internals should be attended as per INSTRUCTIONS given to you.",
-      "1st, 2nd & 3rd year Question paper pattern as per final exams.",
-      "Time duration per subject 01.00 Hr"
-    ],
-    incharge_1: "Smitha",
-    incharge_2: "Anitha N",
-    director: "Harsharaj A Gujjar",
-    created: "12/03/2026",
-    is_current: true
-  },
-  batches: [
-    { name:"III BCA",   strength:"177", session:"morning"   },
-    { name:"II BBA",    strength:"25",  session:"morning"   },
-    { name:"II B.Com",  strength:"42",  session:"morning"   },
-    { name:"I B.Com",   strength:"50",  session:"morning"   },
-    { name:"III B.Com", strength:"58",  session:"afternoon" },
-    { name:"III BBA",   strength:"32",  session:"afternoon" },
-    { name:"II BCA",    strength:"127", session:"afternoon" },
-    { name:"I BCA",     strength:"66",  session:"afternoon" }
-  ],
-  slots: [
-    // Morning — 01 Apr Wed
-    { date:"2026-04-01", day:"Wednesday", time_label:"09:30am to 10:30am", session:"morning",   batch_name:"III BCA",   subject:"Artificial Intelligence and Applications" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"09:30am to 10:30am", session:"morning",   batch_name:"II BBA",    subject:"Statistics for Business Decisions" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"09:30am to 10:30am", session:"morning",   batch_name:"II B.Com",  subject:"Basics of Business Research" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"09:30am to 10:30am", session:"morning",   batch_name:"I B.Com",   subject:"Advanced Financial Accounting" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"III BCA",   subject:"Fundamentals of Data Science" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"II BBA",    subject:"English" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"II B.Com",  subject:"English" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"I B.Com",   subject:"Kannada (43), Hindi (6) / Sanskrit (1) / Urdu(0)" },
-    // Morning — 02 Apr Thu
-    { date:"2026-04-02", day:"Thursday",  time_label:"09:30am to 10:30am", session:"morning",   batch_name:"III BCA",   subject:"Data Warehouse and Data Mining" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"09:30am to 10:30am", session:"morning",   batch_name:"II BBA",    subject:"Kannada (11), Hindi (12) / Sanskrit (1)/Urdu(1)" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"09:30am to 10:30am", session:"morning",   batch_name:"II B.Com",  subject:"Kannada (38), Hindi (4) / Sanskrit (0) / Urdu(0)" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"09:30am to 10:30am", session:"morning",   batch_name:"I B.Com",   subject:"Human Resource Management" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"III BCA",   subject:"PHP and MySQL" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"II BBA",    subject:"Financial Management" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"II B.Com",  subject:"Cost Accounting" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"I B.Com",   subject:"English" },
-    // Morning — 03 Apr Fri
-    { date:"2026-04-03", day:"Friday",    time_label:"09:30am to 10:30am", session:"morning",   batch_name:"III BCA",   subject:"Web Content Management System (Voc)" },
-    { date:"2026-04-03", day:"Friday",    time_label:"09:30am to 10:30am", session:"morning",   batch_name:"II BBA",    subject:"Business Analytics" },
-    { date:"2026-04-03", day:"Friday",    time_label:"09:30am to 10:30am", session:"morning",   batch_name:"II B.Com",  subject:"Accounting Standards - II" },
-    { date:"2026-04-03", day:"Friday",    time_label:"09:30am to 10:30am", session:"morning",   batch_name:"I B.Com",   subject:"Business Mathematics" },
-    { date:"2026-04-03", day:"Friday",    time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"III BCA",   subject:"" },
-    { date:"2026-04-03", day:"Friday",    time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"II BBA",    subject:"Financial Markets & Services" },
-    { date:"2026-04-03", day:"Friday",    time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"II B.Com",  subject:"Service Marketing (Elective - 2) (M)" },
-    { date:"2026-04-03", day:"Friday",    time_label:"11:30am to 12:30pm", session:"morning",   batch_name:"I B.Com",   subject:"Corporate Administration" },
-    // Afternoon — 01 Apr Wed
-    { date:"2026-04-01", day:"Wednesday", time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"III B.Com", subject:"Advanced Financial Management" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"III BBA",   subject:"Business Law" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"II BCA",    subject:"Python Programming" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"I BCA",     subject:"Applied Mathematics-II" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"III B.Com", subject:"Income Tax Law and Practice - II" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"III BBA",   subject:"Income Tax - II" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"II BCA",    subject:"English" },
-    { date:"2026-04-01", day:"Wednesday", time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"I BCA",     subject:"English" },
-    // Afternoon — 02 Apr Thu
-    { date:"2026-04-02", day:"Thursday",  time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"III B.Com", subject:"Management Accounting" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"III BBA",   subject:"International Business" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"II BCA",    subject:"Operating System & Shell Programming" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"I BCA",     subject:"Database Management System" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"III B.Com", subject:"Human Resources Development (El-1)(H2)" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"III BBA",   subject:"Advertising & Media Management (El-1)" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"II BCA",    subject:"Kannada (108), Hindi (12) / Sanskrit (1) / Urdu(0)" },
-    { date:"2026-04-02", day:"Thursday",  time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"I BCA",     subject:"Indian Constitution" },
-    // Afternoon — 03 Apr Fri
-    { date:"2026-04-03", day:"Friday",    time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"III B.Com", subject:"Customer Relationship Management" },
-    { date:"2026-04-03", day:"Friday",    time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"III BBA",   subject:"Goods and Service Tax (Voc 2)" },
-    { date:"2026-04-03", day:"Friday",    time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"II BCA",    subject:"Kannada (55), Hindi (9) / Sanskrit (2)" },
-    { date:"2026-04-03", day:"Friday",    time_label:"01:30pm to 02:30pm", session:"afternoon", batch_name:"I BCA",     subject:"" },
-    { date:"2026-04-03", day:"Friday",    time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"III B.Com", subject:"Assessment & Filing of ITRs (Voc 2)" },
-    { date:"2026-04-03", day:"Friday",    time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"III BBA",   subject:"Cultural Diversity at workplace (El-2) (HRM2)" },
-    { date:"2026-04-03", day:"Friday",    time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"II BCA",    subject:"Data Structure using C" },
-    { date:"2026-04-03", day:"Friday",    time_label:"03:30pm to 04:30pm", session:"afternoon", batch_name:"I BCA",     subject:"" }
-  ],
-  duties: []
-};
+function intActiveSemKey() {
+  return (typeof _ttActiveSemKey === 'function') ? _ttActiveSemKey() : LEGACY_DATA_SEMKEY;
+}
+// Which semKey is currently being VIEWED (live AY, or an archive picked from
+// the sidebar switcher) — mirrors the convention used by _legacyDataInScope().
+function intViewedSemKey() {
+  try {
+    if (typeof _semCurrentKey !== 'undefined' && _semCurrentKey && _semCurrentKey !== '__live__') {
+      return _semCurrentKey; // explicit archive selected
+    }
+  } catch(e) {}
+  return intActiveSemKey(); // live AY
+}
+// Normalize a doc's stamp: untagged legacy docs bucket under LEGACY_DATA_SEMKEY.
+function intDocSemKey(metaOrEntry) {
+  return (metaOrEntry && metaOrEntry.semKey) ? metaOrEntry.semKey : LEGACY_DATA_SEMKEY;
+}
+
+// ── Build batch list (name/strength/session) for the CURRENT sem type ──
+// Strength is REAL LIVE ENROLLMENT — counted directly from allStudents (the same
+// ground-truth source the Davan/Nutana Class Strength dashboard cards use via
+// strComputeCounts/_strParseClass), NOT from LM_CLASS_META (which only holds a
+// fixed room-capacity number, e.g. a hardcoded 60, unrelated to real headcount).
+// A class with zero actual admissions this AY (e.g. a discontinued BBA intake)
+// simply produces zero students and is correctly omitted — no stale placeholder
+// batch appears. Sections are merged into one batch per course+year (per your
+// call), with the section breakdown noted only for your own sanity-check, not
+// shown in the batch row. Shift (morning/afternoon) still comes from Class
+// Settings (LM_CLASS_META) since real-time enrollment has no shift field.
+function intBuildBatchesForActiveSem() {
+  try { if (typeof lmLoadClassMeta === 'function') lmLoadClassMeta(); } catch(e) {}
+  const semType = (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG && SESSION_CONFIG.semType)
+    ? SESSION_CONFIG.semType : 'Odd';
+  const activeSemsRoman = (typeof getSemsForType === 'function') ? getSemsForType(semType) : ['I','III','V'];
+  const romanToYearNum = { 'I':1, 'II':1, 'III':2, 'IV':2, 'V':3, 'VI':3 };
+  const activeYears = new Set(activeSemsRoman.map(s => romanToYearNum[s]).filter(Boolean));
+
+  const students = (typeof allStudents !== 'undefined' && Array.isArray(allStudents)) ? allStudents : [];
+  const yearNumToRoman = { 1:'I', 2:'II', 3:'III' };
+  const courseLabel = { 'BCA':'BCA', 'BBA':'BBA', 'BCom':'B.Com' };
+  const counts = {}; // "III BCA" -> headcount
+
+  students.forEach(s => {
+    if (typeof _strParseClass !== 'function') return;
+    const parsed = _strParseClass(s.class);
+    if (!parsed || !activeYears.has(parsed.yearNum)) return;
+    const batchName = yearNumToRoman[parsed.yearNum] + ' ' + (courseLabel[parsed.course] || parsed.course);
+    counts[batchName] = (counts[batchName] || 0) + 1;
+  });
+
+  // Shift per batch: read from LM_CLASS_META by reconstructing the "<N> YEAR <Course>"
+  // label prefix (same convention as _allocRowToClassLabel) and checking any section
+  // variant of it, falling back to 'morning' if nothing is saved yet.
+  const meta = (typeof LM_CLASS_META !== 'undefined' && LM_CLASS_META) ? LM_CLASS_META : {};
+  function shiftFor(batchName) {
+    const parts = batchName.split(' '); // ["III","BCA"] or ["III","B.Com"]
+    const prefix = (parts[0] + ' YEAR ' + parts.slice(1).join(' ')).toUpperCase();
+    const shiftCounts = {};
+    Object.keys(meta).forEach(label => {
+      if (!label.toUpperCase().startsWith(prefix)) return;
+      const sh = (meta[label].shift || '').toLowerCase();
+      if (sh) shiftCounts[sh] = (shiftCounts[sh]||0) + 1;
+    });
+    const keys = Object.keys(shiftCounts);
+    return keys.length ? keys.reduce((a,b) => shiftCounts[a] >= shiftCounts[b] ? a : b) : 'morning';
+  }
+
+  return Object.keys(counts)
+    .map(name => ({ name, strength: String(counts[name]), session: shiftFor(name) }))
+    .sort((a,b) => a.name.localeCompare(b.name));
+}
+
+// ── Auto-match a calendar "exam" event for internal number n ──
+// Looks for a calEvents entry with type:'exam', name mentioning "internal"
+// (assessment), matched against internal number n via EITHER an ordinal word
+// (e.g. "1st Internal") OR a standalone roman numeral (e.g. "Internal Assessment
+// - I -", "- II -") — both patterns are used across real calendar entries.
+// Deliberately conservative: if nothing matches clearly, returns null and the
+// New Internal form leaves dates blank for the admin to fill in manually,
+// rather than guessing at the wrong event.
+function intMatchCalendarExam(n) {
+  try {
+    const events = (typeof calEvents !== 'undefined' && Array.isArray(calEvents)) ? calEvents : [];
+    // Preferred: structured internalNumber field (set via calendar's "Which Internal?"
+    // dropdown) — exact, cannot be typo'd. Falls back to free-text name matching
+    // (ordinal word or standalone roman numeral) only for older events saved before
+    // this field existed.
+    let hit = events.find(e => e && e.type === 'exam' && e.internalNumber === n);
+    if (!hit) {
+      const ord = (typeof intOrdinal === 'function') ? intOrdinal(n) : `${n}th`;
+      const roman = { 1:'I', 2:'II', 3:'III', 4:'IV', 5:'V', 6:'VI' }[n] || '';
+      const ordRe   = new RegExp('\\b' + ord + '\\b', 'i');
+      // Roman numeral must be a standalone token (surrounded by non-letters), so
+      // "III" in "BCA III" style text never accidentally matches internal number 3
+      // unless it's actually delimited like "- III -" or "(III)" or "III)".
+      const romanRe = roman ? new RegExp('(^|[^A-Za-z])' + roman + '([^A-Za-z]|$)') : null;
+      hit = events.find(e => {
+        if (!e || e.type !== 'exam' || !/internal/i.test(e.name || '')) return false;
+        const name = e.name || '';
+        return ordRe.test(name) || (romanRe && romanRe.test(name));
+      });
+    }
+    if (!hit) return null;
+    const dates = [];
+    if (hit.from) {
+      if (hit.to && hit.to > hit.from) {
+        let d = new Date(hit.from + 'T00:00:00');
+        const end = new Date(hit.to + 'T00:00:00');
+        while (d <= end) { dates.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+      } else {
+        dates.push(hit.from);
+      }
+    }
+    return { dates, name: hit.name };
+  } catch(e) { return null; }
+}
+
 let INT_DATA     = {};   // loaded internals keyed by docId
 let INT_CURRENT  = null; // currently viewed docId
 let INT_NEW_DRAFT = null; // { id, data } — holds unsaved new-internal draft across tab switches
@@ -44100,10 +44162,30 @@ async function intInit() {
   await intLoadList();
 }
 
+// Empty-state HTML shown when no internal has been created yet for the
+// currently active AY + sem type (instead of falling back to old/stale data).
+function intEmptyStateHtml() {
+  let ay = 'this semester';
+  try {
+    if (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG && SESSION_CONFIG.academicYear) {
+      ay = SESSION_CONFIG.academicYear + ' ' + (SESSION_CONFIG.semType || '');
+    }
+  } catch(e) {}
+  return `<div class="empty" style="padding:40px 24px;text-align:center;">
+    <div style="font-size:34px;margin-bottom:10px;">🗓️</div>
+    <div style="font-size:15px;color:var(--text);font-weight:600;margin-bottom:6px;">No internal scheduled yet for this semester</div>
+    <div style="font-size:13px;color:var(--muted);max-width:420px;margin:0 auto;">
+      Nothing has been created yet for <strong style="color:var(--accent);">${ay}</strong>.
+      Use "+ New Internal" to build one. Previous semesters' internals are preserved — pick an archived semester from the sidebar switcher to view them.
+    </div>
+  </div>`;
+}
+
 // ── Load list of all internals from Firebase ──────────────────
 async function intLoadList() {
+  const viewedKey = intViewedSemKey();
   // admin, manager, vp: full Firestore read/write access
-  // faculty: RTDB mirror → default timetable fallback
+  // faculty: RTDB mirror only (always reflects whatever is currently live)
   if (!currentProfile || !['admin','manager','vp','principal'].includes(currentProfile.role)) {
     const body = document.getElementById('int-view-body');
     if (rtdb) {
@@ -44121,26 +44203,31 @@ async function intLoadList() {
           intPopulateSelects(INT_LIST);
           return;
         }
-      } catch(e) { /* RTDB unavailable — fall through to default */ }
+      } catch(e) { /* RTDB unavailable */ }
     }
-    INT_DATA['int_default_1'] = INT_DEFAULT_DATA;
-    INT_LIST = [{ id:'int_default_1', ...INT_DEFAULT_DATA.meta, slots: INT_DEFAULT_DATA.slots, batches: INT_DEFAULT_DATA.batches, duties:[] }];
-    INT_CURRENT = 'int_default_1';
-    intRenderChips(INT_LIST);
-    if (body) body.innerHTML = intRenderTable(INT_DEFAULT_DATA);
+    INT_LIST = [];
+    INT_CURRENT = null;
+    intRenderChips([]);
+    if (body) body.innerHTML = intEmptyStateHtml();
     const sub = document.getElementById('int-sub');
-    if (sub) sub.textContent = INT_DEFAULT_DATA.meta.title + ' · ' + INT_DEFAULT_DATA.meta.venue;
-    intPopulateSelects(INT_LIST);
+    if (sub) sub.textContent = '';
+    intPopulateSelects([]);
     return;
   }
   try {
     const snap = await db.collection('internals').get();
-    INT_LIST = [];
+    let allDocs = [];
     snap.forEach(doc => {
       const d = doc.data();
-      INT_LIST.push({ id: doc.id, ...d.meta, slots: d.slots||[], batches: d.batches||[], duties: d.duties||[] });
+      allDocs.push({ id: doc.id, ...d.meta, slots: d.slots||[], batches: d.batches||[], duties: d.duties||[] });
     });
-    INT_LIST.sort((a,b) => (a.year||0) - (b.year||0) || (a.sem||0) - (b.sem||0) || (a.n||0) - (b.n||0));
+    allDocs.sort((a,b) => (a.year||0) - (b.year||0) || (a.sem||0) - (b.sem||0) || (a.n||0) - (b.n||0));
+
+    // Scope to the AY + sem-type currently being viewed. Untagged legacy docs
+    // (saved before this feature existed) are bucketed under LEGACY_DATA_SEMKEY,
+    // so they show only when that archived sem is explicitly selected — never
+    // mixed into the live view, and never lost.
+    INT_LIST = allDocs.filter(x => intDocSemKey(x) === viewedKey);
 
     // Apply year/sem filter if active
     const fy = document.getElementById('int-filter-year')?.value || '';
@@ -44149,7 +44236,7 @@ async function intLoadList() {
     if (fy) filtered = filtered.filter(x => String(x.year) === fy);
     if (fs) filtered = filtered.filter(x => String(x.sem) === fs);
 
-    // Auto-detect current by today's date
+    // Auto-detect current by today's date (only meaningful within the in-scope set)
     const today = new Date().toISOString().slice(0,10);
     let autoId = null;
     for (const it of filtered) {
@@ -44158,34 +44245,32 @@ async function intLoadList() {
         autoId = it.id; break;
       }
     }
-    // Fallback: admin-set current
+    // Fallback: admin-set current (only honored if that doc is actually in scope)
     if (!autoId) {
       try {
         const meta = await fsGet('app_data','internals_meta');
-        if (meta?.current) autoId = meta.current;
+        if (meta?.current && filtered.some(x => x.id === meta.current)) autoId = meta.current;
       } catch(e) {}
     }
-    // Fallback: most recent
+    // Fallback: most recent in-scope internal
     if (!autoId && filtered.length) autoId = filtered[filtered.length-1].id;
 
     INT_CURRENT = autoId;
     intRenderChips(filtered);
-    if (INT_CURRENT) await intViewLoad(INT_CURRENT);
-    else {
-      // No Firebase data — show built-in default timetable
-      INT_DATA['int_default_1'] = INT_DEFAULT_DATA;
-      INT_LIST = [{ id:'int_default_1', ...INT_DEFAULT_DATA.meta, slots: INT_DEFAULT_DATA.slots, batches: INT_DEFAULT_DATA.batches, duties:[] }];
-      INT_CURRENT = 'int_default_1';
-      intRenderChips(INT_LIST);
+    if (INT_CURRENT) {
+      await intViewLoad(INT_CURRENT);
+    } else {
+      // Nothing created yet for this AY/sem type — empty state, no fallback data.
       const b = document.getElementById('int-view-body');
-      if (b) b.innerHTML = intRenderTable(INT_DEFAULT_DATA);
+      if (b) b.innerHTML = intEmptyStateHtml();
       const sub = document.getElementById('int-sub');
-      if (sub) sub.textContent = INT_DEFAULT_DATA.meta.title + ' · ' + INT_DEFAULT_DATA.meta.venue;
+      if (sub) sub.textContent = '';
     }
     // Populate duty & download selects
     intPopulateSelects(filtered);
     // Auto-mirror current internal to RTDB so faculty always get fresh data
-    if (rtdb && INT_CURRENT && INT_DATA[INT_CURRENT]) {
+    // (only when viewing the LIVE semester — never mirror an archived view out to faculty)
+    if (rtdb && INT_CURRENT && INT_DATA[INT_CURRENT] && viewedKey === intActiveSemKey()) {
       const d = INT_DATA[INT_CURRENT];
       rtdb.ref('davan_pub/internals_current').set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], batch_overrides: d.batch_overrides||{} }).catch(()=>{});
     }
@@ -44518,9 +44603,7 @@ function intSwitchTab(tab) {
 
 // ── EDIT / CREATE ─────────────────────────────────────────────
 function intEditPopulateSelect() {
-  const list = INT_LIST.length ? INT_LIST : [{
-    id: 'int_default_1', title: INT_DEFAULT_DATA.meta.title, n: 1
-  }];
+  const list = INT_LIST;
   const sel = document.getElementById('int-edit-select');
   if (sel) {
     const cur = sel.value;
@@ -44555,6 +44638,7 @@ async function intEditLoad(forceRefresh=false) {
     const data = INT_NEW_DRAFT.data;
     form.style.display = '';
     form.innerHTML = intBuildEditForm(docId, data, true);
+    intAttachAutoSave(docId, true);
     const grid = document.getElementById('ie-slots-grid');
     if (grid) grid.innerHTML = intBuildSlotsGrid(data.batches||[], data.slots||[], data.batch_overrides||{});
     intLoadInchargeDropdowns(data.meta);
@@ -44565,22 +44649,17 @@ async function intEditLoad(forceRefresh=false) {
   // Always fetch fresh from Firestore on every switch — cache caused stale data
   // when switching between 1st and 2nd internal without re-login.
   let data = null;
-  if (docId !== 'int_default_1') {
-    dvToast('Fetching from Firestore…', 'info', 2000);
-    try {
-      const doc = await db.collection('internals').doc(docId).get();
-      data = doc.exists ? doc.data() : null;
-      if (data) INT_DATA[docId] = data; // update cache
-      if (!data) dvToast('Document not found in Firestore', 'warn', 3000);
-    } catch(e) {
-      // Firestore failed — fall back to cache if available
-      data = INT_DATA[docId] || null;
-      if (data) dvToast('Firestore error — showing cached data', 'warn', 3000);
-      else dvToast('Firestore error — no cache available', 'error', 4000);
-    }
-  } else {
+  dvToast('Fetching from Firestore…', 'info', 2000);
+  try {
+    const doc = await db.collection('internals').doc(docId).get();
+    data = doc.exists ? doc.data() : null;
+    if (data) INT_DATA[docId] = data; // update cache
+    if (!data) dvToast('Document not found in Firestore', 'warn', 3000);
+  } catch(e) {
+    // Firestore failed — fall back to cache if available
     data = INT_DATA[docId] || null;
-    if (data) dvToast('Loading from local cache…', 'info', 1500);
+    if (data) dvToast('Firestore error — showing cached data', 'warn', 3000);
+    else dvToast('Firestore error — no cache available', 'error', 4000);
   }
   if (!data) { resetBtn(); return; }
   // Set INT_TEMPLATE_SLOTS so Rebuild can pre-fill subjects from a reference internal.
@@ -44590,6 +44669,7 @@ async function intEditLoad(forceRefresh=false) {
   INT_CUSTOM_SUBJECTS = {}; window.INT_SLOT_BATCH_OVERRIDE = {}; // Reset custom subjects & batch overrides when loading a different internal
   form.style.display = '';
   form.innerHTML = intBuildEditForm(docId, data);
+  intAttachAutoSave(docId, false);
   // Build slots grid immediately — form is in DOM now
   const grid = document.getElementById('ie-slots-grid');
   if (grid) grid.innerHTML = intBuildSlotsGrid(data.batches||[], data.slots||[], data.batch_overrides||{});
@@ -44602,11 +44682,30 @@ async function intEditNew() {
   const form = document.getElementById('int-edit-form');
   if (!form) return;
 
-  // Find next n
+  // Defensive: make sure INT_LIST actually reflects Firestore before computing
+  // template/n below. If it's empty (list not loaded yet in this session, or a
+  // stale filter left it empty), instructions/venue/batches from the previous
+  // internal would silently fail to carry forward. Cheap to re-check every time.
+  if (!INT_LIST.length) { try { await intLoadList(); } catch(e) {} }
+
+  // Reset ALL per-internal editor state — a new internal must never inherit
+  // stale time slots, batch overrides, or custom subjects left over from
+  // whatever internal (or AY) was open before this in the same session.
+  // This is what caused old default times (or wrong-AY leftovers) to keep
+  // showing even after the form displayed a fresh "New Internal".
+  INT_EDIT_TIMES = {};
+  window.INT_SLOT_BATCH_OVERRIDE = {};
+  INT_CUSTOM_SUBJECTS = {};
+
+  // Find next n — scoped to the CURRENT AY + sem type only (INT_LIST is already
+  // filtered to intActiveSemKey() by intLoadList), so a new AY always starts at 1st.
   const n = INT_LIST.length ? Math.max(...INT_LIST.map(x=>x.n||1)) + 1 : 1;
 
-  // Pick template: prefer the last internal that has saved slots.
-  // Fallback to the last entry if none have slots yet.
+  // Template is used ONLY for things that carry forward by admin choice, NOT for
+  // batches/subjects/dates which are now sourced live below:
+  //  - Faculty incharge (set once for the 1st internal, then reused for later ones)
+  //  - Venue / instructions / director boilerplate
+  // Prefer the last internal (in the current AY+sem scope) that has saved slots.
   let template = null;
   if (INT_LIST.length) {
     const withSlots = INT_LIST.filter(x => (x.slots||[]).length > 0);
@@ -44619,7 +44718,40 @@ async function intEditNew() {
       : JSON.parse(JSON.stringify({ meta: prevEntry, batches: prevEntry.batches||[], slots: prevEntry.slots||[], duties: prevEntry.duties||[] }));
   }
 
-  // Store template slots for subject pre-fill when user rebuilds grid on a new internal.
+  // Batches: ALWAYS sourced live from Class Settings (LM_CLASS_META), scoped to
+  // whichever classes are running this sem type — not templated from the previous
+  // internal, so strength/shift stays accurate even as classes/strengths change.
+  let batches = intBuildBatchesForActiveSem();
+  if (!batches.length && template) {
+    // Fallback only if Class Settings has nothing usable yet.
+    batches = template.batches.map(b=>({name:b.name,strength:b.strength,session:b.session}));
+  }
+
+  // Sem number for the form's SEM dropdown: derive from the active session's
+  // sem type + college's odd/even-sem-number convention, rather than templating.
+  const _semType = (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG && SESSION_CONFIG.semType) ? SESSION_CONFIG.semType : 'Odd';
+  const _defaultSem = _semType.toLowerCase() === 'even' ? 2 : 1;
+
+  // Exam dates: auto-match the academic calendar's "Nth Internals" exam event.
+  // ALWAYS do a fresh Firestore fetch for calEvents here — calPreload() no-ops if
+  // calEvents already has ANY entries (e.g. loaded once at login), so if the admin
+  // added or edited the relevant calendar event afterward in the same session,
+  // the stale in-memory calEvents would silently miss it. A direct fetch here
+  // guarantees the match always runs against current data.
+  if (typeof fsGet === 'function') {
+    try {
+      const doc = await fsGet('app_data', (typeof CAL_DOC !== 'undefined' ? CAL_DOC : 'academic_calendar'));
+      if (doc?.events?.length) {
+        calEvents = doc.events;
+        calEvents.sort((a,b)=>a.from.localeCompare(b.from));
+      }
+    } catch(e) { /* fetch failed — fall through and match against whatever calEvents already has */ }
+  }
+  // If nothing matches, leave dates empty for the admin to fill in manually.
+  const calMatch = intMatchCalendarExam(n);
+
+  // Store template slots for subject pre-fill when user rebuilds grid on a new internal
+  // (subjects still get freshly filtered against live allocations at render time).
   INT_TEMPLATE_SLOTS = (template && template.slots && template.slots.length)
     ? JSON.parse(JSON.stringify(template.slots))
     : [];
@@ -44628,9 +44760,9 @@ async function intEditNew() {
   const newId = `int_${Date.now()}`;
   const newData = {
     meta: {
-      title: `${intOrdinal(n)} Internal Time Table`,
+      title: calMatch?.name ? `${calMatch.name}` : `${intOrdinal(n)} Internal Time Table`,
       venue: template?.meta?.venue || 'Davan Nutana College, LIC Colony, BIET Road, Dvg',
-      sem: template?.meta?.sem || 2,
+      sem: template?.meta?.sem || _defaultSem,
       year: template?.meta?.year || new Date().getFullYear(),
       n,
       instructions: template?.meta?.instructions || [],
@@ -44638,10 +44770,12 @@ async function intEditNew() {
       incharge_2: template?.meta?.incharge_2 || '',
       director: template?.meta?.director || 'Harsharaj A Gujjar',
       created: new Date().toLocaleDateString('en-IN'),
-      is_current: false
+      is_current: false,
+      dates: calMatch?.dates || [],
+      semKey: intActiveSemKey() // AY + sem-type stamp — this is the root-cause fix
     },
-    batches: template ? template.batches.map(b=>({name:b.name,strength:b.strength,session:b.session})) : [],
-    slots:   [], // always start empty — user must add dates and rebuild
+    batches, // live from Class Settings, scoped to this sem type
+    slots:   [], // always start empty — user must rebuild once dates are set
     duties:  []
   };
 
@@ -44660,6 +44794,7 @@ async function intEditNew() {
 
   form.style.display = '';
   form.innerHTML = intBuildEditForm(newId, newData, true);
+  intAttachAutoSave(newId, true);
   const grid = document.getElementById('ie-slots-grid');
   if (grid) grid.innerHTML = intBuildSlotsGrid(newData.batches||[], newData.slots||[], newData.batch_overrides||{});
   intLoadInchargeDropdowns(newData.meta);
@@ -44669,6 +44804,17 @@ function intBuildEditForm(docId, data, isNew=false) {
   const meta    = data.meta    || {};
   const batches = data.batches || [];
   const slots   = data.slots   || [];
+
+  // If this doc's saved instructions are genuinely empty (e.g. it was created
+  // before instructions carried forward correctly), fall back to the college's
+  // standard 4-line instructions instead of showing a blank list — these are
+  // the same defaults the print/PDF view already falls back to.
+  const instructionsForForm = (meta.instructions && meta.instructions.length) ? meta.instructions : [
+    'During the Internal test, i.e. regular offline classes will not be held.',
+    'Internals should be attended as per INSTRUCTIONS given to you.',
+    '1st, 2nd & 3rd year Question paper pattern as per final exams.',
+    'Time duration per subject 01.00 Hr'
+  ];
 
   // Get unique dates — prefer from slots; fall back to meta.dates (set when slots are
   // still empty, i.e. dates were saved before any subjects were selected)
@@ -44684,15 +44830,15 @@ function intBuildEditForm(docId, data, isNew=false) {
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
         <div>
-          <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">TITLE</label>
+          <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">TITLE <span class="ie-tick" id="ie-tick-title" style="display:none;color:#22c55e;">✅</span></label>
           <input id="ie-title" value="${meta.title||''}" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;margin-top:4px;">
         </div>
         <div>
-          <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">VENUE</label>
+          <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">VENUE <span class="ie-tick" id="ie-tick-venue" style="display:none;color:#22c55e;">✅</span></label>
           <input id="ie-venue" value="${meta.venue||''}" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;margin-top:4px;">
         </div>
         <div>
-          <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">SEM</label>
+          <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">SEM <span class="ie-tick" id="ie-tick-sem" style="display:none;color:#22c55e;">✅</span></label>
           <select id="ie-sem" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;margin-top:4px;">
             <option value="1" ${meta.sem==1?'selected':''}>Sem 1 (I Yr Even)</option>
             <option value="2" ${meta.sem==2?'selected':''}>Sem 2 (I Yr Odd)</option>
@@ -44703,16 +44849,16 @@ function intBuildEditForm(docId, data, isNew=false) {
           </select>
         </div>
         <div>
-          <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">YEAR</label>
+          <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">YEAR <span class="ie-tick" id="ie-tick-year" style="display:none;color:#22c55e;">✅</span></label>
           <input id="ie-year" type="number" value="${meta.year||new Date().getFullYear()}" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;margin-top:4px;">
         </div>
       </div>
 
       <!-- Instructions -->
       <div style="margin-bottom:16px;">
-        <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">INSTRUCTIONS</label>
+        <label style="font-size:11px;color:var(--muted);font-family:var(--mono);">INSTRUCTIONS <span class="ie-tick" id="ie-tick-instructions" style="display:none;color:#22c55e;">✅</span></label>
         <div id="ie-instructions" style="margin-top:6px;">
-          ${(meta.instructions||[]).map((inst,i)=>`
+          ${instructionsForForm.map((inst,i)=>`
             <div style="display:flex;gap:8px;margin-bottom:6px;" id="ie-inst-row-${i}">
               <input value="${inst}" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;" id="ie-inst-${i}">
               <button onclick="document.getElementById('ie-inst-row-${i}').remove()" style="background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;">✕</button>
@@ -44748,7 +44894,8 @@ function intBuildEditForm(docId, data, isNew=false) {
         </div>
         <div id="ie-batches">
           ${batches.map((b,i)=>`
-            <div style="display:grid;grid-template-columns:1fr auto 1fr auto;gap:8px;margin-bottom:8px;align-items:center;" id="ie-batch-${i}">
+            <div style="display:grid;grid-template-columns:26px 1fr auto 1fr auto;gap:8px;margin-bottom:8px;align-items:center;" id="ie-batch-${i}">
+              <div style="color:var(--muted);font-size:11px;font-family:var(--mono);text-align:center;">${i+1}</div>
               <input placeholder="Name (e.g. III BCA)" value="${b.name||''}" id="ie-b-name-${i}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;">
               <input placeholder="Strength" value="${b.strength||''}" id="ie-b-str-${i}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:70px;">
               <select id="ie-b-ses-${i}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;">
@@ -44768,9 +44915,13 @@ function intBuildEditForm(docId, data, isNew=false) {
         </div>
         <div id="ie-dates">
           ${dateSet.map((dt,i)=>`
-            <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center;" id="ie-date-${i}">
-              <input type="date" value="${dt}" id="ie-dt-${i}" onchange="intRebuildSlotsGrid()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;">
-              <button onclick="document.getElementById('ie-date-${i}').remove();intRebuildSlotsGrid();" style="background:transparent;color:var(--danger);border:none;cursor:pointer;font-size:14px;">✕</button>
+            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;" id="ie-date-${i}">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="date" value="${dt}" id="ie-dt-${i}" onchange="intRebuildSlotsGrid()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;">
+                <span onclick="intToggleTimesPopover('${dt}')" style="cursor:pointer;color:var(--muted);font-size:11px;font-family:var(--mono);border:1px solid var(--border);border-radius:6px;padding:5px 9px;background:var(--surface2);" title="Click to edit time slots inline">${intTimesSummary(dt)} ✎</span>
+                <button onclick="document.getElementById('ie-date-${i}').remove();intRebuildSlotsGrid();" style="background:transparent;color:var(--danger);border:none;cursor:pointer;font-size:14px;">✕</button>
+              </div>
+              <div id="ie-dt-popover-${dt.replace(/-/g,'_')}" style="display:none;"></div>
             </div>`).join('')}
         </div>
       </div>
@@ -44780,7 +44931,6 @@ function intBuildEditForm(docId, data, isNew=false) {
         <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:8px;">SUBJECTS PER SLOT</div>
         <div id="ie-slots-grid"><div style="padding:12px;color:var(--muted);font-size:12px;">Loading subjects…</div></div>
         <button onclick="intRebuildSlotsGrid()" style="margin-top:8px;padding:5px 12px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;">🔄 Rebuild Grid from Batches+Dates</button>
-        <button onclick="intRefillFromTemplate()" style="margin-top:8px;padding:5px 12px;background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.3);border-radius:6px;font-size:11px;cursor:pointer;" title="Clears all current subjects and re-fills from 1st internal template">↩ Re-fill from Template</button>
       </div>
 
       <!-- Actions -->
@@ -44788,6 +44938,7 @@ function intBuildEditForm(docId, data, isNew=false) {
         <button onclick="intSave('${docId}',${isNew})" style="padding:9px 20px;background:var(--accent);color:#000;border:none;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer;">💾 Save to Firebase</button>
         <button onclick="intSetCurrent('${docId}')" style="padding:9px 20px;background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3);border-radius:6px;font-size:12px;cursor:pointer;">📌 Set as Current</button>
         ${!isNew ? `<button onclick="intDelete('${docId}')" style="padding:9px 16px;background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.3);border-radius:6px;font-size:12px;cursor:pointer;">🗑 Delete</button>` : ''}
+        <span id="int-autosave-tick" style="display:none;color:#22c55e;font-size:15px;" title="Auto-saved to Firebase">✅</span>
         <div id="int-save-msg" style="font-size:12px;font-family:var(--mono);"></div>
       </div>
     </div>`;
@@ -44811,14 +44962,14 @@ function intAddBatch() {
   const i = cont.children.length;
   const div = document.createElement('div');
   div.id = `ie-batch-${i}`;
-  div.style.cssText = 'display:grid;grid-template-columns:1fr auto 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:center;';
+  div.style.cssText = 'display:grid;grid-template-columns:26px 1fr auto 1fr auto;gap:8px;margin-bottom:8px;align-items:center;';
   div.innerHTML = `
+    <div style="color:var(--muted);font-size:11px;font-family:var(--mono);text-align:center;">${i+1}</div>
     <input placeholder="Name (e.g. III BCA)" id="ie-b-name-${i}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;">
     <input placeholder="Strength" id="ie-b-str-${i}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:70px;">
     <select id="ie-b-ses-${i}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;">
       <option value="morning">Morning</option><option value="afternoon">Afternoon</option>
     </select>
-    <input placeholder="Faculty Incharge" id="ie-b-inc-${i}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;">
     <button onclick="this.parentElement.remove()" style="background:transparent;color:var(--danger);border:none;cursor:pointer;font-size:14px;">✕</button>`;
   cont.appendChild(div);
 }
@@ -44851,27 +45002,23 @@ const INT_BATCH_MAP = {
   'I B.Com':   [{course:'BCom', sem:'I'}, {course:'BCom', sem:'II'}],
   'II B.Com':  [{course:'BCom', sem:'III'},{course:'BCom', sem:'IV'}],
   'III B.Com': [{course:'BCom', sem:'V'}, {course:'BCom', sem:'VI'}],
-  'I BCom':    [{course:'BCom', sem:'I'}, {course:'BCom', sem:'II'}],
-  'II BCom':   [{course:'BCom', sem:'III'},{course:'BCom', sem:'IV'}],
-  'III BCom':  [{course:'BCom', sem:'V'}, {course:'BCom', sem:'VI'}],
 };
 
 // Default 8 time slots per date (4 morning + 4 afternoon)
 const INT_DEFAULT_TIMES = [
-  {start:'08:30', session:'morning'},
-  {start:'09:30', session:'morning'},
-  {start:'10:30', session:'morning'},
-  {start:'11:30', session:'morning'},
-  {start:'13:30', session:'afternoon'},
-  {start:'14:30', session:'afternoon'},
-  {start:'15:30', session:'afternoon'},
-  {start:'16:30', session:'afternoon'},
+  {start:'09:30', end:'10:30', session:'morning'},
+  {start:'11:30', end:'12:30', session:'morning'},
+  {start:'13:15', end:'14:15', session:'afternoon'},
+  {start:'14:45', end:'15:45', session:'afternoon'},
+  {start:'16:15', end:'17:15', session:'afternoon'},
 ];
 
-// Format "HH:MM" → "HH:MMam/pm to HH:MMam/pm"
-function intFmtTimeLabel(start) {
+// Format "HH:MM" (+ optional explicit end "HH:MM") → "HH:MMam/pm to HH:MMam/pm"
+function intFmtTimeLabel(start, end) {
   const [h,m] = start.split(':').map(Number);
-  const endH = h + 1, endM = m;
+  let endH, endM;
+  if (end) { [endH, endM] = end.split(':').map(Number); }
+  else { endH = h + 1; endM = m; }
   function fmt(hh, mm) {
     const ampm = hh < 12 ? 'am' : 'pm';
     const h12  = hh > 12 ? hh - 12 : hh;
@@ -44882,9 +45029,18 @@ function intFmtTimeLabel(start) {
 
 // Get subjects for a batch from allocation (no labs, no duplicates used in this internal).
 // Reads the ie-sem dropdown to decide odd vs even parity (college rule: Sem 2,4,6 = Odd).
+// Sources from the LIVE current-sem LM_ALLOCATIONS (the actual subjects being taught
+// this semester) rather than the old hardcoded LM_ALLOC_DEFAULT snapshot; falls back
+// to LM_ALLOC_DEFAULT only if LM_ALLOCATIONS is empty (e.g. not loaded yet).
+// Returns subject entries as {subject, faculty} objects (not bare strings) so the
+// dropdown can show who teaches each one. Allocation rows that share the same
+// timetable `code` (e.g. Kannada + Hindi both coded "K/H", taught as one combined
+// slot to a split class) are merged into a single entry — subject shown as
+// "Kannada/Hindi", faculty as "Lalita S K & Rekha M R" — since it is one exam slot,
+// not two, even though it's two separate allocation rows.
 function intGetSubjectsForBatch(batchName, usedSubjects) {
   const mapArr = INT_BATCH_MAP[batchName];
-  if (!mapArr || typeof LM_ALLOC_DEFAULT === 'undefined') return { available: [], used: [] };
+  if (!mapArr) return { available: [], used: [] };
   const semNum = parseInt(document.getElementById('ie-sem')?.value || '2');
   const isOdd  = (semNum % 2 === 0); // Sem 2,4,6 = Odd in this college
   const ODD_SEMS  = ['I','III','V'];
@@ -44894,25 +45050,89 @@ function intGetSubjectsForBatch(batchName, usedSubjects) {
   if (!map) return { available: [], used: [] };
   // Include all sem variants as fallback so grid is never empty
   const candidates = [...new Set(mapArr.map(m => m.sem))];
-  const fromAlloc = LM_ALLOC_DEFAULT
-    .filter(a => a.course === map.course && candidates.includes(a.sem)
-               && a.subject && !/lab/i.test(a.subject))
-    .map(a => a.subject)
-    .filter((s,i,arr) => arr.indexOf(s) === i);
-  // Merge in custom subjects for this batch (appear at top of available list)
+  const liveAlloc = (typeof LM_ALLOCATIONS !== 'undefined' && LM_ALLOCATIONS && LM_ALLOCATIONS.length)
+    ? LM_ALLOCATIONS
+    : (typeof LM_ALLOC_DEFAULT !== 'undefined' ? LM_ALLOC_DEFAULT : []);
+  const rows = liveAlloc.filter(a => a.course === map.course && candidates.includes(a.sem)
+               && a.subject && !/lab/i.test(a.subject));
+
+  // Merge rows sharing a timetable "code" into one combined entry per code — this is
+  // the reliable signal for "one exam slot, two subjects" (e.g. Kannada/Hindi split
+  // class), since a shared code means both were taught in the same timetable slot.
+  // Group rows into "split pairs" using THREE independent signals — any one is enough:
+  //  (a) same timetable `code` (2+ different subjects sharing it), or
+  //  (b) splitWith explicitly naming the partner faculty (even if code differs/missing), or
+  //  (c) both subjects belong to the fixed language-choice group (Kannada/Hindi/
+  //      Sanskrit/Urdu) — these always run as one combined slot at this college,
+  //      regardless of whether the allocation data carries any linking metadata at all.
+  const LANG_GROUP = ['kannada','hindi','sanskrit','urdu'];
+  const isLangSubj = s => LANG_GROUP.includes(String(s||'').trim().toLowerCase());
+  const parent = rows.map((_, i) => i);
+  function find(i){ while(parent[i]!==i){ parent[i]=parent[parent[i]]; i=parent[i]; } return i; }
+  function union(i,j){ const ri=find(i), rj=find(j); if(ri!==rj) parent[ri]=rj; }
+  rows.forEach((a, i) => {
+    rows.forEach((b, j) => {
+      if (i>=j) return;
+      const sameCode = a.code && b.code && a.code === b.code && a.subject !== b.subject;
+      const splitLink = (a.splitWith && b.faculty && a.splitWith.trim() === b.faculty.trim())
+                      || (b.splitWith && a.faculty && b.splitWith.trim() === a.faculty.trim());
+      const bothLang = isLangSubj(a.subject) && isLangSubj(b.subject) && a.subject !== b.subject;
+      if (sameCode || splitLink || bothLang) union(i, j);
+    });
+  });
+  const groups = {};
+  rows.forEach((a, i) => { const r = find(i); (groups[r] = groups[r]||[]).push(a); });
+
+  const merged = []; // [{subject, faculty}]
+  Object.values(groups).forEach(group => {
+    if (group.length > 1) {
+      const subjects = [...new Set(group.map(p => p.subject))];
+      const faculties = [...new Set(group.map(p => p.faculty).filter(Boolean))];
+      merged.push({ subject: subjects.join('/'), faculty: faculties.join(' & ') });
+    } else {
+      merged.push({ subject: group[0].subject, faculty: group[0].faculty || '' });
+    }
+  });
+  // De-dup by subject label (a subject could appear more than once if allocation
+  // has duplicate rows), first occurrence wins.
+  const seenSubj = new Set();
+  const fromAlloc = merged.filter(m => {
+    if (seenSubj.has(m.subject)) return false;
+    seenSubj.add(m.subject);
+    return true;
+  });
+
+  // Merge in custom subjects for this batch (appear at top of available list, no faculty)
   const customs = INT_CUSTOM_SUBJECTS[batchName] || [];
-  const all = [...customs.filter(s => !fromAlloc.includes(s)), ...fromAlloc];
-  // Return { available: [...], used: [...], customs: [...] }
+  const customEntries = customs.filter(s => !fromAlloc.some(f => f.subject === s)).map(s => ({ subject:s, faculty:'' }));
+  const all = [...customEntries, ...fromAlloc];
+  // Return { available: [...], used: [...], customs: [...] } — available/used are
+  // {subject,faculty} objects; usedSubjects (the Set passed in) is compared by subject label.
   return {
-    available: all.filter(s => !usedSubjects.has(s)),
-    used:      all.filter(s => usedSubjects.has(s)),
+    available: all.filter(m => !usedSubjects.has(m.subject)),
+    used:      all.filter(m => usedSubjects.has(m.subject)),
     customs,
   };
 }
 
 // ── Per-date time slot editor ──────────────────────────────────
 // Stored in a hidden div as JSON keyed by date
-let INT_EDIT_TIMES = {}; // { "2026-04-01": ["08:30","09:30",...], ... }
+let INT_EDIT_TIMES = {}; // { "2026-04-01": [{start,end},...], ... }
+
+// Called whenever the active AY/sem changes (live↔archive↔staging switcher) so the
+// Internals edit form never carries over stale time slots, batch overrides, or
+// custom subjects from whichever semester was open before. intLoadList() (called
+// right after, from the sem-switch code) then re-scopes INT_LIST/INT_CURRENT to
+// the new semKey and re-renders the view/edit tabs against clean state.
+function intResetForSemSwitch() {
+  INT_EDIT_TIMES = {};
+  window.INT_SLOT_BATCH_OVERRIDE = {};
+  INT_CUSTOM_SUBJECTS = {};
+  INT_TEMPLATE_SLOTS = [];
+  INT_NEW_DRAFT = null;
+  const form = document.getElementById('int-edit-form');
+  if (form) form.style.display = 'none';
+}
 // Slots from the template internal (previous internal) — used to pre-fill
 // subjects when the user rebuilds the grid for a brand-new internal.
 // Matched by time_label + batch_name only (date is ignored — new internal
@@ -44924,8 +45144,8 @@ let INT_CUSTOM_SUBJECTS = {};
 
 function intGetTimesForDate(date) {
   if (INT_EDIT_TIMES[date]) return INT_EDIT_TIMES[date];
-  // Default: 8 slots
-  return INT_DEFAULT_TIMES.map(t => t.start);
+  // Default: {start,end} pairs (variable duration, matches real exam schedule pattern)
+  return INT_DEFAULT_TIMES.map(t => ({start:t.start, end:t.end}));
 }
 
 function intBuildTimeEditor(date, batches, existingSlots) {
@@ -44939,11 +45159,11 @@ function intBuildTimeEditor(date, batches, existingSlots) {
     <button onclick="intAddTimeSlot('${date}')" style="padding:3px 10px;background:transparent;color:var(--accent);border:1px solid var(--accent);border-radius:6px;font-size:11px;cursor:pointer;">+ Add Slot</button>
   </div>`;
   html += `<div id="time-slots-${safeDate}">`;
-  times.forEach((start, ti) => {
-    const label = intFmtTimeLabel(start);
-    const h = parseInt(start.split(':')[0]);
+  times.forEach((t, ti) => {
+    const label = intFmtTimeLabel(t.start, t.end);
+    const h = parseInt(t.start.split(':')[0]);
     const session = (h < 12) ? 'morning' : 'afternoon';
-    html += intBuildTimeRow(date, ti, start, label, session, batches, existingSlots||[]);
+    html += intBuildTimeRow(date, ti, t.start, t.end, label, session, batches, existingSlots||[]);
   });
   html += `</div></div>`;
   return html;
@@ -44961,18 +45181,23 @@ function intBuildSlotCell(date, label, session, defaultBatchName, existingSlots,
           || (existingSlots||[]).find(s => s.date===date && s.time_label===label && s.batch_name===defaultBatchName);
   const existingVal = ex ? (ex.subject||'') : '';
 
+  // Used-subjects: existingSlots is rebuilt fresh from live DOM state on every change
+  // (see intRefreshAllDates), so this reflects every subject currently picked for this
+  // batch anywhere in the form — including slots edited seconds ago but not yet saved —
+  // which is what makes a subject blur out immediately everywhere else once chosen.
   const usedSubs = new Set((existingSlots||[])
     .filter(s => s.batch_name===effectiveBatchName && !(s.date===date && s.time_label===label))
     .map(s=>s.subject).filter(Boolean));
   const subjectsResult  = intGetSubjectsForBatch(effectiveBatchName, usedSubs);
-  const subjectList     = subjectsResult.available || [];
-  const usedSubjectList = subjectsResult.used      || [];
+  const subjectList     = subjectsResult.available || [];  // [{subject,faculty}]
+  const usedSubjectList = subjectsResult.used      || [];  // [{subject,faculty}]
   const customs         = subjectsResult.customs   || [];
 
-  const allKnown    = [...subjectList, ...usedSubjectList];
-  const needsCustom = existingVal && (!allKnown.includes(existingVal) || usedSubjectList.includes(existingVal));
+  const allKnown    = [...subjectList, ...usedSubjectList].map(m=>m.subject);
+  const needsCustom = existingVal && !allKnown.includes(existingVal);
   const borderCol   = existingVal ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.5)';
   const bgCol       = existingVal ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.06)';
+  const selectedFaculty = [...subjectList, ...usedSubjectList].find(m => m.subject === existingVal)?.faculty || '';
 
   const batchOptions = Object.keys(INT_BATCH_MAP).map(bn =>
     `<option value="${bn}" style="background:#1e293b;color:#e2e8f0;" ${bn===effectiveBatchName?'selected':''}>${bn}</option>`
@@ -44991,20 +45216,33 @@ function intBuildSlotCell(date, label, session, defaultBatchName, existingSlots,
     customPanel = `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;">${chips}</div>`;
   }
 
+  // Faculty photo(s) under the dropdown, shown once a subject is selected (pic 3).
+  // selectedFaculty may be "A & B" for a merged split-subject entry — render one
+  // small avatar per name, tap-to-zoom via the existing _facAvatar helper.
+  const facultyLine = selectedFaculty
+    ? `<div style="display:flex;align-items:center;gap:4px;margin-top:3px;flex-wrap:wrap;">${
+        selectedFaculty.split(' & ').map(n => `<span style="display:inline-flex;align-items:center;gap:3px;">${_facAvatar(n.trim(), 18, true)}<span style="font-size:9px;color:var(--accent);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70px;" title="${n.trim()}">${n.trim()}</span></span>`).join('')
+      }</div>`
+    : '';
+
   return `<div style="display:flex;flex-direction:column;min-width:130px;">
     <select onchange="intSlotBatchChange(this,'${overrideKey}','${date}','${label}',${colIdx})"
       style="background:var(--surface2);color:var(--accent);border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:9px;width:100%;margin-bottom:2px;font-weight:600;cursor:pointer;">
       ${batchOptions}
     </select>
-    <select id="slot_${key}" onchange="intSyncSlotInput(this,'${safeBatch}');this.style.borderColor=this.value?'rgba(34,197,94,0.6)':'rgba(239,68,68,0.5)';this.style.background=this.value?'rgba(34,197,94,0.07)':'rgba(239,68,68,0.06)';"
-      style="background:${bgCol};color:var(--text);border:1px solid ${borderCol};border-radius:5px;padding:3px 5px;font-size:11px;width:100%;">
-      <option value="" style="background:#1e293b;color:#e2e8f0;">— select —</option>
-      ${subjectList.map(s=>`<option value="${s}" style="background:#1e293b;color:#e2e8f0;" ${s===existingVal?'selected':''}>${s}</option>`).join('')}
-      ${usedSubjectList.length ? `<option disabled style="background:#1e293b;color:#374151;">── used on other dates ──</option>` : ''}
-      ${usedSubjectList.map(s=>`<option value="${s}" disabled style="background:#1e293b;color:#4b5563;text-decoration:line-through;">${s}</option>`).join('')}
-      ${needsCustom?`<option value="${existingVal}" style="background:#1e293b;color:#e2e8f0;" selected>${existingVal}</option>`:''}
-      <option value="__custom__" style="background:#1e293b;color:#fbbf24;">✏ Type custom…</option>
-    </select>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <select id="slot_${key}" onchange="intSyncSlotInput(this,'${safeBatch}','${effectiveBatchName.replace(/'/g,"\\'")}')"
+        style="flex:1;background:${bgCol};color:var(--text);border:1px solid ${borderCol};border-radius:5px;padding:3px 5px;font-size:11px;">
+        <option value="" style="background:#1e293b;color:#e2e8f0;">— select —</option>
+        ${subjectList.map(m=>`<option value="${m.subject}" style="background:#1e293b;color:#e2e8f0;" ${m.subject===existingVal?'selected':''}>${m.subject}${m.faculty?' — '+m.faculty:''}</option>`).join('')}
+        ${usedSubjectList.length ? `<option disabled style="background:#1e293b;color:#374151;">── used elsewhere for this batch ──</option>` : ''}
+        ${usedSubjectList.map(m=>`<option value="${m.subject}" disabled style="background:#1e293b;color:#4b5563;text-decoration:line-through;">${m.subject}${m.faculty?' — '+m.faculty:''}</option>`).join('')}
+        ${needsCustom?`<option value="${existingVal}" style="background:#1e293b;color:#e2e8f0;" selected>${existingVal}</option>`:''}
+        <option value="__custom__" style="background:#1e293b;color:#fbbf24;">✏ Type custom…</option>
+      </select>
+      <span class="ie-slot-tick" data-slot-key="${key}" style="display:${existingVal?'inline':'none'};color:#22c55e;font-size:11px;flex-shrink:0;" title="Saved to Firebase">✅</span>
+    </div>
+    ${facultyLine}
     ${customPanel}
   </div>`;
 }
@@ -45013,50 +45251,23 @@ function intSlotBatchChange(batchSel, overrideKey, date, label, colIdx) {
   if (!window.INT_SLOT_BATCH_OVERRIDE) window.INT_SLOT_BATCH_OVERRIDE = {};
   const newBatchName = batchSel.value;
   window.INT_SLOT_BATCH_OVERRIDE[overrideKey] = newBatchName;
-
-  const cell = batchSel.closest('div');
-  if (!cell) return;
-
-  const safeBatch = newBatchName.replace(/[^a-zA-Z0-9]/g,'_');
-  const key = (date+'|'+label+'|'+newBatchName).replace(/[^a-zA-Z0-9]/g,'_');
-
-  // Collect used subjects for this batch from the live DOM via intCollectSlots.
-  // This mirrors exactly what intBuildSlotCell does at render time — cross-date, all slots.
-  const _batches = intCollectBatches();
-  const _dates   = intCollectDates();
-  const _liveSlots = intCollectSlots(_batches, _dates);
-  const usedSubs = new Set(
-    _liveSlots
-      .filter(s => s.batch_name === newBatchName && !(s.date === date && s.time_label === label))
-      .map(s => s.subject).filter(Boolean)
-  );
-  const oldSel = cell.querySelector('select[id^="slot_"]');
-
-  const subjectsResult  = intGetSubjectsForBatch(newBatchName, usedSubs);
-  const subjectList     = subjectsResult.available || [];
-  const usedSubjectList = subjectsResult.used      || [];
-
-  const newSel = document.createElement('select');
-  newSel.id = 'slot_'+key;
-  newSel.setAttribute('onchange', `intSyncSlotInput(this,'${safeBatch}');this.style.borderColor=this.value?'rgba(34,197,94,0.6)':'rgba(239,68,68,0.5)';this.style.background=this.value?'rgba(34,197,94,0.07)':'rgba(239,68,68,0.06)';`);
-  newSel.style.cssText = 'background:rgba(239,68,68,0.06);color:var(--text);border:1px solid rgba(239,68,68,0.5);border-radius:5px;padding:3px 5px;font-size:11px;width:100%;';
-  newSel.innerHTML = `
-    <option value="" style="background:#1e293b;color:#e2e8f0;">— select —</option>
-    ${subjectList.map(s=>`<option value="${s}" style="background:#1e293b;color:#e2e8f0;">${s}</option>`).join('')}
-    ${usedSubjectList.length ? `<option disabled style="background:#1e293b;color:#374151;">── used on other dates ──</option>` : ''}
-    ${usedSubjectList.map(s=>`<option value="${s}" disabled style="background:#1e293b;color:#4b5563;text-decoration:line-through;">${s}</option>`).join('')}
-    <option value="__custom__" style="background:#1e293b;color:#fbbf24;">✏ Type custom…</option>`;
-
-  if (oldSel) oldSel.replaceWith(newSel);
+  // Full rebuild (same path as intSyncSlotInput) so the new batch's subject list,
+  // faculty names, and cross-date/cross-slot blur are all computed fresh and
+  // consistently — a hand-patched single <select> here previously fell out of sync
+  // with the {subject,faculty} object shape and the live-blur mechanism.
+  intRefreshAllDates();
   dvToast(`Batch changed to ${newBatchName}`, 'info', 1500);
 }
 
-function intBuildTimeRow(date, ti, start, label, session, batches, existingSlots) {
+function intBuildTimeRow(date, ti, start, end, label, session, batches, existingSlots) {
   const safeDate = date.replace(/-/g,'_');
   let html = `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;flex-wrap:wrap;" id="time-row-${safeDate}-${ti}">`;
-  html += `<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-    <input type="time" value="${start}" onblur="intUpdateTimeSlot('${date}',${ti},this.value)"
-      style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-size:11px;width:90px;">
+  html += `<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+    <input type="time" value="${start}" onblur="intUpdateTimeSlot('${date}',${ti},this.value,null)"
+      style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-size:11px;width:85px;" title="Start time">
+    <span style="color:var(--muted);font-size:10px;">to</span>
+    <input type="time" value="${end||''}" onblur="intUpdateTimeSlot('${date}',${ti},null,this.value)"
+      style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-size:11px;width:85px;" title="End time">
     <span style="font-size:10px;color:var(--muted);min-width:130px;">${label}</span>
   </div>`;
   const sessionBatches = batches.filter(b=>b.session===session);
@@ -45073,9 +45284,9 @@ function intGetUsedSubjects(date, batchName, excludeTi) {
   const used = new Set();
   const safeDate = date.replace(/-/g,'_');
   const times = intGetTimesForDate(date);
-  times.forEach((start, ti) => {
+  times.forEach((t, ti) => {
     if (ti === excludeTi) return;
-    const label = intFmtTimeLabel(start);
+    const label = intFmtTimeLabel(t.start, t.end);
     const key = (date+'|'+label+'|'+batchName).replace(/[^a-zA-Z0-9]/g,'_');
     const val = document.getElementById('slot_'+key)?.value;
     if (val && val !== '__custom__') used.add(val);
@@ -45083,18 +45294,26 @@ function intGetUsedSubjects(date, batchName, excludeTi) {
   return used;
 }
 
-function intSyncSlotInput(sel, safeBatch) {
+function intSyncSlotInput(sel, safeBatch, batchNameHint) {
   if (sel.value === '__custom__') {
     const txt = (prompt('Enter subject name:') || '').trim();
     if (txt) {
-      const batchName = Object.keys(INT_BATCH_MAP).find(k => k.replace(/[^a-zA-Z0-9]/g,'_') === safeBatch) || safeBatch;
+      const batchName = batchNameHint || Object.keys(INT_BATCH_MAP).find(k => k.replace(/[^a-zA-Z0-9]/g,'_') === safeBatch) || safeBatch;
       if (!INT_CUSTOM_SUBJECTS[batchName]) INT_CUSTOM_SUBJECTS[batchName] = [];
       if (!INT_CUSTOM_SUBJECTS[batchName].includes(txt)) INT_CUSTOM_SUBJECTS[batchName].push(txt);
       intRefreshAllDates(sel, txt);
     } else {
       sel.value = '';
+      intRefreshAllDates(); // still refresh — clearing a selection un-blurs it elsewhere
     }
+    return;
   }
+  // A real subject was picked (or cleared to "— select —") — rebuild every date block
+  // from the current live DOM state so the SAME subject is immediately blurred out
+  // (disabled + struck through) in every other time slot/date for this batch, not
+  // just wherever it happens to be picked. This is the fix for subjects staying
+  // pickable in a sibling slot after already being chosen elsewhere.
+  intRefreshAllDates();
 }
 
 function intRemoveCustomSubject(safeBatch, subjectName) {
@@ -45105,8 +45324,8 @@ function intRemoveCustomSubject(safeBatch, subjectName) {
   const dates   = intCollectDates();
   dates.forEach(date => {
     const times = intGetTimesForDate(date);
-    times.forEach(start => {
-      const label = intFmtTimeLabel(start);
+    times.forEach(t => {
+      const label = intFmtTimeLabel(t.start, t.end);
       const key = (date+'|'+label+'|'+batchName).replace(/[^a-zA-Z0-9]/g,'_');
       const sel = document.getElementById('slot_'+key);
       if (sel && sel.value === subjectName) sel.value = '';
@@ -45116,13 +45335,14 @@ function intRemoveCustomSubject(safeBatch, subjectName) {
 }
 
 function intRefreshAllDates(originSel, newSubjectVal) {
+  window._intGridBusy = true;
   const batches = intCollectBatches();
   const dates   = intCollectDates();
   const snapshot = {};
   dates.forEach(date => {
     const times = intGetTimesForDate(date);
-    times.forEach(start => {
-      const label = intFmtTimeLabel(start);
+    times.forEach(t => {
+      const label = intFmtTimeLabel(t.start, t.end);
       batches.forEach(b => {
         const key = (date+'|'+label+'|'+b.name).replace(/[^a-zA-Z0-9]/g,'_');
         const el = document.getElementById('slot_'+key);
@@ -45139,9 +45359,9 @@ function intRefreshAllDates(originSel, newSubjectVal) {
   dates.forEach(date => {
     const day = DAYS[new Date(date+'T00:00:00').getDay()];
     const times = intGetTimesForDate(date);
-    times.forEach(start => {
-      const label = intFmtTimeLabel(start);
-      const session = parseInt(start.split(':')[0]) < 13 ? 'morning' : 'afternoon';
+    times.forEach(t => {
+      const label = intFmtTimeLabel(t.start, t.end);
+      const session = parseInt(t.start.split(':')[0]) < 13 ? 'morning' : 'afternoon';
       batches.forEach(b => {
         const key = (date+'|'+label+'|'+b.name).replace(/[^a-zA-Z0-9]/g,'_');
         const subj = snapshot[key] || '';
@@ -45157,18 +45377,22 @@ function intRefreshAllDates(originSel, newSubjectVal) {
     tmp.innerHTML = intBuildTimeEditor(date, batches, existingSlots);
     block.parentNode.replaceChild(tmp.firstElementChild, block);
   });
+  window._intGridBusy = false;
 }
 
 function intAddTimeSlot(date) {
   const times = intGetTimesForDate(date);
-  // Default next slot = last + 1hr
-  const lastStart = times.length ? times[times.length-1] : '08:30';
-  const [lh, lm] = lastStart.split(':').map(Number);
-  const newH = String(lh+1).padStart(2,'0');
-  const newStart = `${newH}:${String(lm).padStart(2,'0')}`;
-  times.push(newStart);
+  // Default next slot = last end time (or last start+1hr if no end set) → +1hr duration
+  const last = times.length ? times[times.length-1] : {start:'08:30', end:'09:30'};
+  const baseStart = last.end || last.start;
+  const [lh, lm] = baseStart.split(':').map(Number);
+  const newStart = `${String(lh).padStart(2,'0')}:${String(lm).padStart(2,'0')}`;
+  const endH = lh + 1;
+  const newEnd = `${String(endH).padStart(2,'0')}:${String(lm).padStart(2,'0')}`;
+  times.push({start:newStart, end:newEnd});
   INT_EDIT_TIMES[date] = times;
   intRefreshDateBlock(date);
+  intSyncDateSummary(date);
 }
 
 function intRemoveTimeSlot(date, ti) {
@@ -45176,32 +45400,40 @@ function intRemoveTimeSlot(date, ti) {
   times.splice(ti, 1);
   INT_EDIT_TIMES[date] = times;
   intRefreshDateBlock(date);
+  intSyncDateSummary(date);
 }
 
-function intUpdateTimeSlot(date, ti, newStart) {
-  // Guard: reject empty, undefined, or malformed time values (e.g. from partial edits)
-  if (!newStart || typeof newStart !== 'string' || !/^\d{2}:\d{2}$/.test(newStart)) return;
+// newStart/newEnd: pass the one being edited, null for the other (kept as-is).
+// Editing either field updates that slot's time — both directions work.
+function intUpdateTimeSlot(date, ti, newStart, newEnd) {
+  const validTime = v => typeof v === 'string' && /^\d{2}:\d{2}$/.test(v);
+  if (newStart !== null && newStart !== undefined && !validTime(newStart)) return;
+  if (newEnd   !== null && newEnd   !== undefined && !validTime(newEnd))   return;
   const batches = intCollectBatches();
   // Step 1: Snapshot subjects from DOM BEFORE changing times.
-  // intCollectSlots uses INT_EDIT_TIMES to build labels — must read NOW.
   const oldSlots = intCollectSlots(batches, [date]);
 
-  // Step 2: Update the time at position ti, then sort.
+  // Step 2: Update the slot at position ti (start and/or end), then sort by start.
   const times = intGetTimesForDate(date);
-  const oldTimes = times.slice();
-  times[ti] = newStart;
-  times.sort((a,b) => a.localeCompare(b));
+  const oldTimes = times.map(t => ({...t}));
+  const cur = times[ti] || {};
+  const updated = {
+    start: validTime(newStart) ? newStart : cur.start,
+    end:   validTime(newEnd)   ? newEnd   : cur.end,
+  };
+  times[ti] = updated;
+  times.sort((a,b) => a.start.localeCompare(b.start));
   INT_EDIT_TIMES[date] = times;
 
-  // Step 3: Remap subjects old label -> new label by index position.
+  // Step 3: Remap subjects old label -> new label by original index position.
   const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const day  = DAYS[new Date(date+'T00:00:00').getDay()];
   const remappedSlots = [];
-  oldTimes.forEach((oldStart, idx) => {
-    const oldLabel  = intFmtTimeLabel(oldStart);
-    const newStart_i = (idx === ti) ? newStart : oldStart;
-    const newLabel   = intFmtTimeLabel(newStart_i);
-    const newSession = (parseInt(newStart_i.split(':')[0]) < 13) ? 'morning' : 'afternoon';
+  oldTimes.forEach((oldT, idx) => {
+    const oldLabel = intFmtTimeLabel(oldT.start, oldT.end);
+    const newT     = (idx === ti) ? updated : oldT;
+    const newLabel = intFmtTimeLabel(newT.start, newT.end);
+    const newSession = (parseInt(newT.start.split(':')[0]) < 13) ? 'morning' : 'afternoon';
     batches.forEach(b => {
       const existing = oldSlots.find(s => s.time_label === oldLabel && s.batch_name === b.name);
       if (existing && existing.subject) {
@@ -45217,6 +45449,7 @@ function intUpdateTimeSlot(date, ti, newStart) {
   const tmp = document.createElement('div');
   tmp.innerHTML = intBuildTimeEditor(date, batches, remappedSlots);
   block.parentNode.replaceChild(tmp.firstElementChild, block);
+  intSyncDateSummary(date);
 }
 
 function intRefreshDateBlock(date) {
@@ -45228,6 +45461,74 @@ function intRefreshDateBlock(date) {
   const tmp = document.createElement('div');
   tmp.innerHTML = intBuildTimeEditor(date, batches, currentSlots);
   block.parentNode.replaceChild(tmp.firstElementChild, block);
+}
+
+// ── Compact time-slot summary shown beside each EXAM DATES row ──
+// Reads whatever is currently in INT_EDIT_TIMES for that date (or the default
+// 8-slot pattern if not yet customized) and renders a short "08:30, 09:30 · 13:30,
+// 14:30" style preview so the admin can see the schedule without scrolling down
+// to the full per-date time editor. Clicking it jumps to that editor.
+function intTimesSummary(date) {
+  const times = intGetTimesForDate(date).slice().sort((a,b)=>a.start.localeCompare(b.start));
+  if (!times.length) return 'No time slots';
+  const morning   = times.filter(t => parseInt(t.start.split(':')[0],10) < 13);
+  const afternoon = times.filter(t => parseInt(t.start.split(':')[0],10) >= 13);
+  const fmt = t => intFmtTimeLabel(t.start, t.end); // full "start to end" range
+  const parts = [];
+  if (morning.length)   parts.push(morning.map(fmt).join(', '));
+  if (afternoon.length) parts.push(afternoon.map(fmt).join(', '));
+  return '🕐 ' + parts.join(' · ');
+}
+
+// Refresh the compact summary chip text for one date, and if its inline popover
+// is currently open, refresh that too — keeps both in sync after any time edit.
+function intSyncDateSummary(date) {
+  const cont = document.getElementById('ie-dates');
+  if (!cont) return;
+  [...cont.children].forEach(row => {
+    const dtInput = row.querySelector('input[type="date"]');
+    if (dtInput && dtInput.value === date) {
+      const span = row.querySelector('span[onclick^="intToggleTimesPopover"]');
+      if (span) span.textContent = intTimesSummary(date) + ' ✎';
+    }
+  });
+  const pop = document.getElementById('ie-dt-popover-' + date.replace(/-/g,'_'));
+  if (pop && pop.style.display !== 'none') pop.innerHTML = intBuildTimesPopover(date);
+}
+
+// Compact inline time-slot editor: start+end inputs per slot (both directions
+// editable) plus + Add Slot / remove, WITHOUT the full subject grid — used inside
+// the small popover next to each EXAM DATES row so times can be tweaked without
+// scrolling to the full Subjects Per Slot section below (which still also works
+// and shows the same data, since both read/write the same INT_EDIT_TIMES state).
+function intBuildTimesPopover(date) {
+  const times = intGetTimesForDate(date).slice().sort((a,b)=>a.start.localeCompare(b.start));
+  let html = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:2px;">`;
+  times.forEach((t, ti) => {
+    html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+      <input type="time" value="${t.start}" onblur="intUpdateTimeSlot('${date}',${ti},this.value,null)"
+        style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-size:11px;width:85px;" title="Start time">
+      <span style="color:var(--muted);font-size:10px;">to</span>
+      <input type="time" value="${t.end||''}" onblur="intUpdateTimeSlot('${date}',${ti},null,this.value)"
+        style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-size:11px;width:85px;" title="End time">
+      <button onclick="intRemoveTimeSlot('${date}',${ti})" style="background:transparent;color:var(--danger);border:none;cursor:pointer;font-size:13px;">✕</button>
+    </div>`;
+  });
+  html += `<button onclick="intAddTimeSlot('${date}')" style="padding:3px 10px;background:transparent;color:var(--accent);border:1px solid var(--accent);border-radius:6px;font-size:11px;cursor:pointer;">+ Add Slot</button>`;
+  html += `</div>`;
+  return html;
+}
+
+// Show/hide the inline popover for one date's time slots.
+function intToggleTimesPopover(date) {
+  const pop = document.getElementById('ie-dt-popover-' + date.replace(/-/g,'_'));
+  if (!pop) return;
+  if (pop.style.display === 'none' || !pop.innerHTML) {
+    pop.innerHTML = intBuildTimesPopover(date);
+    pop.style.display = '';
+  } else {
+    pop.style.display = 'none';
+  }
 }
 
 // ── Session-slot repair helper ────────────────────────────────────────────────
@@ -45250,35 +45551,35 @@ function intFixSessionSlots(dates, batches) {
   const allEntries = Object.values(INT_EDIT_TIMES);
   // Best reference: has both sessions + maximum total slots
   const refFull = allEntries
-    .filter(ts => ts.some(t=>parseInt(t.split(':')[0])>=13) && ts.some(t=>parseInt(t.split(':')[0])<13))
+    .filter(ts => ts.some(t=>parseInt(t.start.split(':')[0])>=13) && ts.some(t=>parseInt(t.start.split(':')[0])<13))
     .sort((a,b) => b.length - a.length)[0] || null;
 
   const refAftTimes = needsAft
-    ? ((refFull || allEntries.find(ts=>ts.some(t=>parseInt(t.split(':')[0])>=13)))
-        ?.filter(t=>parseInt(t.split(':')[0])>=13)
-       || INT_DEFAULT_TIMES.filter(t=>t.session==='afternoon').map(t=>t.start))
+    ? ((refFull || allEntries.find(ts=>ts.some(t=>parseInt(t.start.split(':')[0])>=13)))
+        ?.filter(t=>parseInt(t.start.split(':')[0])>=13)
+       || INT_DEFAULT_TIMES.filter(t=>t.session==='afternoon').map(t=>({start:t.start,end:t.end})))
     : [];
   const refMornTimes = needsMorn
-    ? ((refFull || allEntries.find(ts=>ts.some(t=>parseInt(t.split(':')[0])<13)))
-        ?.filter(t=>parseInt(t.split(':')[0])<13)
-       || INT_DEFAULT_TIMES.filter(t=>t.session==='morning').map(t=>t.start))
+    ? ((refFull || allEntries.find(ts=>ts.some(t=>parseInt(t.start.split(':')[0])<13)))
+        ?.filter(t=>parseInt(t.start.split(':')[0])<13)
+       || INT_DEFAULT_TIMES.filter(t=>t.session==='morning').map(t=>({start:t.start,end:t.end})))
     : [];
 
   dates.forEach(date => {
     let dt = (INT_EDIT_TIMES[date] || []).slice();
-    const aftSlots  = dt.filter(t=>parseInt(t.split(':')[0])>=13);
-    const mornSlots = dt.filter(t=>parseInt(t.split(':')[0])<13);
+    const aftSlots  = dt.filter(t=>parseInt(t.start.split(':')[0])>=13);
+    const mornSlots = dt.filter(t=>parseInt(t.start.split(':')[0])<13);
 
     // Replace afternoon if: missing entirely OR count differs from reference
     if (needsAft && refAftTimes.length > 0 && aftSlots.length !== refAftTimes.length) {
-      dt = [...mornSlots, ...refAftTimes].sort((a,b)=>a.localeCompare(b));
+      dt = [...mornSlots, ...refAftTimes].sort((a,b)=>a.start.localeCompare(b.start));
     }
     // Replace morning if: missing entirely OR count differs from reference
     if (needsMorn && refMornTimes.length > 0) {
-      const mornNow = dt.filter(t=>parseInt(t.split(':')[0])<13);
+      const mornNow = dt.filter(t=>parseInt(t.start.split(':')[0])<13);
       if (mornNow.length !== refMornTimes.length) {
-        const aftNow = dt.filter(t=>parseInt(t.split(':')[0])>=13);
-        dt = [...refMornTimes, ...aftNow].sort((a,b)=>a.localeCompare(b));
+        const aftNow = dt.filter(t=>parseInt(t.start.split(':')[0])>=13);
+        dt = [...refMornTimes, ...aftNow].sort((a,b)=>a.start.localeCompare(b.start));
       }
     }
     INT_EDIT_TIMES[date] = dt;
@@ -45290,35 +45591,41 @@ function intBuildSlotsGrid(batches, existingSlots, savedOverrides) {
   const dateSet = [...new Set(existingSlots.map(s=>s.date).filter(Boolean))].sort();
   if (!dateSet.length) return '<div style="color:var(--muted);font-size:12px;">Add dates first, then rebuild grid.</div>';
 
-  // Initialise INT_EDIT_TIMES — convert labels to 24h starts FIRST, then sort.
-  // Pass 1: parse saved time_labels → 24h starts per date (raw, no guard yet).
+  // Initialise INT_EDIT_TIMES — convert labels to 24h start+end FIRST, then sort.
+  // Pass 1: parse saved time_labels → 24h {start,end} per date (raw, no guard yet).
   INT_EDIT_TIMES = {};
   dateSet.forEach(date => {
     const labels = [...new Set(existingSlots.filter(s=>s.date===date).map(s=>s.time_label))];
-    const starts = labels.map(label => {
-      const m = label.match(/^(\d+):(\d+)(am|pm)/i);
-      if (!m) return '08:30';
+    const parseT = (str) => {
+      const m = String(str||'').match(/^(\d+):(\d+)(am|pm)/i);
+      if (!m) return null;
       let h = parseInt(m[1]), mn = parseInt(m[2]);
       const ap = m[3].toLowerCase();
       if (ap === 'pm' && h !== 12) h += 12;
       if (ap === 'am' && h === 12) h = 0;
       return String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0');
+    };
+    const pairs = labels.map(label => {
+      const [startRaw, endRaw] = label.split(' to ');
+      return { start: parseT(startRaw) || '08:30', end: parseT(endRaw) || null };
     });
-    starts.sort((a,b) => a.localeCompare(b));
-    INT_EDIT_TIMES[date] = starts.length ? starts : INT_DEFAULT_TIMES.map(t=>t.start);
+    pairs.sort((a,b) => a.start.localeCompare(b.start));
+    INT_EDIT_TIMES[date] = pairs.length ? pairs : INT_DEFAULT_TIMES.map(t=>({start:t.start,end:t.end}));
   });
   // Pass 2: ONLY add missing sessions (presence check, not count) — do NOT
   // add/remove slots that were intentionally saved. Trust Firestore data on load.
   // Full count-based repair runs only on explicit Rebuild/Re-fill actions.
+  // (Session checks below use .start — the repair logic itself is start-time-based,
+  // end times just ride along unchanged on every {start,end} object it touches.)
   const needsAft_load  = batches.some(b=>b.session==='afternoon');
   const needsMorn_load = batches.some(b=>b.session==='morning');
   const allTimes_load  = Object.values(INT_EDIT_TIMES);
-  const refAft_load  = needsAft_load  ? (allTimes_load.find(ts=>ts.some(t=>parseInt(t.split(':')[0])>=13))?.filter(t=>parseInt(t.split(':')[0])>=13) || INT_DEFAULT_TIMES.filter(t=>t.session==='afternoon').map(t=>t.start)) : [];
-  const refMorn_load = needsMorn_load ? (allTimes_load.find(ts=>ts.some(t=>parseInt(t.split(':')[0])<13))?.filter(t=>parseInt(t.split(':')[0])<13) || INT_DEFAULT_TIMES.filter(t=>t.session==='morning').map(t=>t.start)) : [];
+  const refAft_load  = needsAft_load  ? (allTimes_load.find(ts=>ts.some(t=>parseInt(t.start.split(':')[0])>=13))?.filter(t=>parseInt(t.start.split(':')[0])>=13) || INT_DEFAULT_TIMES.filter(t=>t.session==='afternoon').map(t=>({start:t.start,end:t.end}))) : [];
+  const refMorn_load = needsMorn_load ? (allTimes_load.find(ts=>ts.some(t=>parseInt(t.start.split(':')[0])<13))?.filter(t=>parseInt(t.start.split(':')[0])<13) || INT_DEFAULT_TIMES.filter(t=>t.session==='morning').map(t=>({start:t.start,end:t.end}))) : [];
   dateSet.forEach(date => {
     let dt = INT_EDIT_TIMES[date];
-    if (needsAft_load  && !dt.some(t=>parseInt(t.split(':')[0])>=13)) dt = [...dt, ...refAft_load].sort((a,b)=>a.localeCompare(b));
-    if (needsMorn_load && !dt.some(t=>parseInt(t.split(':')[0])<13))  dt = [...refMorn_load, ...dt].sort((a,b)=>a.localeCompare(b));
+    if (needsAft_load  && !dt.some(t=>parseInt(t.start.split(':')[0])>=13)) dt = [...dt, ...refAft_load].sort((a,b)=>a.start.localeCompare(b.start));
+    if (needsMorn_load && !dt.some(t=>parseInt(t.start.split(':')[0])<13))  dt = [...refMorn_load, ...dt].sort((a,b)=>a.start.localeCompare(b.start));
     INT_EDIT_TIMES[date] = dt;
   });
 
@@ -45338,6 +45645,7 @@ function intBuildSlotsGrid(batches, existingSlots, savedOverrides) {
 }
 
 function intRebuildSlotsGrid() {
+  window._intGridBusy = true;
   const batches = intCollectBatches();
   const dates   = intCollectDates();
   const grid = document.getElementById('ie-slots-grid');
@@ -45355,10 +45663,10 @@ function intRebuildSlotsGrid() {
   // For brand-new dates (no prevTimes entry), inherit from the most complete date
   const prevEntries = Object.values(prevTimes);
   const refFull = prevEntries
-    .filter(ts=>ts.some(t=>parseInt(t.split(':')[0])>=13) && ts.some(t=>parseInt(t.split(':')[0])<13))
+    .filter(ts=>ts.some(t=>parseInt(t.start.split(':')[0])>=13) && ts.some(t=>parseInt(t.start.split(':')[0])<13))
     .sort((a,b)=>b.length-a.length)[0]
     || (prevEntries.length ? prevEntries[prevEntries.length-1] : null)
-    || INT_DEFAULT_TIMES.map(t=>t.start);
+    || INT_DEFAULT_TIMES.map(t=>({start:t.start,end:t.end}));
   const inheritTimes = refFull.slice();
   INT_EDIT_TIMES = {};
   dates.forEach(date => {
@@ -45394,12 +45702,12 @@ function intRebuildSlotsGrid() {
       if (dateIdx >= tmplDates.length) return;
       const tmplDate = tmplDates[dateIdx];
       const timesForDate = INT_EDIT_TIMES[date] || [];
-      const morningTimes   = timesForDate.filter(t=>parseInt(t.split(':')[0])<13).sort();
-      const afternoonTimes = timesForDate.filter(t=>parseInt(t.split(':')[0])>=13).sort();
+      const morningTimes   = timesForDate.filter(t=>parseInt(t.start.split(':')[0])<13).sort((a,b)=>a.start.localeCompare(b.start));
+      const afternoonTimes = timesForDate.filter(t=>parseInt(t.start.split(':')[0])>=13).sort((a,b)=>a.start.localeCompare(b.start));
       ['morning','afternoon'].forEach(sess => {
         const sessionTimes = sess==='morning' ? morningTimes : afternoonTimes;
-        sessionTimes.forEach((start, slotIdx) => {
-          const label = intFmtTimeLabel(start);
+        sessionTimes.forEach((t, slotIdx) => {
+          const label = intFmtTimeLabel(t.start, t.end);
           batches.filter(b=>b.session===sess).forEach(b => {
             const alreadyFilled = mergedSlots.find(s=>s.date===date&&s.time_label===label&&s.batch_name===b.name);
             if (!alreadyFilled) {
@@ -45418,6 +45726,7 @@ function intRebuildSlotsGrid() {
   dates.sort().forEach(date => { html += intBuildTimeEditor(date, batches, mergedSlots); });
   html += '</div>';
   grid.innerHTML = html;
+  window._intGridBusy = false;
 }
 
 // Force re-fill all slots from INT_TEMPLATE_SLOTS, ignoring any currently saved subjects.
@@ -45436,10 +45745,10 @@ function intRefillFromTemplate() {
   const prevTimes = {...(INT_EDIT_TIMES||{})};
   const prevEntries = Object.values(prevTimes);
   const refFull2 = prevEntries
-    .filter(ts=>ts.some(t=>parseInt(t.split(':')[0])>=13) && ts.some(t=>parseInt(t.split(':')[0])<13))
+    .filter(ts=>ts.some(t=>parseInt(t.start.split(':')[0])>=13) && ts.some(t=>parseInt(t.start.split(':')[0])<13))
     .sort((a,b)=>b.length-a.length)[0]
     || (prevEntries.length ? prevEntries[prevEntries.length-1] : null)
-    || INT_DEFAULT_TIMES.map(t=>t.start);
+    || INT_DEFAULT_TIMES.map(t=>({start:t.start,end:t.end}));
   const inheritTimes2 = refFull2.slice();
   INT_EDIT_TIMES = {};
   dates.forEach(date => {
@@ -45484,12 +45793,12 @@ function intRefillFromTemplate() {
     const tmplDate = tmplDates[dateIdx];
     // Group this date's times by session, preserving order
     const timesForDate = INT_EDIT_TIMES[date] || [];
-    const morningTimes = timesForDate.filter(t=>parseInt(t.split(':')[0])<13).sort();
-    const afternoonTimes = timesForDate.filter(t=>parseInt(t.split(':')[0])>=13).sort();
+    const morningTimes = timesForDate.filter(t=>parseInt(t.start.split(':')[0])<13).sort((a,b)=>a.start.localeCompare(b.start));
+    const afternoonTimes = timesForDate.filter(t=>parseInt(t.start.split(':')[0])>=13).sort((a,b)=>a.start.localeCompare(b.start));
     ['morning','afternoon'].forEach(sess => {
       const sessionTimes = sess==='morning' ? morningTimes : afternoonTimes;
-      sessionTimes.forEach((start, slotIdx) => {
-        const label = intFmtTimeLabel(start);
+      sessionTimes.forEach((t, slotIdx) => {
+        const label = intFmtTimeLabel(t.start, t.end);
         batches.filter(b => b.session === sess).forEach(b => {
           // Match by slot position within the session for this date index
           const subject = tmplByPos[tmplDate]?.[sess]?.[slotIdx]?.[b.name];
@@ -45537,9 +45846,9 @@ function intCollectSlots(batches, dates) {
   dates.forEach(date => {
     const day = DAYS[new Date(date+'T00:00:00').getDay()];
     const times = intGetTimesForDate(date);
-    times.forEach(start => {
-      const label = intFmtTimeLabel(start);
-      const session = (parseInt(start.split(':')[0]) < 13) ? 'morning' : 'afternoon';
+    times.forEach(t => {
+      const label = intFmtTimeLabel(t.start, t.end);
+      const session = (parseInt(t.start.split(':')[0]) < 13) ? 'morning' : 'afternoon';
       const sessionBatches = batches.filter(b=>b.session===session);
       sessionBatches.forEach((b, colIdx) => {
         // Check if this cell has a per-slot batch override
@@ -45556,32 +45865,137 @@ function intCollectSlots(batches, dates) {
   return slots;
 }
 
-async function intSave(docId, isNew) {
-  const msg = document.getElementById('int-save-msg');
-  const meta = {
-    title:        document.getElementById('ie-title')?.value?.trim()||'',
-    venue:        document.getElementById('ie-venue')?.value?.trim()||'',
-    sem:          parseInt(document.getElementById('ie-sem')?.value)||2,
-    year:         parseInt(document.getElementById('ie-year')?.value)||new Date().getFullYear(),
-    n:            INT_LIST.length ? (isNew ? Math.max(...INT_LIST.map(x=>x.n||1))+1 : (INT_DATA[docId]?.meta?.n||1)) : 1,
-    instructions: [...document.getElementById('ie-instructions').querySelectorAll('input')].map(i=>i.value.trim()).filter(Boolean),
-    incharge_1:   document.getElementById('ie-incharge-1')?.value||'',
-    incharge_2:   document.getElementById('ie-incharge-2')?.value||'',
-    director:     'Harsharaj A Gujjar',
-    created:      new Date().toLocaleDateString('en-IN'),
+// Auto-save: debounced — any edit inside the Internals form (text, dropdown, date,
+// checkbox) triggers a save to Firebase automatically after a short pause in typing.
+// Delegated on the form container so it works for every field including ones added
+// dynamically (batches, dates, slot dropdowns) without re-attaching listeners.
+let _intAutoSaveTimer = null;
+window._intGridBusy = false; // true while a grid rebuild (subject pick, time edit, etc.) is running
+function intAttachAutoSave(docId, isNew) {
+  const form = document.getElementById('int-edit-form');
+  if (!form) return;
+  // Reset the top-toolbar tick to hidden every time a (possibly different)
+  // internal is loaded into the form — it must not show a stale "Saved" from
+  // whichever internal was open before, until THIS one is actually confirmed saved.
+  const tickTop = document.getElementById('int-autosave-tick-top');
+  if (tickTop) { tickTop.style.display = 'none'; tickTop.style.opacity = '1'; }
+  if (form._autoSaveWired) { form._autoSaveDocId = docId; form._autoSaveIsNew = isNew; return; }
+  form._autoSaveWired = true;
+  form._autoSaveDocId = docId;
+  form._autoSaveIsNew = isNew;
+  const trigger = (ev) => {
+    // Edit made — dim the tick(s) to show "pending save" until the debounced save confirms.
+    const tick = document.getElementById('int-autosave-tick');
+    const tickTop = document.getElementById('int-autosave-tick-top');
+    if (tick && tick.style.display !== 'none') { tick.style.opacity = '0.35'; tick.title = 'Saving…'; }
+    if (tickTop && tickTop.style.display !== 'none') { tickTop.style.opacity = '0.35'; tickTop.title = 'Saving…'; }
+    // Dim the SPECIFIC field's tick that was just edited (not every field) — a
+    // per-slot subject select dims its own ie-slot-tick; the 4 top fields and
+    // instructions dim their matching ie-tick sibling.
+    const target = ev?.target;
+    if (target) {
+      if (target.id && target.id.startsWith('slot_')) {
+        const key = target.id.replace(/^slot_/, '');
+        const slotTick = form.querySelector(`.ie-slot-tick[data-slot-key="${key}"]`);
+        if (slotTick) slotTick.style.display = 'none'; // reappears green once re-saved with a value
+      } else {
+        const fieldMap = { 'ie-title':'ie-tick-title', 'ie-venue':'ie-tick-venue', 'ie-sem':'ie-tick-sem', 'ie-year':'ie-tick-year' };
+        const tickId = fieldMap[target.id] || (target.closest('#ie-instructions') ? 'ie-tick-instructions' : null);
+        if (tickId) { const t = document.getElementById(tickId); if (t) { t.style.opacity = '0.35'; } }
+      }
+    }
+    clearTimeout(_intAutoSaveTimer);
+    _intAutoSaveTimer = setTimeout(function doSave() {
+      // Never save while a grid rebuild (subject pick / time edit) is still
+      // rewriting the DOM — reading mid-rebuild silently drops dates/slots.
+      // Wait and retry shortly instead of saving a half-built snapshot.
+      if (window._intGridBusy) { _intAutoSaveTimer = setTimeout(doSave, 300); return; }
+      intSave(form._autoSaveDocId, form._autoSaveIsNew, { skipReload: true });
+      form._autoSaveIsNew = false; // subsequent auto-saves are updates, not first-create
+    }, 1200);
   };
-  const batches = intCollectBatches();
-  const dates   = intCollectDates();
-  const slots   = intCollectSlots(batches, dates);
-  const duties  = isNew ? [] : (INT_DATA[docId]?.duties||[]);
-  meta.dates = dates; // persist dates explicitly — slots[] is empty until subjects are chosen
-  // Save batch overrides so per-slot batch changes survive reload
-  const batch_overrides = window.INT_SLOT_BATCH_OVERRIDE ? Object.assign({}, window.INT_SLOT_BATCH_OVERRIDE) : {};
+  form.addEventListener('input', trigger);
+  form.addEventListener('change', trigger);
+}
+
+async function intSave(docId, isNew, opts) {
+  const skipReload = !!(opts && opts.skipReload);
+  const msg = document.getElementById('int-save-msg');
+  let meta, batches, dates, slots, duties, batch_overrides;
+  try {
+    meta = {
+      title:        document.getElementById('ie-title')?.value?.trim()||'',
+      venue:        document.getElementById('ie-venue')?.value?.trim()||'',
+      sem:          parseInt(document.getElementById('ie-sem')?.value)||2,
+      year:         parseInt(document.getElementById('ie-year')?.value)||new Date().getFullYear(),
+      n:            (INT_NEW_DRAFT && INT_NEW_DRAFT.id === docId && INT_NEW_DRAFT.data?.meta?.n)
+                      ? INT_NEW_DRAFT.data.meta.n // trust the number already assigned when this draft was created
+                      : (INT_LIST.length ? (isNew ? Math.max(...INT_LIST.map(x=>x.n||1))+1 : (INT_DATA[docId]?.meta?.n||1)) : 1),
+      instructions: [...(document.getElementById('ie-instructions')?.querySelectorAll('input') || [])].map(i=>i.value.trim()).filter(Boolean),
+      incharge_1:   document.getElementById('ie-incharge-1')?.value||'',
+      incharge_2:   document.getElementById('ie-incharge-2')?.value||'',
+      director:     'Harsharaj A Gujjar',
+      created:      new Date().toLocaleDateString('en-IN'),
+    };
+    batches = intCollectBatches();
+    dates   = intCollectDates();
+    slots   = intCollectSlots(batches, dates);
+    duties  = isNew ? [] : (INT_DATA[docId]?.duties||[]);
+    meta.dates = dates; // persist dates explicitly — slots[] is empty until subjects are chosen
+    // AY/sem-type stamp: keep an existing doc's original stamp on edit (an internal
+    // built for an older semester should stay tagged to that semester even if reopened
+    // and re-saved later); only new internals — or older docs that somehow have none —
+    // get stamped to whatever AY/sem is active right now.
+    meta.semKey = (!isNew && INT_DATA[docId]?.meta?.semKey) ? INT_DATA[docId].meta.semKey : intActiveSemKey();
+    // Save batch overrides so per-slot batch changes survive reload
+    batch_overrides = window.INT_SLOT_BATCH_OVERRIDE ? Object.assign({}, window.INT_SLOT_BATCH_OVERRIDE) : {};
+  } catch(readErr) {
+    // The form's DOM wasn't fully ready when this save fired (e.g. a rebuild was
+    // mid-flight) — THIS is what previously caused saves to silently vanish with
+    // no toast and no tick at all: an uncaught error here used to abort before
+    // the try/catch below even started. Now it's caught, reported, and retried
+    // shortly instead of failing invisibly.
+    console.warn('[intSave] form not ready, retrying shortly:', readErr.message);
+    if (msg) { msg.style.color = 'var(--warn)'; msg.textContent = '⏳ Retrying…'; }
+    setTimeout(() => intSave(docId, isNew, opts), 400);
+    return;
+  }
 
   try {
     if(msg){msg.style.color='var(--muted)';msg.textContent='Saving…';}
     await db.collection('internals').doc(docId).set({ meta, batches, slots, duties, batch_overrides });
     INT_DATA[docId] = { meta, batches, slots, duties, batch_overrides };
+    // Firestore write confirmed above (await resolved without throwing) — only now
+    // turn the tick(s) green. They STAY green (do not fade) until the form is
+    // edited again, at which point intAttachAutoSave's listener dims them back
+    // to "pending". Two ticks are updated: one inline in the form, and one in
+    // the always-visible top toolbar (next to the internal dropdown) so it's
+    // never hidden by scroll position — that top one is the primary indicator.
+    const tick = document.getElementById('int-autosave-tick');
+    if (tick) { tick.style.display = ''; tick.style.opacity = '1'; tick.title = 'Saved to Firebase'; }
+    const tickTop = document.getElementById('int-autosave-tick-top');
+    if (tickTop) { tickTop.style.display = 'inline-flex'; tickTop.style.opacity = '1'; tickTop.title = 'Saved to Firebase'; }
+    // Per-field / per-slot ticks (TITLE, VENUE, SEM, YEAR, INSTRUCTIONS, and each
+    // individual subject slot) ONLY light up on a MANUAL "Save to Firebase" click
+    // (skipReload===false) — auto-save only drives the single top-toolbar tick.
+    if (!skipReload) {
+      document.querySelectorAll('.ie-tick').forEach(t => { t.style.display = 'inline'; t.style.opacity = '1'; });
+      // Per-slot ticks: a subject's own tick only shows once at least one OTHER/
+      // different subject has ALSO been picked somewhere in the grid — a single
+      // isolated pick with nothing else allocated yet does not show a tick.
+      const filledSelects = [...document.querySelectorAll('.ie-slot-tick')]
+        .map(t => ({ t, sel: document.getElementById('slot_' + t.getAttribute('data-slot-key')) }))
+        .filter(x => x.sel && x.sel.value && x.sel.value !== '__custom__');
+      const distinctSubjects = new Set(filledSelects.map(x => x.sel.value));
+      document.querySelectorAll('.ie-slot-tick').forEach(t => {
+        const key = t.getAttribute('data-slot-key');
+        const sel = document.getElementById('slot_' + key);
+        const hasValue = sel && sel.value && sel.value !== '__custom__';
+        const otherSubjectExists = hasValue && distinctSubjects.size > 1;
+        t.style.display = otherSubjectExists ? 'inline' : 'none';
+        if (otherSubjectExists) t.style.opacity = '1';
+      });
+    }
     // Mirror to RTDB only if this is the current internal
     try {
       const intMeta = await fsGet('app_data','internals_meta');
@@ -45594,6 +46008,7 @@ async function intSave(docId, isNew) {
       if (rtdb) { try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, batch_overrides }); } catch(e) {} }
     }
     dvToast('✅ Internal saved successfully', 'ok');
+    if (msg) { msg.style.color = 'var(--ok)'; msg.textContent = '✅ Saved'; setTimeout(() => { if (msg.textContent === '✅ Saved') msg.textContent = ''; }, 3000); }
     // Auto-set new internal as current so View tab shows it immediately
     // (intLoadList only auto-detects by date range, which misses future dates)
     if (isNew) {
@@ -45605,6 +46020,16 @@ async function intSave(docId, isNew) {
       } catch(_e) {}
     }
     const savedDocId = docId; // capture before intLoadList changes INT_CURRENT
+    if (skipReload) {
+      // Auto-save path: Firestore write is confirmed, but do NOT re-fetch and
+      // rebuild the whole form here — that full reload cycle (intLoadList +
+      // intEditLoad) running after every single keystroke/selection was the
+      // actual cause of dates/slots intermittently vanishing (a save landing
+      // mid-reload, or a reload racing a save). Only the manual "Save to
+      // Firebase" button does the full reload-and-rebuild now; auto-save just
+      // confirms the write and leaves the form exactly as the admin has it.
+      return;
+    }
     await intLoadList();
     // Fix: pin the edit dropdown to the just-saved internal, then reload form
     // (intLoadList → intPopulateSelects may change INT_CURRENT to a date-matched
@@ -45664,7 +46089,7 @@ async function intDutyLoad() {
   if (!body) return;
 
   let data = INT_DATA[docId];
-  if (!data && docId !== 'int_default_1') {
+  if (!data) {
     const _dutyRole = currentProfile?.role || '';
     if (['admin','manager','vp','principal'].includes(_dutyRole)) {
       try {
@@ -46361,13 +46786,15 @@ function sitRenderGrid() {
 
   const datEl = document.getElementById('sit-dates');
   const dayEl = document.getElementById('sit-days');
-  if (datEl) datEl.value = roomData.dates || '';
-  if (dayEl) dayEl.value = roomData.days  || '';
 
-  // Auto-fill dates/days from INT_DATA timetable filtered by current session
+  // ── Live sync from Internals FIRST — always prefer the current internal's real
+  // dates/days over whatever was saved to SIT_DATA previously. The old logic only
+  // auto-filled when roomData.dates was completely empty, so once any date was ever
+  // saved (even from a stale/old internal), it silently never re-synced again — this
+  // is what showed 01/04/2026 etc from the original sample data forever after.
   const badge = document.getElementById('sit-source-badge');
-  let autoFilled = false;
-  if ((!roomData.dates || !roomData.days) && INT_LIST && INT_DATA) {
+  let liveDatesStr = '', liveDaysStr = '';
+  if (INT_LIST && INT_DATA) {
     const intNum = parseInt(SIT_INT) || 1;
     const intDoc = INT_LIST.find(x => (x.n || 1) === intNum);
     const docId  = intDoc?.id || INT_CURRENT;
@@ -46380,11 +46807,16 @@ function sitRenderGrid() {
       const sorted = Object.keys(dateMap).sort();
       if (sorted.length) {
         const fmtDate = d => { const p = d.split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : d; };
-        if (datEl && !datEl.value) { datEl.value = sorted.map(fmtDate).join(', '); autoFilled = true; }
-        if (dayEl && !dayEl.value) { dayEl.value = sorted.map(d => dateMap[d]).join('/'); autoFilled = true; }
+        liveDatesStr = sorted.map(fmtDate).join(', ');
+        liveDaysStr  = sorted.map(d => dateMap[d]).join('/');
       }
     }
   }
+  const autoFilled = !!(liveDatesStr && liveDaysStr);
+  // Live Internals data wins whenever it exists; only fall back to the previously
+  // saved room value if this internal genuinely has no dates set yet.
+  if (datEl) datEl.value = autoFilled ? liveDatesStr : (roomData.dates || '');
+  if (dayEl) dayEl.value = autoFilled ? liveDaysStr  : (roomData.days  || '');
   if (badge) badge.style.display = autoFilled ? 'inline-block' : 'none';
 
   // Build seat map: seatNo → urn
@@ -48474,6 +48906,9 @@ function calShowAddForm() {
   document.getElementById('cal-name').value = '';
   document.getElementById('cal-for').value  = '';
   document.getElementById('cal-type').value = 'holiday';
+  const numSel = document.getElementById('cal-internal-num');
+  if (numSel) numSel.value = '';
+  calToggleInternalNum();
 }
 
 function calEditEvent(id) {
@@ -48486,6 +48921,16 @@ function calEditEvent(id) {
   document.getElementById('cal-name').value = e.name;
   document.getElementById('cal-for').value  = e.for||'';
   document.getElementById('cal-type').value = e.type;
+  calToggleInternalNum();
+  const numSel = document.getElementById('cal-internal-num');
+  if (numSel) numSel.value = e.internalNumber || '';
+}
+
+// Show/hide the "Which Internal?" dropdown — only relevant when TYPE=exam.
+function calToggleInternalNum() {
+  const wrap = document.getElementById('cal-internal-num-wrap');
+  const type = document.getElementById('cal-type')?.value;
+  if (wrap) wrap.style.display = (type === 'exam') ? 'flex' : 'none';
 }
 
 async function calSaveEvent() {
@@ -48499,7 +48944,13 @@ async function calSaveEvent() {
 
   if (!from || !name) { dvAlert('Missing Fields', 'Date and name are required.', {icon:'📅'}); return; }
 
-  const evt = { id, from, to, type, name, for: forWho };
+  // internalNumber: clean structured tag (1/2/3/4), set via the "Which Internal?"
+  // dropdown when TYPE=exam — this is what Internals' date auto-match relies on
+  // now, so a typo in the free-text name can never break the match.
+  const internalNumSel = document.getElementById('cal-internal-num');
+  const internalNumber = (type === 'exam' && internalNumSel?.value) ? parseInt(internalNumSel.value, 10) : null;
+
+  const evt = { id, from, to, type, name, for: forWho, internalNumber };
   const idx = calEvents.findIndex(x => x.id === id);
   if (idx >= 0) calEvents[idx] = evt; else calEvents.push(evt);
   calEvents.sort((a,b) => a.from.localeCompare(b.from));
