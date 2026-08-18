@@ -17,7 +17,14 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v8.33 (2026-08-18) — DEBUG: pair and login rows now carry browserId (random id per
+VERSION : v8.34 (2026-08-18) — FEAT: Widget Pairing Health in Diagnostics. "It works on my phone
+          now" is not "it is fixed" — this counts both 17-18 Aug faults across EVERY student:
+          takeovers caused by a restored session (fixed in v8.32, so any dated after that deploy
+          means the fix is not holding) and pair codes appearing in more than one browser (a
+          six-character random code cannot reach two browsers by chance; it can only travel by a
+          shared link carrying ?wdev=). Says plainly when a count reads zero because the v8.33
+          fields are missing rather than because the fault is gone.
+          v8.33 (2026-08-18) — DEBUG: pair and login rows now carry browserId (random id per
           browser profile — settles "same browser or not", which user-agent strings cannot),
           codeFrom ('url' = arrived via ?wdev= on this load, 'stored' = already in localStorage)
           and session ('fresh' vs 'restored'). Two diagnoses were reconstructed from timestamps
@@ -4620,6 +4627,11 @@ body.dash-active .data-strip { display: block; }
     <input id="diag-note" type="text" placeholder="What are you seeing? (included in the copied report)"
       style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px;font-size:12px;margin-bottom:12px;">
     <div id="diag-body">Loading…</div>
+    <!-- v8.34: pairing health, across every student rather than this device -->
+    <div class="section-title" style="margin-top:22px;">WIDGET PAIRING HEALTH</div>
+    <div class="section-desc">Whether the pairing faults found on 17–18 Aug are still happening,
+      for anyone.</div>
+    <div id="diag-pairing">Loading…</div>
   </div>
 
   <!-- LESSON PLAN TAB -->
@@ -5421,7 +5433,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.33';
+const APP_VERSION = 'v8.34';
 const BUILD_DATE   = '17 Aug 2026, 12:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -9095,7 +9107,7 @@ function switchTab(name) {
   tabBarReveal(name);
   if (name === 'authacct')      aaAudit(false);
   if (name === 'datausage')     renderDataUsageTab();
-  if (name === 'diagnostics')   renderDiagnosticsTab();
+  if (name === 'diagnostics') { renderDiagnosticsTab(); renderPairingHealth(); }
   if (name === 'lessonplan')    { if (document.getElementById('lp-class-sel').value) loadLessonPlan(); }
   if (name === 'loginactivity') loadLoginActivity();
   if (name === 'socialmedia')   loadSocialClicks();
@@ -20539,6 +20551,120 @@ function diagBytes(b) {
   if (b >= 1048576) return (b / 1048576).toFixed(2) + ' MB';
   if (b >= 1024) return (b / 1024).toFixed(1) + ' KB';
   return b + ' B';
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   v8.34 · WIDGET PAIRING HEALTH
+
+   "It works on my phone now" is not the same as "it is fixed". Two faults
+   were found on 17–18 Aug and only one of them is understood:
+
+     A. Restored sessions re-paired the widget. Merely opening the page
+        re-claimed the widget for whoever last ticked Remember me in that
+        browser. Fixed in v8.32 by gating pairing on a deliberate login —
+        so any takeover still logged with session='restored' AFTER that
+        deploy means the fix did not hold.
+
+     B. One pair code appearing in more than one browser. A code is six
+        random characters; two browsers cannot arrive at the same one by
+        chance. It can only travel by a link carrying ?wdev=. NOT yet
+        confirmed — v8.33 added codeFrom so the next occurrence says
+        whether the code came from a link or was already stored.
+
+   This panel counts both across every student, from the logs themselves,
+   so the question "how are things for everyone else" has an answer that
+   is not a guess.
+   ══════════════════════════════════════════════════════════════════════ */
+async function renderPairingHealth() {
+  const box = document.getElementById('diag-pairing');
+  if (!box) return;
+  box.textContent = 'Reading pair logs…';
+  try {
+    const [pairsRaw, activeRaw] = await Promise.all([
+      rtdbGetQuery('davan_pub/student_widget_pair_log', 'orderBy="$key"&limitToLast=400').catch(() => null),
+      rtdbGet('davan_pub/student_widget_active').catch(() => null)
+    ]);
+    const rows = pairsRaw ? Object.values(pairsRaw) : [];
+    const active = activeRaw || {};
+
+    // A code held by more than one browser profile — fault B.
+    const browsersPerCode = {};
+    rows.forEach(r => {
+      if (!r.code || !r.browserId) return;
+      (browsersPerCode[r.code] = browsersPerCode[r.code] || new Set()).add(r.browserId);
+    });
+    const shared = Object.entries(browsersPerCode).filter(([, s]) => s.size > 1);
+
+    // Takeovers that a restored session caused — fault A.
+    const restoredTakeovers = rows.filter(r =>
+      r.session === 'restored' && !r.blocked && r.prevUrn && r.newUrn && r.prevUrn !== r.newUrn);
+
+    // Codes that arrived by link rather than from a widget tap.
+    const fromLink = rows.filter(r => r.codeFrom === 'url');
+
+    // Churn: codes that changed owner repeatedly.
+    const changesPerCode = {};
+    rows.forEach(r => {
+      if (r.blocked || !r.code || !r.prevUrn || !r.newUrn || r.prevUrn === r.newUrn) return;
+      changesPerCode[r.code] = (changesPerCode[r.code] || 0) + 1;
+    });
+    const churny = Object.entries(changesPerCode).filter(([, n]) => n >= 3)
+                        .sort((a, b) => b[1] - a[1]);
+
+    // How much of the sample predates v8.33 and so cannot answer anything.
+    const instrumented = rows.filter(r => r.browserId).length;
+
+    const card = (n, label, warn) =>
+      '<div style="flex:1;min-width:120px;background:var(--bg);border:1px solid var(--border);'
+      + 'border-radius:8px;padding:12px;">'
+      + '<div style="font-family:var(--mono);font-size:24px;color:' + (warn && n ? 'var(--danger)' : 'var(--ok)') + ';">' + n + '</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:2px;">' + label + '</div></div>';
+
+    let html = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">'
+      + card(Object.keys(active).length, 'widgets paired now', false)
+      + card(rows.length, 'pair events logged', false)
+      + card(restoredTakeovers.length, 'restored-session takeovers', true)
+      + card(shared.length, 'codes in 2+ browsers', true)
+      + card(fromLink.length, 'codes arriving by link', true)
+      + '</div>';
+
+    if (instrumented === 0) {
+      html += '<div style="background:var(--warn);color:#000;padding:9px 12px;border-radius:6px;font-size:12px;">'
+            + 'None of these events carry browserId yet, so the two counts above that depend on it '
+            + 'read zero because the data is missing, not because the fault is gone. They become '
+            + 'meaningful once v8.33 has been running for a while.</div>';
+    } else if (instrumented < rows.length) {
+      html += '<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">'
+            + instrumented + ' of ' + rows.length + ' events carry the v8.33 fields; older ones '
+            + 'cannot be judged.</div>';
+    }
+
+    if (shared.length) {
+      html += '<div style="margin-top:10px;font-size:12px;"><b>Codes seen in more than one browser</b> '
+            + '— a code cannot reach two browsers by chance:<ul style="margin:6px 0 0 18px;">'
+            + shared.map(([c, s]) => '<li><code>' + esc(c) + '</code> — ' + s.size + ' browsers</li>').join('')
+            + '</ul></div>';
+    }
+    if (restoredTakeovers.length) {
+      html += '<div style="margin-top:10px;font-size:12px;color:var(--danger);">'
+            + '<b>' + restoredTakeovers.length + ' takeover(s) from a restored session.</b> '
+            + 'If any are dated after the v8.32 deploy, that fix is not holding.</div>';
+    }
+    if (churny.length) {
+      html += '<div style="margin-top:10px;font-size:12px;"><b>Widgets changing hands repeatedly</b>'
+            + '<ul style="margin:6px 0 0 18px;">'
+            + churny.slice(0, 8).map(([c, n]) => '<li><code>' + esc(c) + '</code> — ' + n + ' changes</li>').join('')
+            + '</ul></div>';
+    }
+    if (!shared.length && !restoredTakeovers.length && !churny.length && instrumented) {
+      html += '<div style="margin-top:10px;font-size:12px;color:var(--ok);">'
+            + 'Nothing anomalous in the instrumented events.</div>';
+    }
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = '<span style="color:var(--danger);">Could not read the pair logs: ' + esc(e.message) + '</span>';
+  }
 }
 
 function renderDiagnosticsTab() {
