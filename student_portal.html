@@ -17,7 +17,19 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v8.34 (2026-08-18) — FEAT: Widget Pairing Health in Diagnostics. "It works on my phone
+VERSION : v8.35 (2026-08-18) — NOTE: manifest-student_portal.json now points at icon-192.png /
+          icon-512.png (the real sized icons index.html already uses) rather than
+          davan_degree.png, which Chrome would likely have rejected as not installable.
+          PERF: computeStudentRanks() read davan_pub/results (1.54 MB)
+          fresh on every call — 7 reads and 10.8 MB in one measured 19-minute session, 60% of
+          everything downloaded. The report card already caches that exact node in localStorage
+          via rcCachedGet with a TTL and background refresh; this path ignored it. Now shares
+          that cache. Ranking does need whole-cohort data, so the real fix is for the sync to
+          precompute ranks into results_by_urn/<URN> — noted, not done.
+          FIX: Widget Pairing Health threw "esc is not defined" and rendered
+          nothing. esc() is scoped inside the login-activity renderer, not global; this panel
+          lives elsewhere. Uses its own escaper now.
+          v8.34 (2026-08-18) — FEAT: Widget Pairing Health in Diagnostics. "It works on my phone
           now" is not "it is fixed" — this counts both 17-18 Aug faults across EVERY student:
           takeovers caused by a restored session (fixed in v8.32, so any dated after that deploy
           means the fix is not holding) and pair codes appearing in more than one browser (a
@@ -5433,7 +5445,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.34';
+const APP_VERSION = 'v8.35';
 const BUILD_DATE   = '17 Aug 2026, 12:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -14116,7 +14128,31 @@ async function computeStudentRanks(urn, course, semStr) {
     return STATE._rankCache[urn];
   }
   try {
-    const pub = await rtdbGet('davan_pub/results').catch(() => null);
+    /* ══════════════════════════════════════════════════════════════════
+       v8.35 · 60% OF A MEASURED SESSION CAME FROM THIS ONE LINE
+
+       Ranking genuinely needs the whole cohort — you cannot compute a rank
+       from one student's row — so davan_pub/results (1.54 MB) has to be
+       read. What it did NOT have to do was read it FRESH every time.
+
+       A 19-minute session showed 7 reads of this node: 10.8 MB, 60% of
+       everything downloaded. The report card already caches the identical
+       node in localStorage via rcCachedGet, with an admin-configurable TTL
+       and background refresh. This call ignored that cache and went to the
+       network, so opening a report card paid for the same 1.54 MB twice —
+       once cached, once not.
+
+       Using the same cache collapses those 7 reads to roughly 1. Results
+       change when marks are published, not minute to minute, so the TTL
+       that is already trusted for the report card is equally right here.
+
+       The lasting fix is for sync_db1_to_db2.py to precompute ranks into
+       results_by_urn/<URN>, and then no client needs cohort data at all.
+       That is a bigger change; this one is a line and costs nothing.
+       ══════════════════════════════════════════════════════════════════ */
+    const pub = (typeof rcCachedGet === 'function')
+      ? await rcCachedGet('results', 'davan_pub/results', () => {}).catch(() => null)
+      : await rtdbGet('davan_pub/results').catch(() => null);
     if (!pub) return { college:0, cls:0, nu:0, di:0 };
 
     // Find the right doc: flat doc whose course+sem matches OR nested slot
@@ -20577,6 +20613,11 @@ function diagBytes(b) {
    is not a guess.
    ══════════════════════════════════════════════════════════════════════ */
 async function renderPairingHealth() {
+  /* v8.35: esc() is scoped to the login-activity renderer, not global — this
+     function is not inside it, so calling esc() threw and the whole panel
+     rendered nothing. Local escaper, no dependency on where it is called from. */
+  const pesc = s => String(s == null ? '' : s)
+    .replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const box = document.getElementById('diag-pairing');
   if (!box) return;
   box.textContent = 'Reading pair logs…';
@@ -20643,7 +20684,7 @@ async function renderPairingHealth() {
     if (shared.length) {
       html += '<div style="margin-top:10px;font-size:12px;"><b>Codes seen in more than one browser</b> '
             + '— a code cannot reach two browsers by chance:<ul style="margin:6px 0 0 18px;">'
-            + shared.map(([c, s]) => '<li><code>' + esc(c) + '</code> — ' + s.size + ' browsers</li>').join('')
+            + shared.map(([c, s]) => '<li><code>' + pesc(c) + '</code> — ' + s.size + ' browsers</li>').join('')
             + '</ul></div>';
     }
     if (restoredTakeovers.length) {
@@ -20654,7 +20695,7 @@ async function renderPairingHealth() {
     if (churny.length) {
       html += '<div style="margin-top:10px;font-size:12px;"><b>Widgets changing hands repeatedly</b>'
             + '<ul style="margin:6px 0 0 18px;">'
-            + churny.slice(0, 8).map(([c, n]) => '<li><code>' + esc(c) + '</code> — ' + n + ' changes</li>').join('')
+            + churny.slice(0, 8).map(([c, n]) => '<li><code>' + pesc(c) + '</code> — ' + n + ' changes</li>').join('')
             + '</ul></div>';
     }
     if (!shared.length && !restoredTakeovers.length && !churny.length && instrumented) {
@@ -20663,7 +20704,7 @@ async function renderPairingHealth() {
     }
     box.innerHTML = html;
   } catch (e) {
-    box.innerHTML = '<span style="color:var(--danger);">Could not read the pair logs: ' + esc(e.message) + '</span>';
+    box.innerHTML = '<span style="color:var(--danger);">Could not read the pair logs: ' + pesc(e.message) + '</span>';
   }
 }
 
