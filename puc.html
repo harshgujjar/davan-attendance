@@ -9145,6 +9145,98 @@ function spScrapeNotify(phase, trigger, info = {}) {
 // =====================
 // AUTH
 // =====================
+
+// ---- Admin role cache -------------------------------------------------
+// A verified admin profile is cached per Firebase-Auth UID in localStorage.
+// Once THIS device has verified a UID as admin, later app loads/logins for
+// that same UID no longer block the UI on a Firestore/RTDB round trip —
+// that round trip still runs, but in the background, after the user is
+// already in. It can only ever sign the user back out on a DEFINITIVE
+// answer from Firebase (denied / no such profile). A timeout is never
+// treated as evidence of anything and can never force a sign-out — that
+// distinction is the actual fix; the old code could only wait longer, it
+// could never tell "blocked" apart from "not admin".
+const PUC_ROLE_CACHE_KEY = 'puc_role_cache_v1';
+function pucReadRoleCache(uid) {
+  try { return (JSON.parse(localStorage.getItem(PUC_ROLE_CACHE_KEY) || '{}'))[uid] || null; }
+  catch(e) { return null; }
+}
+function pucWriteRoleCache(uid, profile) {
+  try {
+    const all = JSON.parse(localStorage.getItem(PUC_ROLE_CACHE_KEY) || '{}');
+    all[uid] = { profile, ts: Date.now() };
+    localStorage.setItem(PUC_ROLE_CACHE_KEY, JSON.stringify(all));
+  } catch(e) {}
+}
+function pucClearRoleCache(uid) {
+  try {
+    const all = JSON.parse(localStorage.getItem(PUC_ROLE_CACHE_KEY) || '{}');
+    delete all[uid];
+    localStorage.setItem(PUC_ROLE_CACHE_KEY, JSON.stringify(all));
+  } catch(e) {}
+}
+
+// ---- Profile fetch ------------------------------------------------------
+// RTDB and Firestore are read IN PARALLEL, and whichever answers with real
+// data first wins — the old code read RTDB to completion, THEN Firestore to
+// completion, THEN slept 1.2s and did the whole thing again (up to ~29s
+// before giving up). This version is bounded by a single 8s timeout total.
+// Each leg resolves to one of:
+//   {status:'ok', profile}  — a profile document was found
+//   {status:'denied'}       — Firebase rules explicitly rejected the read
+//                              (definitive: this uid has no access)
+//   {status:'notfound'}     — the store was reached, no doc for this uid
+//   {status:'network'}      — unreachable / timed out (NOT definitive)
+function _pucReadOne(promise) {
+  return promise
+    .then(data => ({ status: data ? 'ok' : 'notfound', profile: data || null }))
+    .catch(err => {
+      const code = String((err && err.code) || '').toUpperCase();
+      if (code === 'PERMISSION_DENIED' || code === 'PERMISSION-DENIED') return { status: 'denied' };
+      return { status: 'network' };
+    });
+}
+// Resolves as soon as ANY leg comes back 'ok'; otherwise waits for all legs
+// and folds their statuses into one definitive/non-definitive verdict.
+function _pucFirstOk(legs) {
+  return new Promise((resolve) => {
+    let pending = legs.length, sawDenied = false, sawNotfound = 0;
+    legs.forEach(p => p.then(r => {
+      if (r.status === 'ok') { resolve(r); return; }
+      if (r.status === 'denied') sawDenied = true;
+      if (r.status === 'notfound') sawNotfound++;
+      if (--pending === 0) {
+        if (sawDenied) resolve({ status: 'denied' });
+        else if (sawNotfound === legs.length) resolve({ status: 'notfound' });
+        else resolve({ status: 'network' });
+      }
+    }));
+  });
+}
+function _pucFetchProfile(uid) {
+  const rtdbLeg = _pucReadOne(rtdb.ref('davan_profiles/' + uid).once('value').then(s => s.val()));
+  const fsLeg   = _pucReadOne(db.collection('users').doc(uid).get().then(d => d.exists ? d.data() : null));
+  const timeoutLeg = new Promise(res => setTimeout(() => res({ status: 'network' }), 8000));
+  return Promise.race([ _pucFirstOk([rtdbLeg, fsLeg]), timeoutLeg ]);
+}
+// Shared verdict handler used by both the initial auth listener and the
+// manual Retry button, so the two can't drift out of sync again.
+async function _pucApplyVerifyResult(user, r) {
+  if (r.status === 'ok' && r.profile && r.profile.role === 'admin') {
+    pucWriteRoleCache(user.uid, r.profile);
+    onPucLoginSuccess(user, r.profile);
+    return true;
+  }
+  if (r.status === 'ok' || r.status === 'denied' || r.status === 'notfound') {
+    // Definitive: Firebase was reached and this account is not an admin.
+    pucClearRoleCache(user.uid);
+    await auth.signOut().catch(() => {});
+    showLoginOverlay('⚠ Admin access only.');
+    return true;
+  }
+  return false; // r.status === 'network' — caller decides how to handle this
+}
+
 auth.onAuthStateChanged(async (user) => {
   if (user) {
     // Faculty accounts (created for Remedial Attendance / Faculty Dashboard)
@@ -9155,57 +9247,28 @@ auth.onAuthStateChanged(async (user) => {
     if (user.email && user.email.endsWith('@puc-remedial.davan.local')) {
       return; // pucFacultyLogin()/pucRestoreFacultySession() already handle their own UI setup
     }
-    document.getElementById('login-status-msg').textContent = 'Verifying role…';
-    let profile = null;
-    // Hard timeout — if a network-level block (ad-blocker, firewall, etc.)
-    // silently hangs the Firestore/RTDB request instead of cleanly failing,
-    // this stops "Verifying role..." from getting stuck forever with no
-    // way out except a full page reload.
-    // Bumped 8s → 14s: on mobile, this listener commonly fires right on app
-    // cold-start, before the OS/Firebase SDK has finished re-establishing
-    // the network connection (5G↔WiFi handoff, brief signal drop, etc).
-    // 8s was tripping the "ad-blocker" warning on connections that were
-    // simply still warming up, not actually blocked.
-    const withTimeout = (p, ms) => Promise.race([
-      p,
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))
-    ]);
-    const _pucTryReadProfile = async () => {
-      let prof = null;
-      try {
-        const snap = await withTimeout(rtdb.ref('davan_profiles/' + user.uid).once('value'), 14000);
-        prof = snap.val();
-      } catch(e) {}
-      if (!prof) {
-        try {
-          const doc = await withTimeout(db.collection('users').doc(user.uid).get(), 14000);
-          if (doc.exists) prof = doc.data();
-        } catch(e) {}
-      }
-      return prof;
-    };
-    profile = await _pucTryReadProfile();
-    // Silent one-time retry before showing the user-facing warning — absorbs
-    // the common case of a transient first-attempt blip on app cold-start
-    // that clears up half a second later on its own.
-    if (!profile) {
-      await new Promise(r => setTimeout(r, 1200));
-      profile = await _pucTryReadProfile();
+
+    // Optimistic path: this uid was verified admin on this device before.
+    // Let them straight in and confirm quietly in the background — a slow
+    // or blocked connection can no longer hold a returning admin hostage on
+    // "Verifying role...". Only a definitive Firebase answer can undo this.
+    const cached = pucReadRoleCache(user.uid);
+    if (cached && cached.profile && cached.profile.role === 'admin') {
+      onPucLoginSuccess(user, cached.profile);
+      _pucFetchProfile(user.uid).then(r => _pucApplyVerifyResult(user, r));
+      return;
     }
-    if (profile && profile.role === 'admin') {
-      onPucLoginSuccess(user, profile);
-    } else if (profile) {
-      // Definitive answer: this account exists but is not an admin. Signing out
-      // is correct here.
-      await auth.signOut().catch(() => {});
-      showLoginOverlay('⚠ Admin access only.');
-    } else {
-      // FIX: we could NOT read the profile (timeout / ad-blocker / offline).
-      // That is NOT proof the user lacks access — signing out here destroyed a
-      // perfectly valid session (and, when the session was shared, index.html's
-      // too, which is what kicked off the re-login loop). Keep the session and
-      // offer a retry instead.
-      showLoginOverlay('⚠ Could not verify — check your connection (an ad-blocker may be blocking Firebase). Your session is still active; press Retry.');
+
+    // No local trust yet for this uid on this device — a real verification
+    // is required before showing anything.
+    document.getElementById('login-status-msg').textContent = 'Verifying role…';
+    const r = await _pucFetchProfile(user.uid);
+    const handled = await _pucApplyVerifyResult(user, r);
+    if (!handled) {
+      // r.status === 'network' — could not reach either backend. NOT proof
+      // the user lacks access; signing out here would destroy a perfectly
+      // valid session. Keep it and offer a retry instead.
+      showLoginOverlay('⚠ Could not verify — check your connection. Your session is still active; press Retry.');
       try {
         const box = document.getElementById('login-status-msg');
         if (box) {
@@ -9236,32 +9299,22 @@ auth.onAuthStateChanged(async (user) => {
 });
 let _pucHardcodedAutoLoginAttempted = false;
 
-// FIX: re-run the admin role check for the already-signed-in user, used by the
-// Retry button shown when the profile lookup timed out.
+// Re-run the admin role check for the already-signed-in user, used by the
+// Retry button shown when the profile lookup couldn't reach Firebase.
+// Shares _pucFetchProfile / _pucApplyVerifyResult with the main auth
+// listener so success/denied/notfound are handled identically everywhere.
 async function pucRetryVerify() {
   const u = auth.currentUser;
   const msg = document.getElementById('login-status-msg');
   if (!u) { showLoginOverlay('⚠ Session ended — please sign in again.'); return; }
   if (msg) msg.textContent = 'Verifying role…';
-  const withTimeout = (p, ms) => Promise.race([
-    p, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))
-  ]);
-  let profile = null;
-  try {
-    const snap = await withTimeout(rtdb.ref('davan_profiles/' + u.uid).once('value'), 8000);
-    profile = snap.val();
-  } catch(e) {}
-  if (!profile) {
-    try {
-      const doc = await withTimeout(db.collection('users').doc(u.uid).get(), 8000);
-      if (doc.exists) profile = doc.data();
-    } catch(e) {}
+  const r = await _pucFetchProfile(u.uid);
+  const handled = await _pucApplyVerifyResult(u, r);
+  if (!handled && msg) {
+    msg.innerHTML = '<span style="color:var(--danger);">Still cannot reach Firebase.</span> '
+      + '<button onclick="pucRetryVerify()" style="background:var(--accent);color:#000;border:none;border-radius:8px;'
+      + 'padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--mono);margin-left:6px;">↻ Retry</button>';
   }
-  if (profile && profile.role === 'admin') { onPucLoginSuccess(u, profile); return; }
-  if (profile) { await auth.signOut().catch(()=>{}); showLoginOverlay('⚠ Admin access only.'); return; }
-  if (msg) msg.innerHTML = '<span style="color:var(--danger);">Still cannot reach Firebase.</span> '
-    + '<button onclick="pucRetryVerify()" style="background:var(--accent);color:#000;border:none;border-radius:8px;'
-    + 'padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--mono);margin-left:6px;">↻ Retry</button>';
 }
 
 // Show/hide the typed admin password.
