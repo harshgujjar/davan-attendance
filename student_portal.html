@@ -17,7 +17,24 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v8.31 (2026-08-17) — FEAT: real PWA install. There was NO manifest before this, so
+VERSION : v8.33 (2026-08-18) — DEBUG: pair and login rows now carry browserId (random id per
+          browser profile — settles "same browser or not", which user-agent strings cannot),
+          codeFrom ('url' = arrived via ?wdev= on this load, 'stored' = already in localStorage)
+          and session ('fresh' vs 'restored'). Two diagnoses were reconstructed from timestamps
+          and UA strings and both were wrong; these three facts cannot be inferred after the
+          event, so the next occurrence explains itself.
+          v8.32 (2026-08-18) — FIX: the widget kept reverting to a student the phone's owner
+          had never signed in as. Root cause: stuCompleteWidgetPairing() ran on every
+          goToDashboard(), and goToDashboard() is reached BOTH by a real sign-in AND by the
+          silent 'stu_remember' session restore at page load. So merely opening the page
+          re-claimed the widget for whoever last ticked Remember me in that browser — no typing,
+          nothing on screen, indistinguishable from the app acting on its own. Pairing is now
+          gated on STATE._freshLogin, set only by the login handler. Restored sessions still
+          open the dashboard; they no longer change widget ownership. Also renamed the
+          'auto-takeover' log label to 'login-takeover' — 'auto' meant "via the automatic
+          pairing path, not manual code entry", but it read as "happened by itself", which
+          actively misled the diagnosis.
+          v8.31 (2026-08-17) — FEAT: real PWA install. There was NO manifest before this, so
           "Add to home screen" made a shortcut that still reported Mode: browser, and installing
           this app in Chrome displaced another Davan app — with no manifest Chrome identifies an
           app by ORIGIN, and every Davan app shares harshgujjar.github.io. Added
@@ -5404,7 +5421,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.31';
+const APP_VERSION = 'v8.33';
 const BUILD_DATE   = '17 Aug 2026, 12:10 AM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -5468,6 +5485,10 @@ async function stuPublishLatestWidgetApk() {
     const wdev = (q.get('wdev') || '').trim().toUpperCase();
     if (wdev && /^[A-Z0-9]{4,12}$/.test(wdev)) {
       localStorage.setItem('davan_student_widget_pair_code', wdev);
+      /* v8.33: remember that this code arrived by URL on THIS load. A code
+         arriving this way in a browser that never tapped a widget means the
+         link was shared with the code still on it. */
+      try { window.__pairCodeFrom = 'url'; } catch (e) {}
       q.delete('wdev');
       history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q.toString() : '') + location.hash);
       console.log('[StudentWidgetPair] Captured pair code ' + wdev + ' — will complete pairing after login.');
@@ -5508,12 +5529,56 @@ async function stuPublishLatestWidgetApk() {
    Both paths write to davan_pub/student_widget_pair_log so the next time a
    widget changes hands there is a record of exactly which login did it,
    from which browser, instead of reconstructing it from screenshots. */
+/* ══════════════════════════════════════════════════════════════════════
+   v8.33 · ENOUGH DETAIL TO STOP GUESSING
+
+   Two rounds of diagnosis went wrong because the logs recorded WHAT
+   happened but not HOW the browser got into that state. Reconstructing it
+   from user-agent strings and timestamps produced two confident theories
+   that were both wrong.
+
+   Three facts close that gap, and none of them can be inferred after the
+   fact:
+
+     browserId  — a random id minted once per browser profile. Two rows
+                  sharing it are the same browser; two rows differing are
+                  not, no matter how similar the user agents look. This is
+                  the fact that settles "was this my phone or theirs".
+
+     codeFrom   — where the pair code came from THIS page load:
+                    'url'     captured from ?wdev= just now (widget tap, or
+                              a link someone shared carrying the code)
+                    'stored'  already in localStorage from a previous visit
+                  A code arriving by 'url' on a browser that never tapped a
+                  widget is proof a link was shared.
+
+     session    — 'fresh' (typed credentials) or 'restored' (stu_remember
+                  or stu_session reinstated it at page load).
+
+   browserId is random and tied to nothing about the person — it identifies
+   a browser profile, not a student, and is only meaningful next to these
+   logs.
+   ══════════════════════════════════════════════════════════════════════ */
+function stuBrowserId() {
+  try {
+    let id = localStorage.getItem('davan_browser_id');
+    if (!id) {
+      id = 'b' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+      localStorage.setItem('davan_browser_id', id);
+    }
+    return id;
+  } catch (e) { return 'no-storage'; }   // private mode, or storage blocked
+}
+
 async function stuLogPairEvent(code, prevUrn, newUrn, via, blocked) {
   try {
     await rtdbPush('davan_pub/student_widget_pair_log', {
       code: code || '', prevUrn: prevUrn || '', newUrn: newUrn || '',
       via: via || '', blocked: !!blocked, at: Date.now(),
-      ua: (navigator.userAgent || '').slice(0, 120)
+      ua: (navigator.userAgent || '').slice(0, 120),
+      browserId: stuBrowserId(),
+      codeFrom: STATE._pairCodeFrom || 'stored',
+      session:  STATE._freshLogin ? 'fresh' : 'restored'
     });
   } catch (e) { /* logging must never break pairing */ }
 }
@@ -5528,7 +5593,10 @@ async function stuLogLoginEvent(urn, name, outcome) {
       urn: urn || '', name: name || '', outcome: outcome || '',
       pairCode: localStorage.getItem('davan_student_widget_pair_code') || '',
       at: Date.now(), ua: (navigator.userAgent || '').slice(0, 120),
-      mode: usageDetectMode()   // v8.15: PWA vs browser, indistinguishable from UA alone
+      mode: usageDetectMode(),  // v8.15: PWA vs browser, indistinguishable from UA alone
+      browserId: stuBrowserId(),           // v8.33
+      codeFrom: STATE._pairCodeFrom || 'stored',
+      session:  STATE._freshLogin ? 'fresh' : 'restored'
     });
   } catch (e) {}
 }
@@ -5581,7 +5649,7 @@ async function stuCompleteWidgetPairing() {
     }
     if (owner && owner !== me) {
       console.log('[StudentWidgetPair] TAKEOVER: ' + pairCode + ' moving from ' + owner + ' to ' + me);
-      stuLogPairEvent(pairCode, owner, me, 'auto-takeover', false);
+      stuLogPairEvent(pairCode, owner, me, 'login-takeover', false);
       STATE._widgetTookFrom = owner;
     }
 
@@ -6328,6 +6396,7 @@ async function loginStudent() {
     }).catch(()=>{});
     sessionStorage.setItem('stu_lastHeartbeat_' + data.urn, String(Date.now()));
     stuStartHeartbeat(STATE.studentUser);
+    STATE._freshLogin = true;   // v8.32: only a real sign-in may re-pair the widget
     goToDashboard();
   } catch(err) {
     console.error('Login error:', err);
@@ -6986,7 +7055,31 @@ async function goToDashboard() {
   // visit) — THIS is the actual write that makes the widget flip from
   // "Not paired" to showing real data. Best-effort, never blocks
   // dashboard load.
-  stuCompleteWidgetPairing();
+  /* ══════════════════════════════════════════════════════════════════
+     v8.32 · PAIRING ONLY ON A DELIBERATE LOGIN
+
+     This call used to run on EVERY goToDashboard(), and goToDashboard() is
+     reached two ways: a real sign-in, and a silent session restore from
+     localStorage 'stu_remember'. The restore path meant that simply OPENING
+     the page re-claimed the widget for whoever last ticked "Remember me" in
+     that browser — no typing, no sign-in, nothing on screen.
+
+     That is why the widget kept reverting to a student the phone's owner had
+     never signed in as: their remembered session restored on every page open
+     and took the widget back, over and over, looking exactly like the app
+     doing it by itself.
+
+     Pairing is now gated on STATE._freshLogin, set only by the login handler.
+     A restored session still shows the dashboard; it just no longer changes
+     who owns the widget. Changing the widget should require a person to
+     decide to, and a restore is not a decision.
+     ══════════════════════════════════════════════════════════════════ */
+  STATE._pairCodeFrom = (typeof window !== 'undefined' && window.__pairCodeFrom) || 'stored';
+  if (STATE._freshLogin) {
+    stuCompleteWidgetPairing();
+  } else {
+    console.log('[StudentWidgetPair] restored session — widget ownership left unchanged');
+  }
   usageFlush(STATE.studentUser, { sessions: 1 });   // v8.11
   usageStartAutoFlush();                            // v8.12
   // v8.08: record the login itself, with this browser's remembered pair
@@ -7591,6 +7684,7 @@ function stuStopHeartbeat() {
           if (chk) chk.checked = true;
         }
         stuStartHeartbeat(STATE.studentUser);
+        STATE._freshLogin = false;   // v8.32: restored, not signed in
         goToDashboard();
         return;
       }
@@ -19998,6 +20092,9 @@ async function renderMaintLogs() {
       <span style="color:${r.blocked ? 'var(--warn)' : 'var(--ok)'};">${r.blocked ? '🛡 refused' : '🔗 ' + esc(r.via)}</span>
       · <span style="color:var(--accent);">${esc(r.code)}</span>
       · ${fmt(r.at)} · ${brow(r.ua)}
+      ${r.browserId ? `· <span style="opacity:.6;font-size:10px;">${esc(r.browserId)}</span>` : ''}
+      ${r.session ? `· <span style="font-size:10px;color:${r.session === 'restored' ? 'var(--warn)' : 'var(--muted)'};">${esc(r.session)}</span>` : ''}
+      ${r.codeFrom === 'url' ? `· <span style="font-size:10px;color:var(--warn);">code from link</span>` : ''}
       <div style="margin-top:2px;">${r.prevUrn ? who(r.prevUrn) + ' <span style="opacity:.6;">→</span> ' : ''}${r.newUrn ? who(r.newUrn) : '<span style="opacity:.6;">(cleared)</span>'}</div>
     </div>`).join('');
 
