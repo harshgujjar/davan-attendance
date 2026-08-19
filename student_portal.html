@@ -17,7 +17,29 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
-VERSION : v8.37 (2026-08-18) — UX: Widget Control tab now defaults to the PAIRED filter on load
+VERSION : v8.38 (2026-08-19) — FEAT: one-time fleet-wide widget pair-code reset, paired with the
+          DavanStudentWidget w28 build. Every w28 widget clears and regenerates its own stored
+          code on its first run (device side, automatic, once per version). Diagnostics → Widget
+          Pairing Health now has a "Clear ALL widget pairings" button that deletes
+          davan_pub/student_widget_active in one shot (admin side, manual, use once students have
+          had time to update) so old orphaned codes don't linger after devices move to new ones.
+          FEAT: the widget's pair code is now visible on the student's own login screen ("Widget:
+          XXXXXX", from this browser's localStorage) — companion to the widget's own w28 change
+          that keeps the code visible on the widget face after pairing, not only before. Neither
+          the portal's pair log nor the widget's own code generation can explain WHY a specific
+          code reaches a specific device; both only record what already happened. Showing the code
+          live, everywhere, means the next occurrence is caught directly instead of reconstructed
+          afterward.
+          FIX: widgets were being silently taken over by students with no
+          connection to that device. There is no manual pairing screen, so a ?wdev= code arriving
+          via URL was treated as proof of possession (LAST LOGIN WINS, v8.29) — but GGV8VV's pair
+          log showed every 17-18 Aug takeover (Afifa → Nikhil → Ashoka → Nikhil → Ashoka → Deepika)
+          landing on ONE browser profile, all 'fresh' + 'code from link', none of them the device's
+          real owner. Takeover is now only allowed automatically when THIS browser has prior
+          (non-refused) history with THIS pair code — i.e. the same physical device changing
+          hands, which is legitimate. A browser with no history against a code is refused and
+          logged, unconditionally, same as widgetFirstOwnerWins used to require opting into.
+          v8.37 (2026-08-18) — UX: Widget Control tab now defaults to the PAIRED filter on load
           (was showing all live students including unpaired, which is the noisier view) — chip
           highlighting synced to match. Activity log's WIDGET PAGE LOCKS and Student logins
           sections are now collapsed by default with an explicit Show/Hide button (was an
@@ -3552,6 +3574,7 @@ body.dash-active .data-strip { display: block; }
               <div class="student-name" id="stu-name-disp">—</div>
               <div class="student-urn"  id="stu-urn-disp">—</div>
               <div id="stu-sem-label-disp" style="display:none;font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:3px;letter-spacing:0.5px;"></div>
+              <div id="stu-wdev-disp" style="display:none;font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:2px;letter-spacing:0.5px;"></div>
             </div>
             <span style="font-size:11px;color:var(--ok);font-family:var(--mono);">✓ Signed in</span>
           </div>
@@ -5486,7 +5509,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.37';
+const APP_VERSION = 'v8.38';
 const BUILD_DATE   = '18 Aug 2026, 11:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -5507,7 +5530,17 @@ const BUILD_DATE   = '18 Aug 2026, 11:30 PM IST'; // v6.90: update alongside APP
 // (com.davan.studentwidget, "Davan Student"), separate from the faculty
 // DavanWidget app — hence its own APK filename below. Upload the built
 // DavanStudentWidget.apk to that URL when publishing a new version.
-const LATEST_STUDENT_WIDGET_APK = { apkVersion: 27, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
+//
+// minApkVersion (added w28/v8.38) is a SEPARATE decision from apkVersion:
+// apkVersion is "here is the latest build" (always nags softly when behind);
+// minApkVersion is "anything below this MUST update before it may pair or
+// fetch at all" (blocks). They are almost always equal at release time —
+// keep them equal unless you deliberately want older builds to keep working
+// a while longer. Forced to 28 now: the w27 pairing bug (any fresh login
+// could silently steal another student's widget — see student_portal.html
+// v8.38 changelog) has no safe workaround on the widget side, so w27 and
+// earlier must stop functioning rather than keep nagging quietly.
+const LATEST_STUDENT_WIDGET_APK = { apkVersion: 28, minApkVersion: 28, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
 
 // Publishes LATEST_STUDENT_WIDGET_APK to DB2 so the student widget (v1+)
 // can read it directly and nag on the widget face when it's behind.
@@ -5517,6 +5550,12 @@ async function stuPublishLatestWidgetApk() {
   try {
     await rtdbSet('davan_pub/student_widget_latest', {
       apkVersion:    LATEST_STUDENT_WIDGET_APK.apkVersion,
+      // w28: anything strictly below this is force-blocked on the widget
+      // side (StudentPairing.fetchPairedIdentity / doWork short-circuit) —
+      // see W28_CHANGES.md. Defaults to apkVersion itself if omitted, so
+      // this field being missing on an old cached read never accidentally
+      // unblocks anyone.
+      minApkVersion: LATEST_STUDENT_WIDGET_APK.minApkVersion || LATEST_STUDENT_WIDGET_APK.apkVersion,
       apkUrl:        LATEST_STUDENT_WIDGET_APK.apkUrl,
       // Portal's own release number, published so the widget can display
       // it on its face alongside its own APK build — mirrors the faculty
@@ -5678,42 +5717,69 @@ async function stuCompleteWidgetPairing() {
     const owner = existing && existing.urn ? String(existing.urn).toUpperCase() : '';
 
     /* ══════════════════════════════════════════════════════════════════
-       v8.29 · WHO OWNS THIS DEVICE'S WIDGET
+       v8.38 · A LINK IS NOT A WIDGET IN YOUR HAND
 
-       Until now: whoever paired first kept it forever, and every later
-       login on that phone was refused SILENTLY. Six students logging in
-       on one device meant five silent refusals and a widget stuck on the
-       first — with nothing on screen to explain it, and refresh doing
-       nothing, because refresh re-reads the same unchanged node.
+       v8.29 through v8.33 assumed a ?wdev= code reaching a browser meant
+       someone had physically tapped that widget or typed its code — there
+       was never a manual pairing screen built, so "arrived via link" was
+       treated as proof of possession by default (LAST LOGIN WINS).
 
-       The old reasoning was that a remembered pair code is not proof you
-       hold the phone. But it very nearly is: the code only reaches
-       localStorage when the portal is opened FROM that widget, carrying
-       ?wdev=. A different device cannot have it without someone typing
-       it deliberately, and typing it is the manual path that was always
-       allowed anyway.
+       It is not proof. GGV8VV was traced through the pair log on 17-18
+       Aug and every single takeover — Afifa → Nikhil → Ashoka → Nikhil →
+       Ashoka → Deepika — arrived on ONE browser profile (b7fmxid48ymq0),
+       every one 'fresh' + 'code from link'. A link carrying ?wdev= had
+       reached students with no connection to that widget at all, and each
+       login silently reassigned someone else's widget to a stranger.
 
-       So the default is now LAST LOGIN ON THIS DEVICE WINS, which is what
-       a student expects: sign in on your phone, your widget shows you.
+       Since there is no manual re-pair path to fall back on, "last login
+       wins" cannot be the default for a stranger — but it still needs to
+       work automatically for the one case that is legitimate: the SAME
+       physical browser being handed to a new person (device reissued,
+       sold, or shared within a family). That case is distinguishable: this
+       browserId has pairing history with this code already.
 
-       The trade-off is real and worth stating: a student who borrows a
-       friend's phone to check attendance now takes that friend's widget
-       with them, and the friend finds out when their widget shows the
-       wrong name. That is why every takeover is logged with the previous
-       owner, and why the switch below exists — set
-       controls/global/widgetFirstOwnerWins = true in DB2 to restore the
-       old protect-the-first-owner behaviour without a rebuild.
+       New rule, fully automatic, no admin step, no manual entry:
+         - empty slot                                   → pair (unchanged)
+         - owner === me                                  → refresh (unchanged)
+         - owner !== me, THIS browserId has previously
+           paired or held this exact code                → allow takeover
+           (same device changing hands — legitimate)
+         - owner !== me, THIS browserId has no history
+           with this code                                → REFUSE, always
+           (a stranger's link, not a device changing hands)
+
+       widgetFirstOwnerWins still forces REFUSE unconditionally if anyone
+       wants the stricter old behaviour back without a rebuild.
        ══════════════════════════════════════════════════════════════════ */
     const firstOwnerWins = !!(STATE.controls && STATE.controls.global
                               && STATE.controls.global.widgetFirstOwnerWins);
-    if (owner && owner !== me && firstOwnerWins) {
-      console.warn('[StudentWidgetPair] REFUSED: ' + pairCode + ' belongs to ' + owner + ', not ' + me + '. Use manual code entry to re-pair.');
+
+    let allowTakeover = false;
+    if (owner && owner !== me && !firstOwnerWins) {
+      try {
+        const myBrowserId = stuBrowserId();
+        const priorRows = await rtdbGetQuery(
+          'davan_pub/student_widget_pair_log',
+          'orderBy="code"&equalTo="' + pairCode + '"'
+        );
+        const rows = priorRows ? Object.values(priorRows) : [];
+        // This browser is trusted for this code if it has EVER been logged
+        // against it before — as the device that paired it, or as a login
+        // that was itself allowed through (not a refusal).
+        allowTakeover = rows.some(r => r.browserId === myBrowserId && !r.blocked);
+      } catch (e) {
+        allowTakeover = false;   // can't prove history → don't guess, refuse
+      }
+    }
+
+    if (owner && owner !== me && (firstOwnerWins || !allowTakeover)) {
+      console.warn('[StudentWidgetPair] REFUSED: ' + pairCode + ' belongs to ' + owner + ', not ' + me + ' — this browser has no history with this widget.');
       stuLogPairEvent(pairCode, owner, me, 'auto', true);
       STATE._widgetRefusedOwner = owner;   // surfaced on the dashboard
       return;   // leave the real owner's widget alone
     }
     if (owner && owner !== me) {
-      console.log('[StudentWidgetPair] TAKEOVER: ' + pairCode + ' moving from ' + owner + ' to ' + me);
+      console.log('[StudentWidgetPair] TAKEOVER: ' + pairCode + ' moving from ' + owner + ' to ' + me + ' (same browser history)');
       stuLogPairEvent(pairCode, owner, me, 'login-takeover', false);
       STATE._widgetTookFrom = owner;
     }
@@ -6489,6 +6555,23 @@ function showStudentScreen(data) {
   document.getElementById('stu-avatar').textContent = initials;
   document.getElementById('stu-name-disp').textContent = data.name || 'Student';
   document.getElementById('stu-urn-disp').textContent  = (data.urn||'') + (data.class ? ' · ' + data.class : '');
+  /* w28/v8.38: show the widget code THIS browser is about to pair (or has
+     paired) right on the student's own login screen. Before this there was
+     no way to see, at the moment of login, which physical widget a session
+     was tied to — the only record was buried in the admin pair log after
+     the fact. If a student ever sees an unfamiliar code here, that alone
+     is the signal something is wrong, without needing to reconstruct it
+     from logs afterward. */
+  const _wdevEl = document.getElementById('stu-wdev-disp');
+  if (_wdevEl) {
+    const _wdevCode = localStorage.getItem('davan_student_widget_pair_code') || '';
+    if (_wdevCode) {
+      _wdevEl.textContent = 'Widget: ' + _wdevCode;
+      _wdevEl.style.display = 'block';
+    } else {
+      _wdevEl.style.display = 'none';
+    }
+  }
   // Show active sem label from session_config (future-ready)
   const _semCfg = STATE.semConfig;
   const _semLabelEl = document.getElementById('stu-sem-label-disp');
@@ -20779,9 +20862,38 @@ async function renderPairingHealth() {
       html += '<div style="margin-top:10px;font-size:12px;color:var(--ok);">'
             + 'Nothing anomalous in the instrumented events.</div>';
     }
+    /* w28/v8.38: companion to the widget's one-time reset (see
+       StudentPairing.resetPairCodeOnceForVersion in the w28 APK) — every
+       device generates a fresh code on its own the first time it runs w28,
+       but the OLD codes' identity nodes are left behind here in RTDB,
+       orphaned. This clears them in one shot, once, after the reset has
+       had time to reach students, so the fleet starts clean on both ends.
+       Deliberately manual — a fleet-wide reset should be a decision, not
+       something that fires automatically off a version check the way the
+       device-side reset does. */
+    html += '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">'
+          + '<button class="btn btn-danger" style="font-size:12px;padding:7px 14px;" '
+          + 'onclick="stuAdminResetAllWidgetPairings()">Clear ALL widget pairings (' + Object.keys(active).length + ')</button>'
+          + '<div style="font-size:11px;color:var(--muted);margin-top:6px;">'
+          + 'Deletes davan_pub/student_widget_active entirely. Pairs with the w28 widget reset — '
+          + 'use once, after most students have updated, so both sides start clean together. '
+          + 'Every widget re-pairs on its next login with its new w28 code.</div></div>';
     box.innerHTML = html;
   } catch (e) {
     box.innerHTML = '<span style="color:var(--danger);">Could not read the pair logs: ' + pesc(e.message) + '</span>';
+  }
+}
+
+async function stuAdminResetAllWidgetPairings() {
+  if (!confirm('Clear ALL widget pairings? Every paired widget will show "Widget not paired" '
+    + 'until its owner next logs in through the portal. This cannot be undone.')) return;
+  try {
+    await rtdbDelete('davan_pub/student_widget_active');
+    stuLogPairEvent('*ALL*', '', '', 'admin-reset-all', false);
+    alert('Cleared. Every widget will show "Widget not paired" until its student next logs in.');
+    renderPairingHealth();
+  } catch (e) {
+    alert('Could not clear pairings: ' + (e && e.message || e));
   }
 }
 
