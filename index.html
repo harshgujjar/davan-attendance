@@ -84,14 +84,37 @@
      "✅ Working from: index_vXXX.html"
 
   ── SESSION HANDOFF (update on every build) ──────────────────────
-  Version    : v888
-  Date       : 06-Jun-2026 IST
-  Last change: Fix: Student avatars in list views were showing initials instead of photos because
-               rcPhotos is loaded async and may not be ready when render functions run. Fix:
-               _stuAvatar now always renders initials with data-stu-urn attr; new _stuAvatarInject()
-               awaits rcPhotosReady then swaps all pending spans to <img> tags in the DOM. Called
-               at end of renderStudents, renderAbsentees, renderShortage, shortage summary, cvRender,
-               ntRenderReport, and rcSearch dropdown.
+  Version    : v1132
+  Date       : 19-Aug-2026 IST
+  Last change: Faculty-side Internals — item 16 built. New "📊 Marks" tab added
+               to the Internals panel tab bar (int-tab-marks / int-pane-marks),
+               wired via intSwitchTab()/intMarksLoad(). Faculty now see 3 things
+               under one Internals area: Timetable (int-tab-view, pre-existing),
+               My Allocation (int-tab-duty = invigilation duty, pre-existing,
+               fetch-bug fixed below), and Marks (new) — ALL marks for their
+               allocated subjects/sections, aggregated across who entered them,
+               same scraped puc_marks-backed allStudents data that feeds admin
+               Marks Analysis (imaInit). intMarksLoad() reuses imGetMySubjects()
+               to scope to LM_ALLOCATIONS rows matching the logged-in faculty
+               (fw2/alias-resolved, same helper Internal Marks already uses),
+               groups by student class (already encodes section, e.g.
+               "Davan-BCA-Sem6-SecA"), then by subject, computing Int-1/Int-2
+               average + pass% per subject — mirrors imaInit's classSubMap
+               shape narrowed to one faculty's own allocation. Also fixed the
+               known intDutyLoad() bug: Firestore re-fetch when INT_DATA[docId]
+               was empty was gated to admin/manager/vp/principal only, so a
+               faculty session with nothing cached fell straight to "No data"
+               without ever reaching the already-correct faculty render branch
+               below it. Fetch is now attempted regardless of role (Firestore
+               security rules are the real access gate, not this JS check);
+               added an RTDB-mirror fallback (davan_pub/internals_current) for
+               int_pub_1 specifically in case the Firestore read is denied.
+               NOT YET DONE (deferred, unrelated to this build): "My Exam
+               Slots" (which subject-slots a faculty personally teaches/is
+               examined on) — still needs the faculty-resolution design
+               decision (live LM_ALLOCATIONS lookup vs. persisting `faculty`
+               onto each saved slot) before it can be added as a 4th block
+               inside My Allocation. CODE_BUILD=1132.
 
   ── INTERNALS SYSTEM STATE ───────────────────────────────────────
   Firestore            : internals collection. Every doc now stamped with
@@ -5860,6 +5883,7 @@
         <button class="int-tab"        id="int-tab-download" onclick="intSwitchTab('download')" style="padding:9px 18px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text);font-family:var(--mono);font-size:11px;letter-spacing:1px;cursor:pointer;text-transform:uppercase;">⬇️ Download</button>
         <button class="int-tab" id="int-tab-sitting" onclick="intSwitchTab('sitting')" style="padding:9px 18px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text);font-family:var(--mono);font-size:11px;letter-spacing:1px;cursor:pointer;text-transform:uppercase;">🪑 Sitting</button>
         <button class="int-tab" id="int-tab-attend" onclick="intSwitchTab('attend')" style="padding:9px 18px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text);font-family:var(--mono);font-size:11px;letter-spacing:1px;cursor:pointer;text-transform:uppercase;">📝 Attendance</button>
+        <button class="int-tab" id="int-tab-marks" onclick="intSwitchTab('marks')" style="padding:9px 18px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text);font-family:var(--mono);font-size:11px;letter-spacing:1px;cursor:pointer;text-transform:uppercase;">📊 Marks</button>
       </div>
 
       <!-- ── VIEW TAB ── -->
@@ -5949,6 +5973,7 @@
             📂 Import Excel
             <input type="file" id="sit-import-file" accept=".xlsx" multiple style="display:none;" onchange="sitImportExcel(this)">
           </label>
+          <button onclick="sitAutoFillFromCurrentAY()" title="Clear all seats and re-fill from the current AY's real student roster (using this Internal's batches)" style="padding:7px 16px;background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">🔄 Auto-Fill (This AY)</button>
           <button onclick="sitSaveRoom()" style="padding:7px 16px;background:var(--accent);color:#000;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">💾 Save Room</button>
           <button onclick="sitSaveAll()" style="padding:7px 16px;background:#22c55e;color:#000;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">💾 Save All Rooms</button>
           <button onclick="sitPublishNoticeboard()" style="padding:7px 16px;background:#6366f1;color:#fff;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">📌 Publish Notice</button>
@@ -6016,6 +6041,13 @@
         </div>
         <!-- Preview -->
         <div id="att-preview" style="overflow-x:auto;"></div>
+      </div>
+
+      <!-- ── MARKS TAB (faculty: all marks for their allocated subjects/sections, aggregated) ── -->
+      <div id="int-pane-marks" style="display:none;">
+        <div id="int-marks-body">
+          <div style="padding:40px;text-align:center;color:var(--muted);font-family:var(--mono);">Loading marks…</div>
+        </div>
       </div>
 
     </div>
@@ -14133,8 +14165,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1131;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '19-Aug-2026', time: '18:00', full: '19-Aug-2026 18:00 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1136;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '19-Aug-2026', time: '20:00', full: '19-Aug-2026 20:00 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -24441,6 +24473,11 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1133', date: '19-Aug-2026 IST', note: 'Follow-up to v1132 after a live report that Auto-Fill still showed old URNs (U13DI23... prefixes) that the admin identified as passed-out students. INVESTIGATED: allStudents is confirmed a single, non-versioned snapshot -- v1077 already documented this -- replaced wholesale on each scrape, never a mix of academic years, so there is no separate AY tag to filter on; the array already IS the current scrape by construction. sitAutoFillFromCurrentAY was already reading only from allStudents with no historical mixing possible at the data-structure level, so this is very likely an upstream data issue (the college portal / davandvg.com scrape itself still listing certain URNs as active) rather than a bug in this button -- flagged rather than silently worked around, since guessing a URN-prefix filter risked wrongly excluding genuinely-enrolled repeat/backlog students. FIX (transparency, not a guess-fix): sitAutoFillFromCurrentAY now warns explicitly if allStudents.length does not match the last scrape-reported total_students count (a real sign of stale/partial data), and the success toast now shows the exact matched-vs-filled count plus the total allStudents size, so any future mismatch is immediately visible instead of silently trusted. If the AY-2023 URNs persist after a fresh re-scrape, the fix belongs in the scraper / portal source data, not in this file. CODE_BUILD=1133.' },
+  { v: 'v1132', date: '19-Aug-2026 IST', note: 'Sitting tab was showing URNs from a previous AY intake (U13DI23... / U13DI24... prefixes visible on screen alongside unresolved question marks). ROOT CAUSE: room seat-to-URN mapping was NEVER auto-sourced from the current roster at all -- sitRenderGrid only ever displayed whatever was previously saved to SIT_DATA (via manual typing or Import Excel), with zero AY-awareness or refresh mechanism, unlike the Internals batches themselves which were already fixed to source from live allStudents in an earlier build. FIX: new button, Auto-Fill (This AY), next to Import Excel. sitAutoFillFromCurrentAY() reads the selected Internals batches for the active session (morning/afternoon), maps each batch name (e.g. I BBA) back to {yearNum,course} using the same matching convention Internals batches use, pulls the real current-AY roster per batch from allStudents via _strParseClass (never a stale copy), orders students batch-by-batch then alphabetically, and fills seats 1..N in that order -- clearing/overwriting whatever was there before. Reports if the roster does not fit the room (more students than seats) rather than silently truncating. CODE_BUILD=1132.' },
+  { v: 'v1136', date: '19-Aug-2026 IST', note: 'My Allocation — Exam Slots built (option (a): live LM_ALLOCATIONS lookup, per admin decision, NOT persisted onto the saved slot). intDutyLoad()&#39;s faculty branch now renders two sections on one page as originally designed: "My Duty (Invigilation)" (unchanged) plus new "My Exam Slots (Subjects I Teach)" below it. New intResolveSlotFaculty(batchName, subject) resolves faculty for a saved slot at render time by narrowing INT_BATCH_MAP[batchName] to its course(s) (a batch name maps to 2 possible sems with no way to disambiguate outside the edit-form context, so match is course+subject only, not exact sem) and looking up LM_ALLOCATIONS rows for that course+subject, same pattern intGetSubjectsForBatch already uses for the admin editor; handles merged "A/B" split-subject labels by checking each half. New intRenderMyExamSlots(data) filters data.slots to ones whose resolved faculty matches the logged-in name (alias-resolved via FACULTY_NAME_ALIASES, same pattern as imGetMySubjects/the Duty filter above it), sorted by date/time. Known tradeoff of the live-lookup option (accepted, not a bug): if LM_ALLOCATIONS changes after an internal is saved, a faculty&#39;s past Exam Slots view will silently reflect the NEW allocation, not what was true when the internal actually ran -- flagged in code comments for anyone revisiting this later. CODE_BUILD=1136.' },
+  { v: 'v1135', date: '19-Aug-2026 IST', note: 'Faculty confusion fix: Sitting (seating plan) and Attendance (exam attendance marking) tabs in the Internals panel are admin/exam-cell tools, not faculty-facing, but were visible to faculty logins alongside Timetable/Duty/Marks/Download with no content gate behind them -- confusing tab bar. Fix: intInit() now hides int-tab-sitting and int-tab-attend for any role outside admin/manager/vp/principal (same isAdminRole set used elsewhere in Internals). intSwitchTab() also bounces to the view tab if sitting/attend is ever requested by a non-admin role directly, so a stale tab selection or programmatic call cannot land there either. Faculty now see exactly Timetable / Duty / Marks / Download -- no confusion, everything else (admin side) untouched. CODE_BUILD=1135.' },
+  { v: 'v1134', date: '19-Aug-2026 IST', note: 'Faculty-side Internals access (item 16) built. New "Marks" tab added to the Internals panel alongside View/Duty/Attendance/Sitting/Download, giving faculty three things under one Internals area: Timetable (pre-existing View tab), My Allocation (pre-existing Duty tab = invigilation), and Marks (new) -- all marks for a faculty member&#39;s allocated subjects/sections, aggregated regardless of who entered them, sourced from the same scraped puc_marks-backed allStudents data used by admin Marks Analysis. New intMarksLoad() reuses imGetMySubjects() (same LM_ALLOCATIONS + FACULTY_NAME_ALIASES matching Internal Marks already uses) to scope subjects, groups by class (encodes section, e.g. "Davan-BCA-Sem6-SecA"), computes Int-1/Int-2 average + pass% per subject per class. Also fixed a real bug found during investigation: intDutyLoad()&#39;s Firestore re-fetch (when INT_DATA[docId] was empty) was gated to admin/manager/vp/principal only -- a faculty session with nothing cached fell straight to "No data" without ever reaching the correct faculty render branch below it. Fetch now attempted for all roles (Firestore rules are the real gate), plus an RTDB-mirror fallback for int_pub_1. Still open for a future session: "My Exam Slots" inside My Allocation needs a faculty-resolution design decision (live LM_ALLOCATIONS lookup vs. persisting faculty onto each saved slot) before it can be built. CODE_BUILD=1134.' },
   { v: 'v1131', date: '19-Aug-2026 IST', note: 'FOUND THE ACTUAL ROOT CAUSE behind every vanishing-time-slot report this session (v1129 and v1130 were real fixes for a genuine race condition, but this was the deeper structural bug underneath it): intCollectSlots() only ever pushed a slot into the saved slots array if it had a real subject value chosen -- an empty (still on "- select -") cell was never recorded at all. This meant a time row or an entire date with nothing allocated in it yet existed ONLY implicitly, via the presence of at least one filled slot elsewhere on that date -- so saving before finishing every cell (or a date where you had not gotten to any subject yet) could make that whole date silently disappear on reload, independent of the v1129/v1130 timing race. FIX: intCollectSlots now pushes every slot regardless of whether a subject was chosen, with subject:"" for empty ones -- this preserves date/time/batch structure unconditionally. The View tab (intRenderTable, via getSubject) already rendered an empty subject as a muted em-dash so no display change was needed there; intBuildSlotsGrid date detection (which drives the edit form) automatically benefits the same way since both read dateSet from the same slots array. CODE_BUILD=1131.' },
   { v: 'v1130', date: '19-Aug-2026 IST', note: 'Follow-up to v1129: the v1129 busy-flag guard was only ever checked by the AUTO-SAVE debounce loop, never by the manual Save to Firebase button itself -- so clicking Save at the exact moment a time-slot edit was still mid-rebuild (e.g. right after tabbing out of a start/end time field) could still read a partially torn-down grid and write incomplete slot data, exactly reproducing the vanishing-slots symptom live-reported right after clicking Save manually even though auto-save was behaving correctly. FIX: intSave now waits (up to 3s, polling every 100ms) for window._intGridBusy to clear before collecting form data, regardless of which button or path triggered the save. CODE_BUILD=1130.' },
   { v: 'v1129', date: '19-Aug-2026 IST', note: 'Fixed a real time-slot data corruption bug reported live: editing a single time slot start/end (intUpdateTimeSlot) rebuilds that date block via replaceChild, but this was never guarded against the auto-save debounce firing concurrently from the same input blur/change event -- auto-save could read a half-torn-down DOM mid-rebuild and persist an incomplete slot set to Firestore, which is exactly what caused different dates to end up with different, partially-missing time rows after saving. FIX: intUpdateTimeSlot now sets window._intGridBusy=true at the start and clears it at every exit path (previously one early-return path left it stuck true forever, which would have permanently blocked auto-save after the first time a date-block DOM node went missing -- also fixed). Recovery for existing corrupted data: click Rebuild Grid from Batches+Dates once, which runs intFixSessionSlots to reconcile every dates slot count against the most complete reference date. CODE_BUILD=1129.' },
@@ -44160,9 +44197,17 @@ let _intDuties   = [];   // duties for logged-in faculty (for Banner 3)
 // ── Init ──────────────────────────────────────────────────────
 async function intInit() {
   const role = currentProfile?.role || '';
+  const isAdminRole = ['admin','manager','vp','principal'].includes(role);
   // Show/hide edit tab for admin/manager
   const editBtn = document.getElementById('int-tab-edit');
   if (editBtn) editBtn.style.display = ['admin','manager'].includes(role) ? '' : 'none';
+  // Sitting (seating plan) and Attendance (exam attendance marking) are admin/
+  // exam-cell tools, not faculty-facing — hide them for faculty so the tab bar
+  // only shows what applies: Timetable, Duty, Marks, Download.
+  const sittingBtn = document.getElementById('int-tab-sitting');
+  const attendBtn  = document.getElementById('int-tab-attend');
+  if (sittingBtn) sittingBtn.style.display = isAdminRole ? '' : 'none';
+  if (attendBtn)  attendBtn.style.display  = isAdminRole ? '' : 'none';
 
   intSwitchTab('view');
   await intLoadList();
@@ -44567,7 +44612,11 @@ function intRenderTable(data) {
 
 // ── Tab switcher ──────────────────────────────────────────────
 function intSwitchTab(tab) {
-  ['view','edit','duty','download','sitting','attend'].forEach(t => {
+  // Faculty can't reach sitting/attend even via a stale/direct call — bounce to view.
+  const _isAdminRoleGuard = ['admin','manager','vp','principal'].includes(currentProfile?.role || '');
+  if (!_isAdminRoleGuard && (tab==='sitting' || tab==='attend')) tab = 'view';
+
+  ['view','edit','duty','download','sitting','attend','marks'].forEach(t => {
     const pane = document.getElementById('int-pane-'+t);
     const btn  = document.getElementById('int-tab-'+t);
     if (pane) pane.style.display = t===tab?'':'none';
@@ -44598,6 +44647,7 @@ function intSwitchTab(tab) {
   if (tab==='duty') intDutyLoad();
   if (tab==='sitting') sitInit();
   if (tab==='attend') attInit();
+  if (tab==='marks') intMarksLoad();
   if (tab==='download') {
     intPopulateSelects(INT_LIST);
     if (INT_CURRENT) {
@@ -46152,14 +46202,27 @@ async function intDutyLoad() {
 
   let data = INT_DATA[docId];
   if (!data) {
-    const _dutyRole = currentProfile?.role || '';
-    if (['admin','manager','vp','principal'].includes(_dutyRole)) {
-      try {
-        const doc = await db.collection('internals').doc(docId).get();
-        data = doc.exists ? doc.data() : null;
-        if (data) INT_DATA[docId] = data;
-      } catch(e) {}
-    }
+    // v1132: was gated to admin/manager/vp/principal only, so a faculty session
+    // with nothing cached in INT_DATA[docId] yet fell straight to "No data" and
+    // never reached the render logic below (which was already correct). Firestore
+    // security rules are what actually gate faculty read access here, not this
+    // JS role check, so the fetch is attempted regardless of role. If a faculty
+    // account genuinely lacks Firestore read access to 'internals', this will
+    // fail silently via the catch and fall through to the RTDB fallback below.
+    try {
+      const doc = await db.collection('internals').doc(docId).get();
+      data = doc.exists ? doc.data() : null;
+      if (data) INT_DATA[docId] = data;
+    } catch(e) {}
+  }
+  // Fallback for faculty: the RTDB mirror always has the current internal's
+  // duties even if the Firestore doc read above failed or was denied.
+  if (!data && docId === 'int_pub_1' && rtdb) {
+    try {
+      const snap = await rtdb.ref('davan_pub/internals_current').once('value');
+      const rd = snap.val();
+      if (rd) { data = rd; INT_DATA[docId] = rd; }
+    } catch(e) {}
   }
   if (!data) { body.innerHTML = '<div style="padding:20px;color:var(--muted);">No data.</div>'; return; }
 
@@ -46173,33 +46236,209 @@ async function intDutyLoad() {
     const duties = data.duties || [];
     const myName = currentProfile?.name || '';
     const mine   = duties.filter(d => d.faculty_name === myName);
-    if (!mine.length) {
-      body.innerHTML = `<div style="padding:30px;text-align:center;color:var(--muted);font-family:var(--mono);">
-        No duty assigned to you for this internal.</div>`;
-      return;
-    }
-    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    function fmtD(str) {
-      const d = new Date(str+'T00:00:00');
-      return `${String(d.getDate()).padStart(2,'0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-    }
+    const dutyHtml = !mine.length
+      ? `<div style="padding:20px;text-align:center;color:var(--muted);font-family:var(--mono);">No duty assigned to you for this internal.</div>`
+      : (function(){
+          const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          function fmtD(str) {
+            const d = new Date(str+'T00:00:00');
+            return `${String(d.getDate()).padStart(2,'0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+          }
+          return mine.sort((a,b)=>a.date.localeCompare(b.date)||(a.time_label.localeCompare(b.time_label))).map((d,i)=>`
+            <div style="background:var(--surface);border:1px solid rgba(96,165,250,.25);border-radius:10px;padding:14px 16px;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <span style="font-size:11px;font-family:var(--mono);color:var(--muted);">${i+1}.</span>
+                <span style="font-size:13px;font-weight:700;color:#93c5fd;">${fmtD(d.date)}</span>
+                <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">— ${d.day||''}</span>
+              </div>
+              <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+                <span style="font-size:12px;font-family:var(--mono);color:var(--text);">⏰ ${d.time_label}</span>
+                <span style="font-size:12px;background:rgba(96,165,250,.12);color:#93c5fd;padding:3px 12px;border-radius:12px;font-family:var(--mono);font-weight:700;">
+                  Room: ${d.room||'TBA'}
+                </span>
+              </div>
+            </div>`).join('');
+        })();
+
     body.innerHTML = `
-      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px;">📝 My Duty — ${data.meta?.title||''}</div>
-      ${mine.sort((a,b)=>a.date.localeCompare(b.date)||(a.time_label.localeCompare(b.time_label))).map((d,i)=>`
-        <div style="background:var(--surface);border:1px solid rgba(96,165,250,.25);border-radius:10px;padding:14px 16px;margin-bottom:10px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-            <span style="font-size:11px;font-family:var(--mono);color:var(--muted);">${i+1}.</span>
-            <span style="font-size:13px;font-weight:700;color:#93c5fd;">${fmtD(d.date)}</span>
-            <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">— ${d.day||''}</span>
-          </div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
-            <span style="font-size:12px;font-family:var(--mono);color:var(--text);">⏰ ${d.time_label}</span>
-            <span style="font-size:12px;background:rgba(96,165,250,.12);color:#93c5fd;padding:3px 12px;border-radius:12px;font-family:var(--mono);font-weight:700;">
-              Room: ${d.room||'TBA'}
-            </span>
-          </div>
-        </div>`).join('')}`;
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px;">📝 My Duty (Invigilation) — ${data.meta?.title||''}</div>
+      ${dutyHtml}
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin:20px 0 12px;">📚 My Exam Slots (Subjects I Teach) — ${data.meta?.title||''}</div>
+      ${intRenderMyExamSlots(data)}
+    `;
   }
+}
+
+// ── My Exam Slots (faculty) ──────────────────────────────────────
+// Which subject-slots this faculty personally teaches/is examined on, and on
+// which date — resolved LIVE via LM_ALLOCATIONS at render time (option (a),
+// per admin decision), NOT persisted onto the saved slot. This means results
+// always reflect current allocations, but will silently go blank for a slot
+// if LM_ALLOCATIONS changes after the internal was saved — accepted tradeoff
+// of the "live" option vs. the more robust but schema-changing "persist" option.
+function intResolveSlotFaculty(batchName, subject) {
+  if (!subject) return '';
+  const mapArr = INT_BATCH_MAP[batchName];
+  if (!mapArr) return '';
+  // batchName only narrows to a course (e.g. "I BCA" -> course "BCA"), not an
+  // exact sem — a batch name maps to 2 possible sems (odd/even year split) and
+  // there's no edit-form context here to disambiguate, so match on course +
+  // subject only. This is enough to identify "is this faculty's subject" without
+  // needing the precise sem, since the same subject+course combo is normally
+  // taught by the same faculty across both sems of that year in this dataset.
+  const courses = [...new Set(mapArr.map(m => m.course))];
+  const liveAlloc = (typeof LM_ALLOCATIONS !== 'undefined' && LM_ALLOCATIONS) ? LM_ALLOCATIONS : [];
+  const subjLower = subject.trim().toLowerCase();
+  // Subject may be a merged "A/B" label (Kannada/Hindi-style split) — check each half.
+  const subjParts = subjLower.split('/').map(s=>s.trim()).filter(Boolean);
+  const rows = liveAlloc.filter(a => courses.includes(a.course) && a.subject &&
+    subjParts.some(sp => a.subject.trim().toLowerCase() === sp));
+  const faculties = [...new Set(rows.map(a=>(a.faculty||'').trim()).filter(Boolean))];
+  return faculties.join(' & ');
+}
+
+function intRenderMyExamSlots(data) {
+  const slots = data.slots || [];
+  const myName = currentProfile?.name || '';
+  const aliases = (typeof FACULTY_NAME_ALIASES !== 'undefined') ? FACULTY_NAME_ALIASES : {};
+  const myKeys = [myName, aliases[myName], ...(Object.entries(aliases).filter(([k,v])=>v===myName).map(([k])=>k))]
+    .filter(Boolean).map(s=>s.trim().toLowerCase());
+
+  const mine = slots.filter(s => {
+    if (!s.subject) return false;
+    const fac = intResolveSlotFaculty(s.batch_name, s.subject);
+    if (!fac) return false;
+    const facParts = fac.split('&').map(f=>f.trim().toLowerCase());
+    return facParts.some(fp => myKeys.includes(fp));
+  });
+
+  if (!mine.length) {
+    return `<div style="padding:20px;text-align:center;color:var(--muted);font-family:var(--mono);">No exam slots found for your allocated subjects in this internal.</div>`;
+  }
+
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fmtD(str) {
+    const d = new Date(str+'T00:00:00');
+    return `${String(d.getDate()).padStart(2,'0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  }
+  return mine.sort((a,b)=>a.date.localeCompare(b.date)||(a.time_label.localeCompare(b.time_label))).map((s,i)=>`
+    <div style="background:var(--surface);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:14px 16px;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="font-size:11px;font-family:var(--mono);color:var(--muted);">${i+1}.</span>
+        <span style="font-size:13px;font-weight:700;color:#4ade80;">${fmtD(s.date)}</span>
+        <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">— ${s.day||''}</span>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+        <span style="font-size:12px;font-family:var(--mono);color:var(--text);">⏰ ${s.time_label}</span>
+        <span style="font-size:12px;background:rgba(34,197,94,.12);color:#4ade80;padding:3px 12px;border-radius:12px;font-family:var(--mono);font-weight:700;">
+          ${s.batch_name}
+        </span>
+        <span style="font-size:12px;color:var(--text);">${s.subject}</span>
+      </div>
+    </div>`).join('');
+}
+
+// ── MARKS TAB (Internals panel, faculty-facing) ─────────────────
+// Summary view: ALL marks for subjects/sections this faculty is allocated to
+// teach, regardless of who entered them — same scraped puc_marks data that
+// feeds Marks Analysis (imaInit), just narrowed to this faculty's own
+// allocation and grouped by class+section. Not an audit of manual entries;
+// this is an aggregation, matching the admin Marks Analysis shape.
+function intMarksLoad() {
+  const body = document.getElementById('int-marks-body');
+  if (!body) return;
+
+  if (typeof _legacyDataInScope === 'function' && !_legacyDataInScope()) {
+    body.innerHTML = (typeof _emptyCurrentAYHtml === 'function')
+      ? _emptyCurrentAYHtml('Marks')
+      : '<div style="padding:40px;text-align:center;color:var(--muted);">No data yet.</div>';
+    return;
+  }
+
+  const role = currentProfile?.role || '';
+  if (['admin','manager'].includes(role) || ((role==='vp'||role==='principal') && typeof isActingAsFaculty==='function' && !isActingAsFaculty())) {
+    body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);font-family:var(--mono);">This view is for faculty logins — showing marks for their own allocated subjects.</div>';
+    return;
+  }
+
+  // Same faculty-allocation filter already used by Internal Marks / Marks Analysis
+  const mySubjects = (typeof imGetMySubjects === 'function') ? imGetMySubjects() : null;
+  if (!mySubjects || !mySubjects.size) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted);font-family:var(--mono);">No subjects allocated to you yet.</div>';
+    return;
+  }
+
+  const students = allStudents || [];
+  if (!students.length) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted);font-family:var(--mono);">No student data loaded.</div>';
+    return;
+  }
+
+  const _isPass = (v, r) => {
+    const rs = (r||'').toUpperCase();
+    if (rs==='PASS') return true;
+    if (rs==='FAIL') return false;
+    const n = parseFloat(String(v));
+    return !isNaN(n) && n >= 12;
+  };
+  const _isAB = v => v===undefined||v===null||String(v).toUpperCase()==='AB';
+
+  // Group by class (class string already encodes section, e.g. "Davan-BCA-Sem6-SecA"),
+  // then by subject within class — mirrors imaInit's classSubMap shape but pre-filtered
+  // to only this faculty's allocated subjects.
+  const clsSubMap = {}; // { className: { subjectName: {i1t,i1c,i1p,i2t,i2c,i2p} } }
+  for (const stu of students) {
+    const cls = (stu.class||'').trim();
+    if (!cls) continue;
+    for (const sub of (stu.subjects||[])) {
+      const subName = (sub.subject||sub.name||'').trim();
+      if (!subName) continue;
+      if (!mySubjects.has(subName.toLowerCase())) continue; // only my allocated subjects
+      if (!clsSubMap[cls]) clsSubMap[cls] = {};
+      if (!clsSubMap[cls][subName]) clsSubMap[cls][subName] = {i1t:0,i1c:0,i1p:0,i2t:0,i2c:0,i2p:0};
+      const m = clsSubMap[cls][subName];
+      if (!_isAB(sub.int1)) { m.i1t += Number(sub.int1)||0; m.i1c++; if (_isPass(sub.int1, sub.int1_result)) m.i1p++; }
+      if (!_isAB(sub.int2)) { m.i2t += Number(sub.int2)||0; m.i2c++; if (_isPass(sub.int2, sub.int2_result)) m.i2p++; }
+    }
+  }
+
+  const classNames = Object.keys(clsSubMap).sort();
+  if (!classNames.length) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted);font-family:var(--mono);">No marks recorded yet for your allocated subjects.</div>';
+    return;
+  }
+
+  let html = '';
+  classNames.forEach(cls => {
+    const subs = clsSubMap[cls];
+    html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:10px;font-family:var(--mono);">${cls}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="color:var(--muted);text-align:left;">
+          <th style="padding:6px 8px;">Subject</th>
+          <th style="padding:6px 8px;">Int-1 Avg</th>
+          <th style="padding:6px 8px;">Int-1 Pass%</th>
+          <th style="padding:6px 8px;">Int-2 Avg</th>
+          <th style="padding:6px 8px;">Int-2 Pass%</th>
+        </tr></thead><tbody>`;
+    Object.keys(subs).sort().forEach(subName => {
+      const m = subs[subName];
+      const i1avg = m.i1c ? (m.i1t/m.i1c).toFixed(1) : '—';
+      const i2avg = m.i2c ? (m.i2t/m.i2c).toFixed(1) : '—';
+      const i1pp  = m.i1c ? Math.round(100*m.i1p/m.i1c)+'%' : '—';
+      const i2pp  = m.i2c ? Math.round(100*m.i2p/m.i2c)+'%' : '—';
+      html += `<tr style="border-top:1px solid var(--border);">
+        <td style="padding:6px 8px;color:var(--text);">${subName}</td>
+        <td style="padding:6px 8px;">${i1avg}</td>
+        <td style="padding:6px 8px;">${i1pp}</td>
+        <td style="padding:6px 8px;">${i2avg}</td>
+        <td style="padding:6px 8px;">${i2pp}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  });
+
+  body.innerHTML = html;
 }
 
 // ── Helpers: faculty phone lookup ─────────────────────────────
@@ -46989,6 +47228,75 @@ function sitUpdateSummary() {
 }
 
 // ─── COLLECT GRID DATA ───────────────────────────────────────────────
+// ── Auto-fill seats from the CURRENT AY's real student roster ──
+// Clears every seat in this room and re-fills it with real, current-AY
+// students — matched to whichever batches (from this Internal's live batch
+// list, already scoped to the active AY/sem) run in THIS session (morning/
+// afternoon), pulled straight from allStudents (the same live-enrollment
+// source Internals batches themselves use — never a stale/previous-AY copy).
+// Students are ordered by batch, then alphabetically by name, filling seat 1
+// upward — a fresh, deterministic, always-current seating chart.
+async function sitAutoFillFromCurrentAY() {
+  if (!SIT_ROOM || !SIT_INT) { dvToast('Select internal & room first', 'warn'); return; }
+  const intNum = parseInt(SIT_INT) || 1;
+  const intDoc = INT_LIST.find(x => (x.n || 1) === intNum);
+  const docId  = intDoc?.id || INT_CURRENT;
+  const intData = docId ? INT_DATA[docId] : null;
+  if (!intData || !intData.batches || !intData.batches.length) {
+    dvToast('No batches found for this Internal — open it in Create/Edit first', 'warn', 4000);
+    return;
+  }
+  const sessionKey = SIT_SESSION === 'MORNING' ? 'morning' : 'afternoon';
+  const sessionBatches = intData.batches.filter(b => b.session === sessionKey);
+  if (!sessionBatches.length) {
+    dvToast(`No ${sessionKey} batches on this Internal`, 'warn', 3500);
+    return;
+  }
+  // Map each batch name ("I BBA") back to {yearNum, course} for matching against
+  // allStudents via the same _strParseClass parser Internals batches use.
+  const yearRoman = { 'I':1, 'II':2, 'III':3 };
+  const courseNorm = { 'BCA':'BCA', 'BBA':'BBA', 'B.COM':'BCom', 'BCOM':'BCom' };
+  const wanted = sessionBatches.map(b => {
+    const parts = (b.name||'').trim().split(' ');
+    return { yearNum: yearRoman[parts[0]] || null, course: courseNorm[(parts.slice(1).join(' ')||'').toUpperCase()] || null, name: b.name };
+  }).filter(w => w.yearNum && w.course);
+
+  const students = (typeof allStudents !== 'undefined' && Array.isArray(allStudents)) ? allStudents : [];
+  // Sanity check: allStudents should already equal the current AY's live scrape
+  // count exactly (it is a single, non-versioned snapshot replaced wholesale on
+  // each scrape — never a mix of years). If it doesn't match the topbar's own
+  // scraped total, that's a real upstream data problem (stale scrape / not yet
+  // re-scraped this AY), not something this button can fix — warn plainly.
+  const scrapedTotal = (typeof data !== 'undefined' && data?.total_students) || null;
+  if (scrapedTotal && students.length !== scrapedTotal) {
+    dvToast(`⚠ allStudents has ${students.length} records but the last scrape reported ${scrapedTotal} — re-scrape before auto-filling if this looks wrong`, 'warn', 6000);
+  }
+  const roster = [];
+  wanted.forEach(w => {
+    const matches = students.filter(s => {
+      const parsed = typeof _strParseClass === 'function' ? _strParseClass(s.class) : null;
+      return parsed && parsed.yearNum === w.yearNum && parsed.course === w.course;
+    }).sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    roster.push(...matches);
+  });
+
+  if (!roster.length) {
+    dvToast('No current-AY students found for these batches', 'warn', 4000);
+    return;
+  }
+
+  const inputs = [...document.querySelectorAll('#sit-grid-wrap input[data-seat]')]
+    .sort((a,b) => parseInt(a.dataset.seat) - parseInt(b.dataset.seat));
+  if (!inputs.length) { dvToast('No seats in this room layout', 'warn'); return; }
+
+  inputs.forEach((inp, i) => {
+    inp.value = roster[i] ? (roster[i].urn || roster[i].seat_no || '') : '';
+  });
+  sitUpdateSummary();
+  const overflow = roster.length > inputs.length ? ` (${roster.length - inputs.length} students did not fit — add another room)` : '';
+  dvToast(`✅ Filled ${Math.min(roster.length, inputs.length)} of ${roster.length} matched students (allStudents total: ${students.length})${overflow}`, 'ok', 5500);
+}
+
 function sitCollectRoom() {
   const inputs = document.querySelectorAll('#sit-grid-wrap input[data-seat]');
   const seats  = [];
