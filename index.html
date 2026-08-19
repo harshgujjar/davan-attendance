@@ -39582,14 +39582,70 @@ function rcPrint() { window.print(); }
 // past 300+ already-covered rows to find the handful actually missing.
 // Reuses rcParseCls() (already used by the Report Card course/sem/sec
 // chips) rather than re-deriving course/section parsing a second time.
+// v1125 ROOT FIX: rcParentNames() only ever checks rcResultsCache[urn], and that
+// cache is filled LAZILY -- only for a student whose Report Card/WhatsApp has
+// actually been opened in this session (see rcRenderCard/rcFetchResults). The
+// template button runs at click time against ALL 401 allStudents, almost none
+// of whose results have ever been fetched -- so nearly everyone read as
+// "missing" even when their university result genuinely has a father/mother
+// name, which is exactly the live bug reported: THANUSHREE B R (U13NU24S0073)
+// showed correctly on her own WhatsApp message (that path awaits her fetch
+// first) but still appeared in the "missing" template (which never fetched
+// her at all). FIX: scan the ENTIRE results collection ONCE up front --
+// db.collection('results').get() is a single read regardless of student
+// count, same call rcFetchResults already makes per-student -- and build a
+// URN -> {father,mother} map directly from the raw regular[]/backlog[] arrays
+// (both the flat d.regular and nested d.COURSE.semN.regular doc shapes are
+// walked, matching the two shapes already handled at ~line 39038/39348).
+// This bypasses the per-student rank/SGPA computation entirely since the
+// template only needs the two name fields, not university-scoped results.
+async function rcBuildParentPresenceMap() {
+  const map = {};              // URN -> true if a father OR mother name exists anywhere
+  const COURSES = ['BCA', 'BBA', 'BCom'];
+  const pick = (obj, re) => {
+    if (!obj) return '';
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v !== 'string') continue;
+      const val = v.trim();
+      if (!val || val === '-' || val === '\u2014' || val.toLowerCase() === 'na') continue;
+      if (/phone|mobile|number|no$|occupation|income|qual|edu|email|aadha?ar/i.test(k)) continue;
+      if (re.test(k)) return val;
+    }
+    return '';
+  };
+  const scanList = list => (list || []).forEach(st => {
+    const urn = rcParentKey(st.urn || st.usn);
+    if (!urn) return;
+    if (map[urn]) return; // already confirmed present from an earlier doc
+    if (pick(st, /father|^f_?name$/i) || pick(st, /mother|^m_?name$/i)) map[urn] = true;
+  });
+  try {
+    const snap = await db.collection('results').get();
+    snap.forEach(docSnap => {
+      const d = docSnap.data();
+      if (Array.isArray(d.regular)) { scanList(d.regular); scanList(d.backlog); return; }
+      COURSES.forEach(c => {
+        if (!d[c]) return;
+        Object.values(d[c]).forEach(slot => { scanList(slot?.regular); scanList(slot?.backlog); });
+      });
+    });
+  } catch (e) {
+    console.warn('[Parent] results scan failed, falling back to session cache only:', e.message);
+  }
+  return map;
+}
+
 async function rcParentDownloadTemplate() {
   if (!(allStudents || []).length) { dvToast('No student data loaded yet.', 'warn', 3000); return; }
   try { await rcParentsReady; } catch(e) {}
+  dvToast('Scanning university results for existing parent names \u2014 this reads the whole results collection once, may take a few seconds\u2026', 'info', 4000);
+  const presence = await rcBuildParentPresenceMap();
 
   const missing = (allStudents || []).filter(s => {
     const urn = s.urn || s.seat_no || '';
     if (!urn) return false;
-    const existing = rcParentNames(urn, s);
+    if (presence[rcParentKey(urn)]) return false;         // confirmed present in ANY result doc
+    const existing = rcParentNames(urn, s);                // covers the manual-override store too
     return !existing.father && !existing.mother;
   });
 
@@ -39937,20 +39993,27 @@ function rcWhatsApp(urn) {
     return pct!=null&&parseFloat(pct)<75;
   }).map(sub=>sub.subject).join(', ');
 
-  // v1124 FIX: "fail" above is lastFail -- fails in the MOST RECENT semester
-  // only (set via dataset-fail at the card-render call site). failSubjects used
-  // to flatMap across every cached semester instead, so a student who failed
-  // once in an earlier sem and once in the latest sem showed "failed in 1
-  // subject" (the count, correctly scoped) followed by BOTH subjects (the list,
-  // wrongly scoped) -- exactly the mismatch reported live. Now built from the
-  // same single semester the count comes from, so the number and the list can
-  // never disagree again. lastSem picked identically to rcRenderCard's own
-  // lastSem (prevResults[length-1]), since rcWhatsApp has no lastSem of its own.
-  const _waLastSem = prevResults.length ? prevResults[prevResults.length - 1] : null;
-  const failSubjects = _waLastSem
-    ? (_waLastSem.subjects || []).filter(x => (x.result||'').toUpperCase()==='FAIL')
-        .map(x => rcResolveSubjectName(x.code, x.name, x.short)).join(', ')
-    : '';
+  // v1125 FIX (supersedes v1124's single-semester scoping, per explicit request):
+  // the RESULT WARNING is now ONE PARAGRAPH PER SEMESTER THAT HAS A FAILURE,
+  // instead of only ever describing the most recent semester. A student who
+  // failed in both Sem I and Sem II now gets two clearly separated warning
+  // paragraphs, each correctly scoped to its own semester's fail count and
+  // subject list -- so the count and the list can never disagree (the v1124
+  // bug) AND older-semester failures are no longer silently dropped (this bug).
+  // fail (the dataset-derived summary tile number) still drives the overall
+  // "results satisfactory?" branch below it, since that comes from the same
+  // upstream lastFail used by the on-screen summary tiles and must keep
+  // agreeing with what those tiles show.
+  const semFails = prevResults
+    .map(sem => ({
+      label: sem._course ? `${sem._course} Sem ${sem._sem||''}`.trim() : `Sem ${sem._sem||''}`.trim(),
+      subs: (sem.subjects || []).filter(x => (x.result||'').toUpperCase()==='FAIL')
+              .map(x => rcResolveSubjectName(x.code, x.name, x.short))
+    }))
+    .filter(x => x.subs.length);
+  const resultWarningBlock = semFails.length
+    ? semFails.map(sf => `\nRESULT WARNING (${sf.label}):\nYou have failed in ${sf.subs.length} subject${sf.subs.length>1?'s':''}: ${sf.subs.join(', ')}.\nPlease meet your class teacher immediately. You may apply for revaluation if eligible.`).join('\n')
+    : `\nPrevious semester results are satisfactory.`;
 
   const engMsg =
 `Dear ${name}${_waPar.father ? `, F/O ${_waPar.father}` : ''},
@@ -39970,7 +40033,7 @@ ${shortage>0?`\nATTENDANCE WARNING:\nYou have shortage in ${shortage} subject${s
 PREVIOUS SEMESTER UNIVERSITY RESULTS
 ---------------------------
 ${resLines||'No result data available.'}
-${fail>0?`\nRESULT WARNING:\nYou have failed in ${fail} subject${fail>1?'s':''}: ${failSubjects}.\nPlease meet your class teacher immediately. You may apply for revaluation if eligible.`:`\nPrevious semester results are satisfactory.`}
+${resultWarningBlock}
 
 ---------------------------
 Please take this message seriously and ensure timely action.
@@ -40000,6 +40063,13 @@ Principal's Office`;
     return `* ${sem._course||''} Sem ${sem._sem||''} | SGPA: ${sem.sgpa||'—'} | ${semPct} | ತೇರ್ಗಡೆ: ${(sem.subjects||[]).filter(x=>(x.result||'').toUpperCase()==='PASS').length} ಅನುತ್ತೀರ್ಣ: ${(sem.subjects||[]).filter(x=>(x.result||'').toUpperCase()==='FAIL').length}${sem.collegeRank?` | ಶ್ರೇಣಿ: ${rcFmtRank(sem.collegeRank, sem.rankedStudents, sem.totalStudents, false)}`:''}\n${subLines}`;
   }).join('\n\n');
 
+  // v1125: Kannada mirrors the English fix -- one warning block per failing
+  // semester (semFails, computed above for the English message) rather than
+  // only the latest.
+  const resultWarningBlockKan = semFails.length
+    ? semFails.map(sf => `\nಫಲಿತಾಂಶ ಎಚ್ಚರಿಕೆ (${sf.label}):\nನೀವು ${sf.subs.length} ವಿಷಯ${sf.subs.length>1?'ಗಳಲ್ಲಿ':'ದಲ್ಲಿ'} ಅನುತ್ತೀರ್ಣರಾಗಿರುವಿರಿ: ${sf.subs.join(', ')}.\nದಯವಿಟ್ಟು ತಕ್ಷಣ ನಿಮ್ಮ ತರಗತಿ ಶಿಕ್ಷಕರನ್ನು ಭೇಟಿ ಮಾಡಿ. ಮರು-ಮೌಲ್ಯಮಾಪನಕ್ಕೆ ಅರ್ಜಿ ಸಲ್ಲಿಸಬಹುದು.`).join('\n')
+    : `\nಫಲಿತಾಂಶ ಉತ್ತಮವಾಗಿದೆ.`;
+
   const kanMsg =
 `ಪ್ರಿಯ ${name}${_waPar.father ? `, ತಂದೆ: ${_waPar.father}` : ''},
 
@@ -40017,7 +40087,7 @@ ${shortage>0?`\nಹಾಜರಾತಿ ಎಚ್ಚರಿಕೆ:\nನೀವು ${
 ಹಿಂದಿನ ಸೆಮಿಸ್ಟರ್ ವಿಶ್ವವಿದ್ಯಾಲಯ ಫಲಿತಾಂಶ
 ---------------------------
 ${resLinesKan||'ಮಾಹಿತಿ ಲಭ್ಯವಿಲ್ಲ.'}
-${fail>0?`\nಫಲಿತಾಂಶ ಎಚ್ಚರಿಕೆ:\nನೀವು ${fail} ವಿಷಯ${fail>1?'ಗಳಲ್ಲಿ':'ದಲ್ಲಿ'} ಅನುತ್ತೀರ್ಣರಾಗಿರುವಿರಿ: ${failSubjects}.\nದಯವಿಟ್ಟು ತಕ್ಷಣ ನಿಮ್ಮ ತರಗತಿ ಶಿಕ್ಷಕರನ್ನು ಭೇಟಿ ಮಾಡಿ. ಮರು-ಮೌಲ್ಯಮಾಪನಕ್ಕೆ ಅರ್ಜಿ ಸಲ್ಲಿಸಬಹುದು.`:`\nಫಲಿತಾಂಶ ಉತ್ತಮವಾಗಿದೆ.`}
+${resultWarningBlockKan}
 
 ---------------------------
 ದಯವಿಟ್ಟು ಈ ಸಂದೇಶವನ್ನು ಗಂಭೀರವಾಗಿ ಪರಿಗಣಿಸಿ.
