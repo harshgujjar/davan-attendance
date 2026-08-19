@@ -3649,6 +3649,7 @@ body.dash-active .data-strip { display: block; }
       <div class="sp-name" id="sb-name">—</div>
       <div class="sp-badge" id="sb-badge">Student</div>
       <div id="sb-meta" style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:3px;"></div>
+      <div id="sb-widget-meta" style="display:none;font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:3px;"></div>
       <div id="stu-ay-switcher-row" style="display:none;margin-top:10px;align-items:center;gap:6px;">
         <select id="stu-ay-switcher" onchange="stuSwitchAY(this.value)" style="flex:1;min-width:0;padding:7px 8px;background:var(--card,#161a20);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:var(--mono);font-size:12px;cursor:pointer;"></select>
         <button id="stu-ay-sync-btn" onclick="stuSwitchAY(document.getElementById('stu-ay-switcher').value)" title="Data not loading? Tap to reload this semester's view."
@@ -5840,15 +5841,47 @@ async function stuPairByCode(rawCode) {
     if (old && old !== code) {
       rtdbDelete('davan_pub/student_widget_active/' + old).catch(() => {});
     }
-    // v8.08: a manual code entry IS allowed to take over a widget that
-    // belongs to someone else — typing the 6 characters off the screen is
-    // proof you are holding that phone. But it is logged with the previous
-    // owner, because "allowed" is not the same as "invisible".
+    /* v8.39: manual entry no longer takes over on typed-code-alone.
+       Previously (v8.08) typing the 6 characters was treated as proof of
+       physical possession — but that made a fat-fingered digit or a code
+       glanced at on a classmate's widget enough to silently steal it, the
+       exact same hole v8.38 closed for the ?wdev= link path. Manual entry
+       now uses the identical rule: this browser must already have history
+       with the code (it paired it before, or was previously allowed onto
+       it) before a takeover is allowed. A stranger's guess is refused,
+       loudly, with the existing owner's identity untouched. */
     let prevOwner = '';
+    let allowTakeover = true;
     try {
       const ex = await rtdbGet('davan_pub/student_widget_active/' + code);
       prevOwner = ex && ex.urn ? String(ex.urn).toUpperCase() : '';
     } catch (e) {}
+
+    const me = String(STATE.studentUser.urn).toUpperCase();
+    if (prevOwner && prevOwner !== me) {
+      const firstOwnerWins = !!(STATE.controls && STATE.controls.global
+                                && STATE.controls.global.widgetFirstOwnerWins);
+      try {
+        const myBrowserId = stuBrowserId();
+        const priorRows = await rtdbGetQuery(
+          'davan_pub/student_widget_pair_log',
+          'orderBy="code"&equalTo="' + code + '"'
+        );
+        const rows = priorRows ? Object.values(priorRows) : [];
+        allowTakeover = rows.some(r => r.browserId === myBrowserId && !r.blocked);
+      } catch (e) {
+        allowTakeover = false;   // can't prove history → don't guess, refuse
+      }
+      if (firstOwnerWins) allowTakeover = false;
+
+      if (!allowTakeover) {
+        console.warn('[StudentWidgetPair] Manual entry REFUSED: ' + code + ' belongs to ' + prevOwner + ', not ' + me + ' — this browser has no history with this code.');
+        stuLogPairEvent(code, prevOwner, me, 'manual', true);
+        alert('That code is already linked to another student\'s widget. If this is YOUR widget, double-check the code shown on it — it may have changed after a reinstall.');
+        return false;
+      }
+      console.log('[StudentWidgetPair] Manual TAKEOVER: ' + code + ' moving from ' + prevOwner + ' to ' + me + ' (same browser history)');
+    }
 
     await rtdbSet('davan_pub/student_widget_active/' + code, {
       urn: STATE.studentUser.urn,
@@ -5864,6 +5897,27 @@ async function stuPairByCode(rawCode) {
     alert('Could not link the widget: ' + e.message);
     return false;
   }
+}
+
+// v8.39: manual entry box is no longer rendered by default — it's the
+// fallback for when auto-linking (tap the widget → ?wdev= → dashboard
+// load → stuCompleteWidgetPairing()) hasn't worked, not the primary
+// control. Injected on demand so a student only ever sees/uses it after
+// explicitly saying the automatic route didn't pair their widget.
+function stuShowManualPairFallback(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  const box = document.getElementById('getapp-manual-pair-fallback');
+  if (!box || box.dataset.shown === '1') return;
+  box.dataset.shown = '1';
+  box.style.display = 'block';
+  box.innerHTML =
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+    + '<input type="text" id="getapp-pair-code" maxlength="12" placeholder="e.g. GGV8VV" class="no-icon" '
+    + 'style="flex:1;min-width:150px;max-width:220px;font-family:var(--mono);font-size:15px;letter-spacing:.12em;text-transform:uppercase;text-align:center;"/>'
+    + '<button class="btn btn-sm" style="margin-bottom:0;" onclick="stuPairFromInput()">🔗 Link widget</button>'
+    + '</div>'
+    + '<div id="getapp-pair-result" style="display:none;margin-top:8px;font-size:12px;"></div>'
+    + '<div style="margin-top:8px;font-size:11.5px;color:var(--muted);">Only enter this if it is the code shown on YOUR OWN widget right now. If you reinstalled the app, the code changes — link it again with the NEW code.</div>';
 }
 
 async function stuPairFromInput() {
@@ -15110,6 +15164,55 @@ function updateSidebarProfile() {
   })();
   stuRenderGreeting(u);
   stuRenderSemStartNote();
+  stuApplySidebarWidgetStatus(u);   // v8.39: widget-linked code + promo-card suppression
+}
+
+/* v8.39 — SIDEBAR WIDGET STATUS.
+   Shows the code THIS student's widget is currently linked with (mobile
+   and desktop both use this same sidebar markup, so one write covers
+   both) directly under the URN/class line — visible at a glance without
+   opening the Get App page. Also, if the widget is confirmed linked to
+   this student AND still actively checking in (not gone stale/uninstalled),
+   the dashboard "Get the Davan Student app" promo card is hidden — no
+   point nagging someone who already has it running. The sidebar nav item
+   itself (snav-getapp / stb-getapp) is left alone either way, so the page
+   stays reachable if the student wants to re-link, check the code, etc. */
+async function stuApplySidebarWidgetStatus(u) {
+  const metaEl = document.getElementById('sb-widget-meta');
+  const promoCard = document.getElementById('dash-getapp-card');
+  if (!u || !u.urn) { if (metaEl) metaEl.style.display = 'none'; return; }
+  try {
+    const storedCode = localStorage.getItem('davan_student_widget_pair_code');
+    if (!storedCode) {
+      if (metaEl) metaEl.style.display = 'none';
+      return;   // no code on this device → nothing to show, promo card stays as-is
+    }
+    const active = await rtdbGet('davan_pub/student_widget_active/' + storedCode);
+    const owner = active && active.urn ? String(active.urn).toUpperCase() : '';
+    const linkedToMe = owner === String(u.urn).toUpperCase();
+
+    if (metaEl) {
+      if (linkedToMe) {
+        metaEl.textContent = '📱 Widget: ' + storedCode;
+        metaEl.style.display = 'block';
+      } else {
+        metaEl.style.display = 'none';   // stored code belongs to someone else / unlinked — don't show a code that isn't ours
+      }
+    }
+
+    // "Still running" = it checked in recently, not just paired once and
+    // then uninstalled. 24h matches the staleness window already used
+    // elsewhere for widget freshness (df-banner / dfPaint).
+    const STALE_MS = 24 * 60 * 60 * 1000;
+    const recentlyActive = active && active.updatedAt && (Date.now() - active.updatedAt) < STALE_MS;
+
+    if (promoCard && STATE._appPageOn !== false) {
+      promoCard.style.display = (linkedToMe && recentlyActive) ? 'none' : '';
+    }
+  } catch (e) {
+    if (metaEl) metaEl.style.display = 'none';
+    console.warn('[Sidebar] widget status check failed:', e && e.message);
+  }
 }
 
 // v7.18: Time-of-day greeting line — sits at the very top of the dashboard where
@@ -22061,13 +22164,27 @@ async function stuApplyAppPageVisibility() {
   }
   console.log('[GetApp] page visible =', on, '—', why);
   STATE._appPageOn = on;
-  // Desktop sidebar, mobile More drawer, and the dashboard promo card all
-  // follow the one flag — three places, so a half-applied toggle can never
-  // leave the page reachable from one entry point and not another.
-  ['snav-getapp', 'stb-getapp', 'dash-getapp-card'].forEach(id => {
+  // Desktop sidebar and mobile More drawer nav items follow the admin flag
+  // only — students can always reach the Get App page manually if they
+  // want to re-link or check their code, regardless of promo-card state.
+  ['snav-getapp', 'stb-getapp'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = on ? '' : 'none';
   });
+  // The dashboard promo CARD additionally hides itself once this
+  // student's widget is confirmed linked and actively checking in — see
+  // stuApplySidebarWidgetStatus(). Runs it here too (not just from
+  // updateSidebarProfile) since this function can run after that one and
+  // would otherwise blindly re-show the card the admin flag says is on.
+  const card = document.getElementById('dash-getapp-card');
+  if (card) {
+    if (!on) {
+      card.style.display = 'none';
+    } else {
+      card.style.display = '';   // base state; stuApplySidebarWidgetStatus narrows it further if linked+active
+      if (STATE.studentUser) stuApplySidebarWidgetStatus(STATE.studentUser);
+    }
+  }
 }
 
 /* v8.04 — DOWNLOAD TAP LOG.
@@ -22109,11 +22226,33 @@ async function stuLogApkDownload() {
   } catch (e) { console.warn('[GetApp] download log failed:', e && e.message); }
 }
 
-function renderGetAppPanel() {
+async function renderGetAppPanel() {
   const el = document.getElementById('getapp-body');
   if (!el) return;
   const url = LATEST_STUDENT_WIDGET_APK.apkUrl;
   const ver = LATEST_STUDENT_WIDGET_APK.apkVersion;
+
+  /* v8.39: auto-linking (via ?wdev= tapped off the widget, handled by
+     stuCompleteWidgetPairing() on every dashboard load) is the intended
+     path — it needs no typing and can't be fat-fingered. The manual box
+     existed for the one case auto can't cover: reinstall/clear-data
+     changed the widget's code and nothing arrived by link to correct it.
+     Showing the box unconditionally invited its own use even when auto
+     had already worked, which is how a mistyped or copied code could
+     take over a working widget for no reason. Now: check whether THIS
+     browser's stored code already maps to the signed-in student — if
+     so, auto has already succeeded and the box is hidden behind a
+     confirmation + "having trouble" fallback instead of being the
+     default control. */
+  let autoLinked = false;
+  try {
+    const storedCode = localStorage.getItem('davan_student_widget_pair_code');
+    if (storedCode && STATE.studentUser && STATE.studentUser.urn) {
+      const ex = await rtdbGet('davan_pub/student_widget_active/' + storedCode);
+      const owner = ex && ex.urn ? String(ex.urn).toUpperCase() : '';
+      autoLinked = !!owner && owner === String(STATE.studentUser.urn).toUpperCase();
+    }
+  } catch (e) { autoLinked = false; }   // can't confirm → treat as not-yet-linked, show fallback
 
   const step = (n, title, body) => `<div style="display:flex;gap:12px;margin-bottom:16px;">
       <div style="flex-shrink:0;width:26px;height:26px;border-radius:50%;background:rgba(240,165,0,0.15);border:1px solid rgba(240,165,0,0.35);color:var(--accent);font-family:var(--mono);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;">${n}</div>
@@ -22122,6 +22261,16 @@ function renderGetAppPanel() {
         <div style="font-size:12.5px;color:var(--muted);line-height:1.65;">${body}</div>
       </div>
     </div>`;
+
+  const step4Body = autoLinked
+    ? '<div style="display:flex;align-items:center;gap:8px;color:var(--ok);font-weight:600;font-size:13px;">✓ Linked automatically &mdash; your name and photo are on the widget.</div>'
+      + '<div style="margin-top:8px;font-size:11.5px;color:var(--muted);">Reinstalled the app, or widget still says "Not paired" after a minute? '
+      + '<a href="#" onclick="stuShowManualPairFallback(event)" style="color:var(--accent);">Enter the code by hand</a>.</div>'
+      + '<div id="getapp-manual-pair-fallback" style="display:none;margin-top:10px;"></div>'
+    : '<div style="font-size:12.5px;color:var(--muted);">Tapping the widget after install links it automatically &mdash; no typing needed.</div>'
+      + '<div style="margin-top:8px;font-size:11.5px;color:var(--muted);">Still says "Not paired" after a minute? '
+      + '<a href="#" onclick="stuShowManualPairFallback(event)" style="color:var(--accent);">Enter the code by hand</a>.</div>'
+      + '<div id="getapp-manual-pair-fallback" style="display:none;margin-top:10px;"></div>';
 
   el.innerHTML = `
     <div style="background:linear-gradient(135deg,rgba(240,165,0,0.10),rgba(240,165,0,0.02));border:1px solid rgba(240,165,0,0.25);border-radius:12px;padding:18px;margin-bottom:20px;">
@@ -22145,14 +22294,7 @@ function renderGetAppPanel() {
     ${step(1, 'Download', 'Tap the orange button above. The file will save to your Downloads folder.')}
     ${step(2, 'Install it', 'Open the downloaded file and tap <b>Install</b>. Your phone may warn about installing from an unknown source &mdash; allow it. This app is made by the college and is not on the Play Store.')}
     ${step(3, 'Add the widget to your home screen', 'Press and hold on any empty space on your home screen, tap <b>Widgets</b>, find <b>Davan Student</b>, and drag it onto your screen. Make it as tall as you can &mdash; a bigger widget shows more.')}
-    ${step(4, 'Link it to your account', 'The widget shows a 6-character code. Type it in the box below and tap Link. Your name and photo will appear on the widget within about a minute.'
-      + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
-      + '<input type="text" id="getapp-pair-code" maxlength="12" placeholder="e.g. GGV8VV" class="no-icon" '
-      + 'style="flex:1;min-width:150px;max-width:220px;font-family:var(--mono);font-size:15px;letter-spacing:.12em;text-transform:uppercase;text-align:center;"/>'
-      + '<button class="btn btn-sm" style="margin-bottom:0;" onclick="stuPairFromInput()">🔗 Link widget</button>'
-      + '</div>'
-      + '<div id="getapp-pair-result" style="display:none;margin-top:8px;font-size:12px;"></div>'
-      + '<div style="margin-top:8px;font-size:11.5px;color:var(--muted);">If you reinstalled the app, the code changes — link it again with the NEW code.</div>')}
+    ${step(4, 'Link it to your account', 'Just tap the widget once after adding it &mdash; that opens this page and links it by itself. No code to type.' + step4Body)}
     ${step(5, 'Turn on class reminders', 'The widget will show a yellow strip saying <b>Class reminders off &mdash; tap to fix</b>. Tap it and allow all three: <b>Notifications</b>, <b>Battery / background</b>, and <b>Alarms &amp; reminders</b>. Without these your phone will block the reminders.')}
 
     <div style="background:rgba(251,191,36,0.07);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:14px 16px;margin-top:6px;">
