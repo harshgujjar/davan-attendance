@@ -17,6 +17,16 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.39 (2026-08-20) — FEAT: new Internal Timetable panel (spanel-inttt, distinct from the
+          existing Internals panel which is IA1/IA2 marks). Two sub-tabs: My Class (filtered to the
+          student's own internals batch, e.g. "II BCA") and Full Timetable (every batch, date-grouped).
+          Reads davan_pub/internals_current — written by the mother app's Internals module (index.html
+          §31 intSave, already mirrors to RTDB) — via the existing DB2-only rtdbGet, so it picks up
+          real-time data the instant sync_db1_to_db2.py carries that path across; shows an explicit
+          "not synced yet" message (not a silent blank) if the path isn't in DB2 yet. Class→batch
+          matching reuses portalClassToMotherClass then strips YEAR/section per intBuildBatchesForActiveSem's
+          convention on the admin side. Lazy-loaded on first tab open (same pattern as Calendar/Library),
+          cached in STATE.internalsTT for the session, with its own ↻ Refresh button.
 VERSION : v8.38 (2026-08-19) — FEAT: one-time fleet-wide widget pair-code reset, paired with the
           DavanStudentWidget w28 build. Every w28 widget clears and regenerates its own stored
           code on its first run (device side, automatic, once per version). Diagnostics → Widget
@@ -3670,6 +3680,9 @@ body.dash-active .data-strip { display: block; }
       <button class="sidebar-item" id="snav-internals" onclick="switchStudentPanel('internals')">
         <span class="icon">📝</span> Internals
       </button>
+      <button class="sidebar-item" id="snav-inttt" onclick="switchStudentPanel('inttt')">
+        <span class="icon">📝</span> Internal Timetable
+      </button>
       <button class="sidebar-item" id="snav-timetable" onclick="switchStudentPanel('timetable')">
         <span class="icon">📅</span> Timetable
       </button>
@@ -3743,6 +3756,9 @@ body.dash-active .data-strip { display: block; }
       <div class="sbn-more-row">
         <button class="sbn-more-btn" id="stb-internals" onclick="switchStudentPanel('internals');closeMoreDrawer()">
           <span class="sbn-icon">📝</span>Internals
+        </button>
+        <button class="sbn-more-btn" id="stb-inttt" onclick="switchStudentPanel('inttt');closeMoreDrawer()">
+          <span class="sbn-icon">📝</span>Internal Timetable
         </button>
         <button class="sbn-more-btn" id="stb-notices" onclick="switchStudentPanel('notices');closeMoreDrawer()" style="position:relative;">
           <span class="sbn-icon" style="position:relative;">🔔<span id="notices-nav-badge" style="display:none;position:absolute;top:-4px;right:-6px;min-width:15px;height:15px;padding:0 3px;background:var(--danger);border-radius:8px;font-size:9px;font-weight:700;font-family:var(--mono);color:#fff;line-height:15px;text-align:center;box-sizing:border-box;"></span></span>Notices
@@ -3944,6 +3960,23 @@ body.dash-active .data-strip { display: block; }
         </div>
       </div>
       <div id="stu-int-hidden" style="display:none;" class="empty-state"><div class="empty-icon">🔒</div>Internals are not available at this time.</div>
+    </div>
+
+    <!-- ══ PANEL: INTERNAL TIMETABLE (exam schedule — distinct from Internal Marks above) ══ -->
+    <div class="dash-panel" id="spanel-inttt">
+      <div class="page-title">INTERNAL TIMETABLE</div>
+      <div class="page-sub" id="stu-inttt-desc" style="display:flex;align-items:center;gap:10px;">Internal exam schedule.
+        <button onclick="stuRefreshInternalsTT(this)" title="Reload latest internal timetable from server" style="padding:3px 10px;font-size:11px;font-family:var(--mono);background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.35);border-radius:6px;cursor:pointer;">↻ Refresh</button>
+      </div>
+      <!-- Two sub-tabs: Full timetable (all batches) vs My Class only -->
+      <div class="tt-day-chips" style="margin-bottom:14px;">
+        <button class="notice-chip active" id="inttt-subtab-mine" onclick="stuSwitchInttSubtab('mine')">📌 My Class</button>
+        <button class="notice-chip" id="inttt-subtab-full" onclick="stuSwitchInttSubtab('full')">📋 Full Timetable</button>
+      </div>
+      <div id="stu-inttt-loading" class="empty-state"><div class="empty-icon">⏳</div>Loading…</div>
+      <div id="stu-inttt-wrap" style="display:none;"></div>
+      <div id="stu-inttt-hidden" style="display:none;" class="empty-state"><div class="empty-icon">🔒</div>Internal timetable is not available at this time.</div>
+      <div id="stu-inttt-empty" style="display:none;" class="empty-state"><div class="empty-icon">📝</div>No internal exam scheduled yet.</div>
     </div>
 
     <!-- ══ PANEL: TIMETABLE ══ -->
@@ -5510,8 +5543,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.38';
-const BUILD_DATE   = '18 Aug 2026, 11:30 PM IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v8.39';
+const BUILD_DATE   = '20 Aug 2026, IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
 // APP_VERSION above. APP_VERSION tracks this PWA's own release number;
@@ -13515,6 +13548,7 @@ function switchStudentPanel(name) {
   });
   // Lazy render calendar
   if (name === 'calendar') renderCalendarPanel();
+  if (name === 'inttt') loadInternalsTimetable();
   if (name === 'pastyear') renderPastYear();
   if (name === 'library') renderLibraryPanel();
   if (name === 'getapp') renderGetAppPanel();
@@ -17196,6 +17230,338 @@ async function stuRefreshTimetable(btn) {
   } catch(e) { console.warn("[stuRefreshTimetable]", e); }
   if (btn) { btn.textContent = "✓ Updated"; setTimeout(()=>{ btn.textContent = orig || "↻ Refresh"; btn.disabled = false; }, 1500); }
 }
+/* ════════════════════════════════════════════════════
+   INTERNAL EXAM TIMETABLE — student panel (spanel-inttt)
+   Distinct from spanel-internals (IA1/IA2 marks) above.
+   Source: davan_pub/internals_current, written by the mother app
+   (index.html §31 intSave) and mirrored DB1→DB2 by sync_db1_to_db2.py
+   (GOLDEN RULE: this file reads DB2 only — see DB1_FORBIDDEN_HOSTS
+   above — so if davan_pub/internals_current is missing here, the fix
+   is to add that path to sync_db1_to_db2.py, never to fetch DB1
+   directly). Shape written by intSave(): { meta, batches, slots,
+   duties, batch_overrides }, slots:[{date,day,time_label,session,
+   batch_name,subject}], batch_name like "II BCA" (year-roman + course,
+   sections already merged — see intBuildBatchesForActiveSem in index.html).
+
+   RENDERING: intRenderTable(data) below is copied verbatim (same markup,
+   same inline styles, same var(--...) tokens, same BATCH_COLORS/
+   SESSION_CONFIG palettes) from index.html's own §31 intRenderTable() —
+   the exact function that draws the mother-app's "View" tab — per explicit
+   instruction to match that cosmetic 1:1 rather than build a separate look.
+   "My Class" sub-tab calls the identical renderer with batches filtered
+   to just the student's own batch; "Full Timetable" passes every batch,
+   unmodified — same function, zero visual drift between the two.
+════════════════════════════════════════════════════ */
+let _inttSubtab = 'mine'; // 'mine' | 'full'
+
+// Map a student's mother-app class string (e.g. "II YEAR BCA (A)") to the
+// internals batch-name format (e.g. "II BCA") — sections are merged away,
+// same convention intBuildBatchesForActiveSem() uses on the admin side.
+function stuClassToInttBatch(motherCls) {
+  if (!motherCls) return '';
+  const m = motherCls.match(/^(I{1,3}|IV|V|VI)\s+YEAR\s+([A-Za-z.]+)/i);
+  if (!m) return '';
+  const yearRoman = m[1].toUpperCase();
+  let course = m[2].toUpperCase();
+  if (course === 'B.COM' || course === 'BCOM') course = 'B.Com';
+  return yearRoman + ' ' + course;
+}
+
+async function stuRefreshInternalsTT(btn) {
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Refreshing…'; btn.disabled = true; }
+  try {
+    const data = await rtdbGet('davan_pub/internals_current').catch(() => null);
+    STATE.internalsTT = data;
+    renderInternalsTimetable();
+  } catch(e) { console.warn('[stuRefreshInternalsTT]', e); }
+  if (btn) { btn.textContent = '✓ Updated'; setTimeout(() => { btn.textContent = orig || '↻ Refresh'; btn.disabled = false; }, 1500); }
+}
+
+async function loadInternalsTimetable() {
+  const loadEl = document.getElementById('stu-inttt-loading');
+  const wrapEl = document.getElementById('stu-inttt-wrap');
+  if (STATE.internalsTT !== undefined && STATE.internalsTT !== null) {
+    // Already cached from a prior tab open this session.
+    renderInternalsTimetable();
+    return;
+  }
+  if (loadEl) loadEl.style.display = 'block';
+  if (wrapEl) wrapEl.style.display = 'none';
+  try {
+    const data = await rtdbGet('davan_pub/internals_current').catch(() => null);
+    STATE.internalsTT = data;
+  } catch(e) {
+    console.warn('[loadInternalsTimetable]', e);
+    STATE.internalsTT = null;
+  }
+  renderInternalsTimetable();
+}
+
+function stuSwitchInttSubtab(which) {
+  _inttSubtab = which;
+  document.getElementById('inttt-subtab-mine')?.classList.toggle('active', which === 'mine');
+  document.getElementById('inttt-subtab-full')?.classList.toggle('active', which === 'full');
+  renderInternalsTimetable();
+}
+
+function renderInternalsTimetable() {
+  const loadEl  = document.getElementById('stu-inttt-loading');
+  const wrapEl  = document.getElementById('stu-inttt-wrap');
+  const hidEl   = document.getElementById('stu-inttt-hidden');
+  const emptyEl = document.getElementById('stu-inttt-empty');
+  if (loadEl) loadEl.style.display = 'none';
+
+  if (!canShow('timetable')) {
+    if (wrapEl)  wrapEl.style.display  = 'none';
+    if (hidEl)   hidEl.style.display   = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+    return;
+  }
+  if (hidEl) hidEl.style.display = 'none';
+
+  const data  = STATE.internalsTT;
+  const slots = (data && Array.isArray(data.slots)) ? data.slots : [];
+
+  if (!data || !slots.length) {
+    if (wrapEl) wrapEl.style.display = 'none';
+    if (emptyEl) {
+      emptyEl.style.display = 'block';
+      emptyEl.innerHTML = '<div class="empty-icon">📝</div>' +
+        (data ? 'No internal exam scheduled yet.' :
+          '<div style="font-size:13px;line-height:1.6;">Internal timetable has not been synced to the portal yet.<br>' +
+          '<span style="font-size:11px;color:var(--muted);font-family:var(--mono);">(davan_pub/internals_current is empty in DB2 — add it to sync_db1_to_db2.py, or check the mother app has an internal saved.)</span></div>');
+    }
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (wrapEl) wrapEl.style.display = 'block';
+
+  const portalCls = STATE.studentUser && STATE.studentUser.class;
+  const motherCls = portalClassToMotherClass(portalCls);
+  const myBatch   = stuClassToInttBatch(motherCls);
+
+  if (_inttSubtab === 'mine' && !myBatch) {
+    wrapEl.innerHTML = '<div class="empty-state" style="padding:20px 16px;">' +
+      '<div class="empty-icon">⚠️</div><div style="font-size:12px;color:var(--muted);">Could not match your class to an internals batch. Showing full timetable instead.</div></div>' +
+      intRenderTable(data);
+    return;
+  }
+
+  const viewData = (_inttSubtab === 'mine')
+    ? Object.assign({}, data, { batches: (data.batches || []).filter(b => b.name === myBatch) })
+    : data;
+
+  if (_inttSubtab === 'mine' && !viewData.batches.length) {
+    wrapEl.innerHTML = '<div class="empty-state" style="padding:20px 16px;"><div class="empty-icon">📝</div>' +
+      '<div style="font-size:12px;color:var(--muted);">No internal exam slots found for your class yet.</div></div>';
+    return;
+  }
+
+  wrapEl.innerHTML = intRenderTable(viewData);
+}
+
+// ── Ported verbatim from index.html §31 intRenderTable() (mother-app View
+// tab) — same markup, same inline styles, same var(--...) tokens, same
+// BATCH_COLORS/SESSION_CONFIG palettes — per explicit instruction to match
+// that view's cosmetics exactly rather than build a separate student look.
+// Only change from the original: meta.venue in the branding sub-line falls
+// back to the college address when a specific internal hasn't set one, since
+// the student view has no separate "venue" concept of its own to show.
+function intRenderTable(data) {
+  const meta    = data.meta    || {};
+  const slots   = data.slots   || [];
+  const batches = data.batches || [];
+
+  const mBatches = batches.filter(b => b.session === 'morning');
+  const aBatches = batches.filter(b => b.session === 'afternoon');
+
+  const dateSet = [];
+  const seen = new Set();
+  slots.forEach(s => { if (s.date && !seen.has(s.date)) { seen.add(s.date); dateSet.push({date:s.date,day:s.day}); }});
+  dateSet.sort((a,b)=>a.date.localeCompare(b.date));
+
+  // Colour palette for batch columns (dark theme) — identical to mother app.
+  const BATCH_COLORS = [
+    { bg:'rgba(96,165,250,0.10)',  border:'rgba(96,165,250,0.35)',  text:'#93c5fd'  },
+    { bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.35)', text:'#c4b5fd'  },
+    { bg:'rgba(52,211,153,0.10)',  border:'rgba(52,211,153,0.35)',  text:'#6ee7b7'  },
+    { bg:'rgba(251,191,36,0.10)',  border:'rgba(251,191,36,0.35)',  text:'#fcd34d'  },
+    { bg:'rgba(248,113,113,0.10)', border:'rgba(248,113,113,0.35)', text:'#fca5a5'  },
+    { bg:'rgba(34,211,238,0.10)',  border:'rgba(34,211,238,0.35)',  text:'#67e8f9'  },
+    { bg:'rgba(245,158,11,0.10)',  border:'rgba(245,158,11,0.35)',  text:'#fcd34d'  },
+    { bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.35)', text:'#a5b4fc'  },
+  ];
+
+  const SESSION_CONFIG = {
+    morning:   { icon:'🌅', label:'Morning Session',   accent:'#fbbf24', bg:'rgba(251,191,36,0.06)',  border:'rgba(251,191,36,0.2)'  },
+    afternoon: { icon:'🌆', label:'Afternoon Session', accent:'#f97316', bg:'rgba(249,115,22,0.06)',  border:'rgba(249,115,22,0.2)'  },
+  };
+
+  function fmtDateApp(str) {
+    if (!str) return '';
+    const d = new Date(str+'T00:00:00');
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${String(d.getDate()).padStart(2,'0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  }
+
+  function getSubject(date, timeLabel, batchName) {
+    const s = slots.find(s => s.date===date && s.time_label===timeLabel && s.batch_name===batchName);
+    return s?.subject || '';
+  }
+
+  const batchOverrides = data.batch_overrides || {};
+
+  function getEffectiveBatch(batchList, colIdx, date, timeLabel) {
+    const key = (date+'|'+timeLabel+'|'+colIdx).replace(/[^a-zA-Z0-9]/g,'_');
+    return batchOverrides[key] || batchList[colIdx]?.name || '';
+  }
+
+  function renderSessionBlock(batchList, session) {
+    if (!batchList.length) return '';
+    const cfg = SESSION_CONFIG[session];
+    const timesSet = new Set();
+    slots.filter(s => s.session === session).forEach(s => timesSet.add(s.time_label));
+    const times = [...timesSet].sort();
+    if (!times.length) return '';
+    const totalStrength = batchList.reduce((s,b)=>s+(parseInt(b.strength)||0),0);
+
+    let html = `
+    <div style="margin-bottom:24px;border:1px solid ${cfg.border};border-radius:12px;overflow:hidden;background:${cfg.bg};">
+      <!-- Session header -->
+      <div style="padding:10px 16px;background:${cfg.bg};border-bottom:1px solid ${cfg.border};display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:13px;font-weight:700;color:${cfg.accent};font-family:var(--mono);letter-spacing:1px;">
+          ${cfg.icon} ${cfg.label.toUpperCase()}
+        </div>
+        <div style="font-size:11px;font-family:var(--mono);color:var(--muted);">
+          Total students: <span style="color:${cfg.accent};font-weight:700;">${totalStrength}</span>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:1px;color:var(--muted);background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap;min-width:100px;">DATE</th>
+              <th style="padding:8px 12px;text-align:center;font-family:var(--mono);font-size:10px;letter-spacing:1px;color:var(--muted);background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap;min-width:120px;">TIMINGS</th>`;
+
+    batchList.forEach((b, bi) => {
+      const col = BATCH_COLORS[bi % BATCH_COLORS.length];
+      html += `<th style="padding:8px 10px;text-align:center;font-family:var(--mono);font-size:10px;letter-spacing:1px;background:${col.bg};border-bottom:2px solid ${col.border};border-left:1px solid var(--border);">
+        <div style="color:${col.text};font-weight:700;">${b.name}</div>
+        <div style="color:var(--muted);font-size:9px;margin-top:2px;">${b.strength||''} students</div>
+      </th>`;
+    });
+    html += `</tr></thead><tbody>`;
+
+    dateSet.forEach(({date, day}) => {
+      const dayTimes = times.filter(t =>
+        batchList.some((b, ci) => {
+          const effBatch = getEffectiveBatch(batchList, ci, date, t);
+          return slots.find(s => s.date===date && s.time_label===t && s.batch_name===effBatch);
+        })
+      );
+      if (!dayTimes.length) return;
+
+      dayTimes.forEach((time, ti) => {
+        const isEven = dateSet.findIndex(d=>d.date===date) % 2 === 0;
+        const rowBg = isEven ? 'background:var(--surface);' : 'background:var(--surface2);';
+        html += `<tr style="${rowBg}">`;
+
+        if (ti === 0) {
+          html += `<td rowspan="${dayTimes.length}" style="padding:10px 12px;vertical-align:middle;border-right:1px solid var(--border);border-bottom:1px solid var(--border);">
+            <div style="font-weight:700;font-size:12px;color:var(--text);">${fmtDateApp(date)}</div>
+            <div style="font-size:10px;font-family:var(--mono);color:var(--accent);margin-top:2px;">${day||''}</div>
+          </td>`;
+        }
+
+        html += `<td style="padding:7px 12px;text-align:center;border-right:1px solid var(--border);border-bottom:1px solid var(--border);white-space:nowrap;">
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted);">${time}</span>
+        </td>`;
+
+        batchList.forEach((b, bi) => {
+          const col = BATCH_COLORS[bi % BATCH_COLORS.length];
+          const effBatch = getEffectiveBatch(batchList, bi, date, time);
+          const subj = getSubject(date, time, effBatch);
+          html += `<td style="padding:7px 10px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);vertical-align:middle;">
+            ${subj
+              ? `<span style="font-size:11px;color:var(--text);line-height:1.4;">${subj}</span>`
+              : `<span style="font-size:10px;color:var(--muted);font-style:italic;">—</span>`
+            }
+          </td>`;
+        });
+
+        html += `</tr>`;
+      });
+    });
+
+    html += `</tbody></table></div></div>`;
+    return html;
+  }
+
+  const inc1 = meta.incharge_1 || '';
+  const inc2 = meta.incharge_2 || '';
+  const dir  = meta.director   || 'Harsharaj A Gujjar';
+  const created = meta.created || '';
+  const instructions = (meta.instructions || [
+    'During the Internal test, i.e. regular offline classes will not be held.',
+    'Internals should be attended as per INSTRUCTIONS given to you.',
+    '1st, 2nd & 3rd year Question paper pattern as per final exams.',
+    'Time duration per subject 01.00 Hr'
+  ]);
+
+  return `
+    <div style="max-width:100%;">
+
+      <!-- Header card -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">
+          <img src="davan_logo_2026.gif" alt="Davan" style="height:48px;width:48px;object-fit:contain;border-radius:8px;flex-shrink:0;">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--accent);font-family:var(--head);letter-spacing:2px;">DAVAN</div>
+            <div style="font-size:11px;color:var(--text);">Davan Institute of Advanced Management Studies</div>
+            <div style="font-size:10px;color:var(--muted);">Davan-Nutana Alliance · ${meta.venue||'Davan Nutana College, LIC Colony, BIET Road, Dvg'}</div>
+          </div>
+        </div>
+
+        <!-- Title banner -->
+        <div style="background:rgba(196,160,42,0.12);border:1px solid rgba(196,160,42,0.3);border-radius:8px;padding:10px 16px;text-align:center;margin-bottom:10px;">
+          <div style="font-size:13px;font-weight:700;color:var(--accent);">${meta.title||'Internal Time Table'}</div>
+        </div>
+
+        <!-- Instructions -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+          ${instructions.map((inst,i)=>`
+            <div style="display:flex;gap:6px;font-size:11px;color:var(--muted);">
+              <span style="color:var(--accent);font-weight:700;flex-shrink:0;">${i+1}.</span>
+              <span>${inst}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Session blocks -->
+      ${mBatches.length ? renderSessionBlock(mBatches,'morning') : ''}
+      ${aBatches.length ? renderSessionBlock(aBatches,'afternoon') : ''}
+
+      <!-- Footer -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:14px 20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-top:4px;">
+        <div>
+          <div style="font-size:10px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;margin-bottom:6px;">FACULTY INCHARGE</div>
+          ${inc1?`<div style="font-size:13px;font-weight:600;color:var(--text);">${inc1}</div>`:''}
+          ${inc2?`<div style="font-size:13px;font-weight:600;color:var(--text);">${inc2}</div>`:''}
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:10px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;margin-bottom:6px;">DIRECTOR</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);">${dir}</div>
+          <div style="font-size:11px;color:var(--muted);">${created}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+
+
 async function stuRefreshCalendar(btn) {
   const orig = btn ? btn.textContent : "";
   if (btn) { btn.textContent = "⏳ Refreshing…"; btn.disabled = true; }
