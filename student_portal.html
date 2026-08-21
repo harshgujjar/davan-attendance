@@ -17,6 +17,18 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.45 (2026-08-21) — FEAT: "auto connect" for the widget-tap
+pairing flow. [student_portal.html: goToDashboard() ~7406, stuTryFirebaseAutoRepair()
+~5867] A student already signed in (restored session, no password just
+typed) who taps their own unpaired widget now pairs it with zero extra
+taps — previously this silently did nothing (v8.32's fix, correctly, only
+allows pairing on _freshLogin). Bridges the gap WITHOUT reopening that
+hole: gated on STATE._pairCodeFrom==='url' (proves a real tap just
+happened, not a bare page open) AND a live firebase.auth().currentUser
+email match against the restored URN (proves real Firebase identity, not
+a trusted localStorage blob). On match, delegates to the existing
+stuCompleteWidgetPairing() unchanged — same ownership guard, same
+takeover refusal, same audit log.
 VERSION : v8.44 (2026-08-21) — FEAT: Internal Timetable now has its own
 VISIBILITY CONTROLS toggle ("Internal Timetable") instead of piggybacking
 on the weekly class Timetable flag. Added 'internalTimetable' to
@@ -5606,11 +5618,11 @@ const BUILD_DATE   = '20 Aug 2026, IST'; // v6.90: update alongside APP_VERSION 
 // minApkVersion is "anything below this MUST update before it may pair or
 // fetch at all" (blocks). They are almost always equal at release time —
 // keep them equal unless you deliberately want older builds to keep working
-// a while longer. Forced to 28 now: the w27 pairing bug (any fresh login
-// could silently steal another student's widget — see student_portal.html
-// v8.38 changelog) has no safe workaround on the widget side, so w27 and
-// earlier must stop functioning rather than keep nagging quietly.
-const LATEST_STUDENT_WIDGET_APK = { apkVersion: 28, minApkVersion: 28, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
+// a while longer. Raised to 29 on 21-Aug-2026 (was 28 since the w27 pairing
+// bug fix): w28 and earlier are now hard-blocked too, since w29 is the
+// build that actually shows the internal-exam seat/room card, and there is
+// no reason to keep w28 propped up now that it's superseded.
+const LATEST_STUDENT_WIDGET_APK = { apkVersion: 29, minApkVersion: 29, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
 
 // Publishes LATEST_STUDENT_WIDGET_APK to DB2 so the student widget (v1+)
 // can read it directly and nag on the widget face when it's behind.
@@ -5863,6 +5875,53 @@ async function stuCompleteWidgetPairing() {
     if (!owner) stuLogPairEvent(pairCode, '', me, 'auto', false);
     console.log('[StudentWidgetPair] Paired widget ' + pairCode + ' to ' + STATE.studentUser.urn);
   } catch (e) { console.warn('[StudentWidgetPair] pairing write failed:', e && e.message); }
+}
+
+// v8.45 — companion to stuCompleteWidgetPairing(), for the ONE case v8.32
+// deliberately left unhandled: a restored session (no password just typed)
+// that arrived here because the student tapped their own widget THIS load
+// (STATE._pairCodeFrom === 'url' — enforced by the caller in
+// goToDashboard(), not re-checked here, so this function is never called
+// on a bare page open).
+//
+// Does not trust STATE.studentUser by itself — that came from localStorage
+// ('stu_remember'), the exact kind of unverified blob v8.32 was written to
+// stop trusting for pairing decisions. Instead it asks Firebase directly,
+// live, right now: is there a real signed-in Firebase Auth user, and does
+// THAT account's email match this URN? firebase.auth().currentUser is only
+// ever set by a genuine signInWithEmailAndPassword() elsewhere in this
+// file (see stuAuthenticate()) — it cannot be forged by editing
+// localStorage, which is the entire reason it's trustworthy here where a
+// JSON blob is not.
+//
+// On a match, this earns exactly the same trust _freshLogin earns and
+// hands off to stuCompleteWidgetPairing() — same ownership/takeover guard,
+// same audit log, same refusal behaviour for a widget that belongs to
+// someone else. This function adds a second DOOR to that existing room,
+// not a new room.
+async function stuTryFirebaseAutoRepair() {
+  try {
+    if (!STATE.studentUser || !STATE.studentUser.urn) return;
+    const fbUser = firebase.auth().currentUser;
+    if (!fbUser || !fbUser.email) {
+      console.log('[StudentWidgetPair] auto-repair: no live Firebase session — skipping, restored session left unchanged');
+      return;
+    }
+    const expectedEmail = String(STATE.studentUser.urn).toLowerCase() + AUTH_DOMAIN_SFX;
+    if (fbUser.email.toLowerCase() !== expectedEmail) {
+      // Live Firebase identity doesn't match the restored URN — e.g. a
+      // shared/family device where a DIFFERENT student is the one actually
+      // signed into Firebase right now. Do not pair on a mismatch; that
+      // would be exactly the stranger-takeover v8.38 exists to prevent.
+      console.warn('[StudentWidgetPair] auto-repair: Firebase session (' + fbUser.email + ') does not match restored URN (' + expectedEmail + ') — refusing');
+      return;
+    }
+    console.log('[StudentWidgetPair] auto-repair: live Firebase session confirms ' + STATE.studentUser.urn + ' — completing tap-to-pair');
+    STATE._freshLogin = true;   // earned it via Firebase re-check, not a typed password
+    await stuCompleteWidgetPairing();
+  } catch (e) {
+    console.warn('[StudentWidgetPair] auto-repair failed (left unchanged):', e && e.message);
+  }
 }
 
 // Removes this device's pairing on logout — mirrors index.html's
@@ -7356,6 +7415,28 @@ async function goToDashboard() {
   STATE._pairCodeFrom = (typeof window !== 'undefined' && window.__pairCodeFrom) || 'stored';
   if (STATE._freshLogin) {
     stuCompleteWidgetPairing();
+  } else if (STATE._pairCodeFrom === 'url') {
+    // v8.45 · TAP-TO-PAIR ON A RESTORED SESSION, WITHOUT REOPENING v8.32's HOLE.
+    //
+    // v8.32 (above) is correct and stays as-is: a bare page open must never
+    // re-pair, because it looks identical to the widget silently reclaiming
+    // itself. The gap that's left is a real one though — a student who is
+    // already signed in, taps THEIR OWN unpaired widget (?wdev= arrives on
+    // THIS load, proving a physical tap just happened), lands on a restored
+    // session, and previously got silently skipped with nothing on screen
+    // and no path to actually pair short of logging out and back in.
+    //
+    // Fix does NOT relax _freshLogin's meaning. It adds one narrow path that
+    // earns the same trust a fresh login earns, via a DIFFERENT real proof:
+    // Firebase Auth's own persisted session (firebase.auth().currentUser,
+    // set only by a genuine signInWithEmailAndPassword() and never by this
+    // app's own localStorage code) is re-checked live, right now, and its
+    // email must match the URN this session claims to be. That is not a
+    // stale blob — it's Firebase re-asserting "this browser really
+    // authenticated as this account" at this exact moment. Requiring
+    // codeFrom==='url' on top keeps v8.32's "nothing on screen" guarantee:
+    // this can only fire off the back of an actual tap, never a page open.
+    stuTryFirebaseAutoRepair();
   } else {
     console.log('[StudentWidgetPair] restored session — widget ownership left unchanged');
   }
