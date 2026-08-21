@@ -17,6 +17,41 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.44 (2026-08-21) — FEAT: Internal Timetable now has its own
+VISIBILITY CONTROLS toggle ("Internal Timetable") instead of piggybacking
+on the weekly class Timetable flag. Added 'internalTimetable' to
+CONTROL_FLAGS (so it auto-gets byClass/byUrn override support + checkbox
+load, same as every other flag), new checkbox row in Controls tab right
+after Timetable, and renderInternalsTimetable() now checks
+canShow('internalTimetable') instead of canShow('timetable').
+VERSION : v8.43 (2026-08-21) — FEAT: "Your Seat" banner now shows one room
+line PER EXAM DAY instead of a single fixed room. Admin confirmed rooms now
+rotate per day (anti-cheating rotation) while bench/seat stay fixed — old
+banner kept showing only the Day-1 room for every date. Reads the new
+seat.perDay array ({date, room} per real exam day, written by
+sync_db1_to_db2.py v2.9.0's sync_sitting_to_urn_fanout()); falls back to the
+old single-room line if perDay is missing (older sitting_by_urn record).
+VERSION : v8.42 (2026-08-20) — FEAT: "Your Seat" banner now shows Bench letter (e.g. "Room
+          S3 · Bench C · Seat 7"), sourced from a new seat.bench field on davan_pub/
+          sitting_by_urn/{URN} — computed SERVER-SIDE by sync_db1_to_db2.py v2.8.0's exact
+          Python port of index.html's own sitBenchLetter() formula, not recomputed client-side,
+          so there is exactly one bench-letter formula across both apps and this can never
+          silently disagree with what the admin app itself shows for the same seat.
+VERSION : v8.41 (2026-08-20) — FIX: "Your Seat" banner's session label (Morning/Afternoon
+          chip) compared seat.session against lowercase 'morning'/'afternoon', but the real
+          data at davan_pub/sitting_by_urn stores it as 'MORNING'/'AFTERNOON' (confirmed via
+          F12 dump of the underlying DB1 path) — session label silently never showed even
+          though Room/Seat still rendered fine. Comparison is now case-insensitive.
+VERSION : v8.40 (2026-08-20) — FEAT: "Your Seat" banner on the Internal Timetable panel's
+          My Class view — shows the student's own exam room + seat number (e.g. "Room S2 ·
+          Seat 14"), sourced from davan_pub/sitting_by_urn/{URN}, a new per-student fanout
+          (sync_db1_to_db2.py v2.5.0) built specifically so this stays a single-key, single-
+          student lookup — the raw DB1 seating blob (every student's seat in every room) is
+          never mirrored to DB2 in any form a client could enumerate. Banner only shows when
+          the seat's internalNum matches the currently-displayed internal's meta.n, so a seat
+          saved for an older internal doesn't linger looking current once a new one exists
+          without its own seating pass yet. Full Timetable view never shows this — it's a
+          personal answer, not something every student should see about themselves at once.
 VERSION : v8.39 (2026-08-20) — FEAT: new Internal Timetable panel (spanel-inttt, distinct from the
           existing Internals panel which is IA1/IA2 marks). Two sub-tabs: My Class (filtered to the
           student's own internals batch, e.g. "II BCA") and Full Timetable (every batch, date-grouped).
@@ -4203,6 +4238,7 @@ body.dash-active .data-strip { display: block; }
       <div class="ctrl-row"><div><div class="ctrl-label">Internals</div><div class="ctrl-sub">Show IA1 and IA2 marks</div></div><label class="toggle"><input type="checkbox" id="g-internals" onchange="saveGlobal('internals',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Semester Marks</div><div class="ctrl-sub">Show semester / exam results</div></div><label class="toggle"><input type="checkbox" id="g-semMarks" onchange="saveGlobal('semMarks',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Timetable</div><div class="ctrl-sub">Show weekly class schedule</div></div><label class="toggle"><input type="checkbox" id="g-timetable" onchange="saveGlobal('timetable',this.checked)"><span class="toggle-slider"></span></label></div>
+      <div class="ctrl-row"><div><div class="ctrl-label">Internal Timetable</div><div class="ctrl-sub">Show internal exam schedule &amp; seat allocation</div></div><label class="toggle"><input type="checkbox" id="g-internalTimetable" onchange="saveGlobal('internalTimetable',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Lesson Plan</div><div class="ctrl-sub">Show syllabus progress</div></div><label class="toggle"><input type="checkbox" id="g-lessonPlan" onchange="saveGlobal('lessonPlan',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Faculty Photos</div><div class="ctrl-sub">Show faculty photo beside every name (off = teacher emoji)</div></div><label class="toggle"><input type="checkbox" id="g-facultyPhotos" onchange="saveGlobal('facultyPhotos',this.checked);if(typeof renderStudentDashboard==='function'){try{renderStudentDashboard();}catch(e){}}"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Social — Dashboard Banner</div><div class="ctrl-sub">Dismissible "Stay in the loop" banner at the top of Home</div></div><label class="toggle"><input type="checkbox" id="g-socialBanner" onchange="saveGlobal('socialBanner',this.checked);if(typeof renderSocialBanner==='function')renderSocialBanner();"><span class="toggle-slider"></span></label></div>
@@ -5311,7 +5347,7 @@ const ADMIN_CREDENTIALS = [
   { username: 'vp',      password: 'vp123',       role: 'vp'      }
 ];
 
-const CONTROL_FLAGS = ['attendance','internals','semMarks','timetable','lessonPlan'];
+const CONTROL_FLAGS = ['attendance','internals','semMarks','timetable','lessonPlan','internalTimetable'];
 
 /* ════════════════════════════════════════════════════════════════════════════
    LANGUAGE SUBJECT FILTER (26-Jul-2026)
@@ -5543,7 +5579,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.39';
+const APP_VERSION = 'v8.42';
 const BUILD_DATE   = '20 Aug 2026, IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -17271,8 +17307,13 @@ async function stuRefreshInternalsTT(btn) {
   const orig = btn ? btn.textContent : '';
   if (btn) { btn.textContent = '⏳ Refreshing…'; btn.disabled = true; }
   try {
-    const data = await rtdbGet('davan_pub/internals_current').catch(() => null);
+    const urn = STATE.studentUser && STATE.studentUser.urn;
+    const [data, seat] = await Promise.all([
+      rtdbGet('davan_pub/internals_current').catch(() => null),
+      urn ? rtdbGet('davan_pub/sitting_by_urn/' + urn).catch(() => null) : Promise.resolve(null)
+    ]);
     STATE.internalsTT = data;
+    STATE.mySitting = seat;
     renderInternalsTimetable();
   } catch(e) { console.warn('[stuRefreshInternalsTT]', e); }
   if (btn) { btn.textContent = '✓ Updated'; setTimeout(() => { btn.textContent = orig || '↻ Refresh'; btn.disabled = false; }, 1500); }
@@ -17289,11 +17330,20 @@ async function loadInternalsTimetable() {
   if (loadEl) loadEl.style.display = 'block';
   if (wrapEl) wrapEl.style.display = 'none';
   try {
-    const data = await rtdbGet('davan_pub/internals_current').catch(() => null);
+    const urn = STATE.studentUser && STATE.studentUser.urn;
+    const [data, seat] = await Promise.all([
+      rtdbGet('davan_pub/internals_current').catch(() => null),
+      // davan_pub/sitting_by_urn/{URN} — a per-student fanout (sync_db1_to_db2.py
+      // v2.5.0), never the full seating chart: this key only ever contains OUR
+      // OWN URN's room/seat, so there's nothing else to accidentally expose here.
+      urn ? rtdbGet('davan_pub/sitting_by_urn/' + urn).catch(() => null) : Promise.resolve(null)
+    ]);
     STATE.internalsTT = data;
+    STATE.mySitting = seat;
   } catch(e) {
     console.warn('[loadInternalsTimetable]', e);
     STATE.internalsTT = null;
+    STATE.mySitting = null;
   }
   renderInternalsTimetable();
 }
@@ -17312,7 +17362,13 @@ function renderInternalsTimetable() {
   const emptyEl = document.getElementById('stu-inttt-empty');
   if (loadEl) loadEl.style.display = 'none';
 
-  if (!canShow('timetable')) {
+  // v8.44: was gated on canShow('timetable') — the WEEKLY class timetable
+  // flag, a different toggle from what "Internal Timetable" means. That
+  // meant switching off weekly Timetable also silently hid this panel, and
+  // there was no way to hide Internal Timetable on its own. Now uses its
+  // own flag (VISIBILITY CONTROLS ▸ "Internal Timetable" toggle,
+  // CONTROL_FLAGS).
+  if (!canShow('internalTimetable')) {
     if (wrapEl)  wrapEl.style.display  = 'none';
     if (hidEl)   hidEl.style.display   = 'block';
     if (emptyEl) emptyEl.style.display = 'none';
@@ -17358,7 +17414,80 @@ function renderInternalsTimetable() {
     return;
   }
 
-  wrapEl.innerHTML = intRenderTable(viewData);
+  // "My Class" only — a genuinely personal answer ("where do I sit"), so it
+  // never appears on Full Timetable, which every student sees identically.
+  const seatBanner = (_inttSubtab === 'mine') ? stuRenderSeatBanner(data) : '';
+  wrapEl.innerHTML = seatBanner + intRenderTable(viewData);
+}
+
+// Personal-only banner: "where do I physically sit" for the CURRENT internal.
+// Source: STATE.mySitting, fetched from davan_pub/sitting_by_urn/{myURN} — a
+// per-student fanout (sync_db1_to_db2.py v2.5.0+) that only ever contains the
+// logged-in student's own room/seat, never anyone else's, so there is no
+// wider seating chart reachable from here even indirectly. seat.bench (added
+// v2.8.0) is computed SERVER-SIDE by the sync script's own exact port of
+// index.html's sitBenchLetter() formula — deliberately NOT recomputed here
+// client-side, so there is exactly one bench-letter formula per language and
+// no way for this display to silently disagree with what the admin app
+// itself shows for the same seat.
+function stuRenderSeatBanner(internalsData) {
+  const seat = STATE.mySitting;
+  if (!seat || !seat.room) return '';
+  // Only show the seat if it belongs to THIS internal — sitting_by_urn keeps
+  // just the most recent (internalNum, session) a student was seated for, so
+  // once a later internal is created without a fresh seating pass yet, an
+  // old room number would otherwise linger looking current. meta.n is the
+  // same ordinal SIT_INT is keyed by on the admin side (see index.html's
+  // intSave()/sitPopulateInternalSel()), so this is a direct, no-lookup match.
+  const currentN = String((internalsData && internalsData.meta && internalsData.meta.n) || '');
+  if (currentN && String(seat.internalNum) !== currentN) return '';
+  // Case-insensitive: live DB1 data stores session as "MORNING"/"AFTERNOON"
+  // (confirmed via F12 console dump of internals/sittingAllocation), not the
+  // lowercase 'morning'/'afternoon' used elsewhere in this file's own
+  // intRenderTable() session keys — the two happen to differ in case between
+  // the Sitting tab's storage and the Internals module's, so compare loosely.
+  const seatSessionLower = String(seat.session || '').toLowerCase();
+  const sessionLabel = seatSessionLower === 'afternoon' ? '🌆 Afternoon' : seatSessionLower === 'morning' ? '🌅 Morning' : '';
+  const benchSeatSuffix = (seat.bench ? ' · Bench ' + seat.bench : '') + (seat.seatNo ? ' · Seat ' + seat.seatNo : '');
+
+  // v2.9.0: room now rotates per exam day (anti-cheating rotation — seat
+  // number/bench stay fixed, only the room label changes day to day; see
+  // sync_db1_to_db2.py's sync_sitting_to_urn_fanout() docstring). sync
+  // writes one {date, room} pair per real exam day in seat.perDay — render
+  // one line per day when it's present. Falls back to the old single
+  // "Room X" line for any older sitting_by_urn record synced before this
+  // field existed (perDay missing/empty), so a stale DB2 write never
+  // renders blank.
+  const perDay = Array.isArray(seat.perDay) ? seat.perDay.filter(d => d && d.room) : [];
+  const fmtDate = d => {
+    if (!d) return '';
+    const p = String(d).split('-');
+    return p.length === 3 ? (p[2] + '/' + p[1] + '/' + p[0]) : d;
+  };
+
+  let bodyHtml;
+  if (perDay.length) {
+    bodyHtml = perDay.map(d =>
+      '<div style="font-size:15px;font-weight:700;color:var(--text);margin-top:2px;">' +
+        'Room ' + d.room + benchSeatSuffix +
+        (d.date ? ' <span style="font-size:11px;font-weight:400;color:var(--muted);">— ' + fmtDate(d.date) + '</span>' : '') +
+      '</div>'
+    ).join('');
+    if (sessionLabel) {
+      bodyHtml = '<div style="font-size:11px;color:var(--muted);margin-top:2px;">' + sessionLabel + '</div>' + bodyHtml;
+    }
+  } else {
+    bodyHtml = '<div style="font-size:15px;font-weight:700;color:var(--text);margin-top:2px;">Room ' + seat.room + benchSeatSuffix + '</div>' +
+      (sessionLabel || seat.dates ? '<div style="font-size:11px;color:var(--muted);margin-top:2px;">' + [sessionLabel, seat.dates].filter(Boolean).join(' · ') + '</div>' : '');
+  }
+
+  return '<div style="background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.3);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px;">' +
+    '<div style="font-size:22px;">🪑</div>' +
+    '<div>' +
+      '<div style="font-size:11px;font-family:var(--mono);letter-spacing:1px;color:#67e8f9;text-transform:uppercase;">Your Seat</div>' +
+      bodyHtml +
+    '</div>' +
+  '</div>';
 }
 
 // ── Ported verbatim from index.html §31 intRenderTable() (mother-app View
