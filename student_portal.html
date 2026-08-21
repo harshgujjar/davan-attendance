@@ -17,6 +17,104 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.53 (2026-08-21) — FIX: student widget w36 — w35's row-limit
+fix was correct but incomplete: user confirmed both Theory and Lab now
+appear, but the Theory-TIME slot was showing the WRONG LABEL
+("Java Programming Lab") instead of "Java Programming". Root cause
+confirmed against this file's own logic:
+[student_portal.html: stuLmAllocMatchesCode() ~18085-18089] checks
+`isLabSlot !== allocIsLab` and rejects a mismatch BEFORE falling through
+to base-code comparison — [StudentFetchWorker.kt: lmAllocMatchesCode()
+~1162, old comment] this check was explicitly never ported, on the
+documented (and wrong) assumption it was "display-only". Without it,
+when Theory and Lab share the same base code after normalization (e.g.
+both -> "Java Programming"), `classAllocs.firstOrNull{}` could grab
+whichever allocation sorted first in the list regardless of which slot
+it actually was. Fixed: new [StudentFetchWorker.kt: lmIsLabCode() ~1169]
+ports stuLmParseCode()'s isLab detection exactly (the "SUBJ A1·Lab 1" and
+"SUBJ A1(A)" patterns); lmAllocMatchesCode() now rejects a Theory/Lab
+mismatch first, matching the portal exactly. Also, separately reported:
+English's lesson-plan topic always shows "Phrases" regardless of day —
+[StudentFetchWorker.kt: buildFullStats() ~817] the diagnostic data
+needed to answer this (lpKeyUsed — which lessonPlan document each
+subject matched) was already being computed and stored in
+debugInfo/SharedPrefs every cycle but NEVER printed to logcat or shown
+anywhere, genuinely invisible without a SharedPrefs dump. Added a
+Log.d() so the next logcat capture answers directly whether English is
+matching the right lesson-plan document (if so, "Phrases" is genuinely
+the last topic marked done by faculty, not a code bug) or a wrong one.
+[student_portal.html:5781] apkVersion 35->36. [StudentFetchWorker.kt:44,
+app/build.gradle:33-34, STUDENT_WIDGET_README.md:17] version markers
+35->36.
+VERSION : v8.52 (2026-08-21) — FEAT: student widget w35 — a real 4th/5th
+class for the day (e.g. Java Programming Theory AND Lab as separate
+periods, both still upcoming) was silently cut off the widget's "Today's
+Classes" list with no error anywhere, even though the SAME data rendered
+correctly in student_portal.html's own timetable view. Root cause was
+NOT the timetable data or the matching logic (both traced and confirmed
+correct) — [StudentWidgetRenderer.kt ~570] the render loop only ever
+filled a FIXED 3 rows (`rowIds = listOf(stu_tv_schedule_1, _2, _3)`), so
+any upcoming period beyond the 3rd had nowhere to draw at all.
+[widget_layout_student.xml ~445-475] added two more identical rows
+(stu_tv_schedule_4, _5); [StudentWidgetRenderer.kt ~570] rowIds extended
+to include them — the existing render loop already handles any list
+length generically, no other logic change needed.
+[student_portal.html:5765] apkVersion 34->35 (soft nag, minApkVersion
+unchanged). [StudentFetchWorker.kt:44, app/build.gradle:33-34,
+STUDENT_WIDGET_README.md:17] version markers 34->35.
+VERSION : v8.51 (2026-08-21) — FIX: student widget w34 — w33's own new
+diagnostic logging caught this live, exactly as designed:
+`fetchNextInternalSeat: failed: Failed to convert value of type
+java.lang.Long to String` (ASHOKA T S / U13DI25S0027, adb logcat). w33
+fixed internalNum/bench/room's type-mismatch risk but explicitly left
+`perDay[].date` as a fixed String read, reasoning dates are consistently
+ISO strings throughout the system — the live crash proved that
+assumption wrong for this specific field. [StudentFetchWorker.kt:
+fetchNextInternalSeat() ~1974] Fix is NOT a bare .toString() coercion
+like the others — a raw epoch Long's .toString() would produce
+millisecond garbage ("1757347200000") incomparable against the ISO
+todayStr ("2026-09-09"), silently corrupting the "today or later" pick
+instead of crashing. New local `normalizeDate()` handles both real
+possibilities explicitly: an ISO string passes through unchanged; a Long
+is formatted through the same "yyyy-MM-dd" formatter used for todayStr,
+so the date comparison stays meaningful either way. Confirmed in the
+SAME logcat capture that the w30 PWA-first-tap fix (routing to installed
+WebAPK org.chromium.webapk.a62122dc747401434_v2) is firing correctly on
+every tap — that part was never broken; the "already installed" prompt
+blocking a fresh reinstall earlier was a Chrome-side stale registration,
+unrelated to this codebase, resolved by clearing site data and
+reinstalling via Chrome's "Install app" (not "Create shortcut", which
+only makes a plain bookmark). [student_portal.html:5740] apkVersion
+33->34. [StudentFetchWorker.kt:44, app/build.gradle:33-34,
+STUDENT_WIDGET_README.md:17] version markers 33->34.
+VERSION : v8.50 (2026-08-21) — FIX: student widget w33 — seat/room line
+still missing under the "Upcoming: Internal — English, 09 Sep 2026" card
+on w32, confirmed live (ASHOKA T S / U13DI25S0027 — Room S3/S4/S5 · Bench
+J · Seat 29 correct in the portal, absent on the widget). Root cause:
+[StudentFetchWorker.kt: fetchNextInternalSeat() ~1955]
+`seatSnap.child("internalNum").getValue(String::class.java)` assumed a
+fixed String type for internalNum without verifying it — but
+this file's OWN currentN read three lines above already handles the
+identical field ambiguously (Int-then-String fallback), and this app's
+own stuRenderSeatBanner() (~17673) defensively wraps the same field in
+String(seat.internalNum) rather than assuming a type. A genuine Kotlin/
+Firebase type mismatch on getValue(SpecificType::class.java) can THROW
+rather than return null (confirmed via a real-world Firebase Android
+forum report of this exact failure), which the function's own outer
+try/catch was silently swallowing — the whole seat fetch failed and
+returned blank with nothing visible anywhere, which is why the Upcoming
+card rendered (that logic is unrelated, fixed in w32) but the seat line
+never appeared. Fixed by reading internalNum (and bench/room/perDay's
+room, same risk) via getValue() + toString() instead of a fixed type,
+matching the portal's own defensive coercion. Also added Log.d() at
+every remaining silent-blank point in this function (missing
+sitting_by_urn node, stale-internal mismatch, no usable room) and made
+the outer catch log the full exception object, not just its message, so
+a genuine future failure shows a real stack trace in logcat instead of
+one line. [student_portal.html:5712] apkVersion 32->33 (soft nag,
+minApkVersion unchanged). [StudentFetchWorker.kt:44,
+app/build.gradle:33-34, STUDENT_WIDGET_README.md:17] version markers
+32->33.
 VERSION : v8.49 (2026-08-21) — FIX: student widget w32 — internals card
 still said "haven't been scheduled yet" on w31 despite the real fix,
 confirmed live against ASHOKA T S / U13DI25S0027 (portal correctly showed
@@ -5668,7 +5766,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.49';
+const APP_VERSION = 'v8.53';
 const BUILD_DATE   = '21 Aug 2026, IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -5709,7 +5807,7 @@ const BUILD_DATE   = '21 Aug 2026, IST'; // v6.90: update alongside APP_VERSION 
 // UX, no data/safety implication either way, so apkVersion bumped to 30
 // and minApkVersion deliberately LEFT AT 29 per the rule above — w29 users
 // are soft-nagged, not blocked.
-const LATEST_STUDENT_WIDGET_APK = { apkVersion: 32, minApkVersion: 29, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
+const LATEST_STUDENT_WIDGET_APK = { apkVersion: 36, minApkVersion: 29, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
 
 // Publishes LATEST_STUDENT_WIDGET_APK to DB2 so the student widget (v1+)
 // can read it directly and nag on the widget face when it's behind.
