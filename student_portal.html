@@ -17,6 +17,62 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.48 (2026-08-21) — FEAT: student widget w31 — real internal
+timetable as the source for the widget's "Upcoming" internals card.
+[student_portal.html:5671] LATEST_STUDENT_WIDGET_APK.apkVersion 30->31
+(soft nag, minApkVersion left at 29 per standing rule). Actual fix lives
+in the APK: [StudentFetchWorker.kt: fetchUpcomingInternalFromTimetable()
+~1816, motherClassToInttBatch() ~1804] internalsState was driven entirely
+by a davan_pub/calendar entry whose TITLE happened to contain the word
+"internal" (see w29's own changelog, which already flagged this as a
+known gap) — never by davan_pub/internals_current, the real node
+index.html's Internals module writes and this portal's own Internal
+Timetable panel already reads (loadInternalsTimetable() above). An admin
+could build a complete internal exam timetable with real seat
+allocations and the widget would still say "haven't been scheduled yet".
+Fix reads internals_current.slots directly, matches the student's batch
+(ported stuClassToInttBatch()'s "II YEAR BCA (A)" -> "II BCA" logic),
+and tries this FIRST; [buildFullStats() ~752] falls back to the old
+calendar-title guess only if internals_current has nothing for that
+batch — additive, not a replacement, for colleges that only ever used
+the calendar entry. [StudentFetchWorker.kt:44, app/build.gradle:33-34,
+STUDENT_WIDGET_README.md:17] version markers 30->31.
+VERSION : v8.47 (2026-08-21) — FIX: v8.45's tap-to-pair auto-repair
+silently did nothing for students on legacy auth. [student_portal.html:
+stuTryFirebaseAutoRepair() ~5942] that function required a live
+firebase.auth().currentUser to re-verify identity, but stuAuthenticate()'s
+'legacy'/'legacy-master' modes (~6644-6683, still an active login path —
+see the Phase-6 note above it) never call signInWithEmailAndPassword(),
+so currentUser is genuinely null for those students — auto-repair always
+fell through with nothing on screen, same failure class v8.29's banner
+work was meant to end. FIX: split the two failure cases. A live session
+that MISMATCHES the restored URN still refuses silently (real
+stranger-takeover protection, unchanged). A MISSING session now sets
+STATE._widgetNeedsConfirm and [stuRenderGreeting() ~15430, factored into
+new stuRenderWidgetPairBanner() ~15398] renders a one-tap "Pair this
+widget?" banner; tapping it (new stuConfirmWidgetPair() ~5904) is treated
+as the same category of proof _freshLogin is — an explicit decision, just
+lighter than retyping a password — and hands off to the existing
+stuCompleteWidgetPairing() unchanged. Also fixed an ordering bug in the
+same patch: [goToDashboard() ~7497] stuTryFirebaseAutoRepair() was
+fire-and-forget, so the banner flag it sets was written AFTER
+stuRenderGreeting() had already painted for that page load and never
+appeared until some unrelated re-render. Now awaited, with an explicit
+second stuRenderWidgetPairBanner() call right after.
+VERSION : v8.46 (2026-08-21) — FEAT: student widget w30 — PWA-first tap.
+[student_portal.html:5636] LATEST_STUDENT_WIDGET_APK.apkVersion 29->30 (soft
+nag only — minApkVersion deliberately left at 29, see standing rule in the
+comment above that line). Actual fix lives in the APK, not this file:
+[StudentWidgetProvider.kt: resolveWebApkPackage() ~350, buildOpenPortalPendingIntent() ~394]
+tapping the widget now queries PackageManager for an installed WebAPK
+handling this exact URL and targets it via setPackage(), instead of a bare
+ACTION_VIEW that was defaulting to a plain Chrome tab even with the PWA
+installed. [AndroidManifest.xml: <queries> block] added so that query can
+see the WebAPK at all under Android 11+ package-visibility rules — without
+it the new code silently no-ops and always falls back to Chrome.
+[StudentFetchWorker.kt:44, app/build.gradle:33-34, STUDENT_WIDGET_README.md:17]
+THIS_APK_VERSION/versionCode/versionName/CURRENT_VERSION 29->30, kept in
+sync per the existing auto-increment rule.
 VERSION : v8.45 (2026-08-21) — FEAT: "auto connect" for the widget-tap
 pairing flow. [student_portal.html: goToDashboard() ~7406, stuTryFirebaseAutoRepair()
 ~5867] A student already signed in (restored session, no password just
@@ -5591,8 +5647,8 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.42';
-const BUILD_DATE   = '20 Aug 2026, IST'; // v6.90: update alongside APP_VERSION at each release
+const APP_VERSION = 'v8.48';
+const BUILD_DATE   = '21 Aug 2026, IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
 // APP_VERSION above. APP_VERSION tracks this PWA's own release number;
@@ -5618,11 +5674,21 @@ const BUILD_DATE   = '20 Aug 2026, IST'; // v6.90: update alongside APP_VERSION 
 // minApkVersion is "anything below this MUST update before it may pair or
 // fetch at all" (blocks). They are almost always equal at release time —
 // keep them equal unless you deliberately want older builds to keep working
-// a while longer. Raised to 29 on 21-Aug-2026 (was 28 since the w27 pairing
-// bug fix): w28 and earlier are now hard-blocked too, since w29 is the
-// build that actually shows the internal-exam seat/room card, and there is
-// no reason to keep w28 propped up now that it's superseded.
-const LATEST_STUDENT_WIDGET_APK = { apkVersion: 29, minApkVersion: 29, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
+// a while longer.
+//
+// STANDING RULE (set 21-Aug-2026): default behaviour on every routine
+// release is SOFT NAG ONLY — bump apkVersion, leave minApkVersion where it
+// is. minApkVersion only moves when explicitly told to from the admin
+// side, reserved for releases that fix a real safety/security hole (like
+// w28's pairing-hijack fix) — not for ordinary features/UX work like w30.
+//
+// w30 (2026-08-21): PWA-first tap — the widget now opens the installed PWA
+// directly instead of a plain Chrome tab, via PackageManager-targeted
+// WebAPK resolution (StudentWidgetProvider.resolveWebApkPackage()). Pure
+// UX, no data/safety implication either way, so apkVersion bumped to 30
+// and minApkVersion deliberately LEFT AT 29 per the rule above — w29 users
+// are soft-nagged, not blocked.
+const LATEST_STUDENT_WIDGET_APK = { apkVersion: 31, minApkVersion: 29, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
 
 // Publishes LATEST_STUDENT_WIDGET_APK to DB2 so the student widget (v1+)
 // can read it directly and nag on the widget face when it's behind.
@@ -5877,6 +5943,22 @@ async function stuCompleteWidgetPairing() {
   } catch (e) { console.warn('[StudentWidgetPair] pairing write failed:', e && e.message); }
 }
 
+// v8.47 — tap handler for the one-tap confirm banner (stuRenderGreeting()).
+// Reached only when stuTryFirebaseAutoRepair() had a pending ?wdev= code
+// but no live Firebase session to silently verify against (legacy auth —
+// see that function's comment). The tap itself IS the proof here, same
+// category as _freshLogin: a person looked at "Pair this widget to your
+// account?" with their own name on it and chose yes. Delegates to
+// stuCompleteWidgetPairing() unchanged — same ownership guard, same
+// takeover refusal, same audit log as every other pairing path.
+async function stuConfirmWidgetPair() {
+  STATE._freshLogin = true;   // earned it via an explicit tap, not a typed password
+  STATE._widgetNeedsConfirm = null;
+  const el = document.getElementById('stu-widget-confirm-banner');
+  if (el) el.remove();
+  await stuCompleteWidgetPairing();
+}
+
 // v8.45 — companion to stuCompleteWidgetPairing(), for the ONE case v8.32
 // deliberately left unhandled: a restored session (no password just typed)
 // that arrived here because the student tapped their own widget THIS load
@@ -5902,17 +5984,35 @@ async function stuCompleteWidgetPairing() {
 async function stuTryFirebaseAutoRepair() {
   try {
     if (!STATE.studentUser || !STATE.studentUser.urn) return;
+    const pairCode = localStorage.getItem('davan_student_widget_pair_code') || '';
     const fbUser = firebase.auth().currentUser;
     if (!fbUser || !fbUser.email) {
-      console.log('[StudentWidgetPair] auto-repair: no live Firebase session — skipping, restored session left unchanged');
+      /* v8.47 — LEGACY-AUTH GAP. This restored session may be entirely
+         legitimate (stuAuthenticate()'s 'legacy'/'legacy-master' modes
+         never call signInWithEmailAndPassword(), so firebase.auth()
+         .currentUser is genuinely null for a student on the old hash
+         check — this is still a real, ongoing login path per the
+         Phase-6 note above stuAuthenticate(), not a rare edge case).
+         There is no live Firebase session to silently re-verify against,
+         and no password on hand to check without an actual prompt.
+         Rather than silently do nothing (invisible to the student, looks
+         like a bug) or silently pair on no real proof (reopens v8.32's
+         hole), surface a one-tap confirm banner — stuRenderGreeting()
+         reads this flag. A tap is still a real decision, just a much
+         lighter one than retyping a password. */
+      console.log('[StudentWidgetPair] auto-repair: no live Firebase session (likely legacy auth) — offering one-tap confirm instead of pairing silently');
+      if (pairCode) STATE._widgetNeedsConfirm = pairCode;
       return;
     }
     const expectedEmail = String(STATE.studentUser.urn).toLowerCase() + AUTH_DOMAIN_SFX;
     if (fbUser.email.toLowerCase() !== expectedEmail) {
       // Live Firebase identity doesn't match the restored URN — e.g. a
       // shared/family device where a DIFFERENT student is the one actually
-      // signed into Firebase right now. Do not pair on a mismatch; that
-      // would be exactly the stranger-takeover v8.38 exists to prevent.
+      // signed into Firebase right now. Do not pair on a mismatch, and do
+      // NOT offer the confirm banner either — that would surface "pair
+      // this widget?" to someone the widget doesn't belong to, or leak
+      // which URN is really signed in. Stay fully silent; this is exactly
+      // the stranger-takeover case v8.38 exists to prevent.
       console.warn('[StudentWidgetPair] auto-repair: Firebase session (' + fbUser.email + ') does not match restored URN (' + expectedEmail + ') — refusing');
       return;
     }
@@ -7436,7 +7536,8 @@ async function goToDashboard() {
     // authenticated as this account" at this exact moment. Requiring
     // codeFrom==='url' on top keeps v8.32's "nothing on screen" guarantee:
     // this can only fire off the back of an actual tap, never a page open.
-    stuTryFirebaseAutoRepair();
+    await stuTryFirebaseAutoRepair();
+    stuRenderWidgetPairBanner();   // v8.47: re-render — the flag it reads was just set above, after the dashboard's first paint already ran
   } else {
     console.log('[StudentWidgetPair] restored session — widget ownership left unchanged');
   }
@@ -15369,24 +15470,51 @@ async function stuApplySidebarWidgetStatus(u) {
 // v7.18: Time-of-day greeting line — sits at the very top of the dashboard where
 // dash-sem-note used to be (that block now renders further down, after the
 // celebration/Perfect-Attendance section, per user request).
-function stuRenderGreeting(u) {
-  dfPaint();   // v8.26: freshness first, greeting second
-  /* v8.29: pairing used to succeed or fail in total silence, which is why a
-     widget stuck on the wrong student looked like a bug with no cause. Say
-     what happened, either way. */
+/* v8.29: pairing used to succeed or fail in total silence, which is why a
+   widget stuck on the wrong student looked like a bug with no cause. Say
+   what happened, either way.
+   v8.47: factored out of stuRenderGreeting() so it can be called a SECOND
+   time, standalone, after stuTryFirebaseAutoRepair() resolves — that call
+   is async and finishes after goToDashboard()'s first stuRenderGreeting()
+   has already painted, so without this the confirm banner would never
+   actually appear on the load where it's needed. */
+function stuRenderWidgetPairBanner() {
   const wb = document.getElementById('df-banner');
-  if (wb && STATE._widgetRefusedOwner) {
+  if (!wb) return;
+  const existing = document.getElementById('stu-widget-confirm-banner');
+  if (existing) existing.remove();   // avoid duplicating on a second call
+  if (STATE._widgetRefusedOwner) {
     wb.innerHTML += '<div style="background:#78350f;color:#fff;padding:9px 13px;font-size:12.5px;'
       + 'border-radius:8px;margin-bottom:12px;">The widget on this phone belongs to '
       + String(STATE._widgetRefusedOwner) + ' and has not been changed. '
       + 'Ask your administrator if it should be yours.</div>';
     STATE._widgetRefusedOwner = null;
-  } else if (wb && STATE._widgetTookFrom) {
+  } else if (STATE._widgetTookFrom) {
     wb.innerHTML += '<div style="background:#1e3a5f;color:#fff;padding:9px 13px;font-size:12.5px;'
       + 'border-radius:8px;margin-bottom:12px;">The widget on this phone now shows your details '
       + '(it previously showed ' + String(STATE._widgetTookFrom) + ').</div>';
     STATE._widgetTookFrom = null;
+  } else if (STATE._widgetNeedsConfirm) {
+    // one-tap confirm for the legacy-auth gap in stuTryFirebaseAutoRepair():
+    // no live Firebase session to silently re-verify, so ask instead of
+    // guessing. The tap calls stuConfirmWidgetPair(), which is the only
+    // thing that actually writes the pairing — this banner alone does
+    // nothing until tapped.
+    wb.innerHTML += '<div id="stu-widget-confirm-banner" style="background:#1e3a5f;color:#fff;padding:9px 13px;'
+      + 'font-size:12.5px;border-radius:8px;margin-bottom:12px;display:flex;align-items:center;'
+      + 'justify-content:space-between;gap:10px;">'
+      + '<span>Pair the widget on this phone to your account?</span>'
+      + '<button onclick="stuConfirmWidgetPair()" style="background:#fff;color:#1e3a5f;border:none;'
+      + 'padding:6px 12px;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap;">Pair</button>'
+      + '</div>';
+    // Left on STATE deliberately — a re-render before the tap should
+    // re-offer it, not silently drop the request.
   }
+}
+
+function stuRenderGreeting(u) {
+  dfPaint();   // v8.26: freshness first, greeting second
+  stuRenderWidgetPairBanner();
   const box = document.getElementById('dash-greeting');
   if (!box) return;
   const hr = new Date().getHours();
