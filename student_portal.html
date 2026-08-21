@@ -17,6 +17,79 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.64 (2026-08-21) — FIX (real root cause found): student
+widget w47 — the seat/room mystery (w28 through w46, many rounds) is
+resolved. w46's portal-visible seatDebug field proved conclusively via
+live logcat that fetchNextInternalSeat() was working perfectly all
+along: `SUCCESS room='S7' bench='B' seatNo='6'`, matching the real data
+exactly. Yet the widget screen still never showed it, even after a
+manual refresh. Root cause: [StudentWidgetPrefs.kt: encode()/decode()]
+nextInternalRoom/nextInternalBench/nextInternalSeatNo were NEVER wired
+into this file's SharedPrefs save/load pair at all — added in w28,
+same version as mustUpdateApkUrl (which WAS wired in correctly), simply
+missed for these three fields specifically. Since the widget always
+renders from THIS cache (StudentWidgetProvider.renderFromCache), not
+directly from a fresh fetch result, a correctly-fetched seat was being
+silently discarded on every single save/load round-trip — exactly
+matching the reported symptom for 19 build versions. Same bug class,
+same fix shape as an existing documented Aug-2026 fix in the same file
+for attendanceRows/currentClassHeld/currentClassAttended, which had the
+identical problem. Fixed: both fields appended at indices 67-69,
+following the file's own established append-only-at-the-end convention
+for backward-compatible pre-upgrade blobs. Per explicit instruction,
+minApkVersion left unchanged (soft nag) despite this being a
+long-standing broken feature — standing rule takes precedence.
+[student_portal.html:6024] apkVersion 46->47. [StudentFetchWorker.kt:44,
+app/build.gradle:33-34, STUDENT_WIDGET_README.md:17] version markers
+46->47.
+VERSION : v8.63 (2026-08-21) — FEAT: student widget w46 — every prior
+round of the seat/room investigation (w42-w45) required pulling adb
+logcat with a physical device attached, which is slow. Per request,
+routed the same diagnostic trail through an already-existing, already
+portal-visible channel instead: [StudentFetchWorker.kt: new
+seatDebugTrail ~1728, fetchNextInternalSeat() mark() helper ~2305]
+fetchNextInternalSeat()'s full checkpoint trail (ENTERED, checkpoints
+A-H, SUCCESS, or an EXCEPTION line — new, the outer catch previously
+only ever logged to Log.w, invisible anywhere else) now writes to BOTH
+Log.d (still useful with a device attached) and a new seatDebugTrail
+list. [StudentFetchWorker.kt: debugInfo assembly ~958] appends it as
+`seatDebug=[...]`, matching the existing `lpKeys=[...]` convention
+exactly. debugInfo already auto-publishes to
+davan_pub/student_widget_report/<code>/scheduleDebug on every fetch
+cycle (pre-existing, w15+) and that field is ALREADY displayed in the
+admin portal's per-student device line (wcDeviceLine(), "two clicks"
+per its own comment) — this was simply never wired up for this specific
+function's checkpoints before. [student_portal.html: wcHighlightDebug()
+~22464] added a `seatDebug=[...]` highlighter matching the existing
+`lpKeys=[...]` one, colored red when the trail shows a real failure
+signal (EXCEPTION, no usable room, no sitting_by_urn node) so a healthy
+trail doesn't read as an error. No adb/logcat required going forward —
+open the student's row in the admin portal, expand the device line, and
+the full trail is right there. [student_portal.html:5998] apkVersion
+45->46. [StudentFetchWorker.kt:44, app/build.gradle:33-34,
+STUDENT_WIDGET_README.md:17] version markers 45->46.
+VERSION : v8.62 (2026-08-21) — DIAG: student widget w45 — w44's entry-log
+fired for the first time (`fetchNextInternalSeat: ENTERED
+urn='U13NU25S0031'`), a genuine result, but nothing from inside the
+function followed it — no early-return diagnostic, no success return, no
+outer catch's failure log either. Hand-traced the exact real Firebase
+data for this student (meta.n=1, internalNum="1", bench="B", seatNo=6,
+perDay=[{2026-09-09,S7},{2026-09-10,S3},{2026-09-11,S4}]) against every
+line of this function's logic — everything resolves correctly on paper,
+no bug found by inspection. Also ruled out Firebase security rules as a
+cause: the SAME davan_pub/internals_current tree (via a sibling read in
+fetchUpcomingInternalFromTimetable()) already succeeds in the SAME fetch
+cycle to produce the "Upcoming: Internal — English" card, so a
+permissions block on this node is inconsistent with that. Since neither
+code-tracing nor rules explain a function that enters but produces zero
+further output — not even a thrown exception — added a checkpoint
+Log.d() after EVERY step in the function (both await() calls, every
+intermediate value, the perDay resolution, and the final
+success/failure returns), so the exact step it stops at is identified
+directly on the next capture instead of inferred. No logic changed.
+[student_portal.html:5976] apkVersion 44->45. [StudentFetchWorker.kt:44,
+app/build.gradle:33-34, STUDENT_WIDGET_README.md:17] version markers
+44->45.
 VERSION : v8.61 (2026-08-21) — DIAG+FIX: student widget w44 — w42's gate
 logging (canShow(internalTimetable)=true, internalsState=upcoming, both
 confirmed passing) proved the call to fetchNextInternalSeat() SHOULD be
@@ -5932,7 +6005,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.61';
+const APP_VERSION = 'v8.64';
 const BUILD_DATE   = '21 Aug 2026, IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -5973,7 +6046,7 @@ const BUILD_DATE   = '21 Aug 2026, IST'; // v6.90: update alongside APP_VERSION 
 // UX, no data/safety implication either way, so apkVersion bumped to 30
 // and minApkVersion deliberately LEFT AT 29 per the rule above — w29 users
 // are soft-nagged, not blocked.
-const LATEST_STUDENT_WIDGET_APK = { apkVersion: 44, minApkVersion: 29, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
+const LATEST_STUDENT_WIDGET_APK = { apkVersion: 47, minApkVersion: 29, apkUrl: 'https://harshgujjar.github.io/davan-attendance/Davan%20Student.apk' };
 
 // Publishes LATEST_STUDENT_WIDGET_APK to DB2 so the student widget (v1+)
 // can read it directly and nag on the widget face when it's behind.
@@ -22441,7 +22514,14 @@ function wcHighlightDebug(dbg) {
       `<b style="color:${v === 'none' ? 'var(--danger)' : 'var(--ok)'};">${k}=${v}</b>`)
     .replace(/(lpKeys)=(\[[^\]]*\])/g, (m, k, v) =>
       `<b style="color:var(--accent);">${k}=${v}</b>`)
-    .replace(/(lpFocus)=([^\s]+)/g, (m, k, v) => `<b style="color:var(--accent);">${k}=${v}</b>`);
+    .replace(/(lpFocus)=([^\s]+)/g, (m, k, v) => `<b style="color:var(--accent);">${k}=${v}</b>`)
+    // v8.63: seatDebug — the fetchNextInternalSeat() checkpoint trail
+    // (added w45.1), previously only visible via adb logcat. Red if the
+    // trail shows a real failure signal (an exception, or reaching the
+    // end without a usable room), accent otherwise so a healthy trail
+    // doesn't read as an error.
+    .replace(/(seatDebug)=(\[[^\]]*\])/g, (m, k, v) =>
+      `<b style="color:${/EXCEPTION|no usable room|no davan_pub\/sitting_by_urn/.test(v) ? 'var(--danger)' : 'var(--accent)'};">${k}=${v}</b>`);
 }
 
 function wcDeviceLine(st) {
