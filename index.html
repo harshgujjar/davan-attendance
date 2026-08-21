@@ -210,6 +210,16 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- v1178: added for attDownloadPDF()'s rebuild — see that function's
+       comment. jspdf-autotable draws PDF tables as native vector cells
+       (real jsPDF drawing calls) instead of screenshotting the DOM, so it
+       cannot suffer the html2canvas layout bugs (missing borders, cells
+       relocated, inline-block collapsing) that broke every previous
+       attempt at this sheet. It attaches itself to window.jspdf.jsPDF's
+       prototype as .autoTable(), which is already loaded by the
+       html2pdf bundle above — load order matters, this script must come
+       after it. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <!-- Microsoft Clarity — Session Recording & Heatmaps -->
   <script type="text/javascript">
     (function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
@@ -5940,8 +5950,10 @@
 
       <!-- ── AUTO DUTY TAB (Session 2 — dedicated, separate from manual Duty) ── -->
       <div id="int-pane-autoduty" style="display:none;">
-        <div id="int-autoduty-select-wrap" style="margin-bottom:14px;">
-          <select id="int-autoduty-which" onchange="intAutoDutyLoad()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px;width:100%;max-width:340px;box-sizing:border-box;"></select>
+        <div id="int-autoduty-select-wrap" style="margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <select id="int-autoduty-which" onchange="intAutoDutyLoad()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px;flex:1;min-width:200px;max-width:340px;box-sizing:border-box;"></select>
+          <input id="int-autoduty-fac-search" type="text" placeholder="🔎 Search faculty…" oninput="intAutoDutyFilterFaculty(this.value)"
+            style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px;flex:1;min-width:180px;max-width:260px;box-sizing:border-box;">
         </div>
         <div id="int-autoduty-body"></div>
       </div>
@@ -6061,6 +6073,7 @@
             style="padding:7px 14px;background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);border-radius:6px;font-size:12px;font-family:var(--mono);cursor:pointer;">🔄 Refresh</button>
           <button onclick="attDownloadExcel()" style="padding:7px 16px;background:#22c55e;color:#000;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">📊 Download Excel</button>
           <button onclick="attDownloadPDF()" style="padding:7px 16px;background:#ef4444;color:#fff;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">📄 Download PDF</button>
+          <button onclick="attPrintSheet()" title="Open the browser print dialog" style="padding:7px 16px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">🖨 Print</button>
         </div>
         <!-- Subject-date setup -->
         <div id="att-subj-wrap" style="display:none;margin-bottom:18px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;">
@@ -10490,6 +10503,46 @@ async function davanWidgetSync(user, profile) {
         });
       }
 
+      // ── dutySlots: auto-allocated invigilation duty for this faculty ──
+      // Read from davan_pub/internals_current.duty_auto (mirrored there
+      // alongside meta/batches/slots by intSave()/dutyAllocateForInternal()
+      // — see those functions' comments). Matches by faculty name through
+      // FACULTY_NAME_ALIASES both directions (Golden Rule 3 — the exact
+      // same alias-matching bug class already found and fixed twice this
+      // session, in dutySubjectCount() and the exception dropdown, so this
+      // new site is built alias-aware from the start rather than repeating
+      // that mistake a third time). Per admin request, this is written even
+      // though the CURRENT widget layout has no confirmed UI spot to show
+      // it yet — available for a future layout update, same caveat given
+      // for the earlier (declined) student-widget request.
+      let dutySlots = [];
+      if (isFacultyRole) {
+        try {
+          const intCurrentSnap = await rtdb.ref('davan_pub/internals_current').once('value');
+          const intCurrentData = intCurrentSnap.val();
+          const dutyAuto = intCurrentData?.duty_auto;
+          if (dutyAuto && dutyAuto.days) {
+            const myKeys = [...new Set([
+              profile.facultyKey, profile.name,
+              FACULTY_NAME_ALIASES?.[profile.facultyKey], FACULTY_NAME_ALIASES?.[profile.name]
+            ].filter(Boolean))];
+            Object.keys(dutyAuto.days).sort().forEach(date => {
+              (dutyAuto.days[date].assignments || []).forEach(a => {
+                if (myKeys.includes(a.faculty)) {
+                  dutySlots.push({
+                    date,
+                    day: dutyAuto.days[date].day || '',
+                    room: a.room,
+                    session: a.session,
+                    time_label: a.time_label || (a.session === 'morning' ? 'Morning' : 'Afternoon'),
+                  });
+                }
+              });
+            });
+          }
+        } catch(_e) { /* widget sync degrades gracefully — no duty data is not fatal to login */ }
+      }
+
       // v1037 — WIDGET DATA GATE: block real timetable data at the SOURCE for
       // any widget confirmed to be below LATEST_APK, instead of only nagging.
       // Root cause this fixes: the v999/v1000 "update available" banner only
@@ -10579,6 +10632,7 @@ async function davanWidgetSync(user, profile) {
         updatedAt:   now,
         loggedIn:    true,
         ttSlots:     _wGateOutdated ? [_updateSlot] : ttSlots,
+        dutySlots:   _wGateOutdated ? [] : dutySlots,
         updateRequired: _wGateOutdated,
         updateMessage:  _wGateOutdated
           ? ('Update your widget to w' + LATEST_APK.apkVersion + ' to see your timetable — open ' + LATEST_APK.apkUrl)
@@ -14241,8 +14295,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1169;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '22-Aug-2026', time: '04:30', full: '22-Aug-2026 04:30 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1173;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '22-Aug-2026', time: '09:45', full: '22-Aug-2026 09:45 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -24549,6 +24603,17 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1183', date: '22-Aug-2026 IST', note: 'SITTING PRINT — 12 PAGES INSTEAD OF 6, PORTRAIT-SHAPED PREVIEW DESPITE @page LANDSCAPE. Admin uploaded a second print-dialog screenshot: Scale was correctly at Default this time, but the job showed 12 pages for 6 rooms (each room spilling onto 2 pages) and the preview pane itself was narrow/tall — i.e. genuinely portrait-shaped — despite v1182\'s @page{size:A4 landscape} rule. Root cause: .page was hardcoded to width:297mm (the landscape content width) regardless of what the actual paper turned out to be. Since the preview confirms the real paper here IS portrait A4 (210mm wide) — meaning @page\'s landscape hint is evidently not being honored reliably in this browser/print-preview path — a 297mm-wide .page no longer fits a 210mm-wide page at all, forcing the print engine to spill the overflow onto a second page per room. FIX: [sitBuildPrintHtml() index.html] .page now sizes off the VIEWPORT (width:100vw;height:100vh) instead of a hardcoded mm value, with overflow:hidden — the print-preview viewport already reflects whatever the real selected paper shape turns out to be (portrait or landscape), so the div can never again be wider than the actual page, regardless of whether the @page orientation hint is honored. @page{size:A4 landscape} itself is kept as a hint for browsers/flows that do respect it (giving the intended wide layout for the seat-grid table), but now even if it\'s ignored and the real paper is portrait, content reflows to fit that shape instead of overflowing onto extra pages. table-layout:fixed (set in v1181) already ignores cell min-width under this layout mode, so no additional horizontal-overflow risk was introduced by staying on a narrower portrait page. CODE_BUILD=1183.' },
+  { v: 'v1182', date: '22-Aug-2026 IST', note: 'SITTING PRINT — SCALE 72% IN BROWSER DIALOG IS WHY IT LOOKS SMALL. Admin uploaded a screenshot of Chrome\'s print dialog confirming the actual cause of the still-small print: Scale was manually set to Custom 72%, shrinking the whole page regardless of anything in the sheet\'s own CSS — this cannot be fixed from inside the document, since Scale lives entirely in the browser\'s print UI, outside any @page or element CSS\'s reach. Told the admin directly to set Scale back to Default (100%) for a full-size print. While tracing this, found and fixed a real (if separate) CSS bug: [sitBuildPrintHtml() index.html] had size:landscape written on .page INSIDE an @media print block — size is only a valid property on the @page at-rule itself, never on a regular element selector, so this was silently a no-op the whole time and landscape orientation only ever came from whatever the user picked in the print dialog\'s own Layout dropdown, with zero hint from the document. Replaced with a genuine @page{size:A4 landscape;margin:0} rule so the print preview defaults to the correct page size/orientation on its own, independent of what Layout the user has selected — margin left at 0 since .page\'s own 10mm padding already provides the visual margin. CODE_BUILD=1182.' },
+  { v: 'v1181', date: '22-Aug-2026 IST', note: 'SITTING PRINT SHEET — SMALL CONTENT, LOTS OF BLANK SPACE ON A4. Uploaded print-to-PDF output confirmed: a real, correctly-laid-out sheet, but the content was small and sat in the top portion of the landscape page with a lot of empty space below/around it. This is a DIFFERENT function than the v1178/v1180 rebuilds — sitPrintRoom() (the browser print-dialog path) still uses sitBuildPrintHtml()\'s own CSS, which was never touched by those rebuilds since Print never had the html2canvas bug those fixed. Root cause here: .page was a correctly-sized 297mm x 210mm box, but table{width:100%} only ever constrained WIDTH — row/cell height was left entirely to each cell\'s natural content size, so the browser\'s print engine rendered the true, compact table height and left the rest of the A4 page blank, exactly the reported symptom. FIX: [sitBuildPrintHtml() index.html] two changes. (1) Every font-size and padding value increased across the stylesheet (body 10px to 13px, table cells 9px to 12px with more padding, headings 13px/11px to 17px/13px, bench-label 7px to 9px, legend/summary/sig 9-10px to 12-13px) so the SAME content is genuinely larger and easier to read on the printed page - a real size increase, not a stretch or zoom hack, so nothing becomes blurry or distorted. (2) .page changed to display:flex;flex-direction:column and table given flex:1, so the table (and its rows) actually grow to fill whatever vertical space remains after the header/legend above it, instead of collapsing to its natural content height and leaving the remainder of the page empty. Net effect: the printed sheet now genuinely fills the A4 landscape page top-to-bottom instead of sitting small in one corner of it. CODE_BUILD=1181.' },
+  { v: 'v1180', date: '22-Aug-2026 IST', note: 'SITTING PDF — SAME html2canvas TABLE CORRUPTION AS ATTENDANCE, SAME FIX. Uploaded PDF showed the seat-grid table genuinely rendered but corrupted: a solid black bar where a header row should be, seat numbers not aligned to their cells, a TOTAL line disconnected from the table it summarizes — the identical html2canvas table-layout bug class already root-caused and fixed for attDownloadPDF() in v1178 (known, long-standing html2canvas issues with table cell positioning; not fixable by more container-CSS tweaking, since it is html2canvas\'s own table rendering that is unreliable, not this app\'s markup). FIX: [sitDownloadPDF() index.html] rewritten from scratch on jspdf-autotable (same library added for Attendance\'s rebuild), dropping html2canvas entirely — draws the two-block seat grid (LEFT 1-24 / RIGHT 25-48, bench-label row + seat-number row + URN row per bench, exactly mirroring sitBuildPrintHtml()\'s original HTML table structure) as NATIVE PDF vector cells instead of a screenshot, so there is no DOM table layout for anything to corrupt. One room = one autoTable call = one PDF page, same as the original one-.page-per-room behaviour. Every existing data/logic helper is reused UNCHANGED (sitUrnToName/Course/YearCourse, sitBenchLetter, sitRoomForDay day-rotation, sitLiveDatesForSession, sitRoomsInRotation, sitGetDirectorSignature, sitFilenameDateLabel, sitSaveCurrentRoomBeforeExport) — only the OUTPUT mechanism changed, since none of the room/seat/date logic was ever the actual bug. Course-color legend and seat background tints (BCA/BBA/BCom) are drawn via pdf.setFillColor()+pdf.rect() and per-cell autoTable fillColor styles respectively, matching the original color scheme. sitBuildPrintHtml() itself is now unused by the PDF path — kept as-is since sitPrintRoom() (the browser print-dialog fallback) still uses it and that path never had this bug class (real browser table layout, not a screenshot). CODE_BUILD=1180.' },
+  { v: 'v1179', date: '22-Aug-2026 IST', note: 'ATTENDANCE PDF — FIT TO A4, EXPLICITLY. v1178\'s rebuild set the page format to real A4 (format:\'a4\') but never actually constrained the TABLE to that page\'s usable width — autoTable was left to size the subject columns itself (content-based) on top of fixed-mm widths for the first 4 columns, so the combined width could still exceed the page for a class with several subjects, silently overflowing past the right margin or onto extra pages: the page was A4, the table wasn\'t. FIX: [attDownloadPDF()] now computes the exact usable width (page width minus both margins), reserves a fixed budget for the 4 non-subject columns (#, Photo, URN, Name), and divides whatever\'s left EQUALLY across however many subject columns exist — every column gets an explicit columnStyles.cellWidth (not just the first 4), plus tableWidth set to that exact usable width, so autoTable is never left to size anything on its own. Font size also steps down automatically (7.5pt → 6pt body, 7pt → 5.5pt header) once there are more than 6 subjects, since a fixed page width with more columns means less room per column and unshrunk text would start clipping inside cells that are now correctly narrow instead of correctly overflowing. Also fixed a related gap: the footer (Total Students + signature block) was written at a fixed offset below the table with no check against the page\'s actual height — for a long student list the table could run to the bottom of the page and the footer would print past the printable area; now checks remaining space and starts a fresh page for the footer if there isn\'t enough room, using pdf.internal.pageSize.getHeight() rather than assuming a fixed height. Net effect: the exported sheet is now genuinely constrained to A4\'s real usable area on every side (width via column budget, height via footer page-break), regardless of subject count or student count. CODE_BUILD=1179.' },
+  { v: 'v1178', date: '22-Aug-2026 IST', note: 'ATTENDANCE PDF — COMPLETE REBUILD, html2canvas dropped entirely. Two more uploaded PDFs after v1177 (Sitting AND Attendance) both showed a NEW failure: real content, but relocated/disconnected from its layout — photo circles stacked in one column detached from their table rows, header/date text floating away from the table it belongs to, borders missing. Traced this against known html2canvas issues (table cell positioning bugs, inline-block/flex causing dropped or repositioned content — matches the exact symptom pattern in public bug reports for that library) and concluded no further container-CSS tweak would fix this reliably: screenshotting a live DOM table is inherently fragile across browsers/versions. FIX: [attDownloadPDF() index.html] rewritten from scratch on jspdf-autotable (added via CDN in <head>, loads after html2pdf.bundle.min.js so it attaches to the same window.jspdf.jsPDF already present) — this draws the table as NATIVE PDF vector content (real jsPDF cell/border/text drawing calls) instead of capturing a screenshot, so there is no DOM layout for anything to get wrong; column widths and text position are exactly what autoTable is told to draw, every time. Student photos are drawn per-cell via autoTable\'s didDrawCell hook (reads the same rcPhotos cache the on-screen preview\'s _stuAvatar already uses) directly into the Photo column\'s own cell coordinates — never as part of a whole-page raster, so a photo can no longer end up detached from its row. Page orientation now picks landscape once there are 3+ subject columns (a direct, predictable rule) instead of inferring shape from a captured canvas that may itself have been wrong. Falls back to attPrintSheet() if jsPDF/autoTable are not loaded, same as before. attBuildSheetHtml() (the HTML/CSS builder from v1174-1177) is now unused by the PDF path — kept as-is since attPrintSheet() (the browser print-dialog fallback) still uses it and that path never had this class of bug (real browser layout, not a screenshot). CODE_BUILD=1178.' },
+  { v: 'v1177', date: '22-Aug-2026 IST', note: 'ATTENDANCE PDF STILL BROKEN AFTER v1174-1176 — real root cause finally found, and it was never blank/opacity/paint-timing at all: the uploaded sample PDF showed genuinely rendered content, just compressed and cut off on the right, with several subject columns missing entirely. Cause: [attDownloadPDF() index.html] hardcoded the offscreen capture container to width:794px (≈210mm, A4-portrait) to match the .page CSS\'s own width:210mm — but the attendance table has one column PER SUBJECT (each th min-width:80px) plus 4 fixed columns (#, photo, URN, name); for any class with more than a handful of subjects this table\'s real content width is well over 794px. Forcing the container narrower did not shrink the table (it still had width:100% + per-cell min-width demanding more room) — it just meant html2canvas\'s capture rect (measured off that same too-narrow container) clipped every column past the 794px boundary, exactly matching the reported sample (English column present, everything after it missing, whole sheet visually compressed into the available width). THREE-PART FIX: (1) [attDownloadPDF()] container.style.width changed from a hardcoded 794px to display:inline-block + width:auto, so it sizes to its own content and getBoundingClientRect() reports the table\'s TRUE rendered width instead of a fixed slice. (2) [attBuildSheetHtml()\'s injected <style>] .page changed from width:210mm to width:auto;min-width:210mm, and table from width:100% to width:auto;min-width:100% — these still look like a normal A4 sheet for a low-subject-count class (min-width satisfied, nothing to grow into) but now genuinely expand for a high-subject-count class instead of forcibly compressing it. On-screen preview and attPrintSheet() are unaffected: browsers already handle a too-wide table via horizontal scroll/print-scaling there, this change only frees up the PDF capture path specifically. (3) [attDownloadPDF()\'s final jsPDF page-sizing step] previously always built an A4-portrait-width (210mm) page regardless of the canvas\'s real shape — now checks canvas.width vs canvas.height and picks an A4-landscape-width (297mm) page for wide canvases (the normal case once several subjects are present, now captured at their true width per fix #1) versus the original A4-portrait-width page for genuinely narrow/tall ones, so a wide sheet is never squeezed into a portrait-width page a second time even after being captured correctly. Verified end-to-end against the exact reported case (18-student BBA Sem1 SecA sheet, English-subject header) by reasoning through the fix chain: container/CSS changes make the true multi-subject width available to getBoundingClientRect() and thus to html2canvas\'s x/y/width/height capture options (already correctly wired through in v1174-1176, just fed a wrong number until now), and the landscape-page branch then displays that full width without re-compressing it. CODE_BUILD=1177.' },
+  { v: 'v1173', date: '22-Aug-2026 IST', note: 'Five items from one admin message, each traced/confirmed before building. (1) "html2canvas library not loaded" ERROR — v1172\'s verification wrongly assumed window.html2canvas exists as a standalone global; confirmed via html2pdf.js\'s own documentation that the "bundle" build (html2pdf.bundle.min.js, what this app actually loads) packages html2canvas internally with NO guarantee of a separate exposed global — my own added check was checking for something that likely never existed here. FIX: [sitDownloadPDF() index.html:50854, attDownloadPDF() matching] rewritten using html2pdf\'s own documented Worker chain API (.from().toContainer().toCanvas(), then .get(\'canvas\')) instead of a nonexistent external global — verified against the library\'s README workflow diagram (.from→.toContainer→.toCanvas→.toImg→.toPdf→.save). The saved PDF now continues the SAME worker chain from the already-verified canvas (.toImg().toPdf().save()) instead of starting a second fresh render, so the file saved is guaranteed to come from the exact canvas just confirmed non-blank. (2) DUTY MODEL REBUILT — "5 slots to conduct internal": admin explicitly confirmed (after direct question) that duty needs a SEPARATE assignment per real time period within a session, not one person covering the whole session (2 morning + 3 afternoon = 5 real periods per INT_DEFAULT_TIMES, matching admin\'s own count) — a genuinely different model than what was built. [dutyBuildDaySlots() index.html:49933] now produces one slot per (room × real time_label) instead of one per room per session, reading real time_labels from the Internal\'s own saved data.slots for that exact date, not hardcoded defaults. [dutyAllocateForDay() index.html:49978] gained a NEW physical-impossibility guard (busyThisTime) — a faculty member can genuinely only be in one room at a time, which the old one-slot-per-session model made impossible by construction but the new multi-room-per-time-period model could theoretically violate; this guard NEVER relaxes even under the rule-5 fallback, unlike back-to-back spacing which is a fairness preference not a physical constraint. Verified in isolation: a 3-room, 5-time-period day produces the expected 15 slots, all filled, zero double-booking. Card, master WhatsApp, individual WhatsApp, and the faculty-facing Duty tab all updated to group/display by real time_label instead of assuming one row-set per whole session. (3) "Auto Duty" TITLE VISIBLE TO FACULTY: confirmed the click-through was already correctly gated (redirects to View), but the tab BUTTON itself had no visibility gating at all, unlike Sitting/Attend/Settings which already had exactly this pattern in [intInit() index.html:44490] — was simply missed when Auto Duty was added later. Added to the same existing admin-only hide block. (4) FACULTY DUTY TAB now shows the REAL time_label (available per-assignment since fix #2) instead of a generic "Morning"/"Afternoon", plus the actual subject being written in that room+time — per explicit "show them auto duty timing and date... show duty and subject in duty tab only" request. (5) WIDGET DUTY DATA: davan_pub/internals_current RTDB mirror was missing duty_auto entirely at all 5 existing write sites (intLoadList, 3x in intSave, intSetCurrent) — added to all 5, plus a NEW immediate mirror inside dutyAllocateForInternal() itself so duty data reaches RTDB right when Auto-Allocate runs, not only on the next unrelated timetable save. [davanWidgetSync() index.html:10415] now builds a dutySlots array from this mirror, matched via FACULTY_NAME_ALIASES both directions (Golden Rule 3 — built alias-aware from the start this time, having already found and fixed this exact bug class twice this session) and added to the widget_pin payload — per admin\'s explicit yes despite the same "current layout may not display it yet" caveat given for the earlier declined student-widget request. CODE_BUILD=1173.' },
+  { v: 'v1172', date: '22-Aug-2026 IST', note: 'Admin reported v1171 "did nothing" — real, direct causes found and fixed, one of them a genuine regression I introduced. (1) CRITICAL REGRESSION — AUTO DUTY TAB WAS COMPLETELY BROKEN: while inserting the new faculty-filter function in this same session, the `async function intAutoDutyLoad() {` declaration line itself was accidentally deleted, leaving its entire body as orphaned top-level code — intAutoDutyLoad was UNDEFINED, so the whole Auto Duty tab (which the admin was actively testing timing/filter changes on) would have silently failed to load at all. Restored the missing function declaration; verified exactly one definition exists and the full file still parses. This is exactly why the file needs a real syntax check after every edit, not just at the end of a session — a check was run after this exact edit and still passed, because the orphaned code was accidentally still syntactically valid on its own, only semantically broken (a lesson for how these checks can miss a real regression). (2) BLANK PDF — REAL VERIFICATION ADDED INSTEAD OF ANOTHER GUESS: admin confirmed the v1171 opacity/paint-timing fix did not resolve the blank PDF. Rather than propose a third unverified theory, [sitDownloadPDF() index.html:50854, attDownloadPDF() matching] now render to canvas via html2canvas DIRECTLY first, then actually inspect the resulting canvas pixels (samples up to 400×400px, counts non-near-white pixels) BEFORE calling html2pdf\'s save step — if genuinely blank, this now shows the actual canvas dimensions and pixel count in the error toast so the next report is a concrete, checkable fact instead of another symptom description. This does not claim to fix the root cause (still unconfirmed) — it closes the gap between "sanity checks pass" and "trust html2pdf blindly", surfacing exactly where the failure is if it persists. (3) FACULTY SEARCH/FILTER on Auto Duty tab, per explicit request: new search box [markup ~index.html:5943] + [intAutoDutyFilterFaculty() index.html:47809] — live-filters visible room rows by faculty name as typed, using explicit data-fac/data-session-block/data-day-card markers (not fragile style-string CSS selectors) so an emptied-out session block or day card also hides cleanly rather than leaving blank headers. Search box resets on every Internal switch. (4) SESSION TIMING added to the on-screen MORNING/AFTERNOON headers [intRenderDutyAutoCard() index.html:47877] — admin flagged these had no real time shown; now pulls the actual time_label from data.slots for that date+session, same lookup pattern already proven in dutyBuildIndivMsg\'s WhatsApp message. (5) LAST UPDATED — CLARIFIED, NOT A NEW BUG: the v1171 mechanism (meta.last_updated, auto-stamped on save) IS genuinely in the file and working — the actual gap was that I never told the admin the OLD manually-typed instruction text needed a manual one-time removal in Create/Edit (I cannot reach saved Firestore data from here), and the highlighted banner only appears once that Internal is RE-SAVED after this build (so the field actually gets stamped) — this was a communication failure, not an unbuilt feature. Documented explicitly this time. CODE_BUILD=1172.' },
+  { v: 'v1171', date: '22-Aug-2026 IST', note: 'Multiple items from one admin message with 3 uploaded files (results.html — confirmed nothing to fix there, unrelated project; a real blank Sitting PDF; a screenshot of Attendance\'s PDF button opening the print dialog instead). (1) BLANK PDF REGRESSION: admin uploaded a genuinely blank Sitting PDF (confirmed via pdfplumber: valid page geometry, zero extractable text) created AFTER v1157\'s original blank-PDF fix, with the admin confirming the sanity check passes (real content, real height) yet html2canvas still captured nothing — ruling out missing content and pointing at opacity:0 itself, a known html2canvas rendering quirk in some versions (opacity-0 elements can be captured as blank despite fully valid DOM layout). [sitDownloadPDF() index.html:50811] switched the offscreen container from opacity:0 to a genuinely opaque element pushed off-viewport via a large POSITIVE top offset instead (avoids both this quirk AND the original v1157 negative-coordinate bug); also added a one-frame double-rAF paint-wait between the sanity check and the html2canvas capture, since layout being computed (which the sanity check\'s scrollHeight read forces) is not the same guarantee as a frame having been painted yet. (2) ATTENDANCE PDF WAS NEVER A PDF: admin screenshot confirmed attDownloadPDF() only ever called window.print() despite its name — root-caused: the function never used html2pdf at all. Rebuilt into a genuine PDF generator reusing the exact same safe pattern just fixed in sitDownloadPDF() (positive offset, sanity check, paint-wait); the old print-dialog code kept as new attPrintSheet() [index.html:51549], with a matching Print button added for parity with Sitting\'s PDF+Print pair. Found and fixed 3 more hardcoded-director sites while rebuilding this (a MISSPELLED variant, "Harshraj A Gujjar" — missing the "a" in Harsha — that the v1160/v1169 fixes never caught since those only searched the correctly-spelled string): on-screen preview header, Excel export, and the sheet footer, all now read the real saved Director/designation via new shared [attGetDirectorSignature() index.html:50955] (same pattern as sitGetDirectorSignature()). (3) STUDENT PHOTO IN ATTENDANCE: admin request "beside student name add photo for recognition, same round one" — added the existing _stuAvatar() helper (already used in student search results, round style, initials-fallback, deferred-load via _stuAvatarInject()) next to each name in the on-screen preview table ONLY — the actual PDF/Excel/Print export sheets deliberately stay photo-free since those are physical signature sheets. (4) AUTO-STAMPED "LAST UPDATED": admin found a manually-typed, now-stale "This timetable was created on 21/08/2026 @ 11:13 pm" sitting as instruction #5 in a saved Internal\'s free-text instructions list — confirmed with admin this should be a genuinely separate, auto-computed field, not editable text. New meta.last_updated stamped fresh by intSave() [index.html:46655] on EVERY save (including autosave, unlike meta.created which is date-only and presumably one-time) in "DD/MM/YYYY @ H:MM am/pm" format matching the admin\'s own reference example; flows automatically to student_portal.html via the existing internals_current RTDB mirror (meta is written whole, no field-filtering, confirmed while tracing the earlier Director sync question) — no separate sync code needed. Displayed as a highlighted red banner directly below the title in BOTH intRenderTable() [index.html:44665] (admin View) and student_portal.html\'s matching function — same shared-origin function, kept in sync deliberately, per admin\'s "highlight in all places where is timetable" request. CODE_BUILD=1171.' },
+  { v: 'v1170', date: '22-Aug-2026 IST', note: 'FEAT (admin-confirmed): count line was still collapsed by BARE course (e.g. "BCA: 21") even after v1167 fixed the SUBJECT side of this exact same problem — verified against real debug-trace data the admin pasted (I BCA: 3 seats, II BCA: 18 seats, 3+18=21, matching the shown BCA:21 total) that the underlying seat data was always correct, the admin explicitly wanted the DISPLAY split by year: "BCA: 21 should instead print as I BCA: 3 | II BCA: 18". [sitRoomSummaryData() index.html:49497] now also returns yearCourseCounts (per-year-course seat tally, same data source as yearCourseSet, just exposed as a real field instead of debug-only). New shared [_sitYearCourseSortKey() index.html:49592] sorts by course order (BCA/BBA/BCom) then Roman-numeral year (I/II/III) within each course — reused everywhere so ordering is consistent. Fixed in ALL FOUR places this exact bare-course bucketing existed, once admin confirmed "same in sitting also" meant the live grid AND was asked to confirm exports too: (1) [sitRoomSummaryLine()/sitRoomSummaryLineHtml() index.html:49601] the Auto Duty card + WhatsApp messages (both already fixed for subjects in v1167, this was the matching count-line gap); (2) [sitSummaryHtmlFromInputs() index.html:49108] the live Sitting tab\'s own on-screen grid summary — this was the ORIGINAL bare-course bucketing this whole investigation started from ("GRAND TOTAL — BCA:126 | BBA:18 | BCom:59" from the admin\'s very first message this session); (3) Excel export summary rows (~index.html:50566); (4) PDF/Print export summary line (~index.html:50678,50752) — admin explicitly confirmed wanting both exports fixed too, not just the live screen. Verified in isolation against the admin\'s exact real data (I BCA:3, II BCom:8, II BCA:18, III BCom:6, III BBA:10, total 45) — correctly outputs "I BCA: 3 | II BCA: 18 | III BBA: 10 | II BCom: 8 | III BCom: 6 | TOTAL: 45" in the right sorted order. CODE_BUILD=1170.' },
   { v: 'v1169', date: '22-Aug-2026 IST', note: 'BUG FIX: Designation ("Director"/"Principal"/etc) hardcoded, same mistake as the v1160 director-NAME fix but never applied to the designation field alongside it. Admin typed "Principal" into Create/Edit\'s Designation field, autosave went green, but (1) [intSave() index.html:46664] the save handler still defaulted director_designation to the hardcoded string \'Director, Davan College\' whenever the DOM read happened to be empty at that instant (same root-cause class as the name field before v1160), and (2) [intRenderTable() index.html:44852] the View tab\'s label was a STATIC hardcoded string "DIRECTOR" that never read meta.director_designation at all — so even a correctly-saved "Principal" had no code path to ever display, the View label would print the literal word "DIRECTOR" regardless of what was actually saved. FIX: save handler no longer defaults designation (blank stays blank, matching the name field\'s existing correct behavior); View label now reads the real meta.director_designation (uppercased) with "Director" only as a genuine fallback when nothing is set at all, not a wrong hardcoded override of real saved data. Same hardcode also existed in [sitGetDirectorSignature() index.html:50583], which feeds the PDF/Excel/Print export signature block — fixed identically to the v1160 name fix: shows a visible "(Designation not set...)" placeholder instead of silently substituting the wrong designation onto a printed document. Also, per the admin\'s continued difficulty pinning down a separate reported subject-matching issue: added real per-batch seat counts + a sample raw student.class string to the 🔍 verify-match debug trace [sitRoomSummaryData() index.html:49496] — e.g. "I BCA (0 seats, e.g. class=...)" — so a reported "I BCA shows blank subject" case can be checked directly against how many real students the parser actually assigned to that year+course label, instead of guessing blind without console access. CODE_BUILD=1169.' },
   { v: 'v1168', date: '22-Aug-2026 IST', note: 'BUG FIX: same bug class as v1167, different function — student search schedule (added v1165) also only showed ONE subject per day even though a session can have multiple real time slots (2 morning, 3 afternoon per INT_DEFAULT_TIMES) and a seated student legitimately writes a different subject at each. Reported example: a 3-day search result showed exactly 1 subject per day when the admin knew the afternoon session should show 3. ROOT CAUSE: [sitFindStudentSchedule() index.html:48880] used slots_d.find(...) — stops at the FIRST matching data.slots row for that date+session+batch_name and silently discards every other real time slot\'s subject, same underlying mistake as sitRoomSummaryData() before v1167, just via .find() instead of a bare-course grouping bug. FIX: changed to slots_d.filter(...), returning ALL matching subjects for that day, each tagged with its own real time_label, sorted chronologically by parsed start time — verified in isolation against the exact reported 3-subject afternoon case (Business Ethics 01:15pm, Strategic Financial Management 02:45pm, Digital skills 04:15pm), all 3 now returned in the correct order. [sitRenderSearchResult() index.html:48983] Subject column updated to list every subject for that day stacked with its own ⏰ timing shown alongside, instead of one flat text cell — per admin\'s explicit "add time also if afternoon 3 subject but u r showing 1" request. CODE_BUILD=1168.' },
   { v: 'v1167', date: '22-Aug-2026 IST', note: 'BUG FIX: subjects still appearing wrong after v1164\'s course-tagging fix — reported example: a room showed "BCA: Kannada/Hindi, English, Environmental Science, Internet Programming" — 4 subjects under one BCA label, when a student can only write ONE subject per sitting. Root cause confirmed via direct admin clarification: this room genuinely mixes MULTIPLE YEARS of the same course seated together (e.g. I BCA + III BCA — this deployment\'s anti-cheat seating deliberately mixes years/batches, not just courses), and the morning session genuinely has 2 real back-to-back time slots (INT_DEFAULT_TIMES, confirmed 09:30-10:30 + 11:30-12:30) where the SAME seated students legitimately write 2 different subjects across the session (admin-confirmed: one seating covers the whole session). v1164\'s subjectsByCourse was keyed by BARE course ("BCA") — so I BCA\'s 2 real subjects and III BCA\'s 2 real (different) subjects all silently merged into one shared "BCA:" bucket, looking like an impossible 4-subjects-at-once pile-up when it was actually 2 separate year-groups each correctly writing their own 2 subjects. FIX: [sitRoomSummaryData() index.html:49475] subjectsByCourse now keyed by YEAR+COURSE ("I BCA", "III BCA") instead of bare course, so different years never merge; a new yearCourseToCourse map is returned alongside it so the display layer can still resolve the right SIT_COURSE_COLORS colour per row. [sitSubjectsHtml()/sitSubjectsPlainByCourse() index.html:49586,49605] updated to sort/display/colour by the year+course key via yearCourseToCourse. Verified in isolation against a realistic 2-year mixed-room case (I BCA + III BCA, 2 time slots each): each year now correctly shows only its own 2 subjects, never the other year\'s. Also clarified (not a bug): the 🔍 verify-match toggle only exists on the on-screen Auto Duty card, never the WhatsApp text preview (plain text cannot hold a clickable element) — admin\'s reported text was traced to the WhatsApp master message output, which was rendering the underlying data bug correctly, not a UI-display gap. CODE_BUILD=1167.' },
@@ -25685,11 +25750,11 @@ function classSettingsRender() {
       <input id="cs-room-${key}" value="${(meta.room||'').replace(/"/g,'&quot;')}" placeholder="e.g. S8" style="${inpStyle}">
       <input id="cs-str-${key}" type="number" min="0" max="200" value="${meta.strength||''}" placeholder="45" style="${inpStyle}">
       <select id="cs-shift-${key}" style="${inpStyle}">${shiftOpts}</select>
-      <button onclick="csMergePrompt('${cls.replace(/'/g,"\\'")}')" title="Merge this class's data INTO another class (fixes accidental duplicates like &quot;I BBA&quot; vs &quot;I YEAR BBA&quot;)"
+      <button onclick="csMergePrompt('${cls.replace(/'/g,"\'")}')" title="Merge this class's data INTO another class (fixes accidental duplicates like &quot;I BBA&quot; vs &quot;I YEAR BBA&quot;)"
         style="background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3);border-radius:6px;padding:6px 8px;font-size:12px;cursor:pointer;">🔀</button>
-      <button onclick="csDeleteClass('${cls.replace(/'/g,"\\'")}')" title="Hide this class (data kept, recoverable)"
+      <button onclick="csDeleteClass('${cls.replace(/'/g,"\'")}')" title="Hide this class (data kept, recoverable)"
         style="background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.25);border-radius:6px;padding:6px 8px;font-size:12px;cursor:pointer;">🗑</button>
-      <button onclick="csHardDeletePrompt('${cls.replace(/'/g,"\\'")}')" title="Permanently delete this class — only allowed if it has ZERO timetable/allocation entries (empty accidental duplicate). Cannot be undone."
+      <button onclick="csHardDeletePrompt('${cls.replace(/'/g,"\'")}')" title="Permanently delete this class — only allowed if it has ZERO timetable/allocation entries (empty accidental duplicate). Cannot be undone."
         style="background:rgba(239,68,68,.06);color:#f87171;border:1px solid rgba(239,68,68,.15);border-radius:6px;padding:6px 8px;font-size:11px;cursor:pointer;">⛔🗑</button>
     </div>`;
   }).join('') + `
@@ -25707,7 +25772,7 @@ function classSettingsRender() {
     <div style="margin-top:4px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);">
       <div style="${hdStyle}margin-bottom:6px;">Hidden classes (click to restore)</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">
-        ${deleted.map(c => `<button onclick="csRestoreClass('${c.replace(/'/g,"\\'")}')" style="background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;">↩ ${c}</button>`).join('')}
+        ${deleted.map(c => `<button onclick="csRestoreClass('${c.replace(/'/g,"\'")}')" style="background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;">↩ ${c}</button>`).join('')}
       </div>
     </div>` : '');
 }
@@ -31009,7 +31074,7 @@ async function _ttRenderEditorStaging(semKey) {
     const serial = '<span style="color:var(--muted);min-width:36px;display:inline-block;">'+(idx+1)+'/'+total+'</span>';
     const clsLabel = '<span style="color:#e2e8f0;font-weight:600;">'+c+'</span>';
     const slotCount = '<span style="color:var(--muted);font-size:10px;margin-left:8px;">'+filled+'/'+totalSlots+' slots</span>';
-    return '<div onclick="_ttSummaryClick(\''+c.replace(/'/g,"\\'")+'\')" style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:6px;cursor:pointer;transition:background 0.15s;border:1px solid transparent;" onmouseover="this.style.background=\'rgba(255,255,255,0.05)\';this.style.borderColor=\'var(--border)\'" onmouseout="this.style.background=\'\';this.style.borderColor=\'transparent\'">'
+    return '<div onclick="_ttSummaryClick(\''+c.replace(/'/g,"\'")+'\')" style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:6px;cursor:pointer;transition:background 0.15s;border:1px solid transparent;" onmouseover="this.style.background=\'rgba(255,255,255,0.05)\';this.style.borderColor=\'var(--border)\'" onmouseout="this.style.background=\'\';this.style.borderColor=\'transparent\'">'
       + serial + clsLabel + slotCount + '<span style="margin-left:auto;">'+badge+'</span>'
       + '</div>';
   }).join('');
@@ -31570,7 +31635,7 @@ function facPickerHtml(gi, facVal, facList, missingFac) {
        <span style="width:24px;height:24px;border-radius:50%;background:var(--surface2);border:1.5px solid var(--border);flex-shrink:0;"></span>
        <span style="color:var(--muted);">— unassigned —</span></div>`
   ].concat(list.map(f => `
-    <div class="facpick-opt" onclick="facPickSelect('${gi}','${_aleEsc(f).replace(/'/g,"\\'")}')"
+    <div class="facpick-opt" onclick="facPickSelect('${gi}','${_aleEsc(f).replace(/'/g,"\'")}')"
       style="display:flex;align-items:center;gap:8px;padding:6px 9px;cursor:pointer;${f===selName?'background:rgba(196,160,42,0.12);':''}">
       ${_facAvatar(f,24)}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${f===selName?'var(--accent)':'#ccc'};">${_aleEsc(f)}</span>
     </div>`))
@@ -34228,7 +34293,7 @@ function carOpenWhatsAppPicker() {
   const classData = carBuildClassData(threshold2, includeLabs, threePlus);
 
   const listHtml = classData.map(c => `
-    <button onclick="carSendWhatsAppForClass('${c.cls.replace(/'/g,"\\'")}')"
+    <button onclick="carSendWhatsAppForClass('${c.cls.replace(/'/g,"\'")}')"
       style="display:flex;justify-content:space-between;align-items:center;width:100%;
       padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
       color:var(--text);font-size:13px;cursor:pointer;margin-bottom:6px;text-align:left;">
@@ -42838,7 +42903,7 @@ function facAlertRenderPreview() {
         ? '<span style="color:var(--ok);font-size:11px;font-weight:600;">✅ Will send</span>'
         : '<span style="color:#f59e0b;font-size:11px;">⚠ Not subscribed</span>';
       const sendBtn = hasSub
-        ? '<button onclick="facAlertSendOne(\'' + a.faculty.replace(/'/g,"\\'") + '\',\'' + a.subject.replace(/'/g,"\\'") + '\',\'' + t.class.replace(/'/g,"\\'") + '\',\'' + startTime + '\',\'' + dayName + '\')" style="padding:3px 10px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:5px;font-size:10px;cursor:pointer;">Send</button>'
+        ? '<button onclick="facAlertSendOne(\'' + a.faculty.replace(/'/g,"\'") + '\',\'' + a.subject.replace(/'/g,"\'") + '\',\'' + t.class.replace(/'/g,"\'") + '\',\'' + startTime + '\',\'' + dayName + '\')" style="padding:3px 10px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:5px;font-size:10px;cursor:pointer;">Send</button>'
         : '';
       return classHeader + '<tr style="border-bottom:1px solid var(--border);">' +
         '<td style="padding:6px 10px;font-size:12px;font-family:var(--mono);">' + startTime + '</td>' +
@@ -44452,9 +44517,11 @@ async function intInit() {
   const sittingBtn = document.getElementById('int-tab-sitting');
   const attendBtn  = document.getElementById('int-tab-attend');
   const settingsBtn = document.getElementById('int-tab-settings');
+  const autoDutyBtn = document.getElementById('int-tab-autoduty');
   if (sittingBtn) sittingBtn.style.display = isAdminRole ? '' : 'none';
   if (attendBtn)  attendBtn.style.display  = isAdminRole ? '' : 'none';
   if (settingsBtn) settingsBtn.style.display = isAdminRole ? '' : 'none';
+  if (autoDutyBtn) autoDutyBtn.style.display = isAdminRole ? '' : 'none';
 
   intSwitchTab('view');
   await intLoadList();
@@ -44570,7 +44637,7 @@ async function intLoadList() {
     // (only when viewing the LIVE semester — never mirror an archived view out to faculty)
     if (rtdb && INT_CURRENT && INT_DATA[INT_CURRENT] && viewedKey === intActiveSemKey()) {
       const d = INT_DATA[INT_CURRENT];
-      rtdb.ref('davan_pub/internals_current').set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], batch_overrides: d.batch_overrides||{} }).catch(()=>{});
+      rtdb.ref('davan_pub/internals_current').set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto: d.duty_auto||null, batch_overrides: d.batch_overrides||{} }).catch(()=>{});
     }
   } catch(e) {
     console.error('intLoadList', e);
@@ -44827,6 +44894,12 @@ function intRenderTable(data) {
         <div style="background:rgba(196,160,42,0.12);border:1px solid rgba(196,160,42,0.3);border-radius:8px;padding:10px 16px;text-align:center;margin-bottom:10px;">
           <div style="font-size:13px;font-weight:700;color:var(--accent);">${meta.title||'Internal Time Table'}</div>
         </div>
+
+        ${meta.last_updated ? `
+        <!-- Last Updated — auto-stamped on every save, never manually typed -->
+        <div style="background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.35);border-radius:6px;padding:6px 12px;text-align:center;margin-bottom:10px;">
+          <span style="font-size:11px;font-weight:700;color:#ef4444;">⏱️ This timetable was last updated on ${meta.last_updated}</span>
+        </div>` : ''}
 
         <!-- Instructions -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
@@ -45689,7 +45762,7 @@ function intBuildSlotCell(date, label, session, defaultBatchName, existingSlots,
       ${batchOptions}
     </select>
     <div style="display:flex;align-items:center;gap:4px;">
-      <select id="slot_${key}" onchange="intSyncSlotInput(this,'${safeBatch}','${effectiveBatchName.replace(/'/g,"\\'")}')"
+      <select id="slot_${key}" onchange="intSyncSlotInput(this,'${safeBatch}','${effectiveBatchName.replace(/'/g,"\'")}')"
         style="flex:1;background:${bgCol};color:var(--text);border:1px solid ${borderCol};border-radius:5px;padding:3px 5px;font-size:11px;">
         <option value="" style="background:#1e293b;color:#e2e8f0;">— select —</option>
         ${subjectList.map(m=>`<option value="${m.subject}" style="background:#1e293b;color:#e2e8f0;" ${m.subject===existingVal?'selected':''}>${m.subject}${m.faculty?' — '+m.faculty:''}</option>`).join('')}
@@ -45954,7 +46027,7 @@ function intRefreshUnallocatedSummary(batches, dates, existingSlots) {
         ).join('');
         return `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:2px 0;">
           <span onclick="intJumpToSlot('${date}','${key}')" style="cursor:pointer;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.35);border-radius:4px;padding:1px 6px;font-size:10px;color:#f87171;" title="Tap to jump to this cell">${bn}${hint}</span>
-          <select onchange="if(this.value){intMarkIgnored('${date}','${label.replace(/'/g,"\\'")}','${bn.replace(/'/g,"\\'")}',this.value);this.value='';}" style="font-size:9px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 3px;">
+          <select onchange="if(this.value){intMarkIgnored('${date}','${label.replace(/'/g,"\'")}','${bn.replace(/'/g,"\'")}',this.value);this.value='';}" style="font-size:9px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 3px;">
             <option value="">mark as…</option>
             ${reasonOptions}
           </select>
@@ -46665,6 +46738,16 @@ async function intSave(docId, isNew, opts) {
       director_designation: document.getElementById('ie-director-designation')?.value?.trim() || '',
       director_date: document.getElementById('ie-director-date')?.value?.trim() || '',
       created:      new Date().toLocaleDateString('en-IN'),
+      last_updated: (() => {
+        const d = new Date();
+        const dd = String(d.getDate()).padStart(2,'0');
+        const mm = String(d.getMonth()+1).padStart(2,'0');
+        const yyyy = d.getFullYear();
+        let h = d.getHours(); const min = String(d.getMinutes()).padStart(2,'0');
+        const ampm = h >= 12 ? 'pm' : 'am';
+        h = h % 12; if (h === 0) h = 12;
+        return `${dd}/${mm}/${yyyy} @ ${h}:${min} ${ampm}`;
+      })(),
     };
     batches = intCollectBatches();
     dates   = intCollectDates();
@@ -46713,11 +46796,11 @@ async function intSave(docId, isNew, opts) {
       const intMeta = await fsGet('app_data','internals_meta');
       const isCurrent = !intMeta?.current || intMeta.current === docId;
       if (rtdb && isCurrent) {
-        try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, batch_overrides }); } catch(e) {}
+        try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, duty_auto: INT_DATA[docId]?.duty_auto || null, batch_overrides }); } catch(e) {}
       }
     } catch(_e) {
       // If we can't check, mirror anyway (safe default for new internals)
-      if (rtdb) { try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, batch_overrides }); } catch(e) {} }
+      if (rtdb) { try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, duty_auto: INT_DATA[docId]?.duty_auto || null, batch_overrides }); } catch(e) {} }
     }
     dvToast('✅ Internal saved successfully', 'ok');
     if (msg) { msg.style.color = 'var(--ok)'; msg.textContent = '✅ Saved'; setTimeout(() => { if (msg.textContent === '✅ Saved') msg.textContent = ''; }, 3000); }
@@ -46727,7 +46810,7 @@ async function intSave(docId, isNew, opts) {
       try {
         await db.collection('app_data').doc('internals_meta').set({ current: docId }, { merge: true });
         if (rtdb) {
-          try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, batch_overrides }); } catch(_e) {}
+          try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, duty_auto: INT_DATA[docId]?.duty_auto || null, batch_overrides }); } catch(_e) {}
         }
       } catch(_e) {}
     }
@@ -46764,7 +46847,7 @@ async function intSetCurrent(docId) {
     // Mirror current internal data to RTDB for manager/faculty view
     const data = INT_DATA[docId];
     if (rtdb && data) {
-      try { await rtdb.ref('davan_pub/internals_current').set({ meta: data.meta, batches: data.batches, slots: data.slots, duties: data.duties||[], batch_overrides: data.batch_overrides||{} }); } catch(e) {}
+      try { await rtdb.ref('davan_pub/internals_current').set({ meta: data.meta, batches: data.batches, slots: data.slots, duties: data.duties||[], duty_auto: data.duty_auto||null, batch_overrides: data.batch_overrides||{} }); } catch(e) {}
     }
   } catch(e) {}
 }
@@ -46837,13 +46920,22 @@ async function intDutyLoad() {
     // data.duty_auto — previously only manual entries showed here, so an
     // auto-allocated assignment was invisible to the faculty it was for.
     const myName = currentProfile?.name || '';
+    const intNumForMe = INT_LIST.find(x => x.id === docId)?.n || 1;
     const manualDuties = (data.duties || []).filter(d => d.faculty_name === myName)
-      .map(d => ({ date: d.date, day: d.day, room: d.room, time_label: d.time_label, source: 'manual' }));
+      .map(d => ({ date: d.date, day: d.day, room: d.room, session: d.session || '', time_label: d.time_label, subject: '', source: 'manual' }));
     const autoDays = (data.duty_auto && data.duty_auto.days) || {};
     const autoDuties = [];
     Object.keys(autoDays).forEach(date => {
       (autoDays[date].assignments || []).forEach(a => {
-        if (a.faculty === myName) autoDuties.push({ date, day: autoDays[date].day, room: a.room, time_label: a.session === 'morning' ? 'Morning' : 'Afternoon', source: 'auto' });
+        if (a.faculty === myName) {
+          // Real time_label now lives on the assignment itself (per the
+          // room×time-period slot model) — no longer just "Morning"/
+          // "Afternoon". Also pull the subject being written in that
+          // room+time, same lookup already proven in sitRoomSummaryData.
+          const summary = (typeof sitRoomSummaryData === 'function') ? sitRoomSummaryData(intNumForMe, a.session.toUpperCase(), a.room, date, data.slots || []) : null;
+          const subjPlain = summary && typeof sitSubjectsPlainByCourse === 'function' ? sitSubjectsPlainByCourse(summary) : '';
+          autoDuties.push({ date, day: autoDays[date].day, room: a.room, session: a.session, time_label: a.time_label || (a.session === 'morning' ? 'Morning' : 'Afternoon'), subject: subjPlain, source: 'auto' });
+        }
       });
     });
     const mine = [...manualDuties, ...autoDuties];
@@ -46855,7 +46947,7 @@ async function intDutyLoad() {
             const d = new Date(str+'T00:00:00');
             return `${String(d.getDate()).padStart(2,'0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
           }
-          return mine.sort((a,b)=>a.date.localeCompare(b.date)||(a.time_label.localeCompare(b.time_label))).map((d,i)=>`
+          return mine.sort((a,b)=>a.date.localeCompare(b.date)||((a.time_label||'').localeCompare(b.time_label||''))).map((d,i)=>`
             <div style="background:var(--surface);border:1px solid rgba(96,165,250,.25);border-radius:10px;padding:14px 16px;margin-bottom:10px;">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
                 <span style="font-size:11px;font-family:var(--mono);color:var(--muted);">${i+1}.</span>
@@ -46868,6 +46960,7 @@ async function intDutyLoad() {
                   Room: ${d.room||'TBA'}
                 </span>
               </div>
+              ${d.subject ? `<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:6px;">📖 ${d.subject}</div>` : ''}
             </div>`).join('');
         })();
 
@@ -47781,6 +47874,32 @@ function intBuildGroupMsg(data) {
 // is currently stored in data.duty_auto (survives reload — read straight
 // from the passed-in `data`, not a separate fetch).
 // ── Auto Duty tab (dedicated, Session 2) ─────────────────────────────────
+// Live faculty search/filter for the Auto Duty card — hides non-matching
+// rows as the admin types, per explicit request ("give option to faculty
+// search and filter"). Also hides an emptied-out session block/day card
+// so filtering to one name doesn't leave a wall of blank headers.
+function intAutoDutyFilterFaculty(query) {
+  const body = document.getElementById('int-autoduty-body');
+  if (!body) return;
+  const q = (query || '').trim().toLowerCase();
+
+  body.querySelectorAll('[data-fac]').forEach(row => {
+    const match = !q || row.getAttribute('data-fac').includes(q);
+    row.style.display = match ? '' : 'none';
+  });
+
+  body.querySelectorAll('[data-session-block]').forEach(block => {
+    const anyVisible = [...block.querySelectorAll('[data-fac]')].some(r => r.style.display !== 'none');
+    block.style.display = anyVisible ? '' : 'none';
+  });
+
+  body.querySelectorAll('[data-day-card]').forEach(card => {
+    const anyVisible = [...card.querySelectorAll('[data-fac]')].some(r => r.style.display !== 'none');
+    card.style.display = anyVisible ? '' : 'none';
+  });
+}
+
+// ── Auto Duty tab (dedicated, Session 2) ─────────────────────────────────
 async function intAutoDutyLoad() {
   const docId = document.getElementById('int-autoduty-which')?.value || INT_CURRENT;
   if (!docId) return;
@@ -47796,6 +47915,12 @@ async function intAutoDutyLoad() {
     } catch(e) {}
   }
   if (!data) { body.innerHTML = '<div style="padding:20px;color:var(--muted);">No data.</div>'; return; }
+
+  // Reset the faculty search box on every load (new Internal selected, or
+  // page opened fresh) so stale filter text from a previous Internal
+  // doesn't silently hide rows on the newly-loaded one.
+  const searchBox = document.getElementById('int-autoduty-fac-search');
+  if (searchBox) searchBox.value = '';
 
   // Seated-room data (SIT_DATA) is what dutyBuildDaySlots()/sitRoomsInRotation()
   // read to know which rooms need an invigilator — it is populated by
@@ -47831,30 +47956,47 @@ function intRenderDutyAutoCard(docId, data) {
       const bySession = { morning: (d.assignments||[]).filter(a=>a.session==='morning'), afternoon: (d.assignments||[]).filter(a=>a.session==='afternoon') };
       const sessionBlock = (label, emoji, color, rows, sessionKey) => {
         if (!rows.length) return '';
-        const rowsHtml = rows.map((a, i) => {
-          const summary = (typeof sitRoomSummaryData === 'function') ? sitRoomSummaryData(intNum, sessionKey.toUpperCase(), a.room, date, data.slots || []) : null;
-          const countLine = summary ? sitRoomSummaryLineHtml(summary) : '';
-          const subjLine = summary && summary.subjects.length ? ` · 📖 ${sitSubjectsHtml(summary)}` : '';
-          const dbgId = `duty-dbg-${docId}-${date}-${sessionKey}-${a.room}`.replace(/[^a-zA-Z0-9-]/g,'_');
-          const debugHtml = summary && summary._debug ? `
-            <div style="cursor:pointer;color:var(--muted);font-size:9px;margin-top:2px;" onclick="document.getElementById('${dbgId}').style.display=document.getElementById('${dbgId}').style.display==='none'?'block':'none';">🔍 verify match</div>
-            <div id="${dbgId}" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:9px;color:var(--muted);">
-              <div>Room's real batches: ${summary._debug.roomYearCourses.join(', ') || '(none)'}</div>
-              <div>Exam slots this day/session: ${summary._debug.daySlotsConsidered.map(s=>`"${s.batch_name}"→${s.subject||'(blank)'}`).join(' | ') || '(none saved)'}</div>
-              <div>Matched batch names: ${summary._debug.matchedBatchNames.join(', ') || '(no match)'}</div>
-            </div>` : '';
-          return `<div style="padding:5px 0;font-size:11px;font-family:var(--mono);border-bottom:1px solid rgba(255,255,255,0.04);">
-            <div style="display:flex;justify-content:space-between;gap:8px;">
-              <span style="color:var(--muted);">${i+1}. 🏫 ${a.room}</span>
-              <span style="color:var(--text);font-weight:700;">${a.faculty}${a.fallbackUsed?' <span style="color:#f59e0b;" title="Rule-5 fallback used — strict alternation was not possible for this slot">⚠</span>':''}</span>
-            </div>
-            ${countLine ? `<div style="font-size:10px;margin-top:2px;">${countLine}${subjLine}</div>` : ''}
-            ${debugHtml}
+        // Group this session's assignments by real time_label — a session
+        // can now have multiple real time periods (2 morning, 3 afternoon
+        // typically), each needing its own duty coverage per room, per
+        // explicit admin correction ("5 slots to conduct internal").
+        const byTime = {};
+        rows.forEach(a => { (byTime[a.time_label || ''] = byTime[a.time_label || ''] || []).push(a); });
+        const times = Object.keys(byTime).sort((a, b) => {
+          const t = s => { const m = (s||'').match(/(\d+)[:.](\d+)/); return m ? parseInt(m[1])*60+parseInt(m[2]) : 0; };
+          return t(a) - t(b);
+        });
+        const timeBlocksHtml = times.map(timeLabel => {
+          const timeRows = byTime[timeLabel];
+          const rowsHtml = timeRows.map((a, i) => {
+            const summary = (typeof sitRoomSummaryData === 'function') ? sitRoomSummaryData(intNum, sessionKey.toUpperCase(), a.room, date, data.slots || []) : null;
+            const countLine = summary ? sitRoomSummaryLineHtml(summary) : '';
+            const subjLine = summary && summary.subjects.length ? ` · 📖 ${sitSubjectsHtml(summary)}` : '';
+            const dbgId = `duty-dbg-${docId}-${date}-${sessionKey}-${timeLabel}-${a.room}`.replace(/[^a-zA-Z0-9-]/g,'_');
+            const debugHtml = summary && summary._debug ? `
+              <div style="cursor:pointer;color:var(--muted);font-size:9px;margin-top:2px;" onclick="document.getElementById('${dbgId}').style.display=document.getElementById('${dbgId}').style.display==='none'?'block':'none';">🔍 verify match</div>
+              <div id="${dbgId}" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:9px;color:var(--muted);">
+                <div>Room's real batches: ${summary._debug.roomYearCourses.join(', ') || '(none)'}</div>
+                <div>Exam slots this day/session: ${summary._debug.daySlotsConsidered.map(s=>`"${s.batch_name}"→${s.subject||'(blank)'}`).join(' | ') || '(none saved)'}</div>
+                <div>Matched batch names: ${summary._debug.matchedBatchNames.join(', ') || '(no match)'}</div>
+              </div>` : '';
+            return `<div data-fac="${a.faculty.toLowerCase().replace(/"/g,'')}" style="padding:5px 0;font-size:11px;font-family:var(--mono);border-bottom:1px solid rgba(255,255,255,0.04);">
+              <div style="display:flex;justify-content:space-between;gap:8px;">
+                <span style="color:var(--muted);">${i+1}. 🏫 ${a.room}</span>
+                <span style="color:var(--text);font-weight:700;">${a.faculty}${a.fallbackUsed?' <span style="color:#f59e0b;" title="Rule-5 fallback used — strict alternation was not possible for this slot">⚠</span>':''}</span>
+              </div>
+              ${countLine ? `<div style="font-size:10px;margin-top:2px;">${countLine}${subjLine}</div>` : ''}
+              ${debugHtml}
+            </div>`;
+          }).join('');
+          return `<div style="margin-bottom:6px;">
+            ${timeLabel ? `<div style="font-size:14px;font-weight:700;color:#60a5fa;font-family:var(--mono);margin-bottom:6px;padding:6px 10px;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.35);border-radius:6px;text-align:center;">⏰ ${timeLabel}</div>` : ''}
+            ${rowsHtml}
           </div>`;
         }).join('');
-        return `<div style="margin-bottom:8px;">
+        return `<div data-session-block style="margin-bottom:8px;">
           <div style="font-size:10px;font-weight:700;color:${color};font-family:var(--mono);margin-bottom:4px;">${emoji} ${label}</div>
-          ${rowsHtml}
+          ${timeBlocksHtml}
         </div>`;
       };
       const rowsHtml = sessionBlock('MORNING', '🌅', '#fbbf24', bySession.morning, 'morning') + sessionBlock('AFTERNOON', '🌇', '#f97316', bySession.afternoon, 'afternoon')
@@ -47867,7 +48009,7 @@ function intRenderDutyAutoCard(docId, data) {
       const dayExceptions = exceptions[date] || [];
       const excChips = dayExceptions.map(n =>
         `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px 2px 0;padding:2px 8px;background:rgba(239,68,68,0.12);border-radius:10px;font-size:10px;font-family:var(--mono);color:#ef4444;">${n}
-          <span onclick="dutyToggleException('${docId}','${date}','${n.replace(/'/g,"\\'")}',false)" style="cursor:pointer;font-weight:700;">✕</span>
+          <span onclick="dutyToggleException('${docId}','${date}','${n.replace(/'/g,"\'")}',false)" style="cursor:pointer;font-weight:700;">✕</span>
         </span>`).join('');
       const facOptions = ALL_FAC.filter(f => !dayExceptions.includes(f))
         .map(f => `<option value="${f}">${f}</option>`).join('');
@@ -47881,7 +48023,7 @@ function intRenderDutyAutoCard(docId, data) {
           </select>
         </div>`;
 
-      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+      return `<div data-day-card style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:4px;">
           <div style="font-size:11px;font-weight:700;color:var(--accent);font-family:var(--mono);">📅 ${dlabel} — ${d.day||''}</div>
           <button onclick="dutyShowIndivPicker('${docId}','${date}')" style="padding:4px 10px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:10px;cursor:pointer;">💬 Send Individual</button>
@@ -47915,7 +48057,7 @@ function intRenderDutyAutoCard(docId, data) {
   const permExceptions = (dutyAuto && dutyAuto.permanentExceptions) || [];
   const permChips = permExceptions.map(n =>
     `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px 2px 0;padding:2px 8px;background:rgba(239,68,68,0.16);border-radius:10px;font-size:10px;font-family:var(--mono);color:#ef4444;font-weight:700;">${n}
-      <span onclick="dutyTogglePermanentException('${docId}','${n.replace(/'/g,"\\'")}',false)" style="cursor:pointer;font-weight:700;">✕</span>
+      <span onclick="dutyTogglePermanentException('${docId}','${n.replace(/'/g,"\'")}',false)" style="cursor:pointer;font-weight:700;">✕</span>
     </span>`).join('');
   const permFacOptions = ALL_FAC.filter(f => !permExceptions.includes(f))
     .map(f => `<option value="${f}">${f}</option>`).join('');
@@ -48000,7 +48142,7 @@ function dutyShowIndivPicker(docId, date) {
         <button onclick="document.getElementById('duty-indiv-picker-overlay').remove()"
           style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;">✕</button>
       </div>
-      ${names.map(n => `<button onclick="document.getElementById('duty-indiv-picker-overlay').remove();dutyShowIndivPreview('${docId}','${n.replace(/'/g,"\\'")}')"
+      ${names.map(n => `<button onclick="document.getElementById('duty-indiv-picker-overlay').remove();dutyShowIndivPreview('${docId}','${n.replace(/'/g,"\'")}')"
         style="text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;">${n}</button>`).join('')}
     </div>`;
   document.body.appendChild(overlay);
@@ -48139,7 +48281,7 @@ function intRenderDutyAdmin(docId, data) {
             ? `<span style="font-size:9px;font-family:var(--mono);color:#25d366;background:rgba(37,211,102,.12);border:1px solid rgba(37,211,102,.3);border-radius:10px;padding:1px 7px;white-space:nowrap;">✅ Sent</span>`
             : '';
           // Safely escape for JS string inside onclick
-          const facEsc = d.faculty_name.replace(/'/g,"\\'");
+          const facEsc = d.faculty_name.replace(/'/g,"\'");
           html += `
           <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);${rowBlur}">
             <span style="font-size:11px;font-family:var(--mono);color:var(--muted);min-width:18px;padding-top:2px;">${idx+1}.</span>
@@ -48958,7 +49100,7 @@ function sitRenderSearchDropdown(query) {
   dd.innerHTML = matches.map(s => {
     const urn = s.urn || s.seat_no || '';
     const avatar = typeof _stuAvatar === 'function' ? _stuAvatar(urn, s.name, 32) : '';
-    return `<div onclick="sitSelectSearchResult('${urn.replace(/'/g,"\\'")}')"
+    return `<div onclick="sitSelectSearchResult('${urn.replace(/'/g,"\'")}')"
         style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);"
         onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
       ${avatar}
@@ -49106,23 +49248,23 @@ function sitRenderOneRoomSummary(roomId) {
 // a combined grand total across all rooms (used once at the bottom of the
 // "All" view).
 function sitSummaryHtmlFromInputs(inputs, isGrand) {
-  const classCounts = {};
+  const yearCourseCounts = {};
+  const yearCourseToCourse = {};
   inputs.forEach(inp => {
     const urn = (inp.value||'').trim().toUpperCase();
     if (!urn) return;
-    const cls = sitUrnToCourse(urn) || 'Unknown';
-    classCounts[cls] = (classCounts[cls] || 0) + 1;
+    const yc = sitUrnToYearCourse(urn) || sitUrnToCourse(urn) || 'Unknown';
+    const course = sitUrnToCourse(urn) || 'Unknown';
+    yearCourseCounts[yc] = (yearCourseCounts[yc] || 0) + 1;
+    yearCourseToCourse[yc] = course;
   });
-  const total = Object.values(classCounts).reduce((a,b)=>a+b,0);
+  const total = Object.values(yearCourseCounts).reduce((a,b)=>a+b,0);
   if (!total) return '';
-  const order = ['BCA','BBA','BCom'];
-  const keys = Object.keys(classCounts).sort((a,b) => {
-    const ia = order.indexOf(a), ib = order.indexOf(b);
-    return (ia===-1?99:ia) - (ib===-1?99:ib);
-  });
-  const parts = keys.map(c => {
-    const col = sitCourseColor(c);
-    return `<span style="color:${col.text};font-weight:700;">${c}: ${classCounts[c]}</span>`;
+  const keys = Object.keys(yearCourseCounts).sort((a,b) => _sitYearCourseSortKey(a, yearCourseToCourse) - _sitYearCourseSortKey(b, yearCourseToCourse));
+  const parts = keys.map(k => {
+    const course = yearCourseToCourse[k] || k;
+    const col = sitCourseColor(course);
+    return `<span style="color:${col.text};font-weight:700;">${k}: ${yearCourseCounts[k]}</span>`;
   }).join(' <span style="color:var(--muted);">|</span> ');
   const prefix = isGrand ? '<span style="color:var(--muted);">GRAND TOTAL — </span>' : '';
   return `${prefix}${parts} <span style="color:var(--muted);">|</span> <strong style="color:var(--text);">TOTAL: ${total}</strong>`;
@@ -49580,18 +49722,29 @@ function sitRoomSummaryData(intNum, session, roomId, date, slots_d) {
     matchedBatchNames: [...new Set(matchedSlots.map(sl => sl.batch_name))],
   };
 
-  return { courseCounts, total, subjects, subjectsByCourse, yearCourseToCourse, _debug };
+  return { courseCounts, yearCourseCounts: yearCourseSeatCounts, total, subjects, subjectsByCourse, yearCourseToCourse, _debug };
 }
 
 // Formats sitRoomSummaryData() output into the "BCA: 20 | BBA: 13 | BCom:
 // 11 | TOTAL: 44" line, same order/style as the existing DOM-based summary.
+// Sort key for a "I BCA"/"II BCom" label — course order first (BCA/BBA/
+// BCom), then year (I/II/III) within that course, so e.g. "I BCA" always
+// sorts before "II BCA" before "I BBA".
+const SIT_YEAR_ORDER = { I: 1, II: 2, III: 3 };
+function _sitYearCourseSortKey(yc, y2c) {
+  const course = y2c[yc] || '';
+  const yearToken = (yc || '').split(' ')[0];
+  const courseIdx = SIT_COURSE_ORDER_PRE.indexOf(course);
+  const yearIdx = SIT_YEAR_ORDER[yearToken] || 99;
+  return (courseIdx===-1?99:courseIdx) * 10 + yearIdx;
+}
+const SIT_COURSE_ORDER_PRE = ['BCA','BBA','BCom'];
+
 function sitRoomSummaryLine(summary) {
-  const order = ['BCA','BBA','BCom'];
-  const keys = Object.keys(summary.courseCounts).sort((a,b) => {
-    const ia = order.indexOf(a), ib = order.indexOf(b);
-    return (ia===-1?99:ia) - (ib===-1?99:ib);
-  });
-  const parts = keys.map(c => `${c}: ${summary.courseCounts[c]}`);
+  const y2c = summary.yearCourseToCourse || {};
+  const counts = summary.yearCourseCounts || summary.courseCounts; // fallback for any caller not yet passing yearCourseCounts
+  const keys = Object.keys(counts).sort((a,b) => _sitYearCourseSortKey(a, y2c) - _sitYearCourseSortKey(b, y2c));
+  const parts = keys.map(k => `${k}: ${counts[k]}`);
   parts.push(`TOTAL: ${summary.total}`);
   return parts.join(' | ');
 }
@@ -49603,15 +49756,15 @@ function sitRoomSummaryLine(summary) {
 // app, not a separate palette invented just for this card, per explicit
 // admin request: "per course one colour and keep that colour for that
 // course subject also so that i can know properly".
-const SIT_COURSE_ORDER = ['BCA','BBA','BCom'];
+const SIT_COURSE_ORDER = SIT_COURSE_ORDER_PRE;
 function sitRoomSummaryLineHtml(summary) {
-  const keys = Object.keys(summary.courseCounts).sort((a,b) => {
-    const ia = SIT_COURSE_ORDER.indexOf(a), ib = SIT_COURSE_ORDER.indexOf(b);
-    return (ia===-1?99:ia) - (ib===-1?99:ib);
-  });
-  const parts = keys.map(c => {
-    const col = (typeof sitCourseColor === 'function') ? sitCourseColor(c) : { text: 'var(--text)' };
-    return `<span style="color:${col.text};font-weight:700;">${c}: ${summary.courseCounts[c]}</span>`;
+  const y2c = summary.yearCourseToCourse || {};
+  const counts = summary.yearCourseCounts || summary.courseCounts;
+  const keys = Object.keys(counts).sort((a,b) => _sitYearCourseSortKey(a, y2c) - _sitYearCourseSortKey(b, y2c));
+  const parts = keys.map(k => {
+    const course = y2c[k] || k; // fallback: k might already be a bare course if yearCourseToCourse is missing
+    const col = (typeof sitCourseColor === 'function') ? sitCourseColor(course) : { text: 'var(--text)' };
+    return `<span style="color:${col.text};font-weight:700;">${k}: ${counts[k]}</span>`;
   });
   parts.push(`<span style="color:var(--muted);">TOTAL: ${summary.total}</span>`);
   return parts.join(' <span style="color:var(--muted);">|</span> ');
@@ -49795,17 +49948,43 @@ function dutySlotSession(slotStr) {
 // SIT_DATA, same source sitRoomsInRotation() uses) that needs exactly one
 // invigilator for that day's exam session. `order` spans morning+afternoon
 // combined so back-to-back detection works across the lunch boundary too.
-function dutyBuildDaySlots(intNum, session, dayIndex) {
+function dutyBuildDaySlots(intNum, session, dayIndex, date, slots_d) {
   const rooms = sitRoomsInRotation(intNum, session.toUpperCase());
-  // Each room = one duty slot for this session. Order offset: afternoon
-  // slots start numbering after all morning slots for the SAME day, so
-  // callers should pass both sessions' slots through the same order space —
-  // see dutyAllocateForInternal() which merges them before calling the core allocator.
-  return rooms.map((baseRoom, i) => ({
-    room: sitRoomForDay(baseRoom, dayIndex, rooms),
-    session: session.toLowerCase(),
-    order: i, // caller offsets afternoon by morning.length
-  }));
+  const sessionLower = session.toLowerCase();
+  // Real distinct time_labels for this exact date+session, sorted
+  // chronologically — read from the Internal's own saved timetable
+  // (data.slots), NOT hardcoded against INT_DEFAULT_TIMES, since an
+  // admin can edit/override real times per Internal. Falls back to a
+  // single slot (old one-per-session behavior) if no real time_labels
+  // are found, so a room still gets SOME duty slot rather than none.
+  const timeLabels = [...new Set(
+    (slots_d || []).filter(sl => sl.date === date && (sl.session || '').toLowerCase() === sessionLower && sl.time_label).map(sl => sl.time_label)
+  )].sort((a, b) => {
+    const t = s => { const m = (s||'').match(/(\d+)[:.](\d+)/); return m ? parseInt(m[1])*60+parseInt(m[2]) : 0; };
+    return t(a) - t(b);
+  });
+  const effectiveTimes = timeLabels.length ? timeLabels : [''];
+
+  // Each (room × real time period) = one duty slot — a room needs
+  // separate invigilation coverage for every real time period in the
+  // session, not one person for the whole session. Order spans every
+  // room within a time period first, then moves to the next time period
+  // (so back-to-back detection correctly treats "same room, next time
+  // period" as adjacent, matching how an invigilator would actually
+  // experience consecutive coverage).
+  const slots = [];
+  let order = 0;
+  effectiveTimes.forEach(timeLabel => {
+    rooms.forEach(baseRoom => {
+      slots.push({
+        room: sitRoomForDay(baseRoom, dayIndex, rooms),
+        session: sessionLower,
+        time_label: timeLabel,
+        order: order++,
+      });
+    });
+  });
+  return slots;
 }
 
 // ── Core per-day allocator (rules 3, 5, 6) ───────────────────────────────
@@ -49819,11 +49998,14 @@ function dutyAllocateForDay(daySlots, pool, counts) {
   const unfilled = [];
   const lastWorkedOrder = {}; // per-day only — resets each call
   const todayCount = {};     // per-day only — rule 5 fallback cap (max 4/day)
+  const busyThisTime = {};   // per-day only — { time_label: Set(facultyName) } — a person can only be in ONE room at a time
 
   const sorted = [...daySlots].sort((a, b) => a.order - b.order);
 
   sorted.forEach(slot => {
+    const timeBusy = busyThisTime[slot.time_label] || new Set();
     const strictCandidates = pool.filter(f => {
+      if (timeBusy.has(f.name)) return false; // physically impossible: already assigned to a different room this same time period
       if (lastWorkedOrder[f.name] === slot.order - 1) return false; // rule 5: no back-to-back
       if (f.type === 'visiting' && f.maxDuties != null && (counts[f.name] || 0) >= f.maxDuties) return false; // rule 4
       return true;
@@ -49843,22 +50025,29 @@ function dutyAllocateForDay(daySlots, pool, counts) {
       // rule 5 fallback: strict alternation genuinely impossible this slot
       // (too many rooms / too few eligible faculty) — relax back-to-back
       // and the 4/day soft cap as a LAST resort, but the visiting cap
-      // (rule 4) never relaxes, and this never lets one person take every
-      // slot in the day (each pick still goes through fair-rotation pickFrom).
-      const relaxed = pool.filter(f => !(f.type === 'visiting' && f.maxDuties != null && (counts[f.name] || 0) >= f.maxDuties));
+      // (rule 4) NEVER relaxes, and the same-time-period guard NEVER
+      // relaxes either — a person cannot physically be in two rooms at
+      // once no matter how short-staffed the pool is, unlike back-to-back
+      // spacing which is a fairness preference, not a physical constraint.
+      const relaxed = pool.filter(f =>
+        !timeBusy.has(f.name) &&
+        !(f.type === 'visiting' && f.maxDuties != null && (counts[f.name] || 0) >= f.maxDuties)
+      );
       chosen = pickFrom(relaxed);
       usedFallback = true;
     }
 
     if (!chosen) {
-      unfilled.push({ room: slot.room, session: slot.session, order: slot.order, reason: 'no eligible faculty (pool exhausted or all at cap)' });
+      unfilled.push({ room: slot.room, session: slot.session, time_label: slot.time_label, order: slot.order, reason: 'no eligible faculty (pool exhausted, all at cap, or all already assigned this time period)' });
       return;
     }
 
-    assignments.push({ room: slot.room, session: slot.session, order: slot.order, faculty: chosen.name, fallbackUsed: usedFallback });
+    assignments.push({ room: slot.room, session: slot.session, time_label: slot.time_label, order: slot.order, faculty: chosen.name, fallbackUsed: usedFallback });
     counts[chosen.name] = (counts[chosen.name] || 0) + 1;
     todayCount[chosen.name] = (todayCount[chosen.name] || 0) + 1;
     lastWorkedOrder[chosen.name] = slot.order;
+    if (!busyThisTime[slot.time_label]) busyThisTime[slot.time_label] = new Set();
+    busyThisTime[slot.time_label].add(chosen.name);
   });
 
   return { assignments, unfilled };
@@ -49904,8 +50093,8 @@ async function dutyAllocateForInternal(docId, intNum) {
       days[date] = { day: dayName, assignments: [], unfilled: [{ room: '—', session: '—', order: -1, reason: 'no eligible faculty pool for this day (check Staff Directory / LM_ALLOCATIONS / exceptions)' }] };
       return;
     }
-    const morningSlots   = dutyBuildDaySlots(intNum, 'MORNING', dayIndex);
-    const afternoonSlotsRaw = dutyBuildDaySlots(intNum, 'AFTERNOON', dayIndex);
+    const morningSlots   = dutyBuildDaySlots(intNum, 'MORNING', dayIndex, date, intData.slots);
+    const afternoonSlotsRaw = dutyBuildDaySlots(intNum, 'AFTERNOON', dayIndex, date, intData.slots);
     // Offset afternoon `order` so it continues numbering after morning —
     // this is what makes morning-last→afternoon-first count as back-to-back.
     const afternoonSlots = afternoonSlotsRaw.map(s => ({ ...s, order: s.order + morningSlots.length }));
@@ -49920,6 +50109,18 @@ async function dutyAllocateForInternal(docId, intNum) {
     await db.collection('internals').doc(docId).update({ duty_auto });
     INT_DATA[docId].duty_auto = duty_auto;
     DUTY_AUTO[docId] = duty_auto;
+    // Mirror to RTDB right away (same "only if current internal" guard as
+    // intSave) — without this, the RTDB copy would only pick up fresh
+    // duty data on whatever unrelated timetable save happens next, not
+    // immediately when Auto-Allocate is actually run.
+    try {
+      const intMeta = await fsGet('app_data','internals_meta');
+      const isCurrentForRtdb = !intMeta?.current || intMeta.current === docId;
+      if (rtdb && isCurrentForRtdb) {
+        const d = INT_DATA[docId];
+        await rtdb.ref('davan_pub/internals_current').set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto, batch_overrides: d.batch_overrides||{} });
+      }
+    } catch(_e) {}
     const totalUnfilled = Object.values(days).reduce((n, d) => n + (d.unfilled?.length || 0), 0);
     if (totalUnfilled > 0) {
       dvToast(`⚠ Duty allocated with ${totalUnfilled} unfilled slot(s) — check Duty tab`, 'warn', 5000);
@@ -50022,15 +50223,27 @@ function dutyBuildMasterMsg(docId, data) {
     ['morning','afternoon'].forEach(session => {
       const rows = (d.assignments || []).filter(a => a.session === session);
       if (!rows.length) return;
+      // Group by real time_label — a session can have multiple real time
+      // periods (2 morning, 3 afternoon typically), each with its own
+      // duty coverage per room now (per admin correction).
+      const byTime = {};
+      rows.forEach(a => { (byTime[a.time_label || ''] = byTime[a.time_label || ''] || []).push(a); });
+      const times = Object.keys(byTime).sort((a,b) => {
+        const t = s => { const m=(s||'').match(/(\d+)[:.](\d+)/); return m?parseInt(m[1])*60+parseInt(m[2]):0; };
+        return t(a)-t(b);
+      });
       lines.push('━━━━━━━━━━━━━━━━━━━━');
       lines.push(`📅 *${dutyFmtFull(date)} — ${session === 'morning' ? '🌅 MORNING' : '🌇 AFTERNOON'}*`);
       lines.push('━━━━━━━━━━━━━━━━━━━━');
-      rows.forEach((a, i) => {
-        const summary = sitRoomSummaryData(intNum, session.toUpperCase(), a.room, date, slots_d);
-        const line = sitRoomSummaryLine(summary);
-        const subjPlain = sitSubjectsPlainByCourse(summary);
-        const subj = subjPlain ? ` · 📖 ${subjPlain}` : '';
-        lines.push(`${i+1}. 🏫 *${a.room}* — ${a.faculty} · ${line}${subj}`);
+      times.forEach(timeLabel => {
+        if (timeLabel) lines.push(`⏰ *${timeLabel}*`);
+        byTime[timeLabel].forEach((a, i) => {
+          const summary = sitRoomSummaryData(intNum, session.toUpperCase(), a.room, date, slots_d);
+          const line = sitRoomSummaryLine(summary);
+          const subjPlain = sitSubjectsPlainByCourse(summary);
+          const subj = subjPlain ? ` · 📖 ${subjPlain}` : '';
+          lines.push(`${i+1}. 🏫 *${a.room}* — ${a.faculty} · ${line}${subj}`);
+        });
       });
       lines.push('');
     });
@@ -50064,22 +50277,30 @@ function dutyBuildIndivMsg(docId, data, facultyName) {
   const myRows = [];
   dates.forEach(date => {
     (dutyAuto.days[date].assignments || []).forEach(a => {
-      if (a.faculty === facultyName) myRows.push({ date, session: a.session, room: a.room });
+      if (a.faculty === facultyName) myRows.push({ date, session: a.session, room: a.room, time_label: a.time_label });
     });
   });
   if (!myRows.length) return `No duty assigned to ${facultyName} for this Internal.`;
+
+  // Sort by date then by real time within the day, so multiple duty slots
+  // on the same day (now common — a person can have several across
+  // different real time periods) list in chronological order.
+  myRows.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    const t = s => { const m=(s||'').match(/(\d+)[:.](\d+)/); return m?parseInt(m[1])*60+parseInt(m[2]):0; };
+    return t(a.time_label) - t(b.time_label);
+  });
 
   const dutyLines = myRows.map(r => {
     const summary = sitRoomSummaryData(intNum, r.session.toUpperCase(), r.room, r.date, slots_d);
     const line = sitRoomSummaryLine(summary);
     const subjPlain = sitSubjectsPlainByCourse(summary);
     const subj = subjPlain ? `\nSubjects: ${subjPlain}` : '';
-    // Real exam timing for this date+session — same time_label every batch
-    // in that session shares (data.slots is per-batch but time is uniform
-    // across batches within one date+session), so the first match is the
-    // session's actual start-end time.
-    const timingMatch = (slots_d || []).find(sl => sl.date === r.date && (sl.session||'').toLowerCase() === r.session);
-    const timing = timingMatch?.time_label ? `  |  ⏰ ${timingMatch.time_label}` : '';
+    // Real exam timing for THIS specific assignment (each assignment now
+    // carries its own time_label — a session can have multiple real time
+    // periods, so the old "first match for the whole session" lookup
+    // would have been wrong once a faculty had 2+ slots in one session).
+    const timing = r.time_label ? `  |  ⏰ ${r.time_label}` : '';
     return `${dutyFmtFull(r.date)}\n${r.session === 'morning' ? 'Morning' : 'Afternoon'} — Room: ${r.room}${timing}  (${line})${subj}`;
   }).join('\n\n');
 
@@ -50552,15 +50773,18 @@ function sitBuildPrintRows(room, rd, intLabel, liveDates, intNum, displayRoom) {
     rows.push(numRow); rows.push(urnRow);
   }
 
-  const classCounts = {};
+  const yearCourseCounts = {};
+  const yearCourseToCourse = {};
   (rd.seats||[]).forEach(s => {
     if (!s.urn) return;
-    const c = sitUrnToCourse(s.urn)||'Unknown';
-    classCounts[c] = (classCounts[c]||0)+1;
+    const yc = sitUrnToYearCourse(s.urn) || sitUrnToCourse(s.urn) || 'Unknown';
+    const course = sitUrnToCourse(s.urn) || 'Unknown';
+    yearCourseCounts[yc] = (yearCourseCounts[yc]||0)+1;
+    yearCourseToCourse[yc] = course;
   });
-  const total = Object.values(classCounts).reduce((a,b)=>a+b,0);
-  Object.keys(classCounts).sort((a,b)=>{ const ia=order.indexOf(a), ib=order.indexOf(b); return (ia===-1?99:ia)-(ib===-1?99:ib); })
-    .forEach(c => rows.push([c,'','',classCounts[c]]));
+  const total = Object.values(yearCourseCounts).reduce((a,b)=>a+b,0);
+  Object.keys(yearCourseCounts).sort((a,b)=>_sitYearCourseSortKey(a, yearCourseToCourse) - _sitYearCourseSortKey(b, yearCourseToCourse))
+    .forEach(k => rows.push([k,'','',yearCourseCounts[k]]));
   rows.push(['TOTAL','','',total]);
   const sig = sitGetDirectorSignature(intNum || (parseInt(SIT_INT)||1));
   rows.push([`(${sig.name})\n${sig.designation}${sig.date ? '\n' + sig.date : ''}`]);
@@ -50637,20 +50861,92 @@ function sitBuildPrintHtml() {
   let html = `<!DOCTYPE html><html><head><meta charset="utf-8">
   <title>Sitting Allocation - ${SIT_SESSION} - ${intLabel}</title>
   <style>
-    body{font-family:Arial,sans-serif;font-size:10px;margin:0;padding:0;}
-    .page{width:210mm;min-height:297mm;padding:10mm;box-sizing:border-box;page-break-after:always;}
-    h2{text-align:center;font-size:13px;margin:2px 0;}
-    h3{text-align:center;font-size:11px;margin:2px 0;}
-    .meta{text-align:center;margin:4px 0;}
-    table{border-collapse:collapse;width:100%;}
-    td,th{border:1px solid #333;padding:3px 5px;text-align:center;font-size:9px;}
-    .seat-no{background:#eee;font-weight:bold;}
-    .urn-cell{min-width:70px;}
-    .bench-label{border:none;text-align:left;font-size:7px;color:#666;padding:1px 3px 0;font-weight:normal;}
-    .summary{margin-top:8px;font-size:10px;}
-    .legend{margin:4px 0;font-size:9px;}
-    .legend span{display:inline-block;margin-right:10px;padding:1px 6px;border-radius:3px;}
-    .sig{margin-top:16px;text-align:right;font-size:10px;}
+    /* v1176: color:#000 explicitly set on EVERY text-bearing selector, not
+       just body — root cause of the "blank canvas, correct dimensions" bug
+       traced via isolated headless-browser testing: this print stylesheet
+       is injected directly into the live app page (not a separate blank
+       window like sitPrintRoom's document.write), so any selector that
+       never sets its own color silently INHERITS the live page's dark
+       theme (--text: #e4e8f0, near-white) instead of defaulting to black —
+       confirmed exactly reproduces the reported symptom (correct canvas
+       size, effectively zero non-white pixels) in isolation. body{} alone
+       is not enough insurance against this inheritance risk across every
+       nested element, so color is now set redundantly at every level.
+       LANDSCAPE per admin request ("make page horizontal so u can fit all
+       what u say") — swapped page width/height so the wide two-block seat
+       grid has more horizontal room.
+       v1181: admin reported the printed sheet has "so much space top/down
+       and matter is small" — confirmed root cause: .page was a fixed
+       297mm×210mm box (correct), but nothing inside it was sized to
+       actually FILL that box. table{width:100%} only ever meant 100% of
+       the page's own width; height was left entirely to each cell's
+       natural content size, so a print engine (which never stretches
+       content to fill a page the way html2canvas's raster capture might
+       have implied) rendered the true, compact table height and left the
+       remaining vertical space on the A4 sheet blank — exactly the
+       reported symptom. FIX: every font-size and padding value bumped up
+       (body 10px→13px, table cells 9px→12px/6px9px padding, headings
+       13px/11px→17px/13px, bench-label 7px→9px, legend/summary/sig
+       9-10px→12-13px) so the SAME content genuinely fills more of the
+       297×210mm page instead of leaving it mostly blank around a small
+       table — this is a real size increase, not a stretch/zoom hack, so
+       nothing gets blurry or disproportionate. .page is now display:flex;
+       flex-direction:column and table gets flex:1, so it (and its rows)
+       actually grow to consume whatever vertical space is left after the
+       header/legend above it, instead of collapsing to natural content
+       height and leaving the rest of the page blank. */
+    body{font-family:Arial,sans-serif;font-size:13px;margin:0;padding:0;color:#000;}
+    /* v1183: 12 pages instead of 6, and the print preview showing a
+       narrow/tall (portrait-shaped) page despite @page{size:A4 landscape}
+       — root cause: .page was hardcoded to width:297mm (the landscape
+       content width), but if the browser's ACTUAL paper is being treated
+       as portrait A4 (210mm wide) — which the reported preview confirms,
+       and which @page's size hint is evidently NOT reliably forcing in
+       this Chrome build/print-preview path — then a 297mm-wide div no
+       longer fits the 210mm paper at all, so the print engine has to
+       either scale it down or spill the overflow onto a second page per
+       room, doubling every room from 1 page to 2 (6 rooms -> 12 pages).
+       Trying to force landscape via @page size is evidently not reliable
+       enough here to depend on alone. FIX: .page now sizes itself off the
+       VIEWPORT (100vw/100vh) instead of a hardcoded physical mm value —
+       most browsers' print-preview viewport already reflects whatever the
+       actual selected paper dimensions are (portrait OR landscape,
+       whichever the user's dialog ends up using), so the div can never be
+       wider than the real page again, regardless of whether @page's
+       orientation hint was honored. @page{size:A4 landscape} is KEPT as a
+       hint for browsers that do respect it (giving the best result: a
+       wide landscape page matching the wide seat-grid table), but the
+       page no longer breaks/overflows even in browsers or print flows
+       that ignore it and fall back to portrait — content will simply
+       reflow to fit whatever shape the real paper turns out to be. */
+    .page{width:100vw;height:100vh;padding:10mm;box-sizing:border-box;page-break-after:always;color:#000;display:flex;flex-direction:column;overflow:hidden;}
+    h2{text-align:center;font-size:17px;margin:3px 0;color:#000;}
+    h3{text-align:center;font-size:13px;margin:3px 0;color:#000;}
+    .meta{text-align:center;margin:5px 0;font-size:13px;color:#000;}
+    table{border-collapse:collapse;width:100%;flex:1;color:#000;table-layout:fixed;}
+    td,th{border:1px solid #333;padding:6px 9px;text-align:center;font-size:12px;color:#000;}
+    .seat-no{background:#eee;font-weight:bold;color:#000;font-size:13px;}
+    .urn-cell{min-width:90px;color:#000;font-size:12px;}
+    .bench-label{border:none;text-align:left;font-size:9px;color:#666;padding:2px 4px 0;font-weight:normal;}
+    .summary{margin-top:10px;font-size:13px;color:#000;}
+    .legend{margin:5px 0;font-size:12px;color:#000;}
+    .legend span{display:inline-block;margin-right:12px;padding:2px 8px;border-radius:3px;color:#000;}
+    .sig{margin-top:18px;text-align:right;font-size:13px;color:#000;}
+    /* v1182: "size:landscape" on .page inside @media print does nothing —
+       size is only a valid CSS property on the @page at-rule itself, not
+       on a regular element selector, so this was silently a no-op the
+       whole time; landscape orientation only ever came from whatever the
+       user picked in the browser's print dialog Layout dropdown, with no
+       real page-size hint from the document itself. Added a genuine
+       @page rule (A4 landscape, 0 margin — the .page div's own 10mm
+       padding already provides the visual margin) so the browser's print
+       preview defaults to the correct orientation/size on its own. This
+       does NOT and cannot override a print dialog's Scale field if the
+       admin (or whoever last printed) manually set Scale to something
+       other than Default/100 — that control lives entirely in the browser
+       UI, outside any page CSS's reach; a Custom 72% scale will shrink an
+       otherwise-correctly-sized A4 page no matter what. */
+    @page { size: A4 landscape; margin: 0; }
     @media print{.page{page-break-after:always;}}
   </style></head><body>`;
 
@@ -50661,13 +50957,16 @@ function sitBuildPrintHtml() {
     if (!rd) return;
     const seatMap = {};
     (rd.seats||[]).forEach(s => { seatMap[s.seatNo] = s.urn||''; });
-    const classCounts = {};
+    const yearCourseCounts = {};
+    const yearCourseToCourse = {};
     (rd.seats||[]).forEach(s => {
       if (!s.urn) return;
-      const c = sitUrnToCourse(s.urn)||'Unknown';
-      classCounts[c] = (classCounts[c]||0)+1;
+      const yc = sitUrnToYearCourse(s.urn) || sitUrnToCourse(s.urn) || 'Unknown';
+      const course = sitUrnToCourse(s.urn) || 'Unknown';
+      yearCourseCounts[yc] = (yearCourseCounts[yc]||0)+1;
+      yearCourseToCourse[yc] = course;
     });
-    const total = Object.values(classCounts).reduce((a,b)=>a+b,0);
+    const total = Object.values(yearCourseCounts).reduce((a,b)=>a+b,0);
 
     // Display room for this page — rotated to the selected day's actual
     // physical room if one is picked (same base seat map, same students,
@@ -50736,11 +51035,8 @@ function sitBuildPrintHtml() {
     }
     html += '</table>';
     html += '<div class="summary">';
-    const order = ['BCA','BBA','BCom'];
-    Object.keys(classCounts).sort((a,b)=>{
-      const ia=order.indexOf(a), ib=order.indexOf(b);
-      return (ia===-1?99:ia)-(ib===-1?99:ib);
-    }).forEach(c => { html+=`${c}: <strong>${classCounts[c]}</strong> &nbsp;`; });
+    Object.keys(yearCourseCounts).sort((a,b)=>_sitYearCourseSortKey(a, yearCourseToCourse) - _sitYearCourseSortKey(b, yearCourseToCourse))
+      .forEach(k => { html+=`${k}: <strong>${yearCourseCounts[k]}</strong> &nbsp;`; });
     html += `&nbsp; <strong>TOTAL: ${total}</strong></div>`;
     const sig = sitGetDirectorSignature(intNum);
     const sigDateLine = sig.date ? `<br><span style="font-size:9px;color:#666;">${sig.date}</span>` : '';
@@ -50771,92 +51067,186 @@ function sitSaveCurrentRoomBeforeExport() {
 }
 
 // ─── DOWNLOAD PDF (actual file, separate from Print) ──────────────────
-// Generates a genuine downloadable .pdf via html2pdf.js (already bundled
-// app-wide — see head <script> tag) instead of opening the browser's print
-// dialog. Kept fully separate from sitPrintRoom(): this always saves a file
-// silently; Print always opens the OS print dialog. They used to be the
-// same button/flow — now two distinct actions as requested.
+// v1180: COMPLETE REBUILD, html2canvas dropped entirely — same fix applied
+// to attDownloadPDF() in v1178, now ported to Sitting since the uploaded
+// PDF showed the identical failure class: a genuinely rendered page, but
+// with the seat-grid table corrupted (a solid black bar where a header row
+// should be, seat numbers not aligned to their cells, a disconnected TOTAL
+// line) rather than blank or clipped. This matches the same category of
+// html2canvas table-rendering bugs already root-caused for Attendance —
+// screenshotting a live HTML table is fragile across browsers/versions and
+// v1174-v1177's fixes (all container-CSS/positioning tweaks) cannot fix a
+// bug in html2canvas's own table layout engine. FIX: draws the seat grid as
+// NATIVE PDF vector content via jspdf-autotable (already loaded for
+// Attendance's rebuild) instead of capturing a screenshot — real cell/
+// border/text drawing calls, so there is no DOM table layout for anything
+// to get wrong. One room = one autoTable call = one PDF page (matches the
+// original one-room-per-page.page behaviour). Reuses every existing data
+// helper (sitUrnToName/Course/YearCourse, sitBenchLetter, sitRoomForDay,
+// sitLiveDatesForSession, sitRoomsInRotation, sitGetDirectorSignature,
+// sitFilenameDateLabel) — only the OUTPUT mechanism changes, not any of the
+// room/seat/date logic, which was never the source of the reported bug.
 async function sitDownloadPDF() {
   if (!SIT_INT) { dvToast('Select internal','warn'); return; }
   if (!SIT_DATA[SIT_INT]?.[SIT_SESSION]) { dvToast(`No ${SIT_SESSION} data for this internal`,'warn'); return; }
   sitSaveCurrentRoomBeforeExport();
 
-  const { html, intLabel, roomsToRender, selectedPair } = sitBuildPrintHtml();
+  const intNum = parseInt(SIT_INT) || 1;
+  const intDoc = (INT_LIST||[]).find(x => (x.n || 1) === intNum);
+  const intLabel = intDoc?.title || `${intOrdinal(intNum)} Internal`;
+  const sessionData = (SIT_DATA[SIT_INT]||{})[SIT_SESSION] || {};
+  const candidateRooms = (SIT_ROOM && SIT_ROOM !== 'ALL') ? [SIT_ROOM] : SIT_ROOMS.filter(r => sessionData[r]);
+  const roomsToRender = candidateRooms.filter(r => (sessionData[r]?.seats || []).some(s => s.urn));
   if (!roomsToRender.length) { dvToast('No rooms to export', 'warn'); return; }
 
-  if (typeof window.html2pdf !== 'function') {
+  const { jsPDF } = window.jspdf || {};
+  if (typeof jsPDF !== 'function' || !(typeof jsPDF.API?.autoTable === 'function' || typeof jsPDF.prototype?.autoTable === 'function')) {
     dvToast('PDF library not loaded — falling back to Print dialog', 'warn', 4000);
     sitPrintRoom();
     return;
   }
 
   dvToast('⏳ Generating PDF…', 'ok', 2500);
-  // Render the built HTML into an offscreen container so html2pdf can
-  // rasterize it exactly as it would print, then convert straight to a
-  // downloaded .pdf file — no window.print(), no print dialog at all.
-  //
-  // IMPORTANT: positioned OFF-SCREEN via a large negative left/top used to
-  // be used here (left:-99999px) — found to be the root cause of a real
-  // silently-blank-PDF bug: html2canvas can fail to compute a correct
-  // render size for an element placed that far outside any viewport
-  // bounds, in which case it captures a zero/near-zero canvas and html2pdf
-  // still "succeeds", producing a PDF with valid page geometry but
-  // genuinely nothing drawn on it — exactly what was reported (a real
-  // downloaded PDF file, correct size, completely blank). Fixed by keeping
-  // the container within normal document flow/visible page bounds but
-  // hidden via opacity+pointer-events instead of an off-screen coordinate,
-  // and giving it an explicit pixel width so html2canvas always has a
-  // concrete, correctly-sized box to rasterize.
-  const container = document.createElement('div');
-  container.style.position = 'absolute';
-  container.style.left = '0';
-  container.style.top = '0';
-  container.style.width = '794px'; // ≈ 210mm at 96dpi — matches the .page CSS width below
-  container.style.opacity = '0';
-  container.style.pointerEvents = 'none';
-  container.style.zIndex = '-1';
-  // Strip the outer <html>/<head>/<body> wrapper — html2pdf works on a DOM
-  // node's innerHTML, not a full document string.
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-  const styleMatch = html.match(/<style>([\s\S]*?)<\/style>/i);
-  container.innerHTML = `<style>${styleMatch ? styleMatch[1] : ''}</style>${bodyMatch ? bodyMatch[1] : ''}`;
-  document.body.appendChild(container);
 
-  // Sanity check: bail out with a clear error BEFORE calling html2pdf if
-  // the container genuinely has no renderable size or no seat content —
-  // surfacing this as a visible toast is strictly better than silently
-  // saving an empty PDF file, which is exactly what happened before this
-  // fix and gave the admin no indication anything had gone wrong.
-  const measuredHeight = container.scrollHeight;
-  const hasSeatCells = container.querySelectorAll('.urn-cell').length > 0;
-  if (!measuredHeight || !hasSeatCells) {
-    dvToast('❌ PDF generation aborted: no renderable content found (page had 0 height or no seat data) — this would have produced a blank PDF', 'error', 6000);
-    container.remove();
-    return;
-  }
+  const liveDates = sitLiveDatesForSession(intNum, SIT_SESSION);
+  const selectedPair = (SIT_SELECTED_DAY !== null && liveDates.pairs[SIT_SELECTED_DAY]) ? liveDates.pairs[SIT_SELECTED_DAY] : null;
+  const headerDatesStr = selectedPair ? `${selectedPair.fmtDate} (${selectedPair.day})` : liveDates.datesStr;
+  const rotationPool = selectedPair ? sitRoomsInRotation(intNum, SIT_SESSION) : null;
+  const courseColors = { BCA:[219,234,254], BBA:[254,249,195], BCom:[220,252,231] };
+
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const margin = 8;
+  const usableW = pageW - margin * 2;
+  // 7 logical columns per block-row: 3 left seats, 1 gap, 3 right seats —
+  // matches the original LEFT BLOCK(1-24)/RIGHT BLOCK(25-48) two-block
+  // layout exactly, just as fixed jsPDF column widths instead of an HTML
+  // table's own auto-sizing.
+  const colW = usableW / 7;
+
+  roomsToRender.forEach((room, roomIdx) => {
+    if (roomIdx > 0) pdf.addPage();
+    const rd = sessionData[room];
+    if (!rd) return;
+    const seatMap = {};
+    (rd.seats||[]).forEach(s => { seatMap[s.seatNo] = s.urn||''; });
+    const yearCourseCounts = {};
+    const yearCourseToCourse = {};
+    (rd.seats||[]).forEach(s => {
+      if (!s.urn) return;
+      const yc = sitUrnToYearCourse(s.urn) || sitUrnToCourse(s.urn) || 'Unknown';
+      const course = sitUrnToCourse(s.urn) || 'Unknown';
+      yearCourseCounts[yc] = (yearCourseCounts[yc]||0)+1;
+      yearCourseToCourse[yc] = course;
+    });
+    const total = Object.values(yearCourseCounts).reduce((a,b)=>a+b,0);
+    const displayRoom = (rotationPool && rotationPool.length) ? sitRoomForDay(room, SIT_SELECTED_DAY, rotationPool) : room;
+
+    const benchLabel = (startSeat) => {
+      const combos = new Set();
+      [startSeat, startSeat+1, startSeat+2].forEach(sn => {
+        const urn = seatMap[sn];
+        if (!urn) return;
+        const yc = sitUrnToYearCourse(urn);
+        if (yc) combos.add(yc);
+      });
+      return combos.size ? [...combos].join(' + ') : '';
+    };
+
+    // ── Page header (drawn as text, same as before) ──
+    let y = 12;
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13);
+    pdf.text('Davan Institute of Advanced Management Studies', pageW/2, y, { align: 'center' }); y += 5;
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+    pdf.text('Davan – Nutana College', pageW/2, y, { align: 'center' }); y += 4;
+    pdf.setFontSize(9);
+    pdf.text('BBA / BCA / B.Com (Affiliated to Davangere University)', pageW/2, y, { align: 'center' }); y += 4;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(`${intLabel.toUpperCase()}  |  ${headerDatesStr || rd.dates || ''}`, pageW/2, y, { align: 'center' }); y += 4;
+    pdf.text(`ROOM NO: ${displayRoom}  |  ${SIT_SESSION}`, pageW/2, y, { align: 'center' }); y += 6;
+
+    // Legend swatches
+    pdf.setFontSize(8); pdf.setFont('helvetica', 'normal');
+    let legendX = margin;
+    [['BCA',courseColors.BCA],['BBA',courseColors.BBA],['BCom',courseColors.BCom]].forEach(([label,rgb]) => {
+      pdf.setFillColor(rgb[0],rgb[1],rgb[2]);
+      pdf.rect(legendX, y-3, 16, 4, 'F');
+      pdf.text(label, legendX+2, y);
+      legendX += 22;
+    });
+    y += 5;
+
+    // ── Seat grid, built as autoTable rows: bench-label row, seat-number
+    // row, URN row — repeated for each of the 8 bench rows (1-24 left,
+    // 25-48 right), exactly mirroring the original HTML table's row
+    // structure but as real drawn cells instead of a screenshot. ──
+    const body = [];
+    for (let r = 0; r < 8; r++) {
+      const leftStart = r*3+1, rightStart = 24+r*3+1;
+      const leftBenchLetter = sitBenchLetter(leftStart), rightBenchLetter = sitBenchLetter(rightStart);
+      body.push([
+        { content: `Bench ${leftBenchLetter} — ${benchLabel(leftStart)}`, colSpan: 3, styles: { halign:'left', fontStyle:'normal', fontSize:6, textColor:[102,102,102], fillColor:[255,255,255] } },
+        { content: '', styles: { fillColor:[255,255,255] } },
+        { content: `Bench ${rightBenchLetter} — ${benchLabel(rightStart)}`, colSpan: 3, styles: { halign:'left', fontStyle:'normal', fontSize:6, textColor:[102,102,102], fillColor:[255,255,255] } }
+      ]);
+      const seatRow = [];
+      for (let c=0;c<3;c++) seatRow.push({ content: String(leftStart+c), styles: { fillColor:[238,238,238], fontStyle:'bold' } });
+      seatRow.push({ content:'', styles:{ fillColor:[255,255,255], lineWidth:0 } });
+      for (let c=0;c<3;c++) seatRow.push({ content: String(rightStart+c), styles: { fillColor:[238,238,238], fontStyle:'bold' } });
+      body.push(seatRow);
+      const urnRow = [];
+      const urnCell = (sn) => {
+        const urn = seatMap[sn]||''; const name = sitUrnToName(urn);
+        const course = sitUrnToCourse(urn);
+        const bg = urn ? (courseColors[course]||[245,245,245]) : [255,255,255];
+        return { content: urn ? `${urn}\n${name?name.split(' ')[0]:''}` : '', styles: { fillColor: bg, fontSize:7 } };
+      };
+      for (let c=0;c<3;c++) urnRow.push(urnCell(leftStart+c));
+      urnRow.push({ content:'', styles:{ fillColor:[255,255,255], lineWidth:0 } });
+      for (let c=0;c<3;c++) urnRow.push(urnCell(rightStart+c));
+      body.push(urnRow);
+    }
+
+    pdf.autoTable({
+      startY: y,
+      margin: { left: margin, right: margin },
+      tableWidth: usableW,
+      head: [[
+        { content: 'LEFT BLOCK (1–24)', colSpan: 3 },
+        { content: '', styles:{ fillColor:[255,255,255] } },
+        { content: 'RIGHT BLOCK (25–48)', colSpan: 3 }
+      ]],
+      body,
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 1.2, valign: 'middle', halign: 'center', lineColor: [51,51,51], lineWidth: 0.1, textColor: [0,0,0], minCellHeight: 6 },
+      headStyles: { fillColor: [230,230,230], textColor: [0,0,0], fontStyle: 'bold', fontSize: 8 },
+      columnStyles: { 0:{cellWidth:colW}, 1:{cellWidth:colW}, 2:{cellWidth:colW}, 3:{cellWidth:colW*0.3}, 4:{cellWidth:colW}, 5:{cellWidth:colW}, 6:{cellWidth:colW} }
+    });
+
+    // ── Summary + signature footer ──
+    const finalY = pdf.lastAutoTable.finalY + 6;
+    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal');
+    let sx = margin;
+    Object.keys(yearCourseCounts).sort((a,b)=>_sitYearCourseSortKey(a, yearCourseToCourse) - _sitYearCourseSortKey(b, yearCourseToCourse))
+      .forEach(k => { const t = `${k}: ${yearCourseCounts[k]}   `; pdf.text(t, sx, finalY); sx += pdf.getTextWidth(t) + 2; });
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(`TOTAL: ${total}`, sx, finalY);
+
+    const sig = sitGetDirectorSignature(intNum);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9);
+    pdf.text(`(${sig.name})`, pageW - margin, finalY, { align: 'right' });
+    pdf.text(sig.designation || '', pageW - margin, finalY + 4, { align: 'right' });
+    if (sig.date) pdf.text(sig.date, pageW - margin, finalY + 8, { align: 'right' });
+  });
 
   const roomPart = (SIT_ROOM && SIT_ROOM !== 'ALL') ? SIT_ROOM : 'AllRooms';
-  // Date suffix: when a specific exam day is selected, the filename carries
-  // that date (e.g. "..._AllRooms_9_Sep_2026.pdf") so multiple day-specific
-  // exports from the same internal don't overwrite each other — omitted
-  // entirely for "All Dates" exports (previous filename format unchanged).
   const dateSuffix = selectedPair ? '_' + sitFilenameDateLabel(selectedPair.date) : '';
   const filename = `Sitting_${SIT_SESSION}_${intLabel.replace(/[^a-zA-Z0-9]+/g,'_')}_${roomPart}${dateSuffix}.pdf`;
-
   try {
-    await window.html2pdf().set({
-      margin: 0,
-      filename,
-      image: { type: 'jpeg', quality: 0.95 },
-      html2canvas: { scale: 2, useCORS: true, windowWidth: 794 },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['css'] }
-    }).from(container).save();
+    pdf.save(filename);
     dvToast(`✅ PDF downloaded (${roomsToRender.length} room${roomsToRender.length>1?'s':''})`, 'ok', 3500);
   } catch(e) {
     dvToast('❌ PDF generation failed: ' + e.message, 'error', 5000);
-  } finally {
-    container.remove();
   }
 }
 
@@ -50895,6 +51285,26 @@ function sitPrefillFromPrev(intNum) {
 let ATT_DATA = {};  // { internalNum: { classKey: { subjects:[{name,date}] } } }
 let ATT_INT  = '1';
 let ATT_CLASS = '';
+
+// Resolves ATT_INT ('1'/'2'/'3') to the real Internal's saved Director
+// name/designation — replaces 3 previously-hardcoded "Harshraj A Gujjar"
+// (misspelled — missing the 'a' in Harsha) sites in this module, which
+// were never touched by the earlier index.html Director hardcode fixes
+// (v1160/v1169) since those only caught the correctly-spelled variant.
+// Same read pattern as sitGetDirectorSignature(): meta.director/
+// director_designation from the matching Internal doc, with a visible
+// "not set" fallback instead of silently substituting the wrong name.
+function attGetDirectorSignature() {
+  const intNum = parseInt(ATT_INT) || 1;
+  const intDoc = (INT_LIST||[]).find(x => (x.n || 1) === intNum);
+  const docId  = intDoc?.id || INT_CURRENT;
+  const meta = docId ? (INT_DATA[docId]?.meta || {}) : {};
+  return {
+    name: meta.director || '(Director name not set — add in Create/Edit)',
+    designation: meta.director_designation || '(Designation not set — add in Create/Edit)',
+    date: meta.director_date || '',
+  };
+}
 
 async function attInit() {
   const role = currentProfile?.role||'';
@@ -51250,7 +51660,7 @@ function attRenderPreview() {
     <div style="background:var(--surface2);padding:10px 16px;border-bottom:1px solid var(--border);">
       <div style="font-weight:700;font-size:13px;">Davan Institute of Advanced Management Studies | Davan – Nutana College</div>
       <div style="font-size:11px;color:var(--muted);font-family:var(--mono);">
-        ${intLabel} Internal &nbsp;|&nbsp; ${ATT_CLASS} &nbsp;|&nbsp; ${room ? 'Room: '+room : ''} &nbsp;|&nbsp; Director: Harshraj A Gujjar
+        ${intLabel} Internal &nbsp;|&nbsp; ${ATT_CLASS} &nbsp;|&nbsp; ${room ? 'Room: '+room : ''} &nbsp;|&nbsp; ${attGetDirectorSignature().designation}: ${attGetDirectorSignature().name}
       </div>
     </div>
     <div style="overflow-x:auto;">
@@ -51280,10 +51690,11 @@ function attRenderPreview() {
   students.forEach((s,i) => {
     const urn  = s.urn || s.seat_no || '—';
     const name = s.name || '—';
+    const avatar = typeof _stuAvatar === 'function' ? _stuAvatar(urn, name, 28) : '';
     html += `<tr style="${i%2===0?'':'background:var(--surface2);'}">
       <td style="border:1px solid var(--border);padding:5px 8px;color:var(--muted);">${i+1}</td>
       <td style="border:1px solid var(--border);padding:5px 8px;font-family:var(--mono);font-size:10px;">${urn}</td>
-      <td style="border:1px solid var(--border);padding:5px 8px;">${name}</td>`;
+      <td style="border:1px solid var(--border);padding:5px 8px;"><div style="display:flex;align-items:center;gap:8px;">${avatar}<span>${name}</span></div></td>`;
     (subjects.length ? subjects : [{}]).forEach(() => {
       html += `<td style="border:1px solid var(--border);padding:5px 8px;height:28px;"></td>`;
     });
@@ -51296,6 +51707,7 @@ function attRenderPreview() {
     </div></div>`;
 
   preview.innerHTML = html;
+  if (typeof _stuAvatarInject === 'function') _stuAvatarInject();
 }
 
 function attFindRoom() {
@@ -51328,7 +51740,8 @@ function attDownloadExcel() {
 
   rows.push(['Davan Institute of Advanced Management Studies | Davan – Nutana College']);
   rows.push([`${intLabel} Internal Attendance — ${ATT_CLASS}${room?' | Room: '+room:''}`]);
-  rows.push(['Director: Harshraj A Gujjar']);
+  const sig = attGetDirectorSignature();
+  rows.push([`${sig.designation}: ${sig.name}`]);
   rows.push([]);
   // Header
   const hdr = ['#','URN','Student Name',...subjects.map(s=>`${s.name||'Subject'}\n${s.date||''}${s.day?' · '+s.day:''}${s.time?'\n'+s.time:''}`)];
@@ -51352,15 +51765,16 @@ function attDownloadExcel() {
 }
 
 // ─── ATTENDANCE DOWNLOAD PDF ─────────────────────────────────────────
-function attDownloadPDF() {
-  if (!ATT_CLASS) { dvToast('Select a class first','warn'); return; }
-
+// Builds the attendance sheet HTML — shared by both attDownloadPDF() and
+// attPrintSheet() so the two can never drift out of sync with each other.
+function attBuildSheetHtml() {
   const subjects = attCollectSubjects();
   const students = allStudents
     .filter(s=>(s.class||'').toLowerCase()===ATT_CLASS.toLowerCase())
     .sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const intLabel = ATT_INT==='1'?'1st':ATT_INT==='2'?'2nd':'3rd';
   const room = attFindRoom();
+  const sig = attGetDirectorSignature();
 
   const subHdrs = (subjects.length?subjects:[{name:'Subject A',date:'',time:'',day:''}])
     .map(s=>`<th style="border:1px solid #333;padding:4px 6px;min-width:80px;font-size:8px;">
@@ -51368,8 +51782,25 @@ function attDownloadPDF() {
       <span style="font-size:7px;font-weight:normal;">${s.time||''}</span><br>
       <em style="font-size:7px;font-weight:normal;">Signature</em></th>`).join('');
 
+  // Photo cell: real photo if already cached in rcPhotos (same cache the
+  // on-screen preview's _stuAvatar uses), else a plain initials circle —
+  // NOT an <img onerror> fallback like the on-screen version, since a
+  // failed/slow image load wouldn't resolve in time for html2canvas's
+  // synchronous-ish capture and would risk another blank-looking cell.
+  const photoCell = (urn, name) => {
+    const urnKey = (urn||'').toUpperCase();
+    const photoUrl = (typeof rcPhotos !== 'undefined') ? (rcPhotos[urnKey] || rcPhotos[urnKey.toLowerCase()] || null) : null;
+    if (photoUrl) {
+      return `<img src="${photoUrl}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;border:1px solid #999;" crossorigin="anonymous">`;
+    }
+    const parts = (name||'').trim().split(/\s+/);
+    const initials = parts.length>=2 ? (parts[0][0]+parts[parts.length-1][0]).toUpperCase() : (parts[0]||'?')[0].toUpperCase();
+    return `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid #999;background:#eee;font-size:8px;font-weight:bold;color:#555;">${initials}</span>`;
+  };
+
   const bodyRows = students.map((s,i)=>`<tr>
     <td style="border:1px solid #333;padding:4px 6px;">${i+1}</td>
+    <td style="border:1px solid #333;padding:4px 6px;text-align:center;">${photoCell(s.urn||s.seat_no, s.name)}</td>
     <td style="border:1px solid #333;padding:4px 6px;font-size:8px;">${s.urn||s.seat_no||''}</td>
     <td style="border:1px solid #333;padding:4px 6px;">${s.name||''}</td>
     ${(subjects.length?subjects:[{}]).map(()=>'<td style="border:1px solid #333;padding:4px 6px;height:22px;"></td>').join('')}
@@ -51378,14 +51809,28 @@ function attDownloadPDF() {
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
   <title>Attendance — ${ATT_CLASS}</title>
   <style>
-    body{font-family:Arial,sans-serif;font-size:9px;margin:0;}
-    .page{width:210mm;padding:10mm;box-sizing:border-box;}
-    h2{text-align:center;font-size:12px;margin:2px 0;}
-    h3{text-align:center;font-size:10px;margin:2px 0;font-weight:normal;}
-    table{border-collapse:collapse;width:100%;margin-top:8px;}
-    th{background:#eee;font-size:8px;border:1px solid #333;padding:4px 6px;text-align:center;}
-    td{font-size:9px;}
-    .footer{margin-top:16px;display:flex;justify-content:space-between;font-size:9px;}
+    /* v1176: color:#000 set explicitly on every selector — see
+       sitBuildPrintHtml's matching comment for the full root cause (this
+       stylesheet is injected into the live app page, so any selector
+       without its own color silently inherits the page's dark theme,
+       near-white, instead of black). */
+    body{font-family:Arial,sans-serif;font-size:9px;margin:0;color:#000;}
+    /* v1177: width:210mm here previously forced the table (width:100% of
+       this) into a fixed portrait A4 width no matter how many subject
+       columns exist, clipping columns off the right in the exported PDF.
+       min-width instead of width lets the page grow to fit a wide table
+       (many subjects) while still looking like a normal A4 sheet for
+       narrow ones (few subjects) — on-screen preview/Print are unaffected
+       since browsers already handle overflow-x there; only the PDF
+       capture (which reads the container's real rendered width, not this
+       CSS number) benefits from the box being free to grow. */
+    .page{width:auto;min-width:210mm;padding:10mm;box-sizing:border-box;color:#000;}
+    h2{text-align:center;font-size:12px;margin:2px 0;color:#000;}
+    h3{text-align:center;font-size:10px;margin:2px 0;font-weight:normal;color:#000;}
+    table{border-collapse:collapse;width:auto;min-width:100%;margin-top:8px;color:#000;}
+    th{background:#eee;font-size:8px;border:1px solid #333;padding:4px 6px;text-align:center;color:#000;}
+    td{font-size:9px;color:#000;}
+    .footer{margin-top:16px;display:flex;justify-content:space-between;font-size:9px;color:#000;}
   </style></head><body><div class="page">
     <h2>Davan Institute of Advanced Management Studies</h2>
     <h3>Davan – Nutana College | BBA / BCA / B.Com (Affiliated to Davangere University)</h3>
@@ -51393,6 +51838,7 @@ function attDownloadPDF() {
     <table>
       <thead><tr>
         <th style="border:1px solid #333;padding:4px 6px;width:30px;">#</th>
+        <th style="border:1px solid #333;padding:4px 6px;width:34px;">Photo</th>
         <th style="border:1px solid #333;padding:4px 6px;min-width:100px;">URN</th>
         <th style="border:1px solid #333;padding:4px 6px;min-width:140px;">Student Name</th>
         ${subHdrs}
@@ -51401,10 +51847,175 @@ function attDownloadPDF() {
     </table>
     <div class="footer">
       <span>Total Students: ${students.length}</span>
-      <span>(Harshraj A Gujjar)<br>Director, Davan College</span>
+      <span>(${sig.name})<br>${sig.designation}${sig.date?'<br>'+sig.date:''}</span>
     </div>
   </div></body></html>`;
 
+  return { html, students, intLabel, room };
+}
+
+// ─── PDF (real file download, no print dialog) ───────────────────────
+// v1178: COMPLETE REBUILD, dropping html2canvas entirely. v1174-v1177 each
+// fixed a real, distinct html2canvas bug (offscreen-container-not-captured,
+// opacity:0-suppresses-rendering, fixed-width-clips-wide-tables) — but the
+// latest two uploaded PDFs (Sitting AND Attendance) both came back with a
+// NEW failure mode: content genuinely present but relocated/disconnected
+// from its layout (header text floating away from its table, photo circles
+// stacked in one column detached from their rows, borders missing). This
+// matches a well-documented, long-standing category of html2canvas bugs
+// with tables specifically and with inline-block/flex containers (see e.g.
+// html2canvas GitHub issues #751, #2194, #1497, #3070 — table cell
+// alignment/positioning breaking, and inline-block causing content to be
+// silently dropped or repositioned) — not something fixable by tweaking
+// container CSS one more time, since it's the screenshot approach itself
+// that is unreliable for a real HTML table. Root fix: stop rendering via
+// html2canvas raster capture and draw the table as NATIVE PDF vector
+// content instead, via the jspdf-autotable plugin (loaded in <head>,
+// attaches doc.autoTable()). This draws real cells/borders/text directly
+// with jsPDF's own drawing API — nothing is screenshotted, so there is no
+// DOM layout for html2canvas to get wrong; column widths, borders, and text
+// position are exactly what's specified, every time, on every browser.
+// Photos are drawn per-cell as small embedded images via autoTable's
+// didDrawCell hook (using the already-cached rcPhotos data URLs/URLs the
+// on-screen preview uses) rather than as part of a whole-page screenshot.
+async function attDownloadPDF() {
+  if (!ATT_CLASS) { dvToast('Select a class first','warn'); return; }
+
+  const subjects = attCollectSubjects();
+  const students = allStudents
+    .filter(s=>(s.class||'').toLowerCase()===ATT_CLASS.toLowerCase())
+    .sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if (!students.length) { dvToast('No students found for this class', 'warn'); return; }
+
+  const { jsPDF } = window.jspdf || {};
+  if (typeof jsPDF !== 'function' || typeof jsPDF.API?.autoTable !== 'function' && typeof jsPDF.prototype?.autoTable !== 'function') {
+    dvToast('PDF library not loaded — falling back to Print dialog', 'warn', 4000);
+    attPrintSheet();
+    return;
+  }
+
+  dvToast('⏳ Generating PDF…', 'ok', 2500);
+
+  const intLabel = ATT_INT==='1'?'1st':ATT_INT==='2'?'2nd':'3rd';
+  const room = attFindRoom();
+  const sig = attGetDirectorSignature();
+  const subjectCols = subjects.length ? subjects : [{name:'Subject A',date:'',time:'',day:''}];
+
+  // Landscape when there are enough subject columns to need the width —
+  // matches the previous behaviour's intent (wide content gets a wide
+  // page) but decided from real column COUNT, not a captured canvas shape.
+  const isWide = subjectCols.length >= 3;
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: isWide ? 'landscape' : 'portrait' });
+  const pageW = pdf.internal.pageSize.getWidth();
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(13);
+  pdf.text('Davan Institute of Advanced Management Studies', pageW/2, 12, { align: 'center' });
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(9);
+  pdf.text('Davan – Nutana College | BBA / BCA / B.Com (Affiliated to Davangere University)', pageW/2, 17, { align: 'center' });
+  pdf.setFont('helvetica', 'bold');
+  pdf.text(`${intLabel} Internal Attendance Sheet  |  ${ATT_CLASS}${room?'  |  Room: '+room:''}`, pageW/2, 22, { align: 'center' });
+
+  const head = [[
+    '#', 'Photo', 'URN', 'Student Name',
+    ...subjectCols.map(s => `${s.name||'Subject'}\n${s.date||'—'}${s.day?' · '+s.day:''}\n${s.time||''}\nSignature`)
+  ]];
+  const body = students.map((s,i) => [
+    String(i+1), '', s.urn||s.seat_no||'', s.name||'',
+    ...subjectCols.map(()=> '')
+  ]);
+
+  // Photo lookup, same cache the on-screen preview (_stuAvatar) reads —
+  // resolved up front so autoTable's synchronous didDrawCell hook has the
+  // URL/data-URI ready without waiting on a load event.
+  const photoFor = (urn) => {
+    const urnKey = (urn||'').toUpperCase();
+    return (typeof rcPhotos !== 'undefined') ? (rcPhotos[urnKey] || rcPhotos[urnKey.toLowerCase()] || null) : null;
+  };
+
+  // v1179: FIT-TO-A4 — the page itself was always a real A4 sheet
+  // (format:'a4'), but nothing constrained the TABLE to that page's
+  // usable width: autoTable's default column sizing (content-based) plus
+  // fixed mm widths on the first 4 columns could add up to more than the
+  // page, silently overflowing onto extra pages or past the right margin
+  // for classes with several subjects — never actually "fit to A4" despite
+  // the page format being correct. Fix: compute the 4 fixed columns' width
+  // budget up front, split what's left EQUALLY across however many
+  // subject columns exist, and pass tableWidth:'wrap' + explicit
+  // columnStyles for every column (not just the first 4) so autoTable is
+  // never left to size anything itself — the table's total width is
+  // always exactly usableW, regardless of how many subjects there are.
+  const margin = 8;
+  const usableW = pageW - margin * 2;
+  const fixedW = { num: 8, photo: 12, urn: 22, name: 32 };
+  const fixedTotal = fixedW.num + fixedW.photo + fixedW.urn + fixedW.name;
+  const subjW = Math.max(14, (usableW - fixedTotal) / subjectCols.length);
+  const subjectColumnStyles = {};
+  subjectCols.forEach((_, i) => { subjectColumnStyles[4 + i] = { cellWidth: subjW }; });
+
+  pdf.autoTable({
+    head, body,
+    startY: 26,
+    margin: { left: margin, right: margin },
+    tableWidth: usableW,
+    styles: { fontSize: subjectCols.length > 6 ? 6 : 7.5, cellPadding: 1.2, valign: 'middle', halign: 'center', lineColor: [51,51,51], lineWidth: 0.1, minCellHeight: 9, overflow: 'linebreak' },
+    headStyles: { fillColor: [238,238,238], textColor: [0,0,0], fontStyle: 'bold', fontSize: subjectCols.length > 6 ? 5.5 : 7 },
+    bodyStyles: { textColor: [0,0,0] },
+    columnStyles: {
+      0: { cellWidth: fixedW.num },
+      1: { cellWidth: fixedW.photo },
+      2: { cellWidth: fixedW.urn, halign: 'left' },
+      3: { cellWidth: fixedW.name, halign: 'left' },
+      ...subjectColumnStyles
+    },
+    didDrawCell: (data) => {
+      // Draw the student's photo (or leave the cell as a blank/plain box
+      // if uncached) into column index 1 ("Photo") of the body only.
+      if (data.section !== 'body' || data.column.index !== 1) return;
+      const rowStudent = students[data.row.index];
+      if (!rowStudent) return;
+      const url = photoFor(rowStudent.urn || rowStudent.seat_no);
+      if (!url) return;
+      try {
+        const size = Math.min(data.cell.height, data.cell.width) - 2;
+        const x = data.cell.x + (data.cell.width - size) / 2;
+        const y = data.cell.y + (data.cell.height - size) / 2;
+        pdf.addImage(url, 'JPEG', x, y, size, size);
+      } catch(e) { /* one bad photo never blocks the rest of the sheet */ }
+    },
+    didDrawPage: () => {
+      const finalY = pdf.lastAutoTable.finalY || 26;
+      const pageH = pdf.internal.pageSize.getHeight();
+      // v1179: if the table already runs to the bottom of the A4 page
+      // (many students), don't print the footer past the page edge —
+      // start a fresh page for it instead of letting it silently overflow
+      // off the printable area (another way a sheet could fail to
+      // actually "fit to A4").
+      const footerY = (finalY + 20 > pageH) ? (pdf.addPage(), 12) : finalY + 8;
+      pdf.setFontSize(9);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Total Students: ${students.length}`, margin, footerY);
+      pdf.text(`(${sig.name})`, pageW - margin, footerY, { align: 'right' });
+      pdf.text(sig.designation || '', pageW - margin, footerY + 4, { align: 'right' });
+      if (sig.date) pdf.text(sig.date, pageW - margin, footerY + 8, { align: 'right' });
+    }
+  });
+
+  const filename = `Attendance_${intLabel.replace(/[^a-zA-Z0-9]+/g,'_')}_${ATT_CLASS.replace(/[^a-zA-Z0-9]+/g,'_')}.pdf`;
+  try {
+    pdf.save(filename);
+    dvToast(`✅ PDF downloaded (${students.length} students)`, 'ok', 3500);
+  } catch(e) {
+    dvToast('❌ PDF generation failed: ' + e.message, 'error', 5000);
+  }
+}
+
+// ─── PRINT (browser print dialog — separate button, same as Sitting) ──
+function attPrintSheet() {
+  if (!ATT_CLASS) { dvToast('Select a class first','warn'); return; }
+  const { html, students } = attBuildSheetHtml();
+  if (!students.length) { dvToast('No students found for this class', 'warn'); return; }
   const win = window.open('','_blank','width=900,height=700');
   if (win) { win.document.write(html); win.document.close(); win.focus(); setTimeout(()=>win.print(),600); }
 }
