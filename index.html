@@ -55,6 +55,29 @@
        fragment — do not create a second broken copy.
      □ If no complete copy exists, restore the full function
        (opening signature + body + closing }) in one edit.
+
+  10. HTML_CHANGELOG note strings: NEVER hand-type escaped quotes
+      (\' or \") inside a long note string. Manual escaping across
+      a multi-paragraph note is exactly how \\' (double-escaped —
+      a literal backslash + closing quote, NOT an apostrophe) gets
+      introduced silently.
+      ALWAYS generate the note as plain text first (real apostrophes,
+      no escaping at all), THEN run it through a mechanical escaper
+      before inserting it into the file:
+        def to_js_single_quoted(s):
+            return "'" + s.replace('\\', '\\\\').replace("'", "\\'") + "'"
+      Never combine manual escaping with this function's output —
+      pick one mechanical pass, never two.
+
+  11. Before adding ANY new HTML_CHANGELOG entry:
+      □ grep the file for `const CODE_BUILD =` — the new entry's
+        v/CODE_BUILD number MUST be exactly that value + 1.
+      □ grep HTML_CHANGELOG for the new version string (e.g. 'v1193')
+        to confirm it is not already used by another entry.
+      □ Bump `const CODE_BUILD = N;` itself to match in the same edit.
+      A mismatched or duplicate build number is a real bug (confuses
+      "what's new" history and can look like a corrupted file) even
+      though it does not always throw a JS syntax error.
   ================================================================
   -->
   <!--
@@ -14478,7 +14501,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1191;  // always = HTML footer version number
+const CODE_BUILD = 1195;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '22-Aug-2026', time: '20:10', full: '22-Aug-2026 20:10 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -24786,12 +24809,16 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1195', date: '22-Aug-2026 IST', note: 'REAL ROOT CAUSE FOUND for the calendar->Internal sync date mismatch, via admin\'s own console output (a genuine debugging breakthrough -- exact oldDatesSet/sortedNew values were captured and compared against the calendar table\'s displayed 10-12 Sep dates). Confirmed: NO duplicate calendar event, cache was already fixed in v1194, dropdown was correctly set to \'1st Internal\' -- yet sortedNew computed as 09/10/11 Sep instead of 10/11/12 Sep, a consistent ONE-DAY-EARLY shift on every date. Reproduced exactly via Node in Asia/Kolkata timezone: [calSaveEvent() index.html ~54022]\'s date-range builder used `new Date(from+\'T00:00:00\').toISOString().slice(0,10)` -- toISOString() converts to UTC, and in IST (UTC+5:30) midnight local time is 18:30 the PREVIOUS day in UTC, so every date in the loop came out exactly one day too early. This is the same class of bug as the already-documented stuParseCalDate() zero-holidays fix (invalid/UTC-unsafe Date string handling) but in a different function that was never covered by that earlier fix. FIX: new local _fmtLocalISO(d) helper builds the date string from the Date object\'s own local getFullYear()/getMonth()/getDate() fields, never via toISOString()/UTC conversion -- verified via Node simulation in Asia/Kolkata timezone that From=10 Sep/To=12 Sep now correctly produces [2026-09-10, 2026-09-11, 2026-09-12], not the previous off-by-one result. Also audited intSyncFromCalendar() itself for the same UTC-conversion pattern -- confirmed clean, no toISOString() calls exist there, so this was the single isolated source of the bug, not a second occurrence. CODE_BUILD=1195.' },
+  { v: 'v1194', date: '22-Aug-2026 IST', note: 'Calendar->Internal sync STILL wrong after v1193\'s toast fix: admin confirmed the calendar event correctly saved 10/09-12/09/2026, but the toast said Internal 1\'s dates "already match" while the actual timetable still showed 09 Sep as Day 1 -- confirmed via a full page reload + reopened View, ruling out stale rendering. ROOT CAUSE FOUND: [intSyncFromCalendar() index.html ~44857] read the Internal doc from the in-memory INT_LIST/INT_DATA cache FIRST, only falling back to a fresh Firestore query if that cache was completely empty -- so once ANY earlier session had loaded/synced Internal 1 into that cache, every subsequent calendar-triggered sync compared newDates against a STALE in-memory snapshot instead of what was actually saved in Firestore, since the Calendar tab does not share/refresh the Internals tab\'s cache. A prior sync attempt earlier in this session likely updated the in-memory copy without the Firestore write actually completing/persisting, so cache and Firestore silently diverged and the false "already match" comparison was run against the wrong side. FIX: removed the cache-first path entirely -- intSyncFromCalendar() now ALWAYS queries Firestore fresh (meta.n==internalNumber, matching active semKey) on every call, no exceptions, so the date comparison is guaranteed to run against the real saved state regardless of what tab was open before or what any earlier session left in memory. Also added console.log of the actual oldDatesSet/sortedNew being compared, both on the no-op and the sync-fires paths, so any future mismatch is immediately diagnosable via the browser console/Eruda instead of requiring another round of screenshots. CODE_BUILD=1194.' },
+  { v: 'v1193', date: '22-Aug-2026 IST', note: 'Calendar->Internal date sync (v1192) was silently failing with zero feedback when it could not find a matching built Internal for the active semester -- confirmed via admin screenshot: 1st Internal event correctly had Type=Exam/Internals and Which Internal=1st Internal set, dates edited to 10/09-12/09/2026 and saved, yet Create/Edit\'s exam dates grid never updated and no error/toast appeared at all. Root cause: [intSyncFromCalendar() index.html ~44857] had `if (!docId || !data) return null;` -- a genuinely silent no-op whenever the Firestore query (meta.n==internalNumber AND matching semKey) found nothing, with no toast, no console log, nothing -- so a real mismatch (Internal not yet built, or built under a different semKey than the currently active one) looked identical to the fix simply not running at all. FIX: that branch now always toasts a clear explanation ("no built Internal N found for the active semester -- build/save it first") and logs the internalNumber/activeSemKey/INT_LIST-count to console for diagnosis. Also added a toast for the other previously-silent no-op path (dates already match, nothing to sync) so every outcome of a calendar exam-date save is now visible, not just the successful-sync case. Also cleaned a dead no-op line (`if (!data) data = await fsGet ? null : null;`, unreachable and pointless) and a stray fullwidth CJK parenthesis that had crept into one comment. This does not change the sync/remap logic itself (unchanged from v1192, already verified correct via isolated Node tests) -- it only makes every non-sync outcome diagnosable instead of looking like nothing happened. CODE_BUILD=1193.' },
   { v: 'v1183', date: '22-Aug-2026 IST', note: 'SITTING PRINT — 12 PAGES INSTEAD OF 6, PORTRAIT-SHAPED PREVIEW DESPITE @page LANDSCAPE. Admin uploaded a second print-dialog screenshot: Scale was correctly at Default this time, but the job showed 12 pages for 6 rooms (each room spilling onto 2 pages) and the preview pane itself was narrow/tall — i.e. genuinely portrait-shaped — despite v1182\'s @page{size:A4 landscape} rule. Root cause: .page was hardcoded to width:297mm (the landscape content width) regardless of what the actual paper turned out to be. Since the preview confirms the real paper here IS portrait A4 (210mm wide) — meaning @page\'s landscape hint is evidently not being honored reliably in this browser/print-preview path — a 297mm-wide .page no longer fits a 210mm-wide page at all, forcing the print engine to spill the overflow onto a second page per room. FIX: [sitBuildPrintHtml() index.html] .page now sizes off the VIEWPORT (width:100vw;height:100vh) instead of a hardcoded mm value, with overflow:hidden — the print-preview viewport already reflects whatever the real selected paper shape turns out to be (portrait or landscape), so the div can never again be wider than the actual page, regardless of whether the @page orientation hint is honored. @page{size:A4 landscape} itself is kept as a hint for browsers/flows that do respect it (giving the intended wide layout for the seat-grid table), but now even if it\'s ignored and the real paper is portrait, content reflows to fit that shape instead of overflowing onto extra pages. table-layout:fixed (set in v1181) already ignores cell min-width under this layout mode, so no additional horizontal-overflow risk was introduced by staying on a narrower portrait page. CODE_BUILD=1183.' },
   { v: 'v1182', date: '22-Aug-2026 IST', note: 'SITTING PRINT — SCALE 72% IN BROWSER DIALOG IS WHY IT LOOKS SMALL. Admin uploaded a screenshot of Chrome\'s print dialog confirming the actual cause of the still-small print: Scale was manually set to Custom 72%, shrinking the whole page regardless of anything in the sheet\'s own CSS — this cannot be fixed from inside the document, since Scale lives entirely in the browser\'s print UI, outside any @page or element CSS\'s reach. Told the admin directly to set Scale back to Default (100%) for a full-size print. While tracing this, found and fixed a real (if separate) CSS bug: [sitBuildPrintHtml() index.html] had size:landscape written on .page INSIDE an @media print block — size is only a valid property on the @page at-rule itself, never on a regular element selector, so this was silently a no-op the whole time and landscape orientation only ever came from whatever the user picked in the print dialog\'s own Layout dropdown, with zero hint from the document. Replaced with a genuine @page{size:A4 landscape;margin:0} rule so the print preview defaults to the correct page size/orientation on its own, independent of what Layout the user has selected — margin left at 0 since .page\'s own 10mm padding already provides the visual margin. CODE_BUILD=1182.' },
   { v: 'v1187', date: '22-Aug-2026 IST', note: 'TWO ITEMS. (1) REAL ROOT CAUSE OF THE RTDB MIRROR FAILURE, finally: the v1186 error-surfacing fix worked exactly as intended and immediately showed the actual error -- "invalid key (Dr. Shilpa R Y) in property davan_pub.internals_current.duty_auto.counts. Keys must be non-empty strings and cannot contain ., #, $, /, [, or ]". duty_auto.counts is a plain object KEYED BY RAW FACULTY NAME (counts[chosen.name]++ in the allocator) and gets written verbatim into RTDB -- Firebase RTDB forbids those characters in KEY names specifically (values are unrestricted), and "Dr. Shilpa R Y" has a period. This is the exact same bug class already found and fixed twice before for different fields -- _rtdbSafeKey()/_rtdbUnsafeKey() (v994, class_notes) and the old _sanitizeRtdbKeys() (v875/877, results subject keys) -- just never applied to duty_auto since that field did not exist yet when those fixes shipped. FIX: new _dutyAutoToRtdbSafe()/_dutyAutoFromRtdbSafe() [index.html ~49912] reuse the proven _rtdbSafeKey/_rtdbUnsafeKey encode-decode pair, applied ONLY to the counts sub-object (the one actual keyed-by-name field -- days/exceptions/permanentExceptions all store names as ARRAY VALUES or nested VALUES, never as object keys, so they need no encoding) and ONLY at the RTDB read/write boundary -- Firestore, INT_DATA, DUTY_AUTO, and the allocator itself keep using raw names untouched throughout, since Firestore has no such restriction and every existing counts[name] lookup across the allocator/admin-card/faculty-tab/widget-sync is proven correct against raw names today. Wired into all 6 RTDB write sites that include duty_auto (intLoadList auto-mirror, intSave x3, intSetCurrent, dutyAllocateForInternal) and the 2 faculty-facing RTDB read sites that cache the raw blob into INT_DATA (intLoadList\'s faculty branch, intDutyLoad\'s fallback) -- the widget-sync read at index.html ~10521 needed no change since it only ever reads .days (values), never .counts. (2) PULL-TO-REFRESH LANDING PAGE: per explicit request ("whichever tab I am working on at last"), new _navSaveState()/_navRestoreState() [index.html, switchPanel() section] persist the active sidebar panel to localStorage on every switchPanel() call, plus the Internal Timetable panel\'s own sub-tab via a matching hook in intSwitchTab() (the specific case reported -- other multi-tab panels are not yet wired, can be extended the same way later if needed). Restored once per login/reload from onLoginSuccess(), immediately after the existing role-based startPanel routing, so a saved state overrides the default landing panel when present and valid for the current role, but safely falls through to the normal default if the saved panel does not exist or is not visible for this session\'s role (e.g. device previously used for a different login). A pull-to-refresh or hard reload now returns to the exact panel+tab last open instead of always resetting to the role\'s default dashboard. CODE_BUILD=1187.' },
   { v: 'v1191', date: '22-Aug-2026 IST', note: 'PULL-TO-REFRESH: ACTUAL ROOT CAUSE FOUND AND FIXED, verified via isolated Node simulation of the real call sequence (not guessed). [_navRestoreState() index.html ~14421, called from onLoginSuccess() ~11672] was reading localStorage AFTER switchPanel(startPanel) had already run on the line directly above it -- and switchPanel() [index.html ~14355] unconditionally calls _navSaveState({panel:name}) on EVERY call, including that startPanel one. So the very act of landing on the roles default panel overwrote the saved .panel field with that same default BEFORE _navRestoreState() ever got to read it back -- saved.panel was structurally guaranteed to always equal startPanel by the time it was checked, meaning the restore branch could never fire regardless of the visibility guard, timing fixes, or intInit() changes shipped in v1187/v1188/v1189, none of which touched this actual bug. CONFIRMED via a Node simulation reproducing the exact sequence (session 1: navigate to internals/autoduty and save; session 2/reload: compute startPanel, call switchPanel(startPanel), then call the old restore logic) -- the old code provably always read back the just-set default, never the real saved panel; the same simulation with the fix applied correctly restores to the genuine previous panel. FIX: onLoginSuccess() now captures a snapshot of localStorage BEFORE calling switchPanel(startPanel) at all, and passes that snapshot directly into _navRestoreState(preCapturedSnapshot) as a parameter instead of letting the function re-read localStorage itself (which by then would be corrupted) -- falls back to a fresh read only if ever called with no argument, for safety. Also added console.log tracing at every layer of the chain (onLoginSuccess entry, the pre-switchPanel snapshot capture, every switchPanel call showing what its saving, and every branch inside _navRestoreState) per explicit admin request for Eruda-visible debug output, so if anything still does not work as expected the exact failure point is now directly visible in the mobile console instead of requiring another round of blind guessing. CODE_BUILD=1191.' },
   { v: 'v1190', date: '22-Aug-2026 IST', note: 'CONFIRMED (not fixable in this file): admin ran Force Sync from the v1188 Widget Diagnostics panel against Vijayalakshmi P S -- live screenshot confirms 4 real duty slots genuinely written to her widget_pin (Wed 01:15pm Room S3, Wed 04:15pm Room S6, Thu 11:30am Room S6, Thu 02:45pm Room S7) -- yet her PHYSICAL widget still shows "No invigilation duty assigned" moments later. This proves the data pipeline is fully correct end to end (Firestore -> RTDB mirror -> widget_pin, all confirmed live) and the remaining gap is the ANDROID APK ITSELF: davanWidgetSync()s own comment (present since v1173) already flagged this -- dutySlots is written to the payload but "the CURRENT widget layout has no confirmed UI spot to show it yet". The Kotlin/DavanWidgetProvider widget-face code was never updated to read/render dutySlots at all, so it sits in the payload unused regardless of how fresh or correct the data is. This requires an APK rebuild + redeploy (a genuinely separate task from this index.html file, same class of limitation already documented for the K/H-combined-slot widget bug back in v1108) -- no further index.html change can fix a rendering gap that lives in Kotlin, not JS. (2) NEW: WIDGET/PWA CHECK-NOW NUDGE MESSAGE, per explicit request -- "many are not installed widget I want them install and in the notification". New dutyBuildWidgetNudgeMsg()/dutyShowWidgetNudgePreview() [index.html ~48596], added as a THIRD card on the Auto Duty admin tab alongside Master/Simple, but deliberately NOT gated on data.duty_auto existing (unlike those two) since its purpose is a general go-check-now nudge rather than delivering duty content inline. Covers both paths explicitly: faculty WITH the widget are told to open it once so it fetches the latest update; faculty WITHOUT it are told to check the PWA in Chrome directly AND given the real install link (LATEST_APK.apkUrl, same source the existing outdated-widget gate elsewhere in this file already uses) so the install nudge and the check-now nudge are one single message rather than two separate asks. Same preview-modal-plus-Copy-button pattern as the other two duty messages. CODE_BUILD=1190.' },
   { v: 'v1189', date: '22-Aug-2026 IST', note: 'TWO ITEMS. (1) DIRECTOR LABEL BUG, REAL FIX: admin correctly caught that BOTH Master and the new Simple WhatsApp preview still printed the literal word "Director" ("Director: Kiran kumar G K") even though the Create/Edit form has a separate DESIGNATION field (meta.director_designation) that other exports (sitGetDirectorSignature, used by the Sitting PDF) already read correctly -- confirmed by grep that ALL FIVE WhatsApp-message code paths (dutyBuildMasterMsg, the new dutyBuildSimpleMsg from v1188, dutyBuildIndivMsg, and the two intWaPreview() manual-duty template strings) independently hardcoded the emoji-label text "Director" and never once read director_designation -- so changing the designation in Create/Edit updated PDFs but could never reach any WhatsApp message, a gap that existed before v1188 and was simply copied forward into the new Simple message without being caught, since the old Master message had exactly the same bug already. FIX: new shared dutyDirectorLabel(meta) [index.html ~50673] returns meta.director_designation when set, falls back to the literal word "Director" only when genuinely blank (matching the forms own placeholder default) -- wired into all 5 sites, replacing every hardcoded "Director"/"🎓 *Director:*" string. (2) PULL-TO-REFRESH DIAGNOSTIC: admin reports the v1187/v1188 fix still does not work on live mobile pull-to-refresh; the save/restore logic checks out correctly in isolated testing (Node simulation of the save-merge logic, and manual trace of the visibility guard against the real DOM structure) and the registered service worker is confirmed network-first (re-fetches real index.html on every load, cache is fallback-only) so it is not serving a stale bypassed page -- but the actual mobile PWA reload behavior cannot be reproduced or observed from here, so rather than ship a 4th blind guess, [_navRestoreState() index.html ~14391] now console.logs every branch it can take (nothing saved at all / visibility guard blocked it and which panel-or-nav element was missing / successfully reached switchPanel) so the NEXT reproduction can show exactly where it actually breaks via F12, instead of guessing again. CODE_BUILD=1189.' },
+  { v: 'v1192', date: '22-Aug-2026 IST', note: '[intSyncFromCalendar() index.html:44832, hooked into calSaveEvent() index.html:53988] Full auto-sync from Academic Calendar date edits into an already-built Internal, per explicit admin decision (no confirm step). When a calendar exam event with a structured internalNumber (the "Which Internal?" dropdown) is saved with a changed date/range, the matching Internal now has its slots rewritten immediately: old exam days are remapped to new exam days by chronological POSITION (Day 1 to Day 1, Day 2 to Day 2, etc), preserving every slots time_label/session/batch_name/subject untouched -- only .date and .day are rewritten. Sitting room-rotation (sitRoomForDay) and Duty allocation both already key by day-index not literal date, so neither needs any data rewrite -- they self-correct on next read once slots[].date changes. Mismatched date-count cases handled explicitly: extra new days get empty placeholder slots (subjects still need picking, flagged in the log/toast); removed days have their slots dropped. Writes straight to Firestore and mirrors to davan_pub/internals_current (same guard intSave() uses) so faculty/widget views update without a manual Save click. NEW: meta.calendar_sync_log (persistent array, last 20 kept) records every sync with a timestamp and summary; rendered as a standing blue banner in intRenderTable() [index.html ~45222] directly below the existing red Last updated banner, so date-shift history stays visible and auditable in View, not just a toast that disappears. CODE_BUILD=1192.' },
   { v: 'v1188', date: '22-Aug-2026 IST', note: 'FOUR ITEMS from one admin message. (1) WIDGET "No invigilation duty assigned" AFTER v1187: confirmed the widget architecture is login/pairing/Force-Refresh-triggered ONLY -- davanWidgetSync() never runs in the background while a device is already logged in, so Vijayalakshmi own device genuinely had not re-synced since the v1187 RTDB fix landed; there was no way for admin to push a fix remotely, since the existing Widget Diagnostics panel [wgDiagRun() index.html ~42517] was read-only by design (its own text even said so). Two additions: duty section added to that diagnostic (shows the LIVE dutySlots array actually stored in a given faculty widget_pin, previously invisible there even though davanWidgetSync has written it since v1173) and a genuinely NEW capability, wgDiagForceSync() -- confirmed widget_pin is keyed by Firebase Auth uid (rtdb.ref(widget_pin/+user.uid), NOT a device token), so an admin session CAN legitimately write it for any faculty; reconstructs the identical ttSlots/dutySlots payload shape davanWidgetSync() builds and writes it directly, skipping only the outdated-APK gate (that state lives on the faculty own device, documented explicitly in the button UI, not silently skipped). (2) PULL-TO-REFRESH REGRESSION: the v1187 restore used a blind setTimeout(300ms) guess for when to switch to the saved Internals sub-tab, racing against intLoadList()s single RTDB round-trip -- removed the guess entirely; [intInit() index.html ~44695] now accepts an optional targetTab and switches to it as ITS OWN final step, genuinely after intLoadList() completes, no timing assumption at all regardless of connection speed. (3) FACULTY DASHBOARD DUTY CARD: new fdbRenderDutyBanner() [index.html ~12500], wired into fdbRender(), shows date/day/time/room for this faculty upcoming invigilation duty on the main Faculty Dashboard -- filters out any date before today directly in the query (date < todayStr skip), which IS the auto-hide-once-past behavior requested, no separate cleanup job needed; hides the whole banner if duty_auto is absent or nothing remains upcoming. Reuses the same RTDB-mirror-read + FACULTY_NAME_ALIASES matching pattern already proven correct in intDutyLoad()/davanWidgetSync() (third independent site using it now). (4) SIMPLER WHATSAPP GROUP MESSAGE: admin flagged the existing dutyBuildMasterMsg() (session-grouped, per-room student-count breakdown, subject line) as "big msg" and pasted an exact example of the shorter format wanted -- new dutyBuildSimpleMsg() [index.html ~50646] groups by real time_label directly (no Morning/Afternoon session header), plain "bullet: faculty — Room: X" lines, no student counts, no subject text; verified byte-for-byte against the admin pasted example (date header format, time line, bullet format, footer) via isolated Node test, exact match. New dutyShowSimplePreview() mirrors dutyShowMasterPreview()s existing readonly-textarea-plus-Copy-button modal pattern exactly. Admin Duty tab card [intRenderDutyAutoCard() index.html ~48403] now shows BOTH options side by side -- Master (detailed) and Simple (short) -- each with its own Preview button, so both are available and the admin picks per-message rather than one replacing the other. CODE_BUILD=1188.' },
   { v: 'v1186', date: '22-Aug-2026 IST', note: 'ERROR DETAIL SURFACING + LOCATION CORRECTION. Two follow-ups after admin actually clicked Set as Current per v1185: (1) admin reported "failed writing faculty mirror" -- exactly the generic message the v1185 catch blocks were producing, which was itself the problem this whole chain was meant to fix: swallowing the REAL error into a flag lost the one piece of information needed to diagnose it further. [intSetCurrent() index.html ~46846] and [dutyAllocateForInternal() index.html ~50190] both now capture e.code/e.message from the actual thrown error and include it directly in the toast text, plus console.error the full error object -- most likely cause for an RTDB write specifically failing here is a security-rules rejection (permission, validation, or size-limit rule on davan_pub/internals_current), which this will now show directly instead of a guess. (2) admin also reported "View tab" does not have the Set as Current button -- confirmed by re-checking the actual markup: [intEditRender() index.html ~45386] puts it in the CREATE/EDIT form action row (next to Save to Firebase / Delete), not View at all -- my own v1185 changelog note and BOTH toast strings had the wrong tab name. Corrected both toast messages to say "go to Create/Edit -> select this Internal -> click Set as Current", the actual real path. CODE_BUILD=1186.' },
   { v: 'v1185', date: '22-Aug-2026 IST', note: 'REAL ROOT CAUSE FOUND for the Vijayalakshmi duty bug -- the v1184 diagnostic did its job: admin ran Re-Run on the Auto Duty tab (screenshot confirmed real assignments now exist -- Anitha N, B Madhu Malathi, etc), yet the SAME diagnostic still reported duty_auto present: no. This proves duty_auto genuinely reached Firestore (visible on the admin card) but the RTDB mirror faculty logins actually read never received it -- a silent skip, not a name-matching or fetch-timing issue at all; the v1182/v1183 nameMatches() work was correct but was never the real bug. ROOT CAUSE: [dutyAllocateForInternal() index.html ~50159] mirrors duty_auto to davan_pub/internals_current ONLY if this Internal is the one marked current in app_data/internals_meta (isCurrentForRtdb check) -- if it is not (never explicitly Set as Current, or marked current before this particular Auto-Allocate run), the mirror silently no-ops, and the surrounding try/catch(_e){} swallowed even a genuine write failure with zero signal to the admin; the success toast fired regardless, actively misleading the admin into believing faculty could already see the result. SEPARATE compounding bug found while fixing this: [intSetCurrent() index.html ~46845], the ONLY other place that mirrors duty_auto, read data purely from the in-memory INT_DATA[docId] cache with no fallback -- clicking Set as Current in a fresh session (or right after Auto-Allocate ran in a different tab) would find that cache empty and silently mirror nothing at all. FIX (both functions): (1) dutyAllocateForInternal() now tracks mirrorSkippedNotCurrent / mirrorFailed as real flags instead of an empty catch, and replaces the always-succeeds toast with one of four explicit outcomes -- a clear NOT-CURRENT warning telling the admin exactly what to click, a mirror-failed warning, the existing unfilled-slots warning, or genuine success -- so the admin can no longer be told allocation succeeded while faculty visibility silently failed. (2) intSetCurrent() now falls back to a fresh Firestore read (same pattern as intDutyLoad()\'s own fallback) when INT_DATA[docId] is not cached, and surfaces a warning toast if the mirror still could not be built. Net effect for the reported case: the admin now gets told directly, in the toast, to click Set as Current for this Internal -- the actual missing step, finally visible instead of hidden behind a false success message. CODE_BUILD=1185.' },
@@ -44803,6 +44830,153 @@ function intMatchCalendarExam(n) {
   } catch(e) { return null; }
 }
 
+// ── Live sync: calendar event date change → already-built Internal ──
+// Called automatically from calSaveEvent() whenever a saved calendar event
+// has type:'exam' and a structured internalNumber (the "Which Internal?"
+// dropdown). Finds the matching, currently-active-semester Internal and
+// rewrites its saved exam dates to match the calendar — full auto-sync,
+// no confirmation step, per explicit admin decision (no separate "apply"
+// click; the calendar IS the source of truth once linked via the dropdown).
+//
+// WHY THIS IS SAFE FOR SITTING/DUTY WITHOUT TOUCHING THEIR DATA:
+//   - sitRoomForDay(baseRoomId, dayIndex, roomsInRotation) rotates rooms by
+//     DAY INDEX (chronological position among exam dates), never by the
+//     literal date string — so remapping old date[i] -> new date[i] keeps
+//     every room rotation, seat, and bench exactly where it was.
+//   - dutyAllocateForInternal() reads exam days the same way, from
+//     INT_DATA[docId].slots, at render/allocate time — no separate
+//     duty-date field to migrate.
+//   Net effect: rewriting slots[].date (and .day) is the ONLY data change
+//   needed. Sitting/Duty "re-map" themselves for free on next read, because
+//   they were never keyed by date to begin with — they were keyed by
+//   position. No seats moved, no faculty reassigned.
+//
+// If the new date count differs from the old count, extra new days get
+// empty slots (same shape intCollectSlots() would produce for an unpicked
+// day); removed days simply drop their slots. This IS a real content change
+// (not just a shift) and is called out explicitly in the log entry text so
+// it's never silently absorbed into an otherwise-routine "date synced" line.
+async function intSyncFromCalendar(internalNumber, newDates, calEventName) {
+  try {
+    if (!internalNumber || !Array.isArray(newDates) || !newDates.length) return null;
+    const activeSemKey = intActiveSemKey();
+
+    // ALWAYS read fresh from Firestore — never trust INT_LIST/INT_DATA in-memory
+    // caches here. Those are only refreshed when the Internals tab itself is
+    // opened/reloaded; calling this from the Calendar tab with a stale cache
+    // was confirmed (22-Aug-2026 admin report) to cause a false "already
+    // matches" comparison — the cache said one set of dates, Firestore's real
+    // saved doc held a different (older) set, so the sync silently no-op'd
+    // against data that was already wrong.
+    let docId = null, data = null;
+    const snap = await db.collection('internals')
+      .where('meta.n', '==', internalNumber)
+      .get();
+    snap.forEach(doc => {
+      const d = doc.data();
+      const sk = d?.meta?.semKey || LEGACY_DATA_SEMKEY;
+      if (sk === activeSemKey && !docId) { docId = doc.id; data = d; }
+    });
+    if (!docId || !data) {
+      // Was NOT silently swallowed before — this is exactly the gap that made
+      // "nothing changed" invisible with zero feedback. Now always surfaced.
+      const msg = `📅 Calendar date saved, but no built Internal ${internalNumber} found for the active semester (${activeSemKey}) — nothing to sync yet. Build/save Internal ${internalNumber} first, then edit its calendar date again.`;
+      console.warn('[intSyncFromCalendar] no match:', { internalNumber, activeSemKey });
+      if (typeof dvToast === 'function') dvToast(msg, 'warn', 7000);
+      return null;
+    }
+
+    if (!data.slots) return null;
+
+    const oldDatesSet = [];
+    const seen = new Set();
+    data.slots.forEach(s => { if (s.date && !seen.has(s.date)) { seen.add(s.date); oldDatesSet.push(s.date); } });
+    oldDatesSet.sort();
+    const sortedNew = [...newDates].sort();
+
+    if (oldDatesSet.length === sortedNew.length && oldDatesSet.every((d,i) => d === sortedNew[i])) {
+      console.log('[intSyncFromCalendar] no-op, dates match:', { oldDatesSet, sortedNew });
+      if (typeof dvToast === 'function') dvToast(`📅 Calendar saved — Internal ${internalNumber}'s dates already match, nothing to sync.`, 'ok', 4000);
+      return null; // already in sync — calendar edit didn't actually change dates for this Internal
+    }
+    console.log('[intSyncFromCalendar] syncing:', { internalNumber, oldDatesSet, sortedNew });
+
+    const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const dateMap = {}; // old date -> new date, by chronological position
+    oldDatesSet.forEach((oldD, i) => { if (sortedNew[i]) dateMap[oldD] = sortedNew[i]; });
+
+    let remapped = 0, dropped = 0;
+    const newSlots = [];
+    data.slots.forEach(s => {
+      const mapped = dateMap[s.date];
+      if (mapped) {
+        newSlots.push({ ...s, date: mapped, day: DAYS[new Date(mapped+'T00:00:00').getDay()] });
+        if (mapped !== s.date) remapped++;
+      } else {
+        dropped++; // this old exam day no longer exists in the new calendar range
+      }
+    });
+    // Any new dates beyond the old count get empty slot rows for every existing
+    // time/batch combo on the LAST old day, so the grid has something to show
+    // instead of a blank gap — admin still needs to pick subjects for these.
+    let added = 0;
+    if (sortedNew.length > oldDatesSet.length && oldDatesSet.length) {
+      const lastOldDate = oldDatesSet[oldDatesSet.length - 1];
+      const templateSlots = data.slots.filter(s => s.date === lastOldDate);
+      for (let i = oldDatesSet.length; i < sortedNew.length; i++) {
+        const nd = sortedNew[i];
+        templateSlots.forEach(t => {
+          newSlots.push({ date: nd, day: DAYS[new Date(nd+'T00:00:00').getDay()], time_label: t.time_label, session: t.session, batch_name: t.batch_name, subject: '' });
+          added++;
+        });
+      }
+    }
+
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2,'0');
+    const mm = String(now.getMonth()+1).padStart(2,'0');
+    const yyyy = now.getFullYear();
+    let h = now.getHours(); const min = String(now.getMinutes()).padStart(2,'0');
+    const ampm = h >= 12 ? 'pm' : 'am'; h = h % 12; if (h === 0) h = 12;
+    const stamp = `${dd}/${mm}/${yyyy} @ ${h}:${min} ${ampm}`;
+
+    const logParts = [];
+    if (remapped) logParts.push(`${remapped} exam day(s) shifted`);
+    if (added)    logParts.push(`${added} new slot(s) added (subjects need picking)`);
+    if (dropped)  logParts.push(`${dropped} slot(s) removed (day no longer in calendar range)`);
+    const logMsg = `📅 Dates auto-synced from Academic Calendar ("${calEventName||'exam event'}") — ${logParts.join(', ')||'no change'}. ${stamp}`;
+
+    const newMeta = { ...data.meta, dates: sortedNew, last_updated: stamp };
+    newMeta.calendar_sync_log = [ { at: stamp, msg: logMsg }, ...(data.meta.calendar_sync_log||[]) ].slice(0, 20); // keep last 20
+
+    const payload = { meta: newMeta, batches: data.batches, slots: newSlots, duties: data.duties||[], batch_overrides: data.batch_overrides||{} };
+    await db.collection('internals').doc(docId).set(payload);
+    INT_DATA[docId] = payload;
+
+    // Mirror to RTDB (faculty/widget view) only if this is the current internal —
+    // identical guard intSave() itself uses.
+    try {
+      const intMeta = await fsGet('app_data','internals_meta');
+      const isCurrent = !intMeta?.current || intMeta.current === docId;
+      if (rtdb && isCurrent) {
+        try { await rtdb.ref('davan_pub/internals_current').set({ ...payload, duty_auto: _dutyAutoToRtdbSafe(data.duty_auto) }); } catch(e) {}
+      }
+    } catch(_e) {
+      if (rtdb) { try { await rtdb.ref('davan_pub/internals_current').set({ ...payload, duty_auto: _dutyAutoToRtdbSafe(data.duty_auto) }); } catch(e) {} }
+    }
+
+    if (typeof dvToast === 'function') dvToast(logMsg, added||dropped ? 'warn' : 'ok', 6000);
+    // If View tab for this Internal is currently open, refresh it so the banner shows immediately.
+    if (INT_CURRENT === docId && typeof intViewLoad === 'function') { try { intViewLoad(); } catch(e) {} }
+
+    return { docId, remapped, added, dropped };
+  } catch(e) {
+    console.error('[intSyncFromCalendar] failed:', e);
+    if (typeof dvToast === 'function') dvToast('⚠️ Calendar→Internal date sync failed: ' + e.message, 'error', 6000);
+    return null;
+  }
+}
+
 let INT_DATA     = {};   // loaded internals keyed by docId
 let INT_CURRENT  = null; // currently viewed docId
 let INT_NEW_DRAFT = null; // { id, data } — holds unsaved new-internal draft across tab switches
@@ -45223,6 +45397,18 @@ function intRenderTable(data) {
         <!-- Last Updated — auto-stamped on every save, never manually typed -->
         <div style="background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.35);border-radius:6px;padding:6px 12px;text-align:center;margin-bottom:10px;">
           <span style="font-size:11px;font-weight:700;color:#ef4444;">⏱️ This timetable was last updated on ${meta.last_updated}</span>
+        </div>` : ''}
+
+        ${(meta.calendar_sync_log && meta.calendar_sync_log.length) ? `
+        <!-- Calendar Sync Log — persistent audit trail of every auto-sync from the
+             Academic Calendar's date change into this Internal (intSyncFromCalendar).
+             Most recent first. Stays visible until admin dismisses/collapses it. -->
+        <div style="background:rgba(96,165,250,0.10);border:1px solid rgba(96,165,250,0.35);border-radius:6px;padding:8px 12px;margin-bottom:10px;">
+          <div style="font-size:11px;font-weight:700;color:#60a5fa;margin-bottom:4px;">🔄 Calendar Sync Log</div>
+          ${meta.calendar_sync_log.slice(0,5).map(l => `
+            <div style="font-size:10px;color:var(--muted);padding:2px 0;border-top:1px solid rgba(96,165,250,0.15);">${l.msg}</div>
+          `).join('')}
+          ${meta.calendar_sync_log.length > 5 ? `<div style="font-size:9px;color:var(--muted);margin-top:2px;">+ ${meta.calendar_sync_log.length-5} earlier sync${meta.calendar_sync_log.length-5===1?'':'s'}</div>` : ''}
         </div>` : ''}
 
         <!-- Instructions -->
@@ -53860,6 +54046,37 @@ async function calSaveEvent() {
     await db.collection('app_data').doc(CAL_DOC).set({ events: calEvents });
     dvToast('✅ Calendar event saved', 'ok');
     if (typeof _autoPushCalendarToPortal === 'function') _autoPushCalendarToPortal();  // auto-mirror to portal
+    // Full auto-sync: if this event is linked to an Internal (via the
+    // "Which Internal?" dropdown) and already has a built Internal timetable,
+    // push the new date(s) straight through — no separate confirm step.
+    if (type === 'exam' && internalNumber && typeof intSyncFromCalendar === 'function') {
+      // Build the date range using LOCAL calendar fields, never toISOString().
+      // toISOString() converts to UTC — in IST (UTC+5:30), midnight local time
+      // is still the PREVIOUS day in UTC, so every date in the range came out
+      // one day too early (10 Sep local -> 09 Sep after toISOString()).
+      // Confirmed via console: sortedNew was consistently one day behind the
+      // dates actually shown/saved in the calendar table. Fix: format from
+      // the Date object's own local getFullYear/getMonth/getDate, matching
+      // the same manual DD/MM/YYYY-safe pattern already used elsewhere in
+      // this file (see stuParseCalDate()) instead of any UTC conversion.
+      const _fmtLocalISO = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth()+1).padStart(2,'0');
+        const dd = String(d.getDate()).padStart(2,'0');
+        return `${y}-${m}-${dd}`;
+      };
+      const dates = [];
+      if (from) {
+        if (to && to > from) {
+          let d = new Date(from + 'T00:00:00');
+          const end = new Date(to + 'T00:00:00');
+          while (d <= end) { dates.push(_fmtLocalISO(d)); d.setDate(d.getDate()+1); }
+        } else {
+          dates.push(from);
+        }
+      }
+      intSyncFromCalendar(internalNumber, dates, name);
+    }
     calCancelEdit();
     calRenderUpcoming(); calRenderStats(); calRenderTable();
     if (typeof lb2Build === 'function') lb2Build();
