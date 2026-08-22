@@ -11657,6 +11657,14 @@ async function onLoginSuccess() {
     visiting: 'dashboard-faculty'
   }[p.role] || 'dashboard';
   switchPanel(startPanel);
+  // v1187: if the person was mid-task in a specific panel/tab before a
+  // pull-to-refresh or reload, land back there instead of always the
+  // role's default startPanel above — must run AFTER switchPanel(startPanel)
+  // so the sidebar/panel DOM this checks against already exists, and it
+  // deliberately overrides the just-set default when a valid saved state
+  // exists for the CURRENT role (see _navRestoreState()'s own guard for
+  // why a stale state from a different role/session safely falls through).
+  if (typeof _navRestoreState === 'function') _navRestoreState();
   calPreload(); // pre-load calendar data for Next Holiday widget
   flPreload();  // pre-load follow-up records for Follow-ups widget
   fnaBootLoad(); // merge Firebase faculty aliases into FACULTY_NAME_ALIASES at login
@@ -14271,6 +14279,67 @@ function switchPanel(name) {
   else { if (typeof lcbStop === 'function') lcbStop(); }
   // Track panel navigation
   if (name !== 'login') actLog('panel', name);
+  // v1187: remember which panel was open so a pull-to-refresh / hard reload
+  // can land back on it instead of always dropping back to the sidebar
+  // start — see _navSaveState()/_navRestoreState() below for the full
+  // mechanism (also captures Internal Timetable's sub-tab via
+  // intSwitchTab's own hook, since that panel has its own tab bar).
+  if (name !== 'login' && typeof _navSaveState === 'function') _navSaveState({ panel: name });
+}
+
+// v1187: PULL-TO-REFRESH / HARD-RELOAD STATE RESTORE — admin reported that
+// a mobile pull-to-refresh always dropped back to the first sidebar item,
+// forcing a re-navigate to whatever tab was actually being worked on.
+// Root cause: switchPanel() never persisted the active panel anywhere, so
+// after a fresh page load (Firebase Auth persistence silently re-runs the
+// SAME onLoginSuccess() path a reload takes, restoring the session but
+// starting the UI from scratch) there was nothing to read the previous
+// panel back from — the sidebar simply defaulted to whatever the HTML's
+// initial "active" class happened to be.
+// Scope (per explicit request "whichever tab I am working on at last"):
+// persists the top-level sidebar PANEL plus, for the Internal Timetable
+// panel specifically (the one actually reported), its own internal
+// sub-tab (View/Duty/Auto Duty/etc) — the two other panels with their own
+// tab bars can be extended the same way later if needed, this is not a
+// generic multi-panel tab-memory system yet, just the reported case.
+// Storage: localStorage (survives a reload, unlike sessionStorage-per-tab
+// quirks on some mobile browsers; deliberately NOT synced to
+// Firebase/RTDB since this is purely a per-device UI convenience, not
+// data that needs to follow the user across devices).
+const _NAV_STATE_KEY = 'davan_last_nav_state';
+function _navSaveState(patch) {
+  try {
+    const cur = JSON.parse(localStorage.getItem(_NAV_STATE_KEY) || '{}');
+    const next = { ...cur, ...patch };
+    localStorage.setItem(_NAV_STATE_KEY, JSON.stringify(next));
+  } catch(e) {}
+}
+function _navRestoreState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_NAV_STATE_KEY) || 'null');
+    if (!saved || !saved.panel) return;
+    // Only restore to a panel whose sidebar entry is actually visible for
+    // this role/session — applySidebarForRole() has already run by the
+    // time onLoginSuccess() calls this, so a stale saved panel from a
+    // DIFFERENT role (e.g. switched from admin to a faculty login on the
+    // same device) or a panel that no longer exists simply falls through
+    // to the normal default (whatever the HTML already marks active)
+    // instead of navigating somewhere the current role can't see or a
+    // dead id that would throw.
+    const navEl = document.querySelector(`[data-panel="${saved.panel}"]`);
+    const panelEl = document.getElementById('panel-' + saved.panel);
+    if (!navEl || !panelEl || navEl.style.display === 'none') return;
+    switchPanel(saved.panel);
+    if (saved.panel === 'internals' && typeof intInit === 'function') {
+      intInit();
+      if (saved.internalsTab && typeof intSwitchTab === 'function') {
+        // Small delay: intInit() itself is async (Firestore/RTDB reads)
+        // and re-renders the tab bar — switching tabs before that settles
+        // would just get overwritten by intInit()'s own default tab.
+        setTimeout(() => { if (typeof intSwitchTab === 'function') intSwitchTab(saved.internalsTab); }, 300);
+      }
+    }
+  } catch(e) {}
 }
 
 
@@ -14295,8 +14364,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1173;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '22-Aug-2026', time: '09:45', full: '22-Aug-2026 09:45 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1187;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '22-Aug-2026', time: '15:40', full: '22-Aug-2026 15:40 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -24605,6 +24674,11 @@ function updateDataStrip() {
 const HTML_CHANGELOG = [
   { v: 'v1183', date: '22-Aug-2026 IST', note: 'SITTING PRINT — 12 PAGES INSTEAD OF 6, PORTRAIT-SHAPED PREVIEW DESPITE @page LANDSCAPE. Admin uploaded a second print-dialog screenshot: Scale was correctly at Default this time, but the job showed 12 pages for 6 rooms (each room spilling onto 2 pages) and the preview pane itself was narrow/tall — i.e. genuinely portrait-shaped — despite v1182\'s @page{size:A4 landscape} rule. Root cause: .page was hardcoded to width:297mm (the landscape content width) regardless of what the actual paper turned out to be. Since the preview confirms the real paper here IS portrait A4 (210mm wide) — meaning @page\'s landscape hint is evidently not being honored reliably in this browser/print-preview path — a 297mm-wide .page no longer fits a 210mm-wide page at all, forcing the print engine to spill the overflow onto a second page per room. FIX: [sitBuildPrintHtml() index.html] .page now sizes off the VIEWPORT (width:100vw;height:100vh) instead of a hardcoded mm value, with overflow:hidden — the print-preview viewport already reflects whatever the real selected paper shape turns out to be (portrait or landscape), so the div can never again be wider than the actual page, regardless of whether the @page orientation hint is honored. @page{size:A4 landscape} itself is kept as a hint for browsers/flows that do respect it (giving the intended wide layout for the seat-grid table), but now even if it\'s ignored and the real paper is portrait, content reflows to fit that shape instead of overflowing onto extra pages. table-layout:fixed (set in v1181) already ignores cell min-width under this layout mode, so no additional horizontal-overflow risk was introduced by staying on a narrower portrait page. CODE_BUILD=1183.' },
   { v: 'v1182', date: '22-Aug-2026 IST', note: 'SITTING PRINT — SCALE 72% IN BROWSER DIALOG IS WHY IT LOOKS SMALL. Admin uploaded a screenshot of Chrome\'s print dialog confirming the actual cause of the still-small print: Scale was manually set to Custom 72%, shrinking the whole page regardless of anything in the sheet\'s own CSS — this cannot be fixed from inside the document, since Scale lives entirely in the browser\'s print UI, outside any @page or element CSS\'s reach. Told the admin directly to set Scale back to Default (100%) for a full-size print. While tracing this, found and fixed a real (if separate) CSS bug: [sitBuildPrintHtml() index.html] had size:landscape written on .page INSIDE an @media print block — size is only a valid property on the @page at-rule itself, never on a regular element selector, so this was silently a no-op the whole time and landscape orientation only ever came from whatever the user picked in the print dialog\'s own Layout dropdown, with zero hint from the document. Replaced with a genuine @page{size:A4 landscape;margin:0} rule so the print preview defaults to the correct page size/orientation on its own, independent of what Layout the user has selected — margin left at 0 since .page\'s own 10mm padding already provides the visual margin. CODE_BUILD=1182.' },
+  { v: 'v1187', date: '22-Aug-2026 IST', note: 'TWO ITEMS. (1) REAL ROOT CAUSE OF THE RTDB MIRROR FAILURE, finally: the v1186 error-surfacing fix worked exactly as intended and immediately showed the actual error -- "invalid key (Dr. Shilpa R Y) in property davan_pub.internals_current.duty_auto.counts. Keys must be non-empty strings and cannot contain ., #, $, /, [, or ]". duty_auto.counts is a plain object KEYED BY RAW FACULTY NAME (counts[chosen.name]++ in the allocator) and gets written verbatim into RTDB -- Firebase RTDB forbids those characters in KEY names specifically (values are unrestricted), and "Dr. Shilpa R Y" has a period. This is the exact same bug class already found and fixed twice before for different fields -- _rtdbSafeKey()/_rtdbUnsafeKey() (v994, class_notes) and the old _sanitizeRtdbKeys() (v875/877, results subject keys) -- just never applied to duty_auto since that field did not exist yet when those fixes shipped. FIX: new _dutyAutoToRtdbSafe()/_dutyAutoFromRtdbSafe() [index.html ~49912] reuse the proven _rtdbSafeKey/_rtdbUnsafeKey encode-decode pair, applied ONLY to the counts sub-object (the one actual keyed-by-name field -- days/exceptions/permanentExceptions all store names as ARRAY VALUES or nested VALUES, never as object keys, so they need no encoding) and ONLY at the RTDB read/write boundary -- Firestore, INT_DATA, DUTY_AUTO, and the allocator itself keep using raw names untouched throughout, since Firestore has no such restriction and every existing counts[name] lookup across the allocator/admin-card/faculty-tab/widget-sync is proven correct against raw names today. Wired into all 6 RTDB write sites that include duty_auto (intLoadList auto-mirror, intSave x3, intSetCurrent, dutyAllocateForInternal) and the 2 faculty-facing RTDB read sites that cache the raw blob into INT_DATA (intLoadList\'s faculty branch, intDutyLoad\'s fallback) -- the widget-sync read at index.html ~10521 needed no change since it only ever reads .days (values), never .counts. (2) PULL-TO-REFRESH LANDING PAGE: per explicit request ("whichever tab I am working on at last"), new _navSaveState()/_navRestoreState() [index.html, switchPanel() section] persist the active sidebar panel to localStorage on every switchPanel() call, plus the Internal Timetable panel\'s own sub-tab via a matching hook in intSwitchTab() (the specific case reported -- other multi-tab panels are not yet wired, can be extended the same way later if needed). Restored once per login/reload from onLoginSuccess(), immediately after the existing role-based startPanel routing, so a saved state overrides the default landing panel when present and valid for the current role, but safely falls through to the normal default if the saved panel does not exist or is not visible for this session\'s role (e.g. device previously used for a different login). A pull-to-refresh or hard reload now returns to the exact panel+tab last open instead of always resetting to the role\'s default dashboard. CODE_BUILD=1187.' },
+  { v: 'v1186', date: '22-Aug-2026 IST', note: 'ERROR DETAIL SURFACING + LOCATION CORRECTION. Two follow-ups after admin actually clicked Set as Current per v1185: (1) admin reported "failed writing faculty mirror" -- exactly the generic message the v1185 catch blocks were producing, which was itself the problem this whole chain was meant to fix: swallowing the REAL error into a flag lost the one piece of information needed to diagnose it further. [intSetCurrent() index.html ~46846] and [dutyAllocateForInternal() index.html ~50190] both now capture e.code/e.message from the actual thrown error and include it directly in the toast text, plus console.error the full error object -- most likely cause for an RTDB write specifically failing here is a security-rules rejection (permission, validation, or size-limit rule on davan_pub/internals_current), which this will now show directly instead of a guess. (2) admin also reported "View tab" does not have the Set as Current button -- confirmed by re-checking the actual markup: [intEditRender() index.html ~45386] puts it in the CREATE/EDIT form action row (next to Save to Firebase / Delete), not View at all -- my own v1185 changelog note and BOTH toast strings had the wrong tab name. Corrected both toast messages to say "go to Create/Edit -> select this Internal -> click Set as Current", the actual real path. CODE_BUILD=1186.' },
+  { v: 'v1185', date: '22-Aug-2026 IST', note: 'REAL ROOT CAUSE FOUND for the Vijayalakshmi duty bug -- the v1184 diagnostic did its job: admin ran Re-Run on the Auto Duty tab (screenshot confirmed real assignments now exist -- Anitha N, B Madhu Malathi, etc), yet the SAME diagnostic still reported duty_auto present: no. This proves duty_auto genuinely reached Firestore (visible on the admin card) but the RTDB mirror faculty logins actually read never received it -- a silent skip, not a name-matching or fetch-timing issue at all; the v1182/v1183 nameMatches() work was correct but was never the real bug. ROOT CAUSE: [dutyAllocateForInternal() index.html ~50159] mirrors duty_auto to davan_pub/internals_current ONLY if this Internal is the one marked current in app_data/internals_meta (isCurrentForRtdb check) -- if it is not (never explicitly Set as Current, or marked current before this particular Auto-Allocate run), the mirror silently no-ops, and the surrounding try/catch(_e){} swallowed even a genuine write failure with zero signal to the admin; the success toast fired regardless, actively misleading the admin into believing faculty could already see the result. SEPARATE compounding bug found while fixing this: [intSetCurrent() index.html ~46845], the ONLY other place that mirrors duty_auto, read data purely from the in-memory INT_DATA[docId] cache with no fallback -- clicking Set as Current in a fresh session (or right after Auto-Allocate ran in a different tab) would find that cache empty and silently mirror nothing at all. FIX (both functions): (1) dutyAllocateForInternal() now tracks mirrorSkippedNotCurrent / mirrorFailed as real flags instead of an empty catch, and replaces the always-succeeds toast with one of four explicit outcomes -- a clear NOT-CURRENT warning telling the admin exactly what to click, a mirror-failed warning, the existing unfilled-slots warning, or genuine success -- so the admin can no longer be told allocation succeeded while faculty visibility silently failed. (2) intSetCurrent() now falls back to a fresh Firestore read (same pattern as intDutyLoad()\'s own fallback) when INT_DATA[docId] is not cached, and surfaces a warning toast if the mirror still could not be built. Net effect for the reported case: the admin now gets told directly, in the toast, to click Set as Current for this Internal -- the actual missing step, finally visible instead of hidden behind a false success message. CODE_BUILD=1185.' },
+  { v: 'v1184', date: '22-Aug-2026 IST', note: 'FACULTY DUTY TAB DIAGNOSTIC ADDED -- the v1183 nameMatches() alias fix did NOT resolve the reported "No duty assigned" case for Vijayalakshmi P S even after deploy (confirmed via screenshot: HTML v1182 badge visible at the time, My Exam Slots section renders fine using the same Internal data, Duty section still empty) -- meaning the bug is not (or not only) a name-spelling mismatch; the real cause requires seeing the actual duty_auto payload for this faculty session, which is not possible from here (no live Firebase access). Rather than guess a third theory blind, [intDutyLoad() index.html ~46974] now renders an inline diagnostic block directly under the No-duty message (faculty-only, only shown when the list is empty, does not touch the admin branch): shows the logged-in faculty exact login name string, whether data.duty_auto.days exists at all on this Internal, the total count of auto-allocated assignments across ALL faculty, the full list of distinct faculty-name strings actually stored inside duty_auto, and the count of legacy manual duties. This will show directly on her screen next time Duty is opened with nothing assigned, and that text (screenshot or copy-paste) tells us definitively whether: (a) duty_auto is missing entirely on the RTDB mirror she reads (stale cache from before the auto-allocator was ever run against int_pub_1, or from before the mirror-write fix), meaning the fix is to hit Auto-Allocate / Re-Run again so a fresh write goes out; or (b) duty_auto exists with real assignments but her name string among them genuinely does not match her login name even after alias resolution, in which case the exact stored spelling will be visible in the names list and can be added to FACULTY_NAME_ALIASES directly. CODE_BUILD=1184.' },
+  { v: 'v1183', date: '22-Aug-2026 IST', note: 'BUG FIX: Faculty Duty tab showing "No duty assigned" despite an Auto Duty assignment visibly existing against the same person on the admin Duty tab (reported case: Vijayalakshmi P S). ROOT CAUSE: [intDutyLoad() index.html ~46916] matched currentProfile.name against d.faculty_name / a.faculty with a plain equality compare -- same bug class as the FACULTY_NAME_ALIASES fixes elsewhere in this file (Golden Rule 3: any lookup by faculty name must resolve aliases), which this specific spot had never been brought in line with. currentProfile.name (from the faculty own login/profile doc) is not guaranteed byte-identical to the Staff Directory spelling that duty_auto is written under -- a stray trailing space or case difference produces zero matches silently. FIX: added nameMatches() helper (trim + case-insensitive + FACULTY_NAME_ALIASES both directions, same pattern as isExcepted()/dutySubjectCount() elsewhere in this file) and used it for both manualDuties and autoDuties filtering. Also noticed CODE_BUILD constant (was hardcoded 1173) had drifted behind the real changelog head (v1181) -- corrected to 1183 so the footer badge matches reality. CODE_BUILD=1183.' },
   { v: 'v1181', date: '22-Aug-2026 IST', note: 'SITTING PRINT SHEET — SMALL CONTENT, LOTS OF BLANK SPACE ON A4. Uploaded print-to-PDF output confirmed: a real, correctly-laid-out sheet, but the content was small and sat in the top portion of the landscape page with a lot of empty space below/around it. This is a DIFFERENT function than the v1178/v1180 rebuilds — sitPrintRoom() (the browser print-dialog path) still uses sitBuildPrintHtml()\'s own CSS, which was never touched by those rebuilds since Print never had the html2canvas bug those fixed. Root cause here: .page was a correctly-sized 297mm x 210mm box, but table{width:100%} only ever constrained WIDTH — row/cell height was left entirely to each cell\'s natural content size, so the browser\'s print engine rendered the true, compact table height and left the rest of the A4 page blank, exactly the reported symptom. FIX: [sitBuildPrintHtml() index.html] two changes. (1) Every font-size and padding value increased across the stylesheet (body 10px to 13px, table cells 9px to 12px with more padding, headings 13px/11px to 17px/13px, bench-label 7px to 9px, legend/summary/sig 9-10px to 12-13px) so the SAME content is genuinely larger and easier to read on the printed page - a real size increase, not a stretch or zoom hack, so nothing becomes blurry or distorted. (2) .page changed to display:flex;flex-direction:column and table given flex:1, so the table (and its rows) actually grow to fill whatever vertical space remains after the header/legend above it, instead of collapsing to its natural content height and leaving the remainder of the page empty. Net effect: the printed sheet now genuinely fills the A4 landscape page top-to-bottom instead of sitting small in one corner of it. CODE_BUILD=1181.' },
   { v: 'v1180', date: '22-Aug-2026 IST', note: 'SITTING PDF — SAME html2canvas TABLE CORRUPTION AS ATTENDANCE, SAME FIX. Uploaded PDF showed the seat-grid table genuinely rendered but corrupted: a solid black bar where a header row should be, seat numbers not aligned to their cells, a TOTAL line disconnected from the table it summarizes — the identical html2canvas table-layout bug class already root-caused and fixed for attDownloadPDF() in v1178 (known, long-standing html2canvas issues with table cell positioning; not fixable by more container-CSS tweaking, since it is html2canvas\'s own table rendering that is unreliable, not this app\'s markup). FIX: [sitDownloadPDF() index.html] rewritten from scratch on jspdf-autotable (same library added for Attendance\'s rebuild), dropping html2canvas entirely — draws the two-block seat grid (LEFT 1-24 / RIGHT 25-48, bench-label row + seat-number row + URN row per bench, exactly mirroring sitBuildPrintHtml()\'s original HTML table structure) as NATIVE PDF vector cells instead of a screenshot, so there is no DOM table layout for anything to corrupt. One room = one autoTable call = one PDF page, same as the original one-.page-per-room behaviour. Every existing data/logic helper is reused UNCHANGED (sitUrnToName/Course/YearCourse, sitBenchLetter, sitRoomForDay day-rotation, sitLiveDatesForSession, sitRoomsInRotation, sitGetDirectorSignature, sitFilenameDateLabel, sitSaveCurrentRoomBeforeExport) — only the OUTPUT mechanism changed, since none of the room/seat/date logic was ever the actual bug. Course-color legend and seat background tints (BCA/BBA/BCom) are drawn via pdf.setFillColor()+pdf.rect() and per-cell autoTable fillColor styles respectively, matching the original color scheme. sitBuildPrintHtml() itself is now unused by the PDF path — kept as-is since sitPrintRoom() (the browser print-dialog fallback) still uses it and that path never had this bug class (real browser table layout, not a screenshot). CODE_BUILD=1180.' },
   { v: 'v1179', date: '22-Aug-2026 IST', note: 'ATTENDANCE PDF — FIT TO A4, EXPLICITLY. v1178\'s rebuild set the page format to real A4 (format:\'a4\') but never actually constrained the TABLE to that page\'s usable width — autoTable was left to size the subject columns itself (content-based) on top of fixed-mm widths for the first 4 columns, so the combined width could still exceed the page for a class with several subjects, silently overflowing past the right margin or onto extra pages: the page was A4, the table wasn\'t. FIX: [attDownloadPDF()] now computes the exact usable width (page width minus both margins), reserves a fixed budget for the 4 non-subject columns (#, Photo, URN, Name), and divides whatever\'s left EQUALLY across however many subject columns exist — every column gets an explicit columnStyles.cellWidth (not just the first 4), plus tableWidth set to that exact usable width, so autoTable is never left to size anything on its own. Font size also steps down automatically (7.5pt → 6pt body, 7pt → 5.5pt header) once there are more than 6 subjects, since a fixed page width with more columns means less room per column and unshrunk text would start clipping inside cells that are now correctly narrow instead of correctly overflowing. Also fixed a related gap: the footer (Total Students + signature block) was written at a fixed offset below the table with no check against the page\'s actual height — for a long student list the table could run to the bottom of the page and the footer would print past the printable area; now checks remaining space and starts a fresh page for the footer if there isn\'t enough room, using pdf.internal.pageSize.getHeight() rather than assuming a fixed height. Net effect: the exported sheet is now genuinely constrained to A4\'s real usable area on every side (width via column budget, height via footer page-break), regardless of subject count or student count. CODE_BUILD=1179.' },
@@ -44558,6 +44632,12 @@ async function intLoadList() {
         const snap = await rtdb.ref('davan_pub/internals_current').once('value');
         const data = snap.val();
         if (data) {
+          // v1187: decode duty_auto.counts keys back from RTDB-safe form —
+          // see _dutyAutoToRtdbSafe()/_dutyAutoFromRtdbSafe() for why this
+          // exists. Not currently read by any faculty-facing render path,
+          // but caching the raw encoded blob here would silently corrupt
+          // it for any future feature that does read counts.
+          if (data.duty_auto) data.duty_auto = _dutyAutoFromRtdbSafe(data.duty_auto);
           INT_DATA['int_pub_1'] = data;
           INT_LIST = [{ id:'int_pub_1', ...(data.meta||{}), slots: data.slots||[], batches: data.batches||[], duties: data.duties||[] }];
           INT_CURRENT = 'int_pub_1';
@@ -44637,7 +44717,7 @@ async function intLoadList() {
     // (only when viewing the LIVE semester — never mirror an archived view out to faculty)
     if (rtdb && INT_CURRENT && INT_DATA[INT_CURRENT] && viewedKey === intActiveSemKey()) {
       const d = INT_DATA[INT_CURRENT];
-      rtdb.ref('davan_pub/internals_current').set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto: d.duty_auto||null, batch_overrides: d.batch_overrides||{} }).catch(()=>{});
+      rtdb.ref('davan_pub/internals_current').set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto: _dutyAutoToRtdbSafe(d.duty_auto), batch_overrides: d.batch_overrides||{} }).catch(()=>{});
     }
   } catch(e) {
     console.error('intLoadList', e);
@@ -44959,6 +45039,9 @@ function intSwitchTab(tab) {
   // Faculty can't reach sitting/attend/autoduty even via a stale/direct call — bounce to view.
   const _isAdminRoleGuard = ['admin','manager','vp','principal'].includes(currentProfile?.role || '');
   if (!_isAdminRoleGuard && (tab==='sitting' || tab==='attend' || tab==='settings' || tab==='autoduty')) tab = 'view';
+  // v1187: remember this sub-tab for pull-to-refresh restore — see
+  // _navSaveState()/_navRestoreState() in switchPanel()'s section above.
+  if (typeof _navSaveState === 'function') _navSaveState({ internalsTab: tab });
 
   ['view','edit','duty','autoduty','download','sitting','attend','marks','settings'].forEach(t => {
     const pane = document.getElementById('int-pane-'+t);
@@ -46796,11 +46879,11 @@ async function intSave(docId, isNew, opts) {
       const intMeta = await fsGet('app_data','internals_meta');
       const isCurrent = !intMeta?.current || intMeta.current === docId;
       if (rtdb && isCurrent) {
-        try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, duty_auto: INT_DATA[docId]?.duty_auto || null, batch_overrides }); } catch(e) {}
+        try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, duty_auto: _dutyAutoToRtdbSafe(INT_DATA[docId]?.duty_auto), batch_overrides }); } catch(e) {}
       }
     } catch(_e) {
       // If we can't check, mirror anyway (safe default for new internals)
-      if (rtdb) { try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, duty_auto: INT_DATA[docId]?.duty_auto || null, batch_overrides }); } catch(e) {} }
+      if (rtdb) { try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, duty_auto: _dutyAutoToRtdbSafe(INT_DATA[docId]?.duty_auto), batch_overrides }); } catch(e) {} }
     }
     dvToast('✅ Internal saved successfully', 'ok');
     if (msg) { msg.style.color = 'var(--ok)'; msg.textContent = '✅ Saved'; setTimeout(() => { if (msg.textContent === '✅ Saved') msg.textContent = ''; }, 3000); }
@@ -46810,7 +46893,7 @@ async function intSave(docId, isNew, opts) {
       try {
         await db.collection('app_data').doc('internals_meta').set({ current: docId }, { merge: true });
         if (rtdb) {
-          try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, duty_auto: INT_DATA[docId]?.duty_auto || null, batch_overrides }); } catch(_e) {}
+          try { await rtdb.ref('davan_pub/internals_current').set({ meta, batches, slots, duties, duty_auto: _dutyAutoToRtdbSafe(INT_DATA[docId]?.duty_auto), batch_overrides }); } catch(_e) {}
         }
       } catch(_e) {}
     }
@@ -46845,9 +46928,38 @@ async function intSetCurrent(docId) {
     await db.collection('app_data').doc('internals_meta').set({ current: docId }, { merge: true });
     dvToast('📌 Set as current internal', 'info');
     // Mirror current internal data to RTDB for manager/faculty view
-    const data = INT_DATA[docId];
+    // v1185: BUG FIX — data was only ever read from the in-memory
+    // INT_DATA[docId] cache; if this Internal had not been opened in the
+    // current session (e.g. a fresh page load, or Set as Current clicked
+    // right after Auto-Allocate ran in a DIFFERENT tab/session), the cache
+    // was empty and this whole mirror silently no-op'd, exactly matching
+    // the "duty_auto present: no" symptom faculty saw despite Auto-Allocate
+    // having genuinely saved real data to Firestore. Now falls back to a
+    // fresh Firestore read when not cached, same pattern already used in
+    // intDutyLoad()'s own fallback.
+    let data = INT_DATA[docId];
+    if (!data) {
+      try {
+        const doc = await db.collection('internals').doc(docId).get();
+        data = doc.exists ? doc.data() : null;
+        if (data) INT_DATA[docId] = data;
+      } catch(e) {}
+    }
     if (rtdb && data) {
-      try { await rtdb.ref('davan_pub/internals_current').set({ meta: data.meta, batches: data.batches, slots: data.slots, duties: data.duties||[], duty_auto: data.duty_auto||null, batch_overrides: data.batch_overrides||{} }); } catch(e) {}
+      try { await rtdb.ref('davan_pub/internals_current').set({ meta: data.meta||{}, batches: data.batches||[], slots: data.slots||[], duties: data.duties||[], duty_auto: _dutyAutoToRtdbSafe(data.duty_auto), batch_overrides: data.batch_overrides||{} }); }
+      catch(e) {
+        // v1186: surface the REAL error instead of a generic message —
+        // "mirror write failed" with no detail is exactly the kind of
+        // silent failure this whole fix chain was trying to eliminate.
+        // Most likely cause for THIS specific write: RTDB security rules
+        // reject it (e.g. a size limit, a validation rule on this path, or
+        // an auth/role check) — the toast now shows e.code/e.message
+        // directly so that can be confirmed instead of guessed a 4th time.
+        console.error('[intSetCurrent] RTDB mirror write failed:', e);
+        dvToast('⚠ Set as current, but the faculty-facing mirror write failed: ' + (e?.code || e?.message || 'unknown error') + ' — check browser console (F12) for full details.', 'warn', 9000);
+      }
+    } else if (!data) {
+      dvToast('⚠ Set as current, but could not load this Internal\'s data to mirror it — faculty may not see it yet. Try Re-Run in Auto Duty or reload and try again.', 'warn', 7000);
     }
   } catch(e) {}
 }
@@ -46904,7 +47016,10 @@ async function intDutyLoad() {
     try {
       const snap = await rtdb.ref('davan_pub/internals_current').once('value');
       const rd = snap.val();
-      if (rd) { data = rd; INT_DATA[docId] = rd; }
+      if (rd) {
+        if (rd.duty_auto) rd.duty_auto = _dutyAutoFromRtdbSafe(rd.duty_auto); // v1187: decode counts keys, see _dutyAutoToRtdbSafe()
+        data = rd; INT_DATA[docId] = rd;
+      }
     } catch(e) {}
   }
   if (!data) { body.innerHTML = '<div style="padding:20px;color:var(--muted);">No data.</div>'; return; }
@@ -46919,15 +47034,46 @@ async function intDutyLoad() {
     // Combines BOTH sources: legacy manual data.duties AND auto-allocated
     // data.duty_auto — previously only manual entries showed here, so an
     // auto-allocated assignment was invisible to the faculty it was for.
+    // v1182: BUG FIX -- myName matching was a plain equality compare
+    // (a.faculty === myName / d.faculty_name === myName), same bug class
+    // as the FACULTY_NAME_ALIASES fixes elsewhere in this file (Golden
+    // Rule 3: any lookup by faculty name must resolve aliases), which this
+    // specific spot had never been brought in line with. currentProfile
+    // dot name (from the faculty own login profile doc) is not guaranteed
+    // byte-identical to the Staff Directory spelling that duty_auto is
+    // written under -- a stray trailing space or case difference silently
+    // produces zero matches, exactly the "No duty assigned" symptom
+    // reported despite the admin card showing the assignment against her
+    // name. FIX: nameMatches() below compares trimmed and case-insensitive
+    // AND resolves both directions through FACULTY_NAME_ALIASES before
+    // giving up, matching the pattern already used elsewhere in this file.
+    const nameMatches = (function() {
+      const myNameRaw = (currentProfile && currentProfile.name) || '';
+      const myName = myNameRaw.trim();
+      const myNameLc = myName.toLowerCase();
+      const aliasMap = (typeof FACULTY_NAME_ALIASES !== 'undefined') ? FACULTY_NAME_ALIASES : {};
+      const myAlias = aliasMap[myName] || '';
+      const myAliasLc = myAlias.toLowerCase();
+      return function(other) {
+        const o = (other || '').trim();
+        if (!o) return false;
+        const oLc = o.toLowerCase();
+        if (oLc === myNameLc) return true;
+        if (myAliasLc && oLc === myAliasLc) return true;
+        const otherAlias = aliasMap[o] || '';
+        if (otherAlias && otherAlias.toLowerCase() === myNameLc) return true;
+        return false;
+      };
+    })();
     const myName = currentProfile?.name || '';
     const intNumForMe = INT_LIST.find(x => x.id === docId)?.n || 1;
-    const manualDuties = (data.duties || []).filter(d => d.faculty_name === myName)
+    const manualDuties = (data.duties || []).filter(d => nameMatches(d.faculty_name))
       .map(d => ({ date: d.date, day: d.day, room: d.room, session: d.session || '', time_label: d.time_label, subject: '', source: 'manual' }));
     const autoDays = (data.duty_auto && data.duty_auto.days) || {};
     const autoDuties = [];
     Object.keys(autoDays).forEach(date => {
       (autoDays[date].assignments || []).forEach(a => {
-        if (a.faculty === myName) {
+        if (nameMatches(a.faculty)) {
           // Real time_label now lives on the assignment itself (per the
           // room×time-period slot model) — no longer just "Morning"/
           // "Afternoon". Also pull the subject being written in that
@@ -46939,8 +47085,27 @@ async function intDutyLoad() {
       });
     });
     const mine = [...manualDuties, ...autoDuties];
+    // v1184: DIAGNOSTIC — when the list is empty, show WHY instead of a bare
+    // "no duty" message, so a real mismatch (missing duty_auto vs. a name
+    // spelling gap) is visible on-screen instead of requiring Firebase
+    // console access to investigate. Read-only, faculty-only, admin still
+    // sees the normal admin card via intRenderDutyAdmin (untouched).
+    const diagBlock = (!mine.length) ? (function(){
+      const totalAutoAssignments = Object.values(autoDays).reduce((n, d) => n + ((d.assignments || []).length), 0);
+      const allAutoNames = [...new Set(Object.values(autoDays).flatMap(d => (d.assignments || []).map(a => a.faculty)))].sort();
+      const hasDutyAuto = !!(data.duty_auto && data.duty_auto.days);
+      const lines = [];
+      lines.push(`My login name: "${myName || '(empty)'}"`);
+      lines.push(`duty_auto present on this Internal: ${hasDutyAuto ? 'yes' : 'no'}`);
+      lines.push(`Total auto-allocated assignments (all faculty): ${totalAutoAssignments}`);
+      if (allAutoNames.length) {
+        lines.push(`Faculty names found in duty_auto: ${allAutoNames.join(', ')}`);
+      }
+      lines.push(`Legacy manual duties on this Internal: ${(data.duties || []).length}`);
+      return `<div style="margin-top:14px;padding:12px 14px;background:var(--surface);border:1px solid rgba(251,191,36,.3);border-radius:8px;font-family:var(--mono);font-size:11px;color:var(--muted);white-space:pre-wrap;">🩺 Diagnostic (visible only when no duty found):\n${lines.join('\n')}</div>`;
+    })() : '';
     const dutyHtml = !mine.length
-      ? `<div style="padding:20px;text-align:center;color:var(--muted);font-family:var(--mono);">No duty assigned to you for this internal.</div>`
+      ? `<div style="padding:20px;text-align:center;color:var(--muted);font-family:var(--mono);">No duty assigned to you for this internal.</div>${diagBlock}`
       : (function(){
           const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
           function fmtD(str) {
@@ -49828,6 +49993,50 @@ function sitSubjectsPlainByCourse(summary) {
 // morning-last→afternoon-first back-to-back case from rule 5.
 let DUTY_AUTO = {}; // { docId: { counts:{}, days:{} } } — in-memory mirror of internals/{docId}.duty_auto
 
+// v1187: BUG FIX — duty_auto.counts is a plain object KEYED BY FACULTY
+// NAME (e.g. counts["Dr. Shilpa R Y"] = 3), and that whole object is
+// written verbatim into RTDB at davan_pub/internals_current — but Firebase
+// RTDB forbids ". # $ [ ] /" in KEY names (values are fine, only keys are
+// restricted). "Dr. Shilpa R Y" has a period, so the ENTIRE mirror write
+// was thrown out synchronously by the client SDK the moment Set as
+// Current tried to write it, confirmed by the admin's actual error:
+// "invalid key (Dr. Shilpa R Y) in property duty_auto.counts". This is
+// the exact same bug class already found and fixed for class names in
+// _rtdbSafeKey()/_rtdbUnsafeKey() (v994, class_notes) and for subject
+// keys in the old _sanitizeRtdbKeys() (v875/877, results) — reusing the
+// same proven encode/decode pair here rather than writing a third
+// variant. Applied ONLY at the RTDB write/read boundary for duty_auto —
+// Firestore (internals/{docId}.duty_auto) and all in-memory code
+// (INT_DATA, DUTY_AUTO, the allocator itself) keep using raw faculty
+// names untouched, since Firestore has no such key restriction and
+// touching the in-memory shape risks breaking every existing counts[name]
+// / assignments[].faculty lookup across the allocator, the admin card,
+// the faculty Duty tab, and the widget sync — all of which are proven
+// correct against raw names today.
+function _dutyAutoToRtdbSafe(duty_auto) {
+  if (!duty_auto) return duty_auto;
+  const safeCounts = {};
+  Object.keys(duty_auto.counts || {}).forEach(name => { safeCounts[_rtdbSafeKey(name)] = duty_auto.counts[name]; });
+  const safeExceptions = {};
+  Object.keys(duty_auto.exceptions || {}).forEach(date => {
+    // exceptions[date] is an ARRAY of names, not a keyed object — arrays
+    // never touch RTDB key rules, so this level needs no encoding at all.
+    safeExceptions[date] = duty_auto.exceptions[date];
+  });
+  return {
+    counts: safeCounts,
+    days: duty_auto.days || {},           // date keys (YYYY-MM-DD) and all values inside are already RTDB-safe; faculty names here live in a.faculty VALUES, not keys, so they need no encoding
+    exceptions: safeExceptions,
+    permanentExceptions: duty_auto.permanentExceptions || [], // also a plain array of names — no keys involved
+  };
+}
+function _dutyAutoFromRtdbSafe(duty_auto) {
+  if (!duty_auto) return duty_auto;
+  const rawCounts = {};
+  Object.keys(duty_auto.counts || {}).forEach(key => { rawCounts[_rtdbUnsafeKey(key)] = duty_auto.counts[key]; });
+  return { ...duty_auto, counts: rawCounts };
+}
+
 // ── Eligibility pool for one exam day (rules 1, 2, 4) ───────────────────
 // Returns [{ name, type:'fulltime'|'visiting', maxDuties:number|null }]
 // dayName must match facAlertGetSchedule's expected format (e.g. 'Mon').
@@ -50105,6 +50314,8 @@ async function dutyAllocateForInternal(docId, intNum) {
   });
 
   const duty_auto = { counts, days, exceptions: existingExceptions, permanentExceptions: existingPermanentExceptions };
+  let mirrorSkippedNotCurrent = false;
+  let mirrorFailed = false;
   try {
     await db.collection('internals').doc(docId).update({ duty_auto });
     INT_DATA[docId].duty_auto = duty_auto;
@@ -50113,16 +50324,46 @@ async function dutyAllocateForInternal(docId, intNum) {
     // intSave) — without this, the RTDB copy would only pick up fresh
     // duty data on whatever unrelated timetable save happens next, not
     // immediately when Auto-Allocate is actually run.
+    // v1185: BUG FIX — this guard was silently skipping the RTDB mirror
+    // whenever this Internal was not the one marked current in
+    // app_data/internals_meta, and the empty catch(_e){} below hid BOTH
+    // that skip AND any genuine write failure from the admin entirely.
+    // Confirmed live: admin ran Auto-Allocate, got the success toast,
+    // duty_auto WAS saved to Firestore (visible on the admin card), but
+    // the faculty-facing diagnostic (which only reads the RTDB mirror,
+    // since faculty logins never read Firestore internals/{docId}
+    // directly) showed "duty_auto present: no" — i.e. exactly this silent
+    // skip, most likely because this Internal was never explicitly marked
+    // current via intSetCurrent() (or was marked current BEFORE this
+    // Auto-Allocate run, since intSetCurrent is the only other place that
+    // mirrors duty_auto). FIX: capture the skip/failure into flags instead
+    // of swallowing them, and surface a clear, actionable toast below
+    // instead of a generic success message that was misleading the admin
+    // into thinking faculty could already see the result.
+    let mirrorErrDetail = '';
     try {
       const intMeta = await fsGet('app_data','internals_meta');
       const isCurrentForRtdb = !intMeta?.current || intMeta.current === docId;
-      if (rtdb && isCurrentForRtdb) {
+      if (!isCurrentForRtdb) {
+        mirrorSkippedNotCurrent = true;
+      } else if (rtdb) {
         const d = INT_DATA[docId];
-        await rtdb.ref('davan_pub/internals_current').set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto, batch_overrides: d.batch_overrides||{} });
+        await rtdb.ref('davan_pub/internals_current').set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto: _dutyAutoToRtdbSafe(duty_auto), batch_overrides: d.batch_overrides||{} });
       }
-    } catch(_e) {}
+    } catch(_e) {
+      // v1186: surface the real error instead of a bare flag -- see the
+      // matching fix in intSetCurrent() for why a generic message was not
+      // enough to actually diagnose the admin's reported failure.
+      mirrorFailed = true;
+      mirrorErrDetail = (_e && (_e.code || _e.message)) || 'unknown error';
+      console.error('[dutyAllocateForInternal] RTDB mirror write failed:', _e);
+    }
     const totalUnfilled = Object.values(days).reduce((n, d) => n + (d.unfilled?.length || 0), 0);
-    if (totalUnfilled > 0) {
+    if (mirrorSkippedNotCurrent) {
+      dvToast('⚠ Duty allocated and saved, but this Internal is NOT set as the current one — faculty logins will not see it until you go to Create/Edit → select this Internal → click "📌 Set as Current". Re-Run is not needed after that (Set as Current mirrors the already-saved duty_auto).', 'warn', 9000);
+    } else if (mirrorFailed) {
+      dvToast('⚠ Duty allocated and saved to Firestore, but the faculty-facing mirror write failed: ' + mirrorErrDetail + ' — check browser console (F12) for full details.', 'warn', 9000);
+    } else if (totalUnfilled > 0) {
       dvToast(`⚠ Duty allocated with ${totalUnfilled} unfilled slot(s) — check Duty tab`, 'warn', 5000);
     } else {
       dvToast('✅ Duty auto-allocated for all exam days', 'ok');
