@@ -2582,6 +2582,14 @@
         <div id="fdb-spt-decision-area" style="font-size:12px;color:var(--text);line-height:1.8;"></div>
       </div>
 
+      <!-- ── Upcoming Invigilation Duty Banner — v1188, hides automatically once the last shown duty date has passed ── -->
+      <div id="fdb-duty-banner" style="display:none;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+          <span style="font-size:12px;font-weight:600;color:#60a5fa;">📝 Upcoming Invigilation Duty</span>
+        </div>
+        <div id="fdb-duty-area" style="font-size:12px;color:var(--text);line-height:1.8;"></div>
+      </div>
+
       <!-- ── Notification subscription banner ── -->
       <div id="fdb-notif-banner" style="display:none;margin-bottom:16px;"></div>
 
@@ -11313,6 +11321,11 @@ auth.onAuthStateChanged(async user => {
 
 async function onLoginSuccess() {
   const p = currentProfile;
+  // v1191: confirms this function actually ran on THIS page load — if this
+  // line never appears in Eruda after a pull-to-refresh, onLoginSuccess()
+  // itself is not firing the way expected on this device/PWA mode, which
+  // would explain why nothing downstream (including restore) ever runs.
+  console.log('[OnLoginSuccess] fired — role:', p?.role, 'name:', p?.name, 'time:', new Date().toISOString());
   document.getElementById('sidebar-profile').style.display = 'block';
   document.getElementById('sidebar-name').textContent = p.name || 'Unknown';
   // Faculty/staff photo beside name — teaching roles + manager
@@ -11656,6 +11669,24 @@ async function onLoginSuccess() {
     fulltime: 'dashboard-faculty',
     visiting: 'dashboard-faculty'
   }[p.role] || 'dashboard';
+  // v1191: REAL BUG FOUND — _navRestoreState() was reading localStorage
+  // AFTER switchPanel(startPanel) had already run on the line below, and
+  // switchPanel() itself unconditionally calls _navSaveState({panel:name})
+  // on every call — meaning the very act of landing on the default
+  // startPanel OVERWROTE the saved .panel field with that same default
+  // BEFORE _navRestoreState() ever got to read it back. So saved.panel
+  // was ALWAYS equal to startPanel by the time it was checked — the
+  // restore logic was structurally guaranteed to never do anything,
+  // regardless of the visibility guard, timing, or intInit() changes from
+  // v1187/v1188/v1189, none of which could have fixed this. FIX: capture
+  // the saved state into a snapshot HERE, before switchPanel(startPanel)
+  // touches localStorage at all, and pass that snapshot directly into
+  // _navRestoreState() instead of letting it re-read (by then corrupted)
+  // localStorage itself.
+  let _navSnapshot = null;
+  try { _navSnapshot = JSON.parse(localStorage.getItem('davan_last_nav_state') || 'null'); } catch(e) {}
+  console.log('[NavRestore-Pre] snapshot captured BEFORE switchPanel(startPanel) runs:', _navSnapshot);
+  console.log('[NavRestore-Pre] computed default startPanel for this role:', startPanel);
   switchPanel(startPanel);
   // v1187: if the person was mid-task in a specific panel/tab before a
   // pull-to-refresh or reload, land back there instead of always the
@@ -11664,7 +11695,8 @@ async function onLoginSuccess() {
   // deliberately overrides the just-set default when a valid saved state
   // exists for the CURRENT role (see _navRestoreState()'s own guard for
   // why a stale state from a different role/session safely falls through).
-  if (typeof _navRestoreState === 'function') _navRestoreState();
+  console.log('[NavRestore-Pre] about to call _navRestoreState() with captured snapshot, typeof:', typeof _navRestoreState);
+  if (typeof _navRestoreState === 'function') _navRestoreState(_navSnapshot);
   calPreload(); // pre-load calendar data for Next Holiday widget
   flPreload();  // pre-load follow-up records for Follow-ups widget
   fnaBootLoad(); // merge Firebase faculty aliases into FACULTY_NAME_ALIASES at login
@@ -12009,6 +12041,7 @@ function fdbRender() {
   fdbRenderCards();
   fdbRenderTT();
   fdbRenderLP();
+  if (typeof fdbRenderDutyBanner === 'function') fdbRenderDutyBanner();
   if (typeof wgtRenderFaculty === 'function') wgtRenderFaculty();
   // SPT subject dashboard banner — always reload deadlines from Firebase first, then build/render
   (async () => {
@@ -12490,6 +12523,71 @@ function fdbRenderCards() {
   }
 
   el.innerHTML = html + intHtml;
+}
+
+// v1188: UPCOMING INVIGILATION DUTY BANNER — per explicit request, shows
+// date/time/room for this faculty's auto-allocated exam duty right on the
+// dashboard, and disappears once every shown date has passed (checked
+// against today's real calendar date, not just removed after one view).
+// Reuses the exact same RTDB read + FACULTY_NAME_ALIASES matching already
+// proven correct in davanWidgetSync()'s dutySlots build and
+// intDutyLoad()'s nameMatches() — a third independent read of the same
+// davan_pub/internals_current.duty_auto node, since faculty sessions have
+// no Firestore access to internals/{docId} directly (see intDutyLoad()'s
+// own comments on why the RTDB mirror exists at all).
+async function fdbRenderDutyBanner() {
+  const banner = document.getElementById('fdb-duty-banner');
+  const area = document.getElementById('fdb-duty-area');
+  if (!banner || !area) return;
+  const role = currentProfile?.role || '';
+  if (!['fulltime','visiting'].includes(role)) { banner.style.display = 'none'; return; }
+  if (!rtdb) { banner.style.display = 'none'; return; }
+  try {
+    const snap = await rtdb.ref('davan_pub/internals_current').once('value');
+    const data = snap.val();
+    const dutyAutoRaw = data?.duty_auto;
+    if (!dutyAutoRaw || !dutyAutoRaw.days) { banner.style.display = 'none'; return; }
+    // v1187's key-safe encoding only touches .counts, never .days — the
+    // faculty name inside days[].assignments[].faculty is a plain VALUE,
+    // so no _dutyAutoFromRtdbSafe() decode is needed here at all (same
+    // reasoning already documented at the widget-sync read site).
+    const myName = (currentProfile?.name || '').trim();
+    const myAlias = FACULTY_NAME_ALIASES?.[myName] || '';
+    const myKey = currentProfile?.facultyKey || myName;
+    const myKeyAlias = FACULTY_NAME_ALIASES?.[myKey] || '';
+    const myKeys = [...new Set([myName, myAlias, myKey, myKeyAlias].filter(Boolean))];
+
+    const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
+
+    const mine = [];
+    Object.keys(dutyAutoRaw.days).sort().forEach(date => {
+      if (date < todayStr) return; // v1188: past dates never shown — this IS the auto-hide
+      (dutyAutoRaw.days[date].assignments || []).forEach(a => {
+        if (myKeys.includes(a.faculty)) {
+          mine.push({ date, day: dutyAutoRaw.days[date].day || '', room: a.room, time_label: a.time_label || (a.session === 'morning' ? 'Morning' : 'Afternoon') });
+        }
+      });
+    });
+
+    if (!mine.length) { banner.style.display = 'none'; return; }
+
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const fmtD = str => { const d = new Date(str+'T00:00:00'); return `${String(d.getDate()).padStart(2,'0')} ${MONTHS[d.getMonth()]}`; };
+    const title = (data.meta && data.meta.title) || 'Internal Assessment';
+    const esc = s => String(s==null?'':s).replace(/</g,'&lt;');
+
+    area.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">${esc(title)}</div>` +
+      mine.map(d => `<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:4px 0;">
+        <span style="font-weight:700;color:#93c5fd;">${fmtD(d.date)}</span>
+        <span style="color:var(--muted);font-size:11px;">${esc(d.day)}</span>
+        <span>⏰ ${esc(d.time_label)}</span>
+        <span style="background:rgba(96,165,250,.15);color:#93c5fd;padding:2px 10px;border-radius:10px;font-family:var(--mono);font-weight:700;font-size:11px;">Room: ${esc(d.room||'TBA')}</span>
+      </div>`).join('');
+    banner.style.display = '';
+  } catch(e) {
+    console.warn('[fdbRenderDutyBanner] failed:', e);
+    banner.style.display = 'none';
+  }
 }
 
 function fdbRenderTT() {
@@ -14284,6 +14382,12 @@ function switchPanel(name) {
   // start — see _navSaveState()/_navRestoreState() below for the full
   // mechanism (also captures Internal Timetable's sub-tab via
   // intSwitchTab's own hook, since that panel has its own tab bar).
+  // v1191: log every save so Eruda shows a clear trail of what was
+  // actually navigated to and saved, before we even get to the restore
+  // side — if this log is missing entirely after navigating around, the
+  // save side itself is the gap (switchPanel not being called, or this
+  // guard condition failing) rather than anything in restore.
+  console.log('[NavSave] switchPanel(' + name + ') → saving panel:', name);
   if (name !== 'login' && typeof _navSaveState === 'function') _navSaveState({ panel: name });
 }
 
@@ -14314,10 +14418,21 @@ function _navSaveState(patch) {
     localStorage.setItem(_NAV_STATE_KEY, JSON.stringify(next));
   } catch(e) {}
 }
-function _navRestoreState() {
+function _navRestoreState(preCapturedSnapshot) {
   try {
-    const saved = JSON.parse(localStorage.getItem(_NAV_STATE_KEY) || 'null');
-    if (!saved || !saved.panel) return;
+    // v1191: REAL FIX — accepts a snapshot captured by the CALLER before
+    // switchPanel(startPanel) had a chance to overwrite localStorage (see
+    // onLoginSuccess()'s own comment for the full root-cause explanation:
+    // switchPanel() unconditionally calls _navSaveState({panel:name}) on
+    // every call, so a fresh localStorage read done from INSIDE this
+    // function — after the caller had already called switchPanel(startPanel)
+    // — was structurally guaranteed to read back that same default,
+    // never the genuinely previous panel. Falls back to a fresh read only
+    // if called with no argument (defensive, in case this is ever invoked
+    // from somewhere that hasn't captured a snapshot itself).
+    const saved = preCapturedSnapshot !== undefined ? preCapturedSnapshot : JSON.parse(localStorage.getItem(_NAV_STATE_KEY) || 'null');
+    console.log('[NavRestore] using snapshot:', saved, '(pre-captured:', preCapturedSnapshot !== undefined, ')');
+    if (!saved || !saved.panel) { console.log('[NavRestore] nothing saved — save-side never ran, or localStorage was cleared'); return; }
     // Only restore to a panel whose sidebar entry is actually visible for
     // this role/session — applySidebarForRole() has already run by the
     // time onLoginSuccess() calls this, so a stale saved panel from a
@@ -14328,18 +14443,17 @@ function _navRestoreState() {
     // dead id that would throw.
     const navEl = document.querySelector(`[data-panel="${saved.panel}"]`);
     const panelEl = document.getElementById('panel-' + saved.panel);
-    if (!navEl || !panelEl || navEl.style.display === 'none') return;
+    console.log('[NavRestore] navEl found:', !!navEl, 'panelEl found:', !!panelEl, 'navEl display:', navEl ? navEl.style.display : '(n/a)');
+    if (!navEl || !panelEl || navEl.style.display === 'none') { console.log('[NavRestore] BLOCKED by visibility guard — falling through to default panel'); return; }
+    console.log('[NavRestore] restoring to panel:', saved.panel, 'internalsTab:', saved.internalsTab);
     switchPanel(saved.panel);
     if (saved.panel === 'internals' && typeof intInit === 'function') {
-      intInit();
-      if (saved.internalsTab && typeof intSwitchTab === 'function') {
-        // Small delay: intInit() itself is async (Firestore/RTDB reads)
-        // and re-renders the tab bar — switching tabs before that settles
-        // would just get overwritten by intInit()'s own default tab.
-        setTimeout(() => { if (typeof intSwitchTab === 'function') intSwitchTab(saved.internalsTab); }, 300);
-      }
+      // v1188: no longer setTimeout-guesses when to switch sub-tabs —
+      // intInit() now takes the target tab directly and switches to it
+      // as its own final step, after intLoadList() genuinely completes.
+      intInit(saved.internalsTab || undefined);
     }
-  } catch(e) {}
+  } catch(e) { console.warn('[NavRestore] threw:', e); }
 }
 
 
@@ -14364,8 +14478,8 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1187;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '22-Aug-2026', time: '15:40', full: '22-Aug-2026 15:40 IST' }; // hardcoded build time — do NOT use runtime time
+const CODE_BUILD = 1191;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '22-Aug-2026', time: '20:10', full: '22-Aug-2026 20:10 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -24675,6 +24789,10 @@ const HTML_CHANGELOG = [
   { v: 'v1183', date: '22-Aug-2026 IST', note: 'SITTING PRINT — 12 PAGES INSTEAD OF 6, PORTRAIT-SHAPED PREVIEW DESPITE @page LANDSCAPE. Admin uploaded a second print-dialog screenshot: Scale was correctly at Default this time, but the job showed 12 pages for 6 rooms (each room spilling onto 2 pages) and the preview pane itself was narrow/tall — i.e. genuinely portrait-shaped — despite v1182\'s @page{size:A4 landscape} rule. Root cause: .page was hardcoded to width:297mm (the landscape content width) regardless of what the actual paper turned out to be. Since the preview confirms the real paper here IS portrait A4 (210mm wide) — meaning @page\'s landscape hint is evidently not being honored reliably in this browser/print-preview path — a 297mm-wide .page no longer fits a 210mm-wide page at all, forcing the print engine to spill the overflow onto a second page per room. FIX: [sitBuildPrintHtml() index.html] .page now sizes off the VIEWPORT (width:100vw;height:100vh) instead of a hardcoded mm value, with overflow:hidden — the print-preview viewport already reflects whatever the real selected paper shape turns out to be (portrait or landscape), so the div can never again be wider than the actual page, regardless of whether the @page orientation hint is honored. @page{size:A4 landscape} itself is kept as a hint for browsers/flows that do respect it (giving the intended wide layout for the seat-grid table), but now even if it\'s ignored and the real paper is portrait, content reflows to fit that shape instead of overflowing onto extra pages. table-layout:fixed (set in v1181) already ignores cell min-width under this layout mode, so no additional horizontal-overflow risk was introduced by staying on a narrower portrait page. CODE_BUILD=1183.' },
   { v: 'v1182', date: '22-Aug-2026 IST', note: 'SITTING PRINT — SCALE 72% IN BROWSER DIALOG IS WHY IT LOOKS SMALL. Admin uploaded a screenshot of Chrome\'s print dialog confirming the actual cause of the still-small print: Scale was manually set to Custom 72%, shrinking the whole page regardless of anything in the sheet\'s own CSS — this cannot be fixed from inside the document, since Scale lives entirely in the browser\'s print UI, outside any @page or element CSS\'s reach. Told the admin directly to set Scale back to Default (100%) for a full-size print. While tracing this, found and fixed a real (if separate) CSS bug: [sitBuildPrintHtml() index.html] had size:landscape written on .page INSIDE an @media print block — size is only a valid property on the @page at-rule itself, never on a regular element selector, so this was silently a no-op the whole time and landscape orientation only ever came from whatever the user picked in the print dialog\'s own Layout dropdown, with zero hint from the document. Replaced with a genuine @page{size:A4 landscape;margin:0} rule so the print preview defaults to the correct page size/orientation on its own, independent of what Layout the user has selected — margin left at 0 since .page\'s own 10mm padding already provides the visual margin. CODE_BUILD=1182.' },
   { v: 'v1187', date: '22-Aug-2026 IST', note: 'TWO ITEMS. (1) REAL ROOT CAUSE OF THE RTDB MIRROR FAILURE, finally: the v1186 error-surfacing fix worked exactly as intended and immediately showed the actual error -- "invalid key (Dr. Shilpa R Y) in property davan_pub.internals_current.duty_auto.counts. Keys must be non-empty strings and cannot contain ., #, $, /, [, or ]". duty_auto.counts is a plain object KEYED BY RAW FACULTY NAME (counts[chosen.name]++ in the allocator) and gets written verbatim into RTDB -- Firebase RTDB forbids those characters in KEY names specifically (values are unrestricted), and "Dr. Shilpa R Y" has a period. This is the exact same bug class already found and fixed twice before for different fields -- _rtdbSafeKey()/_rtdbUnsafeKey() (v994, class_notes) and the old _sanitizeRtdbKeys() (v875/877, results subject keys) -- just never applied to duty_auto since that field did not exist yet when those fixes shipped. FIX: new _dutyAutoToRtdbSafe()/_dutyAutoFromRtdbSafe() [index.html ~49912] reuse the proven _rtdbSafeKey/_rtdbUnsafeKey encode-decode pair, applied ONLY to the counts sub-object (the one actual keyed-by-name field -- days/exceptions/permanentExceptions all store names as ARRAY VALUES or nested VALUES, never as object keys, so they need no encoding) and ONLY at the RTDB read/write boundary -- Firestore, INT_DATA, DUTY_AUTO, and the allocator itself keep using raw names untouched throughout, since Firestore has no such restriction and every existing counts[name] lookup across the allocator/admin-card/faculty-tab/widget-sync is proven correct against raw names today. Wired into all 6 RTDB write sites that include duty_auto (intLoadList auto-mirror, intSave x3, intSetCurrent, dutyAllocateForInternal) and the 2 faculty-facing RTDB read sites that cache the raw blob into INT_DATA (intLoadList\'s faculty branch, intDutyLoad\'s fallback) -- the widget-sync read at index.html ~10521 needed no change since it only ever reads .days (values), never .counts. (2) PULL-TO-REFRESH LANDING PAGE: per explicit request ("whichever tab I am working on at last"), new _navSaveState()/_navRestoreState() [index.html, switchPanel() section] persist the active sidebar panel to localStorage on every switchPanel() call, plus the Internal Timetable panel\'s own sub-tab via a matching hook in intSwitchTab() (the specific case reported -- other multi-tab panels are not yet wired, can be extended the same way later if needed). Restored once per login/reload from onLoginSuccess(), immediately after the existing role-based startPanel routing, so a saved state overrides the default landing panel when present and valid for the current role, but safely falls through to the normal default if the saved panel does not exist or is not visible for this session\'s role (e.g. device previously used for a different login). A pull-to-refresh or hard reload now returns to the exact panel+tab last open instead of always resetting to the role\'s default dashboard. CODE_BUILD=1187.' },
+  { v: 'v1191', date: '22-Aug-2026 IST', note: 'PULL-TO-REFRESH: ACTUAL ROOT CAUSE FOUND AND FIXED, verified via isolated Node simulation of the real call sequence (not guessed). [_navRestoreState() index.html ~14421, called from onLoginSuccess() ~11672] was reading localStorage AFTER switchPanel(startPanel) had already run on the line directly above it -- and switchPanel() [index.html ~14355] unconditionally calls _navSaveState({panel:name}) on EVERY call, including that startPanel one. So the very act of landing on the roles default panel overwrote the saved .panel field with that same default BEFORE _navRestoreState() ever got to read it back -- saved.panel was structurally guaranteed to always equal startPanel by the time it was checked, meaning the restore branch could never fire regardless of the visibility guard, timing fixes, or intInit() changes shipped in v1187/v1188/v1189, none of which touched this actual bug. CONFIRMED via a Node simulation reproducing the exact sequence (session 1: navigate to internals/autoduty and save; session 2/reload: compute startPanel, call switchPanel(startPanel), then call the old restore logic) -- the old code provably always read back the just-set default, never the real saved panel; the same simulation with the fix applied correctly restores to the genuine previous panel. FIX: onLoginSuccess() now captures a snapshot of localStorage BEFORE calling switchPanel(startPanel) at all, and passes that snapshot directly into _navRestoreState(preCapturedSnapshot) as a parameter instead of letting the function re-read localStorage itself (which by then would be corrupted) -- falls back to a fresh read only if ever called with no argument, for safety. Also added console.log tracing at every layer of the chain (onLoginSuccess entry, the pre-switchPanel snapshot capture, every switchPanel call showing what its saving, and every branch inside _navRestoreState) per explicit admin request for Eruda-visible debug output, so if anything still does not work as expected the exact failure point is now directly visible in the mobile console instead of requiring another round of blind guessing. CODE_BUILD=1191.' },
+  { v: 'v1190', date: '22-Aug-2026 IST', note: 'CONFIRMED (not fixable in this file): admin ran Force Sync from the v1188 Widget Diagnostics panel against Vijayalakshmi P S -- live screenshot confirms 4 real duty slots genuinely written to her widget_pin (Wed 01:15pm Room S3, Wed 04:15pm Room S6, Thu 11:30am Room S6, Thu 02:45pm Room S7) -- yet her PHYSICAL widget still shows "No invigilation duty assigned" moments later. This proves the data pipeline is fully correct end to end (Firestore -> RTDB mirror -> widget_pin, all confirmed live) and the remaining gap is the ANDROID APK ITSELF: davanWidgetSync()s own comment (present since v1173) already flagged this -- dutySlots is written to the payload but "the CURRENT widget layout has no confirmed UI spot to show it yet". The Kotlin/DavanWidgetProvider widget-face code was never updated to read/render dutySlots at all, so it sits in the payload unused regardless of how fresh or correct the data is. This requires an APK rebuild + redeploy (a genuinely separate task from this index.html file, same class of limitation already documented for the K/H-combined-slot widget bug back in v1108) -- no further index.html change can fix a rendering gap that lives in Kotlin, not JS. (2) NEW: WIDGET/PWA CHECK-NOW NUDGE MESSAGE, per explicit request -- "many are not installed widget I want them install and in the notification". New dutyBuildWidgetNudgeMsg()/dutyShowWidgetNudgePreview() [index.html ~48596], added as a THIRD card on the Auto Duty admin tab alongside Master/Simple, but deliberately NOT gated on data.duty_auto existing (unlike those two) since its purpose is a general go-check-now nudge rather than delivering duty content inline. Covers both paths explicitly: faculty WITH the widget are told to open it once so it fetches the latest update; faculty WITHOUT it are told to check the PWA in Chrome directly AND given the real install link (LATEST_APK.apkUrl, same source the existing outdated-widget gate elsewhere in this file already uses) so the install nudge and the check-now nudge are one single message rather than two separate asks. Same preview-modal-plus-Copy-button pattern as the other two duty messages. CODE_BUILD=1190.' },
+  { v: 'v1189', date: '22-Aug-2026 IST', note: 'TWO ITEMS. (1) DIRECTOR LABEL BUG, REAL FIX: admin correctly caught that BOTH Master and the new Simple WhatsApp preview still printed the literal word "Director" ("Director: Kiran kumar G K") even though the Create/Edit form has a separate DESIGNATION field (meta.director_designation) that other exports (sitGetDirectorSignature, used by the Sitting PDF) already read correctly -- confirmed by grep that ALL FIVE WhatsApp-message code paths (dutyBuildMasterMsg, the new dutyBuildSimpleMsg from v1188, dutyBuildIndivMsg, and the two intWaPreview() manual-duty template strings) independently hardcoded the emoji-label text "Director" and never once read director_designation -- so changing the designation in Create/Edit updated PDFs but could never reach any WhatsApp message, a gap that existed before v1188 and was simply copied forward into the new Simple message without being caught, since the old Master message had exactly the same bug already. FIX: new shared dutyDirectorLabel(meta) [index.html ~50673] returns meta.director_designation when set, falls back to the literal word "Director" only when genuinely blank (matching the forms own placeholder default) -- wired into all 5 sites, replacing every hardcoded "Director"/"🎓 *Director:*" string. (2) PULL-TO-REFRESH DIAGNOSTIC: admin reports the v1187/v1188 fix still does not work on live mobile pull-to-refresh; the save/restore logic checks out correctly in isolated testing (Node simulation of the save-merge logic, and manual trace of the visibility guard against the real DOM structure) and the registered service worker is confirmed network-first (re-fetches real index.html on every load, cache is fallback-only) so it is not serving a stale bypassed page -- but the actual mobile PWA reload behavior cannot be reproduced or observed from here, so rather than ship a 4th blind guess, [_navRestoreState() index.html ~14391] now console.logs every branch it can take (nothing saved at all / visibility guard blocked it and which panel-or-nav element was missing / successfully reached switchPanel) so the NEXT reproduction can show exactly where it actually breaks via F12, instead of guessing again. CODE_BUILD=1189.' },
+  { v: 'v1188', date: '22-Aug-2026 IST', note: 'FOUR ITEMS from one admin message. (1) WIDGET "No invigilation duty assigned" AFTER v1187: confirmed the widget architecture is login/pairing/Force-Refresh-triggered ONLY -- davanWidgetSync() never runs in the background while a device is already logged in, so Vijayalakshmi own device genuinely had not re-synced since the v1187 RTDB fix landed; there was no way for admin to push a fix remotely, since the existing Widget Diagnostics panel [wgDiagRun() index.html ~42517] was read-only by design (its own text even said so). Two additions: duty section added to that diagnostic (shows the LIVE dutySlots array actually stored in a given faculty widget_pin, previously invisible there even though davanWidgetSync has written it since v1173) and a genuinely NEW capability, wgDiagForceSync() -- confirmed widget_pin is keyed by Firebase Auth uid (rtdb.ref(widget_pin/+user.uid), NOT a device token), so an admin session CAN legitimately write it for any faculty; reconstructs the identical ttSlots/dutySlots payload shape davanWidgetSync() builds and writes it directly, skipping only the outdated-APK gate (that state lives on the faculty own device, documented explicitly in the button UI, not silently skipped). (2) PULL-TO-REFRESH REGRESSION: the v1187 restore used a blind setTimeout(300ms) guess for when to switch to the saved Internals sub-tab, racing against intLoadList()s single RTDB round-trip -- removed the guess entirely; [intInit() index.html ~44695] now accepts an optional targetTab and switches to it as ITS OWN final step, genuinely after intLoadList() completes, no timing assumption at all regardless of connection speed. (3) FACULTY DASHBOARD DUTY CARD: new fdbRenderDutyBanner() [index.html ~12500], wired into fdbRender(), shows date/day/time/room for this faculty upcoming invigilation duty on the main Faculty Dashboard -- filters out any date before today directly in the query (date < todayStr skip), which IS the auto-hide-once-past behavior requested, no separate cleanup job needed; hides the whole banner if duty_auto is absent or nothing remains upcoming. Reuses the same RTDB-mirror-read + FACULTY_NAME_ALIASES matching pattern already proven correct in intDutyLoad()/davanWidgetSync() (third independent site using it now). (4) SIMPLER WHATSAPP GROUP MESSAGE: admin flagged the existing dutyBuildMasterMsg() (session-grouped, per-room student-count breakdown, subject line) as "big msg" and pasted an exact example of the shorter format wanted -- new dutyBuildSimpleMsg() [index.html ~50646] groups by real time_label directly (no Morning/Afternoon session header), plain "bullet: faculty — Room: X" lines, no student counts, no subject text; verified byte-for-byte against the admin pasted example (date header format, time line, bullet format, footer) via isolated Node test, exact match. New dutyShowSimplePreview() mirrors dutyShowMasterPreview()s existing readonly-textarea-plus-Copy-button modal pattern exactly. Admin Duty tab card [intRenderDutyAutoCard() index.html ~48403] now shows BOTH options side by side -- Master (detailed) and Simple (short) -- each with its own Preview button, so both are available and the admin picks per-message rather than one replacing the other. CODE_BUILD=1188.' },
   { v: 'v1186', date: '22-Aug-2026 IST', note: 'ERROR DETAIL SURFACING + LOCATION CORRECTION. Two follow-ups after admin actually clicked Set as Current per v1185: (1) admin reported "failed writing faculty mirror" -- exactly the generic message the v1185 catch blocks were producing, which was itself the problem this whole chain was meant to fix: swallowing the REAL error into a flag lost the one piece of information needed to diagnose it further. [intSetCurrent() index.html ~46846] and [dutyAllocateForInternal() index.html ~50190] both now capture e.code/e.message from the actual thrown error and include it directly in the toast text, plus console.error the full error object -- most likely cause for an RTDB write specifically failing here is a security-rules rejection (permission, validation, or size-limit rule on davan_pub/internals_current), which this will now show directly instead of a guess. (2) admin also reported "View tab" does not have the Set as Current button -- confirmed by re-checking the actual markup: [intEditRender() index.html ~45386] puts it in the CREATE/EDIT form action row (next to Save to Firebase / Delete), not View at all -- my own v1185 changelog note and BOTH toast strings had the wrong tab name. Corrected both toast messages to say "go to Create/Edit -> select this Internal -> click Set as Current", the actual real path. CODE_BUILD=1186.' },
   { v: 'v1185', date: '22-Aug-2026 IST', note: 'REAL ROOT CAUSE FOUND for the Vijayalakshmi duty bug -- the v1184 diagnostic did its job: admin ran Re-Run on the Auto Duty tab (screenshot confirmed real assignments now exist -- Anitha N, B Madhu Malathi, etc), yet the SAME diagnostic still reported duty_auto present: no. This proves duty_auto genuinely reached Firestore (visible on the admin card) but the RTDB mirror faculty logins actually read never received it -- a silent skip, not a name-matching or fetch-timing issue at all; the v1182/v1183 nameMatches() work was correct but was never the real bug. ROOT CAUSE: [dutyAllocateForInternal() index.html ~50159] mirrors duty_auto to davan_pub/internals_current ONLY if this Internal is the one marked current in app_data/internals_meta (isCurrentForRtdb check) -- if it is not (never explicitly Set as Current, or marked current before this particular Auto-Allocate run), the mirror silently no-ops, and the surrounding try/catch(_e){} swallowed even a genuine write failure with zero signal to the admin; the success toast fired regardless, actively misleading the admin into believing faculty could already see the result. SEPARATE compounding bug found while fixing this: [intSetCurrent() index.html ~46845], the ONLY other place that mirrors duty_auto, read data purely from the in-memory INT_DATA[docId] cache with no fallback -- clicking Set as Current in a fresh session (or right after Auto-Allocate ran in a different tab) would find that cache empty and silently mirror nothing at all. FIX (both functions): (1) dutyAllocateForInternal() now tracks mirrorSkippedNotCurrent / mirrorFailed as real flags instead of an empty catch, and replaces the always-succeeds toast with one of four explicit outcomes -- a clear NOT-CURRENT warning telling the admin exactly what to click, a mirror-failed warning, the existing unfilled-slots warning, or genuine success -- so the admin can no longer be told allocation succeeded while faculty visibility silently failed. (2) intSetCurrent() now falls back to a fresh Firestore read (same pattern as intDutyLoad()\'s own fallback) when INT_DATA[docId] is not cached, and surfaces a warning toast if the mirror still could not be built. Net effect for the reported case: the admin now gets told directly, in the toast, to click Set as Current for this Internal -- the actual missing step, finally visible instead of hidden behind a false success message. CODE_BUILD=1185.' },
   { v: 'v1184', date: '22-Aug-2026 IST', note: 'FACULTY DUTY TAB DIAGNOSTIC ADDED -- the v1183 nameMatches() alias fix did NOT resolve the reported "No duty assigned" case for Vijayalakshmi P S even after deploy (confirmed via screenshot: HTML v1182 badge visible at the time, My Exam Slots section renders fine using the same Internal data, Duty section still empty) -- meaning the bug is not (or not only) a name-spelling mismatch; the real cause requires seeing the actual duty_auto payload for this faculty session, which is not possible from here (no live Firebase access). Rather than guess a third theory blind, [intDutyLoad() index.html ~46974] now renders an inline diagnostic block directly under the No-duty message (faculty-only, only shown when the list is empty, does not touch the admin branch): shows the logged-in faculty exact login name string, whether data.duty_auto.days exists at all on this Internal, the total count of auto-allocated assignments across ALL faculty, the full list of distinct faculty-name strings actually stored inside duty_auto, and the count of legacy manual duties. This will show directly on her screen next time Duty is opened with nothing assigned, and that text (screenshot or copy-paste) tells us definitively whether: (a) duty_auto is missing entirely on the RTDB mirror she reads (stale cache from before the auto-allocator was ever run against int_pub_1, or from before the mirror-write fix), meaning the fix is to hit Auto-Allocate / Re-Run again so a fresh write goes out; or (b) duty_auto exists with real assignments but her name string among them genuinely does not match her login name even after alias resolution, in which case the exact stored spelling will be visible in the names list and can be added to FACULTY_NAME_ALIASES directly. CODE_BUILD=1184.' },
@@ -42615,10 +42733,123 @@ async function wgDiagRun() {
       html += `<div style="color:var(--muted);margin-top:6px;">These exist on the timetable but are not in the live widget_pin payload — ask this faculty to log out/in or Force Refresh so davanWidgetSync() re-runs and rewrites widget_pin with current data.</div>`;
     }
 
+    // v1188: DUTY SECTION — this diagnostic previously only ever showed
+    // ttSlots (regular timetable), never dutySlots at all, even though
+    // davanWidgetSync() has written dutySlots into the same widget_pin
+    // payload since v1173. Added directly per the reported case (widget
+    // showing "No invigilation duty assigned" even after admin had
+    // already fixed the RTDB mirror via Set as Current) — this makes the
+    // ACTUAL stored payload visible here so a stale-sync vs. genuinely-
+    // empty-data question never again requires guessing.
+    const dutySlotsLive = (pin && Array.isArray(pin.dutySlots)) ? pin.dutySlots : [];
+    html += `<div style="font-weight:700;margin:14px 0 4px;">👥 LIVE dutySlots in widget_pin (${dutySlotsLive.length})</div>`;
+    if (!pin) {
+      html += `<div style="color:var(--muted);">No widget_pin node — same as above, this device has never synced.</div>`;
+    } else if (!dutySlotsLive.length) {
+      html += `<div style="color:var(--warn);">Empty. This is the payload the widget actually reads — if the widget shows "No invigilation duty assigned", it is displaying this correctly; the data itself has not reached this device yet. Root cause is almost always simply that davanWidgetSync() has not RUN for this device since the duty was last allocated/mirrored — it only runs on login, widget pairing, or Force Refresh, never automatically in the background while already logged in. Use "🔄 Force Sync This Faculty's Widget" below to push a fresh payload right now without waiting for them to reopen the app.</div>`;
+    } else {
+      html += '<div style="font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;max-height:180px;overflow:auto;">';
+      dutySlotsLive.forEach(s => {
+        html += `${esc(s.day||'?')} · ${esc(s.date||'?')} · ${esc(s.time_label||'?')} · Room ${esc(s.room||'?')}<br>`;
+      });
+      html += '</div>';
+    }
+
+    // v1188: FORCE SYNC — the tool above this was read-only and its own
+    // advice for a stale sync was "ask them to log out/in or Force Refresh
+    // on their device", which meant an admin genuinely had no way to push
+    // a fix without waiting on the faculty member. widget_pin is keyed by
+    // Firebase Auth uid (confirmed: rtdb.ref('davan_pub/widget_pin/' +
+    // user.uid), NOT a device-specific token), so an admin session CAN
+    // legitimately write to it for any faculty — this was simply never
+    // built. wgDiagForceSync() reconstructs the identical payload shape
+    // davanWidgetSync() builds (ttSlots via the same facAlertGetSchedule
+    // walk, dutySlots via the same duty_auto+FACULTY_NAME_ALIASES match)
+    // using this faculty's OWN uid/profile, and writes it directly —
+    // skipping only the outdated-APK gate check, since that depends on
+    // davan_widget_pair_code from the FACULTY's own browser localStorage,
+    // which this admin session has no access to (documented explicitly in
+    // the button's own result text, not silently skipped).
+    html += `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+      <button onclick="wgDiagForceSync('${entry.uid.replace(/'/g,"\\'")}','${esc(fac).replace(/'/g,"\\'")}')" style="padding:9px 16px;background:var(--accent);color:#000;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">🔄 Force Sync This Faculty's Widget</button>
+      <div style="color:var(--muted);font-size:11px;margin-top:6px;">Writes a fresh widget_pin payload right now using current timetable + duty data — no need to wait for ${esc(fac)} to log out/in or tap Force Refresh themselves. Skips the outdated-APK-version gate (that check needs data from their own device); if their widget app itself is genuinely outdated, this will still show a real timetable to an app that may not render it correctly — see Widget Control Panel's own update nag for that separate concern.</div>
+      <div id="wg-diag-forcesync-result" style="margin-top:8px;font-size:12px;"></div>
+    </div>`;
+
     body.innerHTML = html;
   } catch (e) {
     body.innerHTML = `<div style="color:#f87171;">Diagnostic failed: ${(e && e.message) ? e.message.replace(/</g,'&lt;') : 'unknown error'}</div>`;
     console.warn('[WidgetDiag] failed:', e);
+  }
+}
+
+// v1188: admin-triggered widget_pin rewrite for a SPECIFIC faculty member,
+// without requiring their own device/session. See the comment above the
+// button in wgDiagRun() for the full rationale and the one documented gap
+// (outdated-APK gate is skipped, since that state lives only on their
+// device). Faithfully mirrors davanWidgetSync()'s ttSlots/dutySlots build
+// logic — kept as a near-duplicate rather than refactoring
+// davanWidgetSync() itself to accept an arbitrary uid, since that function
+// is load-bearing for the CURRENT user's own login/pairing flow and is
+// not worth the regression risk of a larger refactor for this one
+// admin-side addition.
+async function wgDiagForceSync(uid, facultyName) {
+  const resultEl = document.getElementById('wg-diag-forcesync-result');
+  if (resultEl) resultEl.innerHTML = '<span style="color:var(--muted);">Syncing…</span>';
+  try {
+    if (!rtdb) throw new Error('RTDB not connected');
+    if (!uid) throw new Error('No uid resolved for this faculty');
+
+    // Resolve a role/facultyKey for this person — reuse whatever Staff
+    // Directory / LM_ALLOCATIONS already knows about them rather than
+    // guessing; fulltime/visiting membership determines role, matching
+    // the same eligibility source dutyGetEligiblePool() already uses.
+    let role = 'fulltime';
+    try {
+      const src = (typeof sdData !== 'undefined' && sdData) ? sdData : JSON.parse(localStorage.getItem('davan_staff_directory') || 'null');
+      if (src) {
+        const inVisiting = (src.visiting||[]).some(r => r && r.name && r.name.trim() === facultyName);
+        if (inVisiting) role = 'visiting';
+      }
+    } catch(e) {}
+    const profile = { role, name: facultyName, facultyKey: facultyName };
+
+    const stripDr = s => s ? s.replace(/^Dr\.\s*/i, '').trim() : '';
+    const allKeys = [...new Set([profile.facultyKey, profile.name, stripDr(profile.facultyKey), stripDr(profile.name)].filter(Boolean))];
+    let ttSlots = [];
+    FA_DAYS.filter(d => d !== 'Sunday').forEach(day => {
+      facAlertGetSchedule(day)
+        .filter(s => allKeys.includes(s.faculty))
+        .forEach(s => { ttSlots.push({ day, classLabel: s.class, code: s.subject || '', subject: s.subject || '', time: s.time, slot: s.slot }); });
+    });
+
+    let dutySlots = [];
+    try {
+      const intCurrentSnap = await rtdb.ref('davan_pub/internals_current').once('value');
+      const intCurrentData = intCurrentSnap.val();
+      const dutyAuto = intCurrentData?.duty_auto;
+      if (dutyAuto && dutyAuto.days) {
+        const myKeys = [...new Set([profile.facultyKey, profile.name, FACULTY_NAME_ALIASES?.[profile.facultyKey], FACULTY_NAME_ALIASES?.[profile.name]].filter(Boolean))];
+        Object.keys(dutyAuto.days).sort().forEach(date => {
+          (dutyAuto.days[date].assignments || []).forEach(a => {
+            if (myKeys.includes(a.faculty)) {
+              dutySlots.push({ date, day: dutyAuto.days[date].day || '', room: a.room, session: a.session, time_label: a.time_label || (a.session === 'morning' ? 'Morning' : 'Afternoon') });
+            }
+          });
+        });
+      }
+    } catch(_e) {}
+
+    const payload = {
+      uid, role: profile.role, name: profile.name, facultyKey: profile.facultyKey,
+      email: '', htmlVersion: CODE_BUILD, updatedAt: Date.now(), loggedIn: true,
+      ttSlots, dutySlots, updateRequired: false, updateMessage: ''
+    };
+    await rtdb.ref('davan_pub/widget_pin/' + uid).set(payload);
+    if (resultEl) resultEl.innerHTML = `<span style="color:#4ade80;">✓ Synced — ${ttSlots.length} class slot(s), ${dutySlots.length} duty slot(s) written to widget_pin. The widget will show this on its NEXT background refresh (Android schedules this itself, usually within a few minutes to an hour) — it does not force the home-screen widget to redraw instantly.</span>`;
+  } catch (e) {
+    if (resultEl) resultEl.innerHTML = `<span style="color:#f87171;">✗ Force sync failed: ${(e && e.message) ? e.message.replace(/</g,'&lt;') : 'unknown error'}</span>`;
+    console.error('[wgDiagForceSync] failed:', e);
   }
 }
 
@@ -44579,7 +44810,7 @@ let INT_LIST     = [];   // [{id, label, sem, year, n, dates}]
 let _intDuties   = [];   // duties for logged-in faculty (for Banner 3)
 
 // ── Init ──────────────────────────────────────────────────────
-async function intInit() {
+async function intInit(targetTab) {
   const role = currentProfile?.role || '';
   const isAdminRole = ['admin','manager','vp','principal'].includes(role);
   // Show/hide edit tab for admin/manager
@@ -44599,6 +44830,19 @@ async function intInit() {
 
   intSwitchTab('view');
   await intLoadList();
+  // v1188: BUG FIX for pull-to-refresh landing on the wrong Internals
+  // sub-tab. The v1187 restore code called intInit() then, separately,
+  // a setTimeout(300) to switch to the saved sub-tab afterward — a fixed
+  // guess at how long intLoadList()'s single RTDB round-trip takes. On a
+  // slower mobile connection that round-trip can genuinely exceed 300ms,
+  // in which case the timeout fired, switched tabs correctly, and then
+  // intLoadList() itself finished afterward with no further interference
+  // — so that specific race was not actually the failure mode observed.
+  // Root fix regardless: remove the guess entirely. intInit() now accepts
+  // an optional targetTab and switches to it as its OWN final step, after
+  // intLoadList() has genuinely finished — no timing assumption of any
+  // kind, works identically on a fast or slow connection.
+  if (targetTab) intSwitchTab(targetTab);
 }
 
 // Empty-state HTML shown when no internal has been created yet for the
@@ -47908,7 +48152,7 @@ ${dutyLines}
 
 👥 *Faculty Incharge (Internal):*
    ${inc1line}${inc2line ? '\n   '+inc2line : ''}
-${dir ? '\n🎓 *Director:* ' + dir + '\n' : ''}
+${dir ? '\n🎓 *' + dutyDirectorLabel(meta) + ':* ' + dir + '\n' : ''}
 Please report to the *Vice Principal's cabin 15 minutes before* your slot.
 For any queries, contact the Faculty Incharge above.
 
@@ -48024,7 +48268,7 @@ function intBuildGroupMsg(data) {
   const i1l  = inc1 + (p1?' ('+p1.replace(/^91/,'').replace(/(\d{5})(\d{5})/,'$1 $2')+')':'');
   const i2l  = inc2 ? (inc2 + (p2?' ('+p2.replace(/^91/,'').replace(/(\d{5})(\d{5})/,'$1 $2')+')':'')) : '';
   if (inc1||inc2) lines.push(`👥 *Faculty Incharge:* ${[i1l,i2l].filter(Boolean).join(' | ')}`);
-  if (meta.director) lines.push(`🎓 *Director:* ${meta.director}`);
+  if (meta.director) lines.push(`🎓 *${dutyDirectorLabel(meta)}:* ${meta.director}`);
   lines.push('');
   lines.push(`⚠️ All duty faculty: Please report *15 mins before* your slot.`);
   lines.push(`📌 ${meta.title||''}`);
@@ -48206,14 +48450,40 @@ function intRenderDutyAutoCard(docId, data) {
 
   const masterWaCard = dutyAuto ? `
     <div style="background:rgba(37,211,102,0.06);border:1px solid rgba(37,211,102,0.25);border-radius:12px;padding:12px 14px;margin-bottom:16px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
         <div>
           <div style="font-size:12px;font-weight:700;color:#25d366;">📢 Master WhatsApp Message (Group)</div>
-          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);">All days, all rooms, with emoji — preview, copy, and paste into the staff WhatsApp group</div>
+          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);">All days, all rooms, with emoji, per-room student count + subjects — the detailed version</div>
         </div>
         <button onclick="dutyShowMasterPreview('${docId}')" style="padding:7px 16px;background:#25d366;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">👁 Preview</button>
       </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding-top:10px;border-top:1px dashed rgba(37,211,102,0.25);">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#25d366;">📄 Simple WhatsApp Message (Group)</div>
+          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);">Date, time, faculty + room only — shorter, no student counts or subject text</div>
+        </div>
+        <button onclick="dutyShowSimplePreview('${docId}')" style="padding:7px 16px;background:#25d366;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">👁 Preview</button>
+      </div>
     </div>` : '';
+
+  // v1190: WIDGET/PWA CHECK-NOW NUDGE — separate from the duty-content
+  // messages above and NOT gated on dutyAuto existing, since its purpose
+  // is telling faculty to go LOOK at their widget/PWA for whatever is
+  // currently live (timetable + duty), not to deliver the duty content
+  // itself inline. Per explicit request: many faculty have not installed
+  // the widget at all and still rely on checking the PWA in Chrome, so the
+  // message explicitly covers both paths rather than assuming everyone
+  // has the widget.
+  const widgetNudgeCard = `
+    <div style="background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.25);border-radius:12px;padding:12px 14px;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#60a5fa;">📲 Widget/PWA Check-Now Message (Group)</div>
+          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);">Tells faculty the timetable + duty is live on the widget/app now — ask them to update/open and check, includes install link for anyone without the widget</div>
+        </div>
+        <button onclick="dutyShowWidgetNudgePreview('${docId}')" style="padding:7px 16px;background:#60a5fa;color:#000;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">👁 Preview</button>
+      </div>
+    </div>`;
 
   // Permanent exception (all days of this Internal) — separate from the
   // per-day exception UI further down. Per admin request: "2 Mark
@@ -48250,6 +48520,7 @@ function intRenderDutyAutoCard(docId, data) {
       ${dutyAuto ? permanentExceptionCard : ''}
       ${resultHtml}
     </div>
+    ${widgetNudgeCard}
     ${masterWaCard}`;
 }
 
@@ -48289,6 +48560,99 @@ function dutyShowMasterPreview(docId) {
     </div>`;
   document.body.appendChild(overlay);
   document.getElementById('duty-master-wa-ta').value = msg;
+}
+
+// v1188: preview modal for the new SIMPLER message — exact same modal
+// pattern as dutyShowMasterPreview() above (readonly textarea + Copy
+// button), just pointed at dutyBuildSimpleMsg() instead. Separate overlay
+// id so both previews can theoretically be opened from the same card
+// without id collisions, even though the UI only ever opens one at a time.
+function dutyShowSimplePreview(docId) {
+  const data = INT_DATA[docId];
+  if (!data) return;
+  const msg = dutyBuildSimpleMsg(docId, data);
+  const overlay = document.createElement('div');
+  overlay.id = 'duty-simple-wa-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;gap:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">📢 Simple WhatsApp Preview</div>
+        <button onclick="document.getElementById('duty-simple-wa-overlay').remove()"
+          style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <textarea readonly id="duty-simple-wa-ta" style="flex:1;min-height:320px;background:#0a0a0a;color:#d1fae5;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;font-family:var(--mono);line-height:1.7;resize:vertical;"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button onclick="document.getElementById('duty-simple-wa-overlay').remove()"
+          style="padding:7px 18px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;">Cancel</button>
+        <button onclick="navigator.clipboard?.writeText(document.getElementById('duty-simple-wa-ta').value);dvToast('📋 Copied — paste into WhatsApp group','ok',2500);"
+          style="padding:7px 18px;background:#25d366;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">📋 Copy</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('duty-simple-wa-ta').value = msg;
+}
+
+// v1190: WIDGET/PWA CHECK-NOW NUDGE MESSAGE — per explicit request: tells
+// faculty their timetable + duty allocation is now live on the widget/app
+// and to go check it, since many have not installed the widget at all and
+// still only check the PWA in Chrome. Deliberately covers BOTH paths (not
+// just "update your widget") and includes the real install link
+// (LATEST_APK.apkUrl, the same source the outdated-widget gate elsewhere
+// in this file already uses) so anyone without the widget yet has exactly
+// what they need in the same message, per "we'll hide... shows information
+// in WhatsApp msg as still many are not installed widget I want them
+// install". Not gated on data.duty_auto existing (unlike Master/Simple)
+// since its purpose is a general "go check now" nudge, not delivering
+// duty content inline — meta.title is still used when available so the
+// message names the specific Internal, falling back to a generic phrase
+// when this is sent before/without an Internal loaded.
+function dutyBuildWidgetNudgeMsg(docId, data) {
+  const meta = (data && data.meta) || {};
+  const title = meta.title || 'the current Internal Assessment';
+  const apkUrl = (typeof LATEST_APK !== 'undefined' && LATEST_APK.apkUrl) ? LATEST_APK.apkUrl : '';
+
+  const lines = [];
+  lines.push(`📲 *Timetable & Duty Update — Please Check Now*`);
+  lines.push('');
+  lines.push(`The internal exam timetable and invigilation duty allocation for *${title}* is now live and updated.`);
+  lines.push('');
+  lines.push(`👉 *If you have the Davan Widget installed on your phone:*`);
+  lines.push(`   Open the widget app once (or tap the widget itself) so it fetches the latest update — it may not refresh on its own immediately.`);
+  lines.push('');
+  lines.push(`👉 *If you do NOT have the widget installed yet:*`);
+  lines.push(`   Please open the app in Chrome and check your Timetable → Duty tab directly.`);
+  if (apkUrl) lines.push(`   To install the widget (recommended, so you get this automatically going forward): ${apkUrl}`);
+  lines.push('');
+  lines.push(`⚠️ Please check *today* and confirm your duty slot, room, and timing.`);
+  lines.push('');
+  lines.push('— Davan Nutana College Management');
+  return lines.join('\n');
+}
+
+function dutyShowWidgetNudgePreview(docId) {
+  const data = INT_DATA[docId] || {};
+  const msg = dutyBuildWidgetNudgeMsg(docId, data);
+  const overlay = document.createElement('div');
+  overlay.id = 'duty-nudge-wa-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;gap:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">📲 Widget/PWA Check-Now Preview</div>
+        <button onclick="document.getElementById('duty-nudge-wa-overlay').remove()"
+          style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <textarea readonly id="duty-nudge-wa-ta" style="flex:1;min-height:280px;background:#0a0a0a;color:#d1fae5;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;font-family:var(--mono);line-height:1.7;resize:vertical;"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button onclick="document.getElementById('duty-nudge-wa-overlay').remove()"
+          style="padding:7px 18px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;">Cancel</button>
+        <button onclick="navigator.clipboard?.writeText(document.getElementById('duty-nudge-wa-ta').value);dvToast('📋 Copied — paste into WhatsApp group','ok',2500);"
+          style="padding:7px 18px;background:#60a5fa;color:#000;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">📋 Copy</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('duty-nudge-wa-ta').value = msg;
 }
 
 // ── Individual faculty picker + preview modal (NO emoji, plain summary) ──
@@ -50434,6 +50798,22 @@ async function dutyTogglePermanentException(docId, facultyName, exclude) {
 //                           WhatsApp GROUP.
 //   dutyBuildIndivMsg()   — one message per faculty, NO emoji (plain
 //                           summary, no repetition) — for direct 1:1 send.
+// v1189: BUG FIX — all 3 WhatsApp duty message builders hardcoded the
+// emoji line as "🎓 *Director:* {meta.director}", completely ignoring
+// meta.director_designation — a free-text field the Create/Edit form has
+// supported since the sitting/PDF exports were built (sitGetDirectorSignature()
+// already reads it correctly there). So changing the designation to
+// "Principal" (or anything else) in Create/Edit updated the PDF exports
+// but silently never reached any WhatsApp message, which always printed
+// "Director" regardless of what was actually saved. dutyDirectorLabel()
+// centralizes the fix: uses the real saved designation when present,
+// falls back to the literal word "Director" only when the field was left
+// genuinely blank (matching the placeholder-text default shown in the
+// form itself, "Director, Davan College").
+function dutyDirectorLabel(meta) {
+  return (meta && meta.director_designation) ? meta.director_designation : 'Director';
+}
+
 function dutyFmtFull(str) {
   const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -50441,6 +50821,67 @@ function dutyFmtFull(str) {
   const s = ['th','st','nd','rd'], v = d.getDate()%100;
   const ord = d.getDate()+(s[(v-20)%10]||s[v]||s[0]);
   return `${DAYS[d.getDay()]}, ${ord} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// v1188: SIMPLER group message, per explicit request + example format
+// pasted by admin — the existing dutyBuildMasterMsg() below groups by
+// SESSION (Morning/Afternoon) with a per-room student-count breakdown and
+// subject line, which the admin flagged as "big msg". This variant groups
+// by real TIME LABEL only (one block per exam date+time, exactly matching
+// the admin's own example: date header, single time line, then a plain
+// bullet list of "• Faculty — Room: X" with no session labels, no student
+// counts, no subject text) — kept as a SEPARATE function rather than
+// adding a "simple mode" flag to dutyBuildMasterMsg(), since the two
+// messages diverge structurally (grouped-by-session-then-time vs.
+// grouped-by-time-directly) and a shared function with a mode flag would
+// need messier branching than two small, independently-readable builders.
+function dutyBuildSimpleMsg(docId, data) {
+  const dutyAuto = data.duty_auto;
+  if (!dutyAuto || !dutyAuto.days || !Object.keys(dutyAuto.days).length) return '(No auto-allocated duty yet — run Auto-Allocate first)';
+  const meta = data.meta || {};
+  const dates = Object.keys(dutyAuto.days).sort();
+
+  let lines = [];
+  lines.push(`📝 *Duty Schedule — ${meta.title || 'Internal Exam'}*`);
+  lines.push(`🏛️ ${meta.venue || 'Davan Nutana College, LIC Colony, BIET Road, Dvg'}`);
+  lines.push('');
+
+  const timeSortKey = s => { const m=(s||'').match(/(\d+)[:.](\d+)/); return m?parseInt(m[1])*60+parseInt(m[2]):0; };
+
+  dates.forEach(date => {
+    const d = dutyAuto.days[date];
+    const rows = d.assignments || [];
+    if (!rows.length) return;
+    // Group by real time_label directly — no Morning/Afternoon session
+    // header at all, matching the admin's example exactly.
+    const byTime = {};
+    rows.forEach(a => { (byTime[a.time_label || ''] = byTime[a.time_label || ''] || []).push(a); });
+    const times = Object.keys(byTime).sort((a,b) => timeSortKey(a) - timeSortKey(b));
+
+    lines.push('━━━━━━━━━━━━━━━━━━━━');
+    lines.push(`📅 *${dutyFmtFull(date)}*`);
+    lines.push('━━━━━━━━━━━━━━━━━━━━');
+    times.forEach(timeLabel => {
+      if (timeLabel) lines.push(`⏰ ${timeLabel}`);
+      byTime[timeLabel].forEach(a => {
+        lines.push(`   • ${a.faculty} — Room: ${a.room}`);
+      });
+    });
+    lines.push('');
+  });
+
+  const inc1 = meta.incharge_1 || '', inc2 = meta.incharge_2 || '';
+  const p1 = inc1 ? getFacultyPhone(inc1) : '', p2 = inc2 ? getFacultyPhone(inc2) : '';
+  const i1l = inc1 + (p1 ? ' ('+p1.replace(/^91/,'').replace(/(\d{5})(\d{5})/,'$1 $2')+')' : '');
+  const i2l = inc2 ? (inc2 + (p2 ? ' ('+p2.replace(/^91/,'').replace(/(\d{5})(\d{5})/,'$1 $2')+')' : '')) : '';
+  if (inc1 || inc2) lines.push(`👥 *Faculty Incharge:* ${[i1l,i2l].filter(Boolean).join(' | ')}`);
+  if (meta.director) lines.push(`🎓 *${dutyDirectorLabel(meta)}:* ${meta.director}`);
+  lines.push('');
+  lines.push(`⚠️ All duty faculty: Please report *15 mins before* your slot.`);
+  lines.push(`📌 ${meta.title || ''}`);
+  lines.push('');
+  lines.push('— Davan Nutana College Management');
+  return lines.join('\n');
 }
 
 // Master group message — every exam day, both sessions, every room with
@@ -50495,7 +50936,7 @@ function dutyBuildMasterMsg(docId, data) {
   const i1l = inc1 + (p1 ? ' ('+p1.replace(/^91/,'').replace(/(\d{5})(\d{5})/,'$1 $2')+')' : '');
   const i2l = inc2 ? (inc2 + (p2 ? ' ('+p2.replace(/^91/,'').replace(/(\d{5})(\d{5})/,'$1 $2')+')' : '')) : '';
   if (inc1 || inc2) lines.push(`👥 *Faculty Incharge:* ${[i1l,i2l].filter(Boolean).join(' | ')}`);
-  if (meta.director) lines.push(`🎓 *Director:* ${meta.director}`);
+  if (meta.director) lines.push(`🎓 *${dutyDirectorLabel(meta)}:* ${meta.director}`);
   lines.push('');
   lines.push(`⚠️ All duty faculty: Please report *15 mins before* your slot.`);
   lines.push(`📌 ${meta.title || ''}`);
@@ -50572,7 +51013,7 @@ ${dutyLines}
 
 Faculty Incharge (Internal):
    ${i1l}${i2l ? '\n   '+i2l : ''}
-${dir ? '\nDirector: ' + dir + '\n' : ''}
+${dir ? '\n' + dutyDirectorLabel(meta) + ': ' + dir + '\n' : ''}
 Please report to the Vice Principal's cabin 15 minutes before your slot.
 For any queries, contact the Faculty Incharge above.
 
