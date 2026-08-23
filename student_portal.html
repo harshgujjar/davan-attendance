@@ -17,6 +17,62 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.73 (2026-08-23) — FEAT: Widget Notice, a generic reusable
+status-line system, per explicit admin request for a way to push future
+notices (fees due, reminders, anything) without ever needing a new widget
+APK build again after the one-time Kotlin work eligibility-style features
+already require. Built here in student_portal.html's own admin screen
+(#screen-admin), NOT index.html — admin correctly pushed back on an
+initial instinct to build it in the mother app, and a look at what already
+exists here confirmed the portal's own Live Announcement Banner (all/class/
+URN targeting, color picker, chip-based class selector) was already almost
+exactly the right shape, so this reuses that same chip-building loop
+(~line 11922, wn-class-chips added alongside notice-class-chips/
+banner-class-chips) and getSelectedChips() rather than a second parallel
+targeting system. New card "📲 Widget Notice" placed directly below the
+Live Announcement Banner card. STORAGE: davan_pub/student_widget_notices/
+{URN}, a per-URN ARRAY (not one global list) — a class or all-student
+notice is FAN-OUT written into every matching student's own array at save
+time (same architectural pattern as davan_pub/sitting_by_urn), so a future
+widget build only ever needs to read its own URN's array, drop anything
+past its expiresOn date, and render the rest as colored lines — it never
+needs to know or care WHY a notice exists, all targeting logic lives here.
+Sequential (not parallel) writes for an all-student save, deliberately, to
+avoid bursting RTDB with hundreds of simultaneous writes. Expiry date
+field per explicit admin confirmation (auto-hides, no manual cleanup
+required, though manual removal is also supported via the active-notices
+list at the bottom of the card, which groups identical notices shared
+across many students into one line with a Remove button rather than
+showing the same text hundreds of times). Web-side display already fully
+working with zero widget/Kotlin dependency: new renderWidgetNotices()
+[~line 18049], shown on the Dashboard right below the IA Eligibility
+banner, reading the exact same RTDB path a future widget build will read
+— proves the fan-out/storage shape end-to-end before any Android work is
+scheduled. The widget (APK) side itself is NOT part of this session's
+scope (separate Kotlin codebase, not editable from here) — see the
+StudentWidgetProvider/StudentFetchWorker.kt spec discussed but not yet
+written up as a formal handoff document.
+VERSION : v8.72 (2026-08-23) — FEAT: IA Eligibility banner (built v8.69,
+originally Internal Marks only) now also shown on Internal Timetable and
+the Dashboard, per explicit admin request after confirming on a real
+screenshot that the Internal Timetable panel — where a student actually
+checks their exam seat, arguably more useful than the marks panel for a
+"you are not eligible" warning — had no banner at all. renderIAEligibilityBanner()
+[~line 17724] generalized to accept a target element id parameter instead
+of a single hardcoded one, so all three placements share the exact same
+render logic and RTDB read (davan_pub/ia_live_status/{IA1,IA2}) rather than
+three separate copies that could drift apart. Internal Marks call site
+updated to pass its id explicitly (#stu-ia-elig-banner, unchanged
+behavior). Internal Timetable: new #stu-ia-elig-banner-tt, wired into
+renderInternalsTimetable() as a fire-and-forget call that never blocks the
+actual schedule render. Dashboard: new #stu-ia-elig-banner-dash, placed in
+the HTML immediately after #dash-greeting and BEFORE #social-nudge-banner/
+#sd-summary-top-card per explicit admin instruction — a normal stacked
+block above the existing summary card in document flow, not an overlay on
+top of it — wired into renderHomeDashboard() as the first line, same
+fire-and-forget pattern. All three share the identical privacy boundary
+already established at v8.69 — binary eligible/not-eligible only, never
+the rule engine, TA numbers, or exemption status.
 VERSION : v8.71 (2026-08-23) — FEAT: student widget release now auto-resolves,
 per explicit admin request ("i cnt do this every time... i want a comon
 link", then "give provision to enter manually... I will enter there by
@@ -4415,6 +4471,19 @@ body.dash-active .data-strip { display: block; }
       <div id="df-banner"></div>
       <div id="dash-greeting" style="margin-top:12px;margin-bottom:18px;font-size:15px;font-weight:600;color:var(--text);"></div>
 
+      <!-- IA Eligibility banner — same shared renderer as Internal Marks and
+           Internal Timetable, placed here right below the greeting per
+           explicit admin instruction. Sits in normal document flow BEFORE
+           the summary card below it (sd-summary-top-card) — a stacked
+           block above that table, not an overlay on top of it. -->
+      <div id="stu-ia-elig-banner-dash" style="display:none;margin-bottom:18px;"></div>
+
+      <!-- Widget Notice — student-facing display of the same
+           davan_pub/student_widget_notices/{URN} data the widget itself
+           will show once its one-time Kotlin build ships. Web view gets it
+           immediately with no app update needed at all. -->
+      <div id="stu-widget-notices" style="display:none;margin-bottom:18px;"></div>
+
       <!-- Social follow — dismissible banner (source='banner'). Placed above the summary
            card so it's the first thing seen, but doesn't block getting to actual dashboard
            content once dismissed for the session. -->
@@ -4584,6 +4653,12 @@ body.dash-active .data-strip { display: block; }
       <div class="page-sub" id="stu-inttt-desc" style="display:flex;align-items:center;gap:10px;">Internal exam schedule.
         <button onclick="stuRefreshInternalsTT(this)" title="Reload latest internal timetable from server" style="padding:3px 10px;font-size:11px;font-family:var(--mono);background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.35);border-radius:6px;cursor:pointer;">↻ Refresh</button>
       </div>
+      <!-- IA Eligibility banner — same shared renderer as Internal Marks
+           (renderIAEligibilityBanner, now accepts a target element id),
+           shown here too since this is where a student actually checks
+           their exam seat, arguably the more useful place to see a
+           not-eligible warning right before an exam. -->
+      <div id="stu-ia-elig-banner-tt" style="display:none;margin-bottom:14px;"></div>
       <!-- Two sub-tabs: Full timetable (all batches) vs My Class only -->
       <div class="tt-day-chips" style="margin-bottom:14px;">
         <button class="notice-chip active" id="inttt-subtab-mine" onclick="stuSwitchInttSubtab('mine')">📌 My Class</button>
@@ -5200,6 +5275,52 @@ body.dash-active .data-strip { display: block; }
         <button class="btn btn-ghost" onclick="clearLiveBanner()" style="margin-top:0;">Clear Banner</button>
       </div>
       <div class="alert success" id="banner-ok" style="margin-top:10px;"><span class="alert-icon">✓</span><span id="banner-ok-msg"></span></div>
+    </div>
+
+    <!-- 📲 Widget Notice -->
+    <div class="card" style="padding:20px;margin-bottom:16px;">
+      <div class="card-title" style="font-size:16px;margin-bottom:6px;">📲 Widget Notice</div>
+      <div class="section-desc" style="margin-bottom:14px;">Shows a short status line on the home-screen student widget and here in the portal — e.g. "Fees due 5 Sep". Built once so future notices like this never need an app update, just this form.</div>
+      <div class="field"><label>Notice text</label><input type="text" id="wn-msg-input" placeholder="e.g. Fees due 5 Sep" class="no-icon" maxlength="60"/></div>
+      <div class="field">
+        <label>Color</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+          <button onclick="setWnColor('red')"    style="padding:5px 14px;border-radius:6px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.15);color:var(--danger);font-size:12px;cursor:pointer;">Red</button>
+          <button onclick="setWnColor('amber')"  style="padding:5px 14px;border-radius:6px;border:1px solid rgba(240,165,0,.4);background:rgba(240,165,0,.15);color:var(--accent);font-size:12px;cursor:pointer;">Amber</button>
+          <button onclick="setWnColor('blue')"   style="padding:5px 14px;border-radius:6px;border:1px solid rgba(59,130,246,.4);background:rgba(59,130,246,.15);color:var(--blue);font-size:12px;cursor:pointer;">Blue</button>
+          <button onclick="setWnColor('green')"  style="padding:5px 14px;border-radius:6px;border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.15);color:var(--ok);font-size:12px;cursor:pointer;">Green</button>
+        </div>
+        <input type="hidden" id="wn-color" value="amber"/>
+      </div>
+      <div class="field">
+        <label>Show to</label>
+        <select id="wn-target" class="no-icon" onchange="toggleWnTarget()">
+          <option value="all">All Students</option>
+          <option value="class">Specific Class</option>
+          <option value="urn">Specific URN</option>
+        </select>
+      </div>
+      <div id="wn-class-chips-wrap" style="display:none;" class="field">
+        <label>Select Class</label>
+        <div class="notice-chips-wrap" id="wn-class-chips"></div>
+      </div>
+      <div class="field" id="wn-urn-wrap" style="display:none;">
+        <label>URN</label>
+        <input type="text" id="wn-urn-val" placeholder="e.g. 21BCA001" class="no-icon"/>
+      </div>
+      <div class="field">
+        <label>Expires on <span style="font-weight:400;color:var(--muted);">— notice auto-hides after this date</span></label>
+        <input type="date" id="wn-expiry-input" class="no-icon"/>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="saveWidgetNotice()" style="margin-top:0;"><span class="spinner" id="wn-spinner"></span><span id="wn-btn-text">Save Notice</span></button>
+      </div>
+      <div class="alert success" id="wn-ok" style="margin-top:10px;"><span class="alert-icon">✓</span><span id="wn-ok-msg"></span></div>
+
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px;">
+        <label style="font-size:12px;color:var(--muted);">Active notices</label>
+        <div id="wn-active-list" style="margin-top:8px;font-size:12px;color:var(--muted);">Loading…</div>
+      </div>
     </div>
 
     <!-- 📣 Broadcast Message -->
@@ -11746,6 +11867,7 @@ async function loadAllData() {
     renderStudentTable();
     renderNotices();
     renderBannerHistory(bcastRaw);
+    if (typeof wnRefreshActiveList === 'function') wnRefreshActiveList();
     // Prefill banner form if active
     if (bannerRaw && bannerRaw.msg) {
       document.getElementById('banner-msg-input').value = bannerRaw.msg;
@@ -11839,7 +11961,7 @@ function populateClassDropdowns() {
   }
   // Notice class chips — LIVE classes only (this AY's 9), not the full historical set.
   const _liveCls = aySortClasses(STATE.liveClasses && STATE.liveClasses.length ? STATE.liveClasses : STATE.allClasses);
-  ['notice-class-chips','banner-class-chips'].forEach(id => {
+  ['notice-class-chips','banner-class-chips','wn-class-chips'].forEach(id => {
     const wrap = document.getElementById(id);
     if (!wrap) return;
     wrap.innerHTML = _liveCls.map((c, i) =>
@@ -13037,6 +13159,189 @@ async function clearLiveBanner() {
     document.getElementById('live-banner-bar').textContent = '';
     document.getElementById('live-banner-bar').style.display = 'none';
   } catch(e) { alert('Error: '+e.message); }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  WIDGET NOTICE (wn*) — generic, reusable status-line system for the
+//  home-screen student widget AND this portal, built once so future notices
+//  (fees due, exam reminders, anything that's "a short colored line") never
+//  need a Kotlin change or a new APK — only this admin form. Deliberately
+//  modeled on the exact same target/color pattern as the Live Announcement
+//  Banner directly above (all / class / URN), reusing its own chip-building
+//  loop (see the notice-class-chips/banner-class-chips/wn-class-chips array
+//  a few hundred lines up) rather than a second parallel targeting system.
+//
+//  STORAGE SHAPE — davan_pub/student_widget_notices/{URN} = [ {...}, {...} ]
+//  Per-URN arrays, not a single global list, because a class/all-student
+//  notice needs to be resolvable by a widget that only ever knows its own
+//  URN and has no way to filter a global list itself. This is a FAN-OUT
+//  write (same architectural pattern as davan_pub/sitting_by_urn in the
+//  mother app) — one admin action here writes the same notice object into
+//  every matching student's own array. Each notice object:
+//    { id, text, color, expiresOn, createdAt, createdBy }
+//  The widget's one-time Kotlin build only ever needs to: read this array
+//  for its own URN, drop any entry where expiresOn has passed, and render
+//  the rest as colored lines — it never needs to know WHY a notice exists
+//  or re-implement any targeting logic, that all happens here at write time.
+// ══════════════════════════════════════════════════════════════════════════════
+
+function setWnColor(c) {
+  document.getElementById('wn-color').value = c;
+}
+
+function toggleWnTarget() {
+  const t = document.getElementById('wn-target').value;
+  document.getElementById('wn-class-chips-wrap').style.display = t==='class' ? 'block' : 'none';
+  document.getElementById('wn-urn-wrap').style.display         = t==='urn'   ? 'block' : 'none';
+}
+
+// Resolves which real URNs a save should fan out to, given the same
+// all/class/urn target shape the Live Banner already uses.
+function _wnResolveTargetUrns(target, classes, urnVal) {
+  const all = Object.values(STATE.students || {});
+  if (target === 'urn') {
+    const u = (urnVal || '').trim().toUpperCase();
+    return u ? [u] : [];
+  }
+  if (target === 'class') {
+    if (!classes.length) return [];
+    return all.filter(s => classes.includes(s.class)).map(s => (s.urn||'').toUpperCase()).filter(Boolean);
+  }
+  // 'all'
+  return all.map(s => (s.urn||'').toUpperCase()).filter(Boolean);
+}
+
+async function saveWidgetNotice() {
+  const text     = (document.getElementById('wn-msg-input').value || '').trim();
+  const color    = document.getElementById('wn-color').value || 'amber';
+  const target   = document.getElementById('wn-target').value;
+  const expiryEl = document.getElementById('wn-expiry-input');
+  const expiresOn = expiryEl && expiryEl.value ? expiryEl.value : null; // 'YYYY-MM-DD' or null (never expires)
+
+  if (!text) { alert('Enter the notice text first.'); return; }
+
+  let classes = [], urnVal = '';
+  if (target === 'class') classes = getSelectedChips('wn-class-chips');
+  else if (target === 'urn') urnVal = (document.getElementById('wn-urn-val').value || '').trim();
+
+  const urns = _wnResolveTargetUrns(target, classes, urnVal);
+  if (!urns.length) { alert('No matching students found for that target.'); return; }
+
+  const sp = document.getElementById('wn-spinner');
+  if (sp) sp.classList.add('show');
+  try {
+    const notice = {
+      id: 'wn_' + Date.now(),
+      text, color, expiresOn,
+      createdAt: Date.now(),
+      createdBy: STATE.adminUser ? STATE.adminUser.username : 'admin'
+    };
+    // Fan-out: read each target student's existing array, append, write back.
+    // Sequential rather than Promise.all on purpose — an "all students" save
+    // can be hundreds of writes; sequential keeps this from hammering RTDB
+    // with a burst that could hit rate limits, at the cost of taking longer
+    // for very large targets. Acceptable since this is an occasional admin
+    // action, not something running per page-load.
+    let done = 0;
+    for (const urn of urns) {
+      try {
+        const existing = await rtdbGet('davan_pub/student_widget_notices/' + urn).catch(() => null);
+        const list = Array.isArray(existing) ? existing : [];
+        list.push(notice);
+        await rtdbSet('davan_pub/student_widget_notices/' + urn, list);
+        done++;
+      } catch (e) { console.warn('[WidgetNotice] failed for', urn, e && e.message); }
+    }
+    document.getElementById('wn-msg-input').value = '';
+    document.getElementById('wn-urn-val').value = '';
+    if (expiryEl) expiryEl.value = '';
+    flashAlert('wn-ok', `Notice saved for ${done} of ${urns.length} student(s).`, 4000);
+    wnRefreshActiveList();
+  } catch (e) {
+    alert('Widget notice save error: ' + e.message);
+  } finally {
+    if (sp) sp.classList.remove('show');
+  }
+}
+
+// Active-notices list at the bottom of the card — scans every student
+// currently loaded in STATE.students (already fetched for the admin
+// screen elsewhere) and shows any non-expired notice found, since notices
+// are stored per-URN with no separate global index to read instead.
+// Deliberately collapses identical (text+color+expiresOn) entries shared
+// across many students into one line with a student count, rather than
+// showing the same "Fees due 5 Sep" three hundred times for an all-student
+// notice — the admin needs to see WHAT is currently live, not necessarily
+// every single fan-out copy.
+async function wnRefreshActiveList() {
+  const el = document.getElementById('wn-active-list');
+  if (!el) return;
+  el.textContent = 'Loading…';
+  const students = Object.values(STATE.students || {});
+  if (!students.length) { el.textContent = 'No students loaded yet.'; return; }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const grouped = {}; // key = text|color|expiresOn -> { ...notice, urns: [] }
+
+  for (const s of students) {
+    const urn = (s.urn || '').toUpperCase();
+    if (!urn) continue;
+    try {
+      const list = await rtdbGet('davan_pub/student_widget_notices/' + urn).catch(() => null);
+      if (!Array.isArray(list)) continue;
+      list.forEach(n => {
+        if (n.expiresOn && n.expiresOn < today) return; // already expired, don't show as active
+        const key = n.text + '|' + n.color + '|' + (n.expiresOn || '');
+        if (!grouped[key]) grouped[key] = { ...n, urns: [] };
+        grouped[key].urns.push(urn);
+      });
+    } catch (e) { /* one student's read failing shouldn't blank the whole list */ }
+  }
+
+  const entries = Object.values(grouped);
+  if (!entries.length) { el.innerHTML = '<span style="color:var(--muted);">No active notices.</span>'; return; }
+
+  // Stash the resolved entries where the onclick handler below can reach
+  // them by index — a template-literal onclick cannot close over the local
+  // `n` variable from this .map(), since the string is parsed as fresh HTML
+  // with no access to this function's scope.
+  window._wnActiveEntries = entries;
+
+  const colorMap = { red: 'var(--danger)', amber: 'var(--accent)', blue: 'var(--blue)', green: 'var(--ok)' };
+  el.innerHTML = entries.map((n, i) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
+      <div>
+        <span style="color:${colorMap[n.color] || 'var(--text)'};font-weight:600;">${n.text}</span>
+        <span style="color:var(--muted);"> — ${n.urns.length} student(s)${n.expiresOn ? ', expires ' + n.expiresOn : ''}</span>
+      </div>
+      <button onclick="wnRemoveGroupedEntry(${i})" style="background:transparent;border:1px solid var(--danger);color:var(--danger);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;">Remove</button>
+    </div>`).join('');
+}
+
+// Removes a grouped entry (shown in the active-notices list) from every
+// student it currently covers — looked up by index into the same array
+// wnRefreshActiveList() just stashed, since the rendered HTML string
+// itself has no way to carry the real urns array or notice id directly.
+async function wnRemoveGroupedEntry(idx) {
+  const entry = (window._wnActiveEntries || [])[idx];
+  if (!entry) return;
+  if (!confirm(`Remove "${entry.text}" from ${entry.urns.length} student(s)?`)) return;
+  for (const urn of entry.urns) {
+    await wnDeleteNotice_silent(urn, entry.id);
+  }
+  wnRefreshActiveList();
+}
+
+// Removes one notice (by id) from one student's own array. Called once per
+// student by wnRemoveGroupedEntry() above, which already confirmed once for
+// the whole batch — no confirm() dialog here, since asking again per-student
+// would mean confirming hundreds of times for an all-student notice.
+async function wnDeleteNotice_silent(urn, noticeId) {
+  try {
+    const existing = await rtdbGet('davan_pub/student_widget_notices/' + urn).catch(() => null);
+    const list = (Array.isArray(existing) ? existing : []).filter(n => n.id !== noticeId);
+    await rtdbSet('davan_pub/student_widget_notices/' + urn, list);
+  } catch (e) { console.warn('[WidgetNotice] delete failed for', urn, e && e.message); }
 }
 function renderLiveBanner(data) {
   const bar = document.getElementById('live-banner-bar');
@@ -16165,6 +16470,11 @@ function stuRenderGreeting(u) {
 /* Render the home dashboard panel "At a Glance" widgets */
 function renderHomeDashboard() {
   const u = STATE.studentUser;
+  // Fire-and-forget, same pattern as Internal Marks/Internal Timetable —
+  // a separate RTDB read, must never block or delay the summary widgets
+  // computed below it.
+  if (typeof renderIAEligibilityBanner === 'function') renderIAEligibilityBanner('stu-ia-elig-banner-dash').catch(()=>{});
+  if (typeof renderWidgetNotices === 'function') renderWidgetNotices().catch(()=>{});
   const subs = (STATE.studentData && STATE.studentData.subjects) ? STATE.studentData.subjects : [];
   // Semester
   const semEl = document.getElementById('sd-semester');
@@ -17721,8 +18031,8 @@ function renderAttendance() {
 //  and republishes roughly every 2 minutes while the mother app is open,
 //  same throttle as that function's own comment explains).
 // ══════════════════════════════════════════════════════════════════════════════
-async function renderIAEligibilityBanner() {
-  const el = document.getElementById('stu-ia-elig-banner');
+async function renderIAEligibilityBanner(targetElId) {
+  const el = document.getElementById(targetElId || 'stu-ia-elig-banner');
   if (!el) return;
   const u = STATE.studentUser || {};
   if (!u.urn) { el.style.display = 'none'; return; }
@@ -17762,12 +18072,54 @@ async function renderIAEligibilityBanner() {
   }).join('');
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  WIDGET NOTICE — student-facing display, reading the exact same
+//  davan_pub/student_widget_notices/{URN} array the admin form (wn* functions)
+//  writes to and the widget itself will read once its own one-time Kotlin
+//  build ships. This web-side display needs no such wait — it works the
+//  moment an admin saves a notice, matching the whole point of the feature:
+//  future notices (fees, reminders, anything "a short colored line") never
+//  need an app update, only this render function reading whatever is there.
+// ══════════════════════════════════════════════════════════════════════════════
+async function renderWidgetNotices() {
+  const el = document.getElementById('stu-widget-notices');
+  if (!el) return;
+  const u = STATE.studentUser || {};
+  if (!u.urn) { el.style.display = 'none'; return; }
+
+  let list;
+  try {
+    list = await rtdbGet('davan_pub/student_widget_notices/' + u.urn.toUpperCase()).catch(() => null);
+  } catch (e) { el.style.display = 'none'; return; }
+
+  if (!Array.isArray(list) || !list.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const active = list.filter(n => !n.expiresOn || n.expiresOn >= today);
+  if (!active.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+  const colorMap = {
+    red:   { bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.35)',  text: 'var(--danger)' },
+    amber: { bg: 'rgba(240,165,0,0.08)',  border: 'rgba(240,165,0,0.35)',  text: 'var(--accent)' },
+    blue:  { bg: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.35)', text: 'var(--blue)' },
+    green: { bg: 'rgba(34,197,94,0.08)',  border: 'rgba(34,197,94,0.35)',  text: 'var(--ok)' }
+  };
+
+  el.style.display = 'block';
+  el.innerHTML = active.map(n => {
+    const c = colorMap[n.color] || colorMap.amber;
+    return `<div style="background:${c.bg};border:1px solid ${c.border};border-radius:8px;padding:8px 12px;margin-bottom:6px;">
+      <span style="font-size:12px;color:${c.text};font-weight:600;">${n.text}</span>
+    </div>`;
+  }).join('');
+}
+
 function renderInternals() {
   if (stuFreshGuard()) { stuApplyFreshAttendance(); return; }
   // Fire-and-forget — the eligibility banner is a separate RTDB read from
   // the marks table itself, and must never block/delay marks rendering if
   // it's slow or the path doesn't exist yet.
-  if (typeof renderIAEligibilityBanner === 'function') renderIAEligibilityBanner().catch(()=>{});
+  if (typeof renderIAEligibilityBanner === 'function') renderIAEligibilityBanner('stu-ia-elig-banner').catch(()=>{});
   const loadEl = document.getElementById('stu-int-loading');
   const wrapEl = document.getElementById('stu-int-wrap');
   const hidEl  = document.getElementById('stu-int-hidden');
@@ -18272,6 +18624,11 @@ function renderInternalsTimetable() {
   const hidEl   = document.getElementById('stu-inttt-hidden');
   const emptyEl = document.getElementById('stu-inttt-empty');
   if (loadEl) loadEl.style.display = 'none';
+
+  // Fire-and-forget, same pattern as renderInternals() (Internal Marks) —
+  // a separate RTDB read from the timetable data itself, must never block
+  // or delay the actual schedule rendering below.
+  if (typeof renderIAEligibilityBanner === 'function') renderIAEligibilityBanner('stu-ia-elig-banner-tt').catch(()=>{});
 
   // v8.44: was gated on canShow('timetable') — the WEEKLY class timetable
   // flag, a different toggle from what "Internal Timetable" means. That
