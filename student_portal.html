@@ -17,6 +17,40 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.71 (2026-08-23) — FEAT: student widget release now auto-resolves,
+per explicit admin request ("i cnt do this every time... i want a comon
+link", then "give provision to enter manually... I will enter there by
+my self" for the fallback). Mirrors index.html's wcpResolveLatestApk()
+(built v1117 for the faculty widget) applied to the student widget, which
+already self-reports its own version to davan_pub/student_widget_report
+the same way the faculty one does. [stuResolveLatestWidgetApk() ~line
+6180]: (1) apkUrl changed to GitHub's "latest release" URL pattern
+(releases/latest/download/Davan.Student.apk) instead of a tag-pinned
+one — GitHub itself keeps this pointing at whatever was most recently
+published, so unlike the faculty widget's SHA-pinned raw-content URL
+(which needs re-resolving via the commits API every time), this never
+needs re-resolving at all once set, AS LONG AS every future release
+keeps the same filename and is published as the repo's latest release
+(the default). (2) apkVersion auto-raised to the MAX apkVersion any real
+student widget has self-reported — install a new build on your own
+phone once, exactly as already works for the faculty widget, and the
+whole estate's nag number updates itself with zero manual entry.
+LATEST_STUDENT_WIDGET_APK.apkVersion is now a FLOOR only, never lowered
+by auto-resolve. MANUAL FALLBACK (explicit admin request, used only when
+auto-resolve can't yet know about a release — e.g. published on GitHub
+but not yet installed on the admin's own phone to generate a real self-
+report): new input field in the Widget Control Panel [markup ~line
+5416, stuSetManualApkVersion() ~line 6265] writes to
+davan_pub/student_widget_manual_version; stuResolveLatestWidgetApk()
+reads it as a second, independent floor-raiser — the manual number is
+ONLY ever applied if it is higher than the auto-resolved ceiling, so a
+stale or mistaken manual entry can never drag the real, self-reported
+version backward. stuPublishLatestWidgetApk() now calls
+stuResolveLatestWidgetApk() before publishing (previously would have
+published whatever was hardcoded at page-load, defeating the point);
+loadWidgetCtrlData() does the same before rendering the admin panel, so
+"Set in this portal file" always shows the true resolved number, not a
+stale constant.
 VERSION : v8.70 (2026-08-23) — FEAT: student widget APK w51 published as a
 proper GitHub Release asset instead of the old harshgujjar.github.io
 raw-file host, mirroring the same fix just done for the faculty widget in
@@ -5415,6 +5449,23 @@ body.dash-active .data-strip { display: block; }
          poll. Explained inline so nobody has to guess again. -->
     <div id="wc-publish-explain" style="font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:14px;line-height:1.6;"></div>
 
+    <!-- v8.71: manual apkVersion override — fallback for when auto-resolve
+         (stuResolveLatestWidgetApk, self-report ceiling) can't yet know
+         about a brand-new release, e.g. right after publishing on GitHub
+         but before installing it on the admin's own phone to generate a
+         real self-report. Only ever RAISES the version (see
+         stuSetManualApkVersion's own comment) — this is a floor-raiser,
+         not an authoritative override, so it can never accidentally push
+         the nag backward below real field data. -->
+    <div style="font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:14px;">
+      <div style="margin-bottom:6px;">Manual version entry (optional — auto-resolve already handles this once you install a new build on your own phone). Only raises the version, never lowers it.</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="number" id="wc-manual-apk-version" placeholder="e.g. 52" min="1" max="400"
+          style="width:90px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px;">
+        <button class="btn btn-secondary" style="font-size:12px;" onclick="stuSetManualApkVersion(document.getElementById('wc-manual-apk-version').value).then(ok => { if (ok) { document.getElementById('wc-manual-apk-version').value=''; loadWidgetCtrlData(); } })">💾 Save</button>
+      </div>
+    </div>
+
     <!-- v8.06: KILL SWITCHES. Rendered by renderMaintPanel(). -->
     <div id="wc-maint-panel" style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;background:var(--surface);"></div>
 
@@ -6171,14 +6222,119 @@ const BUILD_DATE   = '22 Aug 2026, IST'; // v6.90: update alongside APP_VERSION 
 // UX, no data/safety implication either way, so apkVersion bumped to 30
 // and minApkVersion deliberately LEFT AT 29 per the rule above — w29 users
 // are soft-nagged, not blocked.
-const LATEST_STUDENT_WIDGET_APK = { apkVersion: 51, minApkVersion: 29, apkUrl: 'https://github.com/harshgujjar/davan-attendance/releases/download/w51/Davan.Student.apk' };
+const LATEST_STUDENT_WIDGET_APK = { apkVersion: 51, minApkVersion: 29, apkUrl: 'https://github.com/harshgujjar/davan-attendance/releases/latest/download/Davan.Student.apk' };
+
+// ══════════════════════════════════════════════════════════════
+//  AUTO-RESOLVE (v8.71) — mirrors index.html's wcpResolveLatestApk()
+//  (built v1117 for the faculty widget) applied to the student widget,
+//  per explicit admin request ("i cnt do this every time... i want a
+//  comon link"). Two things this removes the need to hand-edit on every
+//  release:
+//
+//  (1) apkUrl — now the GitHub "latest release" URL (releases/latest/
+//      download/...), which GitHub itself keeps pointing at whatever
+//      was most recently published, AS LONG AS every future release
+//      keeps the exact filename "Davan.Student.apk" and is published as
+//      the repo's latest release (default when publishing a new one —
+//      only breaks this if a release is explicitly marked "not latest"
+//      or the filename ever changes). Unlike the faculty widget's SHA-
+//      pinned raw.githubusercontent URL (which needs re-resolving via
+//      the GitHub commits API every time), a Release "latest" URL never
+//      needs re-resolving at all — GitHub does that part permanently.
+//
+//  (2) apkVersion — auto-raised to the MAX apkVersion any real student
+//      widget has self-reported to davan_pub/student_widget_report,
+//      exactly the same ceiling logic as the faculty widget: install a
+//      new build on your own phone once, it self-reports its real
+//      version on its next fetch, and that becomes the new floor for
+//      everyone's nag automatically. LATEST_STUDENT_WIDGET_APK.apkVersion
+//      above is kept as a FLOOR only — auto-resolve never lowers it, so
+//      a wiped device or a corrupt self-report can't drag the whole
+//      estate's nag backward.
+//
+//  MANUAL FALLBACK (explicit admin request — "give provision to enter
+//  manually... I will enter there by my self"): a manual override number
+//  can be set from the admin Widget Control Panel (stuSetManualApkVersion
+//  below) for the rare case auto-resolve can't do its job — e.g. a fresh
+//  release where the admin hasn't yet opened the widget on their own
+//  phone to generate a self-report. The manual number is only ever used
+//  if it's HIGHER than what auto-resolve already found — it can raise
+//  the ceiling early, never lower it below a real self-report, so a
+//  stale or mistaken manual entry can't undo genuine field data.
+// ══════════════════════════════════════════════════════════════
+let _stuApkResolvePromise = null;
+const STU_APK_VERSION_CEILING = 400; // same sanity ceiling as the faculty widget's APK_VERSION_CEILING — rejects an absurd/corrupt self-report
+
+async function stuResolveLatestWidgetApk() {
+  if (_stuApkResolvePromise) return _stuApkResolvePromise; // memoized per page load
+  _stuApkResolvePromise = (async () => {
+    // ---- (1) ceiling = highest version any student widget has self-reported ----
+    try {
+      const snap = await rtdbGet('davan_pub/student_widget_report').catch(() => null);
+      const all  = snap || {};
+      let hi = 0;
+      Object.keys(all).forEach(k => {
+        const v = all[k] && all[k].apkVersion;
+        if (typeof v === 'number' && v > hi && v <= STU_APK_VERSION_CEILING) hi = v;
+      });
+      if (hi > LATEST_STUDENT_WIDGET_APK.apkVersion) {
+        console.log('[StuApkResolve] apkVersion auto-raised to w' + hi + ' from field self-reports');
+        LATEST_STUDENT_WIDGET_APK.apkVersion = hi;
+      }
+    } catch (e) { console.warn('[StuApkResolve] self-report scan failed:', e && e.message); }
+
+    // ---- (2) manual override — only ever RAISES the version, never lowers it ----
+    try {
+      const manual = await rtdbGet('davan_pub/student_widget_manual_version').catch(() => null);
+      const mv = manual && typeof manual.apkVersion === 'number' ? manual.apkVersion : 0;
+      if (mv > LATEST_STUDENT_WIDGET_APK.apkVersion && mv <= STU_APK_VERSION_CEILING) {
+        console.log('[StuApkResolve] apkVersion raised to w' + mv + ' from admin manual entry');
+        LATEST_STUDENT_WIDGET_APK.apkVersion = mv;
+      }
+    } catch (e) { console.warn('[StuApkResolve] manual override read failed:', e && e.message); }
+
+    // apkUrl is the static "latest release" URL — no per-version resolution
+    // needed, see comment block above for why this differs from the
+    // faculty widget's SHA-pinning approach.
+    console.log('[StuApkResolve] resolved -> w' + LATEST_STUDENT_WIDGET_APK.apkVersion + ' @ ' + LATEST_STUDENT_WIDGET_APK.apkUrl);
+    return LATEST_STUDENT_WIDGET_APK;
+  })();
+  return _stuApkResolvePromise;
+}
+
+// Admin-only: save a manual version override, e.g. right after publishing a
+// new GitHub Release but before installing it on the admin's own phone
+// (so the real self-report hasn't landed yet). Only ever used by
+// stuResolveLatestWidgetApk() as a floor-raiser, per the rationale above.
+async function stuSetManualApkVersion(version) {
+  const v = parseInt(version, 10);
+  if (!v || v <= 0 || v > STU_APK_VERSION_CEILING) {
+    if (typeof dvToast === 'function') dvToast('Enter a valid version number (1-' + STU_APK_VERSION_CEILING + ')', 'warn');
+    return false;
+  }
+  try {
+    await rtdbSet('davan_pub/student_widget_manual_version', { apkVersion: v, setAt: new Date().toISOString() });
+    _stuApkResolvePromise = null; // force re-resolve on next call so this takes effect immediately
+    if (typeof dvToast === 'function') dvToast('✅ Manual version w' + v + ' saved', 'ok');
+    return true;
+  } catch (e) {
+    console.warn('[StuApkResolve] manual version save failed:', e && e.message);
+    if (typeof dvToast === 'function') dvToast('❌ Save failed', 'error');
+    return false;
+  }
+}
 
 // Publishes LATEST_STUDENT_WIDGET_APK to DB2 so the student widget (v1+)
 // can read it directly and nag on the widget face when it's behind.
 // Mirrors index.html's wcpPublishLatestApk() exactly. Cheap idempotent
 // write, safe to call on every login.
+// v8.71: now resolves (self-report ceiling + manual override) BEFORE
+// publishing, same order as index.html's wcpForceApkRefresh() — otherwise
+// this would publish whatever apkVersion happened to be hardcoded at
+// page-load, defeating the whole point of auto-resolve.
 async function stuPublishLatestWidgetApk() {
   try {
+    if (typeof stuResolveLatestWidgetApk === 'function') await stuResolveLatestWidgetApk();
     await rtdbSet('davan_pub/student_widget_latest', {
       apkVersion:    LATEST_STUDENT_WIDGET_APK.apkVersion,
       // w28: anything strictly below this is force-blocked on the widget
@@ -22424,6 +22580,13 @@ async function renderWidgetCtrlTab() {
 async function loadWidgetCtrlData() {
   const listEl = document.getElementById('wc-student-list');
   if (listEl) listEl.innerHTML = '<div style="padding:20px 0;color:var(--muted);font-size:12px;">⏳ Loading widget status…</div>';
+  // v8.71: resolve (self-report ceiling + manual override) before this
+  // panel renders anything, so LATEST_STUDENT_WIDGET_APK.apkVersion here
+  // reflects the true auto-resolved number, not whatever was hardcoded at
+  // page-load — otherwise "Set in this portal file" in wcRenderPublishExplain
+  // would show a stale number even though the actual publish step
+  // (stuPublishLatestWidgetApk) already resolves correctly.
+  if (typeof stuResolveLatestWidgetApk === 'function') await stuResolveLatestWidgetApk().catch(() => {});
   try {
     const [reportsRaw, activeRaw, bannedRaw, latestRaw, dlRaw] = await Promise.all([
       rtdbGet('davan_pub/student_widget_report').catch(() => null),
