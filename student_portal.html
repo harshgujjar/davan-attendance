@@ -17,6 +17,54 @@ RTDB    : davan_pub/portal_students/{URN} | controls/ | davan_pub/students | not
 RULES   : grep before editing | no guesswork — confirm from actual source | no \' in template literals
 ADMIN   : hardcoded — admin/admin123 | manager/manager123 | vp/vp123
 STUDENTS: URN = login id | SHA-256(phone) = default password stored in RTDB
+VERSION : v8.79 (2026-08-24) — CLEANUP: removed v8.78's temporary
+[SEAT-DEBUG] console dump from stuRenderSeatBanner() now that it did
+its job. The dump proved the "English shown too early" report was NOT
+a portal bug — seat.perDay dates/room-rotation and the per-date subject
+sort were already correct; English is genuinely the saved 2:45pm slot
+on the actual 3rd exam date (12 Sep). Real fix belongs in the Internal
+Timetable Create/Edit data itself (index.html), not this file.
+VERSION : v8.78 (2026-08-24) — TEMP DIAGNOSTIC: added console.log dump
+inside stuRenderSeatBanner() (F12-visible) printing the exact raw
+seat.perDay array and, per date, the exact raw slots matched for it —
+i.e. real data instead of another guess at the ordering bug. Open the
+Internal Timetable ▸ My Class tab, F12 ▸ Console, and paste every
+[SEAT-DEBUG] line back for the actual fix. Remove this block once found.
+VERSION : v8.77 (2026-08-24) — REAL FIX, found by reading sync_db1_to_
+db2.py and index.html directly, not by guessing. v8.76's fix (sorting
+perDay by date) was based on an unverified assumption and changed
+nothing, because it was never the bug — confirmed by reading
+sync_sitting_to_urn_fanout()/_sitting_live_dates_for_session() directly:
+perDay's date/room order was already correct (sorted chronologically,
+proven in code). The ACTUAL bug was in [stuRenderSeatBanner() ~18842
+slotsForDate], one level down from where v8.76 looked — sorting each
+date's list of subjects by time_label as a STRING
+('01:15pm...'.localeCompare('09:00am...')), which breaks the moment
+sorted hours cross a digit boundary. That's why English (a later paper)
+could render before an earlier one on the same date. FIX: exact port of
+index.html's sitFindStudentSchedule() time sort (index.html ~52637-
+52640, already proven correct there for the identical multi-subject-
+per-session case) — parses time_label's leading H:MM into a plain
+numeric key instead of comparing the label as text.
+VERSION : v8.76 (2026-08-24) — FIX: "Your Seat" Day 1/2/3 labels
+[stuRenderSeatBanner() ~18804] were assigned by raw seat.perDay array
+index, trusting the sync script to write dates pre-sorted — it wasn't
+guaranteed to, and Firebase array-node reads can reorder anyway. Result:
+a later exam date (English, actually Day 3) could render as "Day 1".
+perDay is now sorted by date before Day N labels are assigned, so the
+label always matches real chronological order no matter the write/read
+order underneath.
+VERSION : v8.75 (2026-08-24) — FIX+FEAT, IA Eligibility banner + widget promo
+card. [renderIAEligibilityBanner() ~line 18108]: unlocked rows are now
+clickable, jumping to the live Internal Timetable panel (switchStudentPanel
+('inttt')) so a student can verify actual exam dates for themselves instead
+of assuming the banner also states scheduling — it never did, only the
+binary eligible/not-eligible verdict, but with no way to cross-check that
+read as wrong info. [stuApplyAppPageVisibility() ~24107, stuApplySidebar
+WidgetStatus() ~16429]: dash-getapp-card no longer flashes "Set it up" for
+an already-paired, actively-checking-in student before the async pairing
+check resolves — card now stays hidden until the check explicitly confirms
+not-linked, rather than showing first and narrowing after.
 VERSION : v8.74 (2026-08-24) — FEAT: soft-nag vs hard-block choice for
 publishing the student widget release, per explicit admin request to
 soft-nag for the first few days of a new APK build before forcing it.
@@ -16430,7 +16478,12 @@ async function stuApplySidebarWidgetStatus(u) {
     const storedCode = localStorage.getItem('davan_student_widget_pair_code');
     if (!storedCode) {
       if (metaEl) metaEl.style.display = 'none';
-      return;   // no code on this device → nothing to show, promo card stays as-is
+      // v8.75: no pair code on THIS device is not proof the student has no
+      // widget at all (could be paired on another phone, or this is a fresh
+      // browser session) — but it is proof this device can't confirm one,
+      // so the promo card is the right thing to show here.
+      if (promoCard && STATE._appPageOn !== false) promoCard.style.display = '';
+      return;
     }
     const active = await rtdbGet('davan_pub/student_widget_active/' + storedCode);
     const owner = active && active.urn ? String(active.urn).toUpperCase() : '';
@@ -18109,12 +18162,22 @@ async function renderIAEligibilityBanner(targetElId) {
     const statusTxt = r.flagged
       ? `<span style="color:#ef4444;font-weight:800;">⛔ NOT ELIGIBLE</span> — short in ${r.X} of ${r.Y} subjects`
       : `<span style="color:#22c55e;font-weight:700;">✅ Eligible</span>`;
+    // v8.75 [renderIAEligibilityBanner() ~18108]: not-yet-locked rows are now
+    // clickable → jump straight to the live Internal Timetable panel
+    // (switchStudentPanel('inttt')) so the student can check actual exam
+    // dates/order for themselves. The banner only ever carries the binary
+    // eligible/not-eligible verdict (see privacy note atop this function) —
+    // it never implied WHEN an exam falls, but with no obvious way to
+    // cross-check that was an easy misread. Locked rows stay non-clickable
+    // (a locked verdict has nothing further to check).
     const finality = r.locked
       ? `<span style="font-size:10px;color:var(--muted);">Final</span>`
-      : `<span style="font-size:10px;color:#60a5fa;">Live — may still change</span>`;
+      : `<span style="font-size:10px;color:#60a5fa;text-decoration:underline;">Live — tap to check timetable →</span>`;
     const bg = r.flagged ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.06)';
     const border = r.flagged ? 'rgba(239,68,68,0.35)' : 'rgba(34,197,94,0.25)';
-    return `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:8px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+    const clickAttr = r.locked ? '' : ` onclick="switchStudentPanel('inttt')" role="button" tabindex="0"`;
+    const cursorStyle = r.locked ? '' : 'cursor:pointer;';
+    return `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:8px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;${cursorStyle}"${clickAttr}>
       <div style="font-size:12px;"><b>${r.label}:</b> ${statusTxt}</div>
       ${finality}
     </div>`;
@@ -18775,7 +18838,20 @@ function stuRenderSeatBanner(internalsData, myBatch) {
   // "Room X" line for any older sitting_by_urn record synced before this
   // field existed (perDay missing/empty), so a stale DB2 write never
   // renders blank.
-  const perDay = Array.isArray(seat.perDay) ? seat.perDay.filter(d => d && d.room) : [];
+  // v8.76: FIX — "Day 1/2/3" labels were assigned by raw array index
+  // (perDay.map((d,i)=>'Day '+(i+1))) trusting seat.perDay to already
+  // arrive in chronological order from the sync script. It doesn't
+  // reliably: Firebase can reorder array-shaped nodes on read, and the
+  // sync script's own write order isn't guaranteed date-sorted either
+  // (see the w34 comment above re: perDay[].date). Net effect: whatever
+  // date happened to land first in the array got called "Day 1" even if
+  // it was actually the 3rd exam date — which is exactly how English
+  // (the real Day 3 paper) appeared as the first row. Sorting by date
+  // here, right where the array is built, makes the Day N labels always
+  // match real chronological order regardless of write/read order.
+  const perDay = Array.isArray(seat.perDay)
+    ? seat.perDay.filter(d => d && d.room).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+    : [];
   const fmtDate = d => {
     if (!d) return '';
     const p = String(d).split('-');
@@ -18792,11 +18868,29 @@ function stuRenderSeatBanner(internalsData, myBatch) {
   // subject+time actually scheduled that date. Falls back to the plain
   // date line when slots/myBatch aren't available or nothing matches, so
   // this never regresses the existing behaviour.
+  // v8.77: REAL BUG FOUND — this was sorting time_label as a STRING
+  // ('01:15pm to 02:15pm'.localeCompare('09:00am to 10:00am')), which is
+  // wrong the moment any hour crosses a digit boundary and is exactly why
+  // English (a later paper) could render before an earlier one on the
+  // same day. Confirmed the perDay date/room order itself (sync_db1_to_
+  // db2.py's sync_sitting_to_urn_fanout, _sitting_live_dates_for_session)
+  // is correct — sorted chronologically, verified by reading that file
+  // directly. The actual defect was here: this function's OWN subject
+  // ordering within a date, never the date/day/room order above it.
+  // FIX: exact port of index.html's sitFindStudentSchedule() sort
+  // (index.html ~52637-52640, proven/verified there for the identical
+  // multi-subject-per-session case) — parses time_label's leading H:MM
+  // into a plain numeric value for comparison instead of comparing the
+  // full label as a string.
+  const _timeLabelSortKey = s => {
+    const m = (s.time_label || '').match(/(\d+):(\d+)/);
+    return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
+  };
   const allSlots = Array.isArray(internalsData && internalsData.slots) ? internalsData.slots : [];
   const slotsForDate = date => allSlots
     .filter(s => s && s.date === date && (!myBatch || s.batch_name === myBatch))
     .slice()
-    .sort((a, b) => String(a.time_label || '').localeCompare(String(b.time_label || '')));
+    .sort((a, b) => _timeLabelSortKey(a) - _timeLabelSortKey(b));
 
   let bodyHtml;
   if (perDay.length) {
@@ -24099,8 +24193,19 @@ async function stuApplyAppPageVisibility() {
     if (!on) {
       card.style.display = 'none';
     } else {
-      card.style.display = '';   // base state; stuApplySidebarWidgetStatus narrows it further if linked+active
-      if (STATE.studentUser) stuApplySidebarWidgetStatus(STATE.studentUser);
+      // v8.75: DO NOT reveal the card yet. Setting display:'' here and then
+      // narrowing it async (old behaviour) let an already-paired, actively
+      // checking-in student see a flash of "Set it up →" for the ~1 RTDB
+      // round-trip before stuApplySidebarWidgetStatus() below caught up and
+      // hid it again — confusing for someone who has genuinely already
+      // installed and paired. Card stays hidden (its markup default) until
+      // the pairing check below explicitly proves "not linked" and reveals
+      // it itself; a linked+active student never sees it appear at all.
+      if (STATE.studentUser) {
+        stuApplySidebarWidgetStatus(STATE.studentUser);
+      } else {
+        card.style.display = '';   // admin preview / no logged-in student — nothing to check against, show it
+      }
     }
   }
 }
