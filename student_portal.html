@@ -5691,6 +5691,7 @@ body.dash-active .data-strip { display: block; }
       <button class="notice-chip" id="wc-status-stale"     onclick="setWcStatusFilter('stale')"     style="font-size:11px;">🕑 Stale (not reporting)</button>
       <button class="notice-chip" id="wc-status-banned"    onclick="setWcStatusFilter('banned')"    style="font-size:11px;">🚫 Widget-banned</button>
       <button class="notice-chip" id="wc-status-notifoff" onclick="setWcStatusFilter('notifoff')" style="font-size:11px;">🔕 Notif off</button>
+      <button class="notice-chip" id="wc-status-batteryrestricted" onclick="setWcStatusFilter('batteryrestricted')" style="font-size:11px;">🔋 Battery restricted</button>
       <button class="notice-chip" id="wc-status-reminderbroken" onclick="setWcStatusFilter('reminderbroken')" style="font-size:11px;">⚠ Reminders dead</button>
       <button class="notice-chip" id="wc-status-reportedtoday" onclick="setWcStatusFilter('reportedtoday')" style="font-size:11px;">📅 Reported on date</button>
       <button class="notice-chip" id="wc-status-firsttime" onclick="setWcStatusFilter('firsttime')" style="font-size:11px;">🆕 First-time paired on date</button>
@@ -6421,7 +6422,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.83';
+const APP_VERSION = 'v8.85';
 const BUILD_DATE   = '25 Aug 2026, IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -23402,7 +23403,7 @@ function renderWcClassChips() {
 function setWcClass(cls) { STATE.wcFilterClass = cls; renderWcClassChips(); renderWcTable(); }
 function setWcStatusFilter(status) {
   STATE.wcStatusFilter = status;
-  ['all','paired','unpaired','outdated','stale','banned','notifoff','reminderbroken','reportedtoday','firsttime','workerdead'].forEach(s => {
+  ['all','paired','unpaired','outdated','stale','banned','notifoff','batteryrestricted','reminderbroken','reportedtoday','firsttime','workerdead'].forEach(s => {
     const el = document.getElementById('wc-status-' + (s === 'all' ? 'all' : s));
     if (el) el.classList.toggle('active', (status === '' && s === 'all') || status === s);
   });
@@ -23486,7 +23487,27 @@ function wcGetStudentStatus(urn) {
   const activeAgeMs = active && active.updatedAt ? (Date.now() - active.updatedAt) : Infinity;
   const reportAgeMs = ts ? (Date.now() - ts) : Infinity;
   const workerDead = !!(active && active.updatedAt && activeAgeMs < WORKER_GAP_MS && (reportAgeMs - activeAgeMs) > WORKER_GAP_MS);
-  return { paired: true, outdated, stale, reportAgeMs: ts ? (Date.now() - ts) : 0, workerDead,
+  // v8.84: sharper diagnosis using the widget's w58+ StudentWorkerHealth
+  // fields (workerRunCount / workerLastRunAt / lastWriteError), when the
+  // installed widget is new enough to send them. Falls back to nothing
+  // (undefined) on an older widget — wcDeviceLine() below must render
+  // workerDead's original "likely battery restriction" guess in that case,
+  // not claim a fact it does not have.
+  //   - workerStarved: the run counter/timestamp itself is old — proves
+  //     WorkManager is not even INVOKING doWork(), i.e. the OS is starving
+  //     the worker (OEM battery/autostart case, now a FACT not a guess).
+  //   - workerWriteFailing: the worker IS running recently, but the
+  //     report we're looking at is old anyway and/or carries a
+  //     lastWriteError — the fetch runs, the RTDB write to
+  //     student_widget_report specifically is what's failing.
+  let workerStarved, workerWriteFailing;
+  if (report && typeof report.workerLastRunAt === 'number') {
+    const workerRunAgeMs = Date.now() - report.workerLastRunAt;
+    workerStarved = workerDead && workerRunAgeMs > WORKER_GAP_MS;
+    workerWriteFailing = workerDead && workerRunAgeMs <= WORKER_GAP_MS;
+  }
+  return { paired: true, outdated, stale, reportAgeMs: ts ? (Date.now() - ts) : 0,
+           workerDead, workerStarved, workerWriteFailing,
            banned: isWidgetBanned || isFullyBanned, pairCode, report, active };
 }
 
@@ -23514,7 +23535,7 @@ function renderWcSummary() {
   if (!el) return;
   const all = wcLiveStudents();
   const selYmd = STATE._wcSelectedDate || laToday_YMD();
-  let paired = 0, unpaired = 0, outdated = 0, stale = 0, banned = 0, notifOff = 0, reminderBroken = 0,
+  let paired = 0, unpaired = 0, outdated = 0, stale = 0, banned = 0, notifOff = 0, batteryRestrictedCount = 0, reminderBroken = 0,
       reportedOnDate = 0, firstTimeOnDate = 0, workerDeadCount = 0;
   all.forEach(s => {
     const st = wcGetStudentStatus(s.urn);
@@ -23527,6 +23548,7 @@ function renderWcSummary() {
       // so a stale device must not be counted as a live fault either — it
       // would pad "REMINDERS DEAD" with phones we simply cannot hear from.
       if (!st.stale && st.report && st.report.notifOn === false) notifOff++;
+      if (!st.stale && st.report && st.report.batteryUnrestricted === false) batteryRestrictedCount++;
       if (!st.stale && st.report && st.report.reminderReady === false) reminderBroken++;
       // v8.82: date-scoped counts, always computed against the currently
       // selected date (defaults to today) so the number on the card and
@@ -23555,6 +23577,7 @@ function renderWcSummary() {
     cell('STALE', stale, 'var(--danger)', 'stale', 'Paired but has not reported in over 24h — its version and reminder status are unknown, not confirmed') +
     cell('WIDGET-BANNED', banned, 'var(--danger)', 'banned', 'Widget blocked; portal login still allowed') +
     cell('NOTIF OFF', notifOff, 'var(--danger)', 'notifoff', 'Android is blocking this app notifications') +
+    cell('BATTERY RESTRICTED', batteryRestrictedCount, 'var(--warn)', 'batteryrestricted', 'Notifications allowed, but battery optimisation blocks the scheduled reminder — needs a manual OS setting, cannot be fixed remotely') +
     cell('REMINDERS DEAD', reminderBroken, 'var(--danger)', 'reminderbroken', 'Paired but class reminders cannot be delivered') +
     cell('REPORTED ' + dateLabel, reportedOnDate, 'var(--accent)', 'reportedtoday', 'Widget sent a report on the selected date') +
     cell('FIRST-TIME ' + dateLabel, firstTimeOnDate, 'var(--ok)', 'firsttime', 'Paired their widget for the very first time on the selected date') +
@@ -23589,6 +23612,8 @@ function renderWcTable() {
   const all = wcLiveStudents();
 
   // v8.81: bulk force-ON bar, shown only on the "notifoff" filter.
+  // v8.85: extended to also cover "batteryrestricted" — a bulk send of
+  // fix-step messages, not a bulk fix (nothing can fix this remotely).
   const bulkBar = document.getElementById('wc-bulk-force-bar');
   if (bulkBar) {
     if (status === 'notifoff') {
@@ -23599,6 +23624,15 @@ function renderWcTable() {
       bulkBar.style.display = cnt ? 'block' : 'none';
       bulkBar.innerHTML = cnt
         ? `<button onclick="wcForceNotifOnAllFiltered()" style="width:100%;padding:10px;border-radius:8px;font-size:12px;font-weight:700;font-family:var(--mono);cursor:pointer;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.1);color:var(--danger);">🔔 Force reminders ON for all ${cnt} student${cnt===1?'':'s'} shown here</button>`
+        : '';
+    } else if (status === 'batteryrestricted') {
+      const cnt = all.filter(s => {
+        const st = wcGetStudentStatus(s.urn);
+        return st.paired && !st.stale && st.report && st.report.batteryUnrestricted === false;
+      }).length;
+      bulkBar.style.display = cnt ? 'block' : 'none';
+      bulkBar.innerHTML = cnt
+        ? `<button onclick="wcSendBatteryFixStepsAllFiltered()" style="width:100%;padding:10px;border-radius:8px;font-size:12px;font-weight:700;font-family:var(--mono);cursor:pointer;border:1px solid rgba(251,191,36,0.35);background:rgba(251,191,36,0.1);color:var(--warn);">🔋 Send fix steps to all ${cnt} student${cnt===1?'':'s'} shown here</button>`
         : '';
     } else {
       bulkBar.style.display = 'none';
@@ -23620,6 +23654,7 @@ function renderWcTable() {
     // never disagree about who is in a bucket (same rule as wcGetStudentStatus
     // being the single source of truth).
     if (status === 'notifoff')       return st.paired && !st.stale && st.report && st.report.notifOn === false;
+    if (status === 'batteryrestricted') return st.paired && !st.stale && st.report && st.report.batteryUnrestricted === false;
     if (status === 'reminderbroken') return st.paired && !st.stale && st.report && st.report.reminderReady === false;
     // v8.82: date-scoped chips. "Reported on date" = the widget's last
     // report timestamp falls on the selected day — i.e. it was ALIVE and
@@ -23648,6 +23683,19 @@ function renderWcTable() {
   listEl.innerHTML = filtered.map(s => {
     const st = wcGetStudentStatus(s.urn);
     const notifOff = st.report && st.report.notifOn === false;
+    // v8.85: SEPARATE from notifOff. A student can have Android
+    // notifications fully allowed (notifOn === true) while battery
+    // optimisation still kills the scheduled alarm that would have fired
+    // the reminder — "battery restricted" in the fault line below is that
+    // exact case (see StudentDeviceHealth.kt: reminderReady requires BOTH
+    // notifOn AND batteryUnrestricted, and problem picks whichever failed
+    // first). Force ON only flips notifOn — it cannot touch battery
+    // settings remotely, no RTDB write can — so showing that button here
+    // would promise a fix it can't deliver. This badge/button instead
+    // explains why nothing is offered, rather than silently offering
+    // nothing (the actual bug this was reported against: AFIFA and
+    // MUSKHAN had no button and no visible reason for its absence).
+    const batteryRestricted = st.paired && !st.stale && st.report && st.report.batteryUnrestricted === false;
     const hasUrgent = st.active && st.active.urgentMessage && st.active.urgentMessage.text &&
       (!st.active.urgentMessage.ackedAt || st.active.urgentMessage.sentAt > st.active.urgentMessage.ackedAt);
 
@@ -23676,6 +23724,7 @@ function renderWcTable() {
           <span style="margin-left:8px;font-size:11px;color:var(--muted);">${s.class||''}</span>
           <span style="margin-left:8px;">${statusBadge}</span>
           ${notifOff ? '<span style="margin-left:8px;font-size:10px;color:var(--danger);">🔕 notif off</span>' : ''}
+          ${batteryRestricted ? '<span style="margin-left:8px;font-size:10px;color:var(--warn);">🔋 battery restricted</span>' : ''}
           ${st.banned ? '<span style="margin-left:8px;font-size:10px;font-weight:700;color:var(--danger);background:rgba(239,68,68,0.15);padding:2px 7px;border-radius:10px;">WIDGET BANNED</span>' : ''}
           ${hasUrgent ? '<span style="margin-left:8px;font-size:10px;font-weight:700;color:#fff;background:var(--danger);padding:2px 7px;border-radius:10px;">🔔 URGENT PENDING</span>' : ''}
           ${wcDeviceLine(st)}
@@ -23683,6 +23732,7 @@ function renderWcTable() {
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           ${st.paired ? `<button onclick="wcSendUrgent('${s.urn}')" style="font-size:11px;font-family:var(--mono);padding:4px 10px;border-radius:6px;border:1px solid rgba(251,191,36,0.35);cursor:pointer;background:rgba(251,191,36,0.1);color:var(--warn);">🔔 Urgent</button>` : ''}
           ${st.paired && notifOff ? `<button onclick="wcForceNotifOnBtn('${s.urn}')" style="font-size:11px;font-family:var(--mono);padding:4px 10px;border-radius:6px;border:1px solid rgba(239,68,68,0.35);cursor:pointer;background:rgba(239,68,68,0.1);color:var(--danger);">🔔 Force ON</button>` : ''}
+          ${st.paired && batteryRestricted ? `<button onclick="wcSendBatteryFixSteps('${s.urn}')" style="font-size:11px;font-family:var(--mono);padding:4px 10px;border-radius:6px;border:1px solid rgba(251,191,36,0.35);cursor:pointer;background:rgba(251,191,36,0.1);color:var(--warn);" title="Cannot be fixed remotely — pins the exact settings steps to their widget instead">🔋 Send fix steps</button>` : ''}
           <button onclick="wcToggleLessonPlanForUrn('${s.urn}')" style="font-size:11px;font-family:var(--mono);padding:4px 10px;border-radius:6px;border:1px solid var(--border);cursor:pointer;background:var(--surface2);color:var(--text);">📚 LP: ${wcLessonPlanState(s.urn)}</button>
           <button onclick="wcToggleWidgetBan('${s.urn}')" style="font-size:11px;font-family:var(--mono);padding:4px 10px;border-radius:6px;border:1px solid;cursor:pointer;
             background:${st.banned ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'};
@@ -23785,10 +23835,25 @@ function wcDeviceLine(st) {
   //     running fine even if the student hasn't opened the app portal-side.
   let faceVsReport = '';
   if (st.workerDead) {
-    faceVsReport = `<div style="margin-top:4px;font-size:10px;color:var(--danger);font-weight:700;">
-      🩺 DIAGNOSIS: last app activity ${wcAgoLabel(st.active.updatedAt)}, but last Firebase report ${wcAgoLabel(r.ts)} — the app/portal side is alive, the BACKGROUND WORKER is not.
-      <span style="color:var(--muted);font-weight:400;"> On this phone that means: Settings → Apps → Davan Student → Battery → Unrestricted, and Autostart/"Allow background activity" turned ON. Motorola, Xiaomi, Oppo and Vivo all kill background workers by default within a day or two unless this is set.</span>
-    </div>`;
+    // v8.84: sharper wording when the widget is w58+ and sent
+    // workerLastRunAt — otherwise fall back to the original v8.83 guess.
+    if (st.workerStarved === true) {
+      faceVsReport = `<div style="margin-top:4px;font-size:10px;color:var(--danger);font-weight:700;">
+        🩺 CONFIRMED: WorkManager last actually started this worker ${wcAgoLabel(r.workerLastRunAt)} — the OS itself is not invoking it, not a write failure.
+        <span style="color:var(--muted);font-weight:400;"> On this phone: Settings → Apps → Davan Student → Battery → Unrestricted, and Autostart/"Allow background activity" turned ON. Motorola, Xiaomi, Oppo and Vivo all kill background workers by default within a day or two unless this is set.</span>
+      </div>`;
+    } else if (st.workerWriteFailing === true) {
+      faceVsReport = `<div style="margin-top:4px;font-size:10px;color:var(--danger);font-weight:700;">
+        🩺 CONFIRMED: the worker IS running (last started ${wcAgoLabel(r.workerLastRunAt)}) — the Firebase write itself is what's failing.
+        ${r.lastWriteError ? `<span style="color:var(--danger);font-weight:700;"> Last error: ${String(r.lastWriteError).replace(/</g,'&lt;')}</span>` : '<span style="color:var(--muted);font-weight:400;"> No error message captured yet — check RTDB rules on davan_pub/student_widget_report and this device\'s network.</span>'}
+      </div>`;
+    } else {
+      faceVsReport = `<div style="margin-top:4px;font-size:10px;color:var(--danger);font-weight:700;">
+        🩺 DIAGNOSIS: last app activity ${wcAgoLabel(st.active.updatedAt)}, but last Firebase report ${wcAgoLabel(r.ts)} — the app/portal side is alive, the BACKGROUND WORKER is not.
+        <span style="color:var(--muted);font-weight:400;"> On this phone that means: Settings → Apps → Davan Student → Battery → Unrestricted, and Autostart/"Allow background activity" turned ON. Motorola, Xiaomi, Oppo and Vivo all kill background workers by default within a day or two unless this is set.
+        This widget hasn't updated to w58+ yet, so this is still an inference, not a confirmed cause — the sharper diagnosis above will appear once it does.</span>
+      </div>`;
+    }
   }
 
   let fault = '';
@@ -23923,6 +23988,55 @@ async function wcSendUrgent(urn) {
   } catch (e) { alert('Send failed: ' + e.message); }
 }
 
+/* ── v8.85: battery-restriction fix steps ────────────────────────────────
+   "battery restricted" (StudentDeviceHealth.batteryUnrestricted === false)
+   is NOT something any RTDB write can fix — PowerManager's battery
+   exemption is a device-local OS permission the student has to grant by
+   hand in Settings, same as location or camera permission. Force ON
+   (wcForceNotifOn) intentionally does not appear for this case because it
+   would promise a fix it cannot deliver: notifOn can be true while battery
+   optimisation still kills the scheduled alarm before it fires. This
+   reuses the same urgentMessage pin wcSendUrgent uses, but with
+   manufacturer-specific instructions pre-filled (OEM battery managers are
+   genuinely different screens per brand, not one Android setting) so the
+   admin doesn't have to type them out per student. */
+const WC_BATTERY_FIX_SNIPPETS = {
+  xiaomi:   'Settings → Apps → Manage apps → Davan Student → Battery saver → No restrictions. Also: Settings → Apps → Autostart → turn ON for Davan Student.',
+  redmi:    'Settings → Apps → Manage apps → Davan Student → Battery saver → No restrictions. Also: Settings → Apps → Autostart → turn ON for Davan Student.',
+  poco:     'Settings → Apps → Manage apps → Davan Student → Battery saver → No restrictions. Also: Settings → Apps → Autostart → turn ON for Davan Student.',
+  vivo:     'Settings → Battery → Background power consumption management → find Davan Student → Allow. Also: Settings → Apps → Autostart → turn ON for Davan Student.',
+  oppo:     'Settings → Battery → App Battery Management → Davan Student → Allow background activity.',
+  realme:   'Settings → Battery → App Battery Management → Davan Student → Allow background activity.',
+  samsung:  'Settings → Apps → Davan Student → Battery → Unrestricted (NOT "Optimized"). Also turn off "Put unused apps to sleep" for this app.',
+  motorola: 'Settings → Apps → Davan Student → Battery → Unrestricted. Also: Settings → Battery → Battery Saver → make sure Davan Student is not paused.',
+  oneplus:  'Settings → Battery → Battery optimization → Davan Student → Don\'t optimize.',
+};
+function wcBatteryFixText(manufacturer) {
+  const key = (manufacturer || '').toLowerCase().trim();
+  const specific = WC_BATTERY_FIX_SNIPPETS[key];
+  const generic = 'Open phone Settings → Apps → Davan Student → Battery → set to Unrestricted / No restrictions / Don\'t optimize (wording differs by phone). This is required for class reminders to work — Android is currently blocking them in the background.';
+  return specific ? (specific + ' This is required for class reminders to work.') : generic;
+}
+async function wcSendBatteryFixSteps(urn) {
+  const upper = urn.toUpperCase();
+  const pairCode = STATE._wcUrnToPairCode[upper];
+  if (!pairCode) { alert('This student\'s widget is not paired yet — cannot send.'); return; }
+  const st = wcGetStudentStatus(upper);
+  const manufacturer = st.report && st.report.manufacturer ? st.report.manufacturer : '';
+  const suggested = wcBatteryFixText(manufacturer);
+  const text = prompt('Steps to pin on this student\'s widget (edit if needed):', suggested);
+  if (!text || !text.trim()) return;
+  try {
+    await rtdbSet('davan_pub/student_widget_active/' + pairCode + '/urgentMessage', {
+      text: text.trim(),
+      sentAt: Date.now(),
+      ackedAt: null
+    });
+    flashWcSaved();
+    loadWidgetCtrlData();
+  } catch (e) { alert('Send failed: ' + e.message); }
+}
+
 /* ── v8.81: FORCE class reminders ON (remote flag, no rebuild) ──────────
    notifOn is a LOCAL, on-device toggle the widget owns — the portal only
    ever READ it (via davan_pub/student_widget_report/<pairCode>.notifOn).
@@ -23972,6 +24086,47 @@ async function wcForceNotifOnAllFiltered() {
     if (r.ok) ok++; else failed++;
   }));
   alert('Requested for ' + ok + ' widget(s)' + (failed ? (', ' + failed + ' failed') : '') + '.\n\nTakes effect on each phone\'s next sync (within 30 min), once the widget app is updated to read this flag.');
+  flashWcSaved();
+  loadWidgetCtrlData();
+}
+
+// v8.85: bulk version of wcSendBatteryFixSteps — same one-message-per-
+// manufacturer lookup as the single-student version, batched. Unlike
+// wcForceNotifOnAllFiltered this cannot be a silent background write: it
+// pins a VISIBLE message to each student's widget face, so it asks for
+// confirmation with the exact text up front rather than composing 40
+// different prompts.
+async function wcSendBatteryFixStepsAllFiltered() {
+  const targets = wcLiveStudents().filter(s => {
+    const st = wcGetStudentStatus(s.urn);
+    return st.paired && !st.stale && st.report && st.report.batteryUnrestricted === false;
+  });
+  if (!targets.length) { alert('No students with battery-restricted reminders right now.'); return; }
+  // Group by manufacturer so the confirm dialog shows what will actually
+  // be sent, not a wall of 40 near-identical prompts.
+  const byMake = {};
+  targets.forEach(s => {
+    const st = wcGetStudentStatus(s.urn);
+    const mk = (st.report && st.report.manufacturer) || 'unknown';
+    (byMake[mk] = byMake[mk] || []).push(s);
+  });
+  const preview = Object.keys(byMake).map(mk => mk + ' (' + byMake[mk].length + '): ' + wcBatteryFixText(mk === 'unknown' ? '' : mk).slice(0, 90) + '…').join('\n\n');
+  if (!confirm('Send battery-fix steps to ' + targets.length + ' student(s), grouped by phone brand:\n\n' + preview + '\n\nProceed?')) return;
+  let ok = 0, failed = 0;
+  await Promise.all(targets.map(async s => {
+    const upper = s.urn.toUpperCase();
+    const pairCode = STATE._wcUrnToPairCode[upper];
+    if (!pairCode) { failed++; return; }
+    const st = wcGetStudentStatus(upper);
+    const text = wcBatteryFixText((st.report && st.report.manufacturer) || '');
+    try {
+      await rtdbSet('davan_pub/student_widget_active/' + pairCode + '/urgentMessage', {
+        text: text, sentAt: Date.now(), ackedAt: null
+      });
+      ok++;
+    } catch (e) { failed++; }
+  }));
+  alert('Sent to ' + ok + ' widget(s)' + (failed ? (', ' + failed + ' failed') : '') + '.');
   flashWcSaved();
   loadWidgetCtrlData();
 }
