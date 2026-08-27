@@ -19022,6 +19022,19 @@ function renderInternalsTimetable() {
   wrapEl.innerHTML = seatBanner + intRenderTable(viewData);
 }
 
+// Shared by stuRenderSeatBanner() and intRenderTable() below: some source
+// data (pasted/imported timetables) marks an empty slot with a literal
+// placeholder like "—", "-", "--", or "N/A" instead of leaving the subject
+// field blank. Treated as a real subject, that makes an empty slot look
+// "filled" — e.g. the seat banner would print "(⏰ 2:45pm to 3:45pm)" with
+// no subject name for a time nothing is actually scheduled. Normalize any
+// such placeholder to '' so every place that reads a subject agrees on
+// what counts as "nothing scheduled here".
+function isBlankSubject(v) {
+  const t = String(v || '').trim();
+  return !t || /^[-\u2010-\u2015\u2212]+$/.test(t) || /^(n\/?a)$/i.test(t);
+}
+
 // Personal-only banner: "where do I physically sit" for the CURRENT internal.
 // Source: STATE.mySitting, fetched from davan_pub/sitting_by_urn/{myURN} — a
 // per-student fanout (sync_db1_to_db2.py v2.5.0+) that only ever contains the
@@ -19110,9 +19123,30 @@ function stuRenderSeatBanner(internalsData, myBatch) {
   };
   const allSlots = Array.isArray(internalsData && internalsData.slots) ? internalsData.slots : [];
   const slotsForDate = date => allSlots
-    .filter(s => s && s.date === date && (!myBatch || s.batch_name === myBatch))
+    .filter(s => s && s.date === date && (!myBatch || s.batch_name === myBatch) && !isBlankSubject(s.subject))
     .slice()
     .sort((a, b) => _timeLabelSortKey(a) - _timeLabelSortKey(b));
+
+  // Faculty lookup for the seat banner's exam slots. The internal-exam
+  // timetable itself (internalsData.slots) carries no faculty field — it
+  // only has {date, time_label, batch_name, subject}. Faculty is looked up
+  // instead from the existing allocation source already loaded for this
+  // student, STATE.studentData.subjects, where each entry carries
+  // facultyDI/facultyNU/faculty for that subject. Matched by normalized
+  // subject NAME rather than code, since the timetable stores plain names
+  // ("Business Ethics") while subjects[] is keyed by subject code — name is
+  // the only field both sides share. Built once per render, not per slot.
+  const _normSubj = s => String(s || '').toLowerCase().trim().replace(/\s+/g, ' ').replace(/[.\-]/g, '');
+  const _myFacIsDI = STATE.studentUser && (STATE.studentUser.urn || '').toUpperCase().includes('DI');
+  const _mySubjects = (STATE.studentData && STATE.studentData.subjects) || [];
+  const _facultyByName = {};
+  _mySubjects.forEach(sub => {
+    const nm = _normSubj(STU_KLU(sub.code || '') || fixSubjectName(sub.subject) || sub.subject || '');
+    if (!nm) return;
+    const fac = _myFacIsDI ? (sub.facultyDI || sub.faculty || '') : (sub.facultyNU || sub.faculty || '');
+    if (fac) _facultyByName[nm] = fac;
+  });
+  const facultyForSubject = subjectName => _facultyByName[_normSubj(subjectName)] || '';
 
   let bodyHtml;
   if (perDay.length) {
@@ -19134,11 +19168,13 @@ function stuRenderSeatBanner(internalsData, myBatch) {
     const rows = perDay.map((d, i) => {
       const daySlots = d.date ? slotsForDate(d.date) : [];
       const subjectCell = daySlots.length
-        ? daySlots.map(s =>
-            '<div style="margin:2px 0;">' + (s.subject || '') +
-            (s.time_label ? ' <span style="color:var(--muted);font-size:11px;">(⏰ ' + s.time_label + ')</span>' : '') +
-            '</div>'
-          ).join('')
+        ? daySlots.map(s => {
+            const fac = facultyForSubject(s.subject);
+            return '<div style="margin:2px 0;">' + (s.subject || '') +
+              (s.time_label ? ' <span style="color:var(--muted);font-size:11px;">(⏰ ' + s.time_label + ')</span>' : '') +
+              (fac ? '<div style="font-size:11px;color:var(--muted);margin-top:1px;">' + spFacLabel(fac, 16) + '</div>' : '') +
+              '</div>';
+          }).join('')
         : '<span style="color:var(--muted);">—</span>';
       return '<tr>' +
         '<td style="padding:8px 12px;white-space:nowrap;vertical-align:top;">Day ' + (i + 1) + '</td>' +
@@ -19220,7 +19256,8 @@ function intRenderTable(data) {
 
   function getSubject(date, timeLabel, batchName) {
     const s = slots.find(s => s.date===date && s.time_label===timeLabel && s.batch_name===batchName);
-    return s?.subject || '';
+    const subj = s?.subject || '';
+    return isBlankSubject(subj) ? '' : subj;
   }
 
   const batchOverrides = data.batch_overrides || {};
@@ -19272,7 +19309,7 @@ function intRenderTable(data) {
       const dayTimes = times.filter(t =>
         batchList.some((b, ci) => {
           const effBatch = getEffectiveBatch(batchList, ci, date, t);
-          return slots.find(s => s.date===date && s.time_label===t && s.batch_name===effBatch);
+          return !isBlankSubject(getSubject(date, t, effBatch));
         })
       );
       if (!dayTimes.length) return;
