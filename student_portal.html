@@ -38,6 +38,19 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v8.92 (2026-08-28) — REAL ROOT CAUSE of "broadcast shows on
+every refresh" found — v8.91's fix only covered the dashboard-LOAD call
+site (~line 16091). A SEPARATE, second call site — the live-poll tick
+loop (_liveFeedTick() ~line 17030) that runs continuously "for the life
+of the tab" — was guarded only by `let _lastBroadcastTs = 0`, a plain JS
+variable that resets to 0 on every page refresh (JS memory does not
+survive a reload). So after any refresh, this second listener's very
+next tick saw the same already-shown broadcast as "new" again and
+re-fired it, completely bypassing the v8.91 fix. Both call sites now
+read/write the SAME sessionStorage key (davan_broadcast_seen_ts) —
+_lastBroadcastTs is seeded from it on load instead of starting at 0, and
+the live-poll path writes to it too when it fires. A broadcast now
+displays once per session across BOTH code paths, not once per path.
 VERSION : v8.91 (2026-08-28) — 2 broadcast-toast bugs fixed. (1)
 [#broadcast-toast CSS ~3523] z-index raised above #welcome-toast (9000→
 10100, backdrop 8999→10099) — the post-login welcome popup could render
@@ -4237,7 +4250,7 @@ body.dash-active .data-strip { display: block; }
         <div id="bell-list" style="max-height:360px;overflow-y:auto;padding:8px 0;"></div>
       </div>
     </div>
-    <span id="topbar-version">Portal v8.91</span>
+    <span id="topbar-version">Portal v8.92</span>
     </div><!-- /topbar-right -->
   </div><!-- /topbar-row1 -->
   <!-- Row 2: Student info — shown after login -->
@@ -4409,7 +4422,7 @@ body.dash-active .data-strip { display: block; }
   <footer>
     <div class="footer-inner">
       <div class="footer-copy">© 2026 <strong>Davan Institute of Advanced Management Studies</strong></div>
-      <div class="footer-meta" id="login-footer-meta-1">Version: v8.91  ·  Updated: 28 Aug 2026, IST</div>
+      <div class="footer-meta" id="login-footer-meta-1">Version: v8.92  ·  Updated: 28 Aug 2026, IST</div>
       <div class="footer-built">Built by <strong style="color:#f0a500;">Harsha Gujjar</strong>, Director — Davan College</div>
     </div>
   </footer>
@@ -4494,7 +4507,7 @@ body.dash-active .data-strip { display: block; }
   <footer>
     <div class="footer-inner">
       <div class="footer-copy">© 2026 <strong>Davan Institute of Advanced Management Studies</strong></div>
-      <div class="footer-meta" id="login-footer-meta-2">Version: v8.91  ·  Updated: 28 Aug 2026, IST</div>
+      <div class="footer-meta" id="login-footer-meta-2">Version: v8.92  ·  Updated: 28 Aug 2026, IST</div>
       <div class="footer-built">Built by <strong style="color:#f0a500;">Harsha Gujjar</strong>, Director — Davan College</div>
     </div>
   </footer>
@@ -4970,7 +4983,7 @@ body.dash-active .data-strip { display: block; }
 
     <div class="portal-footer">
       <div class="footer-copy">© 2026 <strong>Davan Institute of Advanced Management Studies</strong></div>
-      <div class="footer-meta" id="stu-footer-meta">Version: v8.91  ·  Updated: 28 Aug 2026, IST</div>
+      <div class="footer-meta" id="stu-footer-meta">Version: v8.92  ·  Updated: 28 Aug 2026, IST</div>
       <div class="footer-meta" id="stu-footer-scrape">🕐 Data last scraped: —</div>
       <div class="footer-built">Built by <strong style="color:#f0a500;">Harsha Gujjar</strong>, Director — Davan College</div>
     </div>
@@ -6582,7 +6595,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.91';
+const APP_VERSION = 'v8.92';
 const BUILD_DATE   = '28 Aug 2026, IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -16988,7 +17001,20 @@ const LIVE_FEED_URL = '';
 const LIVE_POLL_MS  = 60000;   // was 10000 — see note above
 
 let _broadcastPollTimer = null;
-let _lastBroadcastTs = 0;
+// v8.9x: BUGFIX — was `let _lastBroadcastTs = 0;`, reset to 0 on every
+// page load/refresh (plain JS memory does not survive a refresh). The
+// live-poll listener below (~line 17024) only compares against THIS
+// variable, so after any refresh it saw the same already-shown broadcast
+// as "new" again on its very next tick and re-fired the toast — this was
+// the actual remaining cause of "shows on every refresh" even after the
+// first (dashboard-load-path) fix at ~line 16091, since that fix's
+// sessionStorage guard only covered the OTHER call site, not this
+// continuously-polling one. Now seeded from the same sessionStorage key
+// both call sites share, so a refresh correctly remembers what was
+// already shown instead of starting this counter over from 0.
+let _lastBroadcastTs = (function() {
+  try { return parseInt(sessionStorage.getItem('davan_broadcast_seen_ts') || '0', 10) || 0; } catch(e) { return 0; }
+})();
 let _liveVisHooked = false;
 
 // One fetch for BOTH nodes. Via the Worker that is a single request
@@ -17033,7 +17059,15 @@ async function _liveFeedTick() {
               && (!(data.passoutClasses && data.passoutClasses.length) || data.passoutClasses.includes(cls)))
         || (data.target==='class' && data.targetValue===cls)
         || (data.target==='urn'   && data.targetValue===urn);
-      if (shows) showBroadcastToast(data.msg);
+      if (shows) {
+        showBroadcastToast(data.msg);
+        // v8.9x: keep sessionStorage in sync too, in case this live-poll
+        // path is the one that fires the very first display (e.g. a
+        // broadcast sent while already on the dashboard, before any
+        // reload) — both call sites now share one consistent record of
+        // what's already been shown.
+        try { sessionStorage.setItem('davan_broadcast_seen_ts', String(data.ts)); } catch(e) {}
+      }
     }
 
     /* v8.05: the banner is now evaluated on EVERY tick, not only when a
