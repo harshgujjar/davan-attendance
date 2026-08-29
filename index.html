@@ -14741,11 +14741,113 @@ function renderSubjectExemptions() {
   const cnt  = document.getElementById('exs-count');
   if (cnt) cnt.textContent = list.length;
   const picker = document.getElementById('exs-pick');
-  if (picker && allStudents && allStudents.length) {
-    const allSubjects = [...new Set(allStudents.flatMap(s => (s.subjects||[]).map(sub => sub.subject).filter(Boolean)))].sort();
-    picker.innerHTML = '<option value="">— Pick a subject to exempt —</option>' +
-      allSubjects.filter(sub => !list.some(e => e.toLowerCase()===sub.toLowerCase()))
-        .map(sub => `<option value="${sub}">${sub}</option>`).join('');
+  // v1307 FIX, real bug reported live with a side-by-side comparison
+  // screenshot: several real subjects visible in Create/Edit's own picker
+  // were missing here. ROOT CAUSE: v1306 sourced this picker's subject
+  // list from allStudents[].subjects — subjects attached to individual
+  // STUDENT attendance records — not the actual course curriculum, so a
+  // real subject with a real assigned faculty could be completely
+  // invisible here if it simply had not (yet, or ever) been populated
+  // onto every student's own per-student subjects array, independent of
+  // whether it genuinely exists and is taught. FIX: switched the whole
+  // subject/grouping source to LM_ALLOCATIONS directly — the SAME
+  // authoritative course-curriculum source Create/Edit's own picker
+  // (intGetSubjectsForBatch()) already reads from — so this picker can no
+  // longer disagree with what Create/Edit shows. Confirmed explicitly with
+  // admin: UNLIKE Create/Edit (which excludes lab subjects, since it is
+  // scoped to real exam slots), this picker deliberately keeps lab
+  // subjects visible — this is about attendance exemptions broadly, not
+  // exam scheduling, so no lab filter was added here.
+  // v1308 FIX, real bug reported live with a screenshot + direct confirmation:
+  // v1307 correctly widened the subject SOURCE to the full LM_ALLOCATIONS
+  // curriculum, but that surfaced a different real problem the admin caught
+  // immediately — II BBA subjects with a genuinely blank faculty field
+  // (confirmed via a live F12 read of the admin's own real data:
+  // {course:"BBA", sem:"III", faculty:""} for every one of them) were
+  // showing up even though, per the admin, "we dont have students so no
+  // classes only" — this course/year has zero real students enrolled this
+  // academic year, so LM_ALLOCATIONS still carrying old/template rows for
+  // it should not surface here as if it were a real, currently-exemptable
+  // subject. Per explicit admin instruction: "show subject which r there in
+  // this ay and subject which attendende is taken like orientaion prog etc"
+  // — a subject should show if EITHER (a) real, currently-enrolled students
+  // exist for that course+year (checked directly against allStudents, not
+  // assumed from LM_ALLOCATIONS alone), OR (b) that specific subject
+  // already has real attendance data recorded somewhere in allStudents[]
+  // .subjects, which covers a subject like an orientation program that may
+  // not cleanly map to a normal course+year group at all.
+  const _exsActiveCourseYears = new Set(); // "II BBA" -> has real enrolled students
+  // v1308.1 FIX (caught by my own test before shipping — a same-named
+  // subject shared across two different courses, one active and one not,
+  // was incorrectly leaking the active course's real attendance onto the
+  // INACTIVE course's identically-named subject, e.g. "Cost Accounting"
+  // genuinely active under II BCom incorrectly made II BBA's own separate
+  // "Cost Accounting" allocation row look active too, purely by name
+  // collision): this Set is now scoped per "groupLabel|subjectName" pair,
+  // not the bare subject name alone, so a real attendance record only
+  // counts as proof-of-activity for the SAME course+year it was actually
+  // recorded under.
+  const _exsSubjectsWithRealAttendance = new Set(); // "II BCom|Cost Accounting" -> has real recorded attendance THIS group
+  if (typeof allStudents !== 'undefined' && allStudents && allStudents.length) {
+    allStudents.forEach(s => {
+      const parsed = (typeof _strParseClass === 'function') ? _strParseClass(s.class) : null;
+      if (!parsed || !parsed.course || !parsed.yearNum) return;
+      const yr = { 1:'I', 2:'II', 3:'III' }[parsed.yearNum] || String(parsed.yearNum);
+      const groupLabel = `${yr} ${parsed.course}`;
+      _exsActiveCourseYears.add(groupLabel);
+      (s.subjects || []).forEach(sub => { if (sub.subject) _exsSubjectsWithRealAttendance.add(`${groupLabel}|${sub.subject}`); });
+    });
+  }
+  if (picker && typeof LM_ALLOCATIONS !== 'undefined' && LM_ALLOCATIONS && LM_ALLOCATIONS.length) {
+    // sem on an allocation row is already a roman numeral string (I, II,
+    // III, IV, V, VI) — confirmed by reading how Create/Edit's own picker
+    // and _paGetFaculty() both already compare against it directly
+    // (a.sem === semRoman) — so the year label is a direct lookup, no
+    // numeric round-trip needed.
+    const _semToYearRoman = { I:'I', II:'I', III:'II', IV:'II', V:'III', VI:'III' };
+    const _semToNum = { I:1, II:2, III:3, IV:4, V:5, VI:6 };
+    const groups = {}; // "I BBA" -> Map(subjectName -> facultyName)
+    const groupOrder = [];
+    LM_ALLOCATIONS.forEach(a => {
+      const course = a.course, subjName = a.subject;
+      if (!course || !subjName) return;
+      const yearRoman = _semToYearRoman[a.sem] || '';
+      if (!yearRoman) return; // unrecognized sem value — skip rather than guess a group
+      const groupLabel = `${yearRoman} ${course}`;
+      // v1308: skip a subject entirely unless it is genuinely active this
+      // academic year — either its whole course+year group has real
+      // enrolled students, or THIS SAME course+year group already has real
+      // recorded attendance for this specific subject name (scoped per
+      // group, not the bare subject name globally — see v1308.1 comment
+      // above: an identically-named subject under a genuinely INACTIVE
+      // course must not ride in on a different, active course's real
+      // attendance for the same name).
+      const isActive = _exsActiveCourseYears.has(groupLabel) || _exsSubjectsWithRealAttendance.has(`${groupLabel}|${subjName}`);
+      if (!isActive) return;
+      if (!groups[groupLabel]) { groups[groupLabel] = new Map(); groupOrder.push(groupLabel); }
+      if (groups[groupLabel].has(subjName)) return; // first faculty found per subject+group wins
+      const faculty = (typeof _paGetFaculty === 'function')
+        ? _paGetFaculty(subjName, course, _semToNum[a.sem] || 1, a.section || 'A')
+        : (a.faculty || '');
+      groups[groupLabel].set(subjName, (faculty && faculty !== '—') ? faculty : '');
+    });
+    groupOrder.sort();
+
+    const optgroups = groupOrder.map(groupLabel => {
+      const subjMap = groups[groupLabel];
+      const subjNames = [...subjMap.keys()]
+        .filter(sub => !list.some(e => e.toLowerCase() === sub.toLowerCase()))
+        .sort();
+      if (!subjNames.length) return '';
+      const options = subjNames.map(sub => {
+        const fac = subjMap.get(sub);
+        const label = fac ? `${sub} — ${fac}` : sub;
+        return `<option value="${sub}">${label}</option>`;
+      }).join('');
+      return `<optgroup label="${groupLabel}">${options}</optgroup>`;
+    }).join('');
+
+    picker.innerHTML = '<option value="">— Pick a subject to exempt —</option>' + optgroups;
   }
   if (!wrap) return;
   if (!list.length) { wrap.innerHTML='<div class="empty"><div class="empty-icon">📚</div>No subjects exempted yet.</div>'; return; }
@@ -14947,7 +15049,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1305;  // always = HTML footer version number
+const CODE_BUILD = 1310;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '27-Aug-2026', time: '00:00', full: '27-Aug-2026 00:00 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -25292,6 +25394,11 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1310', date: '29-Aug-2026 IST', note: 'NEW per explicit admin follow-up: "if this happen in future how to know who has been cleared from this list" -- the +1/+2 rule engine (iarAutoApplyBatch, index.html ~35759) has always permanently recorded every subject it auto-clears into ia_ta with a real setAt timestamp and appliedBy:"rule" tag, and IA Ledger already reads that same storage -- but a rule-applied entry only ever showed as tiny inline text (" rule auto" vs " manual") easy to miss next to a manual entry, with no date shown at all, which is exactly why finding out who was recently auto-cleared previously required an F12 diagnostic rather than just looking at the page. FIX: [ialRender() index.html ~36429] each Ledger entry now shows a real visible badge -- blue "System (rule)" for an auto-applied entry, grey "Manual" for an admin-set one -- with the actual date it happened appended directly on the badge (e.g. "System (rule) - 29 Aug 2026"), using the exact same entry.appliedBy/entry.setAt fields that were already being saved this whole time, just never surfaced clearly. No new storage or logging was needed -- this was a display-only fix, since the real data has been there since the rule engine was first built. VERIFIED: isolated Node test confirms the correct badge text and date format for a real rule-applied entry (matching the exact real data traced for a students earlier IA session), confirms a manual entry displays correctly too, and confirms an entry with no timestamp at all degrades cleanly to just the badge label with no stray separator character. Shipped logic confirmed to match the tested output exactly. node --check clean on the containing script block. CODE_BUILD=1310.' },
+  { v: 'v1309', date: '29-Aug-2026 IST', note: 'CRITICAL FIX -- Final Shortage own "FACULTY WITH MOST SHORTAGE" ranking showed "Unassigned / Unknown 128 instances - 29 students" as its TOP entry, ahead of every real named faculty member. Traced live via an F12 diagnostic dump of every individual unassigned instance (128 became 148 by the time of the actual dump, more shortage having accumulated in between) -- the dump showed EVERY SINGLE SUBJECT for EVERY ONE of 34 affected students unmatched, and all of them shared Sem1 classes (Davan-BCom-Sem1-SecA, Davan-BCA-Sem1-SecA) -- the real signal this was a whole-semester matching failure, not scattered individual data gaps. ROOT CAUSE: [iaeFacultyForSubject() index.html ~36884, the SINGLE SHARED function both iaeFacultyRanking() (IA Raw panel) and iarFacultyRankingRuled() (this Final Shortage panel) both call for every shortage instance] builds a semTokens array meant to match a real class label like "Davan-BCom-Sem1-SecA" -- but LM_ALLOCATIONS a.sem field is stored as a ROMAN NUMERAL string ("I","II","III" etc, confirmed repeatedly elsewhere in this file -- Create/Edit own picker and _paGetFaculty() both already compare a.sem directly against a roman numeral), while this function only ever stripped a literal "Sem" text prefix and never actually converted the roman numeral to the DIGIT form real class labels use. A Sem I allocation row produced tokens ["i","semi"], which can never appear as a substring of "...sem1..." no matter how many students or subjects were checked -- so this silently broke EVERY Sem 1/2/3-numbered classs faculty lookup this whole time; the faculty genuinely WAS recorded correctly in LM_ALLOCATIONS the entire time, this function simply could never find the matching row. FIX: [index.html ~36884] added a direct roman-to-digit conversion map (matching the same convention _strParseClass()/intGetSubjectsForBatch() already use elsewhere in this file) before building match tokens, so the generated tokens now correctly include the real digit form a class label actually contains, alongside the original roman-numeral tokens kept as a defensive fallback for any row that might already store a plain digit. Since both panels ranking functions share this one function, a single fix corrects "Unassigned / Unknown" on both IA Raw and Final Shortage at once -- confirmed via grep that no second, independently-duplicated copy of this matching logic exists anywhere else. VERIFIED: isolated Node harness against the admin own exact real failing case (Davan-BCom-Sem1-SecA / English, and Davan-BCA-Sem1-SecA / Kannada, both genuinely allocated with real faculty under sem:"I") -- confirms both now correctly resolve to their real faculty names instead of falling through to unassigned; a regression suite confirms higher semesters (Sem III via sem:"III") still resolve correctly exactly as before, confirms a genuinely non-existent subject still correctly returns null rather than a false match, and confirms a real allocation row with a genuinely blank faculty field still correctly returns null rather than a broken match. Shipped conversion map confirmed to match the tested logic exactly. node --check clean on the containing script block. ACTION: the Final Shortage / IA Raw "FACULTY WITH MOST SHORTAGE" ranking will now correctly redistribute what was showing as "Unassigned / Unknown" onto the real faculty who actually teach those Sem 1/2/3 subjects -- re-open the report to see the corrected ranking. CODE_BUILD=1309.' },
+  { v: 'v1308', date: '29-Aug-2026 IST', note: 'FIX, traced live via a direct F12 read of the admin own real data: v1307 correctly widened Exempted Subjects to the full LM_ALLOCATIONS curriculum (fixing missing subjects), but that surfaced a real, separate problem the admin caught immediately -- II BBA subjects with a genuinely blank faculty field (confirmed: {course:"BBA", sem:"III", faculty:""} for every one of them) were showing up even though, per the admin, that course-year has zero real students enrolled this academic year ("we dont have students so no classes only"). LM_ALLOCATIONS still carries old/template rows for a course-year with no current intake, and v1307 had no way to distinguish those from a genuinely active one. FIX per explicit admin instruction ("show subject which r there in this ay and subject which attendende is taken like orientaion prog etc"): [renderSubjectExemptions() index.html ~14738] a subject now only shows if EITHER its whole course+year group has real, currently-enrolled students (checked directly against allStudents via _strParseClass, not assumed from LM_ALLOCATIONS), OR that exact subject already has real recorded attendance under THAT SAME course+year group specifically -- covers a subject like an orientation program that may not cleanly map to a normal course+year. A REAL CROSS-CONTAMINATION BUG was caught by my own test before shipping, not by the admin: the first version of this fix checked "has real attendance anywhere" by bare subject name only -- an identically-named subject shared across two courses (e.g. "Cost Accounting" genuinely active under II BCom) incorrectly made the SAME-NAMED but genuinely inactive II BBA "Cost Accounting" look active too, purely by name collision, completely defeating the fix for the exact case it was built for. Fixed by scoping the real-attendance check to "groupLabel|subjectName" pairs instead of the bare subject name globally, so a course real attendance can never leak onto a different, inactive course sharing the same subject name. VERIFIED: isolated Node harness reproducing the admin exact real scenario (II BBA has zero real students, all its LM_ALLOCATIONS rows carry blank faculty; II BCom has real students and a real "Cost Accounting" allocation with real faculty; both courses coincidentally share the exact subject name "Cost Accounting") -- confirms II BBA is now correctly ABSENT entirely (both from having students and from any cross-course attendance leak), confirms II BCom is correctly present with its correct real faculty, and confirms II BBA own "Business Law" (which never had any real attendance anywhere) is correctly excluded too. This test suite is what caught and forced the cross-contamination fix above before it ever reached the admin. Shipped scoped check confirmed to match the corrected tested logic exactly. node --check clean on the containing script block. CODE_BUILD=1308.' },
+  { v: 'v1307', date: '29-Aug-2026 IST', note: 'FIX, confirmed via a real side-by-side screenshot comparison against Create/Edits own picker: several real subjects with real assigned faculty were missing from the Exempted Subjects picker introduced in v1306. ROOT CAUSE: v1306 sourced the whole subject/grouping list from allStudents[].subjects -- subjects attached to individual STUDENT attendance records -- not the actual course curriculum. A real, currently-taught subject with a real faculty could be completely invisible here if it simply had not been populated onto every students own per-student subjects array yet, independent of whether it genuinely exists and is being taught -- exactly matching the admin own reported gap. FIX: [renderSubjectExemptions() index.html ~14738] whole subject source switched to LM_ALLOCATIONS directly -- the SAME authoritative course-curriculum source Create/Edits own picker (intGetSubjectsForBatch()) already reads from -- so this picker can no longer disagree with what Create/Edit shows for the same course. Year+course grouping now derived directly from each allocation rows own sem field (already a roman numeral string, I through VI, confirmed by how the existing _paGetFaculty() helper compares against it) via a direct roman-sem-to-roman-year map, rather than re-deriving it from a student class string. Confirmed explicitly with admin: UNLIKE Create/Edit (which deliberately excludes lab subjects, since it is scoped to real exam slots only), this picker keeps lab subjects fully visible -- this is about attendance exemptions broadly, not exam scheduling, so no lab filter was added, a conscious difference from Create/Edits own picker rather than an oversight. VERIFIED: isolated Node harness against a realistic II BCom curriculum including a subject deliberately absent from any student record (matching the real reported gap) -- confirms that subject now correctly appears with its real faculty name, confirms a lab subject stays visible and is not filtered out, confirms the sem-to-year mapping correctly resolves Sem III to II BCom, and confirms every other real subject still resolves to its correct real faculty. Shipped function confirmed to match the tested logic exactly. node --check clean on the containing script block. CODE_BUILD=1307.' },
+  { v: 'v1306', date: '29-Aug-2026 IST', note: 'NEW per explicit admin request: the Exempted Subjects picker (a plain flat alphabetical list of bare subject names with zero context, "hidden from all attendance analysis") now groups subjects under their real course+year (e.g. "I BBA", "I BCom", "III BCA") with the real teaching faculty name shown alongside each one ("English — Harsha"), matching the admin own requested layout exactly. [renderSubjectExemptions() index.html ~14738] rebuilt to walk allStudents, parse each real class string into course/year/section/sem via the EXISTING _strParseClass() helper (already proven throughout this app, e.g. Roster), group subjects into a Map per course+year label, and resolve each subjects real faculty via the EXISTING _paGetFaculty(subjectName, course, semNum, secLetter) lookup -- reused rather than reimplemented, so this picker can never disagree with what that same fuzzy subject-matching + course/sem/section fallback chain already returns anywhere else it is used. Renders as native HTML <optgroup> sections so the browsers own dropdown shows real visual course headers. A subject genuinely taught across more than one course (e.g. English to both I BBA and I BCom) is deliberately listed once PER COURSE group -- for browsing under the right course -- but the underlying exemption itself stays keyed purely by subject NAME, unchanged existing behaviour ("hidden from all attendance analysis" is global, not per-course), so picking either course own instance of a subject exempts that name everywhere exactly as before; confirmed the two courses can resolve to genuinely DIFFERENT faculty for the identically-named subject and both are shown correctly, not silently merged. A local roman-numeral year map was added inside this function specifically rather than reusing the Roster modules own SIT_ROMAN_YEAR constant, since that constant lives in a different <script> block and would have been unreliably undefined here across the block boundary. A subject with no matching allocation row (or a blank faculty field) correctly falls back to showing just the bare subject name with no trailing artifact, never a stray literal dash. VERIFIED: isolated Node harness against a realistic multi-course dataset (I BBA, I BCom, III BCA, with English taught to both I BBA and I BCom by two different real faculty) -- confirms all three real course groups form correctly, confirms English correctly resolves to two DIFFERENT faculty names depending on which course group it is under, confirms duplicate student records do not produce duplicate or corrupted entries, and confirms both a genuinely faculty-less subject and a blank-faculty-field allocation row both correctly degrade to a clean bare subject name. Shipped function confirmed to match the tested logic exactly. node --check clean on the containing script block. CODE_BUILD=1306.' },
   { v: 'v1305', date: '29-Aug-2026 IST', note: 'CRITICAL FIX -- a Permanent Exception set on Auto Duty (admin confirmed via direct F12 checks against both INT_DATA in-memory cache AND Firestore itself: both genuinely showed permanentExceptions:[] after the fact) disappeared after the admin edited the SAME Internal in Create/Edit afterward -- this is the SAME underlying bug class the v1285 fix already caught and fixed once, but v1285 missed ONE of the two call sites it needed to cover. ROOT CAUSE: [intSyncFromCalendar-adjacent Calendar Sync date-remap function index.html ~47776] -- the actual Firestore write on this line was ALREADY correctly merge-safe (set(payload,{merge:true}), fixed in v1285), but the very next line, INT_DATA[docId] = payload, was a WHOLESALE REPLACEMENT of the in-memory cache, not a merge -- payload never includes duty_auto, so immediately after a correct, safe Firestore write, this line silently wiped duty_auto (permanentExceptions, exceptions, maxOverrides, counts, days) out of the in-memory cache anyway. A LATER genuine save from Create/Edit -- itself also correctly merge-safe per v1285 -- only ever merges against whatever THIS cache already holds; once the cache lost duty_auto here, that later save would faithfully persist the now-duty_auto-less snapshot back to Firestore for real, genuinely destroying the setting in the database, exactly matching both F12 confirmations. v1285 fixed this identical pattern for intSave()own matching cache line right next to its Firestore write, but this second, separate Calendar Sync call site doing the exact same payload shape was never updated to match. FIX: [index.html ~47801] INT_DATA[docId] now spread-merges against `data` -- the FRESH document this function already holds from the Firestore query that ran a few lines earlier in the same function, deliberately chosen over merging against the possibly-independently-stale INT_DATA[docId] cache itself -- so duty_auto (and anything else this function never touches) survives untouched, while the genuinely new fields (remapped dates/slots) still correctly apply. VERIFIED: isolated Node harness reproducing the exact v1285 verification scenario (a realistic document with duty_auto.permanentExceptions=["Gnaneshwari. S. A"], counts, and days already set) confirms the OLD line genuinely loses duty_auto entirely, confirms the NEW line correctly preserves it byte for byte including permanentExceptions and counts, and confirms the actual PURPOSE of Calendar Sync -- new remapped dates/slots and updated meta -- still correctly applies on top, so the fix does not regress the sync feature itself. Grepped every remaining "internals" collection payload write in the file to confirm no third unfixed call site of this same pattern exists. node --check clean on the containing script block. ACTION: same as v1285 -- no data recovery possible for a permanent exception already lost to this specific Calendar Sync path before this fix; re-mark it once on this build and it will now survive correctly. CODE_BUILD=1305.' },
   { v: 'v1304', date: '29-Aug-2026 IST', note: 'TWO REAL BUGS, both found via live diagnostic collaboration against the admin own device after v1303 turned out not to be the whole fix. (1) "1 unfilled: no eligible faculty pool" STILL SHOWING after v1303: a fresh F12 check confirmed sdData_exists:false with ZERO localStorage backup either, while LM_ALLOCATIONS loaded fine (79 entries) from the SAME Promise.all() batch -- this is NOT the v1303 timing race (which only helps when data is still loading), this is Staff Directory genuinely never having loaded at all this session, for reasons not fully traceable from here (possibly a partial Promise.all() outcome, possibly the document read resolving falsy for this login context) -- rather than keep guessing at the root cause with no way to reproduce it directly, fixed the actual failure mode instead: [dutyAllocateForInternal() index.html ~55925] now, if sdData is still missing after the existing v1303 wait, ACTIVELY FETCHES the Staff Directory document directly (same read staffDirectoryRender() itself performs, db.collection(app_data).doc(staff_directory).get()) so a genuinely-never-loaded sdData self-heals the moment Re-Run is clicked, instead of requiring the admin to separately open the Staff Directory panel first (an easy-to-miss workaround) just to make Auto Duty function. (2) "Trupti j" HAD REAL DUTIES ASSIGNED (visible in Total Duties this Internal, confirming she IS a real, eligible faculty member via sdData) but was COMPLETELY MISSING from the Permanent Exception "+ Add faculty" dropdown, confirmed via a real admin screenshot. ROOT CAUSE: that dropdown (and the identical one in the legacy intRenderDutyAdmin panel) was built from LM_FACULTIES -- a STATIC, hand-typed array (index.html ~26489) frozen at whatever 20 names existed when someone last manually edited it in the source code -- a completely separate, disconnected list from the real, live, editable Staff Directory (sdData) that dutyGetEligiblePool() itself actually uses for real eligibility. Any faculty added to Staff Directory after that hardcoded array was last hand-updated could be correctly assigned real duty by the allocator, yet be un-selectable in this one dropdown. FIX: [intRenderDutyAutoCard() index.html ~52567] and [intRenderDutyAdmin() index.html ~53151] both now build ALL_FAC via the EXISTING lmGetFaculties() helper (index.html ~33026, already used elsewhere in this app for exactly this "live merged faculty list" purpose -- Staff Directory fulltime+visiting, plus names already used in allocations, plus manually-added custom names, deduped and sorted) instead of the stale hardcoded array, with the old array kept only as a graceful fallback if that helper is somehow unavailable, so this can never regress to a hard-empty list. VERIFIED: isolated Node harness confirms the direct-fetch fallback correctly does nothing when sdData is already fine, correctly self-heals (Trupti j becomes selectable) when sdData is missing and the fetch succeeds, and correctly degrades without crashing if the fetch also fails; a separate harness confirms lmGetFaculties() correctly includes a faculty member absent from the old hardcoded LM_FACULTIES array, confirms existing real faculty and allocation-only names both still included, and confirms the fallback path still works if the helper itself were ever unavailable. Confirmed both call sites and lmGetFaculties() itself all live in the same script block. node --check clean. CODE_BUILD=1304.' },
   { v: 'v1303', date: '29-Aug-2026 IST', note: 'FIX, found via live diagnostic collaboration, not guessed: admin reported "no eligible faculty pool for this day" on EVERY day of an Internal when clicking Re-Run/Auto-Allocate. Traced together via 4 rounds of real F12 diagnostics run directly against the admin own live data before writing any fix: confirmed sdData was loaded (11 fulltime, 11 visiting), LM_ALLOCATIONS was loaded (79 entries), names matched between the two, and calling dutyGetEligiblePool() manually with empty exceptions returned poolSize:14 -- genuinely eligible faculty existed the whole time; the admin own saved duty_auto.exceptions and permanentExceptions were both confirmed empty too, ruling those out. ROOT CAUSE: a TIMING RACE, not a data or logic bug. sdData (Staff Directory) and LM_ALLOCATIONS (subject allocations, which dutySubjectCount() depends on to decide who has a current teaching load) are both populated by the SAME async Promise.all() parallel Firestore read that runs once at login (loadFirestoreData(), index.html ~9870/9879) -- if Auto Duty is opened and Re-Run is clicked before that promise has resolved (entirely plausible right after logging in and navigating straight to Auto Duty), LM_ALLOCATIONS is still an empty array at that exact moment, so EVERY fulltime faculty member fails the dutySubjectCount(name)>0 filter simultaneously, producing an empty pool for every single day identically -- exactly the reported symptom, and exactly why manually re-running the same function moments later (after the load had finished) could never reproduce it. This is the SAME class of bug already fixed once before for SIT_DATA specifically (see the existing comment on intAutoDutyLoad(), index.html ~52547, "Opening Auto Duty directly...left SIT_DATA at its initial {}") -- LM_ALLOCATIONS/sdData were simply never given the same protection when that earlier fix was made. FIX: [dutyAllocateForInternal() index.html ~55924] now polls every 100ms, up to a 3-second cap, for BOTH sdData and LM_ALLOCATIONS to actually be populated before building the eligible pool for any day -- same wait pattern intSave() own _intGridBusy guard already uses (index.html ~50991). Adds ZERO delay in the normal case where the login load already finished (the overwhelming majority of real usage); only actually waits on the rare timing-sensitive case this bug report came from. If the 3-second cap is hit and the data still is not there, a clear warning toast now tells the admin to wait a moment and click Re-Run again, rather than the old silent-seeming empty-pool failure with no explanation of why. VERIFIED: isolated Node harness, 3 test cases simulating realistic timing -- confirms zero added delay when data is already loaded, confirms the wait correctly proceeds successfully once data loads mid-wait (simulating the exact race), and confirms the loop correctly gives up after its cap rather than hanging forever if something is genuinely broken. Shipped wait-loop condition confirmed to match the tested logic exactly. node --check clean on the containing script block. CODE_BUILD=1303.' },
@@ -36325,9 +36432,23 @@ async function ialRender() {
         const sub = subs.find(x => x.subject === a.subject);
         if (!sub) return '';
         const col = iarCellColor(sub.pctRuled);
+        // v1310: per explicit admin request — make a rule-applied
+        // (system-auto-cleared) entry clearly stand out from a manually-set
+        // one, with the actual date it happened, instead of the tiny
+        // inline " rule auto"/" manual" text that was easy to miss. This is
+        // the SAME real data every entry already carried (entry.appliedBy,
+        // entry.setAt) — iarAutoApplyBatch() (index.html ~35759) already
+        // stamps setAt on every rule-applied TA entry, it just was never
+        // surfaced clearly anywhere on screen, which is exactly what made
+        // "who got cleared and when" require an F12 diagnostic to answer.
+        const isRuleApplied = a.entry.appliedBy === 'rule';
+        const appliedDate = a.entry.setAt ? new Date(a.entry.setAt).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '';
+        const appliedBadge = isRuleApplied
+          ? `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(96,165,250,0.15);color:#60a5fa;border:1px solid rgba(96,165,250,0.35);border-radius:10px;padding:1px 7px;font-size:9px;font-weight:700;margin-left:6px;">🤖 System (rule)${appliedDate ? ' · '+appliedDate : ''}</span>`
+          : `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(148,163,184,0.15);color:#94a3b8;border:1px solid rgba(148,163,184,0.3);border-radius:10px;padding:1px 7px;font-size:9px;font-weight:700;margin-left:6px;">✍ Manual${appliedDate ? ' · '+appliedDate : ''}</span>`;
         return `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 6px;font-size:10px;font-family:var(--mono);border-bottom:1px solid rgba(255,255,255,0.04);">
-            <span>${si + 1}. ${a.subject} <span style="color:#60a5fa;">(+${a.entry.ta} TA${a.entry.appliedBy === 'rule' ? ' rule auto' : ' manual'})</span></span>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 6px;font-size:10px;font-family:var(--mono);border-bottom:1px solid rgba(255,255,255,0.04);flex-wrap:wrap;gap:4px;">
+            <span>${si + 1}. ${a.subject} <span style="color:#60a5fa;">(+${a.entry.ta} TA)</span>${appliedBadge}</span>
             <span style="color:${col.text};">CT ${sub.total} · CA ${sub.attended} · Total ${sub.totalWithTA} · <b>${sub.pctRuled.toFixed(1)}%</b></span>
           </div>
           <div style="padding:2px 6px 6px;text-align:right;">
@@ -36780,11 +36901,37 @@ function iaeFacultyForSubject(classLabel, subjectName) {
   if (!LM_ALLOCATIONS?.length || !classLabel || !subjectName) return null;
   const cls = classLabel.toLowerCase();
   const subj = subjectName.toLowerCase().trim();
+  // v1309 FIX, real bug traced live via an F12 diagnostic dump: 148
+  // shortage instances across 34 students were falling into "Unassigned /
+  // Unknown" on the Final Shortage faculty ranking — the dump showed every
+  // single one of those students' EVERY subject unmatched, all sharing
+  // Sem1 classes (Davan-BCom-Sem1-SecA, Davan-BCA-Sem1-SecA), which was the
+  // real signal this was a whole-semester matching failure, not scattered
+  // per-subject spelling mismatches. ROOT CAUSE: a.sem on every real
+  // LM_ALLOCATIONS row is stored as a ROMAN NUMERAL string ("I","II","III"
+  // etc — confirmed repeatedly elsewhere in this file, e.g. _paGetFaculty()
+  // and Create/Edit's own picker both already compare a.sem directly
+  // against a roman numeral), but this function's own semRaw/semTokens
+  // logic only ever stripped a literal "Sem" prefix and never converted
+  // the roman numeral to the DIGIT form real class labels actually use
+  // (Davan-BCom-Sem1-SecA contains the digit "sem1", never the letter
+  // "semi") — so semTokens ended up as ["i","semi"] for a Sem I allocation
+  // row, which can never appear as a substring of "...sem1..." no matter
+  // how many students or subjects were checked. This silently broke the
+  // match for EVERY Sem 1/2/3-numbered class this whole time, not a data
+  // gap — the faculty genuinely IS recorded in LM_ALLOCATIONS, this
+  // function just could never find the row. FIX: convert the roman-numeral
+  // sem to its digit form first via a direct lookup map, matching the same
+  // convention _strParseClass()/intGetSubjectsForBatch() already use
+  // elsewhere in this file, so the generated tokens correctly include the
+  // real digit form the class label actually contains.
+  const romanToDigit = { I:'1', II:'2', III:'3', IV:'4', V:'5', VI:'6' };
   const match = LM_ALLOCATIONS.find(a => {
     if (!a.faculty) return false;
     const crs = (a.course || '').toLowerCase();
-    const semRaw = (a.sem || '').replace(/^Sem/i, '');
-    const semTokens = [semRaw, 'sem' + semRaw].filter(Boolean).map(x => x.toLowerCase());
+    const semRoman = (a.sem || '').replace(/^Sem/i, '').trim().toUpperCase();
+    const semDigit = romanToDigit[semRoman] || (/^\d+$/.test(semRoman) ? semRoman : '');
+    const semTokens = [semRoman, semDigit, 'sem' + semRoman, 'sem' + semDigit].filter(Boolean).map(x => x.toLowerCase());
     const secM = (a.section || '').match(/\(([A-Za-z])\)/);
     const secTok = secM ? 'sec' + secM[1].toLowerCase() : null;
     if (!crs || !cls.includes(crs)) return false;
