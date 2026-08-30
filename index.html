@@ -296,17 +296,48 @@
   <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- v1323: swapped from plain xlsx@0.18.5 to xlsx-js-style, per explicit
+       admin decision — plain SheetJS Community Edition (the library this
+       app loaded until now) has NO cell-styling support at all (confirmed
+       via the exact same limitation already documented in this file's own
+       v1059 changelog entry for red text, and reconfirmed by direct
+       research before making this change) — .s (style) on a cell is simply
+       ignored by that build. xlsx-js-style is SheetJS Community Edition
+       PLUS basic cell styles (fill/font/border/alignment/numFmt) grafted
+       on, same XLSX.* global API (XLSX.utils.aoa_to_sheet, XLSX.writeFile,
+       etc — confirmed via its own docs/README) so every EXISTING XLSX.*
+       call site elsewhere in this file keeps working unchanged; only NEW
+       code (iarBuildTable exports below) uses the added ws[cell].s styling
+       feature. -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <!-- v1178: added for attDownloadPDF()'s rebuild — see that function's
-       comment. jspdf-autotable draws PDF tables as native vector cells
-       (real jsPDF drawing calls) instead of screenshotting the DOM, so it
-       cannot suffer the html2canvas layout bugs (missing borders, cells
-       relocated, inline-block collapsing) that broke every previous
-       attempt at this sheet. It attaches itself to window.jspdf.jsPDF's
-       prototype as .autoTable(), which is already loaded by the
-       html2pdf bundle above — load order matters, this script must come
-       after it. -->
+  <!-- v1320 REAL FIX, replacing v1317's wrong theory: the admin's SECOND
+       diagnostic dump proved v1317 was also wrong — window.html2pdf.jsPDF
+       reported false too, meaning the earlier claim (read off the minified
+       0.10.1 source) that jsPDF was reachable at that path was incorrect.
+       Re-examined the actual html2pdf.bundle.min.js source structure: jsPDF
+       is a webpack-INTERNAL module inside that bundle's own closure
+       (required via r("./node_modules/jspdf/dist/jspdf.es.min.js") deep
+       inside src/plugin/jspdf-plugin.js) — the bundle's PUBLIC export
+       (window.html2pdf) is only the html2pdf worker factory function
+       itself, with no .jsPDF property or any other externally reachable
+       path to that internal class. There is genuinely no supported way for
+       outside code to reach it — confirmed by cross-checking against
+       jspdf-autotable's own documentation and multiple current tutorials
+       (2026-dated), which universally pair jspdf-autotable/3.8.2 with a
+       SEPARATE, real jspdf/2.5.1/jspdf.umd.min.js script tag — never with
+       html2pdf's bundled copy. That standalone script is the one that
+       actually assigns window.jspdf.jsPDF, which is exactly the global
+       every PDF export function in this file (and the autotable plugin
+       itself) checks for. This app was simply missing that script the
+       entire time — not a timing race, not a wrong path, a genuinely
+       absent dependency. FIX: added the real
+       jspdf/2.5.1/jspdf.umd.min.js script tag here, BEFORE jspdf-autotable
+       (load order matters — autotable patches whatever class it finds at
+       window.jspdf.jsPDF the moment its own script runs), so window.jspdf
+       is created the normal, documented way this pairing has always
+       required. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <!-- Microsoft Clarity — Session Recording & Heatmaps -->
   <script type="text/javascript">
@@ -6378,10 +6409,41 @@
             style="padding:7px 16px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">1st Internal</button>
           <button class="iaf-exam-tab" data-exam="IA2" onclick="iafSwitchExam('IA2')"
             style="padding:7px 16px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">2nd Internal</button>
-          <div style="margin-left:auto;display:flex;gap:6px;">
+          <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
             <button id="iaf-view-cards" onclick="iafSetView('cards')" style="padding:6px 12px;background:var(--accent);color:#000;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">🗂️ Cards</button>
             <button id="iaf-view-table" onclick="iafSetView('table')" style="padding:6px 12px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">📊 Excel View</button>
+            <button onclick="iafDownloadNoticePDF()" style="padding:6px 12px;background:#ef4444;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">📄 Notice PDF</button>
+            <button onclick="iafDownloadNoticeExcel()" style="padding:6px 12px;background:#25d366;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">📊 Notice Excel</button>
           </div>
+        </div>
+        <!-- v1321: global display-preference checkboxes, per explicit admin
+             request — both default UNCHECKED, persisted (localStorage) so
+             the choice sticks across sessions, and apply consistently to
+             the live Excel View table AND every PDF/Excel export from this
+             tab (iarBuildTable()/iafBuildExcelGridData() both read the same
+             stored values — see iarGetShowTA()/iarGetShowPhone()). -->
+        <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--muted);">
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <input type="checkbox" id="iaf-show-ta" onchange="iafToggleShowTA(this.checked)">
+            Show TA column
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <input type="checkbox" id="iaf-show-phone" onchange="iafToggleShowPhone(this.checked)">
+            Show phone numbers
+          </label>
+        </div>
+        <!-- v1321: attendance start date shown on the Notice PDF/Excel —
+             defaults to college commencing date (IA1) or the day after
+             IA1's own cutoff (IA2), per explicit admin instruction, but is
+             editable here per-exam so admin can correct it if needed.
+             Value is persisted (localStorage) per exam. -->
+        <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--muted);">
+          <label style="display:flex;align-items:center;gap:6px;">
+            Notice attendance start date:
+            <input type="date" id="iaf-start-date" onchange="iafSetStartDateOverride(this.value)"
+              style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:11px;font-family:var(--mono);">
+          </label>
+          <span id="iaf-start-date-source" style="font-size:10px;"></span>
         </div>
         <div id="iaf-chips" style="margin-bottom:12px;display:none;"></div>
         <div id="ias-search-wrap" style="position:relative;margin-bottom:16px;max-width:420px;display:none;">
@@ -11645,6 +11707,38 @@ auth.onAuthStateChanged(async user => {
 });
 });
 
+// [index.html ~11710, CODE_BUILD=1325] Shared cached loader for the `users`
+// collection — Firestore quota fix. Firebase console flagged this project
+// "exceeded no-cost limits" (620k reads/month) on 30-Aug-2026. Root cause:
+// db.collection('users').get() (a full, unfiltered scan of every user doc)
+// was called independently from 6+ places — on every admin login, every
+// Staff Directory panel open, every internal-timetable doc switch — with NO
+// caching anywhere, so the same data was re-read from Firestore over and
+// over in a single session. This helper makes that collection read AT MOST
+// ONCE per TTL window (5 min) for the whole session, no matter how many
+// features ask for it. Call dvGetUsersCached() wherever fresh-enough user
+// data is needed; call dvInvalidateUsersCache() right after any write to
+// the `users` collection so the next read is guaranteed fresh, not stale.
+let _dvUsersCache = null;        // array of {id, ...userDoc} objects
+let _dvUsersCacheTs = 0;
+const DV_USERS_CACHE_MS = 5 * 60 * 1000; // 5 min — faculty/user roster changes rarely
+
+async function dvGetUsersCached(forceFresh) {
+  const fresh = !forceFresh && _dvUsersCache && (Date.now() - _dvUsersCacheTs) < DV_USERS_CACHE_MS;
+  if (fresh) return _dvUsersCache;
+  const snap = await db.collection('users').get();
+  const list = [];
+  snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+  _dvUsersCache = list;
+  _dvUsersCacheTs = Date.now();
+  return list;
+}
+
+function dvInvalidateUsersCache() {
+  _dvUsersCache = null;
+  _dvUsersCacheTs = 0;
+}
+
 async function onLoginSuccess() {
   const p = currentProfile;
   // v1191: confirms this function actually ran on THIS page load — if this
@@ -11805,9 +11899,9 @@ async function onLoginSuccess() {
 
       // 1. User profiles -> davan_users
       try {
-        const usersSnap = await db.collection('users').get();
+        const usersList = await dvGetUsersCached();
         const usersObj = {};
-        usersSnap.forEach(doc => { usersObj[doc.id] = doc.data(); });
+        usersList.forEach(u => { const { id, ...rest } = u; usersObj[id] = rest; });
         await rtdb.ref('davan_users').set(usersObj);
       } catch(e) { console.warn('[Admin auto-sync] Profiles failed:', e.message); }
 
@@ -13722,10 +13816,9 @@ function staffDirectoryRender() {
     // ones) have a name-based username with the SD numeric code stored only in the password
     // field, which is exactly how doFacultyLogin() matches at sign-in. A username-only check
     // caused the button to wrongly show for accounts like Hemavati Desai that already exist.
-    db.collection('users').get().then(usersSnap => {
+    dvGetUsersCached().then(usersList => {
       sdExistingUsernames = new Set();
-      usersSnap.forEach(doc => {
-        const u = doc.data();
+      usersList.forEach(u => {
         if (u.username) sdExistingUsernames.add(String(u.username));
         if (u.password) sdExistingUsernames.add(String(u.password));
         if (u.name)     sdExistingUsernames.add(String(u.name));
@@ -13738,8 +13831,7 @@ function staffDirectoryRender() {
       sdRenderSection('fulltime');
       sdRenderSection('visiting');
       sdRenderSection('nonteaching');
-    });
-  }).catch(() => {
+    });  }).catch(() => {
     sdData = JSON.parse(JSON.stringify(SD_DEFAULT));
     sdRenderSection('fulltime');
     sdRenderSection('visiting');
@@ -13801,11 +13893,10 @@ async function sdSyncFromUM() {
   const msg = document.getElementById('sd-save-msg');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
   try {
-    const usersSnap = await db.collection('users').get();
+    const usersList = await dvGetUsersCached(true); // manual sync button — force fresh read
     // Build map: name → username, and username → username
     const umMap = {};
-    usersSnap.forEach(doc => {
-      const u = doc.data();
+    usersList.forEach(u => {
       if (u.username) {
         umMap[u.name]     = u.username; // match by name
         umMap[u.username] = u.username; // match by username itself
@@ -13858,19 +13949,17 @@ async function sdSaveToFirestore() {
     // SD password field doubles as username — match by username
     try {
       const allEntries = [...(sdData.fulltime||[]), ...(sdData.visiting||[]), ...(sdData.nonteaching||[])];
-      const usersSnap = await db.collection('users').get();
+      const usersList = await dvGetUsersCached(true); // about to sync writes — force fresh read
       // Refresh the existing-username cache from this same read so newly-added
       // rows without a login yet correctly show the per-row "⚡ Create Login" button.
       sdExistingUsernames = new Set();
-      usersSnap.forEach(doc => {
-        const u = doc.data();
+      usersList.forEach(u => {
         if (u.username) sdExistingUsernames.add(String(u.username));
         if (u.password) sdExistingUsernames.add(String(u.password));
         if (u.name)     sdExistingUsernames.add(String(u.name));
       });
       const syncOps = [];
-      usersSnap.forEach(doc => {
-        const u = doc.data();
+      usersList.forEach(u => {
         const sdEntry = allEntries.find(e => e.password && (e.password === u.username || e.password === u.password || e.name === u.name));
         if (!sdEntry) return;
         const updates = {};
@@ -13881,11 +13970,12 @@ async function sdSaveToFirestore() {
         if (sdEntry.role && sdEntry.role !== u.role) updates.role = sdEntry.role;
         if (sdEntry.name && sdEntry.name !== u.name) updates.name = sdEntry.name;
         if (Object.keys(updates).length) {
-          syncOps.push(db.collection('users').doc(doc.id).update(updates));
+          syncOps.push(db.collection('users').doc(u.id).update(updates));
         }
       });
       if (syncOps.length) {
         await Promise.all(syncOps);
+        dvInvalidateUsersCache(); // just wrote to users — force next read to be fresh
         await umRebuildLoginIndex();
         if (msg) { msg.style.color='var(--ok)'; msg.textContent=`✅ Saved — ${syncOps.length} account(s) synced to User Management`; }
         dvToast(`✅ Staff directory saved — ${syncOps.length} account(s) synced`, 'ok', 4000);
@@ -14166,6 +14256,8 @@ async function umDeleteUser(uid, name) {
   dvConfirm('Delete Account', `Delete account for ${name}? This cannot be undone.`, async () => {
     try {
       await db.collection('users').doc(uid).delete();
+      dvInvalidateUsersCache(); // just deleted a users doc — force next read to be fresh
+      await umRebuildLoginIndex().catch(()=>{});
       dvToast(`✅ Account deleted for ${name}`, 'ok');
       renderUserManagement();
     } catch(e) { dvToast('❌ ' + e.message, 'error', 5000); }
@@ -14219,10 +14311,14 @@ async function umRebuildAndNotify() {
 }
 
 async function umRebuildLoginIndex() {
-  // Rebuilds the public login_index doc so the login dropdown stays in sync
+  // Rebuilds the public login_index doc so the login dropdown stays in sync.
+  // Always called right after a users-collection write (add/edit/delete a
+  // login) so this MUST force a fresh read — routes through the shared
+  // cache with forceFresh so it also repopulates the cache for every other
+  // consumer (Staff Directory, incharge dropdowns, etc) with correct data.
   try {
-    const snap = await db.collection('users').get();
-    const users = snap.docs.map(d => d.data()).filter(u => u.username && u.name)
+    const usersList = await dvGetUsersCached(true);
+    const users = usersList.filter(u => u.username && u.name)
       .map(u => ({ name: u.name, username: u.username, password: u.password || u.username, role: u.role || ROLE_FULLTIME }));
     await db.collection('app_data').doc('login_index').set({ users, updatedAt: new Date().toISOString() });
     // Reload dropdown on login panel
@@ -15049,7 +15145,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1310;  // always = HTML footer version number
+const CODE_BUILD = 1325;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '27-Aug-2026', time: '00:00', full: '27-Aug-2026 00:00 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -20250,9 +20346,9 @@ async function syncStudentsToFirestore() {
         }
         // Mirror user profiles so _fetchProfile works on file:// for all roles
         try {
-          const usersSnap = await db.collection('users').get();
+          const usersList = await dvGetUsersCached(true); // manual sync — force fresh read
           const usersObj  = {};
-          usersSnap.forEach(doc => { usersObj[doc.id] = doc.data(); });
+          usersList.forEach(u => { const { id, ...rest } = u; usersObj[id] = rest; });
           await rtdb.ref('davan_users').set(usersObj);
         } catch(ue) { console.warn('[Sync] User mirror failed (non-critical):', ue.message); }
       }
@@ -24359,9 +24455,28 @@ function isExempted(s) {
 function addExemption(s) {
   const list = getExemptions();
   const urn = s.urn || s.seat_no;
-  if (!list.some(e => e.urn === urn)) {
+  const alreadyExempt = list.some(e => e.urn === urn);
+  if (!alreadyExempt) {
     list.push({ urn, name: s.name, class: s.class, phone: s.phone || '' });
     saveExemptions(list);
+    // v1314: stamp into the IA clear-log timeline for BOTH exams — exemption
+    // is general-purpose (Absentees/Shortage Report/Notify too, not just
+    // IA), but per explicit admin request an exempted student appearing on
+    // the not-eligible list must show up on the same combined clear-log
+    // timeline as rule/manual clears, tagged as its own event type so it's
+    // clearly distinguished as "not an attendance-rule reason." Guarded
+    // defensively since this function loads before the IA module's own
+    // script block in some page-load orders.
+    if (typeof iarAppendClearLog === 'function') {
+      ['IA1', 'IA2'].forEach(examTag => {
+        iarAppendClearLog(examTag, {
+          urn, name: s.name, class: s.class,
+          event: 'exempt', Xbefore: null, Xafter: null,
+          reasons: [{ subject: null, reasonMode: 'exempt', event: 'exempt', ta: null, detail: 'College exemption' }],
+          by: iarCurrentActor()
+        }).catch(()=>{});
+      });
+    }
   }
   document.getElementById('ex-search').value = '';
   document.getElementById('ex-candidates').innerHTML = '';
@@ -25394,6 +25509,20 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1325', date: '30-Aug-2026 IST', note: 'FIRESTORE QUOTA FIX PART 2 -- project flagged "exceeded no-cost limits" (620k reads/mo). NEW [dvGetUsersCached()/dvInvalidateUsersCache() index.html ~11712] -- shared 5-min TTL cache for the `users` collection, one Firestore read per session instead of unlimited independent ones. Consolidated EVERY site that was calling db.collection(\'users\').get() directly onto this shared loader: (1) auto-mirror to davan_users on every admin login [~11902] -- was a full users scan on EVERY login, now cached; (2) Staff Directory panel open [staffDirectoryRender() ~13819] -- was a full scan every time the panel opened; (3) v1324 intLoadInchargeDropdowns cache consolidated into this shared one instead of its own separate local cache, so the two features share one read instead of two. Write-triggered paths (sdSyncFromUM, sdSaveToFirestore, umRebuildLoginIndex, umDeleteUser) now call dvGetUsersCached(true) to force a fresh read when correctness requires it, and call dvInvalidateUsersCache() immediately after writing to users so no other feature can read stale data afterward -- umDeleteUser previously had NO cache-index rebuild at all after a delete, now fixed alongside this. Net effect: users collection reads drop from 7+ independent full-scan call sites (several firing automatically, not gated by any button) to effectively 1 read per 5-min window per session. CODE_BUILD=1325.' },
+  { v: 'v1324', date: '30-Aug-2026 IST', note: '[intLoadInchargeDropdowns() index.html ~60702] FIX: full unfiltered db.collection(\'users\').get() ran on EVERY internal-doc switch (3 call sites: initial load, draft restore, refresh) -- a real contributor to the Firestore quota overage flagged by the console (620k reads/month, "exceeded no-cost limits" banner). Added a 5-min in-memory cache (_intInchargeFacultyCache/_intInchargeFacultyCacheTs), matching the pattern resDashLoadAllBatches already uses for the results collection -- switching between internals during an edit session now reuses the cached faculty list instead of re-reading all user docs each time. Faculty roster changes are rare enough that a 5-min staleness window is safe; cache auto-refreshes on expiry, no manual invalidation needed. CODE_BUILD=1324.' },
+  { v: 'v1323', date: '30-Aug-2026 IST', note: 'GRAY-HIGHLIGHT PER-SUBJECT ELIGIBILITY, Excel View download, per explicit admin request. Checked whether the currently loaded Excel library (xlsx@0.18.5, plain SheetJS Community Edition) could set cell background colors before building anything -- confirmed it cannot; .s (style) on a cell is silently ignored by that build, same documented limitation as this file own v1059 changelog entry for red text. Rather than fake it, swapped the library: [index.html ~299] xlsx@0.18.5 replaced with xlsx-js-style@1.2.0 (SheetJS Community Edition plus real fill/font/border/alignment/numFmt cell-style support, confirmed same XLSX.* global API via its own package.json main/unpkg/jsdelivr entries -- dist/xlsx.min.js, the correct file, confirmed via the real npm registry listing after an initial wrong guess at the filename was caught before shipping) so every EXISTING XLSX.* call site elsewhere in this file keeps working completely unchanged; only the new styling code below actually uses the added .s support. NEW [iafApplyCellStyle()/IAF_XLSX_BORDER index.html ~37307] wired into [_iafDownloadExcelViewExcel() index.html ~37319]: every populated cell in the exported sheet now gets a full thin border (per explicit admin request, added alongside the color feature), and each subject own CT/CA/Total/percent sub-column block gets a gray fill specifically on rows where THAT subject percentage is >=75 -- i.e. a quick visual scan of which of a not-eligible student subjects are actually already fine vs which ones are the real remaining problem, since a student on this list can still be individually fine in some subjects while short in others. VERIFIED for real, not just node --check: installed the actual xlsx-js-style package locally, ran the identical styling code standalone, wrote a real .xlsx file, and inspected the raw OOXML styles.xml inside the generated zip directly -- confirmed the gray fill (D9D9D9) and thin border (999999) are both genuinely present in the written file cellXfs/fills/borders tables, not just accepted silently and dropped; a >=75% subject block showed the gray fill definition, a <75% block correctly showed patternType none. CODE_BUILD=1323.' },
+  { v: 'v1322', date: '30-Aug-2026 IST', note: 'SIX ITEMS per direct admin report with a real screenshot. (1) EMPTY CLASSES NO LONGER SHOWN: [iarBuildTable() index.html ~36279] the __ALL__ stack previously rendered a full section (header + No students currently not-eligible placeholder) for a course/year with ZERO flagged students that exam -- Card view never does this (its own class-box loop only pushes a box when rows.length>0). Now checks real flagged count per chip BEFORE rendering and skips entirely, matching Card view exactly; same skip applied to [_iafDownloadExcelViewPDFInner() index.html ~37039] (was wasting a full blank PDF page per empty class) and [_iafDownloadExcelViewExcel() index.html ~37310] (was adding an empty sheet) -- both now also toast No students currently not-eligible -- nothing to export if EVERY chip in an __ALL__ run is empty, rather than crashing on a zero-page PDF or zero-sheet workbook. (2) SUMMARY BOX ADDED TO EXCEL VIEW: per direct admin request with a pasted example -- the same Not eligible/Permitted/Per-class/Faculty-ranking box Card view already showed (iarBuildSharedSummary) was missing from Excel View entirely; [iafRender() index.html ~36643] table branch now computes the identical totals (same iarStudentShortageRuled() calls, same flagged/permitted counters as Cards own loop) and prepends the same summary box, so the two views can never show different numbers for the same data. (3) X/Y + SUBJECT ABBREVIATION ADDED TO NOTICE PDF/EXCEL: admin screenshot showed the Notice PDF table missing the 3/6 + kan-eng-hin line Card view rows now carry (v1321) -- [iafBuildNoticeList() index.html ~36793] now includes xy and abbrev per student, added as new Short/Subjects columns in both _iafDownloadNoticePDFInner() and iafDownloadNoticeExcel() (including the per-class-grouped sheets, which build their own row objects independently and needed the same fields added separately to stay in sync). (4) PHONE NUMBERS NOW REAL CLICKABLE LINKS IN NOTICE PDF: admin reported tapping a phone number in the Card Notice PDF did nothing -- traced to the Notice PDF never having a phone column at all. Added one, gated by the same global iarGetShowPhone() toggle as every other Final Shortage surface, with a REAL PDF link annotation via pdf.link() layered over manually-drawn cell text (didParseCell suppresses autoTable own text draw, didDrawCell paints it in blue and adds the tel: link region) -- the same genuine tap-to-call pattern already used elsewhere in this file (carDownloadPDF, v1059), not just printed text that looks like a link. Notice Excel also gained the phone column. (5) REAL BUG FOUND AND FIXED -- FACULTY NAME ROW: admin reported the Excel-View Excel download faculty row showed the SAME SUBJECT NAME TWICE instead of the teaching faculty. Root cause confirmed by direct code read: [_iafDownloadExcelViewExcel(), previously] built facRow via subjects.flatMap(fn => [fn ...]) -- this iterated `subjects` (the subject NAMES array) instead of the actually-returned `facultyNames` array, a copy-paste-shaped variable-naming mistake that silently printed the subject name a second time under its own header. Fixed by correctly zipping subjects and facultyNames together by shared index. The PDF export own faculty row was checked and confirmed already correct -- only the Excel path had this bug. CODE_BUILD=1322.' },
+  { v: 'v1321', date: '30-Aug-2026 IST', note: 'SIX ITEMS per one combined admin request, Final Shortage tab. (1) GLOBAL TA/PHONE TOGGLES: two new persistent checkboxes (iarGetShowTA/iarSetShowTA/iarGetShowPhone/iarSetShowPhone, index.html ~35585, localStorage-backed so the choice sticks across sessions per explicit admin decision) -- both default UNCHECKED. [iarBuildTable() index.html ~36207] the live Excel View table now shows/hides the TA sub-column (and Phone column) based on these, applying identically to IA Raw sim mode and Final Shortage ruled/ruledview modes. Same toggles read by [iafBuildExcelGridData() index.html ~36763] and both Excel-View export functions, so on-screen and every download can never disagree. (2) CARD VIEW SUBJECT-ABBREVIATION LINE: new [iarSubjectAbbrev() index.html ~36174] -- confirmed via full-file search this app has NO stored per-subject short-code field anywhere (checked LM_ALLOCATIONS, timetable data, iarSubjectsForChip -- only full scraped subject names exist), so this auto-derives a 3-letter lowercase code from the real subject name ("Kannada"->"kan") rather than inventing a fake data source; shown as a small line under each student X/Y badge in Card view, e.g. "kan-eng-hin" for 3 short subjects. (3) FACULTY NAME ROW: Excel-View PDF and Excel exports now show the teaching faculty directly under each subject header (merged cell spanning that subject own sub-columns), via the existing iaeFacultyForSubject() lookup -- same function IA Raw own faculty-shortage ranking already uses, so this can never disagree with the rest of the app. (4) NOTICE PDF/EXCEL HEADER/FOOTER REBUILT: new shared [iafBuildNoticeHeaderData() index.html ~36746] -- attendance start/end date line ("Attendance period: X to Y"), a portal-contact instruction line, and a footer with Internal Incharge name + Director/Principal signature block (name/designation/date), identical content now in both _iafDownloadNoticePDFInner() and iafDownloadNoticeExcel() so neither can drift. Director/designation/date fields reuse sitGetDirectorSignature() exactly (same meta.director/director_designation/director_date Sitting own export already reads) -- a Create/Edit change is picked up automatically here too. (5) EDITABLE START DATE: new date-picker field on the Final Shortage tab [iafGetStartDateOverride()/iafSetStartDateOverride()/iafDefaultStartDate()/iafResolveStartDate() index.html ~36455] -- per explicit admin instruction, IA1 defaults from SESSION_CONFIG.startDate (the college own commencing date, same field the rest of the app already uses), IA2 defaults to the day AFTER IA1 own cutoff date (the two windows are meant to be back-to-back with no gap); both editable/overridable and persisted per-exam, with a small source label ("(from college commencing date)" / "(manually set)" etc) so admin always knows whether a shown date is the computed default or a manual override. (6) End date for the notice is IA1/IA2 own real cutoffDate (already stored, no new field needed there). VERIFIED: isolated Node harness confirms the IA2-default-is-day-after-IA1-cutoff math (30 Aug cutoff -> 31 Aug IA2 default) and override-wins-over-default precedence; separate harness confirms all 4 TA/phone toggle combinations produce column-count-consistent header/faculty-row/body arrays and correctly-positioned Excel merge ranges (subject 2 header starts exactly where subject 1 own sub-columns end, in every combination). Div-balance check on the new Final Shortage tab markup (checkboxes + date field) confirms no unclosed tags. node --check clean on the containing script block. CODE_BUILD=1321.' },
+  { v: 'v1320', date: '30-Aug-2026 IST', note: 'REAL FIX FOUND for PDF library not loaded, replacing v1317 wrong theory (admin second diagnostic dump proved window.html2pdf.jsPDF also reported false, disproving the earlier claim). Re-examined html2pdf.bundle.min.js source structure properly this time: jsPDF is a webpack-INTERNAL module inside that bundle own closure (required deep inside its own src/plugin/jspdf-plugin.js) -- the bundle PUBLIC export (window.html2pdf) is only the worker factory function itself, with genuinely no externally reachable path to that internal class, confirmed by direct inspection of the fetched source rather than assumption. Cross-checked against jspdf-autotable own documentation and multiple current (2026-dated) tutorials, which universally pair jspdf-autotable 3.8.2 with a SEPARATE real jspdf/2.5.1/jspdf.umd.min.js script tag -- never with html2pdf bundled copy. Fetched and verified that exact file live: its UMD wrapper assigns its exports directly onto window.jspdf (not window.html2pdf), and jsPDF is exported from inside it the normal documented way -- this app was simply MISSING that script tag the entire time, not suffering a timing race or wrong path. FIX: [index.html ~300] added the real jspdf/2.5.1/jspdf.umd.min.js script tag, placed BETWEEN the html2pdf load and the jspdf-autotable load (load order matters -- autotable patches whatever class it finds at window.jspdf.jsPDF the moment its own script runs). [_iafEnsureJsPdfRegistered() index.html ~36605] the v1317 html2pdf-internal bridge attempt is now a documented no-op (that path was proven not to exist) rather than removed outright, to avoid restructuring _iafJsPdfReady() unnecessarily. [_iafDumpPdfDiagnostic() index.html ~36626, from v1319] kept as-is -- still useful if anything regresses, now genuinely enumerates window.html2pdf own shape rather than assuming one guessed path. CODE_BUILD=1320.' },
+  { v: 'v1318', date: '30-Aug-2026 IST', note: 'FIX per direct admin report with a real pasted Excel View dump: Final Shortage Excel View was showing EVERY student in a class (24 rows, including 0-attendance students and fully-eligible students at 75-100%) while the SAME class own Card view correctly showed only the 10 genuinely not-eligible. Confirmed a real design mismatch -- Card view (iafRender()) has always filtered to iarStudentShortageRuled().flagged, but Excel View (iarBuildTable(), the shared table renderer also used by IA Raw and IA Ledger) never applied any eligibility filter for Final Shortage own two modes (ruled/ruledview), only for chipKey/course-year. FIX, per explicit admin decision (match Card view own count, not keep it as a full audit grid): [iarBuildTable() index.html ~36206] students filter now ALSO checks iarStudentShortageRuled().flagged when mode is ruled or ruledview -- the exact same test Card view already uses, so the two views can never disagree on count again. Mode sim (IA Raw, a deliberate pre-rule audit of everyone) and mode ledger (IA Ledger, already pre-filtered to only students with a real TA adjustment by its own caller) are explicitly UNCHANGED -- this fix only touches Final Shortage own two modes, confirmed by branching on mode directly rather than changing the shared students list unconditionally, so IA Raw and IA Ledger row counts are unaffected. SAME fix applied to [iafBuildExcelGridData() index.html ~36575, the separate data builder the Excel-View PDF/Excel downloads use] -- without this second fix the on-screen table would have shown 10 rows correctly while the downloaded file still exported all 24, the exact split-brain between view and download the admin would have hit next. Empty-state message [index.html ~36333] also updated to say No students currently not-eligible for the ruled/ruledview case specifically, distinct from the genuine No students in this course/year message, since an empty flagged-only table is a different, better situation (everyone eligible) than a genuinely empty class. VERIFIED: isolated Node harness against the admin own real 24-student class data (transcribed X values per student from the pasted dump) confirms the filter produces exactly 10 flagged students, byte-for-byte matching the same 10 names Card view showed, in the same order. node --check clean on the containing script block. CODE_BUILD=1318.' },
+  { v: 'v1317', date: '30-Aug-2026 IST', note: 'REAL ROOT CAUSE FOUND for PDF library not loaded, using the admin device diagnostic dump from v1316 (window.html2pdf existed, window.jspdf did not). Fetched and read the actual CDN file this app loads (html2pdf.bundle.min.js 0.10.1) directly: its UMD wrapper registers ONLY as window.html2pdf; it never creates window.jspdf at all -- jsPDF lives bundled inside it, reachable only as window.html2pdf.jsPDF. The separately-loaded jspdf-autotable 3.8.2 script is the STANDALONE build meant to patch a separately loaded window.jspdf.jsPDF (the convention for a project that also loads its own plain jspdf.min.js, which this app does not) -- so with only these two CDN files and no bridge between them, window.jspdf was NEVER created, not intermittently, not as a timing race, but always, by design of which files this app actually loads. The v1178 comment sitting next to these script tags had assumed window.jspdf.jsPDF was already loaded by the html2pdf bundle -- confirmed via the fetched source that this was never true. Every OTHER PDF button in this file (Sitting/Roster/Attendance/Duty Signature Sheet) only ever appeared to work because some other code path elsewhere in a session happened to create window.jspdf as a side effect before that particular button got clicked -- Final Shortage was simply the button most likely to be the FIRST PDF export touched in a session, so it was the one that surfaced the always-true bug directly. REAL FIX: [index.html ~300, new inline bridge script placed BETWEEN the html2pdf load and the jspdf-autotable load] copies the real jsPDF class from window.html2pdf.jsPDF onto window.jspdf.jsPDF before the autotable script ever runs, so autotable finds a real target to patch .autoTable() onto, and every PDF export function in this file that checks window.jspdf.jsPDF finds it reliably on the very first PDF button pressed in a session, in any order. Also added [_iafEnsureJsPdfRegistered() index.html ~36566] as a defensive fallback inside the Final Shortage readiness check itself, in case the head bridge somehow does not fire. VERIFIED: isolated Node simulation of the real failure scenario (window.html2pdf.jsPDF present, window.jspdf absent, matching the admin own diagnostic exactly) confirms the bridge correctly creates window.jspdf.jsPDF as the SAME reference as the bundled class, confirms autotable patching onto that reference afterward succeeds, and confirms the readiness check used by every PDF button in this file now passes on a cold load with nothing else run first. CODE_BUILD=1317.' },
+  { v: 'v1316', date: '30-Aug-2026 IST', note: 'Admin correctly pushed back on v1315 still failing with PDF library not loaded, asking why this cannot just use the SAME mechanism Sitting uses when Sitting works fine. Direct grep across every jsPDF readiness check in this file (index.html lines 36568/36597/36636/57193/58408/58796/59771) confirms the condition here IS byte-identical to Sitting own check -- same window.jspdf.jsPDF + .autoTable test, no difference in the code itself. Since the check is provably the same yet the outcome differs on the same device, guessing at another timing fix would just be a repeat of v1312/v1315 -- REAL fix: (1) [iafDownloadNoticePDF()/_iafDownloadExcelViewPDF() index.html ~36586/36638] the retry/poll wrapper is REMOVED entirely -- this now does the exact same single synchronous check Sitting does, with zero added waiting logic that could itself be a source of difference. (2) NEW [_iafDumpPdfDiagnostic() index.html ~36565]: the instant the check fails, this dumps the REAL live state of the page to console AND clipboard (via copy(), following the standing F12-diagnostic house rule) -- whether window.jspdf/window.html2pdf/window.XLSX actually exist, whether the autotable plugin attached to .API or .prototype, whether the html2pdf/autotable <script> tags are even present in the DOM, their real src URLs, document.readyState, and CODE_BUILD -- so the next report contains facts about what IS or is not loaded on that specific device/session instead of another blind guess. This does not itself explain the root cause (that requires seeing the actual diagnostic output, which is not visible from here) but stops the guess-fix-fail loop the admin was reasonably objecting to. CODE_BUILD=1316.' },
+  { v: 'v1315', date: '30-Aug-2026 IST', note: 'THREE fixes per direct admin report on the Final Shortage export buttons. (1) PDF still failing (check your connection and reload): v1312 fix polled up to 4 FULL seconds before giving up -- far more cautious than every other working PDF button in this file. Compared directly against Sitting/Roster/Attendance (sitDownloadPDF() index.html ~58250 and siblings, which admin confirmed ARE working) and found none of them poll at all -- they check window.jspdf ONCE and fall back immediately if missing. FIX: [_iafJsPdfReady()/iafDownloadNoticePDF() index.html ~36565] now matches that exact pattern -- single synchronous check, and only if genuinely missing a single short 800ms grace retry (covers a page freshly opened straight to this tab) before a clear message, instead of a long spinner-then-scary-error. (2) STAMP: every other PDF/Excel export in this file (Sitting, Roster, Attendance, Duty Signature Sheet) carries the shared name+build+timestamp stamp via intBuildExportStamp() (index.html ~57964) -- this was the one export that never had it. FIX: both _iafDownloadNoticePDFInner() and iafDownloadNoticeExcel() now draw/write the exact same stamp. (3) REAL BUG: opening Excel View and pressing Notice PDF/Excel silently downloaded the plain Cards-style flat name list every time, completely ignoring which view or which course/year chip was actually open on screen -- confirmed by direct admin report ("now its only downloading card view"). ROOT CAUSE: iafDownloadNoticePDF()/iafDownloadNoticeExcel() always called iafBuildNoticeList() (the flagged-only Sl-No/URN/Name/Class list built for the physical notice board) unconditionally, with no check of the live IAF_VIEW/IAF_CHIP globals at all. FIX: [iafBuildExcelGridData() index.html ~36528, new shared data builder reusing iarSubjectsForChip()/iarWindowedSubjects() -- the SAME functions iarBuildTable() itself calls, so the export can never show different numbers than the on-screen grid] -- both export functions now check IAF_VIEW first: Cards view keeps the original plain notice-list export unchanged, Excel View now calls new _iafDownloadExcelViewPDF()/_iafDownloadExcelViewExcel(), which export the REAL subject-by-subject CT/CA/TA/Total/% grid scoped to whichever chip is currently selected (IAF_CHIP) -- including __ALL__, which exports every course/year as separate stacked PDF pages or separate Excel sheets, matching exactly what the on-screen All-chip stacking shows. VERIFIED: isolated Node harness confirms the flattened row/header width lines up exactly across a 2-subject/2-student grid (13 columns: 3 fixed + 5 per subject, header and body rows all matching length) and confirms the Excel merge-range math lands each subject 5-column header span at the correct row/column offset (e.g. subject 2 spans columns 8-12 immediately after subject 1 spans 3-7). node --check clean on the containing script block. CODE_BUILD=1315.' },
+  { v: 'v1314', date: '30-Aug-2026 IST', note: 'NEW per explicit admin request following v1313: WHO got cleared, per date and time, with photo/class/section and the exact reason (rule/manual/exempt/permitted) -- previously the only way to answer this was an F12 dump; the existing per-subject EDIT LOG never showed a student-level not-eligible-to-eligible transition, only individual TA value changes. NEW STORAGE [iarGetClearLog()/iarAppendClearLog() index.html ~35583, davan_pub/ia_clear_log/{examTag}, same list/newest-first shape as the existing edit log]. FOUR real trigger points, each wired to log exactly once at the moment a student genuinely crosses the eligibility line, not on every subject touch: (1) [iarAutoApplyBatch() index.html ~35855] now snapshots each student X (short-subject count) before and after its reconcile pass and logs event:cleared only on a genuine flagged-true to flagged-false flip, with the full list of touched subjects (granted/escalated/recovered) attached for the expand view. (2) [iarSetTA() index.html ~35983] same before/after check for a single manual edit, so a manual TA change that clears a student is logged the same way. (3) [iaeGrantPermission() index.html ~35404] now also stamps event:permitted into the same timeline. (4) [addExemption() index.html ~24361] now also stamps event:exempt into the same timeline for BOTH IA1 and IA2, guarded for load order since this fires from a different script block than the IA module. NEW UI [ialClearLogHtml() index.html ~36869, wired into ialRender() both table and cards views]: grouped by date then time exactly matching the admin\u2019s own example format, each row collapsed by default showing time/photo/name/class-section/event-badge, tap to expand -- for a cleared event this re-derives the CURRENT full subject picture live via iarWindowedSubjects() rather than trusting only the stored snapshot, so it can never disagree with what Final Shortage itself shows right now; for exempt/permitted events shows the stated reason. VISIBILITY: admin/manager/vp/principal, per explicit admin decision -- a deliberately different (wider) gate than the existing per-subject edit log, which stays admin-only. VERIFIED: isolated Node harness confirms Xbefore/Xafter tracking against realistic subject data -- a student short in 3 subjects with all 3 rule-cleared correctly fires a cleared event with all 3 subjects attached; a student short in 4 subjects with only 1 cleared (dropping to 3, still >=3 threshold) correctly does NOT fire a log entry, matching the real eligibility rule exactly rather than over-logging every partial touch. node --check clean on the containing script block. CODE_BUILD=1314.' },
+  { v: 'v1313', date: '30-Aug-2026 IST', note: 'ROOT CAUSE FOUND AND FIXED for "Not eligible count differs every time I open the page, even on the same Firebase data" (reported as 64 vs 60 vs 56 across separate opens, no student list edits). CONFIRMED not a scrape-timing issue (admin explicitly checked two versions against the SAME Firebase) -- traced to [iarAutoApplyBatch() index.html ~35816, the +1/+2 rule auto-apply that runs on EVERY Final Shortage page-open]: it only ever wrote a TA rescue entry the FIRST time a subject was seen short, then never touched that entry again -- but the underlying raw CT/CA keeps moving on every scrape. So a TA=1 granted when raw was 71% silently went stale once new classes were scraped in and raw drifted to 68% (needs TA=2 now) or recovered to 76% on its own (rescue no longer needed, but stayed on record) -- and since each admin page-open runs this same auto-apply again, it kept newly clearing a few more students whose raw % had drifted past the line since their last visit, permanently writing that to davan_pub/ia_ta each time. This is why the total kept shrinking with zero manual edits: every single page-open was itself an irreversible write. FIX, per explicit admin decision (keep auto-applying but recompute against current data every time, do not freeze on first sight): [iarWindowedSubjects() index.html ~35701] now recomputes any appliedBy rule entry live against current raw CT/CA on every read -- recovered-on-its-own subjects display as genuinely clear, worsened ones display the correct current TA amount. [iarAutoApplyBatch() index.html ~35816] correspondingly now RECONCILES existing rule entries against current data (not just grants new ones): deletes a rule entry if raw recovered past threshold on its own, updates it if the required TA amount changed (e.g. +1 no longer enough, escalate to +2), leaves it untouched if still correct. An appliedBy manual entry (a deliberate admin override) is NEVER touched by any of this -- explicitly excluded in both functions, stays exactly as the admin set it until they change it themselves. If raw attendance has fallen so far that even +2 no longer clears a subject, the last-known TA is kept on record rather than silently dropped to 0, so a genuine worsening still surfaces as short rather than vanishing. VERIFIED: 5 isolated Node test cases against the real reconcile logic -- raw worsened past +1 (correctly escalates to +2), raw recovered on its own (correctly clears/deletes), manual override with raw worsening (correctly left untouched), still-short-same-TA-still-clears (correctly no-op, keeps this cheap on the common case), and raw fallen so far even +2 insufficient (correctly keeps last-known TA rather than dropping it) -- all 5 passed, confirmed the write-side reconcile and the display-side live-recompute agree with each other in every case. node --check clean on the containing script block. CODE_BUILD=1313.' },
+  { v: 'v1312', date: '30-Aug-2026 IST', note: '[iafDownloadNoticePDF() ~36313, XLSX export ~36364, iarRenderChips()/iarBuildTable() ~35933/35963] THREE items per admin report. (1) FIX "PDF library not loaded": that check ran once, synchronously, on click, with no wait for html2pdf.bundle.min.js (a large CDN script) to finish registering window.jspdf — same load-race already fixed elsewhere in this file (v1062-1068). Now polls up to 4s before showing the real error. (2) Notice Excel now exports one sheet per course/year (grouped via iarParseClass, same as the on-page chip bar) PLUS a combined "All" sheet, all in one file — was one flat mixed-class list before. (3) Added an "All" chip to the shared chip bar (iarRenderChips) used by Final Shortage/IA Raw/IA Ledger Excel View — selecting it stacks every course/year table in one page (iarBuildTable recurses per chip) instead of forcing one class at a time; Excel View now defaults to All on first open. CODE_BUILD=1312.' },
+  { v: 'v1311', date: '29-Aug-2026 IST', note: 'NEW: Final Shortage tab gets Notice PDF/Excel buttons — plain student list (Sl No, URN, Name, Class) for the physical notice board, no rules/summary text, same eligibility data as the on-screen cards. CODE_BUILD=1311.' },
   { v: 'v1310', date: '29-Aug-2026 IST', note: 'NEW per explicit admin follow-up: "if this happen in future how to know who has been cleared from this list" -- the +1/+2 rule engine (iarAutoApplyBatch, index.html ~35759) has always permanently recorded every subject it auto-clears into ia_ta with a real setAt timestamp and appliedBy:"rule" tag, and IA Ledger already reads that same storage -- but a rule-applied entry only ever showed as tiny inline text (" rule auto" vs " manual") easy to miss next to a manual entry, with no date shown at all, which is exactly why finding out who was recently auto-cleared previously required an F12 diagnostic rather than just looking at the page. FIX: [ialRender() index.html ~36429] each Ledger entry now shows a real visible badge -- blue "System (rule)" for an auto-applied entry, grey "Manual" for an admin-set one -- with the actual date it happened appended directly on the badge (e.g. "System (rule) - 29 Aug 2026"), using the exact same entry.appliedBy/entry.setAt fields that were already being saved this whole time, just never surfaced clearly. No new storage or logging was needed -- this was a display-only fix, since the real data has been there since the rule engine was first built. VERIFIED: isolated Node test confirms the correct badge text and date format for a real rule-applied entry (matching the exact real data traced for a students earlier IA session), confirms a manual entry displays correctly too, and confirms an entry with no timestamp at all degrades cleanly to just the badge label with no stray separator character. Shipped logic confirmed to match the tested output exactly. node --check clean on the containing script block. CODE_BUILD=1310.' },
   { v: 'v1309', date: '29-Aug-2026 IST', note: 'CRITICAL FIX -- Final Shortage own "FACULTY WITH MOST SHORTAGE" ranking showed "Unassigned / Unknown 128 instances - 29 students" as its TOP entry, ahead of every real named faculty member. Traced live via an F12 diagnostic dump of every individual unassigned instance (128 became 148 by the time of the actual dump, more shortage having accumulated in between) -- the dump showed EVERY SINGLE SUBJECT for EVERY ONE of 34 affected students unmatched, and all of them shared Sem1 classes (Davan-BCom-Sem1-SecA, Davan-BCA-Sem1-SecA) -- the real signal this was a whole-semester matching failure, not scattered individual data gaps. ROOT CAUSE: [iaeFacultyForSubject() index.html ~36884, the SINGLE SHARED function both iaeFacultyRanking() (IA Raw panel) and iarFacultyRankingRuled() (this Final Shortage panel) both call for every shortage instance] builds a semTokens array meant to match a real class label like "Davan-BCom-Sem1-SecA" -- but LM_ALLOCATIONS a.sem field is stored as a ROMAN NUMERAL string ("I","II","III" etc, confirmed repeatedly elsewhere in this file -- Create/Edit own picker and _paGetFaculty() both already compare a.sem directly against a roman numeral), while this function only ever stripped a literal "Sem" text prefix and never actually converted the roman numeral to the DIGIT form real class labels use. A Sem I allocation row produced tokens ["i","semi"], which can never appear as a substring of "...sem1..." no matter how many students or subjects were checked -- so this silently broke EVERY Sem 1/2/3-numbered classs faculty lookup this whole time; the faculty genuinely WAS recorded correctly in LM_ALLOCATIONS the entire time, this function simply could never find the matching row. FIX: [index.html ~36884] added a direct roman-to-digit conversion map (matching the same convention _strParseClass()/intGetSubjectsForBatch() already use elsewhere in this file) before building match tokens, so the generated tokens now correctly include the real digit form a class label actually contains, alongside the original roman-numeral tokens kept as a defensive fallback for any row that might already store a plain digit. Since both panels ranking functions share this one function, a single fix corrects "Unassigned / Unknown" on both IA Raw and Final Shortage at once -- confirmed via grep that no second, independently-duplicated copy of this matching logic exists anywhere else. VERIFIED: isolated Node harness against the admin own exact real failing case (Davan-BCom-Sem1-SecA / English, and Davan-BCA-Sem1-SecA / Kannada, both genuinely allocated with real faculty under sem:"I") -- confirms both now correctly resolve to their real faculty names instead of falling through to unassigned; a regression suite confirms higher semesters (Sem III via sem:"III") still resolve correctly exactly as before, confirms a genuinely non-existent subject still correctly returns null rather than a false match, and confirms a real allocation row with a genuinely blank faculty field still correctly returns null rather than a broken match. Shipped conversion map confirmed to match the tested logic exactly. node --check clean on the containing script block. ACTION: the Final Shortage / IA Raw "FACULTY WITH MOST SHORTAGE" ranking will now correctly redistribute what was showing as "Unassigned / Unknown" onto the real faculty who actually teach those Sem 1/2/3 subjects -- re-open the report to see the corrected ranking. CODE_BUILD=1309.' },
   { v: 'v1308', date: '29-Aug-2026 IST', note: 'FIX, traced live via a direct F12 read of the admin own real data: v1307 correctly widened Exempted Subjects to the full LM_ALLOCATIONS curriculum (fixing missing subjects), but that surfaced a real, separate problem the admin caught immediately -- II BBA subjects with a genuinely blank faculty field (confirmed: {course:"BBA", sem:"III", faculty:""} for every one of them) were showing up even though, per the admin, that course-year has zero real students enrolled this academic year ("we dont have students so no classes only"). LM_ALLOCATIONS still carries old/template rows for a course-year with no current intake, and v1307 had no way to distinguish those from a genuinely active one. FIX per explicit admin instruction ("show subject which r there in this ay and subject which attendende is taken like orientaion prog etc"): [renderSubjectExemptions() index.html ~14738] a subject now only shows if EITHER its whole course+year group has real, currently-enrolled students (checked directly against allStudents via _strParseClass, not assumed from LM_ALLOCATIONS), OR that exact subject already has real recorded attendance under THAT SAME course+year group specifically -- covers a subject like an orientation program that may not cleanly map to a normal course+year. A REAL CROSS-CONTAMINATION BUG was caught by my own test before shipping, not by the admin: the first version of this fix checked "has real attendance anywhere" by bare subject name only -- an identically-named subject shared across two courses (e.g. "Cost Accounting" genuinely active under II BCom) incorrectly made the SAME-NAMED but genuinely inactive II BBA "Cost Accounting" look active too, purely by name collision, completely defeating the fix for the exact case it was built for. Fixed by scoping the real-attendance check to "groupLabel|subjectName" pairs instead of the bare subject name globally, so a course real attendance can never leak onto a different, inactive course sharing the same subject name. VERIFIED: isolated Node harness reproducing the admin exact real scenario (II BBA has zero real students, all its LM_ALLOCATIONS rows carry blank faculty; II BCom has real students and a real "Cost Accounting" allocation with real faculty; both courses coincidentally share the exact subject name "Cost Accounting") -- confirms II BBA is now correctly ABSENT entirely (both from having students and from any cross-course attendance leak), confirms II BCom is correctly present with its correct real faculty, and confirms II BBA own "Business Law" (which never had any real attendance anywhere) is correctly excluded too. This test suite is what caught and forced the cross-contamination fix above before it ever reached the admin. Shipped scoped check confirmed to match the corrected tested logic exactly. node --check clean on the containing script block. CODE_BUILD=1308.' },
@@ -35411,7 +35540,19 @@ async function iaeGrantPermission(urn, name, cls, examTag, reason) {
   };
   if (existingIdx >= 0) list[existingIdx] = entry; else list.push(entry);
   const ok = await iaeSavePermissions(list);
-  if (ok) dvToast('✅ Permission granted for ' + name, 'ok');
+  if (ok) {
+    dvToast('✅ Permission granted for ' + name, 'ok');
+    // v1314: also stamped into the unified clear-log timeline so a
+    // permission override shows up alongside rule/manual clears — same
+    // request as exempted students appearing on one combined timeline
+    // rather than three separate places to check.
+    await iarAppendClearLog(examTag, {
+      urn, name, class: cls,
+      event: 'permitted', Xbefore: null, Xafter: null,
+      reasons: [{ subject: null, reasonMode: 'permission', event: 'permitted', ta: null, detail: reason.trim() }],
+      by: iarCurrentActor()
+    });
+  }
   return ok;
 }
 
@@ -35522,6 +35663,29 @@ function iaeStudentShortage(s, examTag, threshold) {
 //   not at write time — principal/manager still need to trigger these writes.
 // ══════════════════════════════════════════════════════════════════════════════
 
+// ─── DISPLAY PREFERENCES (v1321) — global, persistent toggles that control
+// what Final Shortage shows/exports: TA column visibility and phone number
+// visibility, both default OFF. Persisted in localStorage only (device-
+// local, same as every other admin display preference in this app — never
+// synced to Firebase, since this is purely a "what do I want to see"
+// setting, not shared institutional data). Read by iarBuildTable() (the
+// live Excel View table), iafBuildExcelGridData() (the Excel-View PDF/Excel
+// export data builder), and the Notice Excel export — all three read the
+// SAME stored value so the on-screen table and every download can never
+// disagree about whether TA/phone are showing.
+function iarGetShowTA() {
+  try { return localStorage.getItem('davan_ia_show_ta') === '1'; } catch(e) { return false; }
+}
+function iarSetShowTA(val) {
+  try { localStorage.setItem('davan_ia_show_ta', val ? '1' : '0'); } catch(e) {}
+}
+function iarGetShowPhone() {
+  try { return localStorage.getItem('davan_ia_show_phone') === '1'; } catch(e) { return false; }
+}
+function iarSetShowPhone(val) {
+  try { localStorage.setItem('davan_ia_show_phone', val ? '1' : '0'); } catch(e) {}
+}
+
 // ─── TA STORAGE ─────────────────────────────────────────────────────────────
 function iarGetTA(examTag) {
   // localStorage and every in-memory caller always use REAL urn/subject
@@ -35577,6 +35741,44 @@ async function iarAppendLog(examTag, entry) {
 
 function iarCurrentActor() {
   return { name: currentProfile?.name || 'Unknown', role: currentProfile?.role || 'unknown' };
+}
+
+// ─── CLEAR LOG (v1314) — WHO went from not-eligible to eligible, WHEN, WHY ──
+// Distinct from the existing per-subject EDIT LOG above (iarAppendLog): that
+// log records individual TA set/clear actions ("Kannada: TA 0->1"), but
+// never answers the actual question admin asked — "which STUDENTS moved off
+// the not-eligible list, and when." A student can have several subjects
+// touched across several reconcile passes before their overall X (short
+// count) finally drops below 3 and they leave the list — this log fires
+// exactly once at THAT moment, student-level, not per-subject.
+//
+// Storage mirrors iarGetTA/iarAppendLog's exact pattern: localStorage cache
+// + Firestore app_data/ia_clear_log_{examTag} + RTDB davan_pub/ia_clear_log/
+// {examTag}, same { list:[...] } shape, newest-first, capped on read not
+// write (so nothing is ever silently dropped from Firebase, only from what
+// a slow render pulls in).
+//
+// VISIBILITY: admin/manager/vp/principal (same as who can edit TA) — an
+// explicit, narrower choice than the per-subject edit log above, which is
+// admin-only. Enforced at render time in ialClearLogHtml(), not here.
+function iarGetClearLog(examTag) {
+  try {
+    const raw = JSON.parse(localStorage.getItem('davan_ia_clear_log_' + examTag) || '{"list":[]}');
+    return raw.list || [];
+  } catch(e) { return []; }
+}
+
+async function iarAppendClearLog(examTag, entry) {
+  const list = iarGetClearLog(examTag);
+  list.unshift({ ts: new Date().toISOString(), examTag, ...entry }); // newest first
+  try { localStorage.setItem('davan_ia_clear_log_' + examTag, JSON.stringify({ list })); } catch(e) {}
+  const ok = await fsSet('app_data', 'ia_clear_log_' + examTag, { list });
+  if (ok) {
+    if (rtdb) rtdbSafeSet('davan_pub/ia_clear_log/' + examTag, { list }).catch(()=>{});
+  } else {
+    console.warn('[IAR] ia_clear_log_' + examTag + ' Firebase save failed');
+  }
+  return ok;
 }
 
 // ─── THE RULE ITSELF ────────────────────────────────────────────────────────
@@ -35694,6 +35896,26 @@ function iarRuleForSubject(sub) {
 // ('rule'|'manual'|null), ruleAuto (whether the +1/+2 rule itself would fire
 // on the RAW numbers, used for Panel 1's badge — independent of whether TA
 // storage actually has an entry, since Panel 1 never writes TA).
+//
+// v1313: RULE-entries are now recomputed LIVE against current raw CT/CA on
+// every call, instead of trusting whatever TA value was stored the first
+// time the subject was ever seen short. Root cause of the 64/60/56-drifting
+// "not eligible" count reported by admin: iarAutoApplyBatch() only ever
+// wrote a TA entry the FIRST time a subject was seen short, then never
+// touched it again — but the underlying raw CT/CA keeps moving on every
+// scrape, so a frozen TA=1 (granted when the raw % was, say, 71%) silently
+// stopped being correct once new classes were scraped in and the raw %
+// moved to 68% (should now need TA=2, or may no longer qualify for the
+// rule at all) or improved to 76% on its own (TA=1 became redundant but
+// stayed on record, and STILL counted the subject as "rule-touched" rather
+// than genuinely clear). This is why the exact same Firebase data produced
+// a different total on every page-open: each open could newly clear a few
+// more students whose raw % had drifted since their TA was last granted,
+// but never re-checked or corrected an existing entry. Per explicit admin
+// decision: only appliedBy:'rule' entries are affected by this — a
+// appliedBy:'manual' TA entry (an admin's deliberate override) is NEVER
+// recomputed here, it stays exactly what the admin set until they change
+// it themselves.
 function iarWindowedSubjects(urn, examTag) {
   const raw = iaeWindowedSubjects(urn, examTag);
   if (raw === null) return null;
@@ -35701,7 +35923,23 @@ function iarWindowedSubjects(urn, examTag) {
   return raw.map(sub => {
     const stored = taForStudent[sub.subject];
     const ruleAuto = sub.pct !== null && sub.pct < 75 ? iarRuleForSubject(sub) : null;
-    const ta = stored ? stored.ta : 0;
+    let ta = stored ? stored.ta : 0;
+    let ruleApplied = stored ? (stored.appliedBy || 'manual') : null;
+    if (stored && stored.appliedBy === 'rule') {
+      // Live-recompute: does the CURRENT raw percentage still need this
+      // rescue, and if so, does it still need the SAME +1/+2 amount? A
+      // manual entry is deliberately skipped — only auto-granted ones
+      // track the moving raw data.
+      if (sub.pct !== null && sub.pct >= 75) {
+        // Raw attendance recovered on its own since the rule was granted —
+        // the rescue is no longer needed; treat as genuinely clear.
+        ta = 0; ruleApplied = null;
+      } else {
+        const live = iarRuleForSubject(sub);
+        ta = live ? live.ta : stored.ta; // if raw got worse and even +2 no longer clears it, fall back to the last-known TA rather than silently dropping it to 0 — genuine worsening still needs an admin to see it, not vanish from the record
+        ruleApplied = live ? 'rule' : 'rule';
+      }
+    }
     const newTotal = sub.attended + ta;
     const pctRuled = sub.total > 0 ? Math.min(100, (newTotal / sub.total) * 100) : sub.pct;
     return {
@@ -35709,7 +35947,7 @@ function iarWindowedSubjects(urn, examTag) {
       ta,
       totalWithTA: newTotal,
       pctRuled,
-      ruleApplied: stored ? (stored.appliedBy || 'manual') : null,
+      ruleApplied,
       ruleAuto // {ta,newPct} or null — informational only, doesn't mean TA is stored
     };
   });
@@ -35751,6 +35989,22 @@ async function iarAutoApplyForStudent(s, examTag, threshold) {
   return changed;
 }
 
+// v1313: now RECONCILES existing 'rule' entries against current raw CT/CA on
+// every call, not just grants new ones — see the long comment on
+// iarWindowedSubjects() above for the root cause this fixes (a frozen TA
+// value silently going stale as new attendance gets scraped in, which was
+// why the "Not eligible" total kept drifting between page-opens with no
+// admin edits). Three outcomes per existing rule entry, checked live:
+//   (a) raw % has since recovered to >=threshold on its own -> the rescue
+//       is no longer needed, the TA entry is DELETED (not just displayed as
+//       0 — iarWindowedSubjects() only overrides the display, this is what
+//       actually keeps Firebase in sync with what's shown).
+//   (b) raw % still needs help but the required amount changed (was
+//       cleared by +1, now needs +2, or vice versa) -> value UPDATED.
+//   (c) raw % still short and the same amount still clears it -> untouched,
+//       no write (keeps this idempotent/cheap on the common case).
+// A 'manual' entry (appliedBy !== 'rule') is NEVER touched here — that is a
+// deliberate admin override and stays exactly as set until they change it.
 // Batched version of the above — computes rule-clearance for MANY students
 // entirely in memory, then performs exactly ONE iarSaveTA() write covering
 // all of them, instead of one write per flagged student. This is what
@@ -35760,18 +36014,64 @@ async function iarAutoApplyForStudent(s, examTag, threshold) {
 async function iarAutoApplyBatch(students, examTag, threshold) {
   const allTA = iarGetTA(examTag);
   let anyChanged = false;
+  const clearEvents = []; // collected here, appended to the clear log in ONE batch at the end (mirrors the ta-save batching pattern)
+
+  // Local X computer — short-subject count given a specific TA map, used to
+  // take a before/after snapshot around this student's mutation below so a
+  // genuine not-eligible -> eligible flip can be detected and logged. Mirrors
+  // iarStudentShortageRuled()'s own X calculation exactly (evaluable minus
+  // labs, pctRuled >= threshold clears a subject) so this can never disagree
+  // with what Final Shortage itself will show for the same student.
+  const countShort = (evaluable, taMap) => evaluable.filter(sub => {
+    const entry = taMap[sub.subject];
+    const ta = entry ? entry.ta : 0;
+    const total = sub.total;
+    const pct = total > 0 ? Math.min(100, ((sub.attended + ta) / total) * 100) : sub.pct;
+    return pct !== null && pct < threshold;
+  }).length;
 
   students.forEach(s => {
     const urn = s.urn || s.seat_no;
     const raw = iaeWindowedSubjects(urn, examTag);
     if (!raw) return;
     const evaluable = raw.filter(sub => sub.total > 0 && !iarIsLabSubject(sub.subject)); // labs never enter the rule engine
-    const shortSubjects = evaluable.filter(sub => sub.pct !== null && sub.pct < threshold);
-    if (!shortSubjects.length) return;
+    const bySubject = {};
+    evaluable.forEach(sub => { bySubject[sub.subject] = sub; });
 
     const studentTA = allTA[urn] || {};
+    const beforeTA = JSON.parse(JSON.stringify(studentTA)); // snapshot for the before-X calc and for the log's "what changed" detail
+    const Xbefore = countShort(evaluable, beforeTA);
     let studentChanged = false;
+    const touched = []; // { subject, reasonMode:'rule'|'manual', event:'escalated'|'granted'|'recovered', ta, pctBefore, pctAfter }
 
+    // (1) RECONCILE existing rule-granted entries against current raw data.
+    Object.keys(studentTA).forEach(subjName => {
+      const entry = studentTA[subjName];
+      if (!entry || entry.appliedBy !== 'rule') return; // manual entries are never auto-touched
+      const sub = bySubject[subjName];
+      if (!sub || sub.pct === null) return; // subject dropped out of the window entirely — leave the historical record alone rather than guess
+      if (sub.pct >= threshold) {
+        // Raw attendance recovered on its own — rescue no longer needed.
+        delete studentTA[subjName];
+        studentChanged = true;
+        touched.push({ subject: subjName, reasonMode: 'rule', event: 'recovered_on_own', ta: 0, pctBefore: sub.pct, pctAfter: sub.pct });
+        return;
+      }
+      const live = iarRuleForSubject(sub);
+      if (live && live.ta !== entry.ta) {
+        studentTA[subjName] = {
+          ta: live.ta, appliedBy: 'rule',
+          setBy: { name: 'System (rule)', role: 'system' },
+          setAt: new Date().toISOString()
+        };
+        studentChanged = true;
+        touched.push({ subject: subjName, reasonMode: 'rule', event: 'escalated', ta: live.ta, pctBefore: sub.pct, pctAfter: live.newPct });
+      }
+      // else: still short, same TA amount still clears it — leave as-is.
+    });
+
+    // (2) GRANT new rule entries for subjects newly short with no entry yet.
+    const shortSubjects = evaluable.filter(sub => sub.pct !== null && sub.pct < threshold);
     shortSubjects.forEach(sub => {
       if (studentTA[sub.subject]) return; // already has a TA entry — don't overwrite
       const rule = iarRuleForSubject(sub);
@@ -35782,16 +36082,35 @@ async function iarAutoApplyBatch(students, examTag, threshold) {
         setAt: new Date().toISOString()
       };
       studentChanged = true;
+      touched.push({ subject: sub.subject, reasonMode: 'rule', event: 'granted', ta: rule.ta, pctBefore: sub.pct, pctAfter: rule.newPct });
     });
 
     if (studentChanged) {
       allTA[urn] = studentTA;
       anyChanged = true;
+
+      // Did this student cross the eligibility line THIS pass? X>=3 is the
+      // real not-eligible rule (iarStudentShortageRuled's own threshold) —
+      // only log a "cleared" event on a genuine flip, never on a subject
+      // touch that leaves the student still flagged either side of it.
+      const Xafter = countShort(evaluable, studentTA);
+      const wasFlagged = Xbefore >= 3, isFlaggedNow = Xafter >= 3;
+      if (wasFlagged && !isFlaggedNow) {
+        clearEvents.push({
+          urn, name: s.name, class: s.class,
+          event: 'cleared', Xbefore, Xafter,
+          reasons: touched, // full per-subject detail for the expand view
+          by: { name: 'System (rule)', role: 'system' }
+        });
+      }
     }
   });
 
   if (anyChanged) {
     await iarSaveTA(examTag, allTA);
+  }
+  if (clearEvents.length) {
+    for (const ev of clearEvents) await iarAppendClearLog(examTag, ev);
   }
   return anyChanged;
 }
@@ -35825,6 +36144,16 @@ async function iarSetTA(examTag, urn, name, subject, ta, mode) {
   const studentTA = allTA[urn] || {};
   const oldEntry = studentTA[subject];
   const oldVal = oldEntry ? oldEntry.ta : 0;
+
+  // v1314: snapshot flagged-state BEFORE the edit, using the student's real
+  // record from allStudents (needed for class/section + the shared X
+  // calculation) — logged AFTER the write below if this single manual edit
+  // is what flips them from not-eligible to eligible, same "cleared" event
+  // shape iarAutoApplyBatch() uses, so the clear-log timeline is not just
+  // rule-driven clears but every real not-eligible->eligible transition.
+  const studentObj = (typeof allStudents !== 'undefined' ? allStudents : []).find(s => (s.urn || s.seat_no) === urn);
+  const before = studentObj ? iarStudentShortageRuled(studentObj, examTag, 75) : null;
+
   if (ta <= 0) {
     delete studentTA[subject];
   } else {
@@ -35839,6 +36168,17 @@ async function iarSetTA(examTag, urn, name, subject, ta, mode) {
       oldVal, newVal: ta,
       by: iarCurrentActor()
     });
+    if (studentObj && before && before.flagged) {
+      const after = iarStudentShortageRuled(studentObj, examTag, 75);
+      if (!after.flagged) {
+        await iarAppendClearLog(examTag, {
+          urn, name: studentObj.name, class: studentObj.class,
+          event: 'cleared', Xbefore: before.X, Xafter: after.X,
+          reasons: [{ subject, reasonMode: mode, event: ta <= 0 ? 'manual_cleared' : 'manual_set', ta, pctBefore: null, pctAfter: null }],
+          by: iarCurrentActor()
+        });
+      }
+    }
   }
   return ok;
 }
@@ -35882,6 +36222,25 @@ async function iarBulkRevert(examTag, classFilter) {
 //  different edit-permission flags passed in, so behavior never drifts
 //  between panels.
 // ══════════════════════════════════════════════════════════════════════════════
+
+// v1321: short subject-code abbreviation for Card view's "which subjects"
+// line — per explicit admin request ("kan-eng-hin" style). This app has no
+// stored per-subject short-code field anywhere (checked: LM_ALLOCATIONS,
+// the timetable data, and iarSubjectsForChip() all carry only full scraped
+// subject NAMES, never a code) — so this auto-derives a short, readable
+// abbreviation from the real subject name rather than inventing a fake data
+// source. Takes the first 3 letters of the first significant word (skips
+// generic leading words like "the"), lowercase — "Kannada" -> "kan",
+// "English" -> "eng", "Business Law" -> "bus". Not guaranteed globally
+// unique across every possible subject name, but matches the requested
+// style and is derived from real data rather than fabricated.
+function iarSubjectAbbrev(subjectName) {
+  const clean = (subjectName || '').trim();
+  if (!clean) return '???';
+  const words = clean.split(/\s+/).filter(w => !/^(the|of|and|in)$/i.test(w));
+  const first = (words[0] || clean).replace(/[^a-zA-Z]/g, '');
+  return (first.slice(0, 3) || '???').toLowerCase();
+}
 
 // Parses "Davan-BBA-Sem1-SecA" into { course:'BBA', year:'1st Year', sem:'Sem1', section:'A', chipKey:'BBA-1' }
 // Year bucketing: Sem1/2 -> 1st Year, Sem3/4 -> 2nd Year, Sem5/6 -> 3rd Year —
@@ -35928,11 +36287,22 @@ function iarSubjectsForChip(chipKey, examTag) {
 }
 
 // ─── CHIP BAR (shared markup, one row per panel instance) ──────────────────
+// v1312: added a leading "All" chip (chipKey '__ALL__') per admin request so
+// the Excel View can be scanned across every course/year without clicking
+// through chips one at a time — iarBuildTable() below renders one stacked
+// section per class when this key is selected, instead of a single table.
 function iarRenderChips(containerId, selectedKey, onSelectFnName) {
   const chips = iarAvailableChips();
   const el = document.getElementById(containerId);
   if (!el) return;
-  el.innerHTML = chips.map(c => {
+  const allActive = selectedKey === '__ALL__';
+  const allBtn = `<button onclick="${onSelectFnName}('__ALL__')"
+      style="padding:5px 12px;border-radius:14px;font-size:11px;font-weight:700;cursor:pointer;
+      background:${allActive ? 'var(--accent)' : 'var(--surface2)'};color:${allActive ? '#000' : 'var(--text)'};
+      border:1px solid ${allActive ? 'var(--accent)' : 'var(--border)'};margin:2px;">
+      🗂️ All
+    </button>`;
+  el.innerHTML = allBtn + chips.map(c => {
     const active = c.chipKey === selectedKey;
     return `<button onclick="${onSelectFnName}('${c.chipKey}')"
       style="padding:5px 12px;border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;
@@ -35940,7 +36310,7 @@ function iarRenderChips(containerId, selectedKey, onSelectFnName) {
       border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};margin:2px;">
       ${c.course} · ${c.year}
     </button>`;
-  }).join('') || '<div style="font-size:11px;color:var(--muted);">No students loaded.</div>';
+  }).join('');
 }
 
 // ─── COLOR HELPER (shared 3-band rule: <50 red, 50-74 yellow, >=75 white) ──
@@ -35958,10 +36328,78 @@ function iarCellColor(pct) {
 // examTag: 'IA1' | 'IA2'
 // chipKey: which course|year to render (must call iarSubjectsForChip first)
 function iarBuildTable(examTag, chipKey, threshold, mode) {
+  // v1312: '__ALL__' stacks one labeled table per course/year, one below the
+  // other, so admin can scan every class's Excel View in one page instead of
+  // clicking through chips one at a time. Each section reuses this exact
+  // same function for its real chipKey, so a stacked table can never render
+  // differently than picking that chip individually would.
+  // v1322: FIX per direct admin report + screenshot — a class with ZERO
+  // flagged students for this exam (e.g. BCA Sem I Sec A, everyone
+  // eligible) still got its own section header + "No students currently
+  // not-eligible" placeholder in the __ALL__ stack, which is misleading —
+  // Card view's own class boxes never show a class with nothing to show at
+  // all (iafRender()'s cards loop only pushes a box when rows.length > 0).
+  // FIX: for ruled/ruledview modes specifically (the only modes this
+  // no-students-here state is even possible for, since sim/ledger show
+  // different populations), check the real flagged count for this chip
+  // BEFORE rendering its section, and skip the class entirely if it's
+  // zero — matching exactly what Card view already does.
+  if (chipKey === '__ALL__') {
+    const chips = iarAvailableChips();
+    if (!chips.length) return '<div style="color:var(--muted);font-size:12px;padding:12px;">No students loaded.</div>';
+    const sections = chips.map(c => {
+      if (mode === 'ruled' || mode === 'ruledview') {
+        const hasFlagged = (allStudents || []).some(s => {
+          if (iarParseClass(s.class).chipKey !== c.chipKey) return false;
+          const result = iarStudentShortageRuled(s, examTag, threshold);
+          return result && result.flagged;
+        });
+        if (!hasFlagged) return ''; // skip this class entirely — nothing to show
+      }
+      return `
+      <div style="margin-bottom:22px;">
+        <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);letter-spacing:0.5px;margin-bottom:6px;">${c.course} · ${c.year}</div>
+        ${iarBuildTable(examTag, c.chipKey, threshold, mode)}
+      </div>`;
+    }).filter(Boolean);
+    if (!sections.length && (mode === 'ruled' || mode === 'ruledview')) {
+      return '<div style="color:var(--muted);font-size:12px;padding:12px;">No students currently not-eligible in any course/year.</div>';
+    }
+    return sections.join('');
+  }
   const subjects = iarSubjectsForChip(chipKey, examTag);
   if (!subjects.length) return '<div style="color:var(--muted);font-size:12px;padding:12px;">No subject data for this course/year in the selected window.</div>';
 
-  const students = (allStudents || []).filter(s => iarParseClass(s.class).chipKey === chipKey);
+  // v1318: FIX per direct admin report — Final Shortage's Excel View
+  // ('ruled'/'ruledview' modes) was showing EVERY student in the class
+  // (e.g. 24 rows including 0-attendance and fully-eligible students),
+  // while Card view correctly showed only the 10 genuinely not-eligible.
+  // Confirmed this is a real mismatch, not intentional: unlike IA Raw's
+  // 'sim' mode (deliberately a full pre-rule audit of everyone) and IA
+  // Ledger's 'ledger' mode (already filtered to only students with an
+  // actual TA adjustment), Final Shortage IS meant to be an eligibility
+  // list — its own Card view already filters to iarStudentShortageRuled()
+  // .flagged via the exact same threshold, so Excel View filtering to the
+  // same set makes both views agree on count, matching what admin expects
+  // from two different presentations of the SAME list. 'sim' and 'ledger'
+  // modes are untouched — only 'ruled'/'ruledview' (Final Shortage's own
+  // two modes) apply this filter, so IA Raw and IA Ledger's own row counts
+  // are unaffected.
+  const students = (allStudents || []).filter(s => {
+    if (iarParseClass(s.class).chipKey !== chipKey) return false;
+    if (mode === 'ruled' || mode === 'ruledview') {
+      const result = iarStudentShortageRuled(s, examTag, threshold);
+      return result && result.flagged; // same test Card view's iafRender() already uses
+    }
+    return true; // 'sim' (IA Raw) and 'ledger' (already pre-filtered by its own caller) — unchanged
+  });
+
+  // v1321: global TA-column visibility toggle, default OFF — read once here
+  // so every row in this render agrees. 'sim' mode's own "(sim)" preview
+  // column follows the same toggle (it's still a TA-shaped column).
+  const showTA = iarGetShowTA();
+  const showPhone = iarGetShowPhone();
+  const subColCount = showTA ? 5 : 4; // CT, CA, [TA], Total, %
 
   const rows = students.map((s, i) => {
     const urn = s.urn || s.seat_no || s.name;
@@ -35972,7 +36410,7 @@ function iarBuildTable(examTag, chipKey, threshold, mode) {
     const cells = subjects.map(subjName => {
       const sub = subMap[subjName];
       if (!sub || sub.total <= 0) {
-        return `<td colspan="5" style="border:1px solid var(--border);padding:4px 6px;text-align:center;color:var(--muted);font-size:10px;">—</td>`;
+        return `<td colspan="${subColCount}" style="border:1px solid var(--border);padding:4px 6px;text-align:center;color:var(--muted);font-size:10px;">—</td>`;
       }
       if (mode === 'sim') {
         // Read-only what-if: show raw CT/CA, and if the rule WOULD clear this
@@ -35986,7 +36424,7 @@ function iarBuildTable(examTag, chipKey, threshold, mode) {
         return `
           <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${col.text};">${sub.total}</td>
           <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${col.text};">${sub.attended}</td>
-          <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${rule ? '#60a5fa' : col.text};">${ta || '—'}${rule ? ' (sim)' : ''}</td>
+          ${showTA ? `<td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${rule ? '#60a5fa' : col.text};">${ta || '—'}${rule ? ' (sim)' : ''}</td>` : ''}
           <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${col.text};">${total}</td>
           <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;font-weight:700;background:${col.bg};color:${col.text};">${pct !== null ? pct.toFixed(1) + '%' : '—'}</td>`;
       }
@@ -35998,7 +36436,7 @@ function iarBuildTable(examTag, chipKey, threshold, mode) {
         return `
           <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${col.text};">${sub.total}</td>
           <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${col.text};">${sub.attended}</td>
-          <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${sub.ta ? '#60a5fa' : col.text};">${sub.ta || '—'}</td>
+          ${showTA ? `<td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${sub.ta ? '#60a5fa' : col.text};">${sub.ta || '—'}</td>` : ''}
           <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${col.text};">${sub.totalWithTA}</td>
           <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;font-weight:700;background:${col.bg};color:${col.text};">${sub.pctRuled !== null ? sub.pctRuled.toFixed(1) + '%' : '—'}</td>`;
       }
@@ -36008,47 +36446,57 @@ function iarBuildTable(examTag, chipKey, threshold, mode) {
       return `
         <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${col.text};">${sub.total}</td>
         <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${col.text};">${sub.attended}</td>
-        <td style="border:1px solid var(--border);padding:2px;text-align:center;background:${col.bg};">
+        ${showTA ? `<td style="border:1px solid var(--border);padding:2px;text-align:center;background:${col.bg};">
           <input type="number" min="0" max="2" value="${sub.ta || 0}" id="${cellId}"
             onchange="iarInlineEditTA('${examTag}','${urn}','${(s.name||'').replace(/'/g,"\\'")}','${subjName.replace(/'/g,"\\'")}',this)"
             style="width:36px;background:transparent;border:1px solid var(--border);border-radius:4px;color:${sub.ta ? '#60a5fa' : col.text};font-family:var(--mono);font-size:10px;text-align:center;padding:2px;">
           <span id="${cellId}-tick" style="display:none;color:#22c55e;font-size:9px;margin-left:2px;">✅</span>
-        </td>
+        </td>` : ''}
         <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;background:${col.bg};color:${col.text};">${sub.totalWithTA}</td>
         <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;font-family:var(--mono);font-size:10px;font-weight:700;background:${col.bg};color:${col.text};">${sub.pctRuled !== null ? sub.pctRuled.toFixed(1) + '%' : '—'}</td>`;
     }).join('');
 
     const avatar = typeof _stuAvatar === 'function' ? _stuAvatar(urn, s.name, 24) : '';
+    // v1321: phone column, global toggle, default OFF, tap-to-call (tel:
+    // link) same as the pattern already used elsewhere in this file
+    // (e.g. WhatsApp builders read s.phone the same way).
+    const phoneCell = showPhone
+      ? `<td style="border:1px solid var(--border);padding:4px 6px;font-size:10px;font-family:var(--mono);white-space:nowrap;">${s.phone ? `<a href="tel:${s.phone.replace(/\D/g,'')}" style="color:#60a5fa;text-decoration:none;">${s.phone}</a>` : '—'}</td>`
+      : '';
     return `<tr>
       <td style="border:1px solid var(--border);padding:4px 6px;text-align:center;color:var(--muted);font-size:10px;">${i + 1}</td>
       <td style="border:1px solid var(--border);padding:4px 6px;">${avatar}</td>
       <td style="border:1px solid var(--border);padding:4px 6px;font-size:11px;white-space:nowrap;">${s.name || ''}</td>
+      ${phoneCell}
       ${cells}
     </tr>`;
   }).join('');
 
   const subjHeaders = subjects.map((sn, i) =>
-    `<th colspan="5" style="border:1px solid var(--border);padding:4px 6px;background:var(--surface);font-family:var(--mono);font-size:10px;color:var(--accent);">Subject ${i + 1}: ${sn}</th>`
+    `<th colspan="${subColCount}" style="border:1px solid var(--border);padding:4px 6px;background:var(--surface);font-family:var(--mono);font-size:10px;color:var(--accent);">Subject ${i + 1}: ${sn}</th>`
   ).join('');
   const subCols = subjects.map(() =>
     `<th style="border:1px solid var(--border);padding:3px;font-size:9px;color:var(--muted);">CT</th>
      <th style="border:1px solid var(--border);padding:3px;font-size:9px;color:var(--muted);">CA</th>
-     <th style="border:1px solid var(--border);padding:3px;font-size:9px;color:var(--muted);">TA</th>
+     ${showTA ? '<th style="border:1px solid var(--border);padding:3px;font-size:9px;color:var(--muted);">TA</th>' : ''}
      <th style="border:1px solid var(--border);padding:3px;font-size:9px;color:var(--muted);">Total</th>
      <th style="border:1px solid var(--border);padding:3px;font-size:9px;color:var(--muted);">%</th>`
   ).join('');
 
+  const phoneHeader = showPhone ? `<th rowspan="2" style="border:1px solid var(--border);padding:4px 6px;background:var(--surface);font-size:10px;">Phone</th>` : '';
+
   return `
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;">
-      <table style="border-collapse:collapse;width:100%;min-width:${600 + subjects.length * 250}px;">
+      <table style="border-collapse:collapse;width:100%;min-width:${600 + subjects.length * (showTA ? 250 : 210)}px;">
         <thead>
           <tr><th rowspan="2" style="border:1px solid var(--border);padding:4px 6px;background:var(--surface);font-size:10px;">Sl No</th>
               <th rowspan="2" style="border:1px solid var(--border);padding:4px 6px;background:var(--surface);font-size:10px;">Photo</th>
               <th rowspan="2" style="border:1px solid var(--border);padding:4px 6px;background:var(--surface);font-size:10px;">Student Name</th>
+              ${phoneHeader}
               ${subjHeaders}</tr>
           <tr>${subCols}</tr>
         </thead>
-        <tbody>${rows || `<tr><td colspan="99" style="padding:12px;text-align:center;color:var(--muted);font-size:11px;">No students in this course/year.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="99" style="padding:12px;text-align:center;color:var(--muted);font-size:11px;">${(mode === 'ruled' || mode === 'ruledview') ? 'No students currently not-eligible in this course/year.' : 'No students in this course/year.'}</td></tr>`}</tbody>
       </table>
     </div>`;
 }
@@ -36088,7 +36536,83 @@ function iafSwitchExam(tag) {
     b.style.background = b.dataset.exam === tag ? 'var(--accent)' : 'var(--surface2)';
     b.style.color = b.dataset.exam === tag ? '#000' : 'var(--text)';
   });
+  iafSyncStartDateField();
   iafRender();
+}
+
+// v1321: TA/phone checkbox handlers — persist immediately (see
+// iarGetShowTA/iarSetShowTA above) then re-render whichever view is
+// currently open so the change is visible instantly, no separate "apply"
+// step. Both Cards and Excel View respond: Cards view doesn't itself use
+// these toggles for its own layout (that's the X/Y + subject-abbreviation
+// addition below, always shown), but Excel View's table and every
+// PDF/Excel export from either view read the same stored value.
+function iafToggleShowTA(checked) {
+  iarSetShowTA(checked);
+  iafRender();
+}
+function iafToggleShowPhone(checked) {
+  iarSetShowPhone(checked);
+  iafRender();
+}
+
+// v1321: attendance start-date override, per exam, persisted separately
+// from the cutoff date (which is the END of the window) — per explicit
+// admin instruction: IA1 defaults to the college's own commencing date
+// (SESSION_CONFIG.startDate, the same field the rest of the app already
+// uses as "when did this academic session begin"), IA2 defaults to the day
+// AFTER IA1's own cutoff date (IA1's end = IA2's start, per explicit admin
+// instruction — the two windows are meant to be back-to-back with no gap).
+// Editable here because SESSION_CONFIG.startDate is a single, whole-session
+// value that may not always be the literal correct start for a specific
+// Internal's attendance window (e.g. a later-starting section) — admin
+// can override without this file inventing a new mandatory data-entry step
+// elsewhere.
+function iafGetStartDateOverride(examTag) {
+  try { return localStorage.getItem('davan_ia_start_date_' + examTag) || ''; } catch(e) { return ''; }
+}
+function iafSetStartDateOverride(val) {
+  try { localStorage.setItem('davan_ia_start_date_' + IAF_EXAM, val || ''); } catch(e) {}
+  iafSyncStartDateField();
+}
+// Computes the real DEFAULT (not the override) for the given exam, per the
+// rule above — used both to pre-fill the date input when no override is
+// stored yet, and directly by the PDF/Excel builders as a fallback.
+function iafDefaultStartDate(examTag) {
+  if (examTag === 'IA1') {
+    return (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG?.startDate) || '';
+  }
+  // IA2: day after IA1's own cutoff date.
+  const windows = IAE_WINDOWS || {};
+  const ia1Cutoff = windows.ia1?.cutoffDate;
+  if (!ia1Cutoff) return '';
+  const d = new Date(ia1Cutoff + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+// Resolves the ACTUAL date to use — override if the admin has set one,
+// otherwise the computed default. Used by both the input field's own
+// display and the PDF/Excel export builders below.
+function iafResolveStartDate(examTag) {
+  const override = iafGetStartDateOverride(examTag);
+  return override || iafDefaultStartDate(examTag);
+}
+// Syncs the <input type=date> and its "(source)" label to the currently
+// selected exam — called on exam switch and after every manual edit so the
+// field never shows a stale value from the other exam.
+function iafSyncStartDateField() {
+  const input = document.getElementById('iaf-start-date');
+  const label = document.getElementById('iaf-start-date-source');
+  if (!input) return;
+  const override = iafGetStartDateOverride(IAF_EXAM);
+  const resolved = iafResolveStartDate(IAF_EXAM);
+  input.value = resolved || '';
+  if (label) {
+    label.textContent = !resolved ? '(not set — no default available)'
+      : override ? '(manually set)'
+      : IAF_EXAM === 'IA1' ? '(from college commencing date)'
+      : '(day after 1st Internal cutoff)';
+  }
 }
 
 function iafSetView(view) {
@@ -36098,10 +36622,7 @@ function iafSetView(view) {
   document.getElementById('iaf-view-table').style.background = view === 'table' ? 'var(--accent)' : 'var(--surface2)';
   document.getElementById('iaf-view-table').style.color = view === 'table' ? '#000' : 'var(--text)';
   document.getElementById('iaf-chips').style.display = view === 'table' ? 'block' : 'none';
-  if (view === 'table' && !IAF_CHIP) {
-    const chips = iarAvailableChips();
-    if (chips.length) IAF_CHIP = chips[0].chipKey;
-  }
+  if (view === 'table' && !IAF_CHIP) IAF_CHIP = '__ALL__'; // v1312: default Excel View to All instead of the first course/year
   iafRender();
 }
 
@@ -36122,6 +36643,15 @@ async function iafRender() {
   const role = currentProfile?.role || '';
   const canEdit = ['admin','manager','vp','principal'].includes(role); // faculty (fulltime/visiting) = view-only, everyone else full access
   const isAdmin = role === 'admin'; // log visibility gate — even principal/manager don't see it
+
+  // v1321: sync the TA/phone checkboxes and start-date field to their real
+  // stored state on every render — covers first load, exam switch, and
+  // view switch all in one place rather than scattering the sync call.
+  const taBox = document.getElementById('iaf-show-ta');
+  if (taBox) taBox.checked = iarGetShowTA();
+  const phoneBox = document.getElementById('iaf-show-phone');
+  if (phoneBox) phoneBox.checked = iarGetShowPhone();
+  iafSyncStartDateField();
 
   // Search/lookup box is admin/principal/manager/vp only — surfaces detail
   // (rule-clearance context, sitting location) beyond what faculty's
@@ -36163,9 +36693,41 @@ async function iafRender() {
 
   if (IAF_VIEW === 'table') {
     document.getElementById('iaf-chips').style.display = 'block';
-    if (!IAF_CHIP) { const chips = iarAvailableChips(); if (chips.length) IAF_CHIP = chips[0].chipKey; }
+    if (!IAF_CHIP) IAF_CHIP = '__ALL__'; // v1312: default Excel View to All
     iarRenderChips('iaf-chips', IAF_CHIP, 'iafSelectChip');
-    out.innerHTML = `<div id="iaf-table-wrap"></div>`;
+    // v1322: FIX per direct admin request — Excel View was missing the
+    // same top summary box (Not eligible/Permitted totals + per-class
+    // breakdown + faculty ranking) Card view already shows. Computed here
+    // identically to Cards view's own totals below (same
+    // iarStudentShortageRuled() calls, same flagged/permitted counters) so
+    // the two views can never show different numbers for the same data.
+    let tblFlagged = 0, tblPermitted = 0;
+    const tblPerClass = [];
+    const tblClassMap = {};
+    allStudents.forEach(s => { const cls = s.class || '—'; (tblClassMap[cls] = tblClassMap[cls] || []).push(s); });
+    Object.keys(tblClassMap).sort().forEach(cls => {
+      const label = cls.replace('Davan-', '').replace(/-/g, ' ')
+        .replace(/Sem(\d)/g, (_, n) => 'Sem ' + (['I','II','III','IV','V','VI'][+n-1] || n))
+        .replace(/Sec([A-Z])/g, (_, l) => 'Sec ' + l);
+      let cFlag = 0, cPerm = 0;
+      tblClassMap[cls].forEach(s => {
+        const result = iarStudentShortageRuled(s, IAF_EXAM, threshold);
+        if (!result || (!result.flagged && !result.permitted)) return;
+        if (result.flagged) { tblFlagged++; cFlag++; }
+        if (result.permitted) { tblPermitted++; cPerm++; }
+      });
+      if (cFlag || cPerm) tblPerClass.push({ label, flagged: cFlag, permitted: cPerm });
+    });
+    const tblRanking = iarFacultyRankingRuled(IAF_EXAM, threshold);
+    const tblSnap = iaeGetSnapshot(IAF_EXAM);
+    out.innerHTML = `
+      ${iarBuildSharedSummary({
+        examTag: IAF_EXAM,
+        title: `Summary — ${IAF_EXAM} (Final, rules applied)`,
+        win, snap: tblSnap, totalFlagged: tblFlagged, totalPermitted: tblPermitted, perClassCounts: tblPerClass, ranking: tblRanking,
+        footerNote: !canEdit ? 'View-only — showing final eligibility status across all courses.' : ''
+      })}
+      <div id="iaf-table-wrap"></div>`;
     iafRenderTableOnly();
     return;
   }
@@ -36216,6 +36778,11 @@ async function iafRender() {
           <span>${si+1}. ${sub.subject}${sub.ta ? ' <span style="color:#60a5fa;">(+' + sub.ta + ' TA applied, still short)</span>' : ''}</span>
           <span style="color:${pctColor(sub.pctRuled)};">${sub.totalWithTA}/${sub.total} · ${sub.pctRuled.toFixed(1)}%</span>
         </div>`).join('');
+      // v1321: short subject-abbreviation line under the name, per explicit
+      // admin request — "3/6 below this which 3 subject kan-eng-hin" —
+      // shows which SHORT subjects are the ones actually causing the
+      // not-eligible flag, at a glance, without needing to tap-expand.
+      const abbrevLine = result.shortSubjects.map(sub => iarSubjectAbbrev(sub.subject)).join('-');
       rows.push(`
         <div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:11px;">
           <div style="display:flex;align-items:center;gap:6px;cursor:pointer;" onclick="iafToggle('${rowId}')">
@@ -36225,6 +36792,7 @@ async function iafRender() {
             <span style="font-family:var(--mono);font-weight:700;color:${result.permitted ? '#22c55e' : pctColor(result.X/Math.max(result.Y,1))};">${result.X}/${result.Y}</span>
             <span style="font-size:9px;color:var(--muted);">▾</span>
           </div>
+          ${abbrevLine ? `<div style="padding-left:28px;font-size:9px;color:var(--muted);font-family:var(--mono);">${abbrevLine}</div>` : ''}
           <div id="${rowId}" style="display:none;padding-left:28px;margin-top:2px;">
             ${detail}
             ${result.permitted
@@ -36266,6 +36834,658 @@ async function iafRender() {
     <div style="display:flex;flex-wrap:wrap;gap:10px;">${boxes || '<div style="color:var(--muted);font-size:12px;">No students currently not-eligible.</div>'}</div>`;
   if (typeof _stuAvatarInject === 'function') _stuAvatarInject();
 }
+
+// v1311: plain notice-board export for Final Shortage — admin request:
+// just names, class, and "not eligible for Nth Internal", no rules/summary
+// text, for posting on the physical college notice board. Reuses
+// iarStudentShortageRuled() (same ruled verdict every other Final
+// Shortage view already uses) so this list can never disagree with the
+// on-screen cards.
+function iafBuildNoticeList() {
+  const threshold = 75;
+  const showPhone = iarGetShowPhone();
+  const rows = [];
+  allStudents.forEach(s => {
+    const result = iarStudentShortageRuled(s, IAF_EXAM, threshold);
+    if (!result || !result.flagged) return; // permitted/override students are eligible — correctly excluded
+    // v1322: X/Y (short-subject count) + abbreviated subject codes added
+    // per direct admin request — the SAME "3/6" + "kan-eng-hin" line the
+    // Card view row now shows (v1321) was missing from the Notice
+    // PDF/Excel table; both now carry it as extra columns. Phone follows
+    // the same global toggle every other Final Shortage surface uses.
+    const abbrev = result.shortSubjects.map(sub => iarSubjectAbbrev(sub.subject)).join('-');
+    rows.push({ name: s.name, urn: s.urn || s.seat_no || '', cls: (s.class||'').replace('Davan-','').replace(/-/g,' '), xy: `${result.X}/${result.Y}`, abbrev, phone: showPhone ? (s.phone || '') : null });
+  });
+  rows.sort((a,b) => a.cls.localeCompare(b.cls) || a.name.localeCompare(b.name));
+  return rows;
+}
+
+// v1321: shared header/footer data for the Notice PDF/Excel, per explicit
+// admin request — start/end attendance dates, a portal-contact line, and an
+// incharge + principal signature footer (same shape/fields Sitting's own
+// director signature block already uses — sitGetDirectorSignature(),
+// index.html ~58175 — reused here rather than re-deriving, so a Create/Edit
+// change is picked up automatically here too, with no separate state to
+// keep in sync). Falls back to placeholder text when a field genuinely
+// isn't set, matching this app's existing pattern (never silently
+// substitutes the wrong person's name onto a printed document).
+function iafBuildNoticeHeaderData() {
+  const intLabel = IAF_EXAM === 'IA1' ? '1st Internal' : '2nd Internal';
+  const startDate = iafResolveStartDate(IAF_EXAM);
+  const endDate = (IAE_WINDOWS && IAE_WINDOWS[IAF_EXAM.toLowerCase()]?.cutoffDate) || '';
+  const fmtDate = (iso) => {
+    if (!iso) return '(not set)';
+    const d = new Date(iso + 'T00:00:00');
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+  };
+
+  // Incharge signature — reuses sitGetDirectorSignature()'s exact field
+  // reads (meta.director/director_designation/director_date) against the
+  // CURRENTLY SELECTED Internal (matched by ordinal via IAF_EXAM, same
+  // pattern intOrdinal()/INT_LIST lookups already use elsewhere in this
+  // module) so this can never drift from what Sitting's own export shows
+  // for the same Internal.
+  const intNum = IAF_EXAM === 'IA1' ? 1 : 2;
+  const sig = typeof sitGetDirectorSignature === 'function'
+    ? sitGetDirectorSignature(intNum)
+    : { name: '(Director name not set)', designation: '(Designation not set)', date: '' };
+
+  // Incharge (faculty in-charge, distinct from the Director/Principal
+  // signature above) — meta.incharge_1/incharge_2 on the same Internal doc.
+  const intDoc = (typeof INT_LIST !== 'undefined' ? INT_LIST : []).find(x => (x.n || 1) === intNum);
+  const docId = intDoc?.id || (typeof INT_CURRENT !== 'undefined' ? INT_CURRENT : null);
+  const meta = (docId && typeof INT_DATA !== 'undefined' ? INT_DATA[docId]?.meta : null) || {};
+  const inchargeNames = [meta.incharge_1, meta.incharge_2].filter(Boolean).join(', ') || '(Incharge not set)';
+
+  return {
+    intLabel,
+    startDateLabel: fmtDate(startDate),
+    endDateLabel: fmtDate(endDate),
+    inchargeNames,
+    directorName: sig.name,
+    directorDesignation: sig.designation,
+    directorDate: sig.date ? fmtDate(sig.date) : new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }),
+  };
+}
+
+// v1315: builds the SAME per-subject CT/CA/TA/Total/% grid the on-screen
+// Excel View table shows for a given chip (course/year), as plain data
+// rows rather than HTML — shared by both the Excel-View PDF and Excel-View
+// Excel exports below so neither can drift from what iarBuildTable() itself
+// renders on screen. examTag/chipKey/threshold match iarBuildTable()'s own
+// signature exactly; role determines 'ruled' (editable/full TA visibility,
+// admin+) vs 'ruledview' (read-only final numbers, faculty) — same split
+// iafRenderTableOnly() already uses for the live table.
+// v1318: same not-eligible-only filter as iarBuildTable() above, applied
+// here too — this is the SEPARATE data builder the Excel-View PDF/Excel
+// downloads use, so without this fix the on-screen table would correctly
+// show only 10 flagged students while the downloaded file still exported
+// all 24 (or whatever the full class size is), the exact split-brain the
+// admin would have hit next. Always filters to flagged-only, since this
+// function is only ever called from the Final Shortage Excel-View export
+// path (never from IA Raw or IA Ledger, which have their own builders).
+// v1321: now also returns phone (per student, only populated when the
+// global iarGetShowPhone() toggle is on — omitted otherwise rather than
+// silently included in every download regardless of the checkbox) and
+// facultyNames (one per subject column, via the existing
+// iaeFacultyForSubject() lookup — same function IA Raw's own faculty-
+// shortage ranking already uses, so this can never show a different
+// faculty name for a subject than the rest of the app would).
+function iafBuildExcelGridData(examTag, chipKey, threshold, mode) {
+  const subjects = iarSubjectsForChip(chipKey, examTag);
+  const showPhone = iarGetShowPhone();
+  const students = (allStudents || []).filter(s => {
+    if (iarParseClass(s.class).chipKey !== chipKey) return false;
+    const result = iarStudentShortageRuled(s, examTag, threshold);
+    return result && result.flagged;
+  });
+  const facultyNames = subjects.map(subjName => {
+    // Faculty lookup needs a real class label, not just the chip's
+    // course/year — use the first matching student's actual class string.
+    const sample = students[0];
+    if (!sample) return '';
+    return (typeof iaeFacultyForSubject === 'function' ? iaeFacultyForSubject(sample.class, subjName) : '') || '';
+  });
+  const rows = students.map((s, i) => {
+    const urn = s.urn || s.seat_no || s.name;
+    const subs = iarWindowedSubjects(urn, examTag) || [];
+    const subMap = {};
+    subs.forEach(sub => { subMap[sub.subject] = sub; });
+    const cells = subjects.map(subjName => {
+      const sub = subMap[subjName];
+      if (!sub || sub.total <= 0) return { ct:'—', ca:'—', ta:'—', total:'—', pct:'—' };
+      return { ct: sub.total, ca: sub.attended, ta: sub.ta || 0, total: sub.totalWithTA, pct: sub.pctRuled !== null ? sub.pctRuled.toFixed(1) + '%' : '—' };
+    });
+    return { sl: i + 1, urn, name: s.name || '', phone: showPhone ? (s.phone || '') : null, cells };
+  });
+  return { subjects, facultyNames, rows };
+}
+
+// v1320: v1317's theory (window.html2pdf.jsPDF) is now confirmed WRONG by
+// the admin's second diagnostic dump (window.html2pdf.jsPDF also reported
+// false). Re-examined further: jsPDF is genuinely internal to
+// html2pdf.bundle.min.js's own webpack closure with no externally reachable
+// path at all — there was never a bridge possible from this bundle alone.
+// REAL FIX is now a proper standalone jspdf/2.5.1/jspdf.umd.min.js script
+// tag added in <head> (see the v1320 comment there) — the same pairing
+// every current jspdf-autotable tutorial and the plugin's own docs use.
+// This function is kept ONLY as a harmless no-op safety net (in case that
+// script somehow fails to load on a given request but something else on
+// the page still creates window.jspdf later) — it no longer attempts the
+// html2pdf-internal bridge, since that path was proven not to exist.
+function _iafEnsureJsPdfRegistered() {
+  // Intentionally does nothing now — see the v1320 comment above and in
+  // <head> for why. Kept as a stable no-op so _iafJsPdfReady() below
+  // doesn't need restructuring; the real fix is the new script tag.
+}
+function _iafJsPdfReady() {
+  const { jsPDF } = window.jspdf || {};
+  return typeof jsPDF === 'function' && (typeof jsPDF.API?.autoTable === 'function' || typeof jsPDF.prototype?.autoTable === 'function');
+}
+// v1319: v1317's fix assumed window.html2pdf.jsPDF specifically, based on
+// reading the minified 0.10.1 source — but the admin's SECOND diagnostic
+// dump shows that assumption was ALSO wrong: window.html2pdf.jsPDF now
+// reports false too. Rather than read the minified source and guess a
+// third time, this diagnostic now genuinely ENUMERATES what window.html2pdf
+// actually is at runtime on the real device — its typeof, its own key
+// list if it's an object, and a shallow probe of every plausible nested
+// location (worker/template/instance shapes the html2pdf.js library is
+// known to use across versions) — so the next report contains the REAL
+// shape instead of another guessed single path.
+function _iafDumpPdfDiagnostic() {
+  const jspdfNS = window.jspdf;
+  const jsPDF = jspdfNS?.jsPDF;
+  const h2p = window.html2pdf;
+  const scripts = [...document.querySelectorAll('script[src]')].map(s => s.src);
+
+  // Genuinely probe h2p's own shape rather than assuming one path.
+  const h2pType = typeof h2p;
+  let h2pKeys = null;
+  try { h2pKeys = h2p && typeof h2p === 'object' ? Object.keys(h2p) : (typeof h2p === 'function' ? Object.keys(h2p) : null); } catch(e) { h2pKeys = 'error: ' + e.message; }
+
+  // Try every plausible nested path this library's various versions/shapes
+  // could plausibly use, and report which ones (if any) are real functions.
+  const candidatePaths = {
+    'html2pdf.jsPDF': () => h2p?.jsPDF,
+    'html2pdf().jsPDF': () => { try { return h2p?.()?.jsPDF; } catch(e) { return undefined; } },
+    'html2pdf.default': () => h2p?.default,
+    'html2pdf.prototype.jsPDF': () => h2p?.prototype?.jsPDF,
+    'html2pdf.worker': () => h2p?.worker,
+    'window.jspdf (direct)': () => window.jspdf,
+    'window.jsPDF (capital, no namespace)': () => window.jsPDF,
+  };
+  const candidateResults = {};
+  Object.keys(candidatePaths).forEach(label => {
+    let v;
+    try { v = candidatePaths[label](); } catch(e) { v = 'error: ' + e.message; }
+    candidateResults[label] = typeof v;
+  });
+
+  const info = {
+    when: new Date().toISOString(),
+    'window.jspdf exists': typeof jspdfNS !== 'undefined',
+    'window.jspdf.jsPDF is a function': typeof jsPDF === 'function',
+    'jsPDF.API.autoTable is a function': typeof jsPDF?.API?.autoTable === 'function',
+    'jsPDF.prototype.autoTable is a function': typeof jsPDF?.prototype?.autoTable === 'function',
+    'window.html2pdf exists': typeof h2p !== 'undefined',
+    'typeof window.html2pdf': h2pType,
+    'window.html2pdf own keys': h2pKeys,
+    candidatePathTypes: candidateResults,
+    'window.XLSX exists': typeof window.XLSX !== 'undefined',
+    html2pdfScriptTagPresent: scripts.some(u => u.includes('html2pdf')),
+    autotableScriptTagPresent: scripts.some(u => u.includes('autotable')),
+    html2pdfScriptSrc: scripts.find(u => u.includes('html2pdf')) || null,
+    autotableScriptSrc: scripts.find(u => u.includes('autotable')) || null,
+    documentReadyState: document.readyState,
+    CODE_BUILD: typeof CODE_BUILD !== 'undefined' ? CODE_BUILD : null,
+    userAgent: navigator.userAgent,
+    online: navigator.onLine
+  };
+  console.log('[IAF PDF DIAGNOSTIC v2]', info);
+  try { copy(JSON.stringify(info, null, 2)); } catch(e) {}
+  return info;
+}
+
+// v1317: single synchronous check, now self-healing via
+// _iafEnsureJsPdfRegistered() above — should succeed on the very first PDF
+// export of a session, not just after some other button has already been
+// clicked. If it still fails, the diagnostic fires so any remaining gap is
+// visible immediately rather than guessed at again.
+function iafDownloadNoticePDF() {
+  if (IAF_VIEW === 'table') { _iafDownloadExcelViewPDF(); return; }
+  const rows = iafBuildNoticeList();
+  if (!rows.length) { dvToast('No students currently not-eligible', 'warn'); return; }
+  if (_iafJsPdfReady()) { _iafDownloadNoticePDFInner(rows); return; }
+  const diag = _iafDumpPdfDiagnostic();
+  dvToast('PDF library not loaded — diagnostic copied, please paste it back', 'error', 6000);
+}
+// v1321: rebuilt header/footer per explicit admin request — attendance
+// start/end date lines, a portal-contact instruction line, and a footer
+// with incharge name + Director/Principal signature block (designation +
+// date), matching the shape already used across this app's Create/Edit
+// signature convention (sitGetDirectorSignature() etc). Table body/columns
+// unchanged from v1315 — this only adds the surrounding notice text.
+function _iafDownloadNoticePDFInner(rows) {
+  const { jsPDF } = window.jspdf || {};
+  const hdr = iafBuildNoticeHeaderData();
+  const genStamp = new Date().toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true });
+  const pdf = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const margin = 14;
+  let y = 14;
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(13);
+  pdf.text('Davan Institute of Advanced Management Studies', pageW/2, y, { align:'center' }); y += 7;
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(11);
+  pdf.text(`NOTICE — Students Not Eligible for ${hdr.intLabel} (Attendance Shortage)`, pageW/2, y, { align:'center' }); y += 6;
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(9);
+  pdf.text('The following students are short in attendance and not eligible to appear for the exam', pageW/2, y, { align:'center' }); y += 5;
+  pdf.text(`Attendance period: ${hdr.startDateLabel} to ${hdr.endDateLabel}`, pageW/2, y, { align:'center' }); y += 5;
+  pdf.setFont('helvetica','italic'); pdf.setFontSize(8.5);
+  pdf.text('For details, students are requested to contact the office or the Principal.', pageW/2, y, { align:'center' }); y += 5;
+  // v1315: same build/name/timestamp stamp every other PDF export in this
+  // file uses (intBuildExportStamp, index.html ~57964).
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(150,150,150);
+  pdf.text(intBuildExportStamp(genStamp), pageW - margin, 6, { align:'right' });
+  pdf.setTextColor(0,0,0);
+
+  const showPhone = iarGetShowPhone();
+  const tableRes = pdf.autoTable({
+    // v1322: Short/Total (X/Y) and abbreviated short-subject codes added
+    // per direct admin request — see iafBuildNoticeList() above. Phone
+    // column follows the same global toggle every other Final Shortage
+    // surface uses; when shown, each cell gets a REAL clickable tel: link
+    // drawn on top of it via pdf.link() (didDrawCell below) — matching the
+    // exact pattern this file already uses elsewhere for tappable phone
+    // numbers inside a PDF (carDownloadPDF()'s textWithLink(), v1059) —
+    // this is a genuine PDF link annotation, not just printed text.
+    head: showPhone
+      ? [['Sl No','URN','Student Name','Class','Short','Subjects','Phone']]
+      : [['Sl No','URN','Student Name','Class','Short','Subjects']],
+    body: rows.map((r,i) => showPhone
+      ? [String(i+1), r.urn, r.name, r.cls, r.xy, r.abbrev, r.phone || '—']
+      : [String(i+1), r.urn, r.name, r.cls, r.xy, r.abbrev]),
+    startY: y + 2,
+    styles: { fontSize: 9, cellPadding: 2, textColor: [0,0,0], lineColor: [51,51,51], lineWidth: 0.1 },
+    headStyles: { fillColor: [238,238,238], textColor: [0,0,0], fontStyle: 'bold' },
+    didParseCell: (data) => {
+      // Suppress autoTable's own default text draw for the Phone column
+      // when it has a real number — didDrawCell below draws it manually in
+      // blue so we can layer a pdf.link() on top of the exact same glyphs.
+      if (!showPhone || data.section !== 'body' || data.column.index !== 6) return;
+      const r = rows[data.row.index];
+      if (r && r.phone) data.cell.text = [];
+    },
+    didDrawCell: (data) => {
+      if (!showPhone || data.section !== 'body' || data.column.index !== 6) return;
+      const r = rows[data.row.index];
+      if (!r || !r.phone) return;
+      const digits = r.phone.replace(/\D/g, '');
+      if (!digits) return;
+      pdf.setTextColor(41, 121, 255);
+      pdf.text(r.phone, data.cell.x + data.cell.padding('left'), data.cell.y + data.cell.height / 2 + 1);
+      pdf.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url: `tel:${digits}` });
+      pdf.setTextColor(0, 0, 0);
+    },
+  });
+
+  // Footer — incharge + Director/Principal signature block, per explicit
+  // admin request, same fields/placeholder convention as Sitting's own
+  // export footer (sitGetDirectorSignature). Placed after the table, with
+  // a fresh page started if there isn't enough room left.
+  let fy = (pdf.lastAutoTable?.finalY || y + 20) + 14;
+  const pageH = pdf.internal.pageSize.getHeight();
+  if (fy > pageH - 30) { pdf.addPage(); fy = 20; }
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(9);
+  pdf.text(`Internal Incharge: ${hdr.inchargeNames}`, margin, fy); fy += 10;
+  pdf.setFont('helvetica','bold');
+  pdf.text(hdr.directorName, margin, fy); fy += 5;
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(8.5);
+  pdf.text(hdr.directorDesignation, margin, fy); fy += 4;
+  pdf.text(hdr.directorDate, margin, fy);
+
+  pdf.save(`Not_Eligible_${hdr.intLabel.replace(/\s+/g,'_')}.pdf`);
+}
+
+// v1315: Excel-View PDF export — one section per chip (subject-by-subject
+// CT/CA/TA/Total/% grid, matching the on-screen table exactly), scoped to
+// whichever chip is currently selected on screen (IAF_CHIP), including
+// '__ALL__' which exports every course/year as separate pages.
+// v1316: matches the single-check, no-poll pattern now, same as
+// iafDownloadNoticePDF() above — same diagnostic dump on failure.
+function _iafDownloadExcelViewPDF() {
+  if (_iafJsPdfReady()) { _iafDownloadExcelViewPDFInner(); return; }
+  const diag = _iafDumpPdfDiagnostic();
+  dvToast('PDF library not loaded — diagnostic copied, please paste it back', 'error', 6000);
+}
+function _iafDownloadExcelViewPDFInner() {
+  const { jsPDF } = window.jspdf || {};
+  const threshold = 75;
+  const role = currentProfile?.role || '';
+  const mode = ['admin','manager','vp','principal'].includes(role) ? 'ruled' : 'ruledview';
+  const intLabel = IAF_EXAM === 'IA1' ? '1st Internal' : '2nd Internal';
+  const genStamp = new Date().toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true });
+  const chips = IAF_CHIP === '__ALL__' ? iarAvailableChips() : iarAvailableChips().filter(c => c.chipKey === IAF_CHIP);
+  if (!chips.length) { dvToast('No course/year selected', 'warn'); return; }
+
+  // v1321: same global toggles the on-screen Excel View table reads —
+  // whether this PDF shows TA columns and phone numbers must match exactly
+  // what the admin currently sees on screen when they press the button.
+  const showTA = iarGetShowTA();
+  const showPhone = iarGetShowPhone();
+
+  const pdf = new jsPDF({ unit:'mm', format:'a4', orientation:'landscape' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  let pagesAdded = 0;
+
+  chips.forEach((c) => {
+    const { subjects, facultyNames, rows } = iafBuildExcelGridData(IAF_EXAM, c.chipKey, threshold, mode);
+    // v1322: FIX per direct admin report — a class with zero flagged
+    // students for this exam still got a full blank page (header +
+    // "no subject data" text or an empty table) in the __ALL__ stack.
+    // Skip it entirely, matching the same skip Card view and the live
+    // Excel View table now both apply (iarBuildTable() v1322).
+    if (!rows.length) return;
+    if (pagesAdded > 0) pdf.addPage();
+    pagesAdded++;
+    let y = 12;
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(13);
+    pdf.text('Davan Institute of Advanced Management Studies', pageW/2, y, { align:'center' }); y += 6;
+    pdf.setFontSize(11);
+    pdf.text(`Final Shortage — ${intLabel} — ${c.course} · ${c.year}`, pageW/2, y, { align:'center' }); y += 4;
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(150,150,150);
+    pdf.text(intBuildExportStamp(genStamp), pageW - 8, 6, { align:'right' });
+    pdf.setTextColor(0,0,0);
+
+    if (!subjects.length) {
+      pdf.setFont('helvetica','normal'); pdf.setFontSize(10);
+      pdf.text('No subject data for this course/year in the selected window.', pageW/2, y + 6, { align:'center' });
+      return;
+    }
+    const subColCount = showTA ? 5 : 4;
+    const subColLabels = showTA ? ['CT','CA','TA','Total','%'] : ['CT','CA','Total','%'];
+    const fixedCols = showPhone
+      ? [{ content:'Sl', rowSpan:2 }, { content:'URN', rowSpan:2 }, { content:'Name', rowSpan:2 }, { content:'Phone', rowSpan:2 }]
+      : [{ content:'Sl', rowSpan:2 }, { content:'URN', rowSpan:2 }, { content:'Name', rowSpan:2 }];
+    const head1 = [...fixedCols, ...subjects.map(sn => ({ content: sn, colSpan: subColCount }))];
+    const head2 = subjects.flatMap(() => subColLabels);
+    const bodyRowVals = (r) => {
+      const fixed = showPhone ? [r.sl, r.urn, r.name, r.phone || '—'] : [r.sl, r.urn, r.name];
+      const cellVals = r.cells.flatMap(c => showTA ? [c.ct, c.ca, c.ta, c.total, c.pct] : [c.ct, c.ca, c.total, c.pct]);
+      return [...fixed, ...cellVals];
+    };
+    const body = rows.map(bodyRowVals);
+    pdf.autoTable({
+      head: [head1, head2],
+      body,
+      startY: y + 3,
+      styles: { fontSize: 7, cellPadding: 1.2, textColor: [0,0,0], lineColor: [51,51,51], lineWidth: 0.1 },
+      headStyles: { fillColor: [238,238,238], textColor: [0,0,0], fontStyle: 'bold', fontSize: 7 },
+      // v1321: faculty name row, per explicit admin request — a light
+      // in-body row directly under the header, one cell per subject
+      // column-group, spanning that subject's own sub-columns, showing the
+      // teaching faculty (same iaeFacultyForSubject() lookup used
+      // elsewhere). didParseCell intercepts the FIRST body row only and
+      // relabels it into this faculty-name row rather than adding a real
+      // extra data row, since autoTable's own head/body split doesn't have
+      // a clean third-tier-header concept — this keeps row indexing in
+      // `rows` (used for phone tel: links, etc — n/a in PDF but kept
+      // consistent with the Excel path) untouched.
+      didParseCell: (data) => {
+        if (data.section !== 'body' || data.row.index !== 0) return;
+        const fixedCount = showPhone ? 4 : 3;
+        if (data.column.index < fixedCount) { data.cell.text = ['']; return; }
+        const subjIdx = Math.floor((data.column.index - fixedCount) / subColCount);
+        const withinSub = (data.column.index - fixedCount) % subColCount;
+        if (withinSub === 0) {
+          data.cell.text = [facultyNames[subjIdx] || '—'];
+          data.cell.colSpan = subColCount;
+          data.cell.styles.fontStyle = 'italic';
+          data.cell.styles.textColor = [100,100,100];
+          data.cell.styles.halign = 'center';
+        } else {
+          data.cell.text = [];
+        }
+      },
+    });
+  });
+  if (pagesAdded === 0) { dvToast('No students currently not-eligible — nothing to export', 'warn'); return; }
+  pdf.save(`Final_Shortage_ExcelView_${intLabel.replace(/\s+/g,'_')}.pdf`);
+}
+
+// v1312/v1315: per admin request — Notice Excel now exports one sheet PER
+// course/year (matching the on-page Excel View's per-class shape) instead of
+// one flat mixed-class list, PLUS a leading "All" sheet with everyone
+// together, in the SAME workbook/file so both views are one download. Sheet
+// grouping reuses iarParseClass() (the same course/year classifier the
+// shared chip bar already uses) so a class can never end up grouped
+// differently here than it is anywhere else in the IA module.
+// v1315: now view-aware — Cards view keeps this plain notice-list export;
+// Excel View exports the real subject-by-subject grid instead (see
+// _iafDownloadExcelViewExcel() below), scoped to the currently selected chip.
+// v1321: same header/footer content as the PDF version now — attendance
+// start/end dates, portal-contact line, incharge + Director/Principal
+// signature block — via the shared iafBuildNoticeHeaderData().
+function iafDownloadNoticeExcel() {
+  if (IAF_VIEW === 'table') { _iafDownloadExcelViewExcel(); return; }
+  const rows = iafBuildNoticeList();
+  if (!rows.length) { dvToast('No students currently not-eligible', 'warn'); return; }
+  if (typeof XLSX === 'undefined') { dvToast('Excel library not loaded', 'error'); return; }
+  const hdr = iafBuildNoticeHeaderData();
+  const genStamp = new Date().toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true });
+  const header = [
+    [`Students Not Eligible for ${hdr.intLabel} (Attendance Shortage)`],
+    [`Attendance period: ${hdr.startDateLabel} to ${hdr.endDateLabel}`],
+    ['For details, students are requested to contact the office or the Principal.'],
+    [intBuildExportStamp(genStamp)],
+    [],
+  ];
+  const footer = [
+    [],
+    [`Internal Incharge: ${hdr.inchargeNames}`],
+    [hdr.directorName],
+    [hdr.directorDesignation],
+    [hdr.directorDate],
+  ];
+  // v1322: Short/Total (X/Y) and abbreviated short-subject codes added to
+  // the Excel notice too, matching the PDF and Card view (v1321/v1322).
+  // Phone column follows the same global toggle as everywhere else.
+  const showPhone = iarGetShowPhone();
+  const cols = showPhone
+    ? ['Sl No','URN','Student Name','Class','Short','Subjects','Phone']
+    : ['Sl No','URN','Student Name','Class','Short','Subjects'];
+  const colWidths = showPhone
+    ? [{wch:6},{wch:16},{wch:26},{wch:20},{wch:7},{wch:16},{wch:14}]
+    : [{wch:6},{wch:16},{wch:26},{wch:20},{wch:7},{wch:16}];
+
+  const buildSheet = (list) => {
+    const bodyRows = list.map((r,i) => showPhone
+      ? [i+1, r.urn, r.name, r.cls, r.xy, r.abbrev, r.phone || '']
+      : [i+1, r.urn, r.name, r.cls, r.xy, r.abbrev]);
+    const aoa = [...header, cols, ...bodyRows, ...footer];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = colWidths;
+    return ws;
+  };
+
+  // Group by course/year chip (same classifier as the shared chip bar).
+  // rows[].cls is already a display-stripped string with no raw class left
+  // to re-parse, so re-derive groups directly from allStudents instead.
+  const groups = new Map(); // chipKey -> { label, rows: [] }
+  allStudents.forEach(s => {
+    const result = iarStudentShortageRuled(s, IAF_EXAM, 75);
+    if (!result || !result.flagged) return;
+    const { course, year, chipKey } = iarParseClass(s.class);
+    if (!groups.has(chipKey)) groups.set(chipKey, { label: `${course} · ${year}`, rows: [] });
+    // v1322: xy/abbrev/phone added here too, matching iafBuildNoticeList()
+    // above exactly, so the per-class sheets and the "All" sheet never
+    // disagree.
+    const abbrev = result.shortSubjects.map(sub => iarSubjectAbbrev(sub.subject)).join('-');
+    groups.get(chipKey).rows.push({ name: s.name, urn: s.urn || s.seat_no || '', cls: (s.class||'').replace('Davan-','').replace(/-/g,' '), xy: `${result.X}/${result.Y}`, abbrev, phone: showPhone ? (s.phone || '') : null });
+  });
+  const sortedGroups = [...groups.entries()].sort((a,b) => a[1].label.localeCompare(b[1].label));
+  sortedGroups.forEach(([, g]) => g.rows.sort((a,b) => a.name.localeCompare(b.name)));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, buildSheet(rows), 'All');
+  sortedGroups.forEach(([, g]) => {
+    // Sheet names can't contain \ / ? * [ ] and are capped at 31 chars.
+    const safeName = g.label.replace(/[\\/?*\[\]]/g, '-').slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, buildSheet(g.rows), safeName);
+  });
+  XLSX.writeFile(wb, `Not_Eligible_${hdr.intLabel.replace(/\s+/g,'_')}.xlsx`);
+}
+
+// v1315: Excel-View Excel export — one sheet per chip, each sheet the real
+// subject-by-subject CT/CA/TA/Total/% grid (matching the on-screen table
+// exactly), scoped to whichever chip is currently selected (IAF_CHIP),
+// including '__ALL__' which exports every course/year as separate sheets.
+// v1321: now respects the global TA/phone toggles (iarGetShowTA/
+// iarGetShowPhone) — column layout shifts accordingly (4 vs 5 sub-columns
+// per subject, optional Phone column) — and adds a faculty-name row
+// directly below the subject headers, one merged cell per subject spanning
+// its own sub-columns, via the existing iaeFacultyForSubject() lookup.
+// v1323: applies per-cell fill color (gray for >=75%, i.e. eligible on
+// that subject) and a full border to every populated cell — per explicit
+// admin request, using the newly-added xlsx-js-style library's real .s
+// (style) support (plain xlsx@0.18.5, loaded until this build, silently
+// ignores .s entirely — same documented limitation as this file's own
+// v1059 red-text note). Applied only to the 5 (or 4, TA-off) sub-columns
+// of a subject that has real data (not the placeholder '—' cells), so a
+// subject the student never attended at all stays unstyled rather than
+// showing a misleading gray "eligible" highlight for missing data.
+const IAF_XLSX_BORDER = { top:{style:'thin',color:{rgb:'999999'}}, bottom:{style:'thin',color:{rgb:'999999'}}, left:{style:'thin',color:{rgb:'999999'}}, right:{style:'thin',color:{rgb:'999999'}} };
+function iafApplyCellStyle(ws, addr, opts) {
+  if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+  const style = { border: IAF_XLSX_BORDER };
+  if (opts && opts.gray) style.fill = { fgColor: { rgb: 'D9D9D9' } };
+  if (opts && opts.bold) style.font = { bold: true };
+  ws[addr].s = style;
+}
+
+function _iafDownloadExcelViewExcel() {
+  if (typeof XLSX === 'undefined') { dvToast('Excel library not loaded', 'error'); return; }
+  const threshold = 75;
+  const role = currentProfile?.role || '';
+  const mode = ['admin','manager','vp','principal'].includes(role) ? 'ruled' : 'ruledview';
+  const intLabel = IAF_EXAM === 'IA1' ? '1st Internal' : '2nd Internal';
+  const genStamp = new Date().toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true });
+  const chips = IAF_CHIP === '__ALL__' ? iarAvailableChips() : iarAvailableChips().filter(c => c.chipKey === IAF_CHIP);
+  if (!chips.length) { dvToast('No course/year selected', 'warn'); return; }
+
+  const showTA = iarGetShowTA();
+  const showPhone = iarGetShowPhone();
+  const subColLabels = showTA ? ['CT','CA','TA','Total','%'] : ['CT','CA','Total','%'];
+  const subColCount = subColLabels.length;
+  const fixedCount = showPhone ? 4 : 3; // Sl/URN/Name[/Phone]
+  // aoa row layout is fixed: 0=title, 1=stamp, 2=blank, 3=head1 (subject
+  // names), 4=facRow (faculty), 5=head2 (CT/CA/...), 6+=body rows. Defined
+  // once here so the styling loop below can't drift from the aoa build
+  // above if either ever changes.
+  const BODY_START_ROW = 6;
+
+  const wb = XLSX.utils.book_new();
+  chips.forEach(c => {
+    const { subjects, facultyNames, rows } = iafBuildExcelGridData(IAF_EXAM, c.chipKey, threshold, mode);
+    // v1322: skip a class with zero flagged students entirely — matches
+    // the same skip now applied to the live Excel View table and the
+    // PDF export (iarBuildTable()/​_iafDownloadExcelViewPDFInner()).
+    if (!rows.length) return;
+    const fixedHead = showPhone ? ['Sl No', 'URN', 'Name', 'Phone'] : ['Sl No', 'URN', 'Name'];
+    const head1 = [...fixedHead, ...subjects.flatMap(sn => [sn, ...Array(subColCount - 1).fill('')])];
+    // v1322 REAL BUG FOUND AND FIXED: this previously iterated `subjects`
+    // (the subject NAMES array) instead of `facultyNames` — so the faculty
+    // row silently printed the subject name a second time under its own
+    // header instead of the actual teaching faculty, exactly matching the
+    // admin's report ("added two times same subject"). facultyNames is a
+    // parallel array (same index order as subjects, both returned by
+    // iafBuildExcelGridData()) — now correctly zipped together via index.
+    const facRow = [...Array(fixedCount).fill(''), ...subjects.flatMap((sn, si) => [facultyNames[si] || '—', ...Array(subColCount - 1).fill('')])];
+    const head2 = [...Array(fixedCount).fill(''), ...subjects.flatMap(() => subColLabels)];
+    const bodyRow = (r) => {
+      const fixed = showPhone ? [r.sl, r.urn, r.name, r.phone || ''] : [r.sl, r.urn, r.name];
+      const cellVals = r.cells.flatMap(cc => showTA ? [cc.ct, cc.ca, cc.ta, cc.total, cc.pct] : [cc.ct, cc.ca, cc.total, cc.pct]);
+      return [...fixed, ...cellVals];
+    };
+    const aoa = [
+      [`Final Shortage — ${intLabel} — ${c.course} · ${c.year}`],
+      [intBuildExportStamp(genStamp)],
+      [],
+      head1,
+      facRow, // v1321: faculty name row, per subject, right under the subject-name header
+      head2,
+      ...rows.map(bodyRow),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // Merge each subject's header span (row index 3) AND its faculty-name
+    // row (row index 4) across the same sub-column width.
+    ws['!merges'] = subjects.flatMap((_, i) => {
+      const startCol = fixedCount + i * subColCount;
+      const endCol = startCol + subColCount - 1;
+      return [
+        { s: { r: 3, c: startCol }, e: { r: 3, c: endCol } },
+        { s: { r: 4, c: startCol }, e: { r: 4, c: endCol } },
+      ];
+    });
+    ws['!cols'] = [
+      {wch:5},{wch:16},{wch:24},
+      ...(showPhone ? [{wch:14}] : []),
+      ...subjects.flatMap(() => showTA ? [{wch:5},{wch:5},{wch:5},{wch:7},{wch:7}] : [{wch:5},{wch:5},{wch:7},{wch:7}]),
+    ];
+
+    // v1323: per explicit admin request — every populated cell gets a full
+    // border, and each subject's CT/CA/Total/% sub-columns (all of them,
+    // as one visual block) get a gray fill on rows where that subject is
+    // >=75% (i.e. the student is genuinely eligible on THAT subject, even
+    // though they're on this not-eligible list overall for OTHER
+    // subjects) — a quick visual scan of which specific subjects are
+    // already fine vs still the real problem.
+    // Header block (title/stamp/blank/head1/facRow/head2), rows 0-5:
+    for (let r = 0; r <= 5; r++) {
+      const totalCols = fixedCount + subjects.length * subColCount;
+      for (let cIdx = 0; cIdx < totalCols; cIdx++) {
+        const addr = XLSX.utils.encode_cell({ r, c: cIdx });
+        if (ws[addr] && ws[addr].v !== undefined && ws[addr].v !== '') {
+          iafApplyCellStyle(ws, addr, { bold: r === 3 || r === 5 });
+        } else if (r === 3 || r === 4 || r === 5) {
+          // merged/blank spanned cells still need a border to look like one
+          // continuous header block rather than a border only on the first
+          // cell of each merge.
+          iafApplyCellStyle(ws, addr, {});
+        }
+      }
+    }
+    // Body rows: fixed columns get a plain border; each subject's own 4/5
+    // sub-columns get gray fill when that subject's % (last sub-column) is
+    // a real number >=75.
+    rows.forEach((r, ri) => {
+      const rowIdx = BODY_START_ROW + ri;
+      for (let cIdx = 0; cIdx < fixedCount; cIdx++) {
+        const addr = XLSX.utils.encode_cell({ r: rowIdx, c: cIdx });
+        if (ws[addr]) iafApplyCellStyle(ws, addr, {});
+      }
+      r.cells.forEach((cc, si) => {
+        const pctNum = parseFloat(cc.pct); // "80.0%" -> 80.0; "—" -> NaN
+        const isEligible = !isNaN(pctNum) && pctNum >= 75;
+        const startCol = fixedCount + si * subColCount;
+        for (let k = 0; k < subColCount; k++) {
+          const addr = XLSX.utils.encode_cell({ r: rowIdx, c: startCol + k });
+          if (ws[addr]) iafApplyCellStyle(ws, addr, { gray: isEligible });
+        }
+      });
+    });
+
+    const safeName = `${c.course} ${c.year}`.replace(/[\\/?*\[\]]/g, '-').slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, safeName);
+  });
+  // Safety net: if every chip was skipped (e.g. IAF_CHIP='__ALL__' but no
+  // class has any flagged student at all for this exam), XLSX.writeFile()
+  // would throw on a workbook with zero sheets — surface a clear toast
+  // instead of a silent JS error.
+  if (!wb.SheetNames.length) { dvToast('No students currently not-eligible — nothing to export', 'warn'); return; }
+  XLSX.writeFile(wb, `Final_Shortage_ExcelView_${intLabel.replace(/\s+/g,'_')}.xlsx`);
+}
+
 
 function iafRenderTableOnly() {
   const wrap = document.getElementById('iaf-table-wrap');
@@ -36319,10 +37539,7 @@ function ialSetView(view) {
   document.getElementById('ial-view-table').style.background = view === 'table' ? 'var(--accent)' : 'var(--surface2)';
   document.getElementById('ial-view-table').style.color = view === 'table' ? '#000' : 'var(--text)';
   document.getElementById('ial-chips').style.display = view === 'table' ? 'block' : 'none';
-  if (view === 'table' && !IAL_CHIP) {
-    const chips = iarAvailableChips();
-    if (chips.length) IAL_CHIP = chips[0].chipKey;
-  }
+  if (view === 'table' && !IAL_CHIP) IAL_CHIP = '__ALL__'; // v1312: default Excel View to All
   ialRender();
 }
 
@@ -36346,16 +37563,17 @@ async function ialRender() {
   await iaeEnsureFresh();
 
   const role = currentProfile?.role || '';
-  const isAdmin = role === 'admin'; // log visibility gate
+  const isAdmin = role === 'admin'; // log visibility gate (per-subject EDIT LOG — admin only)
+  const canViewClearLog = ['admin','manager','vp','principal'].includes(role); // v1314: clear-log timeline — same roles as who can edit TA, per explicit admin decision
   const windows = await iaeGetWindows();
   const win = windows[IAL_EXAM.toLowerCase()];
   const snap = iaeGetSnapshot(IAL_EXAM);
 
   if (IAL_VIEW === 'table') {
     document.getElementById('ial-chips').style.display = 'block';
-    if (!IAL_CHIP) { const chips = iarAvailableChips(); if (chips.length) IAL_CHIP = chips[0].chipKey; }
+    if (!IAL_CHIP) IAL_CHIP = '__ALL__'; // v1312: default Excel View to All
     iarRenderChips('ial-chips', IAL_CHIP, 'ialSelectChip');
-    out.innerHTML = `<div id="ial-table-wrap"></div>` + ialLogHtml(isAdmin);
+    out.innerHTML = `<div id="ial-table-wrap"></div>` + ialClearLogHtml(canViewClearLog) + ialLogHtml(isAdmin);
     const wrap = document.getElementById('ial-table-wrap');
     if (wrap) wrap.innerHTML = iarBuildTable(IAL_EXAM, IAL_CHIP, 75, 'ledger');
     return;
@@ -36368,7 +37586,7 @@ async function ialRender() {
   // line, same serial numbers — so admin sees the Ledger in the same shape
   // as Final Shortage instead of a flat undifferentiated list.
   document.getElementById('ial-chips').style.display = 'block';
-  if (!IAL_CHIP) { const chips = iarAvailableChips(); if (chips.length) IAL_CHIP = chips[0].chipKey; }
+  if (!IAL_CHIP) IAL_CHIP = '__ALL__'; // v1312: default Excel View to All
   iarRenderChips('ial-chips', IAL_CHIP, 'ialSelectChip');
 
   const allTA = iarGetTA(IAL_EXAM);
@@ -36491,6 +37709,7 @@ async function ialRender() {
     })}
     ${bulkBar}
     ${boxes ? `<div style="display:flex;flex-wrap:wrap;gap:10px;">${boxes}</div>` : '<div style="color:var(--muted);font-size:12px;">No adjustments recorded for this course/year yet.</div>'}
+    ${ialClearLogHtml(canViewClearLog)}
     ${ialLogHtml(isAdmin)}`;
   if (typeof _stuAvatarInject === 'function') _stuAvatarInject();
 }
@@ -36514,6 +37733,108 @@ function ialLogHtml(isAdmin) {
   return `<div style="margin-top:18px;border-top:1px solid var(--border);padding-top:12px;">
     <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:6px;">🔒 EDIT LOG (admin only) — ${log.length} entries</div>
     <div style="max-height:280px;overflow-y:auto;">${rows}</div>
+  </div>`;
+}
+
+// v1314: CLEAR-LOG TIMELINE — per explicit admin request: "who all are
+// cleared, per date and time, name/photo/class/section, why (rule/manual/
+// exempt/permitted)". Distinct from ialLogHtml() above (that's the
+// per-subject TA edit log, admin-only) — this is the student-LEVEL
+// not-eligible->eligible transition log, visible to admin/manager/vp/
+// principal (same as who can edit), one entry per real clear event
+// (iarAppendClearLog, called from iarAutoApplyBatch/iarSetTA/
+// iaeGrantPermission/addExemption — see those functions' own comments for
+// exactly what triggers each event type). Grouped by date, then time,
+// collapsed by default — tap a row to expand into the exact same
+// current-shortage detail Final Shortage's own card would show, reusing
+// iarWindowedSubjects() so this can never show a stale number the live
+// report itself would disagree with.
+function ialClearLogHtml(canView) {
+  if (!canView) return '';
+  const log = iarGetClearLog(IAL_EXAM).slice(0, 200); // cap render for performance; nothing is dropped from storage itself
+  if (!log.length) {
+    return `<div style="margin-top:18px;border-top:1px solid var(--border);padding-top:12px;">
+      <div style="font-size:11px;color:var(--accent);font-family:var(--mono);margin-bottom:6px;">📅 CLEARED / EXCLUDED TIMELINE</div>
+      <div style="font-size:11px;color:var(--muted);">No clear/exclude events logged yet.</div>
+    </div>`;
+  }
+
+  const eventMeta = {
+    cleared:  { label: 'Cleared', color: '#22c55e', icon: '✅' },
+    permitted:{ label: 'Permitted (override)', color: '#22c55e', icon: '✅' },
+    exempt:   { label: 'Excluded — college exemption', color: '#94a3b8', icon: '🚫' }
+  };
+
+  // Group by calendar date (en-IN), then by exact time within that date —
+  // matches the admin's own example format exactly ("30-Aug-2026, 8:56 AM").
+  const byDate = {};
+  log.forEach(e => {
+    const d = new Date(e.ts);
+    const dateKey = d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+    (byDate[dateKey] = byDate[dateKey] || []).push(e);
+  });
+
+  const dateSections = Object.keys(byDate).map(dateKey => {
+    const rows = byDate[dateKey].map((e, idx) => {
+      const rowId = `ialcl-${dateKey}-${idx}`.replace(/[^a-zA-Z0-9-]/g, '_');
+      const meta = eventMeta[e.event] || { label: e.event, color: 'var(--text)', icon: '•' };
+      const timeLabel = new Date(e.ts).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
+      const clsLabel = (e.class || '').replace('Davan-', '').replace(/-/g, ' ')
+        .replace(/Sem(\d)/g, (_, n) => 'Sem ' + (['I','II','III','IV','V','VI'][+n-1] || n))
+        .replace(/Sec([A-Z])/g, (_, l) => 'Sec ' + l);
+      const avatar = typeof _stuAvatar === 'function' ? _stuAvatar(e.urn, e.name, 26) : '';
+
+      // Expand panel — for 'cleared' events, re-derive the CURRENT full
+      // subject picture live via iarWindowedSubjects() rather than trusting
+      // only the stored reasons[] snapshot, so this always matches what
+      // Final Shortage itself would show right now for this student, not a
+      // frozen moment. For 'exempt'/'permitted' events there's no subject
+      // data to show — just the stated reason.
+      let expandBody;
+      if (e.event === 'exempt' || e.event === 'permitted') {
+        expandBody = `<div style="font-size:10px;color:var(--muted);padding:4px 0;">${e.reasons?.[0]?.detail || meta.label}${e.by?.name ? ' — set by ' + e.by.name : ''}</div>`;
+      } else {
+        const subs = iarWindowedSubjects(e.urn, IAL_EXAM) || [];
+        const touchedNames = new Set((e.reasons || []).map(r => r.subject));
+        const rows2 = subs.filter(s => touchedNames.has(s.subject)).map(sub => {
+          const r = (e.reasons || []).find(x => x.subject === sub.subject) || {};
+          const evLabel = { granted: 'rule applied', escalated: 'rule escalated', recovered_on_own: 'recovered on its own', manual_set: 'manual TA set', manual_cleared: 'manual TA cleared' }[r.event] || r.event;
+          return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:10px;font-family:var(--mono);border-bottom:1px solid rgba(255,255,255,0.04);">
+            <span>${sub.subject} — ${r.reasonMode === 'manual' ? 'manual' : 'rule'} (${evLabel}${r.ta ? ', +' + r.ta : ''})</span>
+            <span style="color:${sub.pctRuled >= 75 ? '#22c55e' : '#f59e0b'};">${sub.totalWithTA}/${sub.total} · ${sub.pctRuled.toFixed(1)}%</span>
+          </div>`;
+        }).join('');
+        expandBody = `
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Was short in ${e.Xbefore ?? '?'} subject(s), now short in ${e.Xafter ?? '?'}.</div>
+          ${rows2 || '<div style="font-size:10px;color:var(--muted);">No subject detail recorded.</div>'}`;
+      }
+
+      return `
+        <div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+          <div style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="iafToggle('${rowId}')">
+            <span style="font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap;">${timeLabel}</span>
+            ${avatar}
+            <div style="flex:1;overflow:hidden;">
+              <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.name || e.urn}</div>
+              <div style="font-size:9px;color:var(--muted);">${clsLabel}</div>
+            </div>
+            <span style="font-size:10px;color:${meta.color};white-space:nowrap;">${meta.icon} ${meta.label}</span>
+            <span style="font-size:9px;color:var(--muted);">▾</span>
+          </div>
+          <div id="${rowId}" style="display:none;padding:6px 0 2px 34px;">${expandBody}</div>
+        </div>`;
+    }).join('');
+
+    return `
+      <div style="margin-bottom:10px;">
+        <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--accent);margin-bottom:2px;">${dateKey}</div>
+        <div>${rows}</div>
+      </div>`;
+  }).join('');
+
+  return `<div style="margin-top:18px;border-top:1px solid var(--border);padding-top:12px;">
+    <div style="font-size:11px;color:var(--accent);font-family:var(--mono);margin-bottom:8px;">📅 CLEARED / EXCLUDED TIMELINE — ${log.length} event(s)</div>
+    <div style="max-height:420px;overflow-y:auto;">${dateSections}</div>
   </div>`;
 }
 
@@ -37032,10 +38353,7 @@ function iaeSetView(view) {
   const cb = document.getElementById('iae-view-cards'), tb = document.getElementById('iae-view-table');
   if (cb) { cb.style.background = view === 'cards' ? 'var(--accent)' : 'var(--surface2)'; cb.style.color = view === 'cards' ? '#000' : 'var(--text)'; }
   if (tb) { tb.style.background = view === 'table' ? 'var(--accent)' : 'var(--surface2)'; tb.style.color = view === 'table' ? '#000' : 'var(--text)'; }
-  if (view === 'table' && !IAE_CHIP) {
-    const chips = iarAvailableChips();
-    if (chips.length) IAE_CHIP = chips[0].chipKey;
-  }
+  if (view === 'table' && !IAE_CHIP) IAE_CHIP = '__ALL__'; // v1312: default Excel View to All
   iaeRender();
 }
 
@@ -37080,7 +38398,7 @@ async function iaeRender() {
 
   if (IAE_VIEW === 'table') {
     document.getElementById('iae-chips').style.display = 'block';
-    if (!IAE_CHIP) { const chips = iarAvailableChips(); if (chips.length) IAE_CHIP = chips[0].chipKey; }
+    if (!IAE_CHIP) IAE_CHIP = '__ALL__'; // v1312: default Excel View to All
     iarRenderChips('iae-chips', IAE_CHIP, 'iaeSelectChip');
     output.innerHTML = `
       <div style="background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:11px;color:#60a5fa;">
@@ -59408,16 +60726,20 @@ function attPrintSheet() {
   if (win) { win.document.write(html); win.document.close(); win.focus(); setTimeout(()=>win.print(),600); }
 }
 
+// [index.html ~60693, CODE_BUILD=1325] Consolidated onto the shared
+// dvGetUsersCached() loader (defined ~11710) instead of its own separate
+// local cache — one shared TTL cache for the whole session instead of two
+// independent ones, so an incharge-dropdown load and a Staff Directory open
+// in the same few minutes share a single Firestore read.
 function intLoadInchargeDropdowns(meta) {
   const sel1 = document.getElementById('ie-incharge-1');
   const sel2 = document.getElementById('ie-incharge-2');
   if (!sel1 || !sel2) return;
 
-  db.collection('users').get().then(snap => {
+  dvGetUsersCached().then(usersList => {
     const faculty = [];
-    snap.forEach(doc => {
-      const u = doc.data();
-      if (['fulltime','vp','principal','admin','manager'].includes(u.role)) faculty.push(u.name || u.email || doc.id);
+    usersList.forEach(u => {
+      if (['fulltime','vp','principal','admin','manager'].includes(u.role)) faculty.push(u.name || u.email || u.id);
     });
     faculty.sort();
 
@@ -59448,6 +60770,7 @@ function intLoadInchargeDropdowns(meta) {
     });
   });
 }
+
 
 // ── Chip helpers ─────────────────────────────────────────────
 function intLoadN(n) {
