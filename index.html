@@ -12017,13 +12017,24 @@ async function onLoginSuccess() {
         }
       } catch(e) { console.warn('[Admin auto-sync] Allocations failed:', e.message); }
 
+      // [index.html ~12020, CODE_BUILD=1326] FIX: was reading the ENTIRE
+      // app_data collection (40-60+ docs including students/staff_directory/
+      // timetable/results_index — several with large payloads) just to
+      // client-side-filter for the handful of allocation_* per-batch docs.
+      // This ran on EVERY admin login, unfiltered — the same class of bug
+      // as the users-collection issue fixed in v1324/v1325. Firestore
+      // supports a document-ID range query, which lets it do the
+      // allocation_-prefix filtering server-side so only matching docs are
+      // actually billed as reads, instead of the whole collection.
       // 7b. Per-batch allocation_* docs -> davan_pub/allocation_each/<key>
       try {
-        const appSnap = await db.collection('app_data').get();
+        const _allocIdField = firebase.firestore.FieldPath.documentId();
+        const allocQuerySnap = await db.collection('app_data')
+          .where(_allocIdField, '>=', 'allocation_')
+          .where(_allocIdField, '<', 'allocation_\uf8ff')
+          .get();
         const allocEach = {};
-        appSnap.forEach(doc => {
-          if (doc.id.startsWith('allocation_')) allocEach[doc.id] = doc.data();
-        });
+        allocQuerySnap.forEach(doc => { allocEach[doc.id] = doc.data(); });
         if (Object.keys(allocEach).length) {
           await rtdb.ref('davan_pub/allocation_each').set(allocEach);
         }
@@ -15145,7 +15156,7 @@ function setTopbarVersion(text) {
 
 // ----- Version & Update Tracking -----
 // CODE_BUILD: 601 - COMPLETE REWRITE of fetchHistoricalResultStats with simple clean structure - NO MORE BRACE ERRORS!
-const CODE_BUILD = 1325;  // always = HTML footer version number
+const CODE_BUILD = 1328;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '27-Aug-2026', time: '00:00', full: '27-Aug-2026 00:00 IST' }; // hardcoded build time — do NOT use runtime time
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -21923,13 +21934,22 @@ document.addEventListener('keydown', initAudioOnInteraction, { once: true });
 document.addEventListener('touchstart', initAudioOnInteraction, { once: true });
 
 // Load notification logs from Firestore
-async function ntLoadLogs() {
+// [index.html ~21926, CODE_BUILD=1326] FIX: ntLoadLogs() had NO caching
+// guard at all — every one of its 8+ call sites (panel switches, WhatsApp
+// sends, report renders) triggered a fresh, full, unfiltered scan of
+// davan_notification_logs. Added the same "load once per session" guard
+// flLoadAll() already uses, with an optional force param for the one or two
+// places that genuinely need a manual refresh after a write.
+let _ntLoaded = false;
+async function ntLoadLogs(force) {
+  if (_ntLoaded && !force) return;
   try {
     const snapshot = await db.collection('davan_notification_logs').get();
     _notificationLogs = {};
     snapshot.forEach(doc => {
       _notificationLogs[doc.id] = doc.data();
     });
+    _ntLoaded = true;
     console.log('[NT] Loaded', Object.keys(_notificationLogs).length, 'notification logs');
   } catch(e) {
     console.warn('[NT] Failed to load logs:', e.message);
@@ -22430,7 +22450,7 @@ function copyMsg(id) {
 
 async function ntRefreshReport() {
   // Force-reload both notification logs and follow-up records
-  await Promise.all([ ntLoadLogs(), flLoadAll(true) ]);
+  await Promise.all([ ntLoadLogs(true), flLoadAll(true) ]);
   // Rebuild _fuAllFollowups from freshly loaded _flAllRecords
   _fuAllFollowups = {};
   _flAllRecords.forEach(r => {
@@ -25509,6 +25529,9 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1328', date: '30-Aug-2026 IST', note: 'BUG FIX: the v1327 Permanently Unavailable dropdown filter was only applied to the per-day exception dropdown (facOptions) -- the SEPARATE manual slot override reassign dropdown [intRenderDutyAutoCard() index.html ~54484] still built its faculty list from raw ALL_FAC with zero filtering, so a permanently-unavailable faculty member was still pickable there. Fixed by applying the same permExceptionsForDropdown filter, with one deliberate exception: the slot own CURRENT faculty always stays in the list (even if now permanently unavailable) so the dropdown never silently drops its own selected value out from under the admin. CODE_BUILD=1328.' },
+  { v: 'v1327', date: '30-Aug-2026 IST', note: 'THREE FEATURES, all from one admin discussion. (1) DROPDOWN FILTER [file:index.html ~54172]: per-day "Mark unavailable" dropdown now also excludes anyone already on the Permanently Unavailable list -- permExceptionsForDropdown hoisted above the per-day render loop and added to the facOptions filter. (2) MANUAL SLOT OVERRIDE (Auto Duty only) [dutySetManualOverride() index.html ~57783, dutyAllocateForInternal() ~57582/~57606]: admin/incharge (same _dutyReadOnly permission gate the rest of this card already uses) can now reassign ONE already-allocated date+time+room slot to a different faculty directly, no Re-Run needed -- new duty_auto.manualOverrides[date][time][room]={name,ts}. Edit control + inline dropdown on each slot, revert control to clear it (removes the override; the true algorithm pick is only recoverable on the NEXT Re-Run, stated honestly in the revert toast). dutyAllocateForInternal() re-applies manualOverrides AFTER building each fresh Re-Run result (never fed into the allocator itself, so it cannot distort fairness/rotation for other faculty) and adjusts duty_auto.counts to match, both on initial set and on every Re-Run. _dutyAutoToRtdbSafe() extended to carry manualOverrides to the widget mirror (keyed by date/time/room -- all RTDB-safe strings; faculty name is a VALUE not a key, needs no _rtdbSafeKey encoding, same as a.faculty elsewhere). Faculty-side intDutyLoad() [~52723] now shows a Reassigned note with the update date/time on an overridden duty, reading the same manualOverrides map. (3) DUTY PUSH NOTIFICATIONS, browser+Worker [facAlertGetDutySchedule() index.html ~47443, facAlertSchedulerTick() ~47931, FA_WORKER_CODE ~48247]: two new triggers, both firing ONLY when a faculty genuinely has duty at that moment/day -- no duty means no push, same contract everywhere. 9pm fixed day-before digest (separate from the class day-before time, which stays admin-configurable) and a fixed 45-min-before reminder (separate from admin-configurable class minsBefore). Both read davan_pub/internals_current.duty_auto -- already the FINAL post-manual-override name, since dutySetManualOverride() mutates assignment.faculty directly, so no separate override-resolution step is needed. Alias-aware faculty matching via new _facDutyNameMatches() (Golden Rule 3 pattern). De-duped via the existing faFiredCheck/faFiredSave key mechanism, admin-mirrored via facAlertNotifyAdmin()/mirrorToAdmin() same as class alerts. Worker side required a NEW fetchDutySchedule() RTDB REST helper [~48685] since FA_WORKER_CODE previously had Firestore-only reads (fsRead()), no RTDB access at all -- plain public GET against davan_pub/internals_current.json, no auth, matching this project existing open RTDB rules. VERIFIED: node --check clean on both real script blocks containing every edit (confirmed by direct string search for dutySetManualOverride/FA_WORKER_CODE/facAlertGetDutySchedule across all 21 extracted blocks); the one script-block extraction failure found (block 0) is the known pre-existing false positive from a coding-rules COMMENT block missing its own opening /* delimiter under a naive extraction regex -- confirmed byte-identical to the original uploaded file at that exact line, not touched by this edit, same class of false positive already documented in the v1285 changelog entry. FA_WORKER_CODE template-literal integrity double-checked directly: exactly 2 backtick characters in the entire block (the literal own open+close), zero unescaped dollar-brace sequences anywhere in the new additions (deliberately used string concatenation, not template literals, for every new Worker-side line, specifically to avoid this risk). ACTION REQUIRED: (a) DavanWidget APK companion change (separate zip, not this file) needs a real Kotlin rebuild+reinstall before duty notifications reach the native widget -- index.html changes alone do not affect the APK. (b) FA_WORKER_CODE change requires a Cloudflare Worker redeploy (re-paste into the fcm-push Worker dashboard) before the 9pm/45-min duty pushes take effect for faculty without the app open -- same redeploy step every past FA_WORKER_CODE change (v1095, v1104) has required. CODE_BUILD=1327.' },
+  { v: 'v1326', date: '30-Aug-2026 IST', note: 'FIRESTORE QUOTA FIX PART 3 (continuing v1324/v1325). Full audit of every remaining db.collection(X).get()/.stream() call in the file for unfiltered full-collection scans. Found and fixed two more real gaps: (1) [ntLoadLogs() index.html ~21933] had NO caching guard at all -- 8+ call sites (panel switches, WhatsApp sends, report renders) each triggered a fresh full scan of davan_notification_logs; added the same _fuLoaded-style guard flLoadAll() already used, with an explicit force param -- ntRefreshReport() now correctly passes force=true (previously impossible since the function took no param, a latent bug fixed alongside this). (2) TWO sites [login auto-mirror ~12022, rcFetchResults() ~43416] were reading the ENTIRE app_data collection (40-60+ docs incl. students/staff_directory/timetable/results_index, several with large payloads) just to client-side-filter for allocation_* per-batch docs -- the auto-mirror site fired on EVERY admin login, same pattern as the users-collection bug from v1324/v1325. Both switched to a Firestore document-ID range query (where(documentId(), >=, \'allocation_\') / (<, \'allocation_\\uf8ff\')) so only matching docs are billed as reads, not the whole collection. Audited and left unchanged (already safe): flLoadAll()/fuLoadAll() both already had correct load-once guards; rcFetchResults() call sites all guarded by rcResultsCache[urn]; results/internals collection scans are small/infrequent enough not to be worth the edit risk; fetchFacultyResultSubjects() confirmed dead code (defined, never called) -- left as-is. sync_db1_to_db2.py reviewed separately and intentionally left alone per admin instruction -- its two Firestore .stream() calls are one-doc-per-student (~400 cap, not unbounded) and run only 2x/day, small fixed cost, not a current contributor. CODE_BUILD=1326.' },
   { v: 'v1325', date: '30-Aug-2026 IST', note: 'FIRESTORE QUOTA FIX PART 2 -- project flagged "exceeded no-cost limits" (620k reads/mo). NEW [dvGetUsersCached()/dvInvalidateUsersCache() index.html ~11712] -- shared 5-min TTL cache for the `users` collection, one Firestore read per session instead of unlimited independent ones. Consolidated EVERY site that was calling db.collection(\'users\').get() directly onto this shared loader: (1) auto-mirror to davan_users on every admin login [~11902] -- was a full users scan on EVERY login, now cached; (2) Staff Directory panel open [staffDirectoryRender() ~13819] -- was a full scan every time the panel opened; (3) v1324 intLoadInchargeDropdowns cache consolidated into this shared one instead of its own separate local cache, so the two features share one read instead of two. Write-triggered paths (sdSyncFromUM, sdSaveToFirestore, umRebuildLoginIndex, umDeleteUser) now call dvGetUsersCached(true) to force a fresh read when correctness requires it, and call dvInvalidateUsersCache() immediately after writing to users so no other feature can read stale data afterward -- umDeleteUser previously had NO cache-index rebuild at all after a delete, now fixed alongside this. Net effect: users collection reads drop from 7+ independent full-scan call sites (several firing automatically, not gated by any button) to effectively 1 read per 5-min window per session. CODE_BUILD=1325.' },
   { v: 'v1324', date: '30-Aug-2026 IST', note: '[intLoadInchargeDropdowns() index.html ~60702] FIX: full unfiltered db.collection(\'users\').get() ran on EVERY internal-doc switch (3 call sites: initial load, draft restore, refresh) -- a real contributor to the Firestore quota overage flagged by the console (620k reads/month, "exceeded no-cost limits" banner). Added a 5-min in-memory cache (_intInchargeFacultyCache/_intInchargeFacultyCacheTs), matching the pattern resDashLoadAllBatches already uses for the results collection -- switching between internals during an edit session now reuses the cached faculty list instead of re-reading all user docs each time. Faculty roster changes are rare enough that a 5-min staleness window is safe; cache auto-refreshes on expiry, no manual invalidation needed. CODE_BUILD=1324.' },
   { v: 'v1323', date: '30-Aug-2026 IST', note: 'GRAY-HIGHLIGHT PER-SUBJECT ELIGIBILITY, Excel View download, per explicit admin request. Checked whether the currently loaded Excel library (xlsx@0.18.5, plain SheetJS Community Edition) could set cell background colors before building anything -- confirmed it cannot; .s (style) on a cell is silently ignored by that build, same documented limitation as this file own v1059 changelog entry for red text. Rather than fake it, swapped the library: [index.html ~299] xlsx@0.18.5 replaced with xlsx-js-style@1.2.0 (SheetJS Community Edition plus real fill/font/border/alignment/numFmt cell-style support, confirmed same XLSX.* global API via its own package.json main/unpkg/jsdelivr entries -- dist/xlsx.min.js, the correct file, confirmed via the real npm registry listing after an initial wrong guess at the filename was caught before shipping) so every EXISTING XLSX.* call site elsewhere in this file keeps working completely unchanged; only the new styling code below actually uses the added .s support. NEW [iafApplyCellStyle()/IAF_XLSX_BORDER index.html ~37307] wired into [_iafDownloadExcelViewExcel() index.html ~37319]: every populated cell in the exported sheet now gets a full thin border (per explicit admin request, added alongside the color feature), and each subject own CT/CA/Total/percent sub-column block gets a gray fill specifically on rows where THAT subject percentage is >=75 -- i.e. a quick visual scan of which of a not-eligible student subjects are actually already fine vs which ones are the real remaining problem, since a student on this list can still be individually fine in some subjects while short in others. VERIFIED for real, not just node --check: installed the actual xlsx-js-style package locally, ran the identical styling code standalone, wrote a real .xlsx file, and inspected the raw OOXML styles.xml inside the generated zip directly -- confirmed the gray fill (D9D9D9) and thin border (999999) are both genuinely present in the written file cellXfs/fills/borders tables, not just accepted silently and dropped; a >=75% subject block showed the gray fill definition, a <75% block correctly showed patternType none. CODE_BUILD=1323.' },
@@ -43399,13 +43422,19 @@ async function rcFetchResults(urn, isDI) {
   const SEMS    = ['I','II','III','IV','V','VI'];
 
   try {
+    // [index.html ~43416, CODE_BUILD=1326] FIX: was reading the ENTIRE
+    // app_data collection just to client-side-filter allocation_* docs —
+    // same wasteful pattern as the login auto-mirror block (v1326). Uses a
+    // document-ID range query so Firestore only bills for the matching docs.
     // Load all allocation docs once for faculty lookup
     const allocCache = {};
     try {
-      const allocSnap = await db.collection('app_data').get();
-      allocSnap.forEach(doc => {
-        if (doc.id.startsWith('allocation_')) allocCache[doc.id] = doc.data();
-      });
+      const _allocIdField = firebase.firestore.FieldPath.documentId();
+      const allocSnap = await db.collection('app_data')
+        .where(_allocIdField, '>=', 'allocation_')
+        .where(_allocIdField, '<', 'allocation_\uf8ff')
+        .get();
+      allocSnap.forEach(doc => { allocCache[doc.id] = doc.data(); });
     } catch(e) {}
 
     const snap = await db.collection('results').get();
@@ -47418,6 +47447,70 @@ function facAlertGetSchedule(dayName) {
   return schedule;
 }
 
+// ── Duty schedule (for push notifications) ───────────────────────────────
+// v1327: mirrors the DavanWidget Kotlin worker's own duty-reading logic
+// (fetchFacultyDutyToday / the w131 dutyReminders builder in
+// FirebaseFetchWorker.kt) so the browser/Worker push path and the native
+// widget path can never disagree about who has duty when. Reads the SAME
+// RTDB mirror (davan_pub/internals_current.duty_auto), matched by faculty
+// name via FACULTY_NAME_ALIASES both directions (Golden Rule 3). The
+// returned faculty field is already the FINAL post-manual-override name,
+// since dutySetManualOverride()/dutyAllocateForInternal() write the
+// override directly onto assignment.faculty before this mirror is ever
+// read — this function needs no separate override-resolution step.
+// Returns [{ faculty, date, day, time_label, room, startMs }] for ALL
+// faculty (both today's and tomorrow's assignments), since the scheduler
+// needs to filter per-faculty per-trigger itself, same shape as
+// facAlertGetSchedule()'s flat array.
+async function facAlertGetDutySchedule() {
+  if (!rtdb) return [];
+  try {
+    const snap = await rtdb.ref('davan_pub/internals_current').once('value');
+    const data = snap.val();
+    const dutyAuto = data && data.duty_auto;
+    if (!dutyAuto || !dutyAuto.days) return [];
+    const rows = [];
+    Object.keys(dutyAuto.days).forEach(date => {
+      const dayRow = dutyAuto.days[date];
+      (dayRow.assignments || []).forEach(a => {
+        if (!a.faculty) return;
+        const startMins = (typeof _sitTimeSortKey === 'function') ? _sitTimeSortKey(a.time_label) : 0;
+        const dt = new Date(date + 'T00:00:00');
+        const startMs = isNaN(dt) ? 0 : dt.getTime() + startMins * 60 * 1000;
+        rows.push({
+          faculty: a.faculty,
+          date,
+          day: dayRow.day || '',
+          time_label: a.time_label || '',
+          room: a.room || 'TBA',
+          startMs,
+        });
+      });
+    });
+    return rows;
+  } catch (e) {
+    console.warn('[facAlertGetDutySchedule] failed:', e?.message || e);
+    return [];
+  }
+}
+
+// Golden Rule 3-style alias-aware match, same pattern as isExcepted()/
+// dutySubjectCount() elsewhere in this file — a duty row's a.faculty
+// spelling and a subscribed faculty's own name/alias are not guaranteed
+// byte-identical.
+function _facDutyNameMatches(rowFaculty, targetFaculty) {
+  const a = (rowFaculty || '').trim().toLowerCase();
+  const b = (targetFaculty || '').trim().toLowerCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const aliasMap = (typeof FACULTY_NAME_ALIASES !== 'undefined') ? FACULTY_NAME_ALIASES : {};
+  const aliasOfRow = (aliasMap[rowFaculty] || '').trim().toLowerCase();
+  const aliasOfTarget = (aliasMap[targetFaculty] || '').trim().toLowerCase();
+  if (aliasOfRow && aliasOfRow === b) return true;
+  if (aliasOfTarget && aliasOfTarget === a) return true;
+  return false;
+}
+
 // ── Preview ───────────────────────────────────────────────────
 function facAlertRenderPreview() {
   const el = document.getElementById('fa-preview-table');
@@ -47937,6 +48030,36 @@ async function facAlertSchedulerTick() {
     }
   }
 
+  // v1327: DUTY day-before alert — fixed 9pm, separate from the class
+  // day-before time above (which is admin-configurable, default 8pm).
+  // Fires ONLY for faculty who genuinely have duty tomorrow — a faculty
+  // with no invigilation duty at all gets nothing here, same "no duty, no
+  // push" contract as the widget-side w131 day-before digest.
+  const dutyDayBeforeKey = 'dutydaybefore|' + today;
+  if (Math.abs(mins - (21*60)) < 2 && !(await faFiredCheck(dutyDayBeforeKey))) {
+    await faFiredSave(dutyDayBeforeKey);
+    const tomorrowDate = new Date(now.getTime() + 24*60*60*1000);
+    const tomorrowIso = `${tomorrowDate.getFullYear()}-${String(tomorrowDate.getMonth()+1).padStart(2,'0')}-${String(tomorrowDate.getDate()).padStart(2,'0')}`;
+    const dutyRows = await facAlertGetDutySchedule();
+    const tomorrowDuty = dutyRows.filter(r => r.date === tomorrowIso);
+    // Group by faculty so one person with 2+ duties tomorrow gets ONE
+    // message, not one per slot.
+    const byFaculty = {};
+    tomorrowDuty.forEach(r => {
+      const key = r.faculty;
+      (byFaculty[key] = byFaculty[key] || []).push(r);
+    });
+    for (const facultyName of Object.keys(byFaculty)) {
+      const subs = facAlertGetSubs(facultyName);
+      if (!subs.length) continue;
+      const rows = byFaculty[facultyName];
+      const body = rows.map((r,i) => `${i+1}. ${r.date}  ${r.time_label}  ·  Room: ${r.room}`).join('\n');
+      const pushTitle = `📋 ${facultyName} — Duty tomorrow`;
+      await facAlertPush(facultyName, pushTitle, body, subs);
+      try { await facAlertNotifyAdmin(pushTitle, body); } catch(e) { console.warn('[Scheduler] duty admin mirror failed:', e.message); }
+    }
+  }
+
   // Pre-class alerts: send to faculty whose class starts in ~minsBefore minutes
   const schedule = facAlertGetSchedule(dayName);
   for (const s of schedule) {
@@ -47962,6 +48085,31 @@ async function facAlertSchedulerTick() {
         // never block or retry the actual faculty send above.
         try { await facAlertNotifyAdmin(pushTitle, msg); } catch(e) { console.warn('[Scheduler] admin mirror failed:', e.message); }
       }
+    }
+  }
+
+  // v1327: DUTY 45-min-before alert — fixed 45-min lead (separate from the
+  // admin-configurable class faConfig.minsBefore above, per explicit
+  // request for a different duty lead time). Fires ONLY for a faculty
+  // whose duty actually starts in ~45 min — a faculty with no duty at that
+  // moment (or ever) gets nothing, same as the class-reminder loop above
+  // already only fires for faculty who have a class then.
+  {
+    const dutyRows = await facAlertGetDutySchedule();
+    const dutyLeadMinutes = 45;
+    for (const r of dutyRows) {
+      if (!r.startMs) continue;
+      const minsUntil = Math.round((r.startMs - now.getTime()) / 60000);
+      if (minsUntil < (dutyLeadMinutes-1) || minsUntil > (dutyLeadMinutes+1)) continue;
+      const fireKey = 'duty|' + r.faculty + '|' + r.date + '|' + r.time_label + '|' + r.room;
+      if (await faFiredCheck(fireKey)) continue;
+      const subs = facAlertGetSubs(r.faculty);
+      if (!subs.length) continue;
+      await faFiredSave(fireKey);
+      const body = `Room: ${r.room}  ·  ${r.time_label}`;
+      const pushTitle = `⏰ ${r.faculty} — Invigilation duty in ${dutyLeadMinutes} min`;
+      await facAlertPush(r.faculty, pushTitle, body, subs);
+      try { await facAlertNotifyAdmin(pushTitle, body); } catch(e) { console.warn('[Scheduler] duty admin mirror failed:', e.message); }
     }
   }
 }
@@ -48429,6 +48577,28 @@ async function scheduledMain(env) {
     }
   }
 
+  // v1327: DUTY day-before alert — fixed 9pm, separate alarm from the
+  // class day-before time above. ONLY fires for faculty who genuinely
+  // have duty tomorrow (no duty = no push, same contract as everywhere
+  // else this feature touches).
+  const dutyDayBeforeKey = 'dutydaybefore|' + todayStr;
+  if (Math.abs(mins - (21*60)) < 2 && !isFired(dutyDayBeforeKey)) {
+    await markFired(dutyDayBeforeKey);
+    const dutyRows = await fetchDutySchedule(RTDB_BASE_URL);
+    const tomorrowDuty = dutyRows.filter(r => r.date === tomorrowStr);
+    const byFaculty = {};
+    tomorrowDuty.forEach(r => { (byFaculty[r.faculty] = byFaculty[r.faculty] || []).push(r); });
+    for (const facultyName of Object.keys(byFaculty)) {
+      const subs = getSubs(facultyName);
+      if (!subs.length) continue;
+      const rows = byFaculty[facultyName];
+      const body = rows.map((r,i) => (i+1) + '. ' + r.date + '  ' + r.time_label + '  \u00B7  Room: ' + r.room).join('\n');
+      const pushTitle = '\uD83D\uDCCB ' + facultyName + ' — Duty tomorrow';
+      await pushToSubs(facultyName, pushTitle, body, subs);
+      await mirrorToAdmin(pushTitle, body);
+    }
+  }
+
   // Pre-class alerts
   const schedule = getSchedule(dayName);
   for (const s of schedule) {
@@ -48452,9 +48622,68 @@ async function scheduledMain(env) {
       }
     }
   }
+
+  // v1327: DUTY 45-min-before alert — fixed lead, separate from the
+  // admin-configurable class minsBefore above. Fires only for a faculty
+  // whose duty starts in ~45 min right now.
+  {
+    const dutyRows = await fetchDutySchedule(RTDB_BASE_URL);
+    const dutyLeadMinutes = 45;
+    const nowMs = nowIST.getTime();
+    for (const r of dutyRows) {
+      if (!r.startMs) continue;
+      const minsUntil = Math.round((r.startMs - nowMs) / 60000);
+      if (minsUntil < (dutyLeadMinutes-1) || minsUntil > (dutyLeadMinutes+1)) continue;
+      const fireKey = 'duty|' + r.faculty + '|' + r.date + '|' + r.time_label + '|' + r.room;
+      if (isFired(fireKey)) continue;
+      const subs = getSubs(r.faculty);
+      if (!subs.length) continue;
+      await markFired(fireKey);
+      const body = 'Room: ' + r.room + '  \u00B7  ' + r.time_label;
+      const pushTitle = '⏰ ' + r.faculty + ' — Invigilation duty in ' + dutyLeadMinutes + ' min';
+      await pushToSubs(r.faculty, pushTitle, body, subs);
+      await mirrorToAdmin(pushTitle, body);
+    }
+  }
 }
 
-// ── Firestore REST helper ─────────────────────────────────────
+// ── RTDB REST helper for duty schedule ────────────────────────────────
+// v1327: the Worker has no existing RTDB read path (Firestore-only via
+// fsRead() below) — this is a plain public RTDB REST GET, same data
+// davan_pub/internals_current already serves to the app and the Kotlin
+// widget worker, just fetched without the SDK (no auth needed, matching
+// this project's existing open RTDB rules — same assumption every other
+// unauthenticated rtdb.ref() read in index.html already relies on).
+const RTDB_BASE_URL = 'https://davan-attendance-2026-default-rtdb.asia-southeast1.firebasedatabase.app';
+async function fetchDutySchedule(rtdbBaseUrl) {
+  try {
+    const res = await fetch(rtdbBaseUrl + '/davan_pub/internals_current.json');
+    if (!res.ok) return [];
+    const data = await res.json();
+    const dutyAuto = data && data.duty_auto;
+    if (!dutyAuto || !dutyAuto.days) return [];
+    const rows = [];
+    Object.keys(dutyAuto.days).forEach(date => {
+      const dayRow = dutyAuto.days[date];
+      const assignments = (dayRow && dayRow.assignments) || [];
+      assignments.forEach(a => {
+        if (!a.faculty) return;
+        // Parse "HH:MMam/pm" same as the app's own _sitTimeSortKey().
+        const tm = String(a.time_label||'').match(/^(\\d{1,2}):(\\d{2})(am|pm)/i);
+        let startMs = 0;
+        if (tm) {
+          let h = parseInt(tm[1],10); const mn = parseInt(tm[2],10); const ap = tm[3].toLowerCase();
+          if (ap === 'pm' && h !== 12) h += 12;
+          if (ap === 'am' && h === 12) h = 0;
+          const dt = new Date(date + 'T00:00:00+05:30');
+          if (!isNaN(dt.getTime())) startMs = dt.getTime() + (h*60+mn)*60*1000;
+        }
+        rows.push({ faculty: a.faculty, date, day: dayRow.day||'', time_label: a.time_label||'', room: a.room||'TBA', startMs });
+      });
+    });
+    return rows;
+  } catch(e) { return []; }
+}
 // Reads a Firestore document without requiring a service account.
 // Uses Firebase REST API with the web API key (same key the app uses).
 async function fsRead(projectId, apiKey, collection, docId) {
@@ -52788,7 +53017,13 @@ async function intDutyLoad() {
           const aTime = a.time_label || '';
           const summary = (typeof sitRoomSummaryData === 'function') ? sitRoomSummaryData(intNumForMe, sitSlotKey(`${date}|${aTime}`), a.room, date, data.slots || []) : null;
           const subjPlain = summary && typeof sitSubjectsPlainByCourse === 'function' ? sitSubjectsPlainByCourse(summary) : '';
-          autoDuties.push({ date, day: autoDays[date].day, room: a.room, time_label: aTime || '—', subject: subjPlain, source: 'auto' });
+          // v1327: surface manual-override info to the faculty themselves —
+          // a.faculty is already the final post-override name (the writer
+          // mutates it directly), so nothing else here needs to change; this
+          // just adds the "as per last update" note the admin asked for.
+          const mOv = data.duty_auto && data.duty_auto.manualOverrides && data.duty_auto.manualOverrides[date] && data.duty_auto.manualOverrides[date][aTime] && data.duty_auto.manualOverrides[date][aTime][a.room];
+          const ovTs = (mOv && mOv.ts) ? mOv.ts : null;
+          autoDuties.push({ date, day: autoDays[date].day, room: a.room, time_label: aTime || '—', subject: subjPlain, source: 'auto', reassigned: !!mOv, updatedTs: ovTs });
         }
       });
     });
@@ -52834,6 +53069,7 @@ async function intDutyLoad() {
                 </span>
               </div>
               ${d.subject ? `<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:6px;">📖 ${d.subject}</div>` : ''}
+              ${d.reassigned ? `<div style="font-size:10px;color:#f59e0b;font-family:var(--mono);margin-top:6px;">✎ Reassigned${d.updatedTs ? ' — as per last update ' + new Date(d.updatedTs).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true}) : ''}</div>` : ''}
             </div>`).join('');
         })();
 
@@ -54143,6 +54379,11 @@ function intRenderDutyAutoCard(docId, data) {
   if (dutyAuto && dutyAuto.days && Object.keys(dutyAuto.days).length) {
     const dates = Object.keys(dutyAuto.days).sort();
     const exceptions = dutyAuto.exceptions || {};
+    // v1327 [file:index.html ~54172]: hoisted above the per-day loop (was
+    // previously computed further down, after facOptions already needed it)
+    // so the per-day "+ Add faculty" dropdown can exclude anyone marked
+    // Permanently Unavailable, not just today's own exception list.
+    const permExceptionsForDropdown = (dutyAuto && dutyAuto.permanentExceptions) || [];
     resultHtml = dates.map(date => {
       const d = dutyAuto.days[date];
       const dt = new Date(date+'T00:00:00');
@@ -54217,13 +54458,46 @@ function intRenderDutyAutoCard(docId, data) {
             const detailHtml = (subjLine || debugHtml)
               ? `<div id="${detailId}" data-duty-detail style="display:${isExpanded ? 'block' : 'none'};font-size:10px;margin-top:2px;">${subjLine}${debugHtml}</div>`
               : '';
+            // v1327 MANUAL SLOT OVERRIDE [file:index.html ~54240]: admin/
+            // incharge (same _dutyReadOnly gate used everywhere else on this
+            // card) can reassign ONE already-allocated slot to a different
+            // faculty without Re-Run. a.faculty here is already the FINAL
+            // name — dutyAllocateForInternal() applies manualOverrides on
+            // top of the algorithm's pick before this render ever runs, so
+            // this UI never needs to know whether a row is overridden by
+            // reading anything other than duty_auto.manualOverrides itself
+            // (checked below only to show the badge/✕, not to resolve the
+            // displayed name).
+            const ovrDate = date, ovrTime = timeLabel, ovrRoom = a.room;
+            const mOverrides = (dutyAuto.manualOverrides && dutyAuto.manualOverrides[ovrDate] && dutyAuto.manualOverrides[ovrDate][ovrTime]) || {};
+            const isOverridden = Object.prototype.hasOwnProperty.call(mOverrides, ovrRoom);
+            const ovrMeta = isOverridden ? mOverrides[ovrRoom] : null;
+            const ovrSlotId = `duty-ovrslot-${docId}-${date}-${timeLabel}-${a.room}`.replace(/[^a-zA-Z0-9-]/g,'_');
+            const ovrEditId = `${ovrSlotId}-edit`;
+            const ovrTsHtml = (isOverridden && ovrMeta && ovrMeta.ts)
+              ? `<div style="font-size:9px;color:#f59e0b;margin-top:2px;">✎ Reassigned — updated ${new Date(ovrMeta.ts).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}</div>`
+              : '';
+            const ovrEditBtn = _dutyReadOnly ? '' : `<span onclick="dutyShowOverrideEditor('${ovrEditId}')" style="cursor:pointer;color:var(--muted);margin-left:6px;" title="Reassign this slot">✏️</span>`;
+            const ovrClearBtn = (isOverridden && !_dutyReadOnly) ? `<span onclick="dutySetManualOverride('${docId}','${ovrDate}','${ovrTime}','${ovrRoom.replace(/'/g,"\\'")}',null)" style="cursor:pointer;color:#ef4444;margin-left:6px;font-weight:700;" title="Revert to auto-allocated">✕</span>` : '';
+            const ovrEditorHtml = _dutyReadOnly ? '' : `
+              <div id="${ovrEditId}" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface);border:1px solid var(--border-accent, #60a5fa);border-radius:6px;">
+                <select id="${ovrEditId}-sel" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;margin-bottom:4px;">
+                  ${ALL_FAC.filter(f => !permExceptionsForDropdown.includes(f) || f===a.faculty).map(f => `<option value="${f}"${f===a.faculty?' selected':''}>${f}</option>`).join('')}
+                </select>
+                <div style="display:flex;gap:6px;">
+                  <button onclick="document.getElementById('${ovrEditId}').style.display='none';" style="flex:1;padding:4px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:10px;cursor:pointer;">Cancel</button>
+                  <button onclick="const v=document.getElementById('${ovrEditId}-sel').value; dutySetManualOverride('${docId}','${ovrDate}','${ovrTime}','${ovrRoom.replace(/'/g,"\\'")}',v);" style="flex:1;padding:4px;background:#60a5fa;color:#000;border:none;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;">Save</button>
+                </div>
+              </div>`;
             return `<div data-fac="${a.faculty.toLowerCase().replace(/"/g,'')}" style="padding:5px 0;font-size:11px;font-family:var(--mono);border-bottom:1px solid rgba(255,255,255,0.04);">
               <div style="display:flex;justify-content:space-between;gap:8px;">
                 <span style="color:var(--muted);">${i+1}. 🏫 ${a.room}</span>
-                <span style="color:var(--text);font-weight:700;">${a.faculty}${a.fallbackUsed?' <span style="color:#f59e0b;" title="Rule-5 fallback used — strict alternation was not possible for this slot">⚠</span>':''}${badgeHtml}</span>
+                <span style="color:var(--text);font-weight:700;">${a.faculty}${a.fallbackUsed?' <span style="color:#f59e0b;" title="Rule-5 fallback used — strict alternation was not possible for this slot">⚠</span>':''}${badgeHtml}${isOverridden?' <span style="font-size:9px;color:#f59e0b;background:rgba(245,158,11,0.14);padding:1px 6px;border-radius:8px;">manual</span>':''}${ovrEditBtn}${ovrClearBtn}</span>
               </div>
               ${alwaysVisibleCountLine}
+              ${ovrTsHtml}
               ${detailHtml}
+              ${ovrEditorHtml}
             </div>`;
           }).join('');
           const rowsWrapId = `duty-tb-rows-${blockKey}`;
@@ -54257,7 +54531,7 @@ function intRenderDutyAutoCard(docId, data) {
         `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px 2px 0;padding:2px 8px;background:rgba(239,68,68,0.12);border-radius:10px;font-size:10px;font-family:var(--mono);color:#ef4444;">${n}
           ${_dutyReadOnly ? '' : `<span onclick="dutyToggleException('${docId}','${date}','${n.replace(/'/g,"\'")}',false)" style="cursor:pointer;font-weight:700;">✕</span>`}
         </span>`).join('');
-      const facOptions = ALL_FAC.filter(f => !dayExceptions.includes(f))
+      const facOptions = ALL_FAC.filter(f => !dayExceptions.includes(f) && !permExceptionsForDropdown.includes(f))
         .map(f => `<option value="${f}">${f}</option>`).join('');
       const exceptionUi = _dutyReadOnly ? '' : `
         <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);">
@@ -57144,6 +57418,10 @@ function _dutyAutoToRtdbSafe(duty_auto) {
     days: duty_auto.days || {},           // date keys (YYYY-MM-DD) and all values inside are already RTDB-safe; faculty names here live in a.faculty VALUES, not keys, so they need no encoding
     exceptions: safeExceptions,
     permanentExceptions: duty_auto.permanentExceptions || [], // also a plain array of names — no keys involved
+    // v1327: manualOverrides is keyed by date/time/room (all RTDB-safe
+    // strings) — the faculty name sits as a VALUE (ov.name), same as
+    // a.faculty above, so this needs no key-encoding either.
+    manualOverrides: duty_auto.manualOverrides || {},
   };
 }
 function _dutyAutoFromRtdbSafe(duty_auto) {
@@ -57514,6 +57792,14 @@ async function dutyAllocateForInternal(docId, intNum) {
   const existingExceptions = (intData.duty_auto && intData.duty_auto.exceptions) || {};
   const existingPermanentExceptions = (intData.duty_auto && intData.duty_auto.permanentExceptions) || [];
   const existingMaxOverrides = (intData.duty_auto && intData.duty_auto.maxOverrides) || {};
+  // v1327 [file:index.html ~57582]: manual slot overrides (dutySetManualOverride)
+  // must survive Re-Run the same way exceptions/caps already do — carried
+  // through unchanged here, then RE-APPLIED on top of the fresh algorithm
+  // result below (after `days`/`counts` are built), never fed INTO the
+  // allocator itself. Applying last means an override can never distort
+  // fairness/rotation for other faculty during allocation — it simply
+  // overwrites its one target slot's final faculty name afterward.
+  const existingManualOverrides = (intData.duty_auto && intData.duty_auto.manualOverrides) || {};
   const permSet = new Set(existingPermanentExceptions);
 
   const counts = {}; // rule 7: fresh zero for this run — this IS the Internal boundary reset
@@ -57538,7 +57824,30 @@ async function dutyAllocateForInternal(docId, intNum) {
     days[date] = { day: dayName, assignments, unfilled };
   });
 
-  const duty_auto = { counts, days, exceptions: existingExceptions, permanentExceptions: existingPermanentExceptions, maxOverrides: existingMaxOverrides };
+  // v1327 [file:index.html ~57606]: re-apply manual overrides on top of the
+  // freshly-built days/counts, mirroring dutySetManualOverride()'s own
+  // count-adjustment logic (minus the algorithm's own pick for that slot,
+  // plus the override name) so Total Duties stays correct immediately
+  // after Re-Run too, not just when an override is first set.
+  Object.keys(existingManualOverrides).forEach(date => {
+    const dayRow = days[date];
+    if (!dayRow) return;
+    Object.keys(existingManualOverrides[date]).forEach(time => {
+      Object.keys(existingManualOverrides[date][time]).forEach(room => {
+        const ov = existingManualOverrides[date][time][room];
+        const ovName = ov && ov.name;
+        if (!ovName) return;
+        const a = (dayRow.assignments || []).find(x => x.time_label === time && x.room === room);
+        if (!a) return;
+        const algoPick = a.faculty;
+        if (algoPick && counts[algoPick]) counts[algoPick] = Math.max(0, counts[algoPick] - 1);
+        counts[ovName] = (counts[ovName] || 0) + 1;
+        a.faculty = ovName;
+      });
+    });
+  });
+
+  const duty_auto = { counts, days, exceptions: existingExceptions, permanentExceptions: existingPermanentExceptions, maxOverrides: existingMaxOverrides, manualOverrides: existingManualOverrides };
   let mirrorSkippedNotCurrent = false;
   let mirrorFailed = false;
   try {
@@ -57727,6 +58036,84 @@ async function dutyTogglePermanentException(docId, facultyName, exclude) {
     INT_DATA[docId].duty_auto = duty_auto;
     DUTY_AUTO[docId] = duty_auto;
     dvToast(exclude ? `⚠ ${facultyName} marked unavailable ALL DAYS — Re-Run to apply` : `✅ ${facultyName} available again — Re-Run to apply`, exclude?'warn':'ok', 3500);
+    if (typeof intDutyLoad === 'function') intDutyLoad();
+  } catch (e) {
+    dvToast('❌ ' + e.message, 'error', 5000);
+  }
+}
+
+// ── Manual Slot Override (Auto Duty only) ─────────────────────────────────
+// v1327 [file:index.html ~57783]: lets admin/incharge directly reassign ONE
+// already-allocated slot (date+time+room) to a different faculty, without
+// Re-Run. Stored at duty_auto.manualOverrides[date][time][room] =
+// {name, ts}. dutyAllocateForInternal() re-applies this map AFTER building
+// the normal algorithm result on every Re-Run (same "survives Re-Run"
+// pattern as permanentExceptions/maxOverrides), so it is never wiped.
+// dutyAuto.counts is adjusted in the SAME write (minus the original pick,
+// plus the override) so the Total Duties chips never disagree with what is
+// actually shown per slot. Passing facultyName=null clears the override and
+// reverts that slot to whatever the algorithm itself picked.
+function dutyShowOverrideEditor(editId) {
+  const el = document.getElementById(editId);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function dutySetManualOverride(docId, date, time, room, facultyName) {
+  const intData = INT_DATA[docId];
+  if (!intData) return;
+  const duty_auto = intData.duty_auto || { counts: {}, days: {}, exceptions: {}, permanentExceptions: [], manualOverrides: {} };
+  const days = duty_auto.days || {};
+  const dayRow = days[date];
+  const assignment = dayRow && (dayRow.assignments || []).find(a => a.time_label === time && a.room === room);
+  if (!assignment) { dvToast('❌ Slot not found — try refreshing', 'error', 4000); return; }
+
+  const manualOverrides = duty_auto.manualOverrides || {};
+  const wasOverridden = !!(manualOverrides[date] && manualOverrides[date][time] && manualOverrides[date][time][room]);
+  // The "original" pick for count-adjustment purposes is whatever is
+  // CURRENTLY displayed on this slot (a.faculty), which is already the
+  // final post-override name if one existed — so clearing an override
+  // correctly hands the slot back to the algorithm's OWN pick, not to
+  // whatever a stale second override attempt might guess.
+  const currentFaculty = assignment.faculty;
+  const counts = Object.assign({}, duty_auto.counts || {});
+
+  if (facultyName === null || facultyName === '' || facultyName === currentFaculty) {
+    // Revert: remove the override entry, restore counts to the algorithm's
+    // own pick. The algorithm's original pick is recoverable only via a
+    // fresh Re-Run for a slot whose override is being cleared with no
+    // Re-Run in between — so a plain revert here simply removes the
+    // override going forward; the NEXT Re-Run will recompute the true
+    // algorithm pick for this slot from scratch, same as any other slot.
+    if (manualOverrides[date] && manualOverrides[date][time]) {
+      delete manualOverrides[date][time][room];
+      if (!Object.keys(manualOverrides[date][time]).length) delete manualOverrides[date][time];
+      if (!Object.keys(manualOverrides[date] || {}).length) delete manualOverrides[date];
+    }
+    if (!wasOverridden) { dvToast('Nothing to revert on this slot', 'warn', 2500); return; }
+    dvToast(`↩ Reverted ${room} ${time} — Re-Run to recompute the auto pick`, 'ok', 4000);
+  } else {
+    manualOverrides[date] = manualOverrides[date] || {};
+    manualOverrides[date][time] = manualOverrides[date][time] || {};
+    manualOverrides[date][time][room] = { name: facultyName, ts: Date.now() };
+    // Count adjustment: remove one from whoever is currently shown, add one
+    // to the new override name — keeps Total Duties in sync immediately,
+    // without waiting for Re-Run.
+    if (currentFaculty && counts[currentFaculty]) counts[currentFaculty] = Math.max(0, counts[currentFaculty] - 1);
+    counts[facultyName] = (counts[facultyName] || 0) + 1;
+    assignment.faculty = facultyName;
+    duty_auto.counts = counts;
+    dvToast(`✏️ ${room} ${time} reassigned to ${facultyName}`, 'ok', 4000);
+  }
+
+  duty_auto.manualOverrides = manualOverrides;
+  try {
+    await db.collection('internals').doc(docId).update({
+      'duty_auto.manualOverrides': manualOverrides,
+      'duty_auto.days': days,
+      'duty_auto.counts': duty_auto.counts
+    });
+    INT_DATA[docId].duty_auto = duty_auto;
+    DUTY_AUTO[docId] = duty_auto;
     if (typeof intDutyLoad === 'function') intDutyLoad();
   } catch (e) {
     dvToast('❌ ' + e.message, 'error', 5000);
