@@ -38,6 +38,27 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v8.97 (2026-08-30) [wnRefreshActiveList() ~14135,
+wnRemoveGroupedEntry() ~14206, wnDeleteNotice_silent() ~14244]: 2
+Widget-Notice bugs fixed. (1) "Active notices" stuck on "Loading…" —
+was doing one sequential rtdbGet() per student (300-450+ round-trips) to
+build the list; now one single read of the whole
+davan_pub/student_widget_notices node, grouped client-side. (2) Removed
+notices "coming back" — wnDeleteNotice_silent() used to swallow every
+per-student delete failure with a console.warn only, so a partial delete
+(a handful of the hundreds of per-student writes failing) looked
+identical to success; the survivors then reappeared on the next refresh.
+Now returns true/false, wnRemoveGroupedEntry() does one retry pass on
+whatever failed, and reports any still-failed URNs to the admin instead
+of silently leaving them.
+VERSION : v8.96 (2026-08-30) [_wnResolveTargetUrns() ~14028, wn-target
+~5546]: added a 4th "Show to" option to Widget Notice — "Only
+Widget-Installed Students". davan_pub/student_widget_active is keyed by
+pairCode (a URN can own more than one record over time via re-pairing),
+so resolving this target reads that whole node and collects the distinct
+urn values across all its records, not the node's own keys.
+_wnResolveTargetUrns() is now async (single RTDB read for this target
+only); its one call site in saveWidgetNotice() now awaits it.
 VERSION : v8.95 (2026-08-30) [clearLiveBroadcast() ~14262, admin panel
 ~5590]: added a "🛑 Clear/Recall Broadcast" button next to Broadcast Now —
 there was no way to stop a sent broadcast before. Wipes
@@ -4274,7 +4295,7 @@ body.dash-active .data-strip { display: block; }
         <div id="bell-list" style="max-height:360px;overflow-y:auto;padding:8px 0;"></div>
       </div>
     </div>
-    <span id="topbar-version">Portal v8.95</span>
+    <span id="topbar-version">Portal v8.97</span>
     </div><!-- /topbar-right -->
   </div><!-- /topbar-row1 -->
   <!-- Row 2: Student info — shown after login -->
@@ -4446,7 +4467,7 @@ body.dash-active .data-strip { display: block; }
   <footer>
     <div class="footer-inner">
       <div class="footer-copy">© 2026 <strong>Davan Institute of Advanced Management Studies</strong></div>
-      <div class="footer-meta" id="login-footer-meta-1">Version: v8.95  ·  Updated: 30 Aug 2026, IST</div>
+      <div class="footer-meta" id="login-footer-meta-1">Version: v8.97  ·  Updated: 30 Aug 2026, IST</div>
       <div class="footer-built">Built by <strong style="color:#f0a500;">Harsha Gujjar</strong>, Director — Davan College</div>
     </div>
   </footer>
@@ -4531,7 +4552,7 @@ body.dash-active .data-strip { display: block; }
   <footer>
     <div class="footer-inner">
       <div class="footer-copy">© 2026 <strong>Davan Institute of Advanced Management Studies</strong></div>
-      <div class="footer-meta" id="login-footer-meta-2">Version: v8.95  ·  Updated: 30 Aug 2026, IST</div>
+      <div class="footer-meta" id="login-footer-meta-2">Version: v8.97  ·  Updated: 30 Aug 2026, IST</div>
       <div class="footer-built">Built by <strong style="color:#f0a500;">Harsha Gujjar</strong>, Director — Davan College</div>
     </div>
   </footer>
@@ -5016,7 +5037,7 @@ body.dash-active .data-strip { display: block; }
 
     <div class="portal-footer">
       <div class="footer-copy">© 2026 <strong>Davan Institute of Advanced Management Studies</strong></div>
-      <div class="footer-meta" id="stu-footer-meta">Version: v8.95  ·  Updated: 30 Aug 2026, IST</div>
+      <div class="footer-meta" id="stu-footer-meta">Version: v8.97  ·  Updated: 30 Aug 2026, IST</div>
       <div class="footer-meta" id="stu-footer-scrape">🕐 Data last scraped: —</div>
       <div class="footer-built">Built by <strong style="color:#f0a500;">Harsha Gujjar</strong>, Director — Davan College</div>
     </div>
@@ -5543,6 +5564,7 @@ body.dash-active .data-strip { display: block; }
           <option value="all">All Students</option>
           <option value="class">Specific Class</option>
           <option value="urn">Specific URN</option>
+          <option value="widget_installed">Only Widget-Installed Students</option>
         </select>
       </div>
       <div id="wn-class-chips-wrap" style="display:none;" class="field">
@@ -6645,7 +6667,7 @@ const PAGE_SIZE = 25;
    at the top of the file but never touched these, so the on-screen number silently froze at
    v6.84 while the file itself moved on. Bump ONLY this one constant at each release; every
    display below reads from it automatically. */
-const APP_VERSION = 'v8.95';
+const APP_VERSION = 'v8.97';
 const BUILD_DATE   = '30 Aug 2026, IST'; // v6.90: update alongside APP_VERSION at each release
 
 // STUDENT WIDGET APK version tracking — deliberately SEPARATE from
@@ -14024,7 +14046,13 @@ function toggleWnTarget() {
 
 // Resolves which real URNs a save should fan out to, given the same
 // all/class/urn target shape the Live Banner already uses.
-function _wnResolveTargetUrns(target, classes, urnVal) {
+// v8.96: added 'widget_installed' — davan_pub/student_widget_active is
+// keyed by pairCode, not URN (a widget re-pair generates a new code, so a
+// single URN can legitimately own more than one record over time — see
+// stuCompleteWidgetPairing()'s own comments on this), so "who has the
+// widget installed" means "the distinct set of urn values across every
+// record in that node", not the node's own key set.
+async function _wnResolveTargetUrns(target, classes, urnVal) {
   const all = Object.values(STATE.students || {});
   if (target === 'urn') {
     const u = (urnVal || '').trim().toUpperCase();
@@ -14033,6 +14061,13 @@ function _wnResolveTargetUrns(target, classes, urnVal) {
   if (target === 'class') {
     if (!classes.length) return [];
     return all.filter(s => classes.includes(s.class)).map(s => (s.urn||'').toUpperCase()).filter(Boolean);
+  }
+  if (target === 'widget_installed') {
+    const activeRaw = await rtdbGet('davan_pub/student_widget_active').catch(() => null);
+    if (!activeRaw) return [];
+    const urns = new Set();
+    Object.values(activeRaw).forEach(rec => { if (rec && rec.urn) urns.add(String(rec.urn).toUpperCase()); });
+    return [...urns];
   }
   // 'all'
   return all.map(s => (s.urn||'').toUpperCase()).filter(Boolean);
@@ -14051,7 +14086,7 @@ async function saveWidgetNotice() {
   if (target === 'class') classes = getSelectedChips('wn-class-chips');
   else if (target === 'urn') urnVal = (document.getElementById('wn-urn-val').value || '').trim();
 
-  const urns = _wnResolveTargetUrns(target, classes, urnVal);
+  const urns = await _wnResolveTargetUrns(target, classes, urnVal);
   if (!urns.length) { alert('No matching students found for that target.'); return; }
 
   const sp = document.getElementById('wn-spinner');
@@ -14110,30 +14145,41 @@ async function saveWidgetNotice() {
 // showing the same "Fees due 5 Sep" three hundred times for an all-student
 // notice — the admin needs to see WHAT is currently live, not necessarily
 // every single fan-out copy.
+// v8.97: BUGFIX — was doing one sequential rtdbGet() per student (300-450+
+// round-trips, one at a time) just to build this list, which is why
+// "Active notices" could sit on "Loading…" for a very long time on a full
+// student count, and why any single failed request among hundreds (network
+// blip, no retry) silently dropped that student from the list with no
+// visible error. Root cause was reading student_widget_notices ONE URN AT
+// A TIME when the whole node can be read in a single request — same shape
+// this function already needed (an object keyed by URN), just fetched all
+// at once instead of student-by-student.
 async function wnRefreshActiveList() {
   const el = document.getElementById('wn-active-list');
   if (!el) return;
   el.textContent = 'Loading…';
-  const students = Object.values(STATE.students || {});
-  if (!students.length) { el.textContent = 'No students loaded yet.'; return; }
+
+  let allNotices = null;
+  try {
+    allNotices = await rtdbGet('davan_pub/student_widget_notices');
+  } catch (e) {
+    el.innerHTML = '<span style="color:var(--danger);">Could not load active notices (' + (e && e.message || 'network error') + '). <a href="#" onclick="wnRefreshActiveList();return false;" style="color:var(--blue);">Retry</a></span>';
+    return;
+  }
+  if (!allNotices) { el.innerHTML = '<span style="color:var(--muted);">No active notices.</span>'; return; }
 
   const today = new Date().toISOString().slice(0, 10);
   const grouped = {}; // key = text|color|expiresOn -> { ...notice, urns: [] }
 
-  for (const s of students) {
-    const urn = (s.urn || '').toUpperCase();
-    if (!urn) continue;
-    try {
-      const list = await rtdbGet('davan_pub/student_widget_notices/' + urn).catch(() => null);
-      if (!Array.isArray(list)) continue;
-      list.forEach(n => {
-        if (n.expiresOn && n.expiresOn < today) return; // already expired, don't show as active
-        const key = n.text + '|' + n.color + '|' + (n.expiresOn || '');
-        if (!grouped[key]) grouped[key] = { ...n, urns: [] };
-        grouped[key].urns.push(urn);
-      });
-    } catch (e) { /* one student's read failing shouldn't blank the whole list */ }
-  }
+  Object.entries(allNotices).forEach(([urn, list]) => {
+    if (!Array.isArray(list)) return;
+    list.forEach(n => {
+      if (n.expiresOn && n.expiresOn < today) return; // already expired, don't show as active
+      const key = n.text + '|' + n.color + '|' + (n.expiresOn || '');
+      if (!grouped[key]) grouped[key] = { ...n, urns: [] };
+      grouped[key].urns.push(urn.toUpperCase());
+    });
+  });
 
   const entries = Object.values(grouped);
   if (!entries.length) { el.innerHTML = '<span style="color:var(--muted);">No active notices.</span>'; return; }
@@ -14159,12 +14205,47 @@ async function wnRefreshActiveList() {
 // student it currently covers — looked up by index into the same array
 // wnRefreshActiveList() just stashed, since the rendered HTML string
 // itself has no way to carry the real urns array or notice id directly.
+// v8.97: BUGFIX — used to swallow every per-student delete failure
+// silently (wnDeleteNotice_silent's own catch just console.warn'd), so a
+// partial delete (one or two students' writes failing out of hundreds)
+// looked EXACTLY like success — button said "Remove", nothing complained,
+// but the next wnRefreshActiveList() regrouped the survivors back into
+// the list, looking like the notice "came back" even though it never
+// fully left. Now tracks real failures and reports them, with one retry
+// pass for anything that failed the first time (covers the common
+// transient case — a rate limit blip on a burst of hundreds of writes —
+// without needing the admin to notice and click Remove again themselves).
 async function wnRemoveGroupedEntry(idx) {
   const entry = (window._wnActiveEntries || [])[idx];
   if (!entry) return;
   if (!confirm(`Remove "${entry.text}" from ${entry.urns.length} student(s)?`)) return;
+
+  const btnEl = document.querySelectorAll('#wn-active-list button')[idx];
+  const origLabel = btnEl ? btnEl.textContent : '';
+  const setProgress = (n, total) => { if (btnEl) { btnEl.textContent = `${n} / ${total}`; btnEl.disabled = true; } };
+
+  let failed = [];
+  let done = 0;
   for (const urn of entry.urns) {
-    await wnDeleteNotice_silent(urn, entry.id);
+    const ok = await wnDeleteNotice_silent(urn, entry.id);
+    if (!ok) failed.push(urn);
+    done++;
+    setProgress(done, entry.urns.length);
+  }
+  // One retry pass for whatever failed — covers a transient blip without
+  // making the admin manually re-click Remove and re-confirm.
+  if (failed.length) {
+    const retryTargets = failed;
+    failed = [];
+    for (const urn of retryTargets) {
+      const ok = await wnDeleteNotice_silent(urn, entry.id);
+      if (!ok) failed.push(urn);
+    }
+  }
+  if (btnEl) { btnEl.disabled = false; btnEl.textContent = origLabel; }
+
+  if (failed.length) {
+    alert(`Removed for ${entry.urns.length - failed.length} of ${entry.urns.length} student(s). ${failed.length} failed even after retry (network issue) — this is why a removed notice can look like it "comes back": those students still have it. Try Remove again, or check your connection.\n\nFailed URNs: ${failed.slice(0,10).join(', ')}${failed.length>10?' …':''}`);
   }
   wnRefreshActiveList();
 }
@@ -14173,12 +14254,17 @@ async function wnRemoveGroupedEntry(idx) {
 // student by wnRemoveGroupedEntry() above, which already confirmed once for
 // the whole batch — no confirm() dialog here, since asking again per-student
 // would mean confirming hundreds of times for an all-student notice.
+// v8.97: now returns true/false instead of always resolving silently, so
+// the caller can actually tell a real failure from a success — previously
+// every failure was invisible (caught, logged to console only), which is
+// exactly what made partial deletes look identical to complete ones.
 async function wnDeleteNotice_silent(urn, noticeId) {
   try {
     const existing = await rtdbGet('davan_pub/student_widget_notices/' + urn).catch(() => null);
     const list = (Array.isArray(existing) ? existing : []).filter(n => n.id !== noticeId);
     await rtdbSet('davan_pub/student_widget_notices/' + urn, list);
-  } catch (e) { console.warn('[WidgetNotice] delete failed for', urn, e && e.message); }
+    return true;
+  } catch (e) { console.warn('[WidgetNotice] delete failed for', urn, e && e.message); return false; }
 }
 function renderLiveBanner(data) {
   const bar = document.getElementById('live-banner-bar');
