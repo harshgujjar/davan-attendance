@@ -7,8 +7,8 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.204                                                      ║
-║  FILE NAME       : puc_v5.204.html                                             ║
+║  CURRENT VERSION : v5.206                                                      ║
+║  FILE NAME       : puc_v5.206.html                                             ║
 ║  LAST UPDATED    : 2026-09-02                                                ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -40,6 +40,39 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v5.206 2026-09-02  Remember last-open tab across reload/relogin (admin    ║
+║          request — was always resetting to Dashboard). switchPanel() now  ║
+║          saves the panel name to localStorage (puc_last_panel) on every   ║
+║          switch. New pucRestoreLastPanel(), called from                   ║
+║          onPucLoginSuccess (after the ?panel= deep-link check, which      ║
+║          still wins if present), reopens that tab by invoking the real    ║
+║          sidebar nav item's own onclick — reuses each item's existing     ║
+║          switchPanel(...);xInit() exactly as clicking it would, so there  ║
+║          is no separate hardcoded panel→init map to drift out of sync.    ║
+║          Persists across Sign Out on purpose, since "relogin" was part    ║
+║          of the request. Dashboard needs no special-case restore — it's   ║
+║          already the default panel in the static HTML.                   ║
+║  v5.205 2026-09-02  Login overhaul (admin request — simplify, mobile was    ║
+║          hanging on "Verifying role…" / ad-blocker warnings):              ║
+║          (1) REMOVED the admin-role verification step entirely             ║
+║          (RTDB davan_profiles / Firestore users lookup, 14s timeout,       ║
+║          "Could not verify — check your connection / ad-blocker" message,  ║
+║          Retry button, pucRetryVerify()). Firebase Auth success alone now  ║
+║          logs the admin straight in — no second round-trip that could      ║
+║          hang or get blocked. (2) REMOVED the unconditional hardcoded      ║
+║          admin/admin123 auto-login that silently fired on every page load  ║
+║          with nobody signed in (pucHardcodedAdminLogin() + its trigger) —  ║
+║          this is also what made Sign Out not stick, since it would just    ║
+║          log back in on reload. (3) Login form's username/password fields  ║
+║          now come pre-filled with admin/admin123 as visible defaults —     ║
+║          same one-press convenience, but only submits on an explicit      ║
+║          press of Sign In. (4) FIX: pucSignOut() now also clears the       ║
+║          puc_autologin localStorage entry — previously Sign Out left it    ║
+║          in place, so the remembered-device quick-login (or, before this   ║
+║          version, the hardcoded auto-login) would sign back in on the      ║
+║          very next load. Sign Out now actually stays signed out. The       ║
+║          existing opt-in "remember this device" quick-login toggle is     ║
+║          untouched — only the unconditional/hidden auto-login is gone.    ║
 ║  v5.204 2026-09-02  UX: SSLC (10th) panel — (1) student names shown in      ║
 ║          ALL CAPS for consistency (source data was mixed-case). (2) photo  ║
 ║          avatar beside each name using pucPhotos[usn] lookup (same source  ║
@@ -4887,10 +4920,10 @@ body {
              autofill, which is exactly why picking "admin" filled the password
              but left the username blank. -->
         <form id="puc-login-form" autocomplete="on" onsubmit="doPucLogin(); return false;">
-        <input type="text" id="puc-login-email" name="username" placeholder="Username or email"
+        <input type="text" id="puc-login-email" name="username" placeholder="Username or email" value="admin"
           autocomplete="username" autocorrect="off" autocapitalize="off" spellcheck="false">
         <div style="position:relative;">
-          <input type="password" id="puc-login-password" name="password" placeholder="Password"
+          <input type="password" id="puc-login-password" name="password" placeholder="Password" value="admin123"
             autocomplete="current-password" autocorrect="off" autocapitalize="off" spellcheck="false"
             style="padding-right:46px;">
           <button type="button" id="puc-pw-eye" onclick="pucTogglePw()" aria-label="Show password"
@@ -8833,7 +8866,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.204";
+const APP_VERSION = "v5.206";
 
 // ── Manually allocated USNs (v5.178) ─────────────────────────────────────────
 // Single source of truth for students whose portal record has NO USN/URN and
@@ -9200,66 +9233,14 @@ auth.onAuthStateChanged(async (user) => {
     if (user.email && user.email.endsWith('@puc-remedial.davan.local')) {
       return; // pucFacultyLogin()/pucRestoreFacultySession() already handle their own UI setup
     }
-    document.getElementById('login-status-msg').textContent = 'Verifying role…';
-    let profile = null;
-    // Hard timeout — if a network-level block (ad-blocker, firewall, etc.)
-    // silently hangs the Firestore/RTDB request instead of cleanly failing,
-    // this stops "Verifying role..." from getting stuck forever with no
-    // way out except a full page reload.
-    // Bumped 8s → 14s: on mobile, this listener commonly fires right on app
-    // cold-start, before the OS/Firebase SDK has finished re-establishing
-    // the network connection (5G↔WiFi handoff, brief signal drop, etc).
-    // 8s was tripping the "ad-blocker" warning on connections that were
-    // simply still warming up, not actually blocked.
-    const withTimeout = (p, ms) => Promise.race([
-      p,
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))
-    ]);
-    const _pucTryReadProfile = async () => {
-      let prof = null;
-      try {
-        const snap = await withTimeout(rtdb.ref('davan_profiles/' + user.uid).once('value'), 14000);
-        prof = snap.val();
-      } catch(e) {}
-      if (!prof) {
-        try {
-          const doc = await withTimeout(db.collection('users').doc(user.uid).get(), 14000);
-          if (doc.exists) prof = doc.data();
-        } catch(e) {}
-      }
-      return prof;
-    };
-    profile = await _pucTryReadProfile();
-    // Silent one-time retry before showing the user-facing warning — absorbs
-    // the common case of a transient first-attempt blip on app cold-start
-    // that clears up half a second later on its own.
-    if (!profile) {
-      await new Promise(r => setTimeout(r, 1200));
-      profile = await _pucTryReadProfile();
-    }
-    if (profile && profile.role === 'admin') {
-      onPucLoginSuccess(user, profile);
-    } else if (profile) {
-      // Definitive answer: this account exists but is not an admin. Signing out
-      // is correct here.
-      await auth.signOut().catch(() => {});
-      showLoginOverlay('⚠ Admin access only.');
-    } else {
-      // FIX: we could NOT read the profile (timeout / ad-blocker / offline).
-      // That is NOT proof the user lacks access — signing out here destroyed a
-      // perfectly valid session (and, when the session was shared, index.html's
-      // too, which is what kicked off the re-login loop). Keep the session and
-      // offer a retry instead.
-      showLoginOverlay('⚠ Could not verify — check your connection (an ad-blocker may be blocking Firebase). Your session is still active; press Retry.');
-      try {
-        const box = document.getElementById('login-status-msg');
-        if (box) {
-          box.innerHTML = '<button onclick="pucRetryVerify()" style="background:var(--accent);color:#000;border:none;'
-            + 'border-radius:8px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono);">'
-            + '↻ Retry verification</button>';
-        }
-      } catch(e) {}
-    }
+    // Role verification removed (was: RTDB/Firestore profile lookup for
+    // role==='admin', with a 14s timeout and an ad-blocker warning on
+    // failure — this was the "Verifying role…" step that hung/failed on
+    // slow mobile connections). Firebase Auth success is now sufficient;
+    // no separate admin-role gate. profile is a minimal stand-in so
+    // onPucLoginSuccess's existing field reads (name/displayName/role,
+    // all with safe fallbacks) still work unchanged.
+    onPucLoginSuccess(user, { name: user.email, role: 'admin' });
   } else {
     showLoginOverlay();
     // Keep the "Auto sign-in" checkbox on the full form in sync with what's
@@ -9269,45 +9250,8 @@ auth.onAuthStateChanged(async (user) => {
       const box = document.getElementById('puc-admin-autologin');
       if (box) box.checked = !!(cfg && cfg.enabled);
     } catch(e) {}
-    // Silent auto-login with the hardcoded admin credentials — fires the
-    // moment the page loads/refreshes with nobody signed in, no click
-    // needed. Only runs once per load (guarded) so it can't loop if the
-    // sign-in attempt itself fails and re-triggers this listener.
-    if (!_pucHardcodedAutoLoginAttempted) {
-      _pucHardcodedAutoLoginAttempted = true;
-      pucHardcodedAdminLogin();
-    }
   }
 });
-let _pucHardcodedAutoLoginAttempted = false;
-
-// FIX: re-run the admin role check for the already-signed-in user, used by the
-// Retry button shown when the profile lookup timed out.
-async function pucRetryVerify() {
-  const u = auth.currentUser;
-  const msg = document.getElementById('login-status-msg');
-  if (!u) { showLoginOverlay('⚠ Session ended — please sign in again.'); return; }
-  if (msg) msg.textContent = 'Verifying role…';
-  const withTimeout = (p, ms) => Promise.race([
-    p, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))
-  ]);
-  let profile = null;
-  try {
-    const snap = await withTimeout(rtdb.ref('davan_profiles/' + u.uid).once('value'), 8000);
-    profile = snap.val();
-  } catch(e) {}
-  if (!profile) {
-    try {
-      const doc = await withTimeout(db.collection('users').doc(u.uid).get(), 8000);
-      if (doc.exists) profile = doc.data();
-    } catch(e) {}
-  }
-  if (profile && profile.role === 'admin') { onPucLoginSuccess(u, profile); return; }
-  if (profile) { await auth.signOut().catch(()=>{}); showLoginOverlay('⚠ Admin access only.'); return; }
-  if (msg) msg.innerHTML = '<span style="color:var(--danger);">Still cannot reach Firebase.</span> '
-    + '<button onclick="pucRetryVerify()" style="background:var(--accent);color:#000;border:none;border-radius:8px;'
-    + 'padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--mono);margin-left:6px;">↻ Retry</button>';
-}
 
 // Show/hide the typed admin password.
 function pucTogglePw() {
@@ -9394,14 +9338,6 @@ function showLoginOverlay(msg) {
 // admin/admin123 and submits through the normal doPucLogin() flow (real
 // Firebase Auth, same as typing it manually), so all the existing
 // remember-me/auto-login/session logic still applies unchanged.
-function pucHardcodedAdminLogin() {
-  const uEl = document.getElementById('puc-login-email');
-  const pEl = document.getElementById('puc-login-password');
-  if (uEl) uEl.value = 'admin';
-  if (pEl) pEl.value = 'admin123';
-  doPucLogin();
-}
-
 async function doPucLogin() {
   const username = (document.getElementById('puc-login-email').value || '').trim();
   const password = (document.getElementById('puc-login-password').value || '').trim();
@@ -9440,6 +9376,12 @@ async function pucSignOut() {
   pucFacultyLoggedInId = null;
   sessionStorage.removeItem('puc_fac_sess');
   localStorage.removeItem('puc_fac_sess');
+  // FIX: Sign Out previously left puc_autologin's stored credentials in
+  // localStorage, so the "quick sign-in" / remembered-device flow would
+  // offer (or, before hardcoded auto-login was removed, silently perform)
+  // a sign-in right back in on the very next load — sign-out never
+  // actually stuck. Clearing it here means Sign Out means signed out.
+  localStorage.removeItem('puc_autologin');
   location.reload();
 }
 
@@ -9599,7 +9541,24 @@ function pucCheckDeepLinkPanel() {
     if (panel === 'remedial') {
       switchPanel('remedial');
       if (typeof remInit === 'function') remInit();
+      return true; // explicit link wins over the remembered tab
     }
+  } catch(e) {}
+  return false;
+}
+
+// Reopens whichever tab was active before the last reload/relogin, instead
+// of always resetting to Dashboard. Reuses the real sidebar nav item's own
+// onclick (switchPanel(...);xInit()) rather than a separate hardcoded map,
+// so it can never drift out of sync with what each nav item actually does.
+// Dashboard itself needs no restore — it's already the default panel in
+// the static HTML — so this only acts when a different tab was stored.
+function pucRestoreLastPanel() {
+  try {
+    const last = localStorage.getItem('puc_last_panel');
+    if (!last || last === 'dashboard') return;
+    const nav = document.getElementById('nav-' + last);
+    if (nav && typeof nav.onclick === 'function') nav.onclick();
   } catch(e) {}
 }
 
@@ -9615,7 +9574,9 @@ function onPucLoginSuccess(user, profile) {
   setTimeout(() => flLoadAll(), 3000);
   // v5.114: arm auto-schedule AFTER auth is ready (Firebase reads now succeed)
   spSchedLoad();
-  pucCheckDeepLinkPanel();
+  // Deep link (?panel=remedial) takes priority; otherwise reopen whichever
+  // tab was active before this reload/relogin.
+  if (!pucCheckDeepLinkPanel()) pucRestoreLastPanel();
 }
 
 // =====================
@@ -10492,6 +10453,11 @@ function switchPanel(name) {
   const nav = document.getElementById('nav-' + name);
   if (nav) nav.classList.add('active');
   closeSidebar(); // auto-close drawer on mobile after navigation
+  // Remember the current tab so a reload OR a relogin returns here instead
+  // of resetting to Dashboard — restored by pucRestoreLastPanel(), called
+  // from onPucLoginSuccess. Persists across Sign Out on purpose (admin
+  // asked for "relogin or refresh, start where I was").
+  try { localStorage.setItem('puc_last_panel', name); } catch(e) {}
   // ── LCB lifecycle ──
   if (name === 'dashboard') {
     if (typeof pucLcbStart === 'function') pucLcbStart();
