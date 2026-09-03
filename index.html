@@ -9622,6 +9622,67 @@ async function lpDb2Get(path) {
   } catch(e) { console.warn('[LP db2] failed:', e.message); return null; }
 }
 
+// ── DB4: Lesson Plan long-term archive (direct browser connection) ──────────
+// v085: replaces the v084 app.py-proxy approach (/api/get_lesson_plan_archive)
+// now that DB4's rules were changed to `.read: "auth != null"` (anonymous
+// auth allowed for READS; .write stays false regardless of auth) — same
+// shape as DB2's rules, so the exact same anonymous-sign-in pattern used
+// for DB2 above now also works directly against DB4. This removes the
+// requirement that app.py be running locally for the archive view to work;
+// index.html now talks to DB4 straight from the browser, same as DB2.
+// Own named Firebase app ('lp-archive') and own anon-auth token, kept
+// separate from the DB2 ones above since they're different Firebase
+// PROJECTS with separate user pools — a DB2 anon token does not
+// authenticate against DB4 and vice versa.
+const LP_ARCHIVE_URL = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
+const LP_ARCHIVE_CFG = {
+  apiKey:      'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ',
+  authDomain:  'davan-lessonplan-archive.firebaseapp.com',
+  databaseURL: LP_ARCHIVE_URL,
+  projectId:   'davan-lessonplan-archive',
+};
+let _lpArchiveApp    = null;
+let _lpArchiveToken  = '';
+let _lpArchiveTokExp = 0;
+
+async function _lpGetArchiveToken() {
+  const now = Date.now();
+  if (_lpArchiveToken && now < _lpArchiveTokExp - 60000) return _lpArchiveToken;
+  try {
+    if (!_lpArchiveApp) {
+      _lpArchiveApp = firebase.apps.find(a => a.name === 'lp-archive')
+                   || firebase.initializeApp(LP_ARCHIVE_CFG, 'lp-archive');
+    }
+    const auth = _lpArchiveApp.auth ? _lpArchiveApp.auth() : firebase.auth(_lpArchiveApp);
+    let user = auth.currentUser;
+    if (!user) {
+      const cred = await auth.signInAnonymously();
+      user = cred.user;
+    }
+    _lpArchiveToken  = await user.getIdToken(false);
+    _lpArchiveTokExp = now + 3600000;
+    console.log('[LP archive] anon auth OK');
+    return _lpArchiveToken;
+  } catch(e) {
+    console.warn('[LP archive] auth failed:', e.message);
+    return '';
+  }
+}
+
+async function lpDb4Get(path) {
+  try {
+    const token = await _lpGetArchiveToken();
+    const auth  = token ? ('?auth=' + token) : '';
+    const url   = LP_ARCHIVE_URL + '/' + path + '.json' + auth;
+    console.log('[LP db4] GET', path);
+    const res   = await fetch(url);
+    if (!res.ok) { const b = await res.text(); console.warn('[LP db4]', res.status, b); return null; }
+    const data  = await res.json();
+    console.log('[LP db4] keys:', data ? Object.keys(data).length : 'null');
+    return data;
+  } catch(e) { console.warn('[LP db4] failed:', e.message); return null; }
+}
+
 // Write to DB2 (student portal) via REST PUT using the anon-auth token. Mirrors lpDb2Get.
 async function lpDb2Set(path, value) {
   const token = await _lpGetPortalToken();
@@ -15205,8 +15266,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1334;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '31-Aug-2026', time: '21:00', full: '31-Aug-2026 21:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1335;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '03-Sep-2026', time: '11:30', full: '03-Sep-2026 11:30 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -25578,6 +25639,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1335', date: '03-Sep-2026 IST', note: 'FEAT [lpDb4Get() index.html ~9611, _lpFetchArchiveFromDb4()/_lpFetch() index.html ~67511]: Lesson Plan archive-view now reads DB4 (davan-lessonplan-archive, a separate Firebase project created 03-Sep-2026 to hold old-semester lessonPlan entries permanently after app.py v083 deleted them from DB2 to shrink student downloads — see app.py changelog v081-v083) DIRECTLY from the browser, same way it already reads DB2 — own named Firebase app (\'lp-archive\'), own anonymous-auth token, since DB4 is a separate project with its own user pool (a DB2 anon token does not authenticate against DB4). Replaces the same-day v084 approach which proxied DB4 reads through a new app.py route (/api/get_lesson_plan_archive) — that route is left in app.py as a harmless manual-debugging fallback but is no longer on this file\'s normal code path. This became possible once DB4\'s Firebase rules were changed, per explicit admin instruction to stop depending on app.py running locally, from non-anonymous-only reads to auth != null (anonymous reads allowed, writes always blocked — same rule shape DB2 already uses) — so index.html no longer depends on app.py running locally for the archive-semester Lesson Plan view; only the current-AY view (DB2 only) worked standalone before this build. _lpFetch() merges DB2 (current) + DB4 (archived) into _lpRaw exactly as the v084 version did; _lpFilterByAY()\'s own live/archive scoping logic is unchanged. CODE_BUILD=1335.' },
   { v: 'v1334', date: '31-Aug-2026 IST', note: 'FOUR ITEMS per direct admin follow-up report on v1333, all on Subject/Faculty/Books Summary. (1) \'__ignored__:regular_class\' LEAKING AS A FAKE SUBJECT, REAL BUG: intTimetableSubjectsForClass() (new in v1333) read s.subject straight off Timetable slots with no filter, so a slot marked \'Regular Class (as per timetable)\' or one of the other two ignore reasons (see INT_IGNORE_REASONS ~51547) showed up as if it were a real subject named literally \'__ignored__:regular_class\' -- exactly the same class of bug the v1299 changelog already found and fixed in intRenderTable()/intDownloadExcel() for the Timetable\'s own View/Excel surfaces, just never applied here since this function didn\'t exist yet at the time. FIX: [intTimetableSubjectsForClass() index.html ~60768] now filters via intParseIgnore(s.subject) before collecting a slot\'s subject, same check every other real-subject reader in this file already uses -- confirmed via grep that this is now the 5th call site using the identical pattern, all consistent. (2) SC (SUBJECT CODE) COLUMN REMOVED, per explicit admin correction (\'it dont make sence... it is wrong\'): the column was never real data -- it displayed a fabricated placeholder (CA1, CA2, CA3... just the row number with a prefix, no actual subject-code lookup existed anywhere in this app to source it from). Removed entirely from [absBuildHtml()/absDownloadPDF()/absDownloadExcel() index.html ~62095-62345] -- the in-app View (absRender()) never had this column to begin with, so this brings Print/PDF/Excel in line with what View already correctly showed. (3) WRITING/TOTAL + SHORTAGE AS REAL PER-ROW COLUMNS, per explicit admin request: previously shown once as a summary line below each class\'s table (\'Writing / Total Strength: 12 / 22 - Shortage: 10\'); now Writing/Total (e.g. \'12 / 22\') and Shortage are their own table columns, the same whole-Internal number correctly repeated on every subject row (this data is whole-Internal eligibility, not computed per-subject, so repeating it down the column is intentional, not a mistake) -- replacing the SC column\'s old position, so total column count is unchanged in Print/PDF/Excel. (4) EXAM DATES + TWO FOOTER NOTES, per explicit admin request: absCollectRows() now also returns dateRangeLabel, computed from this Internal\'s real meta.dates array -- the exact same field intBuildExportFileName() already reads correctly for the Timetable\'s own PDF/Excel filenames, so this report\'s date line can never disagree with the Timetable\'s real exam dates. Shown once near the top on View, Print, and PDF, and as its own merged row on Excel. Two new footer lines added to all four surfaces (View, Print, PDF, Excel) -- \'Books should be written back on or before: _____________ (date to be filled manually)\' and \'Marks must be entered in the app before submitting books\' -- PDF footer drawn once at the true end of the document (last-page-only pattern, same fix already applied to the Grid Signature Sheet and Attendance PDFs in v1331-v1333) so it can never land on an intermediate page of a multi-class report. ATTENDANCE PDF FOOTER OVERLAP (v1333 fix, listed here for completeness of this session\'s testing pass): already fixed and confirmed unaffected by this round\'s changes -- the last-page-only + real finalY footer logic in attDownloadPDF() was untouched. VERIFIED: node --check clean on all 20 real script blocks (21 extracted, block 0 is the file\'s own top-of-file coding-rules comment text, not real code, same known pre-existing false positive documented in prior changelog entries); div-balance count unchanged from the pre-edit baseline (2, confirmed pre-existing); confirmed zero remaining \'SC\'/CA-placeholder references anywhere in the Books Summary code paths via direct grep. CODE_BUILD=1334.' },
   { v: 'v1333', date: '31-Aug-2026 IST', note: 'TWO ITEMS per direct admin follow-up report on v1332. (1) ATTENDANCE PDF FOOTER OVERLAP, REAL FIX: same root cause already found and fixed in the Duty Signature Sheet Grid PDF (v1331/v1332) -- attDownloadPDF()\'s didDrawPage hook fired ONCE PER PAGE during pagination (a class with many students spans several A4 pages), so a multi-page Attendance sheet could draw a premature footer on an intermediate page, and the old fixed \'finalY + 20 > pageH\' threshold could still misjudge how much room the real 3-4 line signature block needed on some page sizes/subject counts, letting the footer sit against or past the table\'s own last row. FIX: [attDownloadPDF() index.html ~61658] the hook now skips every page except the true last one (data.pageNumber vs pdf.internal.getNumberOfPages(), the only way to know which page is actually final from inside autoTable\'s own per-page hook), draws a visible gray top border line above the footer so the separation is never ambiguous even in an edge case, and sizes the page-break check off the real signature block height (footerLines * 4 + 4) instead of a flat guess -- same pattern as the already-fixed Grid PDF, so both PDFs in this feature area now share the identical, verified-correct footer logic. The Attendance Print path (attBuildSheetHtml()) was checked and confirmed already safe -- its .footer div sits in normal document flow, not position:absolute, so it was never affected by this bug. (2) SUBJECT/FACULTY/BOOKS SUMMARY MADE FULLY INDEPENDENT, per explicit admin instruction (\'why u making this dependent of the attendance... make it independent\'): this section no longer reads ATT_DATA (the Attendance tab\'s own separately-typed subject list) AT ALL -- subjects now come straight from the REAL Internal Timetable, per explicit admin correction (\'from allocated subject for timetable final time table\'). New shared [intTimetableSubjectsForClass(docId, className) index.html ~60755] extracts (verbatim, not rewritten) the proven batch-to-class fuzzy matcher already used correctly by attLoadClassSetup() (token-overlap scoring, derived-name matching for Sem->Roman-numeral course labels, handles Davan-* class string formatting) into a standalone reusable function, then resolves that class\'s real subjects/dates/times directly from INT_DATA[docId].slots -- the exact same data source the Timetable\'s own View/Edit/PDF/Excel tabs already show, so Books Summary can never disagree with what the Timetable itself displays. [absCollectRows() index.html ~61921] rewritten to call this instead of reading ATT_DATA; the now-unused ABS_DATA_LOADED/absEnsureData() Firebase-fetch machinery from v1331/v1332 (which existed only to load ATT_DATA independently) was removed entirely, along with the now-stale \'go save subjects on the Attendance tab\' diagnostic message, replaced with a plain empty-state pointing at the real fix location (Internal Timetable -> Edit tab, where subjects are actually assigned per date/time/batch). attSaveSubjects()\'s now-meaningless cross-refresh call into this section (saving Attendance-tab subjects never affected Books Summary once it stopped reading ATT_DATA) was also removed. SECTION SPLIT, per explicit direct admin correction on 3rd Year BCA specifically: a Timetable batch can legitimately CLUB two real sections into one combined batch for exam scheduling (e.g. one \'III BCA\' batch actually seating both Sec A and Sec B together) -- but the Books Summary must still list and count each real section SEPARATELY, since that is how strength/writing/shortage are actually tracked and how books are physically handed out per classroom. Fixed by iterating every REAL class string from allStudents (which already carries its own distinct section letter, e.g. Davan-BCA-Sem5-SecA vs -SecB) and calling intTimetableSubjectsForClass() independently for EACH real section rather than once per distinct Timetable batch name -- Sec A and Sec B now correctly show the same subjects/faculty (since they are taught together and the matcher correctly resolves the same clubbed batch for both) but their own separate, correct Writing/Total/Shortage counts, instead of previously being silently merged into one combined row under whatever single class string ATT_DATA happened to have been saved under. VERIFIED: node --check clean on all 20 real script blocks (21 extracted, block 0 is the file\'s own top-of-file coding-rules comment text, not real code, same known pre-existing false positive documented in prior changelog entries); div-balance count unchanged from the pre-edit baseline (2, confirmed pre-existing, not introduced by this edit); confirmed zero remaining references to the removed ABS_DATA_LOADED/absEnsureData() anywhere in live code (changelog text mentions are historical and expected). CODE_BUILD=1333.' },
   { v: 'v1332', date: '31-Aug-2026 IST', note: 'TWO ITEMS per direct admin follow-up report on v1331. (1) BOOKS SUMMARY \'NO SUBJECT SAVED\' DIAGNOSTIC: admin reported PDF/Excel still say no subjects saved even after saving them on the Attendance tab. The underlying save/read path (ATT_DATA[ABS_INT][class].subjects, written by attSaveSubjects(), read by absCollectRows()) was re-verified line by line and is correct -- the real gap was that absRender()\'s empty state gave one generic message regardless of WHY it was empty, and still referenced \'the Attendance tab above\' from before the section was moved to the Download tab, which no longer matches where the tab actually is. FIX: [absRender() index.html ~61831] now distinguishes two real different causes -- data genuinely not yet loaded from Firebase this session vs data loaded but this specific Internal has zero subjects saved -- and gives the admin the exact corrected navigation path (Internal Timetable -> Attendance tab -> same Internal number + class -> Save) plus a one-tap Reload data & retry button that resets ABS_DATA_LOADED and re-fetches rather than requiring a full page refresh. [absEnsureData() index.html ~61749] also now console.logs which source (RTDB vs Firestore) it loaded from and the real fetched object, or the real error if both reads fail, so a genuine Firebase read failure is now visible via F12 instead of silently degrading to an empty object with no trace. NOTE FOR ADMIN: the Download tab\'s Books Summary Internal selector (abs-internal-sel) and the Attendance tab\'s own Internal selector are two SEPARATE dropdowns reading/writing the SAME underlying data -- subjects must still be entered and saved via the Attendance tab (this section has no data-entry of its own, by design, matching the original spec), then the SAME Internal number re-selected here to see them. (2) GRID SIGNATURE SHEET VIEW + TOTALS ROW, per explicit admin request: [dutyGridShowView() index.html ~58630] now includes a Close button (top-right X, clears the preview) and scales its font size down as column count grows (11px up to 10 columns, 10px up to 16, 9px beyond) so a busy Internal\'s grid fits the visible width without needing horizontal scroll on a typical screen. NEW totals footer row [dutyBuildSignatureSheetGridTableHtml() index.html ~58566, shared by View AND Print so the two can never disagree] -- \'Total on duty (per slot)\' row showing, for every real date+time column, how many faculty are actually ticked in that exact slot (so admin can read off e.g. how many faculty are on duty at 9:30am directly, per explicit admin ask), plus a GRAND TOTAL cell in the bottom-right corner (sum of every column total, which equals the sum of every faculty\'s own row total -- same number both ways since each checkmark is counted exactly once). Same colTotals/grandTotal calculation independently re-applied to [dutyDownloadSignatureSheetGridPDF() index.html ~58715, appended as a final bold autoTable body row with a shaded Grand Total cell] and [dutyDownloadSignatureSheetGridExcel() index.html ~58840, appended as a final aoa row with its own merge (label spans Sl.No+Faculty Name columns) and xlsx-js-style gray fill, darker gray on the Grand Total corner] so all four surfaces -- View, Print, PDF, Excel -- show byte-identical totals. VERIFIED: node --check clean on all 20 real script blocks (21 extracted, block 0 is the file\'s own top-of-file coding-rules comment text, not real code, same known pre-existing false positive documented in prior changelog entries); div-balance and table-open/close tag counts both confirmed unchanged/matched against the pre-edit baseline. CODE_BUILD=1332.' },
@@ -67448,6 +67510,37 @@ function _lpFilterByAY(raw) {
 }
 
 // ── Fetch LP data from portal RTDB (cached for 5 min) ────────────────────────
+// v085: _lpRaw is a MERGE of DB2 davan_pub/lessonPlan (current-AY entries,
+// small since v083) + DB4 davan_pub/lessonPlan_archive (old-AY entries,
+// moved out of DB2 the same day). _lpFilterByAY()'s own logic is UNCHANGED
+// and still the single source of truth for live-vs-archive scoping —
+// merging the two sources back into one _lpRaw object here is what lets
+// that existing recency filter keep working exactly as before the DB2/DB4
+// split, with zero changes needed to _lpFilterByAY() itself.
+// v085 SUPERSEDES v084's app.py-proxy approach: DB4's rules were changed to
+// `.read: "auth != null"` (same shape as DB2 — anonymous reads allowed,
+// writes always blocked), so index.html now reads DB4 directly via
+// lpDb4Get() (own Firebase app 'lp-archive', own anon-auth token — see the
+// block above _lpGetPortalToken()), the same way it already reads DB2. No
+// dependency on app.py running locally anymore. The fetch stays
+// BEST-EFFORT: a DB4 read failure (network issue, rules misconfigured,
+// etc.) degrades only the archive-semester view to "no historical data
+// available" — the current-AY view from DB2 still loads and works
+// normally regardless.
+async function _lpFetchArchiveFromDb4() {
+  try {
+    const data = await lpDb4Get('davan_pub/lessonPlan_archive');
+    if (!data || typeof data !== 'object') return {};
+    // '_meta' is v081's DB2-side bookkeeping key; strip defensively in case
+    // it was ever present here too, so it never renders as a fake LP card.
+    if ('_meta' in data) { const { _meta, ...rest } = data; return rest; }
+    return data;
+  } catch(e) {
+    console.warn('[LP] DB4 archive fetch failed:', e.message);
+    return {};
+  }
+}
+
 async function _lpFetch(force) {
   if (_lpRaw && !force && Date.now() - _lpFetchedAt < 300000) {
     _lpData = _lpFilterByAY(_lpRaw);
@@ -67457,11 +67550,20 @@ async function _lpFetch(force) {
   _lpFetching  = true;
   _lpFetchError = null;
   try {
-    const raw = await lpDb2Get('davan_pub/lessonPlan');
-    _lpRaw      = (raw && typeof raw === 'object') ? raw : {};
+    const [current, archived] = await Promise.all([
+      lpDb2Get('davan_pub/lessonPlan'),
+      _lpFetchArchiveFromDb4(),
+    ]);
+    const currentObj  = (current  && typeof current  === 'object') ? current  : {};
+    const archivedObj = (archived && typeof archived === 'object') ? archived : {};
+    // Current-AY keys always win on any (extremely unlikely) collision —
+    // DB2 is the live, authoritative source; DB4 is history only.
+    _lpRaw      = { ...archivedObj, ...currentObj };
     _lpData     = _lpFilterByAY(_lpRaw);
     _lpFetchedAt = Date.now();
-    console.log('[LP] loaded', Object.keys(_lpRaw).length, 'raw →', Object.keys(_lpData).length, 'in-scope entries');
+    console.log('[LP] loaded', Object.keys(currentObj).length, 'current (DB2) +',
+                Object.keys(archivedObj).length, 'archived (DB4) =',
+                Object.keys(_lpRaw).length, 'raw →', Object.keys(_lpData).length, 'in-scope entries');
   } catch(e) {
     console.warn('[LP] fetch failed:', e.message);
     _lpFetchError = e.message;
