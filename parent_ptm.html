@@ -90,6 +90,75 @@
 ║                    page-2 saga below for what ignoring this costs.)        ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
+║  v4.1.2  2026-09-04 02:30 UTC — [downloadPDF() ~line 6190,                  ║
+║                    adBulkDownloadClass() ~line 5406, pdf-mode note          ║
+║                    ~line 1474] Scattered/spread-out PDF text RESOLVED as a  ║
+║                    Firefox-only html2canvas 1.4.1 bug — NOT our code. It    ║
+║                    positions text by measuring runs with                    ║
+║                    Range.getClientRects(); Gecko returns different per-word ║
+║                    rects than Blink, so each word paints at a slightly      ║
+║                    wrong x. Only WRAPPING paragraphs break — table cells    ║
+║                    and short fixed-width labels are fine, which is the      ║
+║                    signature that identified it. Confirmed by exporting the ║
+║                    identical build from Chrome (correct) vs Firefox         ║
+║                    (scattered), plus an F12 probe showing allJustify: []    ║
+║                    and cardW already correct at 680px.                      ║
+║                    REVERTED both earlier wrong fixes: v4.1.0's windowWidth  ║
+║                    floors (width was never the issue) and v4.1.1's          ║
+║                    font-family override (the font stack was never the       ║
+║                    issue) — neither changed the output, and both touched    ║
+║                    capture code with a documented blank-page history.       ║
+║                    Kept only v4.1.1's document.fonts.ready await, which is  ║
+║                    correct practice before a canvas capture regardless.     ║
+║                    ADDED: Firefox warning before single-card download and   ║
+║                    folded into the bulk-ZIP confirm, so a mangled card      ║
+║                    can't quietly reach a parent. Export from Chrome.        ║
+║                                                                               ║
+║  v4.1.1  2026-09-04 01:45 UTC — [#card.pdf-mode font-family ~line 1452,     ║
+║                    _settleForCapture() ~line 5855, _captureElementCanvas()  ║
+║                    ~line 5914] REAL FIX for the scattered/spread-out PDF    ║
+║                    text. v4.1.0's windowWidth diagnosis was WRONG and       ║
+║                    changed nothing. Actual cause: --sans is                 ║
+║                    'Segoe UI',system-ui,-apple-system,Roboto,sans-serif.    ║
+║                    html2canvas does not resolve the system-ui /             ║
+║                    -apple-system keywords the way the browser does — it     ║
+║                    measures each word's advance width with one resolved     ║
+║                    font and paints with another, so words land at wrong     ║
+║                    x-positions on every line, both pages, at any width.     ║
+║                    Fix: pdf-mode now pins both PDF surfaces to concrete     ║
+║                    font families (Arial/Helvetica/Liberation Sans; Courier  ║
+║                    New for the monospace doc-stamp) with no aliased         ║
+║                    keywords, so measurement and paint agree. Screen         ║
+║                    rendering untouched. Also: _settleForCapture() now       ║
+║                    awaits document.fonts.ready (guarded) before measuring,  ║
+║                    closing the same failure mode via font-swap timing.      ║
+║                    Reverted v4.1.0's windowWidth:rect.width from the        ║
+║                    fragile isolated branch (blank-page-2 history) since it  ║
+║                    fixed nothing; kept the two harmless Math.max floors.    ║
+║                                                                               ║
+║  v4.1.0  2026-09-04 01:15 UTC — [_captureElementCanvas() ~line 5861,        ║
+║                    captureCardAsPdfBlob() ~line 5985] FIX: exported PDF     ║
+║                    text (both pages) was spread/justified far apart —      ║
+║                    "scared" spacing reported on a phone export. Root cause  ║
+║                    page 1 (#card): windowWidth was raw                     ║
+║                    document.documentElement.clientWidth — the live browser  ║
+║                    viewport width — completely unrelated to rect.width     ║
+║                    (el's real, CSS-pinned 680px pdf-mode width). On a      ║
+║                    narrow phone viewport this handed html2canvas a virtual  ║
+║                    layout window narrower than the fixed-width content     ║
+║                    being captured, and the browser spread words apart to    ║
+║                    fill the mismatched width. Now windowWidth is floored    ║
+║                    at the element's own right edge (never narrower than    ║
+║                    what's being captured). Root cause page 2 (#tt-card,    ║
+║                    isolated capture path): no width was passed at all, so   ║
+║                    html2pdf built its own ~794px (A4-page-sized) wrapper —  ║
+║                    wider than #tt-card's pinned 680px — before the crop.    ║
+║                    Now caps windowWidth to rect.width in the isolated      ║
+║                    branch too, without reintroducing x/y/scroll-position    ║
+║                    math (that combination previously caused the blank-     ║
+║                    page-2 bug documented above — kept isolated's x/y-free   ║
+║                    contract fully intact, only bounded the layout width).  ║
+║                                                                               ║
 ║  v4.0.9  2026-09-04 00:45 UTC — [renderTimetable() row template ~line 3118, ║
 ║                    tt-date/tt-day CSS ~line 1503] Timetable table: merged   ║
 ║                    the separate Date and Day columns into one — date on     ║
@@ -1426,6 +1495,19 @@
      wraps at a normal, readable width no matter how wide the table itself
      is. The table keeps its own horizontal scroll/overflow independently. */
   #card.pdf-mode{width:680px;max-width:680px;margin:0}
+  /* NOTE (v4.1.2): v4.1.1 added a font-family override here on the theory
+     that html2canvas mis-resolved the system-ui/-apple-system keywords in
+     --sans. That was WRONG and has been reverted. An F12 probe of the live
+     card in pdf-mode showed nothing computing to justify or a non-normal
+     word-spacing (allJustify: []) and cardW already correct at 680px. The
+     real cause is a Firefox-only html2canvas 1.4.1 text-positioning bug —
+     it measures wrapping text runs via Range.getClientRects(), which
+     returns different per-word rects in Gecko than in Blink, so each word
+     is painted at its own slightly-wrong x. That is exactly why only
+     WRAPPING paragraphs break while table cells and short fixed-width
+     labels stay clean. Confirmed by exporting the same build from Chrome
+     (correct) and Firefox (scattered). Not fixable from this stylesheet;
+     see the Firefox warning in downloadPDF() instead. */
   /* v3.17 fix: exported PDF was missing the top header entirely — the logo/
      college-name/student-photo row (.hdr) and sometimes "Dear Parent/
      Guardian," were cropped clean off the top of the capture. Root cause:
@@ -2125,8 +2207,8 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.0.9';
-const BUILD_STAMP   = '2026-09-04 00:45 UTC';
+const APP_VERSION   = 'v4.1.2';
+const BUILD_STAMP   = '2026-09-04 02:30 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
 // from and writes to. Change this ONE line to move the whole app onto the
@@ -5346,7 +5428,16 @@ async function adBulkDownloadClass(){
   const btn=document.getElementById('ad-bulk-dl-btn');
   const statusEl=document.getElementById('ad-bulk-op-status');
   if(!rows.length){ toast('No published students match the current filter.','err'); return; }
-  if(!confirm(`Download ${rows.length} student PDF${rows.length>1?'s':''} as a single .zip file?`)) return;
+  // Same Firefox html2canvas text-scattering bug as downloadPDF() — worth
+  // warning about especially here, since this generates a whole class of
+  // PDFs in one go and a bad batch could be handed out before anyone looks.
+  if(!confirm(
+      `Download ${rows.length} student PDF${rows.length>1?'s':''} as a single .zip file?`
+    + (_isFirefox()
+        ? '\n\nWARNING: Firefox produces PDFs with the text spaced out incorrectly. '
+          + 'This is a known Firefox bug in the PDF library, not a problem with the cards — '
+          + 'the same cards export correctly from Chrome. Use Chrome for a clean batch.'
+        : ''))) return;
   btn.disabled=true;
   const zip = new JSZip();
   let ok=0, fail=0;
@@ -5787,6 +5878,13 @@ function waitForImages(el){
 // call sites below for why this exists).
 async function _settleForCapture(el){
   window.scrollTo(0,0);
+  // v4.1.1, comment corrected v4.1.2: wait for font loading to settle before
+  // measuring/capturing. This was added while chasing the scattered-text bug
+  // and did NOT fix it (that's a Firefox html2canvas bug — see the pdf-mode
+  // note in the stylesheet). Kept anyway because waiting for fonts before a
+  // canvas capture is correct on its own merits: capturing mid-font-swap can
+  // shift metrics. Guarded — document.fonts is absent in some older webviews.
+  try{ if(document.fonts && document.fonts.ready) await document.fonts.ready; }catch(e){}
   await new Promise(res=>requestAnimationFrame(()=>requestAnimationFrame(res)));
   await new Promise(res=>setTimeout(res,80));
   let rect = el.getBoundingClientRect();
@@ -5859,6 +5957,12 @@ async function _captureElementCanvas(el, margin, pageW, rect, isolated){
     rect = await _settleForCapture(el); // re-measure with stamp now included
   }
   const html2canvasOpts = isolated
+    // v4.1.2: this branch is back to its original, proven-stable form. Both
+    // v4.1.0 (windowWidth) and v4.1.1 (font-family) were attempts at the
+    // scattered-text bug and both were wrong — it's a Firefox-only
+    // html2canvas bug (see the pdf-mode note in the stylesheet). This branch
+    // has a documented blank-page-2 history, so it carries no speculative
+    // changes.
     ? {scale,backgroundColor:'#ffffff',useCORS:true,allowTaint:false,imageTimeout:8000}
     : {scale,backgroundColor:'#ffffff',useCORS:true,allowTaint:false,imageTimeout:8000,
         x:rect.left, y:rect.top, scrollX:0, scrollY:0,
@@ -6106,7 +6210,24 @@ function printCard(){
   stampDocs(); // refresh "Generated …" to NOW, not whenever the card was rendered
   window.print();
 }
+// Firefox renders the PDF with words scattered/spread across every wrapping
+// paragraph. Cause is a bug in html2canvas 1.4.1 (bundled inside html2pdf
+// 0.10.1), which positions text by measuring runs with Range.getClientRects()
+// — Gecko returns different per-word rects than Blink, so each word is
+// painted at a slightly wrong x. Table cells and short fixed-width labels are
+// unaffected, which is why only paragraphs look broken. Verified by exporting
+// the identical build from Chrome (correct) and Firefox (scattered), and by an
+// F12 probe showing nothing in the DOM computing to justify/word-spacing.
+// Not fixable from our side, so warn before a mangled card reaches a parent.
+function _isFirefox(){ return /firefox|fxios/i.test(navigator.userAgent); }
+
 async function downloadPDF(){
+  if(_isFirefox() && !confirm(
+      'Firefox produces PDFs with the text spaced out incorrectly (words spread across the line).\n\n'
+    + 'This is a known Firefox bug in the PDF library, not a problem with the card itself — '
+    + 'the same card exports correctly from Chrome.\n\n'
+    + 'Open this page in Chrome and download from there for a clean PDF.\n\n'
+    + 'Continue anyway?')) return;
   _logCardAction('download'); // fire-and-forget — see _logCardAction comment above
   const C=window._CARD||{}; const el=document.getElementById('card');
   const btn=document.querySelector('.cardbtns .btn.primary');
