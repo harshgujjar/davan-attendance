@@ -12233,13 +12233,25 @@ async function onLoginSuccess() {
   // populated first; iaePublishLiveStatus() itself already no-ops safely
   // if allStudents is still empty or no cutoff date has been set, so a
   // slightly-too-early fire here is harmless, not a new failure mode.
-  if (['admin','manager','vp','principal'].includes(p.role)) {
-    setTimeout(() => {
-      if (typeof iaeEnsureFresh === 'function') {
-        iaeEnsureFresh().catch(e => console.warn('[IAE] login auto-publish failed:', e && e.message));
-      }
-    }, 6000);
-  }
+  // BUG FIX (v1339, direct admin report): the role gate above ONLY covered
+  // admin/manager/vp/principal — a fulltime/visiting login (which includes
+  // every class incharge, since "incharge" is a classIncharge tag on a
+  // fulltime account, not a separate role) never triggered this at all,
+  // even though those roles already have real view access to the Final
+  // Shortage tab (v1199, "institution-wide... deliberately the ONE new tab
+  // visible to fulltime/visiting faculty too") and already trigger the
+  // identical iaeEnsureFresh() call just by opening it. Removed the role
+  // gate entirely — this now fires on EVERY login to this app, whatever the
+  // role. iaeEnsureFresh() is read-only from the caller's perspective, safe
+  // to no-op, and independently throttled (2 min per exam inside
+  // iaePublishLiveStatus, plus the auto-lock check is a cheap date-string
+  // compare unless it genuinely needs to lock), so this adds no meaningful
+  // cost and grants no access beyond what these roles already had.
+  setTimeout(() => {
+    if (typeof iaeEnsureFresh === 'function') {
+      iaeEnsureFresh().catch(e => console.warn('[IAE] login auto-publish failed:', e && e.message));
+    }
+  }, 6000);
   if (isActingAsFaculty()) {
     const ftSel = document.getElementById('ft-faculty');
     const ttvSel = document.getElementById('ttv-faculty');
@@ -15615,8 +15627,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1338;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '04-Sep-2026', time: '01:10', full: '04-Sep-2026 01:10 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1339;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '07-Sep-2026', time: '11:45', full: '07-Sep-2026 11:45 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -25988,6 +26000,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+  { v: 'v1339', date: '07-Sep-2026 IST', note: 'THREE STACKED BUGS FOUND AND FIXED, per direct admin report ("each login manager admin principal incharge should change the date then its showing shortage why its not showing to me raw and final both r no seen") + a UI confusion report ("why it says 7 when i have saved to 5"). UI CONFUSION FIX: [iaeRenderSettings() index.html ~39185] the locked status line showed ONLY the lockedAt timestamp next to a date INPUT showing a different (earlier) cutoff date, with nothing distinguishing the two -- lockedAt is WHEN the auto-lock fired (first open after cutoff), not the cutoff itself. Now spells out both explicitly: "Locked against cutoff 05/09/2026 -- auto-finalized 7/9/2026 (first opened after cutoff)". THE REAL BUGS, three, stacked -- reading not-showing was never one single cause: (1) [iaeGetWindows() index.html ~35849] only ever tried Firestore then a PER-DEVICE localStorage cache -- never the RTDB public mirror. This file\'s own loadFirestoreData() (index.html ~10071) has documented for a while that Firestore is BLOCKED ENTIRELY for role in [manager, vp, principal] ("Firestore blocks on file:// origin") and already routes those roles\' whole data load through _loadFromRTDB() instead -- but the IAE module (built later) called raw fsGet()/fsSet() everywhere, never accounting for that pre-existing, already-solved constraint, so on those logins the Firestore read threw every time and fell back to an empty per-device cache, silently showing "no cutoff set". FIX: added the same 3-tier Firestore-then-RTDB-public-mirror-then-localStorage fallback this file\'s own _fetchProfile() (index.html ~10044) already uses for this exact class of problem. (2) [iaeSaveWindows()/_iaeLockSnapshot() index.html ~35894/~35960] the RTDB mirror write was GATED behind the Firestore write having succeeded (`if (ok) { rtdbSafeSet(...) }`) -- so for a role whose Firestore write always fails, the RTDB copy never got written either: a dead end in BOTH directions, meaning a lock/cutoff change from a blocked role\'s session went nowhere at all. FIX: RTDB mirror now always attempted independently of the Firestore outcome. (3) THE MAIN CAUSE, found by re-reading iaeGetSnapshot() line by line: once an exam LOCKS, the permanent result was read via ONE line -- `localStorage.getItem(\'davan_ia_snapshot_\'+examTag)` -- pure per-BROWSER cache, never Firestore, never RTDB, even though _iaeLockSnapshot() genuinely does write the real snapshot to both. Only the ONE device that happened to perform the actual lock ever had it in ITS OWN localStorage -- every other login, on every other device, regardless of role, read that same line, got null, and silently showed no shortage data at all, forever, indistinguishable from "not locked yet". This is exactly why re-visiting from the admin\'s own device "made it show up" while other logins never saw it. FIX: new [IAE_SNAPSHOTS/iaeFetchLockedSnapshot() index.html ~36030] module-level cache populated via the same 3-tier Firestore/RTDB-mirror/localStorage pattern, wired into [iaeEnsureFresh() index.html ~38752] so every real render entry point fetches the genuine server-backed locked result on first use per session, on any device -- _iaeLockSnapshot() also seeds this cache in-memory immediately on the locking session itself, no round-trip needed there. ALSO: [login auto-publish index.html ~12218] removed the 4-role gate (admin/manager/vp/principal) entirely -- incharge is a classIncharge tag on a fulltime account, not a separate role, and was never covered by that list at all despite already having real view access to Final Shortage; iaeEnsureFresh() now fires on every login regardless of role since it is read-safe, idempotent, and independently throttled. NEW FEATURE, same request: [sitRosterLanguageTag()/_iaeClassHasLanguagePaper() index.html ~57668, wired into sitRosterPageHtml() ~60969 and sitRosterDownloadPDF() ~61158] Roster tab now shows [Hindi] or a combined [Sanskrit/Urdu] tag beside a student\'s name, per explicit admin instruction -- Kannada (majority group) deliberately left untagged, Hindi shown directly since it has real per-student attendance data to confirm it, Sanskrit/Urdu shown as one combined tag since admin confirmed neither has attendance taken so they cannot be told apart from data alone. Deliberately does NOT tag every student lacking a Kannada/Hindi attendance row -- most Sem V/VI classes have no language paper running at all (language is only allocated up to Sem IV on this deployment per LM_ALLOCATIONS), so the ambiguous tag only fires when the student\'s own class genuinely has a Kannada/Hindi/K-H allocation on the timetable in the first place, via a new course+sem lookup against LM_ALLOCATIONS -- otherwise the absence would be meaningless noise, not a real signal. VERIFIED: all 20 real inline script blocks in the file re-extracted and node --check clean individually after every edit (the one apparent failure, block 0, is the file\'s own top-of-file coding-rules comment text, not real code -- same known pre-existing false positive documented in prior changelog entries). No F12 live-Firebase test was possible from this session (no access to the real Firestore/RTDB security rules or a live manager/principal login) -- admin should confirm behavior after deploy, or ask for an F12 diagnostic snippet to check a specific login\'s actual read/write path first. CODE_BUILD=1339.' },
   { v: 'v1338', date: '04-Sep-2026 IST', note: 'FEAT (Faculty Dashboard, direct admin follow-up: "we had some exception in showing 100 right" + "show both to the faculty, one where we call them excellence which will show adding all rules and other exception where remaining which due to rule who all not added but they have scored 100 in two different section the same panel"). The v1336/v1337 100/100 section counted every raw total===100 with NO exclusion rules at all — a real gap against results.html\'s own Faculty Excellence tab, which has always applied resSubjectCountsForStats() (results.html ~13213) before counting a 100: 50-mark split papers (IC-I/II/III, BCA-PDPTM, 21BCA5VC1AL, BBADSC-5-6B/-7B, BCOMDSC-5-7B), lab subjects, research/project/Digital-Marketing subjects, language electives (Hindi/Sanskrit/Urdu/Kannada), and any subject whose own recorded max is under 100 are all deliberately excluded there so a genuine 50/50=100 split paper never gets counted as a real 100. Without that same guard here, this section could show a 100 results.html itself would never call Excellence — the two panels could disagree on the same faculty\'s own data. FIX: [new FDB_100_EXCLUDE_CODES/FDB_100_EXCLUDE_NAMES/FDB_100_KNOWN_MAX_RG/_fdbSubjectQualifiesFor100() index.html ~13360] ported byte-for-byte from results.html\'s RES_SUBJECT_STATS_EXCLUDE_CODES/_NAMES + resSubjectCountsForStats (results.html ~13205-13228) — same code list, same name-substring list, same "actual max score seen ≤ 50" live check against that batch doc\'s own regular[] — kept as its own copy since two separately-loaded HTML files cannot share a JS module, but deliberately matched term-for-term so the two apps cannot silently drift on what counts as a real 100. [fdbGetPerfectScores() index.html ~13425, rewritten] now returns THREE buckets instead of one flat list, per explicit admin request to show both, not just filter: (1) excellence — 100s that pass every rule, exactly what results.html\'s own Excellence tab would count; (2) exceptions — 100s the rules above exclude, tagged with WHY (e.g. "50-mark paper", "lab subject", "language elective") so a faculty can still see them rather than having them silently vanish; (3) crossSection — the specific case named directly in the request: the SAME student scoring 100 in the SAME subject code under TWO DIFFERENT SECTIONS this faculty teaches (e.g. DI and NU-B) within one batch doc, tracked via a urn|code|batch key and flagged as its own exception card ("Same student, two sections") rather than silently appearing as two ordinary, unremarkable Excellence cards. UI: [markup index.html ~2836-2871] the single "🏆 100/100 Scores" panel is now two panels — "🌟 Excellence — 100/100 Scores" (gold, shown by default, unchanged card style from v1337) and a new "⚠️ Exceptions" panel directly below it (amber accent, collapsed by default since it\'s a secondary/diagnostic view, with a one-line explainer of what it contains) — both on the SAME faculty dashboard screen per explicit instruction ("the same panel"). [fdbRenderPerfectScores() index.html ~13509, rewritten] now builds cards for both panels from one shared buildCard() helper (gold vs amber tone by param, so the two panels can never visually drift apart from hand-duplicated markup), with the Exceptions eyebrow label showing the actual exclusion reason or "Same student, two sections" instead of "Perfect Score". [fdbInjectPerfectPhotos() index.html ~13600, widened] now queries both #fdb-perfect-grid and #fdb-exceptions-grid, reading a new data-stu-tone attribute so injected photos get the correct gold or amber ring instead of only ever gold. New fdbToggleExceptions() mirrors fdbTogglePerfectScores() exactly for the second panel\'s Hide/Show button. CODE_BUILD=1338.' },
   { v: 'v1337', date: '04-Sep-2026 IST', note: 'REDESIGN per explicit admin follow-up with a real pasted reference screenshot (student-facing 100/100 celebration card — subject header, class/section, photo, name+URN) and instruction to make faculty "feel proud" seeing it. [fdbRenderPerfectScores()/fdbInjectPerfectPhotos() index.html ~13420/~13487, markup index.html ~2846]: rebuilt from the v1336 flat subject-grouped list (one card per subject, students stacked inside as plain text rows) into ONE gold-accented celebration card PER student+subject — gold gradient background, dashed gold divider, large 🏆 trophy watermark, "✨ Perfect Score" eyebrow label, and a glowing gold "100" numeral — matching the visual weight of the pasted student-side reference rather than the plain admin-report style the section shipped with initially. PHOTOS: reuses the EXISTING student-photo pipeline (rcPhotos/rcPreloadPhotos() index.html ~42339, the same RTDB davan_pub/student_photos + Firestore app_data/student_photos merge every other student photo lookup in this file already uses) rather than inventing a new one — rcPreloadPhotos() is triggered on first render if rcPhotos is still empty (e.g. faculty opens their dashboard before any other panel has warmed the photo cache). TAP-TO-ZOOM: reuses the EXISTING shared lightbox (rcZoomPhoto() index.html ~34950, #sc-photo-lightbox markup index.html ~1734, already in the base page DOM regardless of which panel is active) — same zoom behaviour students already get elsewhere in the app, not a new lightbox. Deliberately did NOT reuse the shared _stuAvatarInject() (index.html ~42431): that helper hardcodes a plain 1.5px var(--border) ring on injected photos, which would have flattened this section\'s gold 2px glow-border look the moment real photos loaded in over the initials placeholder — new [fdbInjectPerfectPhotos()] is a scoped sibling, querying only #fdb-perfect-grid span[data-stu-urn], that applies the gold-bordered/glow style itself before swapping, so the celebratory look survives the photo swap instead of degrading to a plain grey ring. Initials-first render (name-derived, same two-letter convention _stuAvatar()/_facAvatar() already use) shows instantly while photos load asynchronously, same UX pattern as every other avatar in this file. Grid column width widened 260px→290px [markup index.html ~2846] to give the larger photo+card layout room to breathe. CODE_BUILD=1337.' },
   { v: 'v1336', date: '04-Sep-2026 IST', note: 'NEW [fdbGetPerfectScores()/fdbRenderPerfectScores()/fdbTogglePerfectScores() index.html ~13330, markup index.html ~2811]: Faculty Dashboard gets a new "🏆 100/100 Scores" section, placed after "My Timetable" and before the Home Screen Widget panel per explicit admin request. Shows every student who scored exactly 100 in that logged-in faculty\'s own subjects, pooled across ALL six semesters (I–VI) by default — per explicit admin instruction ("option 2 is okay... defaulty show all") — with a Hide/Show toggle (defaults to shown). Deliberately reuses, not reimplements, the SAME faculty-matching logic resDashGetFacultyResults() already uses (_resDashMatches for alias-aware name matching, _resDashIsDI/_resDashIsNU/_resDashIsNUC for BCA DI/NU-B/NU-C section scoping, _resDashSubName for subject-name resolution via LM_ALLOCATIONS resultsCode, _resDashSubTotal for the split-aware marks total) so this can never disagree with what results.html\'s own Faculty Excellence tab or the admin-side Results panel already show for the same faculty and subject. Differs from resDashGetFacultyResults() in one deliberate way: that function only returns the single top scorer per subject (topr), which cannot answer "which students scored 100" when more than one student ties at 100 — fdbGetPerfectScores() instead filters the full student pool per subject/section to _resDashSubTotal(d)===100 and collects every one of them, grouped by subject+course+sem+section+batch, deduped via a batch|code|section key. NOT scoped to fdb-sem-select (the faculty dashboard\'s own timetable-archive semester picker) — marks live in the separate `results` Firestore collection keyed by its own batch/AY, so pooling all sems is a deliberate, explicit choice (default show all) independent of whichever timetable-archive sem is currently selected above it. Faculty identity resolved via the same currentProfile.facultyKey||currentProfile.name pattern every other fdb-prefixed function in this file already uses (fdbRenderTT, fdbRenderCards). Wired into fdbRender() alongside the other section renders so it refreshes on every faculty-dashboard open. CODE_BUILD=1336.' },
@@ -35821,6 +35834,32 @@ let IAE_WINDOWS = { ia1: { cutoffDate: '', locked: false, lockedAt: null }, ia2:
 // can't drift apart again. Every call site below is updated to await it
 // (all were already inside async functions or functions that already
 // await iaeEnsureFresh() first, so this required no new async boundaries).
+// BUG FIX (v1339, direct admin report: shortage not showing to manager/admin/
+// principal/incharge logins unless the admin personally re-opens/re-saves the
+// cutoff date): iaeGetWindows() only ever tried Firestore then a PER-DEVICE
+// localStorage cache — it never tried the RTDB public mirror this file's own
+// established pattern already relies on for exactly this failure mode. This
+// file's own loadFirestoreData() (index.html ~10071) has documented for a
+// while that Firestore is BLOCKED ENTIRELY for role in [manager, vp,
+// principal] ("Firestore blocks on file:// origin") and already routes
+// those roles' entire data load through _loadFromRTDB() instead — but the
+// IAE module was built later and called raw fsGet()/fsSet() everywhere,
+// never accounting for that pre-existing, already-solved constraint. Net
+// effect: on any manager/principal (and potentially incharge, depending on
+// how that device opens the file) login, the Firestore read below throws
+// EVERY time, falls to localStorage — which on a browser/device that has
+// never previously loaded this doc successfully is simply empty — so
+// cutoffDate silently comes back '' as if no cutoff had ever been set, and
+// every downstream call (auto-lock, live-status publish for students) quietly
+// no-ops. Nothing throws a visible error; it just looks like nothing is
+// there. FIX: added the SAME 3-tier fallback _fetchProfile() (index.html
+// ~10044) already uses for this exact class of problem — Firestore, then the
+// RTDB PUBLIC mirror (davan_pub/ia_windows, already written by every
+// successful save via iaeSaveWindows()'s existing rtdbSafeSet call, and
+// explicitly a no-auth-needed path per _loadFromRTDB()'s own comment), then
+// localStorage as the last resort — so a role that can't reach Firestore at
+// all still sees the real, current cutoff/lock state instead of a
+// misleadingly-empty default.
 async function iaeGetWindows() {
   try {
     const fresh = await fsGet('app_data', 'ia_windows');
@@ -35830,7 +35869,21 @@ async function iaeGetWindows() {
       return IAE_WINDOWS;
     }
   } catch(e) {
-    console.warn('[IAE] ia_windows Firestore read failed, falling back to local cache:', e.message);
+    console.warn('[IAE] ia_windows Firestore read failed, trying RTDB public mirror:', e.message);
+  }
+  try {
+    if (rtdb) {
+      const snap = await rtdb.ref('davan_pub/ia_windows').once('value');
+      const val = snap.val();
+      if (val) {
+        IAE_WINDOWS = val;
+        try { localStorage.setItem('davan_ia_windows', JSON.stringify(val)); } catch(e) {}
+        console.log('[IAE] ia_windows loaded from RTDB public mirror');
+        return IAE_WINDOWS;
+      }
+    }
+  } catch(e2) {
+    console.warn('[IAE] ia_windows RTDB mirror also failed, falling back to local cache:', e2.message);
   }
   try {
     const cached = JSON.parse(localStorage.getItem('davan_ia_windows') || 'null');
@@ -35844,10 +35897,19 @@ async function iaeSaveWindows(windows) {
   try { localStorage.setItem('davan_ia_windows', JSON.stringify(windows)); } catch(e) {}
   if (typeof _iaeInvalidateLiveCache === 'function') _iaeInvalidateLiveCache(); // lock state changed — live cache would be stale
   const ok = await fsSet('app_data', 'ia_windows', windows);
-  if (ok) {
-    if (rtdb) rtdbSafeSet('davan_pub/ia_windows', windows).catch(()=>{});
-  } else {
-    console.warn('[IAE] ia_windows Firebase save failed');
+  if (!ok) console.warn('[IAE] ia_windows Firestore save failed (role may be Firestore-blocked — see iaeGetWindows note) — still attempting RTDB mirror below');
+  // BUG FIX (v1339): the RTDB mirror write used to be GATED on the Firestore
+  // write having succeeded (`if (ok) { rtdbSafeSet(...) }`) — so for a role
+  // whose Firestore write always fails (manager/vp/principal, per this
+  // file's own documented file:// limitation), the RTDB copy NEVER got
+  // written either: a dead end in both directions, with the lock/cutoff
+  // change from that session going nowhere. Now the RTDB mirror is always
+  // attempted independently, so at minimum the public-mirror fallback
+  // iaeGetWindows() now reads (see above) stays current even when Firestore
+  // itself is unreachable for this role.
+  if (rtdb) {
+    try { await rtdbSafeSet('davan_pub/ia_windows', windows); }
+    catch(e) { console.warn('[IAE] ia_windows RTDB mirror save also failed:', e.message); }
   }
   return ok;
 }
@@ -35903,12 +35965,18 @@ function _iaeBuildLiveData() {
 // never directly by a UI button (there is no manual Freeze anymore).
 async function _iaeLockSnapshot(examTag, cutoffDate) {
   const snapshot = { examTag, cutoffDate, takenAt: new Date().toISOString(), locked: true, data: _iaeBuildLiveData() };
+  IAE_SNAPSHOTS[examTag] = snapshot; // immediate in-memory availability on this session — no round-trip needed
   try { localStorage.setItem('davan_ia_snapshot_' + examTag, JSON.stringify(snapshot)); } catch(e) {}
   const ok = await fsSet('app_data', 'ia_snapshot_' + examTag, snapshot);
-  if (ok) {
-    if (rtdb) rtdbSafeSet('davan_pub/ia_snapshots/' + examTag, snapshot).catch(()=>{});
-  } else {
-    console.warn('[IAE] ia_snapshot_' + examTag + ' Firebase save failed');
+  if (!ok) console.warn('[IAE] ia_snapshot_' + examTag + ' Firestore save failed (role may be Firestore-blocked) — still attempting RTDB mirror below');
+  // BUG FIX (v1339): same "RTDB mirror gated behind Firestore success" dead
+  // end as iaeSaveWindows() above — a Firestore-blocked role (manager/vp/
+  // principal) locking the exam from their own session used to write NEITHER
+  // store, so the finalize silently went nowhere for them. Now always
+  // attempted independently.
+  if (rtdb) {
+    try { await rtdbSafeSet('davan_pub/ia_snapshots/' + examTag, snapshot); }
+    catch(e) { console.warn('[IAE] ia_snapshot_' + examTag + ' RTDB mirror save also failed:', e.message); }
   }
   const w = await iaeGetWindows();
   const key = examTag === 'IA1' ? 'ia1' : 'ia2';
@@ -35960,22 +36028,79 @@ let _iaeLiveSnapshotCache = {};
 const _IAE_LIVE_CACHE_TTL_MS = 2000;
 function _iaeInvalidateLiveCache() { _iaeLiveSnapshotCache = {}; }
 
-// Reads the module-level IAE_WINDOWS cache directly (synchronous) rather
-// than calling iaeGetWindows() itself — this function is called from
+// BUG FIX (v1339, THE main cause of the direct admin report "raw and final
+// both r no seen" / shortage only appearing on whichever device the admin
+// personally re-visits): once an exam LOCKS, iaeGetSnapshot() below used to
+// read the permanent result via ONE line — `localStorage.getItem
+// ('davan_ia_snapshot_'+examTag)` — pure per-BROWSER cache, never Firestore,
+// never RTDB. _iaeLockSnapshot() DOES write the real snapshot to Firestore
+// (app_data/ia_snapshot_{tag}) and RTDB (davan_pub/ia_snapshots/{tag}), but
+// only the ONE device that happened to perform the actual lock ever had it
+// in ITS OWN localStorage — every other login (a different browser, a
+// different person's device, even the same admin on their phone vs laptop)
+// read that same line, got null back (nothing in THEIR local cache), and
+// silently showed no shortage data at all — indistinguishable from "not
+// locked yet" or "no data exists". This explains exactly why re-visiting
+// from Harsha's own device "made it show up" (that device's local cache
+// happened to have it, or that device is what performed the lock) while
+// other logins never saw it regardless of role.
+// FIX: new module-level IAE_SNAPSHOTS cache + iaeFetchLockedSnapshot(),
+// populated the SAME Firestore→RTDB-public-mirror→localStorage 3-tier
+// pattern as iaeGetWindows() above / this file's own _fetchProfile()
+// convention — called from iaeEnsureFresh() (see below) whenever a window
+// is locked and not yet cached in this session, so by the time any render
+// path reaches iaeGetSnapshot() the real server-backed data is already in
+// memory, on ANY device, regardless of who performed the original lock.
+let IAE_SNAPSHOTS = { IA1: null, IA2: null };
+async function iaeFetchLockedSnapshot(examTag) {
+  try {
+    const fresh = await fsGet('app_data', 'ia_snapshot_' + examTag);
+    if (fresh) {
+      IAE_SNAPSHOTS[examTag] = fresh;
+      try { localStorage.setItem('davan_ia_snapshot_' + examTag, JSON.stringify(fresh)); } catch(e) {}
+      return fresh;
+    }
+  } catch(e) {
+    console.warn('[IAE] ia_snapshot_' + examTag + ' Firestore read failed, trying RTDB public mirror:', e.message);
+  }
+  try {
+    if (rtdb) {
+      const snap = await rtdb.ref('davan_pub/ia_snapshots/' + examTag).once('value');
+      const val = snap.val();
+      if (val) {
+        IAE_SNAPSHOTS[examTag] = val;
+        try { localStorage.setItem('davan_ia_snapshot_' + examTag, JSON.stringify(val)); } catch(e) {}
+        console.log('[IAE] ia_snapshot_' + examTag + ' loaded from RTDB public mirror');
+        return val;
+      }
+    }
+  } catch(e2) {
+    console.warn('[IAE] ia_snapshot_' + examTag + ' RTDB mirror also failed, falling back to local cache:', e2.message);
+  }
+  try {
+    const cached = JSON.parse(localStorage.getItem('davan_ia_snapshot_' + examTag) || 'null');
+    IAE_SNAPSHOTS[examTag] = cached; // may be null — that's a real "nothing anywhere" result, not a bug
+    return cached;
+  } catch(e) { return null; }
+}
+
+// Reads the module-level IAE_WINDOWS/IAE_SNAPSHOTS caches directly
+// (synchronous) rather than fetching itself — this function is called from
 // several rendering contexts that are not all async, and every real call
 // site already runs iaeEnsureFresh() (which awaits a fresh iaeGetWindows()
-// fetch) before reaching here, so IAE_WINDOWS is guaranteed current by the
-// time this reads it. Kept synchronous deliberately so callers that just
-// need a quick snapshot lookup mid-render don't need to become async too.
+// AND, when locked, a fresh iaeFetchLockedSnapshot()) before reaching here,
+// so both are guaranteed current by the time this reads them. Kept
+// synchronous deliberately so callers that just need a quick snapshot
+// lookup mid-render don't need to become async too.
 function iaeGetSnapshot(examTag) {
   const w = IAE_WINDOWS;
   const key = examTag === 'IA1' ? 'ia1' : 'ia2';
   const win = w[key];
   if (!win || !win.cutoffDate) return null; // no cutoff set at all yet
   if (win.locked) {
-    // Locked — read the permanent stored copy, never recompute.
-    try { return JSON.parse(localStorage.getItem('davan_ia_snapshot_' + examTag) || 'null'); }
-    catch(e) { return null; }
+    // Locked — read the permanent stored copy (server-backed cache, see
+    // IAE_SNAPSHOTS/iaeFetchLockedSnapshot above), never recompute.
+    return IAE_SNAPSHOTS[examTag] || null;
   }
   // Not locked yet — live, "as of today" view. Reflects current cumulative
   // attendance regardless of whether the cutoff date is in the future,
@@ -38699,6 +38824,16 @@ async function iaePublishLiveStatus(examTag) {
 async function iaeEnsureFresh() {
   await iaeCheckAndAutoLock('IA1');
   await iaeCheckAndAutoLock('IA2');
+  // BUG FIX (v1339): if a window is locked but this session hasn't fetched
+  // the real snapshot yet (IAE_SNAPSHOTS[tag] still null — e.g. this is a
+  // fresh device/browser, or the lock happened on someone else's session),
+  // fetch it now via the new 3-tier iaeFetchLockedSnapshot() so
+  // iaeGetSnapshot() has real data instead of returning null. Only fetches
+  // once per session per exam — a locked snapshot is permanent and never
+  // changes, so there's nothing to keep re-fetching once it's in memory.
+  const wNow = IAE_WINDOWS;
+  if (wNow.ia1 && wNow.ia1.locked && !IAE_SNAPSHOTS.IA1) await iaeFetchLockedSnapshot('IA1');
+  if (wNow.ia2 && wNow.ia2.locked && !IAE_SNAPSHOTS.IA2) await iaeFetchLockedSnapshot('IA2');
   // Fire-and-forget — never block rendering on a publish write; each call
   // is individually throttled above, so this is a cheap no-op almost every
   // time it's invoked.
@@ -39062,7 +39197,19 @@ async function iaeRenderSettings() {
     if (!cutoff) {
       statusLine = '<span style="color:var(--muted);">No cutoff date set</span>';
     } else if (win.locked) {
-      statusLine = `<span style="color:#ef4444;">🔒 Finalized ${win.lockedAt ? new Date(win.lockedAt).toLocaleString('en-IN') : ''} — permanent, not permitted list is locked</span>`;
+      // BUG FIX (v1339, direct admin confusion report — "why does it say 7
+      // when I saved 5"): this line used to show ONLY the lockedAt
+      // timestamp with the word "Finalized" in front, right below a date
+      // INPUT showing the cutoff date — two different dates sitting next to
+      // each other with no label distinguishing them. lockedAt is WHEN the
+      // auto-lock fired (the day someone first opened this after the
+      // cutoff passed), not the cutoff date itself; on this deployment
+      // cutoff=5th but the report was first opened after the cutoff on the
+      // 7th, so it correctly locked on the 7th — expected behavior, but the
+      // old wording made it look like the cutoff had silently changed to
+      // the 7th. Now spells out both dates explicitly so they can never be
+      // confused for each other.
+      statusLine = `<span style="color:#ef4444;">🔒 Locked against cutoff ${cutoff} — auto-finalized ${win.lockedAt ? new Date(win.lockedAt).toLocaleString('en-IN') : ''} (first opened after cutoff) — permanent, not-permitted list is locked</span>`;
     } else if (cutoff > today) {
       statusLine = `<span style="color:#60a5fa;">🔄 Live — counting down to ${cutoff}, updates daily until then</span>`;
     } else if (cutoff === today) {
@@ -57490,6 +57637,52 @@ function sitBuildRoomReqPerSlot(intNum) {
 // same pattern as every other Sitting/Attendance export in this file.
 // ═══════════════════════════════════════════════════════════════════════
 
+// NEW (v1339) per direct admin request: "beside students show who is
+// hindi/sanskrit/urdu depending on their subject... don't show kannada."
+// LANGUAGE MODEL (per admin, matches the existing Hours-Check module's own
+// documented model at ~30308): every class runs ONE combined language slot
+// covering 4 groups — Kannada (majority, attendance genuinely taken, real
+// scraped subject row) — Hindi (attendance also genuinely taken, real
+// scraped subject row, taught by Rekha M R per Staff Directory) — Sanskrit
+// and Urdu (admin explicit: "we dont take attendance only" for these two,
+// so neither ever produces a real scraped per-student subject row here).
+// Kannada is deliberately NOT tagged (it's the default/majority — a badge
+// on every Kannada student would just be roster noise). Hindi IS tagged
+// directly since it has real attendance data to confirm it. Sanskrit vs
+// Urdu cannot be told apart from attendance data at all (admin confirmed
+// neither is tracked) — shown as one combined "Sanskrit/Urdu" tag rather
+// than guessing one or the other.
+// AVOIDING A FALSE-POSITIVE: a student with no Kannada/Hindi attendance row
+// isn't necessarily doing Sanskrit/Urdu — plenty of classes (most Sem V/VI
+// sections, per LM_ALLOCATIONS — language is only allocated up to Sem IV on
+// this deployment) have NO language paper running at all that semester, and
+// tagging every one of those students "Sanskrit/Urdu" would be simply
+// wrong. So the ambiguous tag only fires when this student's own class
+// genuinely HAS a Kannada/Hindi/K-H language allocation on the timetable in
+// the first place (_iaeClassHasLanguagePaper below) — i.e. only when the
+// absence of a Kannada/Hindi attendance row is itself actually informative.
+function _iaeClassHasLanguagePaper(course, semNum) {
+  if (!course || !semNum) return false;
+  const semRoman = ({1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI'})[semNum];
+  if (!semRoman) return false;
+  return (LM_ALLOCATIONS || []).some(a =>
+    a.course === course && a.sem === semRoman &&
+    (a.code === 'KAN' || a.code === 'K/H' || /kannada|hindi|sanskrit|urdu/i.test(a.subject || ''))
+  );
+}
+function sitRosterLanguageTag(student) {
+  if (!student) return '';
+  const subs = student.subjects || [];
+  const hasReal = re => subs.some(sub => sub.subject && re.test(sub.subject) && (sub.ct || 0) > 0);
+  if (hasReal(/kannada/i)) return ''; // majority group — deliberately not shown
+  if (hasReal(/hindi/i)) return 'Hindi';
+  if (hasReal(/sanskrit/i)) return 'Sanskrit'; // rare: only if a real row genuinely exists
+  if (hasReal(/urdu/i)) return 'Urdu';         // rare: only if a real row genuinely exists
+  const parts = typeof _strParseClass === 'function' ? _strParseClass(student.class) : null;
+  if (parts && _iaeClassHasLanguagePaper(parts.course, parts.semNum)) return 'Sanskrit/Urdu';
+  return '';
+}
+
 // Combined eligibility tag for one student across BOTH IA1 and IA2 —
 // deliberately reuses iarStudentShortageRuled() (the same post-rule +1/+2
 // verdict Final Shortage/Attendance already use), never a separate/raw
@@ -60785,14 +60978,19 @@ function sitRosterPageHtml(page, forScreen) {
   const batchBlocks = page.batchOrder.map(batch => {
     const rows = page.byBatch[batch];
     const bodyRows = rows.map((row, idx) => {
-      const tag = sitRosterEligibilityTag(row.student || { urn: row.urn, name: row.name });
+      const stu = row.student || { urn: row.urn, name: row.name };
+      const tag = sitRosterEligibilityTag(stu);
       const tagHtml = tag
         ? `<span style="color:#cc0000;font-weight:bold;font-size:${forScreen?'10px':'8px'};margin-left:6px;">— ${tag}</span>`
+        : '';
+      const langTag = sitRosterLanguageTag(row.student);
+      const langTagHtml = langTag
+        ? `<span style="color:${forScreen?'#60a5fa':'#000'};font-weight:bold;font-size:${forScreen?'10px':'8px'};margin-left:6px;${forScreen?'':'border:1px solid #333;padding:1px 4px;'}">[${langTag}]</span>`
         : '';
       return `<tr>
         <td style="border:1px solid #333;padding:4px 8px;text-align:center;">${idx+1}</td>
         <td style="border:1px solid #333;padding:4px 8px;font-family:monospace;font-size:${forScreen?'11px':'9px'};">${row.urn}</td>
-        <td style="border:1px solid #333;padding:4px 8px;">${row.name}${tagHtml}</td>
+        <td style="border:1px solid #333;padding:4px 8px;">${row.name}${langTagHtml}${tagHtml}</td>
       </tr>`;
     }).join('');
     // Batch heading row — spans all 3 columns, sits directly above that
@@ -61025,7 +61223,9 @@ async function sitRosterDownloadPDF(wholeDay) {
       batchRows.forEach((row, i) => {
         const student = row.student || { urn: row.urn, name: row.name };
         const tag = sitRosterEligibilityTag(student);
-        rows.push({ isHeading: false, flagged: !!tag, cells: [String(i+1), row.urn, row.name + (tag ? `  — ${tag}` : '')] });
+        const langTag = sitRosterLanguageTag(row.student);
+        const nameCell = row.name + (langTag ? `  [${langTag}]` : '') + (tag ? `  — ${tag}` : '');
+        rows.push({ isHeading: false, flagged: !!tag, cells: [String(i+1), row.urn, nameCell] });
       });
     });
 
