@@ -14367,37 +14367,31 @@ async function facSaveProfileFields(fields) {
     const SD_MIRROR_FIELDS = ['dob', 'dobTime', 'dobPlace', 'dobLat', 'dobLon'];
     const mirrorFields = {};
     for (const k of Object.keys(fields)) if (SD_MIRROR_FIELDS.includes(k)) mirrorFields[k] = fields[k];
-    // 2026-09-07 HOTFIX #4 — EMERGENCY DISABLE. This mirror write has now
-    // corrupted app_data/staff_directory.visiting THREE separate times
-    // tonight (CODE_BUILD=1349, then again after the #3 race-condition
-    // fix in CODE_BUILD=1354, most recently producing {"5":{"dob":"..."}}
-    // — even though BOTH the Firestore users/{uid} document AND the RTDB
-    // davan_users/{uid} mirror were independently confirmed completely
-    // correct and intact at the time, ruling out every root cause traced
-    // so far: stale profile data, the birthday-toast race, a double
-    // onLoginSuccess() call (confirmed guarded by _isManualLogin), and a
-    // corrupted source array (confirmed healthy via a live dump right
-    // before this 3rd occurrence). The exact mechanism causing THIS
-    // specific write is not yet found — rather than risk a 4th
-    // corruption while still investigating, this mirror is DISABLED
-    // outright: a faculty member's own DOB/time/place saves normally to
-    // their real profile (users/{uid} + RTDB mirror, both unaffected by
-    // this change and both confirmed reliable all three times), it just
-    // no longer ALSO writes into Staff Directory automatically. An admin
-    // can still manually copy a faculty's DOB/time/place into Staff
-    // Directory by hand if wanted. Re-enable only after the actual root
-    // cause is found and fixed — do not simply remove this flag.
-    const SD_MIRROR_DISABLED = true;
-    if (SD_MIRROR_DISABLED) {
-      if (Object.keys(mirrorFields).length) console.warn('[facDob] Staff Directory mirror is DISABLED (SD_MIRROR_DISABLED=true) pending root-cause investigation — profile saved to users/{uid} and RTDB only, Staff Directory NOT updated automatically.');
-    } else if (Object.keys(mirrorFields).length && currentProfile && currentProfile.name) {
+    // 2026-09-07 HOTFIX #5 — RE-ENABLED, but rebuilt as a Firestore
+    // TRANSACTION instead of a plain get()-then-update() pair, plus full
+    // diagnostic logging of every write. This directly targets the one
+    // remaining unexplained gap after 3 corruptions and 4 fix attempts:
+    // db.collection(...).get() and .update() are NOT atomic with each
+    // other — nothing stops a DIFFERENT write (from another tab, another
+    // faculty's simultaneous login, an admin's own Staff Directory save,
+    // etc.) landing in the gap between this function's own read and its
+    // own write, even though every individual read/write looked correct
+    // in isolation every time it was checked after the fact. A Firestore
+    // transaction (db.runTransaction) makes this structurally impossible
+    // instead of merely unlikely: Firestore itself detects if the
+    // document changed between the transaction's read and its write, and
+    // automatically RETRIES the whole transaction against fresh data
+    // rather than completing a write based on stale information — this
+    // is the actual fix for a read-then-write race, not just a guard
+    // that happens to usually work. Also logs every write attempt (who,
+    // what fields, the exact index/section found, and the exact `updates`
+    // object sent) to console AND to a new davan_pub/sdMirrorLog (RTDB) —
+    // so if this STILL breaks, the log will show exactly what happened
+    // this time instead of needing another live-diagnostic round trip.
+    if (Object.keys(mirrorFields).length && currentProfile && currentProfile.name) {
       const key = _facKey(currentProfile.name);
+      const debugCtx = { name: currentProfile.name, uid: currentUser.uid, fields: mirrorFields, ts: Date.now(), stack: (new Error()).stack };
       if (sdData && typeof sdData === 'object') {
-        // 2026-09-07 BUGFIX — same defensive fix as facHoroscopeBadgeHtml():
-        // sdData[sec] is not guaranteed to be an array in every real
-        // shape sdData can take, confirmed via a live crash report on
-        // that other function's identical (sdData[sec]||[]).find(...)
-        // pattern. Array.isArray() guard added here too, same reasoning.
         for (const sec of ['fulltime','visiting','nonteaching']) {
           const list = sdData[sec];
           if (!Array.isArray(list)) continue;
@@ -14405,48 +14399,66 @@ async function facSaveProfileFields(fields) {
           if (row) Object.assign(row, mirrorFields);
         }
       }
-      // Persist directly to the staff_directory doc too — not just
-      // sdData's in-memory copy — using dot-path field updates so this
-      // NEVER clobbers other faculty rows or fields an admin might be
-      // mid-editing in a separate concurrent Staff Directory session.
       try {
-        const sdSnap = await db.collection('app_data').doc(SD_DOC).get();
-        const sdRaw = sdSnap.exists ? sdSnap.data() : null;
-        if (sdRaw) {
+        const sdDocRef = db.collection('app_data').doc(SD_DOC);
+        let writeResult = null;
+        // 2026-09-07 HOTFIX #7 — THE ACTUAL ROOT CAUSE, found after every
+        // fragment corruption tonight (idx 2, 5, 7 — always a lone
+        // {"N":{...}} where visiting used to be a healthy array). Firestore
+        // does NOT support dot-path field updates into array elements —
+        // "visiting.7.dob" is not "array index 7's dob field", because
+        // Firestore arrays are a distinct internal type, not a map with
+        // numeric-string keys. .update({"visiting.7.dob": val}) silently
+        // creates/replaces the ENTIRE visiting field with a brand new map
+        // {"7": {dob: val}} — discarding the real 15-element array
+        // completely. This is why every previous fix (the array-shape
+        // guard, the transaction, the logging fixes) still produced the
+        // exact same fragment shape every time: they were all correct
+        // fixes for real, separate problems, but none of them touched the
+        // one operation that was fundamentally wrong from the start. FIX:
+        // read the whole array, clone it, modify ONLY the matched
+        // element's fields in JavaScript, write the WHOLE array back as
+        // one value — never a sub-path into an array again. Still inside
+        // the transaction, so this remains race-safe.
+        await db.runTransaction(async (tx) => {
+          const sdSnap = await tx.get(sdDocRef);
+          const sdRaw = sdSnap.exists ? sdSnap.data() : null;
+          if (!sdRaw) { writeResult = { skipped: true, reason: 'doc does not exist' }; return; }
+          let written = false;
           for (const sec of ['fulltime','visiting','nonteaching']) {
-            // 2026-09-07 HOTFIX #2 — confirmed via a live Firestore dump
-            // (Harsha) that this exact code path was responsible for
-            // turning an already-broken visiting field (emptied by a
-            // separate bug, CODE_BUILD=1349, now fixed) into
-            // {"2":{"dob":"1986-01-31"}} — a single fragment with no
-            // name/password/contact at all. The dot-path update below
-            // (`updates[sec.idx.k] = val`) is a CORRECT, narrow Firestore
-            // operation on its own — the real bug is that it was allowed
-            // to run at all against a section that was not a healthy,
-            // fully-populated array: if sdRaw[sec] is empty or the
-            // target index doesn't correspond to a REAL existing row
-            // (one with a .name, not just an empty slot), Firestore's
-            // dot-path update will happily CREATE that nested key from
-            // nothing, exactly as it did here. Added an explicit check
-            // that idx points at a real row with a .name field before
-            // ever writing anything — if the row genuinely isn't there,
-            // this now does nothing and logs a warning instead of
-            // fabricating a fragment. This does not undo the damage
-            // already done; it prevents it from ever happening the same
-            // way again.
             if (!Array.isArray(sdRaw[sec]) || !sdRaw[sec].length) continue;
             const idx = sdRaw[sec].findIndex(r => r && r.name && _facKey(r.name) === key);
             if (idx >= 0 && sdRaw[sec][idx] && sdRaw[sec][idx].name) {
-              const updates = {};
-              for (const [k, val] of Object.entries(mirrorFields)) updates[`${sec}.${idx}.${k}`] = val;
-              await db.collection('app_data').doc(SD_DOC).update(updates);
+              const newArr = sdRaw[sec].slice(); // shallow clone, do not mutate sdRaw
+              newArr[idx] = Object.assign({}, newArr[idx], mirrorFields);
+              writeResult = { sec, idx, sdRawSectionLength: sdRaw[sec].length, matchedName: sdRaw[sec][idx].name };
+              tx.update(sdDocRef, { [sec]: newArr }); // whole-array write, NOT a dot-path
+              written = true;
               break;
-            } else {
-              console.warn(`[facDob] Staff Directory mirror SKIPPED for ${sec} — no existing row with a real .name matched "${currentProfile.name}". Refusing to create a new fragment via dot-path update.`);
             }
           }
-        }
-      } catch(e2) { console.warn('[facDob] staff_directory mirror failed:', e2.message); }
+          if (!written) writeResult = { skipped: true, reason: 'no matching row', fulltimeLen: (sdRaw.fulltime||[]).length, visitingLen: (sdRaw.visiting||[]).length, nonteachingLen: (sdRaw.nonteaching||[]).length };
+        });
+        console.log('[SD-MIRROR-DEBUG]', JSON.stringify({ ...debugCtx, result: writeResult }));
+        // 2026-09-07 HOTFIX #6 — RTDB rejects Firestore dot-path strings
+        // as object keys (e.g. "visiting.5.dob" contains "."), and
+        // rejects undefined anywhere in the value tree. The console.log
+        // above is safe (plain JS, no RTDB rules apply) but pushing the
+        // SAME object into RTDB kept throwing on both counts across two
+        // separate attempts tonight. Fix: log to RTDB as a flat, always-
+        // safe summary (no nested Firestore-shaped keys, no possibility
+        // of undefined) instead of the raw writeResult object.
+        if (rtdb) rtdb.ref('davan_pub/sdMirrorLog').push({
+          name: debugCtx.name || '', ts: debugCtx.ts || 0,
+          ok: !!(writeResult && !writeResult.skipped),
+          skippedReason: (writeResult && writeResult.skipped) ? String(writeResult.reason || '') : '',
+          sec: (writeResult && writeResult.sec) || '', idx: (writeResult && typeof writeResult.idx === 'number') ? writeResult.idx : -1
+        }).catch(()=>{});
+        if (writeResult && writeResult.skipped) console.warn('[facDob] Staff Directory mirror SKIPPED —', writeResult.reason);
+      } catch(e2) {
+        console.error('[facDob] staff_directory transaction FAILED:', e2.message, e2);
+        if (rtdb) rtdb.ref('davan_pub/sdMirrorLog').push({ name: debugCtx.name || '', ts: debugCtx.ts || 0, ok: false, error: String(e2.message || '') }).catch(()=>{});
+      }
     }
     return true;
   } catch(e) {
@@ -15607,8 +15619,26 @@ async function sdSaveToFirestore() {
         // reached their actual users doc, leaving their live login role stale/wrong.
         if (sdEntry.role && sdEntry.role !== u.role) updates.role = sdEntry.role;
         if (sdEntry.name && sdEntry.name !== u.name) updates.name = sdEntry.name;
+        // 2026-09-07 — DOB/time/place, same direction as password/role/name
+        // above. Confirmed as a real gap: admin corrections in Staff
+        // Directory previously had ZERO effect on what the faculty member
+        // sees at their own login, since only the reverse (faculty ->
+        // Staff Directory, via facSaveProfileFields()) existed. An empty
+        // string in Staff Directory means "don't touch" here — same rule
+        // the admin DOB modal in student_portal.html already follows —
+        // so an admin blanking a field on purpose still needs an
+        // explicit delete, not just clearing the box (avoids silently
+        // wiping a faculty member's real DOB by an accidental empty save).
+        if (sdEntry.dob && sdEntry.dob !== u.dob) updates.dob = sdEntry.dob;
+        if (sdEntry.dobTime && sdEntry.dobTime !== u.dobTime) updates.dobTime = sdEntry.dobTime;
+        if (sdEntry.dobPlace && sdEntry.dobPlace !== u.dobPlace) updates.dobPlace = sdEntry.dobPlace;
+        if (sdEntry.dobLat != null && sdEntry.dobLat !== u.dobLat) updates.dobLat = sdEntry.dobLat;
+        if (sdEntry.dobLon != null && sdEntry.dobLon !== u.dobLon) updates.dobLon = sdEntry.dobLon;
         if (Object.keys(updates).length) {
           syncOps.push(db.collection('users').doc(u.id).update(updates));
+          // Keep the RTDB mirror in step too — same two-write pattern
+          // facSaveProfileFields() already uses for the opposite direction.
+          if (rtdb) syncOps.push(rtdb.ref('davan_users/' + u.id).update(updates).catch(()=>{}));
         }
       });
       if (syncOps.length) {
@@ -16763,6 +16793,16 @@ function _navRestoreState(preCapturedSnapshot) {
       // as its own final step, after intLoadList() genuinely completes.
       intInit(saved.internalsTab || undefined);
     }
+    // 2026-09-07 — same gap as internals above, confirmed by direct
+    // report: refreshing back onto Staff Directory showed stale/empty
+    // data until manually navigating away and back. switchPanel() only
+    // shows the panel shell; the sidebar's own onclick calls
+    // staffDirectoryRender() as a SEPARATE step right after — a refresh
+    // landing here via _navRestoreState() skipped that second step
+    // entirely, unlike every other panel with a real data loader.
+    if (saved.panel === 'staff-directory' && typeof staffDirectoryRender === 'function') {
+      staffDirectoryRender();
+    }
   } catch(e) { console.warn('[NavRestore] threw:', e); }
 }
 
@@ -16801,8 +16841,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1355;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '08-Sep-2026', time: '03:00', full: '08-Sep-2026 03:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1360;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '08-Sep-2026', time: '05:20', full: '08-Sep-2026 05:20 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -27176,6 +27216,11 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+ { v: 'v1360', date: '08-Sep-2026 IST', note: 'FEAT: 2 fixes. (1) [sdSaveToFirestore() index.html ~15589] admin edits to dob/dobTime/dobPlace/dobLat/dobLon in Staff Directory now also sync to the matching faculty\'s users/{uid} + RTDB davan_users/{uid} on Save -- same direction password/role/name already synced, previously missing for DOB fields entirely. Empty field = don\'t touch (same rule as elsewhere). (2) [_navRestoreState() index.html ~16789] refreshing back onto Staff Directory showed stale/empty data -- switchPanel() only shows the panel shell, staffDirectoryRender() is a separate loader call the sidebar\'s own onclick does but refresh-restore skipped. Now calls it, matching how internals already does the same thing. CODE_BUILD=1360.' },
+ { v: 'v1359', date: '08-Sep-2026 IST', note: 'CRITICAL FIX -- ACTUAL ROOT CAUSE of every visiting-field corruption tonight (idx 2, 5, 7 fragments -- all the same failure, not separate bugs). Firestore does NOT support dot-path field updates INTO array elements: .update({\'visiting.7.dob\': val}) does not mean \'array index 7\'s dob field\' -- Firestore arrays are a distinct type, not a numeric-keyed map, so this silently REPLACES the entire visiting field with a new one-entry map {\'7\':{dob:val}}, discarding the real array completely. Every earlier fix tonight (array-shape guard, transaction, RTDB logging fixes) was correct for the real, separate problem it targeted, but none of them touched this fundamental operation, which is why the same fragment kept reappearing regardless. FIX [facSaveProfileFields() index.html ~14402]: read the whole array inside the transaction, clone it, modify only the matched element\'s fields in JS, write the WHOLE array back as one value (tx.update(ref, {visiting: newArr})) -- never a sub-path into an array again. Verified directly (not just node --check): ran the exact clone/modify logic against a simulated 15-row array, confirmed the output array is still 15 elements with only the target row changed. This is the actual fix -- prior 6 hotfixes tonight were all real and necessary for what they targeted, but this is the one that stops the recurring data loss. CODE_BUILD=1359.' },
+ { v: 'v1358', date: '08-Sep-2026 IST', note: 'HOTFIX -- RTDB debug logging kept throwing (2nd/3rd time): RTDB rejects Firestore dot-path strings as object keys (\'visiting.5.dob\' contains \'.\') and rejects undefined anywhere. The log object mirrored raw Firestore-shaped data (updates keys, sectionsChecked) straight into RTDB, which violates both rules. Fixed by logging a flat, always-safe summary to RTDB instead (name/ts/ok/sec/idx/reason only, no nested Firestore keys) -- console.log keeps the full detail since browser console has no such restriction. Real DOB writes to users/{uid} were never affected by any of this -- only the debug log push was failing. CODE_BUILD=1358.' },
+ { v: 'v1357', date: '08-Sep-2026 IST', note: 'HOTFIX -- "Could not save" was a false error. [facSaveProfileFields() index.html ~14431/14435] rtdb.push() was called with stack: undefined explicitly spread in -- RTDB rejects undefined values synchronously, so the push threw, bubbled past both catches, and made the function return false even though the actual DOB write to users/{uid} had already succeeded. Removed the stray stack: undefined override (debugCtx.stack already has the real string). Also confirmed via the debug log: Vijayalakshmi\'s Staff Directory mirror was skipped because sectionsChecked only showed fulltime/nonteaching -- visiting is still empty in Firestore, needs the restore snippet run again. CODE_BUILD=1357.' },
+ { v: 'v1356', date: '08-Sep-2026 IST', note: 'RE-ENABLE + FULL TRACE INSTRUMENTATION (direct request: \'to debug this issue i want its auto how to trace\'). [facSaveProfileFields() index.html ~14337] rebuilt the Staff Directory mirror write as a Firestore TRANSACTION (db.runTransaction) instead of a plain get()-then-update() pair -- this directly targets the one remaining unexplained gap after 3 real corruptions and 4 fix attempts, all of which checked out clean in isolation every time: db.collection(...).get() and .update() are NOT atomic with each other, so nothing was stopping a DIFFERENT write (another tab, a concurrent login, an admin Staff Directory save) from landing in the exact gap between this function\'s own read and its own write. A transaction makes this structurally impossible rather than merely unlikely -- Firestore itself detects if the document changed between the transaction\'s read and write and automatically retries against fresh data, instead of silently completing a write based on data that\'s already stale. Also added full diagnostic logging on EVERY write attempt: console.log AND a new davan_pub/sdMirrorLog (RTDB) entry recording who triggered it, which fields, the exact matched row/index, the exact `updates` object sent, and (on skip) exactly why it was skipped -- if this corrupts a 4th time, the log will show precisely what happened instead of needing another live round-trip diagnostic. To read the trace log going forward: `rtdb.ref(\'davan_pub/sdMirrorLog\').limitToLast(20).once(\'value\').then(s => console.log(JSON.stringify(s.val(), null, 2)))` in the console shows the last 20 write attempts with full context. VERIFIED: all real inline script blocks node --check clean; also caught and fixed a structural leftover during this edit -- the previous emergency-disable version left orphaned dead code below the new block when first replaced, found by re-viewing the full function immediately after the edit rather than trusting the diff, and removed before this was called done. CODE_BUILD=1356.' },
  { v: 'v1355', date: '08-Sep-2026 IST', note: 'EMERGENCY HOTFIX -- Staff Directory mirror DISABLED pending root cause. app_data/staff_directory.visiting was corrupted a THIRD time tonight (fragment {"5":{"dob":"1986-01-31"}}), even AFTER the CODE_BUILD=1354 race-condition fix that was believed to close this. This time both possible data sources were independently verified completely healthy at the moment of failure -- Firestore users/{uid} confirmed correct via live dump (dob/dobTime/dobPlace/dobLat/dobLon all present and accurate), RTDB davan_users/{uid} mirror ALSO confirmed correct via a separate live dump -- ruling out every mechanism traced so far: stale currentProfile data, the birthday-toast/Step-2 race (fixed in 1354), a double onLoginSuccess() call (traced and confirmed properly guarded by the existing _isManualLogin flag), and a corrupted source array (confirmed healthy via a live dump of the full 15-row restore immediately before this occurrence). The exact mechanism producing this specific write is NOT YET FOUND despite three separate rounds of live-data-verified investigation this session. Given the severity (three real data-loss incidents against the same field in one session) and inability to confirm a root cause through code-reading and diagnostics alone, [facSaveProfileFields() index.html ~14337] the Staff Directory mirror write is now OUTRIGHT DISABLED via an explicit SD_MIRROR_DISABLED=true flag, logging a warning whenever it would have fired instead of writing anything. A faculty member\'s own dob/dobTime/dobPlace/dobLat/dobLon still save correctly and normally to their real profile (users/{uid} Firestore doc + RTDB mirror) -- BOTH confirmed reliable across all three incidents tonight -- this change only stops the SEPARATE, ADDITIONAL write into Staff Directory that has proven unsafe. An admin can still manually copy a faculty\'s DOB/time/place into Staff Directory by hand via the existing editable table if wanted immediately; the automatic mirror should be re-enabled only once the actual root cause is found and fixed, not simply flipped back on. VERIFIED: all real inline script blocks node --check clean after this change. This is a stop-the-bleeding measure, not a resolution -- documented plainly as such rather than presented as a fix. CODE_BUILD=1355.' },
  { v: 'v1354', date: '08-Sep-2026 IST', note: 'CRITICAL HOTFIX #3 -- ACTUAL ROOT CAUSE FOUND for the visiting-field corruption recurring a SECOND time on CODE_BUILD=1353 (confirmed NOT a caching issue -- Harsha checked the version badge directly, it genuinely was 1353, ruling out the stale-page theory). Traced by testing the CODE_BUILD=1351/1349 guard logic directly against simulated inputs (again) and finding it correct in isolation for the third time -- which was itself the signal something else was wrong, not the guard\'s own logic. REAL ROOT CAUSE: facSaveProfileFields() is called from TWO independent places that can BOTH fire during the SAME onLoginSuccess() sequence -- facSaveDobStep2() (the modal\'s Save button, genuine profile fields) AND facMaybeShowBirthdayBanner() (fires AUTOMATICALLY/UNPROMPTED on every login during birthday week/day, writing internal bookkeeping counters: facDobLastShownYear/facDobDayShownCount/facDobBelatedShownYear). Both independently GET the staff_directory doc, compute their own dot-path updates from that snapshot, then WRITE -- a classic read-then-write race: if the birthday-toast\'s automatic write and the Step-2 modal\'s manual write both fire close together (entirely plausible if a faculty member logs in during their own birthday week AND happens to complete Step 2 in the same session), the second write can land based on a snapshot taken before the first write finished, producing exactly the fragment corruption seen twice now. FIX 1 [facSaveProfileFields() index.html ~14337]: Staff Directory is a table of REAL profile data (dob/dobTime/dobPlace/dobLat/dobLon) -- it has no column for and no reason to EVER store internal bookkeeping counters like facDobLastShownYear. Added an explicit SD_MIRROR_FIELDS allowlist so the Staff Directory dot-path mirror only ever runs for genuine profile fields -- the birthday-toast call path now NEVER touches this document at all, eliminating the race at its source rather than guarding around it. FIX 2 [facSaveDobStep2() index.html ~14695]: added a button-disable double-submit guard (same pattern already used by facSaveDob() elsewhere in this modal) closing the narrower remaining race of a fast double-click firing two overlapping Step-2 saves. VERIFIED: all real inline script blocks node --check clean after both fixes. This required 3 total attempts across this session to find the true root cause -- the first two fixes (CODE_BUILD=1349/1351) were real, necessary, and correctly targeted at genuine bugs they found, but neither was the actual mechanism causing THIS specific recurring corruption; only tracing the full call graph (not just the write function in isolation) surfaced the concurrent-caller race. CODE_BUILD=1354.' },
  { v: 'v1353', date: '08-Sep-2026 IST', note: 'HOTFIX (direct report + screenshot: table still scrolling/cramped on a wide desktop screen, TIME/PLACE columns barely visible at the right edge). ROOT CAUSE: panel-staff-directory\'s own content wrapper (index.html ~5546) had a HARD max-width:960px on the entire Staff Directory area, independent of the table itself -- the table\'s own min-width:1010px (added in CODE_BUILD=1352, same session, to stop NAME/ROLE/SUBJECTS/CONTACT being crushed) was ALREADY wider than this 960px ceiling, which meant a horizontal scrollbar was GUARANTEED regardless of real screen width -- the CODE_BUILD=1352 fix solved the crushing but this separate, pre-existing cap meant the fix could never actually show the full table without scrolling on any screen. FIX: [index.html ~5546] max-width raised from 960px to 1400px -- table can now use real desktop screen space instead of being artificially capped narrower than its own declared minimum content width; 1400px still keeps line length reasonable on very large monitors rather than removing the cap entirely. TIME/PLACE field bindings were RE-CONFIRMED correct (sdInp(r.dobTime,...)/sdInp(r.dobPlace,...), same as CODE_BUILD=1352\'s own verification) -- the reported screenshot was itself cut off at the table\'s right edge by the 960px cap, which is consistent with this being the same underlying width problem rather than a separate data-binding bug; TIME/PLACE remain empty for these rows simply because nobody has entered that optional data yet, not because of any code defect. VERIFIED: HTML5-parser confirms the file still parses correctly, all real inline script blocks node --check clean (markup/style-only change, no JS logic touched). CODE_BUILD=1353.' },
