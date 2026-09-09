@@ -10004,7 +10004,32 @@ function _normCalForPortal(events) {
   const iso = s => {
     if (!s) return '';
     const d = new Date(String(s).replace(/\//g,'-') + 'T00:00:00');
-    return isNaN(d) ? '' : d.toISOString().slice(0,10); // YYYY-MM-DD, parseable
+    if (isNaN(d)) return '';
+    // FIX (2026-09-09, real device confirmed): was
+    // `d.toISOString().slice(0,10)` — toISOString() converts to UTC, and
+    // in IST (UTC+5:30) midnight local time is 18:30 the PREVIOUS day in
+    // UTC, so every date this produced was exactly one day too early.
+    // This is the EXACT same bug class already found and fixed once in
+    // calSaveEvent()'s _fmtLocalISO (v1195, CODE_BUILD=1195) — that
+    // fix's own changelog entry explicitly claimed to have audited
+    // intSyncFromCalendar() for a second occurrence and found none, but
+    // never checked THIS function (_normCalForPortal's own `iso`),
+    // which has the identical toISOString() pattern. Confirmed live: an
+    // exam entry saved as From=10 Sep, To=12 Sep (dateLabel correctly
+    // showed "10 Sept 2026") was written to davan_pub/calendar with
+    // date="2026-09-09" — one day early — causing the WIDGET's
+    // holiday/exam-awareness notification logic (which reads the `date`
+    // field, not `dateLabel`) to treat the exam as being on the wrong
+    // day. Re-saving the entry in the admin UI repeatedly had NO effect
+    // (confirmed — 3 attempts, same wrong date each time) because this
+    // function re-derives the wrong date fresh on every save, not a
+    // one-time data-entry mistake. Same fix pattern as _fmtLocalISO:
+    // build the string from the Date object's own LOCAL
+    // getFullYear()/getMonth()/getDate(), never via toISOString()/UTC.
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
   };
   const dayOf = s => { const d = new Date(String(s).replace(/\//g,'-')+'T00:00:00'); return isNaN(d)?'':['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]; };
   return events
@@ -16841,7 +16866,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1360;  // always = HTML footer version number
+const CODE_BUILD = 1361;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '08-Sep-2026', time: '05:20', full: '08-Sep-2026 05:20 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -27216,6 +27241,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+ { v: 'v1361', date: '09-Sep-2026 IST', note: 'CRITICAL FIX -- SECOND, PREVIOUSLY-MISSED occurrence of the same UTC/toISOString() off-by-one bug already fixed once in calSaveEvent() (v1195, CODE_BUILD=1195) -- that fix\'s own changelog entry explicitly claimed to have audited intSyncFromCalendar() for a second occurrence and found none, but never checked _normCalForPortal()\'s own `iso` helper [index.html ~10004], which had the identical `new Date(s+\'T00:00:00\').toISOString().slice(0,10)` pattern. Found live: a calendar entry saved as From=10 Sep/To=12 Sep (dateLabel correctly showed "10 Sept 2026") was written to davan_pub/calendar with date="2026-09-09" -- one day early -- because toISOString() converts local midnight to UTC, and in IST (UTC+5:30) that lands on the PREVIOUS day. The student widget\'s holiday/exam-awareness notification logic reads the `date` field (not `dateLabel`), so it treated an internal-assessment day as a normal class day. Re-saving the entry in the admin UI 3 times had NO effect, since this function re-derives the wrong date fresh on every save -- confirmed NOT a data-entry mistake once a second, unrelated calendar entry (2nd Internal Assessment, From=29 Oct) showed the identical one-day-early pattern, proving it was systemic. FIX: `iso` now builds the date string from the Date object\'s own local getFullYear()/getMonth()/getDate(), exactly matching the already-proven _fmtLocalISO pattern, never via toISOString()/UTC. Verified via Node simulation in Asia/Kolkata timezone: iso(\'2026-09-10\') now correctly returns \'2026-09-10\', not \'2026-09-09\'. NOT YET AUDITED: ~130 other toISOString() calls exist elsewhere in this file -- most are plain instant/timestamp logging (createdAt/updatedAt/loginAt), which is correct UTC usage, not this bug; two specifically flagged as worth a follow-up check are wgtNextHoliday() and isSemOver() [index.html ~18102/~18396], both computing "today" via `new Date().toISOString().slice(0,10)`, a smaller/different-shaped version of the same UTC-vs-local risk, left unfixed pending confirmation this is worth doing in a separate pass. CODE_BUILD=1361.' },
  { v: 'v1360', date: '08-Sep-2026 IST', note: 'FEAT: 2 fixes. (1) [sdSaveToFirestore() index.html ~15589] admin edits to dob/dobTime/dobPlace/dobLat/dobLon in Staff Directory now also sync to the matching faculty\'s users/{uid} + RTDB davan_users/{uid} on Save -- same direction password/role/name already synced, previously missing for DOB fields entirely. Empty field = don\'t touch (same rule as elsewhere). (2) [_navRestoreState() index.html ~16789] refreshing back onto Staff Directory showed stale/empty data -- switchPanel() only shows the panel shell, staffDirectoryRender() is a separate loader call the sidebar\'s own onclick does but refresh-restore skipped. Now calls it, matching how internals already does the same thing. CODE_BUILD=1360.' },
  { v: 'v1359', date: '08-Sep-2026 IST', note: 'CRITICAL FIX -- ACTUAL ROOT CAUSE of every visiting-field corruption tonight (idx 2, 5, 7 fragments -- all the same failure, not separate bugs). Firestore does NOT support dot-path field updates INTO array elements: .update({\'visiting.7.dob\': val}) does not mean \'array index 7\'s dob field\' -- Firestore arrays are a distinct type, not a numeric-keyed map, so this silently REPLACES the entire visiting field with a new one-entry map {\'7\':{dob:val}}, discarding the real array completely. Every earlier fix tonight (array-shape guard, transaction, RTDB logging fixes) was correct for the real, separate problem it targeted, but none of them touched this fundamental operation, which is why the same fragment kept reappearing regardless. FIX [facSaveProfileFields() index.html ~14402]: read the whole array inside the transaction, clone it, modify only the matched element\'s fields in JS, write the WHOLE array back as one value (tx.update(ref, {visiting: newArr})) -- never a sub-path into an array again. Verified directly (not just node --check): ran the exact clone/modify logic against a simulated 15-row array, confirmed the output array is still 15 elements with only the target row changed. This is the actual fix -- prior 6 hotfixes tonight were all real and necessary for what they targeted, but this is the one that stops the recurring data loss. CODE_BUILD=1359.' },
  { v: 'v1358', date: '08-Sep-2026 IST', note: 'HOTFIX -- RTDB debug logging kept throwing (2nd/3rd time): RTDB rejects Firestore dot-path strings as object keys (\'visiting.5.dob\' contains \'.\') and rejects undefined anywhere. The log object mirrored raw Firestore-shaped data (updates keys, sectionsChecked) straight into RTDB, which violates both rules. Fixed by logging a flat, always-safe summary to RTDB instead (name/ts/ok/sec/idx/reason only, no nested Firestore keys) -- console.log keeps the full detail since browser console has no such restriction. Real DOB writes to users/{uid} were never affected by any of this -- only the debug log push was failing. CODE_BUILD=1358.' },
@@ -56490,6 +56516,13 @@ function intRenderDutyAutoCard(docId, data) {
           <button onclick="dutyDownloadSignatureSheetPDF('${docId}', ${intNum})" style="padding:7px 16px;background:#25d366;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">⬇ PDF</button>
         </div>
       </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding-top:10px;border-top:1px dashed rgba(37,211,102,0.25);">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#25d366;">💬 Send Individual — All Days</div>
+          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);">Pick any faculty once, message covers every duty across all exam days</div>
+        </div>
+        <button onclick="dutyShowIndivPickerGlobal('${docId}')" style="padding:7px 16px;background:#25d366;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">💬 Send Individual</button>
+      </div>
     </div>` : '';
 
   // v1190: WIDGET/PWA CHECK-NOW NUDGE — separate from the duty-content
@@ -56722,6 +56755,37 @@ function dutyShowWidgetNudgePreview(docId) {
 }
 
 // ── Individual faculty picker + preview modal (NO emoji, plain summary) ──
+function dutyShowIndivPickerGlobal(docId) {
+  // Global (all-days) version of dutyShowIndivPicker — collects faculty
+  // names across EVERY date in duty_auto.days (not just one), so admin
+  // can pick a name once and get one WhatsApp message covering all of
+  // that person's duty slots for the whole Internal (dutyBuildIndivMsg
+  // already does this multi-day aggregation on its own — this just skips
+  // the per-day picker step to reach it directly).
+  const data = INT_DATA[docId];
+  if (!data || !data.duty_auto || !data.duty_auto.days) { dvToast('⚠ No duty allocated yet for this Internal', 'warn'); return; }
+  const allNames = new Set();
+  Object.keys(data.duty_auto.days).forEach(date => {
+    (data.duty_auto.days[date].assignments || []).forEach(a => { if (a.faculty) allNames.add(a.faculty); });
+  });
+  const names = [...allNames].sort();
+  if (!names.length) { dvToast('⚠ No duty assigned yet', 'warn'); return; }
+  const overlay = document.createElement('div');
+  overlay.id = 'duty-indiv-picker-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">💬 Send Individual — pick faculty (all days)</div>
+        <button onclick="document.getElementById('duty-indiv-picker-overlay').remove()"
+          style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      ${names.map(n => `<button onclick="document.getElementById('duty-indiv-picker-overlay').remove();dutyShowIndivPreview('${docId}','${n.replace(/'/g,"\'")}')"
+        style="text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;">${n}</button>`).join('')}
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
 function dutyShowIndivPicker(docId, date) {
   const data = INT_DATA[docId];
   if (!data || !data.duty_auto || !data.duty_auto.days[date]) return;
@@ -56757,6 +56821,14 @@ function dutyShowIndivPreview(docId, facultyName) {
   const simpleMsg = dutyBuildIndivSimpleMsg(docId, data, facultyName);
   const simpleWaUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(simpleMsg)}` : null;
   window._dutyIndivSimpleWaUrl = simpleWaUrl;
+  // FIX: previously the textarea only ever showed the DETAILED message —
+  // clicking "Simple WhatsApp" sent simpleMsg straight to wa.me with no
+  // way to see/copy it first (admin-reported: no preview for Simple in
+  // Individual, unlike the Master message which has its own separate
+  // Preview button per variant). Stashing both texts + a small toggle so
+  // the same textarea can show either before sending/copying either one.
+  window._dutyIndivDetailedMsg = msg;
+  window._dutyIndivSimpleMsg = simpleMsg;
   const noPhone = !phone ? `<div style="font-size:11px;color:var(--danger);font-family:var(--mono);margin-bottom:8px;">⚠ No phone number found for ${facultyName} in Staff Directory</div>` : '';
   const waBtn = waUrl
     ? `<button onclick="dutyIndivWaOpen()" style="padding:7px 18px;background:#25d366;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">💬 Open WhatsApp</button>`
@@ -56775,6 +56847,12 @@ function dutyShowIndivPreview(docId, facultyName) {
           style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;">✕</button>
       </div>
       ${noPhone}
+      <div style="display:flex;gap:6px;">
+        <button id="duty-indiv-tab-detailed" onclick="dutyIndivPreviewSwitch('detailed')"
+          style="flex:1;padding:6px 10px;background:#25d366;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">📢 Detailed</button>
+        <button id="duty-indiv-tab-simple" onclick="dutyIndivPreviewSwitch('simple')"
+          style="flex:1;padding:6px 10px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">📄 Simple</button>
+      </div>
       <textarea readonly id="duty-indiv-wa-ta" style="flex:1;min-height:260px;background:#0a0a0a;color:#d1fae5;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;font-family:var(--mono);line-height:1.7;resize:vertical;"></textarea>
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
         <button onclick="document.getElementById('duty-indiv-wa-overlay').remove()"
@@ -56786,7 +56864,26 @@ function dutyShowIndivPreview(docId, facultyName) {
       </div>
     </div>`;
   document.body.appendChild(overlay);
-  document.getElementById('duty-indiv-wa-ta').value = msg;
+  dutyIndivPreviewSwitch('detailed');
+}
+
+// Switches the Individual WhatsApp preview textarea between the Detailed
+// and Simple message text, and highlights whichever tab is active — pure
+// display toggle, does not change which button sends which message (Open
+// WhatsApp still always sends Detailed, Simple WhatsApp still always sends
+// Simple; this only fixes being able to SEE the Simple text before sending).
+function dutyIndivPreviewSwitch(which) {
+  const ta = document.getElementById('duty-indiv-wa-ta');
+  if (!ta) return;
+  ta.value = which === 'simple' ? (window._dutyIndivSimpleMsg || '') : (window._dutyIndivDetailedMsg || '');
+  const dBtn = document.getElementById('duty-indiv-tab-detailed');
+  const sBtn = document.getElementById('duty-indiv-tab-simple');
+  if (dBtn && sBtn) {
+    const active = 'background:#25d366;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;flex:1;padding:6px 10px;';
+    const inactive = 'background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;flex:1;padding:6px 10px;';
+    dBtn.style.cssText = which === 'simple' ? inactive : active;
+    sBtn.style.cssText = which === 'simple' ? active : inactive;
+  }
 }
 
 function dutyIndivWaOpen() {
@@ -59196,7 +59293,20 @@ function sitRoomSummaryData(intNum, mapKey, roomId, date, slots_d) {
   const normFn = typeof _csNormForCompare === 'function' ? _csNormForCompare : (s => (s||'').toUpperCase().trim());
   const yearCourseNormMap = {}; // normalized batch_name -> { yearCourse, course } (course kept for colour only)
   yearCourseSet.forEach(yc => { yearCourseNormMap[normFn(yc)] = { yearCourse: yc, course: yearCourseToCourse[yc] }; });
-  const matchedSlots = daySlots.filter(sl => Object.prototype.hasOwnProperty.call(yearCourseNormMap, normFn(sl.batch_name)) && sl.subject);
+  // FIX: sl.subject can hold an ignore sentinel ('__ignored__:regular_class'
+  // etc, see INT_IGNORE_REASONS/intParseIgnore ~53384) instead of a real
+  // subject name — a slot marked "Regular Class (as per timetable)" or
+  // "No internal for this subject" is NOT a real exam subject and must
+  // never appear as one. This is the same leak class already fixed in
+  // intTimetableSubjectsForClass() (v1334) and intRenderTable()/
+  // intDownloadExcel() (v1299) — this was the one remaining unfixed
+  // reader, which is why the raw sentinel string was reaching faculty
+  // directly inside the duty WhatsApp "Subjects:" line (both Master and
+  // Individual messages call this function via sitSubjectsPlainByCourse).
+  // Filtered here at the single shared source so every caller (on-screen
+  // Auto Duty card, Master/Individual WhatsApp, Duty Signature Sheet) is
+  // fixed at once and can never drift apart again.
+  const matchedSlots = daySlots.filter(sl => Object.prototype.hasOwnProperty.call(yearCourseNormMap, normFn(sl.batch_name)) && sl.subject && !intParseIgnore(sl.subject));
 
   // subjectsByCourse: keyed by YEAR+COURSE label (e.g. "I BCA", "III BCA")
   // so different years of the same course never merge their subjects.
