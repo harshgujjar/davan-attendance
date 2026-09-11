@@ -5570,6 +5570,19 @@
             style="padding:9px 18px;background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;" title="Pull passwords from User Management into Staff Directory">
             🔄 Sync Passwords from UM
           </button>
+          <!-- CODE_BUILD=1379 — one-click backfill for the confirmed real bug where a
+               faculty/manager's own DOB save (users/{uid}) never reached Staff Directory
+               (Firestore transaction failure for blocked roles, or a name-mismatch skip
+               — see facSaveProfileFields()/staffDirectoryRender() comments for the full
+               writeup). This scans EVERY real user profile directly (not the RTDB mirror
+               fallback, which only covers cases going forward from this fix) and fills in
+               any Staff Directory row that's missing a dob its matching profile already
+               has — a genuine one-time catch-up for anyone affected before this fix
+               existed, e.g. Anitha N, without needing them to re-login. -->
+          <button onclick="sdBackfillDobFromProfiles()" id="sd-backfill-btn"
+            style="padding:9px 18px;background:rgba(196,160,42,.12);color:var(--accent);border:1px solid rgba(196,160,42,.3);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;" title="Fill in any missing DOB from each person's own saved profile — fixes cases where their DOB save never reached this table">
+            🩹 Backfill Missing DOBs
+          </button>
           <button onclick="window.print()"
             style="padding:9px 14px;font-size:12px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;cursor:pointer;">
             🖨️ Print
@@ -14544,16 +14557,102 @@ async function facSaveProfileFields(fields) {
         // separate attempts tonight. Fix: log to RTDB as a flat, always-
         // safe summary (no nested Firestore-shaped keys, no possibility
         // of undefined) instead of the raw writeResult object.
+        // BUG FIX (CODE_BUILD=1379): direct admin instruction — "fix it all
+        // faulty and managere thats all" — following a live investigation
+        // into ANITHA N (fulltime), whose own profile was confirmed (F12)
+        // to genuinely have dob:"1987-08-17", but Staff Directory showed
+        // nothing and sdMirrorLog had ZERO entries for her at all — not
+        // even a "skipped: no matching row" entry, which the code DOES log
+        // normally when a name fails to match. Investigation found the
+        // sdMirrorLog itself had OLDER entries (traceable via their own
+        // stack traces to a stale local copy of this file, "index (2).html")
+        // showing this exact RTDB push throwing on undefined values and
+        // illegal dot-path characters — a real, now-historical bug in the
+        // LOGGING call itself, already superseded by the flat/safe shape
+        // below, but its silent .catch(()=>{}) meant that even THIS current
+        // safe version gives no visible signal if the push ever fails again
+        // for any reason (network blip, quota, etc.) — a logging failure
+        // was indistinguishable from "the mirror step never ran at all",
+        // which is exactly the ambiguity that made Anitha's case unresolvable
+        // through log-reading alone. FIX: log push failures are no longer
+        // silently swallowed — logged to console with the real error, so a
+        // logging failure is now visible and distinguishable from a genuine
+        // "never ran" case in any future investigation.
         if (rtdb) rtdb.ref('davan_pub/sdMirrorLog').push({
           name: debugCtx.name || '', ts: debugCtx.ts || 0,
           ok: !!(writeResult && !writeResult.skipped),
           skippedReason: (writeResult && writeResult.skipped) ? String(writeResult.reason || '') : '',
           sec: (writeResult && writeResult.sec) || '', idx: (writeResult && typeof writeResult.idx === 'number') ? writeResult.idx : -1
-        }).catch(()=>{});
-        if (writeResult && writeResult.skipped) console.warn('[facDob] Staff Directory mirror SKIPPED —', writeResult.reason);
+        }).catch(e => console.error('[facDob] sdMirrorLog push itself FAILED (mirror step above may have still succeeded or failed independently — check writeResult, not this log, going forward):', e.message));
+        if (writeResult && writeResult.skipped) console.warn('[facDob] Staff Directory mirror SKIPPED —', writeResult.reason, writeResult);
+        // BUG FIX (CODE_BUILD=1379): a "no matching row" skip (name in
+        // currentProfile doesn't _facKey()-match anything in Staff
+        // Directory — a typo, a trailing space that survived
+        // normalization, a name entered differently by admin vs the
+        // faculty's own login) produces the IDENTICAL symptom for admin as
+        // the v1378 Firestore-blocked case: a real DOB that never reaches
+        // Staff Directory, with no error thrown to trigger the catch block
+        // below. Route this through the SAME RTDB fallback mirror as that
+        // fix, keyed by the faculty's OWN name (not Staff Directory's,
+        // since that's exactly the thing that may not match) — so once an
+        // admin corrects the name spelling in Staff Directory to match,
+        // staffDirectoryRender()'s merge step will pick it up automatically
+        // on next load, same as the Firestore-blocked-role case already does.
+        if (writeResult && writeResult.skipped && writeResult.reason === 'no matching row' && Object.keys(mirrorFields).length && rtdb) {
+          try {
+            const safeKey = _rtdbSafeKey(key);
+            await rtdb.ref('davan_pub/staff_directory_dob_mirror/' + safeKey).set({
+              name: currentProfile.name, role: currentProfile.role,
+              ...mirrorFields, updatedAt: new Date().toISOString(),
+              note: 'name-mismatch fallback — no Staff Directory row matched this name at save time'
+            });
+            console.log('[facDob] Staff Directory DOB mirror written via name-mismatch fallback for:', currentProfile.name);
+          } catch(e4) {
+            console.error('[facDob] name-mismatch RTDB mirror fallback ALSO failed:', e4.message);
+          }
+        }
       } catch(e2) {
         console.error('[facDob] staff_directory transaction FAILED:', e2.message, e2);
         if (rtdb) rtdb.ref('davan_pub/sdMirrorLog').push({ name: debugCtx.name || '', ts: debugCtx.ts || 0, ok: false, error: String(e2.message || '') }).catch(()=>{});
+        // BUG FIX (CODE_BUILD=1378): direct admin report, confirmed via
+        // screenshot — a MANAGER (Manjappa H) completed the DOB modal,
+        // his own profile correctly saved it (F12 diagnostic on his own
+        // login confirmed dob:"1990-07-31"), but Staff Directory (viewed
+        // by admin) showed his DOB cell completely empty. ROOT CAUSE: the
+        // transaction above is Firestore-ONLY, with no RTDB fallback at
+        // all — for a Firestore-blocked role (manager/vp/principal, this
+        // file's own long-documented limitation, see loadFirestoreData()
+        // and v1339/v1340's own notes), db.runTransaction() throws
+        // immediately into this catch block, which until now only logged
+        // the failure and gave up — the actual DOB fields were never
+        // written anywhere Staff Directory could ever read them, even
+        // though staff_directory itself has NO RTDB mirror to write to at
+        // all (confirmed: staffDirectoryRender()/sdSaveToFirestore() are
+        // both Firestore-only, unlike ia_windows/ia_permissions/etc which
+        // already have a public RTDB mirror this pattern could reuse).
+        // FIX: write to a NEW dedicated RTDB path instead,
+        // davan_pub/staff_directory_dob_mirror/{safeKey}, keyed by the
+        // same _facKey() normalized-name matching Staff Directory's own
+        // row-lookup already uses, with characters RTDB forbids in path
+        // segments (., #, $, [, ]) encoded via the existing
+        // _rtdbSafeKey()/_rtdbUnsafeKey() pair (already proven for class
+        // names elsewhere in this file). staffDirectoryRender() (below)
+        // now merges this mirror in as a gap-filler after its normal
+        // Firestore load, and sdSaveToFirestore() clears an entry once
+        // admin's own save has genuinely landed the real data in
+        // Firestore, so the mirror never lingers stale once superseded.
+        if (Object.keys(mirrorFields).length && rtdb) {
+          try {
+            const safeKey = _rtdbSafeKey(key);
+            await rtdb.ref('davan_pub/staff_directory_dob_mirror/' + safeKey).set({
+              name: currentProfile.name, role: currentProfile.role,
+              ...mirrorFields, updatedAt: new Date().toISOString()
+            });
+            console.log('[facDob] Staff Directory DOB mirror written via RTDB fallback for Firestore-blocked role:', currentProfile.role);
+          } catch(e3) {
+            console.error('[facDob] RTDB DOB mirror fallback ALSO failed:', e3.message);
+          }
+        }
       }
     }
     return true;
@@ -15552,6 +15651,64 @@ function staffDirectoryRender() {
       sdData[s] = [];
     });
     try { localStorage.setItem('davan_staff_directory', JSON.stringify(sdData)); } catch(e) {}
+    // BUG FIX (CODE_BUILD=1378): merge in the RTDB DOB mirror written by
+    // facSaveProfileFields()'s fallback (see that function's own comment
+    // for the full root-cause writeup) — fills in dob/dobTime/dobPlace/
+    // dobLat/dobLon for any manager/vp/principal row whose Firestore
+    // transaction write was blocked, WITHOUT overwriting a row that
+    // already has real Firestore data (Firestore wins whenever both
+    // exist — admin's own direct edits in this table stay authoritative;
+    // the mirror only ever fills a genuine gap, never clobbers).
+    if (rtdb) {
+      rtdb.ref('davan_pub/staff_directory_dob_mirror').once('value').then(mirrorSnap => {
+        const mirror = mirrorSnap.val();
+        if (!mirror || typeof mirror !== 'object') return;
+        let mergedAny = false;
+        for (const safeKey of Object.keys(mirror)) {
+          const entry = mirror[safeKey];
+          if (!entry || !entry.name) continue;
+          const wantKey = _facKey(entry.name);
+          for (const sec of ['fulltime','visiting','nonteaching']) {
+            if (!Array.isArray(sdData[sec])) continue;
+            const row = sdData[sec].find(r => r && _facKey(r.name) === wantKey);
+            if (row && !row.dob) { // gap-fill only — never overwrite a real Firestore value
+              row.dob = entry.dob || '';
+              if (entry.dobTime) row.dobTime = entry.dobTime;
+              if (entry.dobPlace) row.dobPlace = entry.dobPlace;
+              if (entry.dobLat != null) row.dobLat = entry.dobLat;
+              if (entry.dobLon != null) row.dobLon = entry.dobLon;
+              mergedAny = true;
+            }
+          }
+        }
+        if (mergedAny) {
+          console.log('[SD] Merged in RTDB DOB mirror fallback data for Firestore-blocked-role entries');
+          sdRenderSection('fulltime'); sdRenderSection('visiting'); sdRenderSection('nonteaching');
+        }
+        // BUG FIX (CODE_BUILD=1379): an entry that matched NO row at all
+        // (not even after this merge) means the faculty's own login-name
+        // and the name admin typed in Staff Directory don't _facKey()-match
+        // — the exact "no matching row" case facSaveProfileFields() now
+        // also falls back to this same mirror path for (see that
+        // function's own comment). Silently doing nothing here would
+        // reproduce the identical invisible-gap bug this whole fix exists
+        // to close, just one layer further out. Surface it loudly instead
+        // so admin can fix the spelling mismatch directly — this is the
+        // one case that genuinely cannot self-heal without a human
+        // correcting a name to match.
+        const unmatched = Object.values(mirror).filter(entry => {
+          if (!entry || !entry.name) return false;
+          const wantKey = _facKey(entry.name);
+          return !['fulltime','visiting','nonteaching'].some(sec =>
+            Array.isArray(sdData[sec]) && sdData[sec].some(r => r && _facKey(r.name) === wantKey));
+        });
+        if (unmatched.length) {
+          console.warn('[SD] ' + unmatched.length + ' DOB mirror entr' + (unmatched.length===1?'y':'ies') + ' could NOT be matched to any Staff Directory row by name. Affected: ' +
+            unmatched.map(e => e.name + ' (' + e.role + ', dob: ' + (e.dob||'—') + ')').join('; ') +
+            ' — fix by correcting the name spelling in Staff Directory to match exactly, then reload this page.');
+        }
+      }).catch(e => console.warn('[SD] staff_directory_dob_mirror read failed:', e.message));
+    }
     // Fetch existing usernames so each row can show "Create Login" only if missing.
     // Index by username, password, AND name — some accounts (esp. older manually-created
     // ones) have a name-based username with the SD numeric code stored only in the password
@@ -15682,6 +15839,84 @@ async function sdSyncFromUM() {
   if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync Passwords from UM'; }
 }
 
+// NEW FEATURE (CODE_BUILD=1379): one-click backfill for the confirmed real
+// bug where a faculty/manager/vp/principal's own DOB save (users/{uid},
+// dual-written Firestore+RTDB) never reached Staff Directory — either a
+// Firestore-blocked role (manager/vp/principal, fixed going forward at
+// v1378 via an RTDB fallback mirror) or a name-mismatch skip (fixed going
+// forward at v1379, same fallback mirror). Both those fixes only help
+// SAVES THAT HAPPEN AFTER this code is deployed — anyone already affected
+// (confirmed: Anitha N, fulltime, dob genuinely on her profile but missing
+// from Staff Directory, with zero fallback-mirror entry either since her
+// original save predates both fixes) needs a one-time catch-up, without
+// requiring them to log out and back in. This scans the REAL source of
+// truth (the users collection, not the fallback mirror, which by
+// definition doesn't have anything for saves that predate its own
+// existence) directly, matches by the same _facKey() normalization Staff
+// Directory's own row-lookup already uses everywhere else, and fills in
+// ONLY genuinely missing dob/dobTime/dobPlace/dobLat/dobLon — never
+// overwrites a value Staff Directory already has, so this can never
+// clobber an admin's own direct edit or a different, intentionally-
+// corrected value.
+async function sdBackfillDobFromProfiles() {
+  const btn = document.getElementById('sd-backfill-btn');
+  const msg = document.getElementById('sd-save-msg');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Scanning…'; }
+  try {
+    const usersList = await dvGetUsersCached(true); // force fresh — this is exactly the kind of one-off admin action that should never use a stale cache
+    if (!sdData) await new Promise(res => {
+      db.collection('app_data').doc(SD_DOC).get().then(snap => {
+        sdData = snap.exists ? snap.data() : JSON.parse(JSON.stringify(SD_DEFAULT));
+        res();
+      }).catch(() => { sdData = JSON.parse(JSON.stringify(SD_DEFAULT)); res(); });
+    });
+    const DOB_FIELDS = ['dob', 'dobTime', 'dobPlace', 'dobLat', 'dobLon'];
+    let filled = 0;
+    const filledNames = [];
+    const stillMissing = [];
+    ['fulltime','visiting','nonteaching'].forEach(sec => {
+      if (!Array.isArray(sdData[sec])) return;
+      sdData[sec].forEach(row => {
+        if (!row || !row.name) return;
+        if (row.dob) return; // already has real data — never touch
+        const rowKey = _facKey(row.name);
+        const user = usersList.find(u => u.name && _facKey(u.name) === rowKey);
+        if (user && user.dob) {
+          DOB_FIELDS.forEach(f => { if (user[f] != null && user[f] !== '') row[f] = user[f]; });
+          filled++;
+          filledNames.push(row.name);
+        } else if (FAC_DOB_ROLES.includes(row.role)) {
+          // Has a DOB-gated role but genuinely no dob anywhere yet found —
+          // not an error, just means they haven't completed the modal.
+          stillMissing.push(row.name);
+        }
+      });
+    });
+    if (filled) {
+      await db.collection('app_data').doc(SD_DOC).set(sdData);
+      try { localStorage.setItem('davan_staff_directory', JSON.stringify(sdData)); } catch(e) {}
+      sdRenderSection('fulltime');
+      sdRenderSection('visiting');
+      sdRenderSection('nonteaching');
+      const summary = `✅ Backfilled ${filled} DOB(s): ${filledNames.join(', ')}`;
+      if (msg) { msg.style.color='var(--ok)'; msg.textContent=summary; }
+      dvToast(summary, 'ok', 6000);
+      console.log('[SD Backfill]', summary, stillMissing.length ? `(${stillMissing.length} still genuinely have no DOB on file: ${stillMissing.join(', ')})` : '');
+    } else {
+      const note = stillMissing.length
+        ? `✅ No gaps found. ${stillMissing.length} people simply haven't entered a DOB yet: ${stillMissing.join(', ')}`
+        : '✅ No gaps found — Staff Directory is already fully in sync with everyone\'s saved DOB.';
+      if (msg) { msg.style.color='var(--muted)'; msg.textContent=note; }
+      dvToast(note, 'ok', 5000);
+    }
+  } catch(e) {
+    if (msg) { msg.style.color='var(--danger)'; msg.textContent='❌ Backfill failed: '+e.message; }
+    dvToast('❌ Backfill failed: '+e.message, 'error', 5000);
+    console.error('[SD Backfill] failed:', e);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🩹 Backfill Missing DOBs'; }
+}
+
 async function sdSaveToFirestore() {
   const btn = document.getElementById('sd-save-btn');
   const msg = document.getElementById('sd-save-msg');
@@ -15691,6 +15926,20 @@ async function sdSaveToFirestore() {
     await db.collection('app_data').doc(SD_DOC).set(sdData);
     // Refresh the faculty-dropdown cache so Edit Allocation reflects add/delete/edits
     try { localStorage.setItem('davan_staff_directory', JSON.stringify(sdData)); } catch(e) {}
+    // BUG FIX (CODE_BUILD=1378): the real Staff Directory DOB just landed
+    // in Firestore for every row above — any RTDB DOB mirror fallback
+    // entry (see facSaveProfileFields()/staffDirectoryRender() comments)
+    // for these same people is now superseded and would otherwise linger
+    // stale forever, since nothing else ever clears it. Delete mirror
+    // entries for every row that now has a real dob in Firestore.
+    if (rtdb) {
+      const allEntriesForMirrorClear = [...(sdData.fulltime||[]), ...(sdData.visiting||[]), ...(sdData.nonteaching||[])];
+      allEntriesForMirrorClear.forEach(r => {
+        if (r && r.name && r.dob) {
+          rtdb.ref('davan_pub/staff_directory_dob_mirror/' + _rtdbSafeKey(_facKey(r.name))).remove().catch(()=>{});
+        }
+      });
+    }
     // Sync SD passwords → User Management (users collection)
     // SD password field doubles as username — match by username
     try {
@@ -16937,8 +17186,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1377;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '10-Sep-2026', time: '18:15', full: '10-Sep-2026 18:15 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1379;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '10-Sep-2026', time: '21:15', full: '10-Sep-2026 21:15 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -27312,6 +27561,8 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1379', date: '10-Sep-2026 IST', note: 'FEAT + BUG FIX, direct admin instruction ("fix it all faulty and managere thats all") following a live investigation into ANITHA N, a FULLTIME faculty member (not Firestore-blocked, so the v1378 fix alone did not cover her case) whose own profile was confirmed via F12 to genuinely have dob:"1987-08-17", but Staff Directory showed nothing for her and sdMirrorLog had ZERO entries at all -- not even a normal skipped:"no matching row" entry, which the code DOES log for a genuine name mismatch. INVESTIGATION FINDINGS: sdMirrorLog contains 17 real entries proving the logging mechanism itself works for many other people, ruling out a systemic logging outage; the 2 error entries found in that log (push failures on undefined values and illegal dot-path RTDB keys) were traced via their own embedded stack traces to a STALE LOCAL COPY of this file ("index (2).html"), confirming that particular crash is historical and already superseded by the current flat-object log shape -- not a live bug today. The exact reason Anitha\'s specific save produced zero log entries could not be definitively proven through code-reading and log-inspection alone (the two most likely explanations, a silent logging failure or a genuine name-mismatch skip, are currently indistinguishable after the fact) -- rather than keep chasing one person\'s root cause indefinitely, shifted to hardening the WHOLE mechanism per direct instruction. THREE FIXES: (1) [facSaveProfileFields() index.html ~14568] the sdMirrorLog push itself no longer silently swallows its own failure via a bare .catch(()=>{}) -- now logs any logging-failure to console with the real error, so a future case can distinguish the log write failing from the mirror step never running, instead of both looking identical (exactly the ambiguity that made Anitha\'s case unresolvable through log-reading alone). (2) [facSaveProfileFields() index.html ~14580] a "no matching row" skip (faculty\'s own login-name does not _facKey()-match any Staff Directory row -- a spelling/spacing difference between how the faculty\'s account was created and how admin typed the name in Staff Directory) now ALSO falls back to the same RTDB mirror path v1378 built for Firestore-blocked roles, since both produce the identical symptom for admin: a real DOB that silently never reaches Staff Directory. [staffDirectoryRender() index.html ~15671] correctly surfaces any mirror entry that STILL cannot be matched (genuinely wrong spelling, not just a blocked write) as a loud console.warn with the affected name(s) and their DOB, rather than silently dropping it a second time. (3) NEW ADMIN TOOL [sdBackfillDobFromProfiles() index.html ~15842, button markup index.html ~5569, id sd-backfill-btn, "Backfill Missing DOBs" beside the existing Sync Passwords from UM button] -- fixes 1 and 2 above only help saves that happen AFTER this deploy; anyone already affected (confirmed: Anitha, and possibly others not yet reported) needs a one-time catch-up without re-logging-in. This scans the users collection directly (the real source of truth, not the fallback mirror -- which by definition has nothing for saves predating its own existence), matches by the same _facKey() normalization used everywhere else in this file, and fills in ONLY genuinely missing dob/dobTime/dobPlace/dobLat/dobLon -- never touches a row that already has a real value, so it can never overwrite an admin\'s own correction. Reports exactly who was backfilled and, separately, who still has no DOB on file at all (not an error -- just means they have not completed the modal yet), so the two very different situations are never confused with each other. VERIFIED: all 20 real script blocks node --check clean (block 0 pre-existing false positive, confirmed unrelated, same as every prior entry). NOT YET LIVE-TESTED: please redeploy, then click "Backfill Missing DOBs" in Staff Directory once -- this should immediately fix Anitha\'s entry (and Manjappa H\'s from v1378, if not already handled manually) without either of them needing to do anything on their end. Going forward, please also keep an eye on the browser console after any future DOB-related report -- the new warnings in (1) and (2) above are specifically designed to make the NEXT occurrence of this class of bug immediately diagnosable, instead of requiring another multi-step live investigation like this one. CODE_BUILD=1379.' },
+{ v: 'v1378', date: '10-Sep-2026 IST', note: 'BUG FIX, direct admin report + screenshot confirmation: "in admin login i cant see that data" -- Staff Directory (Non Teaching/Manager table) showed Manjappa H\'s DOB column completely empty, while an F12 diagnostic run on his own manager login separately confirmed his real profile genuinely has dob:"1990-07-31" -- ruling out "he never entered it" and confirming a real sync gap. ROOT CAUSE: [facSaveProfileFields() index.html ~14519, pre-fix] mirrors a faculty/manager/vp/principal\'s own DOB into the Staff Directory table via a Firestore db.runTransaction() call with NO RTDB fallback whatsoever -- for a Firestore-blocked role (manager/vp/principal, this file\'s own long-documented limitation, see loadFirestoreData() ~10366 and the v1339/v1340 changelog entries), the transaction throws immediately, hits the catch block, and until now just logged the failure and gave up -- the actual DOB was never written anywhere Staff Directory could read it, even though staff_directory itself was confirmed (by reading staffDirectoryRender()/sdSaveToFirestore()) to have NO RTDB mirror at all to fall back to, unlike ia_windows/ia_permissions/ia_clear_log which already had one before this session\'s earlier fixes. So every manager/VP/principal who completes the mandatory DOB step would have their OWN login correctly gated/skip correctly (confirmed working -- that part reads straight from their own profile, unaffected), while Staff Directory silently never reflected it, indefinitely, with no error visible to admin at all. FIX, three parts: (1) WRITE [facSaveProfileFields() index.html ~14554, inside the existing catch block] on a Firestore transaction failure, now writes the same dob/dobTime/dobPlace/dobLat/dobLon fields to a NEW dedicated RTDB path davan_pub/staff_directory_dob_mirror/{safeKey}, keyed by the same _facKey()-normalized name Staff Directory\'s own row-matching already uses, with forbidden RTDB path characters (., #, $, [, ]) encoded via the existing _rtdbSafeKey()/_rtdbUnsafeKey() pair (already proven elsewhere in this file for class names). (2) READ [staffDirectoryRender() index.html ~15596] after its normal Firestore load and array-shape normalization, now separately fetches this new mirror path and merges any entry in as a GAP-FILLER ONLY -- a row that already has a real dob from Firestore is never touched, so an admin\'s own direct edits in this table always stay authoritative; the mirror only ever fills the specific gap this bug created. (3) CLEANUP [sdSaveToFirestore() index.html ~15766] once admin\'s own "Save All Changes" genuinely lands a real dob value into Firestore for a given row, the matching mirror entry (if any) is now deleted, so it can never linger stale or contradict a later admin correction. VERIFIED: all 20 real script blocks node --check clean (block 0 pre-existing false positive, confirmed unrelated, same as every prior entry); confirmed staff_directory_dob_mirror is a genuinely new RTDB path with no existing reader/writer to conflict with. NOT YET LIVE-TESTED: please redeploy, then check whether Manjappa H\'s existing DOB (already saved on his own account before this fix existed) now appears in Staff Directory -- IMPORTANT CAVEAT: his ORIGINAL save already hit the catch block under the OLD code, which did not write the new mirror path at all, so his specific entry will likely still be missing until he either re-triggers a DOB save somehow, or admin manually types his DOB into Staff Directory directly this one time (simplest path for this one already-affected case). Going forward, any NEW manager/vp/principal completing the DOB modal for the first time after this deploy should correctly appear in Staff Directory automatically -- please confirm with a fresh test account or the next real completion. CODE_BUILD=1378.' },
 { v: 'v1377', date: '10-Sep-2026 IST', note: 'NEW FEATURE, direct admin request following the v1373-1376 investigation: "i want to see who all has given permission to whom all in my log if need admin will take action or ask that persion who has give persion" -- F12 diagnostic confirmed all 11 real IA1 permission grants had zero matching clear-log entries, because v1373-1376 were not yet deployed when they were granted (confirmed directly by admin: "Haven\'t redeployed yet") -- so the CLEARED/EXCLUDED TIMELINE will correctly stay empty for these specific historical grants even now, since that panel depends on a separate log write (iarAppendClearLog) that genuinely never happened for them, and code deployed today cannot retroactively create a log entry for an action that already occurred under the old broken code. Rather than attempt a backfill (which would need to fabricate a timestamp/actor for the missing log write), built a DIRECT view instead: [ialPermissionsListHtml() index.html ~39980] reads straight from iaeGetPermissions() -- the actual source of truth, already confirmed correct and complete by the F12 diagnostic in this conversation -- filtered to the current exam tab, sorted newest-grant-first, showing student photo/name/class, the real reason text, WHO granted it (grantedBy), and WHEN (grantedAt). This has NO dependency on the separate clear-log write at all, so it is immune to the exact class of bug found in v1373-1376 going forward, and shows every permission on record the moment it exists in Firestore/RTDB, including all 11 that are currently missing from the timeline. New panel titled "✍️ PERMISSIONS GRANTED — {examTag} — N student(s)", placed directly above the existing CLEARED/EXCLUDED TIMELINE in [ialRender() index.html ~39783], both the table view and cards view branches, gated to the same admin/manager/vp/principal visibility as the timeline it sits next to. Deliberately did NOT touch or attempt to backfill the clear-log itself -- kept as a separate, additive panel per explicit instruction to just see the list, with admin free to decide separately whether any backfill of the historical timeline is wanted. VERIFIED: all 20 real script blocks node --check clean (block 0 pre-existing false positive, confirmed unrelated, same as every prior entry); confirmed iaeGetPermissions() is guaranteed fresh by the time this renders since ialRender() already calls iaeEnsureFresh() at its top, which (per the v1373 fix) awaits iaeFetchPermissions() before any render proceeds. NOT YET LIVE-TESTED: please redeploy this build to GitHub Pages (admin confirmed the v1373-1376 fixes were never actually pushed live yet, which is the real reason permissions have not been appearing in the timeline), reopen IA Ledger, and confirm the new PERMISSIONS GRANTED panel shows all 11 currently-known grants (MANOJ M MATTI, ROHITH S G, LIKHITHA M, KEERTI KALLANAGOUDA DANEGONDAR, PRIYANKA D R, ANJALI A CHAVHAN, J P DEVARAJ, NANDEESH S PATIL, DIGANTH GOWDA G, TANISH R DHANPAL, PALLAVI M U for IA1) with the correct granter (Kiran Kumar G K) and timestamps. CODE_BUILD=1377.' },
 { v: 'v1376', date: '10-Sep-2026 IST', note: 'REAL ROOT CAUSE FOUND, admin correctly pushed back on the v1374 fix ("ia ledger its not showing the permited student list its showing rule permited studetns not mannul permimeted check this also") -- F12 diagnostic against Firestore directly proved this: of 49 real clear-log entries for IA1, ALL 49 were event:\'cleared\' (rule engine), ZERO were event:\'permitted\', even though MANOJ M MATTI\'s permission record was separately confirmed genuinely present in ia_permissions. This is a DIFFERENT, OLDER bug than v1373/v1374/v1375 (which were read-side, per-device caching issues) -- this one is a WRITE-side result-reporting mistake, and it explains why permission grants specifically (as opposed to rule-clears) were the ones going missing. ROOT CAUSE: [iaeSavePermissions() index.html ~37564, and the same pattern in iaeSaveWindows()/_iaeLockSnapshot()/iarSaveTA()/iarAppendLog()/iarAppendClearLog()] all correctly ATTEMPT an RTDB write independent of the Firestore result (the v1339/v1373 fix), but every one of them still RETURNED the Firestore-only result as their success/fail value -- the independent RTDB attempt\'s own outcome was never factored into what the function reported back to its caller. For a Firestore-blocked role (manager/vp/principal -- this codebase\'s own long-documented file:// limitation, see v1234/v1339), the data would genuinely save via the RTDB leg, but the function would still report failure. [iaeGrantPermission() index.html ~37642] gates BOTH the success toast AND the call to iarAppendClearLog() (the thing that populates the CLEARED / EXCLUDED TIMELINE) behind `if (ok)` from iaeSavePermissions() -- so when a PRINCIPAL (a Firestore-blocked role) granted permission, the permission itself saved correctly (explaining why it correctly showed in Final Shortage and iaeGetPermission()), but the function reported failure, so the principal never saw a success toast AND iarAppendClearLog() was never even called -- explaining exactly why zero \'permitted\' entries existed anywhere despite real permissions existing. iarSaveTA() additionally had the OLDER, more severe form of this bug -- its RTDB write was still fully GATED behind Firestore success (`if (ok) { rtdbSafeSet } `), a fourth occurrence of the exact dead-end pattern v1339 already fixed elsewhere but missed here, meaning a Firestore-blocked role\'s TA edits could go to NEITHER store at all, not just misreport. FIX, applied identically across all SIX save/append functions in this module -- [iaeSavePermissions() ~37564, iaeSaveWindows() ~37259, _iaeLockSnapshot() ~37339, iarSaveTA() ~37814, iarAppendLog() ~37896, iarAppendClearLog() ~37987]: each now tracks the Firestore result and the RTDB result as two SEPARATE variables (fsOk/rtdbOk), attempts RTDB unconditionally, and returns `fsOk || rtdbOk` -- true if EITHER store genuinely saved the data, matching the already-proven 3-tier READ fallback these six functions\' own getters use. iarSaveTA() additionally had its RTDB write un-gated from the Firestore success check entirely (previously nested inside `if(ok)`), not just its return value corrected. VERIFIED: all 20 real script blocks node --check clean (block 0 pre-existing false positive, confirmed unrelated, same as every prior entry); confirmed all 6 touched functions have exactly one definition each and every real caller (iaeEditCutoffDate, iaeSaveWindowsUI, iaeGrantPermission, iarAutoApplyBatch, iarSetTA, and the two log-append call sites) still receives the same boolean shape it expected before, no caller signature changes needed. THIS EXPLAINS the exact reported symptom precisely: rule-clears (iarAutoApplyBatch, called automatically on every Final Shortage page-open, likely mostly triggered from admin\'s own Firestore-unblocked session) kept logging fine, while manual permission grants (disproportionately performed by principal/manager/vp -- Firestore-blocked roles, per this file\'s own long-documented constraint) were silently dropped from the timeline specifically. NOT YET LIVE-TESTED: please have the PRINCIPAL grant a fresh permission to a test student, confirm they now see the green success toast (previously would have failed silently for their role), then confirm that grant appears in the CLEARED / EXCLUDED TIMELINE as an event:\'permitted\' row on ANY device, admin\'s included. Also please confirm a manual TA edit made by a manager/vp/principal now correctly appears in the EDIT LOG too. MANOJ M MATTI\'s own permission (and any other permission granted before this fix) will still show correctly in Final Shortage but will remain absent from the timeline going backward — that gap is historical, from before this fix existed, not something this code change can retroactively create; ask if a manual backfill of missing history is wanted. CODE_BUILD=1376.' },
 { v: 'v1375', date: '10-Sep-2026 IST', note: 'BUG FIX, direct admin report while confirming v1374: student MANOJ M MATTI (U13DI25S0011) correctly showed "Permitted" in the CLEARED / EXCLUDED TIMELINE (v1374 fix working), but "EDIT LOG (admin only)" still said "No edits logged yet" while logged in as admin. F12 diagnostic run against Firebase directly confirmed this specific student\'s permission record genuinely exists in Firestore, with zero clear-log entries for him -- ruling out a sync bug for THAT case (his clear-log gap is a one-off data gap from before v1374 existed, not a code bug -- see conversation). But separately, THIRD occurrence of the exact same root-cause class as v1373 (permissions) and v1374 (clear-log timeline): [iarGetLog() index.html ~37789, pre-fix] read ONLY localStorage, even though iarAppendLog() genuinely writes the real entry to Firestore (app_data/ia_edit_log_{examTag}) AND the RTDB public mirror (davan_pub/ia_edit_log/{examTag}) every time -- so a TA edit made on one admin session/device was invisible to any other admin session that never happened to write that exact entry itself, same device-cache-disagreement pattern as the previous two fixes. IMPORTANT DISTINCTION documented here for future debugging: this EDIT LOG only tracks per-subject TA (rule engine) edits -- ta_set/ta_clear/rule_revert/rule_reapply -- it does NOT include permission grants at all, those live in the separate CLEARED / EXCLUDED TIMELINE above it (fixed at v1374). So a student who only ever had a permission granted, with no TA edits, will correctly show nothing here even after this fix -- that split is by design, not a bug, and was the source of confusion in this exact report. FIX: [iarGetLog() index.html ~37789] now async, same proven 3-tier Firestore->RTDB-public-mirror->localStorage read as v1373/v1374. [ialLogHtml() index.html ~39887] now async to await it; both real call sites -- inside ialRender(), already async -- updated to await it, no new async boundaries needed. [iarAppendLog() index.html ~37855] updated to await the now-async getter before appending, plus the same RTDB-mirror-gated-behind-Firestore-success dead-end fix already applied at v1373/v1374. VERIFIED: all 20 real script blocks node --check clean (block 0 pre-existing false positive, confirmed unrelated, same as every prior entry); confirmed both real call sites of the old sync iarGetLog()/ialLogHtml() were updated. This now completes the same fix across all THREE per-exam IA logs that shared the identical localStorage-only flaw: permissions (v1373), clear-log timeline (v1374), and this per-subject edit log (v1375) -- no other IA-module storage function was found to share this pattern on a fresh audit. NOT YET LIVE-TESTED: please make a TA edit (set or clear a value in Final Shortage / IA Ledger) as admin, then reopen IA Ledger on a genuinely different device/browser and confirm the EDIT LOG now shows that edit -- and separately confirm a permission-only student (no TA edits) correctly still shows nothing in EDIT LOG while still showing in CLEARED / EXCLUDED TIMELINE, matching the intended split. CODE_BUILD=1375.' },
