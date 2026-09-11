@@ -1,4 +1,37 @@
 <!DOCTYPE html>
+<!--
+  DAVAN PUC — FACULTY APP — DEV HANDOFF
+  ─────────────────────────────────────
+  FILE_VERSION: fac-1.0.2   LAST_EDIT_IST: 2026-09-11 (see HTML_CHANGELOG below)
+
+  F12 DIAGNOSTIC HARD RULE (applies to this file, and to every Davan app):
+  Whenever something can't be verified by reading code alone, don't guess —
+  hand Harsha an exact copy-pasteable F12 console snippet whose LAST line is
+  always `copy(...)` wrapping the full result, so the answer lands straight
+  on his clipboard. Re-check every snippet ends in copy(...) before sending.
+
+  HTML_CHANGELOG (newest first — every entry note starts with a [file:line] tag):
+  - 2026-09-11 [faculty.html:TT1PUC_FAC_SEC] Added ENG (23COMEN02, all
+    sections) → Vidya V Hasbavi. TT1PUC_FAC_SEC had zero ENG keys, and
+    resolveFac() never falls back to TT_FACULTY_DEFAULT for is1puc=true, so
+    1PUC English faculty showed blank/— in every results table, all sections.
+  - 2026-09-11 [faculty.html:stuCard()] Reset _mrmResultMode to 'internals'
+    and cleared _mrmSelectedIA on every card open — previously these were
+    module-level globals left sticky from the last-viewed student (or
+    hardcoded 'annual' on first load), so RESULTS sometimes opened on
+    Annual Exam or a stale IA instead of the latest Internals for the
+    student actually being viewed.
+  - 2026-09-11 [faculty.html:mrmRenderResults()] Added SSLC (10th std) marks
+    line beside the RESULTS header, both Internals and Annual views. Source:
+    puc_marks/<activeAY>/sslc/<classLabel> (array of {usn,name,obtained,
+    total,pct}), confirmed live via F12. Cached per-USN in _sslcCache.
+  - 2026-09-11 [faculty.html:marksRender()] Added subject-level analysis
+    (zero-scorers, distribution, trend) below the Internal Marks table, and
+    a rules-based 🧠 ANALYSIS tab in the student card (Chart.js via CDN).
+    No SSLC / conduct-remark data source exists in this app yet — those
+    fields are intentionally left out until Harsha points to where that
+    data lives.
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -378,6 +411,7 @@ table{border-collapse:collapse;}
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════════
 // Davan PUC — Faculty standalone. Same Firebase project/paths as
@@ -535,6 +569,12 @@ const TT1PUC_FAC_SEC = {
   'A|BS':'Roshan Zameer.M','B|BS':'PRIYANKA B P','C|BS':'ASHWINI K M',
   'A|ACC':'PRIYANKA B P','B|ACC':'Roshan Zameer.M','C|ACC':'Roshan Zameer.M',
   'A|CS':'Amrutha A S','B|STA':'Trupthi Jannu','C|STA':'Trupthi Jannu',
+  // FIX: ENG was missing from this map entirely — 1PUC English (23COMEN02)
+  // never resolved a faculty name in any section, showing blank/— in the
+  // internals results table. resolveFac() only checks TT1PUC_FAC_SEC for
+  // is1puc=true (no fallback to TT_FACULTY_DEFAULT), so it had to be added
+  // here directly. Confirmed with Harsha: same teacher as 2PUC, all sections.
+  'A|ENG':'Vidya V Hasbavi','B|ENG':'Vidya V Hasbavi','C|ENG':'Vidya V Hasbavi',
 };
 
 let subjectMap = {}, photos = {}, studentsByClass = {}, studentIndex = null;
@@ -1275,6 +1315,7 @@ function marksInit(){
   marksRender();
 }
 
+let _marksCache=null;
 async function marksRender(){
   const w=document.getElementById('marks-wrap');
   const v=document.getElementById('marks-class').value;
@@ -1322,6 +1363,9 @@ async function marksRender(){
           <span style="color:var(--danger);">✗${s.fail}</span>
           <span style="color:var(--muted);">–${s.ab}</span>
         </div></div>`).join('')}</div>`;
+    // Cache so the student-card ANALYSIS tab (msaRenderTab) can reuse this
+    // exact dataset without a second fetch when opened from this table.
+    _marksCache={classLabel,code,live,rows,pmOf,summary};
     w.innerHTML=sumHtml+`<div class="card" style="padding:0;overflow-x:auto;"><table style="width:100%;font-size:13px;">
       <thead><tr style="background:var(--surface2);">
         <th style="padding:8px 10px;border:${bd};text-align:left;font-family:var(--mono);font-size:10px;color:var(--muted);">STUDENT</th>
@@ -1338,8 +1382,113 @@ async function marksRender(){
           const col=(m==='AB'||isFail)?'var(--danger)':((m===undefined||m===null)?'var(--muted)':'var(--text)');
           const bg=isFail?'rgba(239,68,68,.10)':'transparent';
           return `<td style="padding:6px 10px;border:${bd};text-align:center;font-family:var(--mono);font-weight:700;color:${col};background:${bg};">${esc(String(d))}</td>`;}).join('')}
-      </tr>`).join('')}</tbody></table></div>`;
+      </tr>`).join('')}</tbody></table></div>`
+      +marksAnalysisHtml(live,rows,pmOf);
+    marksAnalysisCharts(live,rows,pmOf);
   }catch(e){w.innerHTML='<div class="empty">⚠ '+e.message+'</div>';}
+}
+
+// ── Subject-level analysis (below the Internal Marks table) ────────────
+// Pure rules-based stats over the same `live`/`rows` the table already
+// built — no extra fetch. Zero-scorers, per-test distribution, and the
+// class-average trend across tests, each with its own Chart.js canvas.
+function marksAnalysisHtml(live,rows,pmOf){
+  const zeroRows=live.map(t=>{
+    const zeros=rows.filter(r=>{const m=r.marks[t.l];return m!==undefined&&m!==null&&m!=='AB'&&Number(m)===0;});
+    return {label:EXAM_LABELS[t.l],zeros};
+  }).filter(z=>z.zeros.length);
+  const zeroHtml=zeroRows.length
+    ? zeroRows.map(z=>`<div style="margin-bottom:10px;">
+        <div style="font-size:10px;font-family:var(--mono);color:var(--danger);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">0 IN ${esc(z.label)} (${z.zeros.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${z.zeros.map(r=>`<span onclick="stuCard('${esc(r.usn)}','${esc(String(r.name).replace(/'/g,"&#39;"))}')"
+            style="cursor:pointer;background:rgba(239,68,68,.12);color:var(--danger);border:1px solid rgba(239,68,68,.3);
+            border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;">${esc(r.name)}</span>`).join('')}
+        </div></div>`).join('')
+    : '<div style="font-size:12px;color:var(--muted);">No zero scores recorded 🎉</div>';
+
+  return `
+  <div style="font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;
+    color:var(--muted);margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border);">📈 Subject Analysis</div>
+
+  <div class="card" style="margin-bottom:14px;">
+    <div style="font-size:9px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">Zero Scorers</div>
+    ${zeroHtml}
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:14px;">
+    <div class="card">
+      <div style="font-size:9px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">Class Average Trend</div>
+      <canvas id="msa-trend" height="160"></canvas>
+    </div>
+    <div class="card">
+      <div style="font-size:9px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">Pass / Fail / Absent per Test</div>
+      <canvas id="msa-passfail" height="160"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:9px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;">Score Distribution</div>
+      <select id="msa-dist-test" onchange="marksAnalysisRedrawDist()" style="width:auto;padding:6px 10px;font-size:11px;">
+        ${live.map((t,i)=>`<option value="${i}">${esc(EXAM_LABELS[t.l])}</option>`).join('')}
+      </select>
+    </div>
+    <canvas id="msa-dist" height="160"></canvas>
+  </div>`;
+}
+
+let _msaCharts={};
+function marksAnalysisCharts(live,rows,pmOf){
+  if(typeof Chart==='undefined')return;
+  Object.values(_msaCharts).forEach(c=>{try{c.destroy();}catch(e){}});
+  _msaCharts={};
+  const css=getComputedStyle(document.documentElement);
+  const cVar=n=>css.getPropertyValue(n).trim();
+  const gridColor=cVar('--border'), textColor=cVar('--muted');
+  Chart.defaults.color=textColor; Chart.defaults.borderColor=gridColor; Chart.defaults.font.family="'JetBrains Mono',monospace";
+
+  // Class average trend across tests
+  const avgs=live.map(t=>{
+    const nums=rows.map(r=>r.marks[t.l]).filter(m=>m!==undefined&&m!==null&&m!=='AB'&&!isNaN(Number(m))).map(Number);
+    return nums.length?+(nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(1):null;
+  });
+  const elT=document.getElementById('msa-trend');
+  if(elT) _msaCharts.trend=new Chart(elT,{type:'line',data:{labels:live.map(t=>EXAM_LABELS[t.l]),
+    datasets:[{label:'Class avg',data:avgs,borderColor:cVar('--accent'),backgroundColor:'transparent',tension:.3,pointRadius:4}]},
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,grid:{color:gridColor}},x:{grid:{display:false}}}}});
+
+  // Pass/fail/absent stacked per test
+  const elP=document.getElementById('msa-passfail');
+  if(elP) _msaCharts.passfail=new Chart(elP,{type:'bar',data:{labels:live.map(t=>EXAM_LABELS[t.l]),
+    datasets:[
+      {label:'Pass',data:live.map(t=>{const pm=pmOf(t.l);return rows.filter(r=>{const m=r.marks[t.l];return m!==undefined&&m!==null&&m!=='AB'&&!isNaN(Number(m))&&Number(m)>=pm;}).length;}),backgroundColor:cVar('--ok')},
+      {label:'Fail',data:live.map(t=>{const pm=pmOf(t.l);return rows.filter(r=>{const m=r.marks[t.l];return m!==undefined&&m!==null&&m!=='AB'&&!isNaN(Number(m))&&Number(m)<pm;}).length;}),backgroundColor:cVar('--danger')},
+      {label:'Absent',data:live.map(t=>rows.filter(r=>r.marks[t.l]==='AB').length),backgroundColor:cVar('--warn')},
+    ]},
+    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}},
+      scales:{y:{beginAtZero:true,stacked:true,grid:{color:gridColor}},x:{stacked:true,grid:{display:false}}}}});
+
+  window._msaLive=live; window._msaRows=rows;
+  marksAnalysisRedrawDist();
+}
+function marksAnalysisRedrawDist(){
+  if(typeof Chart==='undefined')return;
+  const sel=document.getElementById('msa-dist-test'); if(!sel)return;
+  const i=parseInt(sel.value)||0, t=window._msaLive[i], rows=window._msaRows;
+  const nums=rows.map(r=>r.marks[t.l]).filter(m=>m!==undefined&&m!==null&&m!=='AB'&&!isNaN(Number(m))).map(Number);
+  // Bucket width adapts to the observed max score so this works whether the
+  // test is out of 20, 25, or 50 — 5 buckets spanning 0..max (min width 5).
+  const obsMax=nums.length?Math.max(...nums):20;
+  const bw=Math.max(5,Math.ceil((obsMax+1)/5));
+  const buckets=[0,1,2,3,4].map(i=>[i*bw,i*bw+bw]);
+  const labels=buckets.map(([a,b],i)=>i===buckets.length-1?`${a}+`:`${a}-${b-1}`);
+  const counts=buckets.map(([a,b],i)=>i===buckets.length-1?nums.filter(n=>n>=a).length:nums.filter(n=>n>=a&&n<b).length);
+  const css=getComputedStyle(document.documentElement), cVar=n=>css.getPropertyValue(n).trim();
+  const elD=document.getElementById('msa-dist'); if(!elD)return;
+  if(_msaCharts.dist)try{_msaCharts.dist.destroy();}catch(e){}
+  _msaCharts.dist=new Chart(elD,{type:'bar',data:{labels,datasets:[{label:'Students',data:counts,backgroundColor:cVar('--accent')}]},
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1},grid:{color:cVar('--border')}},x:{grid:{display:false}}}}});
 }
 
 // ── attendance report ────────────────────────────────────────
@@ -1790,6 +1939,14 @@ function stuCard(usn,fallbackName){
     if(f){rec=f;cls=label;break;}
   }
   _sc={usn,name:(rec&&rec.name)||fallbackName||usn,rec,cls,tab:_sc.tab||'attend'};
+  // FIX: _mrmResultMode/_mrmSelectedIA are module-level globals shared across
+  // every student — without resetting them here, opening student B right
+  // after student A kept whatever mode/IA was left over from A (or, on the
+  // very first card of a session, the hardcoded 'annual' default), so the
+  // RESULTS tab sometimes opened on Annual Exam or a stale IA instead of the
+  // latest Internals. Reset on every open so each student starts clean.
+  _mrmResultMode='internals';
+  _mrmSelectedIA='';
   const ph=fscPhoneFor(usn,rec);
   // Phone sits beside the name and is tap-to-call (tel:), same as the admin card.
   const phDigits=String(ph||'').replace(/\D/g,'');
@@ -1807,7 +1964,7 @@ function stuCard(usn,fallbackName){
 function scTab(t){_sc.tab=t;scRender();}
 
 function scRender(){
-  const tabs=[['results','📊 RESULTS'],['attend','📅 ATTEND'],['follow','🔔 FOLLOW-UP'],['letters','📄 LETTERS'],['summary','📋 SUMMARY']];
+  const tabs=[['results','📊 RESULTS'],['analysis','🧠 ANALYSIS'],['attend','📅 ATTEND'],['follow','🔔 FOLLOW-UP'],['letters','📄 LETTERS'],['summary','📋 SUMMARY']];
   const bar=`<div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px;flex-wrap:wrap;">
     ${tabs.map(([k,l])=>`<button onclick="scTab('${k}')" style="background:transparent;border:none;cursor:pointer;
       padding:10px 16px;font-size:11px;font-family:var(--mono);letter-spacing:1px;
@@ -1817,9 +1974,14 @@ function scRender(){
   let body='';
   if(_sc.tab==='attend')  body='<div id="mrm-body"></div>';
   if(_sc.tab==='results') body='<div id="mrm-body"><div class="loading-state"><div class="spinner"></div> Loading marks…</div></div>';
+  if(_sc.tab==='analysis')body='<div id="mrm-body"><div class="loading-state"><div class="spinner"></div> Building analysis…</div></div>';
   if(_sc.tab==='summary') body='<div id="mrm-body"></div>';
   if(_sc.tab==='follow'||_sc.tab==='letters') body='<div id="mrm-body"><div class="loading-state"><div class="spinner"></div> Loading…</div></div>';
   document.getElementById('stu-body').innerHTML=bar+body;
+  if(_sc.tab==='analysis'){
+    const ab=document.getElementById('mrm-body');
+    Promise.resolve(msaRenderTab(ab)).catch(e=>{ab.innerHTML='<div class="empty">⚠ '+e.message+'</div>';});
+  }
   if(_sc.tab==='results'){
     fscSyncIdentity();
     _mrmStudent={usn:_sc.usn, name:_sc.name, class:_sc.cls};
@@ -1897,6 +2059,134 @@ function scAttend(){
       </tr>`;}).join('')}</tbody></table></div>`;
 }
 
+// ── 🧠 ANALYSIS tab — rules-based per-student breakdown for the subject ─
+// currently open in the Internal Marks table: marks trend vs class avg,
+// pass/fail pattern, and attendance for that same subject, synthesised
+// into plain-language flags. No AI API call — deterministic rules only.
+// If opened for a student not in the cached marks table (e.g. via
+// Attendance Report or Broadcast), falls back to fetching that student's
+// class+subject from myClasses so the tab still works everywhere stuCard()
+// is used, not just from the Marks page.
+async function msaRenderTab(body){
+  let mc=_marksCache;
+  const sameClass=mc&&mc.classLabel===_sc.cls;
+  if(!sameClass){
+    // Try to find a class this faculty teaches that matches this student's class.
+    const match=(myClasses||[]).find(c=>c.classLabel===_sc.cls);
+    if(!match){
+      body.innerHTML='<div class="empty">No subject/class context available for analysis. Open this student from the Internal Marks page for a subject-specific view.</div>';
+      return;
+    }
+    body.innerHTML='<div class="loading-state"><div class="spinner"></div> Fetching marks…</div>';
+    const labels=Object.keys(EXAM_LABELS);
+    const fetched=await Promise.all(labels.map(async l=>{
+      try{const r=await fetch(`${FB_URL}/puc_marks/${AY}/${EXAM_KEYS[l]}/${encodeURIComponent(match.classLabel)}.json`);
+        const d=await r.json(); return {l,students:Array.isArray(d)?d:null};}catch(e){return {l,students:null};}
+    }));
+    let passMarks={};
+    try{const d=await db.collection('app_data').doc('puc_ia_pass_marks').get(); if(d.exists)passMarks=d.data()||{};}catch(e){}
+    const live=fetched.filter(f=>f.students&&f.students.length);
+    const by={};
+    live.forEach(t=>t.students.forEach(s=>{
+      const k=(s.usn&&s.usn.trim())?s.usn.trim():('n:'+(s.name||''));
+      if(!by[k])by[k]={usn:s.usn||'',name:s.name||s.usn||'—',marks:{}};
+      const c=(s.courses||[]).find(x=>x.code===match.code);
+      by[k].marks[t.l]=c?Object.values(c.marks||{})[0]:undefined;
+    }));
+    const rows=Object.values(by);
+    const pmOf=l=>{const v=passMarks[l];return (v===undefined||v===null||v==='')?20:Number(v);};
+    mc={classLabel:match.classLabel,code:match.code,live,rows,pmOf};
+  }
+  if(!mc.live||!mc.live.length){body.innerHTML='<div class="empty">No marks entered for this subject yet.</div>';return;}
+  const myKey=(_sc.usn&&_sc.usn.trim())?_sc.usn.trim():('n:'+_sc.name);
+  const me=mc.rows.find(r=>((r.usn&&r.usn.trim())?r.usn.trim():('n:'+r.name))===myKey);
+  if(!me){body.innerHTML='<div class="empty">This student has no marks recorded for this subject yet.</div>';return;}
+
+  // Per-test: this student's score, class avg, pass/fail against that test's pass mark.
+  const perTest=mc.live.map(t=>{
+    const pm=mc.pmOf(t.l);
+    const mine=me.marks[t.l];
+    const classNums=mc.rows.map(r=>r.marks[t.l]).filter(m=>m!==undefined&&m!==null&&m!=='AB'&&!isNaN(Number(m))).map(Number);
+    const classAvg=classNums.length?+(classNums.reduce((a,b)=>a+b,0)/classNums.length).toFixed(1):null;
+    const status=(mine===undefined||mine===null)?'not-entered':(mine==='AB')?'absent':(isNaN(Number(mine))?'not-entered':(Number(mine)<pm?'fail':'pass'));
+    return {label:EXAM_LABELS[t.l],pm,mine:(mine===undefined||mine===null)?null:mine,classAvg,status};
+  });
+  const scored=perTest.filter(t=>t.status==='pass'||t.status==='fail');
+  const passCount=scored.filter(t=>t.status==='pass').length;
+  const failCount=scored.filter(t=>t.status==='fail').length;
+  const absentCount=perTest.filter(t=>t.status==='absent').length;
+  const zeroCount=scored.filter(t=>Number(t.mine)===0).length;
+  const myAvg=scored.length?+(scored.reduce((a,t)=>a+Number(t.mine),0)/scored.length).toFixed(1):null;
+  const classAvgOverall=(()=>{const v=perTest.map(t=>t.classAvg).filter(v=>v!=null);return v.length?+(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1):null;})();
+
+  // Trend direction: compare first-scored vs last-scored test.
+  let trend='flat';
+  if(scored.length>=2){
+    const first=Number(scored[0].mine), last=Number(scored[scored.length-1].mine);
+    trend=last>first?'improving':last<first?'declining':'flat';
+  }
+
+  // Attendance for this same subject, from _sc.rec.subjects (already loaded).
+  const subs=(_sc.rec&&_sc.rec.subjects)||[];
+  const subRec=subs.find(x=>x.subject===mc.code);
+  const ct=subRec&&subRec.ct!=null&&subRec.ct!==''?parseInt(subRec.ct):null;
+  const ca=subRec&&subRec.ca!=null&&subRec.ca!==''?parseInt(subRec.ca):null;
+  const attPct=(ct&&ca!=null)?Math.round(ca/ct*100):(subRec&&subRec.pct!=null?Math.round(Number(subRec.pct)):null);
+
+  // ── Rules-based flags (plain language, deterministic — no AI call) ──
+  const flags=[];
+  if(failCount>0&&scored.length)flags.push({sev:'danger',text:`Failed ${failCount} of ${scored.length} test(s) taken in this subject.`});
+  if(zeroCount>0)flags.push({sev:'danger',text:`Scored 0 in ${zeroCount} test(s) — check if this was a genuine attempt or a missed submission.`});
+  if(absentCount>0)flags.push({sev:'warn',text:`Absent for ${absentCount} test(s).`});
+  if(myAvg!=null&&classAvgOverall!=null){
+    const diff=+(myAvg-classAvgOverall).toFixed(1);
+    if(diff<=-10)flags.push({sev:'danger',text:`Averaging ${myAvg} vs class average ${classAvgOverall} — well below the class (${diff} pts).`});
+    else if(diff<0)flags.push({sev:'warn',text:`Averaging ${myAvg}, slightly below class average ${classAvgOverall} (${diff} pts).`});
+    else flags.push({sev:'ok',text:`Averaging ${myAvg}, at or above class average ${classAvgOverall} (+${diff} pts).`});
+  }
+  if(trend==='improving')flags.push({sev:'ok',text:`Improving trend: ${scored.map(t=>t.mine).join(' → ')}.`});
+  if(trend==='declining')flags.push({sev:'danger',text:`Declining trend: ${scored.map(t=>t.mine).join(' → ')}.`});
+  if(attPct!=null){
+    if(attPct<75&&failCount>0)flags.push({sev:'danger',text:`Attendance ${attPct}% (below 75%) AND failing this subject — high risk, recommend the office flag for IA eligibility review.`});
+    else if(attPct<75)flags.push({sev:'warn',text:`Attendance ${attPct}% for this subject — below the 75% eligibility line.`});
+    else flags.push({sev:'ok',text:`Attendance ${attPct}% for this subject — meets the 75% line.`});
+  }
+  if(!flags.length)flags.push({sev:'ok',text:'No specific concerns flagged from the available marks and attendance data.'});
+
+  const sevColor={danger:'var(--danger)',warn:'var(--warn)',ok:'var(--ok)'};
+  const sevBg={danger:'rgba(239,68,68,.10)',warn:'rgba(245,158,11,.10)',ok:'rgba(34,197,94,.10)'};
+  const sevIcon={danger:'⚠',warn:'●',ok:'✓'};
+
+  body.innerHTML=`
+    <div class="card" style="margin-bottom:14px;">
+      <div style="font-size:9px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">Rules-Based Summary</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${flags.map(f=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:8px;background:${sevBg[f.sev]};">
+          <span style="color:${sevColor[f.sev]};font-weight:700;flex-shrink:0;">${sevIcon[f.sev]}</span>
+          <span style="font-size:12px;color:var(--text);line-height:1.5;">${esc(f.text)}</span></div>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:9px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">Marks vs Class Average</div>
+      <canvas id="msa-stu-chart" height="160"></canvas>
+    </div>
+    <div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:12px;">
+      Rules-based analysis from recorded marks + attendance for this subject only. Not a substitute for faculty judgement.
+    </div>`;
+
+  if(typeof Chart!=='undefined'){
+    const css=getComputedStyle(document.documentElement), cVar=n=>css.getPropertyValue(n).trim();
+    const el=document.getElementById('msa-stu-chart');
+    if(el)new Chart(el,{type:'line',data:{labels:perTest.map(t=>t.label),
+      datasets:[
+        {label:_sc.name,data:perTest.map(t=>t.mine==null||t.mine==='AB'?null:Number(t.mine)),borderColor:cVar('--accent'),backgroundColor:'transparent',tension:.3,pointRadius:4,spanGaps:true},
+        {label:'Class avg',data:perTest.map(t=>t.classAvg),borderColor:cVar('--muted'),backgroundColor:'transparent',borderDash:[5,4],tension:.3,pointRadius:3,spanGaps:true},
+      ]},
+      options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}},
+        scales:{y:{beginAtZero:true,grid:{color:cVar('--border')}},x:{grid:{display:false}}}}});
+  }
+}
+
 // RESULTS tab — every internal test for this student, across all subjects.
 async function scResults(){
   const body=document.getElementById('stu-body');
@@ -1938,7 +2228,7 @@ async function scResults(){
 }
 // Re-renders the tab bar plus new body content (keeps the active tab lit).
 function scReplaceBody(html){
-  const tabs=[['results','📊 RESULTS'],['attend','📅 ATTEND'],['follow','🔔 FOLLOW-UP'],['letters','📄 LETTERS'],['summary','📋 SUMMARY']];
+  const tabs=[['results','📊 RESULTS'],['analysis','🧠 ANALYSIS'],['attend','📅 ATTEND'],['follow','🔔 FOLLOW-UP'],['letters','📄 LETTERS'],['summary','📋 SUMMARY']];
   const bar=`<div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px;flex-wrap:wrap;">
     ${tabs.map(([k,l])=>`<button onclick="scTab('${k}')" style="background:transparent;border:none;cursor:pointer;
       padding:10px 16px;font-size:11px;font-family:var(--mono);letter-spacing:1px;
@@ -4815,6 +5105,7 @@ let _intCache = {};
 // so every WhatsApp button click died with a ReferenceError.
 const SP_MARKS_AY = (typeof AY !== 'undefined') ? AY : '2026-27';
 let _mrmResultMode = 'annual';   // 'annual' | 'internals'
+let _sslcCache = null;           // {usn, rec} — 10th-std marks for the student currently open
 let _mrmResAY      = '';         // '' = current AY
 let _mrmResAYData  = null;       // cached prior-year fetch
 let _mrFacAlloc    = {};         // { section: { code: facultyName } }
@@ -6094,6 +6385,31 @@ async function mrmRenderResults(body) {
   // Ensure prior-year faculty allocation is loaded (puc_faculty_allocation/2025-26/by_section)
   if (isPriorYear && typeof mrLoadFacAlloc === 'function') await mrLoadFacAlloc();
 
+  // ── SSLC (10th std) marks — shown beside the results header. Path per
+  // Harsha: puc_marks/<activeAY>/sslc/<classLabel>, an array of {usn,name,
+  // obtained,total,pct}. Cached per-USN so switching IA/mode within the same
+  // student's card doesn't refetch. Class label may not be known yet on the
+  // very first render, so this re-checks each call and only fetches once.
+  if (!_sslcCache || _sslcCache.usn !== s.usn) {
+    _sslcCache = {usn:s.usn, rec:null};
+    try{
+      const clsForFetch = (s.class || (_sc && _sc.cls) || '');
+      if (clsForFetch) {
+        const r = await rtdb.ref('puc_marks/'+activeAY+'/sslc/'+encodeURIComponent(clsForFetch)).once('value');
+        const arr = r.val();
+        if (Array.isArray(arr)) {
+          const usnLow=(s.usn||'').trim().toLowerCase(), nameLow=(s.name||'').trim().toLowerCase();
+          _sslcCache.rec = arr.find(x=>(x.usn||'').trim().toLowerCase()===usnLow)
+            || (!usnLow && nameLow ? arr.find(x=>(x.name||'').trim().toLowerCase()===nameLow) : null)
+            || null;
+        }
+      }
+    }catch(e){ _sslcCache.rec=null; }
+  }
+  const sslcHtml = _sslcCache && _sslcCache.rec
+    ? `<span style="opacity:0.85;margin-left:10px;color:#22c55e;">🎓 SSLC: ${_sslcCache.rec.obtained} / ${_sslcCache.rec.total} (${Number(_sslcCache.rec.pct).toFixed(2)}%)</span>`
+    : '';
+
   // ── Determine pass mark: internals uses int-pass-mark (20), annual uses mr-pass-mark (35)
   const passMark = _mrmResultMode === 'internals'
     ? parseInt(document.getElementById('int-pass-mark')?.value || 20)
@@ -6262,6 +6578,7 @@ async function mrmRenderResults(body) {
       📋 <span style="color:#f0a500;font-weight:700;">${_pucLabelInt} ${examLabel} Results</span>
       <span style="opacity:0.6;margin-left:6px;">(${intDisplayClass})</span>
       ${_intConductedLabel ? `<span style="opacity:0.55;margin-left:6px;">· Conducted: ${_intConductedLabel}</span>` : ''}
+      ${sslcHtml}
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr) 1.1fr 1.1fr 1.1fr 1.2fr;gap:6px;margin-bottom:14px;">${(()=>{
       const _intMaxPerSub  = 30;
@@ -6444,6 +6761,7 @@ async function mrmRenderResults(body) {
     📋 <span style="color:#f0a500;font-weight:700;">${_pucLabel} ${examLabel} Results</span>
     <span style="opacity:0.6;margin-left:6px;">(${displayClass})</span>
     ${isPriorFetch?`<span style="color:#60a5fa;margin-left:6px;font-size:9px;">📦 AY ${viewingAY}</span>`:''}
+    ${sslcHtml}
   </div>
   <div style="display:grid;grid-template-columns:repeat(4,1fr) 1.1fr 1.1fr 1.1fr 1.2fr;gap:6px;margin-bottom:14px;">${(()=>{
     const _annualMaxPerSub = 100;

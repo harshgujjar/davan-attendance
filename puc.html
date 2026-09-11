@@ -7,13 +7,20 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.216                                                      ║
-║  FILE NAME       : puc_v5.216.html                                             ║
-║  LAST UPDATED    : 2026-09-03 01:45 PM IST                                   ║
+║  CURRENT VERSION : v5.217                                                      ║
+║  FILE NAME       : puc_v5.217.html                                             ║
+║  LAST UPDATED    : 2026-09-11 12:00 PM IST                                   ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  RULES FOR CLAUDE — READ BEFORE MAKING ANY CHANGES                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  0. F12 DIAGNOSTIC HARD RULE                                                 ║
+║     Whenever unsure about anything not verifiable by reading code alone —   ║
+║     do NOT guess. Give an exact copy-pasteable F12 console snippet whose    ║
+║     LAST line is always copy(...) wrapping the full result. Re-check every  ║
+║     snippet ends in copy(...) before sending. Applies proactively, not     ║
+║     only after a reported breakage.                                        ║
 ║                                                                              ║
 ║  1. VERSION NUMBERING                                                        ║
 ║     - MAJOR (v2→v3): new feature section, major UI overhaul                 ║
@@ -49,6 +56,24 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v5.217 2026-09-11  FIX: studentStatus() in Internals WhatsApp FAIL LIST    ║
+║          builder — a student who passed every subject actually held for    ║
+║          them (e.g. Hindi, not Kannada) could still show up in FAIL LIST   ║
+║          as "Name - 0/7" (0 fails, but bucketed as FAIL). Root cause:       ║
+║          intMxPartner() (Hindi/Kannada/Sanskrit, CS/Statistics MX pairs)    ║
+║          relies on allPucStudents[].subjects to know which elective half   ║
+║          the student takes; when that lookup fails to match (student not   ║
+║          found, or name mismatch), the un-taken elective's blank mark is   ║
+║          counted as a real AB instead of being skipped — abCount>0 with   ║
+║          failCount=0 then fell through to overall='FAIL'. Added a          ║
+║          fallback inside studentStatus(): if a subject is AB and the       ║
+║          student has a real (non-AB) mark in its known MX-pair partner     ║
+║          subject, treat the AB half as unenrolled and don't count it,      ║
+║          even without a confirmed portal match. Does not touch             ║
+║          subjectStatus() or the on-screen results table — WhatsApp list    ║
+║          builder only.                                                     ║
+║          Files: puc_v5.217.html:30148-30178 (studentStatus AB fallback).   ║
 ║                                                                              ║
 ║  v5.216 2026-09-03  FIX+FEATURE: mrmSendWhatsApp() (WhatsApp Results        ║
 ║          button, Internals mode) — (1) BUG FIX: absent count in the WA      ║
@@ -9093,11 +9118,11 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.216";
+const APP_VERSION = "v5.217";
 // ⚠ CLAUDE: update this to the current date/time (IST, "YYYY-MM-DD HH:MM")
 // on EVERY change too — shown live next to the version badge in the topbar
 // as "last edited" so admin can see at a glance how fresh the file is.
-const APP_LAST_EDIT = "2026-09-03 01:45 PM";
+const APP_LAST_EDIT = "2026-09-11 12:00 PM";
 
 // ── Manually allocated USNs (v5.178) ─────────────────────────────────────────
 // Single source of truth for students whose portal record has NO USN/URN and
@@ -30145,10 +30170,32 @@ function intComputeSubData(students) {
   }
 
   // Overall status across all counted subjects, plus fail/counted counts for "x/6" fractions.
+  // [studentStatus() ~30148] Fix: AB fallback for MX-pair (Hindi/Kannada/Sanskrit,
+  // CS/Statistics) electives when intMxPartner() can't resolve enrollment (e.g. student
+  // not found in allPucStudents, or portal subjects[] doesn't name-match). Previously a
+  // stray unresolved AB in the elective the student doesn't take pushed abCount>0 with
+  // failCount=0, landing them in FAIL LIST as "Name - 0/7" (real PASS, 0 fails, shown as FAIL).
+  // Now: if AB in one half of a known MX pair AND the student has a real (non-AB) mark in
+  // the partner half, treat the AB half as unenrolled (skip, don't count) even if
+  // intMxPartner's portal lookup failed to confirm it.
   function studentStatus(s) {
     let failCount = 0, abCount = 0, countedSubs = 0, totalMarks = 0;
     subCodes.forEach(code => {
-      const st = subjectStatus(s, code);
+      let st = subjectStatus(s, code);
+      if (st === null) return;
+      if (st === 'AB') {
+        const myWords = _intMxWords(intSubName(code) !== code ? intSubName(code) : (smAutoName(code) || code));
+        for (const [a, b] of INT_MX_PAIRS) {
+          const myKey = myWords.includes(a) ? a : myWords.includes(b) ? b : null;
+          if (!myKey) continue;
+          const partnerKey  = myKey === a ? b : a;
+          const partnerCode = subCodes.find(c2 => c2 !== code && _intMxWords(intSubName(c2) !== c2 ? intSubName(c2) : (smAutoName(c2)||c2)).includes(partnerKey));
+          if (partnerCode && subjectStatus(s, partnerCode) !== null && subjectStatus(s, partnerCode) !== 'AB') {
+            st = null; // has a real mark in the paired elective → this AB half is just unenrolled
+          }
+          break;
+        }
+      }
       if (st === null) return;
       countedSubs++;
       if (st === 'AB') abCount++;
