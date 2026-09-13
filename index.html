@@ -2946,6 +2946,30 @@
            student portal side. -->
       <div id="fdb-step2-nudge" style="display:none;margin:0 0 20px;"></div>
 
+      <!-- 2026-09-13 — DRAFT TIMETABLE PREVIEW. Admin-gated (Times tab
+           toggle, TG_STATE.showDraftToFaculty, default OFF) preview of the
+           faculty's OWN periods in the not-yet-live draft timetable,
+           sourced from TG_STATE.draftTT — never the live LM_TIMETABLE.
+           Placed below the horoscope card / step2 nudge and above
+           Excellence, per explicit instruction ("show the draft time
+           tbale below the horoscope"). Hidden entirely unless: the toggle
+           is ON, a schedule exists, AND today is still before the
+           scheduled go-live date — once that date arrives the real
+           timetable takes over (tgPromoteIfDue()) and this card hides
+           itself automatically, so admin never has to remember to turn
+           the toggle off at changeover. -->
+      <div id="fdb-draft-preview-card" style="display:none;background:var(--surface);border:1px solid rgba(251,191,36,0.35);border-radius:12px;padding:18px;margin:0 0 20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+          <div style="font-size:11px;font-family:var(--mono);color:#fbbf24;letter-spacing:1px;text-transform:uppercase;font-weight:700;">📝 Draft Timetable Preview</div>
+          <div id="fdb-draft-preview-when" style="font-size:11px;font-family:var(--mono);color:var(--muted);"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
+          This is a PREVIEW of your upcoming timetable — not yet live. It can still change before it goes into effect.
+        </div>
+        <div id="fdb-draft-preview-grid"></div>
+      </div>
+
+
       <!-- ── 100/100 Perfect Scores (faculty's own subjects, all sems by default) ── -->
       <div id="fdb-perfect-section" style="margin-top:8px;margin-bottom:16px;">
         <div style="font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;
@@ -12976,6 +13000,7 @@ function fdbRender() {
   fdbRenderLP();
   if (typeof fdbRenderPerfectScores === 'function') fdbRenderPerfectScores();
   if (typeof fdbRenderDutyBanner === 'function') fdbRenderDutyBanner();
+  if (typeof fdbRenderDraftPreview === 'function') fdbRenderDraftPreview();
   if (typeof wgtRenderFaculty === 'function') wgtRenderFaculty();
   // SPT subject dashboard banner — always reload deadlines from Firebase first, then build/render
   (async () => {
@@ -13523,6 +13548,70 @@ async function fdbRenderDutyBanner() {
     console.warn('[fdbRenderDutyBanner] failed:', e);
     banner.style.display = 'none';
   }
+}
+
+// 2026-09-13 — FACULTY-SIDE: renders the "📝 Draft Timetable Preview" card
+// on the faculty dashboard, below the horoscope card, per explicit
+// instruction. Shows ONLY the logged-in faculty's own periods from the
+// draft (TG_STATE.draftTT), reusing ttBuildFacultyGrid() — the exact same
+// renderer the live faculty timetable uses — via tgWithDraftAll(), which
+// temporarily points LM_TIMETABLE/LM_SLOTS_ORDER at the draft for one
+// synchronous render and restores the real live values in a finally
+// block, so nothing here can ever leak into or be confused with the live
+// timetable. Visible only when ALL of: (1) admin has switched the
+// preview toggle ON (TG_STATE.showDraftToFaculty), (2) a schedule exists
+// (TG_STATE.scheduledFor/scheduled), (3) today is still BEFORE that date.
+// Once the date arrives, tgApplyOnLoad()'s own tgPromoteIfDue() (already
+// called earlier in the same page load, for every role) commits the
+// draft into the real live timetable and clears the schedule — at that
+// point this card's own guard condition goes false on its own, so admin
+// never has to remember to flip the toggle off at changeover.
+function fdbRenderDraftPreview() {
+  const card = document.getElementById('fdb-draft-preview-card');
+  if (!card) return;
+  // TG_STATE/tgWithDraftAll/tgDaysUntil/tgFmtDate/tgTodayISO all live in a
+  // LATER <script> block than this function (block-scoped `let`/function
+  // declarations in separate top-level <script> tags do not share scope)
+  // — guard defensively rather than assume load order, same convention
+  // already used throughout this file (e.g. "typeof fdbRenderPerfectScores
+  // === 'function'" checks in fdbRender() itself).
+  if (typeof TG_STATE === 'undefined' || typeof tgWithDraftAll !== 'function'
+      || typeof tgTodayISO !== 'function' || typeof tgDaysUntil !== 'function'
+      || typeof tgFmtDate !== 'function' || typeof ttBuildFacultyGrid !== 'function') { card.style.display = 'none'; return; }
+  if (!currentProfile) { card.style.display = 'none'; return; }
+
+  const on = !!TG_STATE.showDraftToFaculty;
+  const hasSchedule = !!(TG_STATE.scheduledFor && TG_STATE.scheduled);
+  const stillUpcoming = hasSchedule && tgTodayISO() < TG_STATE.scheduledFor;
+
+  if (!on || !stillUpcoming) { card.style.display = 'none'; return; }
+
+  const ownKey = currentProfile.facultyKey || currentProfile.name;
+  if (!ownKey) { card.style.display = 'none'; return; }
+  const resolvedKey = (LM_ALLOCATIONS||[]).some(a=>a.faculty===ownKey) ? ownKey : (FACULTY_NAME_ALIASES[ownKey]||ownKey);
+
+  const whenEl = document.getElementById('fdb-draft-preview-when');
+  const dLeft = tgDaysUntil(TG_STATE.scheduledFor);
+  if (whenEl) whenEl.textContent = 'Goes live ' + tgFmtDate(TG_STATE.scheduledFor) + (dLeft != null ? ' \u00b7 ' + dLeft + ' day(s) away' : '');
+
+  const gridEl = document.getElementById('fdb-draft-preview-grid');
+  if (!gridEl) return;
+
+  let html = '';
+  try {
+    html = tgWithDraftAll(function () { return ttBuildFacultyGrid(resolvedKey); });
+  } catch (e) {
+    html = '<div style="color:var(--muted);font-size:12px;">Could not build preview: ' + (e && e.message || e) + '</div>';
+  }
+
+  const hasAnyPeriod = (TG_STATE.scheduled.draftTT || []).some(function (t) {
+    return (typeof lmIsFacultyPeriod === 'function') && lmIsFacultyPeriod(resolvedKey, t);
+  });
+  gridEl.innerHTML = hasAnyPeriod
+    ? html
+    : '<div style="color:var(--muted);font-size:12px;">No periods assigned to you yet in the new timetable.</div>';
+
+  card.style.display = 'block';
 }
 
 function fdbRenderTT() {
@@ -14276,6 +14365,33 @@ function applySidebarForRole(role) {
       if (el) el.style.display = '';
     });
   }
+
+  syncEmptySidebarCards();
+}
+
+// 2026-09-13 — JS FALLBACK for the "stacked lines below Login" bug class
+// (same symptom already fixed once for sidebar-search-wrap at v1226, via
+// a pure-CSS `.sidebar-card:has(...)` rule added at that time). Root
+// cause this time: that CSS rule depends on the :has() selector, which
+// is NOT supported on older Android System WebView builds — some
+// faculty phones render every empty role-gated .sidebar-card as a
+// visible bordered strip with nothing inside, because the CSS that was
+// supposed to collapse it silently never applies on those devices. This
+// function does the same job in plain JS (works everywhere, no :has()
+// dependency) and is called every time applySidebarForRole() runs, so it
+// can never drift out of sync with whatever the CSS was trying to do.
+// Logic: a .sidebar-card is emptied (display:none) if NONE of its
+// descendant .sidebar-item / .sidebar-section elements are currently
+// visible; restored (display:'') otherwise. Cards with no such
+// descendants at all (shouldn't exist, but don't touch them) are left
+// alone.
+function syncEmptySidebarCards() {
+  document.querySelectorAll('.sidebar-card').forEach(card => {
+    const parts = card.querySelectorAll('.sidebar-item, .sidebar-section');
+    if (!parts.length) return; // nothing gate-able inside — leave as-is
+    const anyVisible = Array.from(parts).some(el => el.style.display !== 'none');
+    card.style.display = anyVisible ? '' : 'none';
+  });
 }
 
 
@@ -14719,10 +14835,53 @@ function facDobAdminInit() {
   facDobLoadSurvey();
 }
 
-function facDobStatCard(label, value) {
-  return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:inline-block;margin:0 8px 8px 0;min-width:120px;">'
+// 2026-09-13 — listKey (optional) makes the card clickable: it opens
+// fac-dob-list-modal showing the names behind that count, sourced from
+// _facDobLists[listKey] (populated by the loader functions below). Cards
+// with no listKey (e.g. the "Year: 2026" footnote-style cards, none
+// currently) render exactly as before — non-clickable.
+var _facDobLists = {}; // listKey -> array of names
+function facDobStatCard(label, value, listKey) {
+  const clickable = listKey ? ' style="cursor:pointer;" onclick="facDobOpenListModal(\'' + listKey + '\',\'' + label.replace(/'/g,"\\'") + '\')" title="Tap to see names"' : '';
+  const hint = listKey ? '<div style="font-size:9px;color:var(--accent);margin-top:3px;opacity:.75;">👆 tap for list</div>' : '';
+  return '<div' + clickable + ' style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:inline-block;margin:0 8px 8px 0;min-width:120px;">'
     + '<div style="font-size:18px;font-weight:800;color:var(--accent);">' + value + '</div>'
-    + '<div style="font-size:11px;color:var(--muted);margin-top:2px;">' + label + '</div></div>';
+    + '<div style="font-size:11px;color:var(--muted);margin-top:2px;">' + label + '</div>' + hint + '</div>';
+}
+
+// Opens a lightweight modal listing the names in _facDobLists[listKey].
+// Injects the modal markup on first use rather than requiring it to
+// already exist in the static HTML.
+function facDobOpenListModal(listKey, label) {
+  const names = _facDobLists[listKey] || [];
+  let modal = document.getElementById('fac-dob-list-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'fac-dob-list-modal';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;';
+    modal.innerHTML =
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;max-width:420px;width:90%;max-height:75vh;display:flex;flex-direction:column;">'
+      + '<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">'
+      + '<div id="fac-dob-list-modal-title" style="font-size:13px;font-weight:700;color:var(--text);"></div>'
+      + '<span onclick="document.getElementById(\'fac-dob-list-modal\').style.display=\'none\';" style="cursor:pointer;color:var(--muted);font-size:18px;line-height:1;">×</span>'
+      + '</div>'
+      + '<div id="fac-dob-list-modal-body" style="padding:12px 16px;overflow-y:auto;"></div>'
+      + '</div>';
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+  }
+  const titleEl = document.getElementById('fac-dob-list-modal-title');
+  const bodyEl = document.getElementById('fac-dob-list-modal-body');
+  if (titleEl) titleEl.textContent = label + ' (' + names.length + ')';
+  if (bodyEl) {
+    bodyEl.innerHTML = names.length
+      ? names.map((n, i) =>
+          '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text);">'
+          + (i + 1) + '. ' + String(n).replace(/</g,'&lt;') + '</div>'
+        ).join('')
+      : '<div style="color:var(--muted);font-size:12px;">No one in this category.</div>';
+  }
+  modal.style.display = 'flex';
 }
 
 // ── OPT-IN RATE ── reads Staff Directory (sdData), loading it fresh from
@@ -14749,13 +14908,18 @@ async function facDobLoadOptIn() {
     const withPlaceOnly = withDob.filter(r => !r.dobTime && r.dobPlace);
     const withNeither = withDob.filter(r => !r.dobTime && !r.dobPlace);
     const pct = withDob.length ? ((withBoth.length / withDob.length) * 100).toFixed(1) : '0.0';
+    _facDobLists.optinHaveDob = withDob.map(r => r.name);
+    _facDobLists.optinFullChart = withBoth.map(r => r.name);
+    _facDobLists.optinTimeOnly = withTimeOnly.map(r => r.name);
+    _facDobLists.optinPlaceOnly = withPlaceOnly.map(r => r.name);
+    _facDobLists.optinNeither = withNeither.map(r => r.name);
     if (wrap) {
       wrap.innerHTML =
-        facDobStatCard('Have DOB on file', withDob.length)
-        + facDobStatCard('Full chart (time+place)', withBoth.length + ' · ' + pct + '%')
-        + facDobStatCard('Time only', withTimeOnly.length)
-        + facDobStatCard('Place only', withPlaceOnly.length)
-        + facDobStatCard('Neither given', withNeither.length);
+        facDobStatCard('Have DOB on file', withDob.length, 'optinHaveDob')
+        + facDobStatCard('Full chart (time+place)', withBoth.length + ' · ' + pct + '%', 'optinFullChart')
+        + facDobStatCard('Time only', withTimeOnly.length, 'optinTimeOnly')
+        + facDobStatCard('Place only', withPlaceOnly.length, 'optinPlaceOnly')
+        + facDobStatCard('Neither given', withNeither.length, 'optinNeither');
     }
   } catch (e) {
     if (wrap) wrap.innerHTML = '<div style="color:var(--danger);font-size:12px;">Could not load: ' + e.message + '</div>';
@@ -14796,26 +14960,31 @@ async function facDobLoadBirthdayActivity() {
       if (d && d.name) byKey[_facKey(d.name)] = d;
     });
     let anyCount = 0, weekCount = 0, dayCount = 0, belatedCount = 0;
+    const anyNames = [], weekNames = [], dayNames = [], belatedNames = [];
     names.forEach(name => {
       const u = byKey[_facKey(name)];
       if (!u || Number(u.facDobLastShownYear) !== year) return;
-      anyCount++;
-      if (Number(u.facDobDayShownCount) > 0) dayCount++;
-      if (Number(u.facDobBelatedShownYear) === year) belatedCount++;
+      anyCount++; anyNames.push(name);
+      if (Number(u.facDobDayShownCount) > 0) { dayCount++; dayNames.push(name); }
+      if (Number(u.facDobBelatedShownYear) === year) { belatedCount++; belatedNames.push(name); }
       // No per-day-of-week tracking exists for faculty the way students'
       // birthdayWeekShownDays array does — facDobLastShownYear alone
       // doesn't distinguish "saw the week countdown" from "saw day/belated
       // only", so weekCount here is a lower-bound proxy: anyone whose
       // year matches but who has NEITHER a day nor belated flag must have
       // been shown via the week-countdown branch specifically.
-      if (!(Number(u.facDobDayShownCount) > 0) && Number(u.facDobBelatedShownYear) !== year) weekCount++;
+      if (!(Number(u.facDobDayShownCount) > 0) && Number(u.facDobBelatedShownYear) !== year) { weekCount++; weekNames.push(name); }
     });
+    _facDobLists.bdayAny = anyNames;
+    _facDobLists.bdayWeek = weekNames;
+    _facDobLists.bdayDay = dayNames;
+    _facDobLists.bdayBelated = belatedNames;
     if (wrap) {
       wrap.innerHTML =
-        facDobStatCard('Any toast this year', anyCount)
-        + facDobStatCard('Saw week countdown', weekCount)
-        + facDobStatCard('Saw birthday-day toast', dayCount)
-        + facDobStatCard('Saw belated toast', belatedCount)
+        facDobStatCard('Any toast this year', anyCount, 'bdayAny')
+        + facDobStatCard('Saw week countdown', weekCount, 'bdayWeek')
+        + facDobStatCard('Saw birthday-day toast', dayCount, 'bdayDay')
+        + facDobStatCard('Saw belated toast', belatedCount, 'bdayBelated')
         + '<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:6px;width:100%;">Year: ' + year + ' · counts reset automatically each year.</div>';
     }
   } catch (e) {
@@ -17189,8 +17358,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1402;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '13-Sep-2026', time: '21:50', full: '13-Sep-2026 21:50 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1403;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '13-Sep-2026', time: '22:40', full: '13-Sep-2026 22:40 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -27565,6 +27734,7 @@ function updateDataStrip() {
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
 { v: 'v1402', date: '13-Sep-2026 IST', note: 'THREE FIXES + one new tool, per direct admin correction. (1) SAVE TICK MOVED TO THE ACTUAL CELL, per explicit admin instruction (\'per cell show green tick here only not some were else\'): the tick was still showing in one shared #tg-build-msg element far down the page -- the admin wanted it ON the exact cell just edited, and a SEPARATE independent tick when moving to the next cell. New tgCellTickDot(inp) creates a small status dot positioned at the corner of that specific cell only; tgOnBuildCellInput() now writes saving/saved/error state there instead of the shared element, and the dot fades out a couple of seconds after saving so the grid doesn\'t stay cluttered with old green marks. VERIFIED with real events (both direct typing and a real picker-row click): cell A\'s tick goes \\u25cf -> \\u2713 while the shared #tg-build-msg element stays completely untouched throughout; editing a second cell produces its OWN independent tick without disturbing cell A\'s already-shown \\u2713. (2) EXCEL \'ALL FACULTY\' COMBINED INTO ONE SHEET, per direct admin correction (\'faculty i said all in one page only u made diffrent page per faculty\'): v1400/v1401 created a separate workbook sheet per faculty member. Rebuilt so every faculty who has anything in the draft now stacks as their own section on ONE shared sheet named \'All Faculty\' -- same per-person schedule/Total-Hrs content as before, just no longer split across N separate sheet tabs. REAL BUG CAUGHT WHILE REBUILDING, before shipping: the sparse JS array used to hold per-faculty section rows (gaps left by the blank separator row between sections) crashed Array.prototype.map/Math.max.apply with \'Invalid array length\' -- caught immediately by generating an actual two-faculty workbook end to end, not by a syntax check (which cannot see a sparse-array runtime crash). Fixed by normalizing the array with Array.from() before any length/map operation touches it; re-verified the same real workbook now generates cleanly with both faculty correctly stacked on one sheet, each with their own title, schedule, and total-hours row. (3) CLASS STRENGTH WAS MANUALLY TYPED AND STALE (\'60 studetns is not common to all as per class... its mannual added but u make it auto now u can get that claculation from dashbord\'), CONFIRMED APPROACH: the Times/Draft header correctly reads Class Settings (unchanged, per admin\'s own confirmation) -- the real fix belongs in Class Settings ITSELF, which is where the number was being hand-typed. New shared lmRealStudentCount(ttClass) resolves a timetable-style class label to a real allocation\'s course/sem/section via the already-proven lmAllocsForClass(), then counts allStudents (the SAME data source the Dashboard\'s own Total Students figure comes from) matching that course+sem+section -- consolidating the class/section-matching pattern that was independently duplicated in 4 other places in this file into one shared, tested function rather than adding a 5th ad-hoc copy. A new \\ud83d\\udd04 button next to each class\'s Strength field in Class Settings (csAutoFillStrength) pulls the real count into the field for the admin to review before pressing the normal Save button -- deliberately NOT automatic on every save, since a real headcount can genuinely lag a few days behind fresh admissions and silently overwriting a number the admin may have set for a specific reason would be worse than asking them to confirm it. VERIFIED with realistic allStudents/allocation shapes: a class with 3 real Section-A students and 2 unrelated students (Section B and a different course) correctly counts as 3, not 5; a class with no section suffix correctly matches every student of that course+sem; a class with no matching allocation correctly returns null rather than a wrong guess or a crash. Combined with the full prior 76-check regression suite, zero regressions. NOT verified by automation: pressing the real buttons against live Firebase, or the exact real-world accuracy of allStudents against actual current enrollment (that data itself is outside this fix\'s scope). CODE_BUILD=1402.' },
+{ v: 'v1403', date: '13-Sep-2026 IST', note: 'THREE ITEMS, per direct admin report with two screenshots. (1) DOB ADMIN PAGE STATS MADE CLICKABLE (screenshot: opt-in + birthday-activity stat cards): every stat card in "Birth Time & Place — Opt-in Rate" and "Birthday Toast — Activity" (Have DOB on file, Full chart, Time only, Place only, Neither, Any toast, Week countdown, Day-of toast, Belated) is now tappable and opens a small modal listing the actual faculty names behind that count. facDobStatCard() gained an optional listKey param; the two loader functions (facDobLoadOptIn/facDobLoadBirthdayActivity) now stash the underlying name arrays in _facDobLists keyed by listKey as they compute each count, so the modal has real data with zero extra Firebase reads. New facDobOpenListModal() injects a lightweight reusable modal on first use. (2) LOGIN-PAGE "STACKED LINES" BUG, REAL ROOT CAUSE FOUND (screenshot: thin horizontal lines below the Login button, "these lines were fixed but still its showing"): the v1226 fix only ever patched ONE instance of this bug class (the sidebar search box, given its own explicit display:none). The lines in this new report are a DIFFERENT instance of the exact same bug class — the sidebar\'s seven collapsible section-card wrappers (Analysis, Tools, Leave Manager, Timetable, Results, Internals, Admin) rely entirely on a CSS `.sidebar-card:has(...)` selector (added at the same v1226 fix, for a different purpose) to auto-collapse to nothing when every item inside is role-hidden. `:has()` is not supported on some older Android System WebView builds still in use on faculty phones — on those devices the CSS never fires, so all seven empty bordered card wrappers render pre-login as a stack of thin blank strips, which is exactly what was reported and exactly why "already fixed" did not hold: that CSS-only fix was never robust across devices to begin with. FIX: new syncEmptySidebarCards() — plain JS, zero :has() dependency — walks every .sidebar-card, checks whether ANY .sidebar-item/.sidebar-section inside it is currently visible, and sets the card\'s own display accordingly. Called automatically at the end of applySidebarForRole() (index.html ~14202), which already runs on every login, logout, and role-mode switch, so it can never drift out of sync with whatever role-gating just happened and requires no new call sites anywhere else in the file. (3) FEATURE: DRAFT TIMETABLE FACULTY PREVIEW TOGGLE, full request confirmed and built: "give one togel to show to faculty befor the set time... show the draft time tbale below the horoscope." New TG_STATE.showDraftToFaculty (default false, per explicit "defaulty togel is off") — a checkbox toggle added to the Times/Draft tab (tgRenderPanel(), directly below the existing DRAFT/SCHEDULED banner) via new tgToggleShowDraftToFaculty(). Round-trips through tgLoad()\'s both reconstruction paths (localStorage + the existing Firestore catch-up) exactly like every other TG_STATE field, so it syncs to every device including faculty phones via the existing davan_pub/tg_staging RTDB mirror — no new storage plumbing. FACULTY SIDE: new fdb-draft-preview-card markup inserted at the exact confirmed spot in panel-dashboard-faculty — between fdb-step2-nudge (end of the horoscope-card block) and fdb-perfect-section (start of Excellence — 100/100 Scores) — matching this file\'s own v1344 placement precedent for "below the horoscope." New fdbRenderDraftPreview(), wired into fdbRender(), shows the card ONLY when ALL of: the toggle is on, a real schedule exists (TG_STATE.scheduledFor + scheduled), AND today is still strictly before the scheduled date. Reuses tgWithDraftAll() (already existed, swaps LM_TIMETABLE/LM_SLOTS_ORDER to the draft for one synchronous render, restores in a finally block) wrapping the EXISTING ttBuildFacultyGrid(resolvedKey) renderer — the identical function and faculty-name-resolution logic (facultyKey/name + FACULTY_NAME_ALIASES) the live "My Timetable" section already uses — so the preview can never disagree with how the real timetable will look once live, and nothing new was reinvented for faculty-to-period matching. Once the scheduled date actually arrives, tgApplyOnLoad()\'s own tgPromoteIfDue() (already fires on every page load, every role, unchanged) commits the draft into the real live timetable and clears TG_STATE.scheduledFor/scheduled — at that exact point fdbRenderDraftPreview()\'s own guard condition goes false automatically and the card disappears on its own, so admin does not have to remember to switch the toggle off at changeover. CROSS-SCRIPT-BLOCK SAFETY: fdbRender()/fdbRenderDraftPreview() live in an EARLIER top-level <script> block than TG_STATE/tgWithDraftAll/tgTodayISO/tgDaysUntil/tgFmtDate/ttBuildFacultyGrid (block-scoped `let`/function declarations in separate <script> tags do not share scope) — fdbRenderDraftPreview() guards every one of those with an explicit typeof check before use and hides the card if any are undefined, so load-order can never throw a ReferenceError into the dashboard render path; LM_ALLOCATIONS and lmIsFacultyPeriod were confirmed safe separately (LM_ALLOCATIONS is a plain implicit-global assignment with no block-scoped declaration anywhere in the file, and lmIsFacultyPeriod is covered by the same typeof-guarded block). VERIFIED: all real inline <script> blocks individually re-extracted (Python regex + HTML-comment-stripped) and node --check clean after every edit in this build, including the two TG_STATE reconstruction sites, the new modal function, and the new faculty-preview function. Div-balance of the full file confirmed unchanged from baseline (same pre-existing +2 diff as the file admin uploaded, not introduced by this edit) and the new fdb-draft-preview-card markup block independently confirmed 6-open/6-close. NOT verified by automation: pressing the real toggle against live Firebase, or a live faculty login actually seeing the card populate with a real scheduled draft (no live Firebase access this session). CODE_BUILD=1403.' },
 { v: 'v1401', date: '13-Sep-2026 IST', note: 'TWO FIXES, per direct admin report with real reference screenshots. (1) AUTO-SAVE TICK STILL MISSING AFTER PICKING A SUBJECT, REAL ROOT CAUSE FOUND (v1400\'s fix was incomplete): admin\'s screenshot confirmed picking a subject from the dropdown still showed no tick. Traced to _ttPickerChoose() -- the function the picker\'s row-click actually calls -- which sets inp.value = code directly in JavaScript. Setting .value programmatically does NOT fire a native browser \'input\' event, so #tg-build-grid\'s oninput delegation (tgOnBuildCellInput, the real auto-save handler added in v1400) never ran when a subject was PICKED -- only DIRECT TYPING worked, because that produces a genuine input event. Picking from the dropdown is the admin\'s normal, everyday workflow, so this was the common case silently not saving, not an edge case. FIX: _ttPickerChoose() now calls tgOnBuildCellInput() directly (when operating on a draft-page cell) immediately after setting the value, exactly as a real input event on that element would have triggered. VERIFIED with the actual real-world path this time, not just a synthetic input event: focused a cell, opened the real picker, dispatched a real mouse click on a real picker row (not a scripted value assignment) -- confirmed the tick correctly goes saving->saved and TG_STATE.draftTT genuinely contains the picked entry afterward. (2) EXCEL SUMMARY SHEET LAYOUT WAS WRONG, per admin\'s own real reference Excel file (confirmed the library was already correct -- xlsx-js-style, same one referenced in this file\'s own memory/changelog -- the LAYOUT was the problem): v1400 stacked classes one under another; the reference file has TWO class-blocks SIDE BY SIDE per row, each with its own Class Room header, a real BREAK column (not a separate strip -- an actual vertical merged \'BREAK\' column sitting inline between period groups, matching the reference file exactly), and a masthead (college name, subtitle, session/generation info) at the top of the sheet. REBUILT: the Summary sheet now lays classes out two per row; a BREAK column is inserted between two adjacent slots wherever THAT class\'s own real grid has an actual time gap there (read from the grid\'s own start/end minutes, never assumed fixed), merged vertically down the whole block matching the reference file\'s single vertical BREAK label; an odd number of classes correctly leaves the last row with only one block, no broken/phantom second block. Per-faculty sheets (sheet 2 onward) are UNCHANGED from v1400 -- admin did not flag those, only the Summary layout. REAL BUG CAUGHT WHILE REBUILDING (before shipping, not by the admin): removing the old summary-sheet code accidentally also removed totalStyle, a style constant the UNCHANGED per-faculty sheet code below it still references -- caught immediately by generating an actual combined Summary+faculty workbook end to end (not just a syntax check, which would have missed it since the reference was only reached at runtime) and seeing a real ReferenceError; fixed by restoring the shared constant. VERIFIED FOR REAL: generated actual .xlsx files through the real function and read them back with openpyxl -- confirmed two classes genuinely sit side by side in the same row with correct merge ranges, confirmed the BREAK column is correctly detected only where a class\'s real grid has a real gap (09.30-10.30 followed by a gap then 10.45-11.45, exactly matching the reference), confirmed three classes correctly produce two full rows plus one half-row rather than crashing or misaligning, confirmed the navy header / orange class-header / orange break / red title colors are genuinely present in the written OOXML styles, and confirmed a full combined Summary+per-faculty workbook now generates without error end to end. Combined with the full prior 76-check regression suite, zero regressions. NOT verified by automation: exact visual pixel-for-pixel match against the admin\'s reference Excel file (not obtainable from a screenshot alone), or pressing the real buttons against live Firebase. CODE_BUILD=1401.' },
 { v: 'v1400', date: '13-Sep-2026 IST', note: 'THREE FIXES, per direct admin report with screenshots. (1) NO AUTO-SAVE TICK WHEN PICKING A SUBJECT, REAL BUG: picking from the subject dropdown (admin\'s screenshot) only updated the input\'s on-screen value -- nothing actually saved. Root cause: tteOnGridInput() (the shared live-page cell handler) starts with document.getElementById(\'tte-class\')?.value and returns immediately if that is null, which it ALWAYS is on the Draft page (that dropdown only exists on the live Grid page) -- so picking a subject here silently did nothing at all: no save, no faculty-name label, no duplicate-scan, no hours-check refresh, exactly as reported. FIX: new tgOnBuildCellInput(), delegated via oninput on #tg-build-grid itself (not touching tteOnGridInput or the live page in any way), does the real work independently for this page -- updates the faculty-name label, runs lab auto-fill, debounced duplicate/hours-check refresh, and a REAL auto-save (existing tgSave(), same Firebase-confirmed status from v1396) ~600ms after typing stops. A visible status now shows amber \'\\u25cf saving...\' then green \'\\u2713 saved\' once Firebase genuinely confirms -- verified end to end with a real input event: typed CA, tick went saving->saved, and TG_STATE.draftTT actually contained the new row afterward. (2) CLASS ROOM / STUDENT COUNT MISSING FROM THE BUILD TABLE HEADER, confirmed from admin\'s screenshot: the header only ever showed \'\\ud83d\\udcda {class name}\', never the Room/Shift/Student-count chips the live page\'s own faculty timetable viewer already shows for the same class. New tgClsHeaderMeta(c), reusing the exact same lmGetClassMeta(c) data source and markup the live page uses (not reinvented), added to both the assigned and not-yet-assigned header states. Verified directly against the real page: room S5 / Morning / 60 students all render correctly in the actual header now. (3) PDF WAS BLANK, REAL ROOT CAUSE: v1399\'s tgDownloadDraftPDF() used html2pdf() (canvas-based rendering of an offscreen container) -- per admin\'s own instruction to check the changelog, the REAL working Internals Timetable PDF (intDownloadPDF(), this file\'s own proven pattern) does NOT use html2pdf at all -- it opens a print window with window.onload=()=>window.print(), and the actual PDF file is produced by the BROWSER\'s own Save-as-PDF print target, which is what the admin already uses successfully for every other PDF in this app. tgDownloadDraftPDF() now just calls tgPrintDraft() (the already-working print window) instead of the broken separate html2pdf path -- same mechanism, zero new code to get wrong. (4) EXCEL REBUILT TO THE CONFIRMED TWO-PART SHAPE from admin\'s two reference screenshots (confirmed explicitly before building): SHEET 1 \'Summary\' is a compact grid with every built class stacked on ONE sheet, Class Room and student strength shown per class (matching pic 2\'s layout) -- was previously one separate sheet per class, wrong shape entirely. SHEET 2 onward is one sheet PER FACULTY MEMBER (matching pic 3), their own real weekly schedule built by walking every built class through the real lmIsFacultyPeriod()/ttGetFacultyForSlotAll() resolution this app already uses elsewhere (not invented), with a Total Hrs column and a TOTAL WEEKLY HOURS footer row; a faculty with nothing in the draft yet is skipped rather than getting an empty sheet. Real xlsx-js-style formatting throughout (thin borders, bold navy header, merged class-title rows) -- same convention as every other Excel export in this file. VERIFIED FOR REAL: generated actual .xlsx files through the real function with real faculty-resolution stubs and read them back with openpyxl -- confirmed \'Summary\' plus one sheet per faculty (named/de-duplicated correctly), confirmed a class\'s real Room/strength appears in its Summary heading, confirmed each faculty sheet\'s cells show the correct class+code they actually teach with the correct total hours count, confirmed a faculty with zero draft assignments gets no sheet at all. The header-meta fix and the auto-save tick were both also verified directly against the real page (not assumed from code review) using a Firebase-stub test copy, since the real LM_CLASS_META/tick flow depends on globals that are normally unavailable offline. Combined with the full prior 76-check regression suite, zero regressions. NOT verified by automation: the browser\'s own print-to-PDF dialog output, or pressing the real buttons against live Firebase. CODE_BUILD=1400.' },
 { v: 'v1399', date: '13-Sep-2026 IST', note: 'FEATURE: Note, Transpose, Print, PDF and Excel added to the Times/Draft build table, matching what the live Grid page already has, per explicit admin request and confirmed answers: the draft note is its OWN, separate from the live page\'s note (tgGetDraftNote/tgSetDraftNote, new TG_STATE.draftNotes field, distinct from ttGetNote/ttSetNote and its own storage key -- deliberately not shared, since this is a different not-yet-live timetable); Print, PDF and Excel all requested together, all three built now, and the note flows into all three, not just the on-screen view. NOTE: a per-class textarea now sits below each class\'s build table (same visual convention as the live All-Classes note field), oninput saves via tgSave() same as everything else in this tab. TRANSPOSE: new toolbar button swaps Days\\u2194Slots axes for the draft build table specifically (TG_STATE.tteTransposed, a SEPARATE flag from the live page\'s own tteTransposed global -- confirmed they must not share state, toggling one must never affect the other) via the existing ttBuildGridTransposed() renderer, same function the live page already uses. PRINT: tgPrintDraft() reuses the exact masthead/footer/table CSS as the live page\'s own ttPrintMaster() (same college header, same VP/Director signature block, same table styling), sourced entirely from the draft -- each class rendered through tgWithDraftOneClass so it shows ONLY that class\'s own assigned grid and its own draft note, never live data. Classes with no grid assigned are skipped rather than printed empty. Opens in a new window with a Print/Save-as-PDF button, same UX as the live page. PDF: tgDownloadDraftPDF() uses html2pdf() -- the same library and the same proven safe pattern already documented in this file\'s own v1068 changelog (offscreen container, .then()/.catch() only, explicit cleanup in both branches, NEVER .finally() since html2pdf\'s Worker object is not a real Promise and throws if chained) -- rendering the identical per-class markup as Print into a landscape A4 PDF. EXCEL: tgDownloadDraftExcel() is a genuinely styled xlsx-js-style workbook, the SAME advanced library and the SAME cell-styling convention (thin borders on every populated cell, bold white-on-navy header fill, orange section-header fill) every other Excel export in this file already uses (sitDownloadExcel, attRoomSheetDownloadExcel, etc) -- not a plain unstyled sheet. One sheet per class that has a grid assigned, sheet names sanitized and de-duplicated for classes with dots/parentheses in their names (e.g. \'I YEAR BCA (A)\' -> a safe, collision-checked sheet name). Section headers (MORNING/AFTERNOON) are real merged cells spanning exactly that section\'s own slot-column count, not a fixed width -- verified this is correct even when morning and afternoon have a different number of periods. The class\'s draft note is written as a final row on its own sheet. VERIFIED FOR REAL, not just node --check: installed the actual xlsx-js-style package locally and generated real .xlsx files through the actual shipped function -- confirmed via openpyxl (a real Excel reader, not just checking the write succeeded) that the navy header fill, orange section fill, thin borders and bold text are genuinely present in the written OOXML styles.xml, that CA/HRM data lands in exactly the right day+slot cells, that merge ranges correctly span each section\'s own column count (not a fixed guess), that the draft note appears as its own row, and that three classes with dots/parentheses in their names produce three distinct valid sheet names with no collision. tgPrintDraft() and tgToggleTranspose() were also run directly in a real browser against real timetable data -- both execute without throwing, and the note/class name/DRAFT label were all confirmed present in the actual generated print HTML, not just assumed. Combined with the full prior 76-check regression suite (remap/clash math, scheduler, per-course time grids), zero regressions. NOT verified by automation: html2pdf\'s actual PDF rendering output (canvas-based, cannot run headless in this environment) or pressing the real buttons against live Firebase. CODE_BUILD=1399.' },
@@ -28890,7 +29060,7 @@ const TG_LS_KEY   = 'davan_tg_staging';
 const TG_RTDB     = 'davan_pub/tg_staging';
 const TG_ARCH_LS  = 'davan_tg_archive';
 
-let TG_STATE = { grids: {}, assign: {}, effectiveFrom: '', activatedAt: null, lastActive: null, scheduled: null, scheduledFor: '', draftTT: [], uiClass: '', buildClass: '', lastManualArchiveAt: null, draftNotes: {}, tteTransposed: false };
+let TG_STATE = { grids: {}, assign: {}, effectiveFrom: '', activatedAt: null, lastActive: null, scheduled: null, scheduledFor: '', draftTT: [], uiClass: '', buildClass: '', lastManualArchiveAt: null, draftNotes: {}, tteTransposed: false, showDraftToFaculty: false };
 let _tgSelGrid = '';
 let _tgPreview = null;
 
@@ -28954,7 +29124,8 @@ function tgLoad() {
           buildClass: v.buildClass || '',
           lastManualArchiveAt: v.lastManualArchiveAt || null,
           draftNotes: v.draftNotes || {},
-          tteTransposed: v.tteTransposed || false
+          tteTransposed: v.tteTransposed || false,
+          showDraftToFaculty: v.showDraftToFaculty || false
         };
       }
     }
@@ -28988,10 +29159,16 @@ function tgLoad() {
           buildClass: remote.buildClass || '',
           lastManualArchiveAt: remote.lastManualArchiveAt || null,
           draftNotes: remote.draftNotes || {},
-          tteTransposed: remote.tteTransposed || false
+          tteTransposed: remote.tteTransposed || false,
+          showDraftToFaculty: remote.showDraftToFaculty || false
         };
         try { localStorage.setItem(TG_LS_KEY, JSON.stringify(TG_STATE)); } catch (e2) {}
         try { if (typeof tgRenderPanel === 'function') tgRenderPanel(); } catch (e2) {}
+        // Faculty dashboard's draft-preview card may have painted before this
+        // Firebase catch-up landed — re-render it now so a faculty viewing
+        // their dashboard while this resolves sees the up-to-date draft/
+        // schedule/toggle state without needing to refresh.
+        try { if (typeof fdbRenderDraftPreview === 'function') fdbRenderDraftPreview(); } catch (e2) {}
       }).catch(function (e) { console.warn('[TG] Firebase catch-up failed', e && e.message); });
     }
   } catch (e) { console.warn('[TG] Firebase load failed', e && e.message); }
@@ -30053,6 +30230,23 @@ function tgApplyGridToWeek(cls) {
 
 function tgSetEffective(v) { TG_STATE.effectiveFrom = v || ''; tgSave(); }
 
+// 2026-09-13 — FEATURE: admin-controlled toggle letting faculty preview the
+// DRAFT timetable (their own periods only) on their own dashboard, before
+// the scheduled changeover date. Default OFF, per explicit instruction —
+// admin must deliberately turn it on. When ON, faculty see a "📝 Draft
+// Timetable Preview" card below the horoscope on their dashboard, sourced
+// from TG_STATE.draftTT (never the live timetable). The moment the real
+// scheduled date arrives, tgPromoteIfDue() commits the draft into
+// LM_TIMETABLE as normal and the live timetable takes over — the faculty
+// dashboard's own "is today >= scheduledFor" check (fdbRenderDraftPreview)
+// then hides the preview card automatically, so admin does not need to
+// remember to switch this off at changeover.
+function tgToggleShowDraftToFaculty() {
+  TG_STATE.showDraftToFaculty = !TG_STATE.showDraftToFaculty;
+  tgSave();
+  tgRenderPanel();
+}
+
 function tgRunPreview() {
   _tgPreview = tgValidate();
   tgRenderPanel();
@@ -30557,6 +30751,22 @@ function tgRenderPanel() {
   }
 
   wrap.innerHTML = banner +
+
+    // 2026-09-13 — faculty preview toggle. Sits right below the DRAFT/
+    // SCHEDULED banner since it directly controls what faculty can see
+    // about the same draft. Default OFF (TG_STATE.showDraftToFaculty
+    // starts false) — admin must deliberately switch it on.
+    '<div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:' + (TG_STATE.showDraftToFaculty ? 'rgba(110,231,183,0.06)' : '#0d0d0d') + ';border:1px solid ' + (TG_STATE.showDraftToFaculty ? 'rgba(110,231,183,0.3)' : '#2a2a2a') + ';display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
+    '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;">' +
+    '<input type="checkbox" ' + (TG_STATE.showDraftToFaculty ? 'checked' : '') + ' onchange="tgToggleShowDraftToFaculty()" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;">' +
+    '<span style="font-size:12px;font-weight:600;color:' + (TG_STATE.showDraftToFaculty ? '#6ee7b7' : 'var(--text)') + ';">Show this draft to faculty before the scheduled date</span>' +
+    '</label>' +
+    '<span style="font-size:11px;color:#6b7585;font-family:var(--mono);">' +
+    (TG_STATE.showDraftToFaculty
+      ? 'ON \u2014 faculty see a preview of their own draft periods below their horoscope, right now.'
+      : 'OFF \u2014 faculty see nothing about this draft until it actually goes live.') +
+    '</span>' +
+    '</div>' +
 
     '<div style="margin-bottom:10px;display:flex;align-items:center;gap:6px;">' +
     '<span style="font-size:10px;color:#6b7585;font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;">Cloud save:</span>' +
