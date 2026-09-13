@@ -2032,7 +2032,8 @@
             <div class="prev" id="br-logo-prev">🏛</div>
             <input type="file" accept="image/*" id="br-logo-file" onchange="uploadBranding(this,'logo')">
           </div>
-          <input id="br-logo" class="fld" style="margin-top:6px" placeholder="https://… (auto-filled after upload)">
+          <input id="br-logo" class="fld" style="margin-top:6px" placeholder="https://… (auto-filled after upload, or paste a URL and click Save)" oninput="previewLogoUrl(this.value)">
+          <button class="btn" style="margin-top:6px" onclick="saveLogoUrlManually()">💾 Save this URL as the logo</button>
           <div class="up-status" id="br-logo-status"></div>
         </div>
         <div>
@@ -2158,7 +2159,7 @@
 
     <div class="pcard">
       <h2>10 · Exam timetable editor <span class="mini">(page 2 of every student's PTM PDF — dates, subjects, times)</span></h2>
-      <div class="mini" style="margin-bottom:10px;color:var(--mut)">One row per exam date. Fill in a subject only for the combos (1COM/2COM/1SCI/2SCI) that sit that paper that day — leave a combo's box blank if that group has no exam that date. Type <b>LANG</b> in a box to mean "whichever second language that student studies" (Kannada/Hindi/Sanskrit/Urdu, resolved per student automatically) instead of a fixed subject. Changes here only take effect for everyone after you click Save — editing alone doesn't publish anything.</div>
+      <div class="mini" style="margin-bottom:10px;color:var(--mut)">Each of the 4 combos (1COM/2COM/1SCI/2SCI) has its own fully separate exam schedule now — switch tabs below to edit each one, since a stream/year can sit exams on completely different dates from the others. Type <b>LANG</b> as a row's subject to mean "whichever second language that student studies" (Kannada/Hindi/Sanskrit/Urdu, resolved per student automatically) instead of a fixed subject. Changes here only take effect for everyone after you click Save — editing alone doesn't publish anything, and switching tabs keeps your unsaved edits on every combo.</div>
       <div id="ad-tt-editor" style="margin-bottom:10px"></div>
       <div class="row">
         <button class="btn" onclick="adAddTimetableRow()">➕ Add exam date</button>
@@ -2207,8 +2208,8 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.1.2';
-const BUILD_STAMP   = '2026-09-04 02:30 UTC';
+const APP_VERSION   = 'v4.2.0';
+const BUILD_STAMP   = '2026-09-13 03:00 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
 // from and writes to. Change this ONE line to move the whole app onto the
@@ -2414,8 +2415,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   await loadActivePtmRound(); // v3.52: pulls the real active round from RTDB before anything below reads/writes logs
   await loadEventName(); // v4.0.4: pulls the admin-saved event name before any card composes/publishes
   await loadRoundLabels(); // v4.0.6: pulls admin-saved 1PUC/2PUC round labels, renders the login-page banner
-  await loadMidtermTimetable(); // v3.55: pulls any admin-saved timetable before the editor (or any student card) renders
-  await loadMidtermTexts();     // page-2 wording (title/subtitle/note/notice/sign) — same fallback-then-DB pattern
+  loadMidtermTimetable(); // v3.55/v4.1.5: live listener — pulls any admin-saved timetable, doesn't block boot
+  loadMidtermTexts();            // page-2 wording (title/subtitle/note/notice/sign) — live listener, doesn't block boot
   const ttEditorHost = document.getElementById('ad-tt-editor');
   if(ttEditorHost) adRenderTimetableEditor();
   const ttTextHost = document.getElementById('ad-tt-text-editor');
@@ -2897,7 +2898,7 @@ function renderCard(C, who, forceLang){
     +`<tr class="pctrow"><td class="l" colspan="2">Percentage</td><td>${C.overallPct??Math.round(totCa/(totCt||1)*100)}%</td><td>—</td><td>—</td>${showP1?`<td>${Math.round(sum('p1')/(nSub*100)*100)}%</td>`:''}${pctCells}</tr>`;
   const legend=T.map(t=>`<span class="chip">${t.name}: max <b style="color:var(--ink)">${t.max}</b> · pass <b>${t.pass}</b>${t.done?'':' <span style="color:var(--faint)">(pending)</span>'}</span>`).join('');
 
-  const logo = C.branding?.logoUrl ? `<img src="${C.branding.logoUrl}">` : '🏛';
+  const logo = C.branding?.logoUrl ? `<img src="${C.branding.logoUrl}" onerror="this.onerror=null;if(this.src!==KNOWN_LOGO_URL){this.src=KNOWN_LOGO_URL;}else{this.replaceWith(document.createTextNode('🏛'));}">` : '🏛';
   const photo= C.branding?.photoUrl ? `<img src="${C.branding.photoUrl}">` : '👤';
   const psign= C.branding?.principalSign ? `<img src="${C.branding.principalSign}">`:'';
   const isign= C.branding?.inchargeSign ? `<img src="${C.branding.inchargeSign}">`:'';
@@ -2932,43 +2933,83 @@ function renderCard(C, who, forceLang){
     </div>`;
   drawCharts(C);
   healMissingFacultyPhotos(S);
+  window._lastRenderedCard = C; // v4.1.5: lets a live wording/timetable change re-render the currently-open card immediately
   renderTimetable(C);
 }
 
 /* ============ MID TERM EXAM TIMETABLE (page 2) ============
-   Master date list lives here, one row per exam date. Each row's `by` maps
-   a combo key (1COM/2COM/1SCI/2SCI) to the single subject that combo's
-   student writes that day — never two subjects for one combo, since a
-   student can only sit one paper per date. The literal string 'LANG' means
-   "whichever second language this student actually studies" — resolved per
-   student from their own C.subjects list (see resolveLanguageSubject),
-   never shown as a stacked "Kannada / Hindi / Sanskrit / Urdu" placeholder.
-   NSQF is intentionally excluded from every student's printed timetable.
-   Source: Mid Term Examination – 2026 Time Table (Final), confirmed against
-   student subject combinations 2026-09-02. Update this list (and only this
-   list) if the college issues a revised timetable. */
-let MIDTERM_TIMETABLE = [
-  {date:'28/09/2026', day:'MONDAY',    time:'10.00 AM TO 1.00 PM',  by:{'1COM':'Business Studies','2COM':'Economics','1SCI':'Mathematics','2SCI':'Chemistry'}},
-  {date:'29/09/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM',  by:{'1COM':'LANG','2COM':'English','1SCI':'LANG','2SCI':'English'}},
-  {date:'30/09/2026', day:'WEDNESDAY', time:'10.00 AM TO 1.00 PM',  by:{'1COM':'Statistics'}},
-  {date:'01/10/2026', day:'THURSDAY',  time:'10.00 AM TO 1.00 PM',  by:{'1COM':'Accountancy','2COM':'Accountancy','1SCI':'Physics','2SCI':'Mathematics'}},
-  {date:'03/10/2026', day:'SATURDAY',  time:'10.00 AM TO 1.00 PM',  by:{'1COM':'English','2COM':'LANG','1SCI':'English','2SCI':'LANG'}},
-  {date:'05/10/2026', day:'MONDAY',    time:'10.00 AM TO 1.00 PM',  by:{'2COM':'Computer Science'}},
-  {date:'06/10/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM',  by:{'1COM':'Economics','2COM':'Statistics','1SCI':'Chemistry','2SCI':'Biology'}},
-  {date:'07/10/2026', day:'WEDNESDAY', time:'10.00 AM TO 1.00 PM',  by:{'1COM':'Computer Science','2COM':'Business Studies','1SCI':'Biology','2SCI':'Physics'}},
-];
-// v3.55: MIDTERM_TIMETABLE above is now only the FALLBACK default (used if
-// nothing's been saved yet, or the DB read fails). The real, editable copy
-// lives at ptm_config/midterm_timetable in RTDB — see loadMidtermTimetable()
-// (called at startup) and the "10 · Exam timetable editor" admin panel
-// (adSaveTimetable()) below, so admin can change dates/times/subjects for
-// PTM3 and beyond without a code edit or redeploy, same pattern as the
-// active-round switch.
-async function loadMidtermTimetable(){
+   v4.2.0: SPLIT into 4 fully independent timetables, one per combo
+   (1COM/2COM/1SCI/2SCI) — each combo now has its own dates/days/times/
+   subjects, since streams and PUC years can sit exams on completely
+   different days. Previously this was ONE shared list of dates with a `by`
+   map picking a subject per combo for that same date — which forced every
+   combo onto the same calendar. Data below is seeded from that old shared
+   list (each combo's own subjects, on the dates it actually had a paper),
+   so nothing already scheduled is lost — edit freely from here on, each
+   combo independently, from the "10 · Exam timetable editor" admin panel.
+   The literal string 'LANG' still means "whichever second language this
+   student actually studies" (resolved per student, see
+   resolveLanguageSubject). NSQF stays excluded from every printed
+   timetable, as before. */
+const TT_COMBOS = ['1COM','2COM','1SCI','2SCI'];
+let MIDTERM_TIMETABLE_BY_COMBO_DEFAULT = {
+  '1COM': [
+    {date:'28/09/2026', day:'MONDAY',    time:'10.00 AM TO 1.00 PM', subject:'Business Studies'},
+    {date:'29/09/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM', subject:'LANG'},
+    {date:'30/09/2026', day:'WEDNESDAY', time:'10.00 AM TO 1.00 PM', subject:'Statistics'},
+    {date:'01/10/2026', day:'THURSDAY',  time:'10.00 AM TO 1.00 PM', subject:'Accountancy'},
+    {date:'03/10/2026', day:'SATURDAY',  time:'10.00 AM TO 1.00 PM', subject:'English'},
+    {date:'06/10/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM', subject:'Economics'},
+    {date:'07/10/2026', day:'WEDNESDAY', time:'10.00 AM TO 1.00 PM', subject:'Computer Science'},
+  ],
+  '2COM': [
+    {date:'28/09/2026', day:'MONDAY',    time:'10.00 AM TO 1.00 PM', subject:'Economics'},
+    {date:'29/09/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM', subject:'English'},
+    {date:'01/10/2026', day:'THURSDAY',  time:'10.00 AM TO 1.00 PM', subject:'Accountancy'},
+    {date:'03/10/2026', day:'SATURDAY',  time:'10.00 AM TO 1.00 PM', subject:'LANG'},
+    {date:'05/10/2026', day:'MONDAY',    time:'10.00 AM TO 1.00 PM', subject:'Computer Science'},
+    {date:'06/10/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM', subject:'Statistics'},
+    {date:'07/10/2026', day:'WEDNESDAY', time:'10.00 AM TO 1.00 PM', subject:'Business Studies'},
+  ],
+  '1SCI': [
+    {date:'28/09/2026', day:'MONDAY',    time:'10.00 AM TO 1.00 PM', subject:'Mathematics'},
+    {date:'29/09/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM', subject:'LANG'},
+    {date:'01/10/2026', day:'THURSDAY',  time:'10.00 AM TO 1.00 PM', subject:'Physics'},
+    {date:'03/10/2026', day:'SATURDAY',  time:'10.00 AM TO 1.00 PM', subject:'English'},
+    {date:'06/10/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM', subject:'Chemistry'},
+    {date:'07/10/2026', day:'WEDNESDAY', time:'10.00 AM TO 1.00 PM', subject:'Biology'},
+  ],
+  '2SCI': [
+    {date:'28/09/2026', day:'MONDAY',    time:'10.00 AM TO 1.00 PM', subject:'Chemistry'},
+    {date:'29/09/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM', subject:'English'},
+    {date:'01/10/2026', day:'THURSDAY',  time:'10.00 AM TO 1.00 PM', subject:'Mathematics'},
+    {date:'03/10/2026', day:'SATURDAY',  time:'10.00 AM TO 1.00 PM', subject:'LANG'},
+    {date:'06/10/2026', day:'TUESDAY',   time:'10.00 AM TO 1.00 PM', subject:'Biology'},
+    {date:'07/10/2026', day:'WEDNESDAY', time:'10.00 AM TO 1.00 PM', subject:'Physics'},
+  ],
+};
+let MIDTERM_TIMETABLE_BY_COMBO = JSON.parse(JSON.stringify(MIDTERM_TIMETABLE_BY_COMBO_DEFAULT));
+// Live at ptm_config/midterm_timetable_by_combo in RTDB — a NEW path (the
+// old ptm_config/midterm_timetable, a flat shared-date array, is left
+// untouched in Firebase in case you ever need to look back at it, but this
+// file no longer reads or writes it). Same live-listener pattern as the
+// page-2 wording below: an admin's save reaches every open tab immediately,
+// and the row editor (if open) only redraws when nobody's mid-edit in it,
+// guarded by _ttRowsEditingLive.
+let _ttRowsEditingLive = false; // true while adRenderTimetableEditor()'s rows are on screen and being edited
+function loadMidtermTimetable(){
   try{
-    const snap = await rtdb.ref('ptm_config/midterm_timetable').once('value');
-    const v = snap.val();
-    if(Array.isArray(v) && v.length) MIDTERM_TIMETABLE = v;
+    rtdb.ref('ptm_config/midterm_timetable_by_combo').on('value', snap=>{
+      const v = snap.val();
+      MIDTERM_TIMETABLE_BY_COMBO = (v && typeof v==='object')
+        ? Object.assign({}, JSON.parse(JSON.stringify(MIDTERM_TIMETABLE_BY_COMBO_DEFAULT)), v)
+        : JSON.parse(JSON.stringify(MIDTERM_TIMETABLE_BY_COMBO_DEFAULT));
+      renderTimetable_ifCardVisible();
+      if(!_ttRowsEditingLive){
+        const ttEditorHost = document.getElementById('ad-tt-editor');
+        if(ttEditorHost) adRenderTimetableEditor();
+      }
+    });
   }catch(e){ /* offline/first-load — keep the hardcoded fallback above */ }
 }
 
@@ -3017,7 +3058,7 @@ window.addEventListener('beforeprint', stampDocs);
 // strip and the signature label — used to be hardcoded inside
 // renderTimetable(), so changing "Mid Term Examination – 2026" to the next
 // round's wording meant a code edit + redeploy. Same pattern as
-// MIDTERM_TIMETABLE above: the object below is only the FALLBACK default,
+// MIDTERM_TIMETABLE_BY_COMBO above: the object below is only the FALLBACK default,
 // the live copy lives at ptm_config/midterm_texts and is edited from the
 // admin panel (section 10). Any field left blank in the admin form falls
 // back to the default here rather than rendering an empty gap, and the
@@ -3034,12 +3075,39 @@ const MIDTERM_TT_TEXT_DEFAULT = {
   showSign: true
 };
 let MIDTERM_TT_TEXT = Object.assign({}, MIDTERM_TT_TEXT_DEFAULT);
-async function loadMidtermTexts(){
+// v4.1.5: was a one-time .once('value') fetch on boot, same gap as the logo
+// fix above — an admin's edit only reached the SAME tab it was saved from.
+// Any other open tab/device (or this tab if it loaded a moment before the
+// save propagated) kept showing old wording, including "Timetable subject
+// to change — please refer to final notice board" reappearing after being
+// edited, because that tab's in-memory MIDTERM_TT_TEXT was never told the
+// value had changed. Now a live .on('value') listener: every open tab
+// updates within moments of a save, and the admin editor form (if open)
+// redraws to match — never overwriting a box mid-edit is guarded via
+// _ttTextEditingLive below.
+let _ttTextEditingLive = false; // true while adRenderTimetableTextEditor()'s form is on screen and being edited
+function loadMidtermTexts(){
   try{
-    const snap = await rtdb.ref('ptm_config/midterm_texts').once('value');
-    const v = snap.val();
-    if(v && typeof v==='object') MIDTERM_TT_TEXT = Object.assign({}, MIDTERM_TT_TEXT_DEFAULT, v);
+    rtdb.ref('ptm_config/midterm_texts').on('value', snap=>{
+      const v = snap.val();
+      if(v && typeof v==='object') MIDTERM_TT_TEXT = Object.assign({}, MIDTERM_TT_TEXT_DEFAULT, v);
+      else MIDTERM_TT_TEXT = Object.assign({}, MIDTERM_TT_TEXT_DEFAULT);
+      renderTimetable_ifCardVisible();
+      // Only redraw the admin form itself if nobody has it open/mid-edit —
+      // otherwise a live update from another tab would wipe out whatever
+      // the admin here is currently typing.
+      if(!_ttTextEditingLive){
+        const ttTextHost = document.getElementById('ad-tt-text-editor');
+        if(ttTextHost) adRenderTimetableTextEditor();
+      }
+    });
   }catch(e){ /* offline/first-load — keep the defaults above */ }
+}
+// Re-renders the currently-open student's timetable page if one is showing,
+// so a live wording change (e.g. notice text) reflects immediately instead
+// of only on the next student load. No-op if no card is open yet.
+function renderTimetable_ifCardVisible(){
+  try{ if(window._lastRenderedCard) renderTimetable(window._lastRenderedCard); }catch(e){}
 }
 // Values below are admin free-text dropped into an innerHTML template, so
 // they must be escaped — an unescaped apostrophe or < in a note would break
@@ -3082,6 +3150,13 @@ function adRenderTimetableTextEditor(){
       <label class="mini" style="display:flex;align-items:center;gap:6px">
         <input type="checkbox" id="ad-tt-showsign"${T.showSign!==false?' checked':''}> Show the signature block at the foot of page 2</label>
     </div>`;
+  // v4.1.5: while any box in this form has focus, suppress live re-renders
+  // from other tabs' saves (see loadMidtermTexts) so an admin's in-progress
+  // typing here is never silently overwritten mid-edit. focusin/focusout
+  // bubble (unlike focus/blur), so one listener on the host covers every
+  // field without wiring each input individually.
+  host.onfocusin = ()=>{ _ttTextEditingLive = true; };
+  host.onfocusout = ()=>{ _ttTextEditingLive = false; };
 }
 async function adSaveTimetableTexts(){
   const g = id => (document.getElementById(id)?.value ?? '').trim();
@@ -3111,38 +3186,62 @@ function adResetTimetableTexts(){
   adRenderTimetableTextEditor();
 }
 
-const TT_COMBOS = ['1COM','2COM','1SCI','2SCI'];
-// Builds the editable rows UI inside #ad-tt-editor from the CURRENTLY
-// LOADED MIDTERM_TIMETABLE (not yet saved — editing is local until "Save").
+// Builds the editable rows UI inside #ad-tt-editor: one section per combo
+// (1COM/2COM/1SCI/2SCI), each independently addable/removable, from the
+// CURRENTLY LOADED MIDTERM_TIMETABLE_BY_COMBO (not yet saved — editing is
+// local until "Save"). v4.2.0: previously a single shared date list with
+// one column per combo; now each combo gets its own full row set since
+// streams/years can sit exams on entirely different days.
+let _ttActiveComboTab = TT_COMBOS[0];
 function adRenderTimetableEditor(){
   const host = document.getElementById('ad-tt-editor');
   if(!host) return;
-  host.innerHTML = MIDTERM_TIMETABLE.map((r,i)=>`
+  const tabs = TT_COMBOS.map(c=>`<button type="button" class="btn${c===_ttActiveComboTab?' primary':''}" style="margin-right:4px" onclick="adSwitchTimetableTab('${c}')">${c}</button>`).join('');
+  const rows = MIDTERM_TIMETABLE_BY_COMBO[_ttActiveComboTab]||[];
+  const rowsHtml = rows.map((r,i)=>`
     <div class="row" style="align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px;border:1px solid var(--line);border-radius:8px;padding:8px" data-tt-row="${i}">
-      <input class="fld" style="max-width:110px" value="${r.date||''}" placeholder="DD/MM/YYYY" oninput="MIDTERM_TIMETABLE[${i}].date=this.value">
-      <select class="fld" style="max-width:120px" onchange="MIDTERM_TIMETABLE[${i}].day=this.value">
+      <input class="fld" style="max-width:110px" value="${r.date||''}" placeholder="DD/MM/YYYY" oninput="MIDTERM_TIMETABLE_BY_COMBO['${_ttActiveComboTab}'][${i}].date=this.value">
+      <select class="fld" style="max-width:120px" onchange="MIDTERM_TIMETABLE_BY_COMBO['${_ttActiveComboTab}'][${i}].day=this.value">
         ${['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY','SUNDAY'].map(d=>`<option value="${d}"${r.day===d?' selected':''}>${d}</option>`).join('')}
       </select>
-      <input class="fld" style="max-width:170px" value="${r.time||''}" placeholder="10.00 AM TO 1.00 PM" oninput="MIDTERM_TIMETABLE[${i}].time=this.value">
-      ${TT_COMBOS.map(c=>`<label class="mini" style="margin:0 2px 0 4px">${c}</label><input class="fld" style="max-width:120px" value="${(r.by&&r.by[c])||''}" placeholder="subject or LANG" oninput="(function(v){ if(!MIDTERM_TIMETABLE[${i}].by) MIDTERM_TIMETABLE[${i}].by={}; if(v) MIDTERM_TIMETABLE[${i}].by['${c}']=v; else delete MIDTERM_TIMETABLE[${i}].by['${c}']; })(this.value)">`).join('')}
-      <button class="btn" style="color:#e05a5a;border-color:#e05a5a" onclick="MIDTERM_TIMETABLE.splice(${i},1); adRenderTimetableEditor();">🗑 Remove date</button>
+      <input class="fld" style="max-width:170px" value="${r.time||''}" placeholder="10.00 AM TO 1.00 PM" oninput="MIDTERM_TIMETABLE_BY_COMBO['${_ttActiveComboTab}'][${i}].time=this.value">
+      <input class="fld" style="max-width:160px" value="${r.subject||''}" placeholder="subject or LANG" oninput="MIDTERM_TIMETABLE_BY_COMBO['${_ttActiveComboTab}'][${i}].subject=this.value">
+      <button class="btn" style="color:#e05a5a;border-color:#e05a5a" onclick="MIDTERM_TIMETABLE_BY_COMBO['${_ttActiveComboTab}'].splice(${i},1); adRenderTimetableEditor();">🗑 Remove date</button>
     </div>`).join('');
+  host.innerHTML = `
+    <div style="margin-bottom:10px">${tabs}</div>
+    <div class="mini" style="margin-bottom:8px;color:var(--mut)">Editing <b>${_ttActiveComboTab}</b>'s exam schedule — separate from the other three combos. Switching tabs keeps unsaved edits on every tab; nothing is written to Firebase until you click Save.</div>
+    ${rowsHtml || '<div class="mini" style="color:var(--mut)">No exam dates yet for '+_ttActiveComboTab+'. Click "Add exam date" below.</div>'}`;
+  // v4.1.5: suppress live re-renders (from another tab's save) while this
+  // admin has a row field focused — otherwise an in-progress, unsaved edit
+  // here would be silently replaced by whatever the DB listener just pulled.
+  host.onfocusin = ()=>{ _ttRowsEditingLive = true; };
+  host.onfocusout = ()=>{ _ttRowsEditingLive = false; };
+}
+function adSwitchTimetableTab(combo){
+  _ttActiveComboTab = combo;
+  adRenderTimetableEditor();
 }
 function adAddTimetableRow(){
-  MIDTERM_TIMETABLE.push({date:'', day:'MONDAY', time:'10.00 AM TO 1.00 PM', by:{}});
+  if(!MIDTERM_TIMETABLE_BY_COMBO[_ttActiveComboTab]) MIDTERM_TIMETABLE_BY_COMBO[_ttActiveComboTab]=[];
+  MIDTERM_TIMETABLE_BY_COMBO[_ttActiveComboTab].push({date:'', day:'MONDAY', time:'10.00 AM TO 1.00 PM', subject:''});
   adRenderTimetableEditor();
 }
 async function adSaveTimetable(){
-  // Basic sanity check before writing — every row needs at least a date and
-  // at least one combo's subject, or it's silently useless on every card.
-  const bad = MIDTERM_TIMETABLE.findIndex(r=>!r.date || !r.by || !Object.values(r.by).some(Boolean));
-  if(bad!==-1){ toast(`Row ${bad+1} needs a date and at least one subject before saving.`,'err'); return; }
-  if(!confirm(`Save this timetable? It replaces what every 1PUC/2PUC COM/SCI student's PTM page 2 shows, immediately, for everyone who downloads/prints from now on.`)) return;
+  // Basic sanity check before writing — every row, in every combo, needs at
+  // least a date and a subject, or it's silently useless on that combo's
+  // cards. Checked across all 4 combos at once so one Save covers everyone.
+  for(const c of TT_COMBOS){
+    const rows = MIDTERM_TIMETABLE_BY_COMBO[c]||[];
+    const bad = rows.findIndex(r=>!r.date || !r.subject);
+    if(bad!==-1){ toast(`${c}, row ${bad+1}: needs a date and a subject before saving.`,'err'); adSwitchTimetableTab(c); return; }
+  }
+  if(!confirm(`Save all 4 timetables? This replaces what every 1PUC/2PUC COM/SCI student's PTM page 2 shows, immediately, for everyone who downloads/prints from now on.`)) return;
   const btn = document.getElementById('ad-tt-save-btn');
   if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   try{
-    await rtdb.ref('ptm_config/midterm_timetable').set(MIDTERM_TIMETABLE);
-    toast('Timetable saved.','ok');
+    await rtdb.ref('ptm_config/midterm_timetable_by_combo').set(MIDTERM_TIMETABLE_BY_COMBO);
+    toast('All 4 timetables saved.','ok');
   }catch(e){ toast('Save failed: '+e.message,'err'); }
   finally{ if(btn){ btn.disabled=false; btn.textContent='💾 Save timetable'; } }
 }
@@ -3198,8 +3297,9 @@ function renderTimetable(C){
   const langSubject = resolveLanguageSubject(C);
   let sl = 0;
   let skippedLangRows = 0;
-  const bodyRows = MIDTERM_TIMETABLE.map(r=>{
-    let subject = combo ? r.by[combo] : null;
+  const comboRows = combo ? (MIDTERM_TIMETABLE_BY_COMBO[combo]||[]) : [];
+  const bodyRows = comboRows.map(r=>{
+    let subject = r.subject;
     if(subject==='LANG'){
       if(!langSubject) skippedLangRows++;
       subject = langSubject; // null if student has no recorded language subject
@@ -3233,18 +3333,20 @@ function renderTimetable(C){
         this student.`;
     } else {
       msg = `[TT-DEBUG] Timetable not rendered — combo resolved to
-        "${combo}" (class "${rawCls}") but every MIDTERM_TIMETABLE row came
-        back empty. Most likely: all rows for this combo are LANG rows and
-        resolveLanguageSubject() found no Kannada/Hindi/Sanskrit/Urdu entry
-        in C.subjects (subjects on this card: ${JSON.stringify((C.subjects||[]).map(s=>s.sub))}).
-        Or: MIDTERM_TIMETABLE has no "${combo}" key on any row at all.`;
+        "${combo}" (class "${rawCls}") but every MIDTERM_TIMETABLE_BY_COMBO['${combo}']
+        row came back empty. Most likely: all rows for this combo are LANG
+        rows and resolveLanguageSubject() found no Kannada/Hindi/Sanskrit/
+        Urdu entry in C.subjects (subjects on this card:
+        ${JSON.stringify((C.subjects||[]).map(s=>s.sub))}).
+        Or: MIDTERM_TIMETABLE_BY_COMBO has no "${combo}" key, or that combo's
+        list is empty, in the admin timetable editor.`;
     }
     el.innerHTML = `<div style="padding:20px;font:12px monospace;color:#c00;border:2px dashed #c00">${msg}
       Open the browser console for full [TT-DEBUG] details.</div>`;
     el.classList.add('has-data'); // force the visible debug box to actually show on screen/PDF
     return;
   }
-  const logo = C.branding?.logoUrl ? `<img src="${C.branding.logoUrl}">` : '🏛';
+  const logo = C.branding?.logoUrl ? `<img src="${C.branding.logoUrl}" onerror="this.onerror=null;if(this.src!==KNOWN_LOGO_URL){this.src=KNOWN_LOGO_URL;}else{this.replaceWith(document.createTextNode('🏛'));}">` : '🏛';
   el.innerHTML = `
     <div class="tt-body">
     <div class="tt-hdr">
@@ -4345,6 +4447,32 @@ function autofillPhoto(student, photos){
   if(prev) prev.innerHTML = url ? `<img src="${url}">` : '👤';
 }
 
+// v4.1.4: live preview + manual save for pasting a logo URL directly into
+// the #br-logo text box. Previously that box had no oninput handler at all
+// — pasting a URL there updated only the text field itself: no preview
+// change, and nothing written to Firebase, so "whatever URL I paste should
+// show" silently did nothing until a file was uploaded via Browse instead.
+function previewLogoUrl(url){
+  const prevEl = document.getElementById('br-logo-prev');
+  if(!prevEl) return;
+  url = (url||'').trim();
+  if(!url){ prevEl.innerHTML='🏛'; return; }
+  const img = document.createElement('img');
+  img.src = url;
+  img.style.width='100%'; img.style.height='100%'; img.style.objectFit='cover';
+  img.onerror = function(){
+    this.onerror=null;
+    if(this.src!==KNOWN_LOGO_URL) this.src=KNOWN_LOGO_URL;
+  };
+  prevEl.innerHTML='';
+  prevEl.appendChild(img);
+}
+async function saveLogoUrlManually(){
+  const url = (document.getElementById('br-logo')?.value||'').trim();
+  if(!url){ toast('Paste a logo URL first.','err'); return; }
+  await saveInstitutionBranding('logoUrl', url, 'br-logo-status', 'Saved');
+  applyInstitutionBrandingToUI();
+}
 // Direct-upload a branding image (logo / student photo / signatures) to
 // Cloudinary, same preset puc.html uses, then fill the matching URL field
 // + preview thumbnail. field = 'logo'|'photo'|'psign'|'isign'.
@@ -4361,14 +4489,31 @@ async function uploadBranding(inputEl, field){
     if(prevEl) prevEl.innerHTML=`<img src="${localUrl}">`;
   }catch(e){}
   try{
-    const s=AD_STUDENTS[+((document.getElementById('ad-student')||{}).value||0)]||{};
-    const usn=(s.urn||'anon').toString().trim().replace(/[^a-zA-Z0-9_-]/g,'_');
-    const publicId='ptm_'+field+'_'+usn+'_'+Date.now();
+    // v4.1.3: logo is institution-wide (one college, one logo) — give it a
+    // FIXED public_id so every re-upload overwrites the same Cloudinary
+    // asset instead of minting a new URL each time. Previously it was named
+    // after whichever student happened to be selected in the admin dropdown
+    // at that moment (ptm_logo_<that student's USN>_<timestamp>), which had
+    // nothing to do with the logo and meant every re-upload produced a
+    // brand-new URL — any tab that had already cached the old URL (see
+    // loadInstitutionBranding, now a live listener) kept showing the old/
+    // broken image until a full reload. Photo/signature fields still use the
+    // per-student/session naming below since those genuinely vary.
+    const publicId = field==='logo' ? 'ptm_logo_institution' : (()=>{
+      const s=AD_STUDENTS[+((document.getElementById('ad-student')||{}).value||0)]||{};
+      const usn=(s.urn||'anon').toString().trim().replace(/[^a-zA-Z0-9_-]/g,'_');
+      return 'ptm_'+field+'_'+usn+'_'+Date.now();
+    })();
     const fd=new FormData();
     fd.append('file',file);
     fd.append('upload_preset',CLOUDINARY_PRESET);
     fd.append('public_id',publicId);
     fd.append('folder','davan_ptm_branding');
+    // Logo now uses a fixed public_id (see above) so re-uploads must
+    // actually replace the existing asset rather than erroring/no-op'ing on
+    // a duplicate id, and invalidate CDN-cached copies of the old image so
+    // browsers don't keep serving a stale version at the same URL.
+    if(field==='logo'){ fd.append('overwrite','true'); fd.append('invalidate','true'); }
     const res=await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CLOUD+'/image/upload',{method:'POST',body:fd});
     const data=await res.json();
     if(data.error) throw new Error(data.error.message);
@@ -6307,19 +6452,41 @@ async function downloadPDF(){
    even right after a logo had been uploaded. Cloudinary already has the
    image; the fix is to also save the URL under a durable institution_branding
    node and reload it into every screen that shows the logo. */
-let INSTITUTION_BRANDING={};
-async function loadInstitutionBranding(){
+// v4.1.3: known-good logo URL, used as the hard fallback the moment the
+// page loads (before Firebase has even answered) and if Firebase ever comes
+// back with nothing — so the logo box is never empty/broken while waiting.
+const KNOWN_LOGO_URL = 'https://res.cloudinary.com/dat0khbet/image/upload/v1784598395/davan_ptm_branding/ptm_logo_1D25067_1784598394025.png';
+let INSTITUTION_BRANDING={logoUrl:KNOWN_LOGO_URL};
+// v4.1.3: was a one-time .once('value') fetch on boot — any tab already
+// open when the logo got re-uploaded elsewhere kept showing the OLD logo
+// (or a broken image, if the old Cloudinary asset had since been
+// overwritten/deleted) until that tab was manually reloaded. Now a live
+// .on('value') listener, so every open tab/device updates within moments
+// of an admin uploading a new logo, matching how the rest of this file
+// already listens for e.g. attendance/roster changes.
+function loadInstitutionBranding(){
   try{
-    const snap=await rtdb.ref('institution_branding').once('value');
-    INSTITUTION_BRANDING=snap.val()||{};
-  }catch(e){ console.warn('institution_branding load failed:',e.message); INSTITUTION_BRANDING={}; }
-  applyInstitutionBrandingToUI();
+    rtdb.ref('institution_branding').on('value', snap=>{
+      const v = snap.val()||{};
+      if(!v.logoUrl) v.logoUrl = KNOWN_LOGO_URL; // never let a missing/cleared DB value blank the logo
+      INSTITUTION_BRANDING = v;
+      applyInstitutionBrandingToUI();
+    }, e=>{
+      console.warn('institution_branding listen failed:',e.message);
+      INSTITUTION_BRANDING={logoUrl:KNOWN_LOGO_URL};
+      applyInstitutionBrandingToUI();
+    });
+  }catch(e){
+    console.warn('institution_branding load failed:',e.message);
+    INSTITUTION_BRANDING={logoUrl:KNOWN_LOGO_URL};
+    applyInstitutionBrandingToUI();
+  }
 }
 function applyInstitutionBrandingToUI(){
   const b=INSTITUTION_BRANDING||{};
   // parent + staff login screens
   const plLogo=document.getElementById('pl-logo');
-  if(plLogo){ plLogo.innerHTML = b.logoUrl ? `<img src="${b.logoUrl}">` : '🏛'; plLogo.classList.toggle('has-img', !!b.logoUrl); }
+  if(plLogo){ plLogo.innerHTML = b.logoUrl ? `<img src="${b.logoUrl}" onerror="this.onerror=null;if(this.src!==KNOWN_LOGO_URL){this.src=KNOWN_LOGO_URL;}else{this.replaceWith(document.createTextNode('🏛'));}">` : '🏛'; plLogo.classList.toggle('has-img', !!b.logoUrl); }
   // favicon — keep in sync with whatever logo is currently set, so a future
   // logo change (new upload) updates the browser tab icon too, not just the
   // static default baked into <head> at file-save time.
@@ -6329,13 +6496,20 @@ function applyInstitutionBrandingToUI(){
     fav.type='image/png';
     fav.href=b.logoUrl;
   }
-  // admin branding form — only fill fields the user hasn't already typed into
-  // this session, so an in-progress edit is never clobbered.
+  // admin branding form — the URL text field is only auto-filled if the
+  // admin hasn't already typed into it this session (so an in-progress edit
+  // is never clobbered), but the PREVIEW THUMBNAIL should always reflect
+  // whatever institution_branding actually has right now, regardless of
+  // what's sitting in the text box — otherwise a leftover/remembered value
+  // in #br-logo (browser form-autofill, a stale paste from earlier) silently
+  // blocks the preview from ever loading, even on a hard refresh, because it
+  // was gated behind the same "only if the field is empty" check as the
+  // text-fill. Previously both were on one guard; now they're independent.
   const logoUrlEl=document.getElementById('br-logo'), logoPrevEl=document.getElementById('br-logo-prev');
   if(logoUrlEl && !logoUrlEl.value && b.logoUrl){
     logoUrlEl.value=b.logoUrl;
-    if(logoPrevEl) logoPrevEl.innerHTML=`<img src="${b.logoUrl}">`;
   }
+  if(logoPrevEl) previewLogoUrl(b.logoUrl||'');
   // Principal name + signature are NOT restored here — they're per-STREAM
   // (Commerce/Science), loaded by adLoadPrincipal(cls) from
   // puc_test_config/{AY}/_principal_{stream} instead of this institution-wide

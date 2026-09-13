@@ -7,9 +7,9 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.217                                                      ║
-║  FILE NAME       : puc_v5.217.html                                             ║
-║  LAST UPDATED    : 2026-09-11 12:00 PM IST                                   ║
+║  CURRENT VERSION : v5.219                                                      ║
+║  FILE NAME       : puc_v5.219.html                                             ║
+║  LAST UPDATED    : 2026-09-13 03:15 PM IST                                   ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  RULES FOR CLAUDE — READ BEFORE MAKING ANY CHANGES                          ║
@@ -56,6 +56,44 @@
 ║  CHANGELOG                                                                   ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  v5.219 2026-09-13  FEATURE: Bulk Create → "🔄 Rebuild Roster" button on    ║
+║          every already-assigned row, next to "👥 View Roster". Lets admin   ║
+║          fix a roster that was built before the v5.218 MX-pair fix (e.g.   ║
+║          Kannada wrongly including Hindi students) WITHOUT Cancel+Delete+  ║
+║          Re-create — reruns remBuildFreshRoster() for that same             ║
+║          assignmentId, which .set()-overwrites only                        ║
+║          puc_remedial/{AY}/roster/{id}. The assignment node itself         ║
+║          (faculty, weekly schedule, status, approval state) is completely   ║
+║          untouched. Confirms before running, shows a brief inline          ║
+║          "✅ Roster updated (N)" on the button, and auto-refreshes the      ║
+║          roster view if it was already open for that row.                  ║
+║          Files: puc_v5.219.html:33007-33013 (button),                       ║
+║          puc_v5.219.html:~33081-33128 (remBulkRebuildRoster).               ║
+║                                                                              ║
+║  v5.218 2026-09-13  FIX (two bugs, Remedial Attendance):                    ║
+║          (1) Bulk Create — building a subject-specific remedial roster      ║
+║          (e.g. Kannada, rosterFilter='subject') counted a Hindi/Sanskrit    ║
+║          student's blank Kannada mark as a FAIL, pulling every Hindi        ║
+║          student into Sumitra madam's Kannada remedial batch alongside      ║
+║          the real Kannada failures. Root cause: remBuildFreshRoster()'s     ║
+║          'subject' branch and remBulkLoadClass()'s subjectFailCount         ║
+║          preview never checked the MX-pair skip (Kannada/Hindi/Sanskrit,   ║
+║          CS/Statistics) that intMxPartner() already provides elsewhere —    ║
+║          only the 'any subject' branch had exclusion logic, not the        ║
+║          single-subject branch. Fix: both now call intMxPartner() with a   ║
+║          class-wide subject-code list before counting an AB mark as a      ║
+║          fail; a student enrolled in the MX-pair partner subject instead   ║
+║          is now correctly skipped, not counted as failing.                 ║
+║          (2) WhatsApp Faculty Share ("Personal and Group" messages) —      ║
+║          subjLinesFor() only excluded status==='cancelled' assignments,    ║
+║          so a 'stopped' assignment (admin paused via ⏸ Stop) still         ║
+║          appeared in the faculty's WhatsApp message as if active. Now      ║
+║          excludes both 'cancelled' and 'stopped' — only active/pending     ║
+║          assignments are listed.                                           ║
+║          Files: puc_v5.218.html:33237-33270 (remBuildFreshRoster MX skip), ║
+║          puc_v5.218.html:32914-32927 (subjectFailCount preview MX skip),   ║
+║          puc_v5.218.html:32500-32507 (subjLinesFor stopped exclusion).     ║
 ║                                                                              ║
 ║  v5.217 2026-09-11  FIX: studentStatus() in Internals WhatsApp FAIL LIST    ║
 ║          builder — a student who passed every subject actually held for    ║
@@ -9118,11 +9156,11 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.217";
+const APP_VERSION = "v5.219";
 // ⚠ CLAUDE: update this to the current date/time (IST, "YYYY-MM-DD HH:MM")
 // on EVERY change too — shown live next to the version badge in the topbar
 // as "last edited" so admin can see at a glance how fresh the file is.
-const APP_LAST_EDIT = "2026-09-11 12:00 PM";
+const APP_LAST_EDIT = "2026-09-13 03:15 PM";
 
 // ── Manually allocated USNs (v5.178) ─────────────────────────────────────────
 // Single source of truth for students whose portal record has NO USN/URN and
@@ -32497,8 +32535,13 @@ async function remRenderWhatsappShare() {
 
     // Per-faculty subject lines, reused by both the individual card and the
     // combined group message so they never drift out of sync.
+    // v5.218 FIX: was only excluding status==='cancelled', so a 'stopped'
+    // remedial assignment (admin paused it via Bulk Create → ⏸ Stop) still
+    // showed up in the WhatsApp message as if it were live. Faculty WhatsApp
+    // messages should only ever list assignments the faculty currently needs
+    // to act on — active or pending — never stopped ones.
     const subjLinesFor = id => {
-      const mine = Object.values(assignments).filter(a => a.facultyId === id && a.status !== 'cancelled');
+      const mine = Object.values(assignments).filter(a => a.facultyId === id && a.status !== 'cancelled' && a.status !== 'stopped');
       // Dedupe by subject+class name (not raw code/ID) so a lingering
       // duplicate record never shows twice in what faculty actually see —
       // prefer the active one if there's a status conflict.
@@ -32911,12 +32954,18 @@ async function remBulkLoadClass(classLabel) {
       const codeCore = stripPrefix(code);
       const match = asnForClassExam.find(([id, a]) => stripPrefix(a.subjectCode) === codeCore);
       // Subject-only fail count for THIS code specifically
+      // v5.218 FIX: same MX-pair skip as remBuildFreshRoster() — otherwise this
+      // preview count (and the roster actually built) disagreed with the real
+      // enrolled-student count whenever the subject is one half of Kannada/
+      // Hindi/Sanskrit or CS/Statistics.
+      const classSubCodesForFail = [...markedCodes];
       let subjectFailCount = 0;
       students.forEach(s => {
         if (!s.usn) return;
         const c = (s.courses || []).find(cc => cc.code === code);
         const v = c && c.marks ? Object.values(c.marks)[0] : undefined;
         const isAB = v === undefined || v === null || v === 'AB';
+        if (isAB && typeof intMxPartner === 'function' && intMxPartner(code, classSubCodesForFail, s.usn || '', s.name || '')) return;
         if (isAB || (!isNaN(Number(v)) && Number(v) < passMark)) subjectFailCount++;
       });
       return {
@@ -32970,6 +33019,13 @@ function remBulkRenderTable() {
             actions += `<button class="btn btn-ghost" style="font-size:10px;padding:4px 9px;color:var(--danger);" onclick="remBulkCancel('${id}')">🛑 Cancel</button> `;
             actions += `<button class="btn btn-ghost" style="font-size:10px;padding:4px 9px;color:var(--danger);" onclick="remBulkDelete('${id}')">🗑 Delete</button> `;
             actions += `<button class="btn btn-ghost" style="font-size:10px;padding:4px 9px;" onclick="remBulkToggleRoster('${id}', this)">👥 View Roster</button> `;
+            // v5.218: rebuild the roster in place — reruns remBuildFreshRoster()
+            // (now MX-pair aware) for this SAME assignment, overwriting only
+            // puc_remedial/{AY}/roster/{id}. The assignment itself (faculty,
+            // schedule, status, history) is untouched — no need to Cancel +
+            // Delete + Re-create just to fix a roster that was built before
+            // the Kannada/Hindi/Sanskrit/CS/Statistics MX-pair fix.
+            actions += `<button class="btn btn-ghost" style="font-size:10px;padding:4px 9px;color:var(--accent);" onclick="remBulkRebuildRoster('${id}', this)">🔄 Rebuild Roster</button> `;
             // v5.185: same inline time editor as My Remedial Classes, reused
             // here so admin doesn't have to leave Bulk Create to fix a
             // schedule right after creating it.
@@ -33068,6 +33124,38 @@ async function remBulkToggleRoster(id, btn) {
     box.innerHTML = '<div style="font-size:11px;color:var(--danger);">⚠ ' + e.message + '</div>';
   }
 }
+
+// v5.218: rebuild-in-place for a SINGLE existing assignment's roster, without
+// touching the assignment itself (faculty, schedule, status, approval state).
+// Reruns the exact same remBuildFreshRoster() the create flow uses — so any
+// assignment created before the MX-pair fix (Kannada/Hindi/Sanskrit,
+// CS/Statistics) can be corrected with one click instead of Cancel+Delete+
+// Re-create. Full overwrite (.set inside remBuildFreshRoster), so students
+// wrongly added before the fix are dropped and any genuinely-failing
+// students missed before are added — matches exactly what a fresh create
+// would produce today.
+async function remBulkRebuildRoster(id, btn) {
+  const a = remAssignmentCache[id];
+  if (!a) { alert('Assignment not found — refresh and try again.'); return; }
+  const examKey = a.examKey || a.sourceExam;
+  if (!examKey) { alert('This assignment has no exam recorded — cannot rebuild automatically.'); return; }
+  if (!confirm(`Rebuild the roster for ${a.subjectName || a.subjectCode} — ${a.classLabel}?\n\nThis re-checks every student against the current marks and pass mark, using the corrected MX-pair logic (Kannada/Hindi/Sanskrit, CS/Statistics). Students who no longer belong will be removed; any missed genuine fails will be added.\n\nFaculty, schedule, and status are not affected.`)) return;
+  const origLabel = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Rebuilding…'; }
+  try {
+    const result = await remBuildFreshRoster(id, a.classLabel, examKey, a.rosterFilter || 'subject', a.subjectCode);
+    if (result && result.error) throw new Error(result.error);
+    if (btn) { btn.textContent = `✅ Roster updated (${result.added})`; }
+    // Refresh the roster view if it's currently open for this row.
+    const box = document.getElementById('rem-bulk-roster-' + id);
+    if (box && box.style.display !== 'none') { box.style.display = 'none'; await remBulkToggleRoster(id, null); }
+    setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = origLabel; } }, 2500);
+  } catch(e) {
+    alert('Rebuild failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = origLabel; }
+  }
+}
+
 
 function remBulkEditFaculty(i, facId) {
   if (!remBulkRows[i]) return;
@@ -33235,6 +33323,15 @@ async function remBuildFreshRoster(assignmentId, classLabel, examKey, rosterFilt
   if (!Array.isArray(students)) return { added: 0, error: 'No data for ' + examKey };
 
   const passMark = parseInt(document.getElementById('int-pass-mark')?.value || 20);
+  // v5.218: class-wide subject-code list (not just this one student's courses)
+  // so intMxPartner() can actually find the MX-pair partner's code (e.g. Hindi's
+  // code when checking Kannada) — a single student's own course list may not
+  // include the partner subject at all if they were never marked in it.
+  const classSubCodes = [];
+  const seenClassCodes = new Set();
+  students.forEach(s => (s.courses || []).forEach(cc => {
+    if (cc.code && !seenClassCodes.has(cc.code)) { seenClassCodes.add(cc.code); classSubCodes.push(cc.code); }
+  }));
   const upd = {}; let n = 0;
   students.forEach(s => {
     if (!s.usn) return;
@@ -33244,6 +33341,14 @@ async function remBuildFreshRoster(assignmentId, classLabel, examKey, rosterFilt
       const c = courses.find(cc => cc.code === subjectCode);
       const v = c && c.marks ? Object.values(c.marks)[0] : undefined;
       const isAB = v === undefined || v === null || v === 'AB';
+      // v5.218 FIX: an MX-pair elective (Kannada/Hindi/Sanskrit, CS/Statistics)
+      // left blank for a student who takes the OTHER half of the pair was being
+      // counted as a fail (blank = isAB = true) — so e.g. building a Kannada
+      // remedial roster pulled in every Hindi student too, since their blank
+      // Kannada mark looked identical to a real absence. Skip this subject for
+      // the student entirely (not a fail, not applicable) if they're the
+      // absent half of a known MX pair and enrolled in the partner instead.
+      if (isAB && typeof intMxPartner === 'function' && intMxPartner(subjectCode, classSubCodes, s.usn || '', s.name || '')) return;
       failsThis = isAB || (!isNaN(Number(v)) && Number(v) < passMark);
     } else { // 'any' — fails ANY subject in this exam
       // v5.189 CRITICAL FIX: this previously counted EVERY course on the
