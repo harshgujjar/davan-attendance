@@ -38,6 +38,8 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v9.49 (2026-09-16) -- FEAT: admin Student Logins table (Controls -> Students) now shows a compact "Info" column per student -- DOB, zodiac sign, and Father/Mother name -- so admin can see at a glance who has and hasn't filled in their birth details, without opening each student individually. Direct admin request, with a real example: AFIFA ANJUM M (U13DI24S0001) shows Father/Mother correctly on index.html's own Report Card (MUKTHAR AHAMED SHARIFF / BI BI AYEESHA) but her OWN student_portal.html dashboard shows neither -- confirmed via a real screenshot, no Father/Mother line rendered at all between the header and the DOB line. Traced the cause: this file's dashboard code (updateSidebarProfile()'s dash-parents block, and the identical logic in renderReportCard()/the WhatsApp message builder) all check ONLY the exact keys fatherName/motherName, while index.html's own rcParentNames() matches by PATTERN (any key containing father/mother, case-insensitive, skipping phone/occupation/etc false-positives) -- the two apps read differently-shaped copies of the same underlying data (index.html: Firestore rcResultsCache; this file: davan_pub/results RTDB mirror), and AFIFA's real record apparently carries the name under a key the exact-match check here does not catch. NOT fixed in the dashboard itself this pass (flagged as a separate, not-yet-diagnosed gaprather than silently changed under an unrelated request) -- instead, new stuParentNamesFromResults() ports index.html's own proven pattern-matching logic into THIS file for the new admin table column, verified with a standalone harness against AFIFA's real key shape (FatherName/MotherName, mixed case) plus the plain exact-key case, a guardian-only fallback case, and empty/missing data -- all four resolve correctly. IMPLEMENTATION: new stuLoginInfoCellHtml(s) renders DOB+zodiac INSTANTLY (already on the row's own `s` object -- same davan_pub/portal_students data this file's astro system already loads, zero extra fetch) plus a placeholder for parents; new stuFillLoginParentCells(urns), called once per rendered page of 25 rows (not all ~400 students at once), fetches each visible row's results via the existing rcLoadPrevResults(urn) (already session-cached, confirmed by reading it) and fills that row's own cell independently as its fetch resolves, keyed by data-urn + CSS.escape so a slow/failed fetch on one row can never block or corrupt another's cell -- also correctly does nothing if the admin has already paged away by the time a fetch resolves (the document.querySelector lookup simply finds no matching cell left in the DOM). Table header/rows/colspan updated for the new 8th column; two other colspan values in this same render path (the initial loading-state row and the empty loading placeholder in the base HTML) were ALSO still at their pre-this-session stale values (6 and 7) from before even my own earlier edits today -- corrected to 8 as well while in this code, not left stale a third time. MOBILE-FRIENDLY: table given an explicit min-width so it never cramps illegibly on a narrow screen, sitting inside the existing .table-wrap (already overflow-x:auto) -- added a small "scroll sideways" hint line underneath so the horizontal-scroll affordance is not silently discovered by accident. VERIFIED: real script blocks node --check clean; confirmed every new function and every function it calls (rcLoadPrevResults, astroFormatDob, astroSignFromDob, escapeHtml, stuAvatarHtml, renderStudentTable) all live in the same script block, so no cross-block reference risk at all for this change. NOT YET LIVE-TESTED: please confirm the Info column appears, DOB/zodiac shows immediately, Father/Mother fills in shortly after for students who have it (AFIFA should now show correctly), and paging through the table doesn't visibly stall or error.
+VERSION : v9.48 (2026-09-16) -- FIX: Report Card showed "not available at this time" for every student whenever admin turned OFF the Attendance visibility toggle, even though there was no way to intentionally block Report Card specifically -- direct admin report confirmed via screenshot (Visibility Controls panel has no Report Card row at all) plus explicit confirmation "i have not blocked ... i dont have option to do that also here". ROOT CAUSE: renderReportCard() [line ~23747] gated its entire panel on canShow('attendance') -- Report Card was silently piggybacking on the Attendance flag with no dedicated control of its own, same class of bug this file's own v8.44 entry above already fixed once for Internal Timetable (which used to piggyback on the weekly Timetable flag the same way). Checked all 4 other canShow('attendance') call sites in this file (renderDashAttSummary, the plain-language attendance-standing block, renderAttendance) before concluding this was the only one actually gating Report Card -- the other 4 are legitimately about attendance itself and were left untouched. FIX, same proven pattern as v8.44: added 'reportCard' to CONTROL_FLAGS (auto-gains byClass/byUrn override support + checkbox load/save, same as every other flag, confirmed by reading the CONTROL_FLAGS.forEach() loops at ~14683/14879 and the save path -- no flag-specific wiring needed beyond the array entry itself); new "Report Card" checkbox row [~5532] in the Controls tab, right after Internal Timetable; renderReportCard() now checks canShow('reportCard') instead of canShow('attendance'). Default ON (not added to CONTROL_FLAGS_DEFAULT_OFF), confirmed both canShow()'s own g[section]!==false fallback and renderControls()'s el.checked = ... !==false logic already treat an unset flag as checked/visible, so a fresh deploy with no saved value yet shows Report Card exactly as it always used to, without needing every admin to explicitly turn a new toggle on. VERIFIED: real script blocks node --check clean (one pre-existing script-tagged documentation-comment block, unrelated to this change, same known false-positive class already documented elsewhere in this project). NOT YET LIVE-TESTED: please confirm the new Report Card toggle appears in Visibility Controls, defaults to ON, and that turning Attendance off no longer hides Report Card while the Report Card toggle itself still works independently.
 VERSION : v9.47 (2026-09-13) -- WIDGET FIX + VERSION-DRIFT FIX, per admin report on-device (widget correctly self-reported its real build, but tapping it to pair opened the ADMIN index.html PWA instead of this student portal PWA). ROOT CAUSE found by reading the actual widget Kotlin source directly (DavanStudentWidget_w90.zip), not guessed: [StudentWidgetProvider.kt: resolveWebApkPackage() ~588] already had PackageManager-based WebAPK targeting (shipped at w30, see that changelog entry above) specifically to handle two WebAPKs sharing one origin -- admin app scoped to /davan-attendance/, this portal scoped to /davan-attendance/student_portal.html -- but its tie-breaker for which candidate to pick, when Android's PackageManager returns both, compared the RAW PATTERN-STRING LENGTH of each WebAPK's declared intent-filter path. That measures how long Chrome's encoded scope string happens to be, not how specific the match actually is for the real target URL -- the admin app's broader /davan-attendance/ scope can (and did, on the reporting device) encode as a LONGER string than this portal's narrower, literal /davan-attendance/student_portal.html filter, so the tie-break picked the wrong app, exactly backwards from its own stated intent. FIX (widget-side only, this file unaffected by the fix itself): resolveWebApkPackage() now asks each candidate's real PatternMatcher whether it actually matches the target path via PatternMatcher.match() -- the same check Android itself performs during intent resolution -- and among real matches ranks an exact PATTERN_LITERAL match (this portal's own filter) above a PATTERN_PREFIX/PATTERN_SIMPLE_GLOB whole-folder match (the admin app's), instead of ranking by string length. SEPARATE BUG FOUND WHILE INVESTIGATING (same report, different cause): StudentFetchWorker.kt's THIS_APK_VERSION -- the one number the running APK actually self-reports to RTDB -- was still 90, even though this project's own build.gradle (versionCode/versionName 92) and W91_CHANGES.md/W92_CHANGES.md were already ahead of it. Every real w92 install was truthfully self-reporting "w90" over RTDB, two releases behind reality -- the exact same self-report-lags-the-build bug class already fixed once on the faculty widget side (see index.html's own v1120 changelog for the identical mechanism). Bumped THIS_APK_VERSION 90->92 to match the real versionCode, and correspondingly bumped LATEST_STUDENT_WIDGET_APK.apkVersion 83->92 here (minApkVersion left unchanged at 55 -- ordinary fixes, not a safety/security release, per the standing soft-nag-only rule) so students on 83-91 now correctly see an update is available, and w92 installs correctly read as up to date instead of appearing 9 builds behind. [STUDENT_WIDGET_README.md:17] CURRENT_VERSION 90->92 for consistency, per this project's own stated auto-increment rule that all three markers move together. NOT VERIFIED BY A REAL BUILD: this sandbox has no network access to the Gradle distribution or Android SDK components required to compile the APK, so the Kotlin change was verified by careful manual reading only -- correct PatternMatcher/PackageManager API usage confirmed against the stable, unchanged-since-API-1 public Android API surface, project's own check_and_zip_student.py scan_file() string-escape checker run successfully against every .kt file with zero NEW issues introduced (pre-existing false positives on Javadoc-style block comments and a triple-quoted raw-string regex were found and left alone -- confirmed as scanner limitations, not real bugs, neither in the file this fix touched). ACTION REQUIRED: rebuild the widget APK from the corrected source and publish a new release before this fix reaches any real device -- editing the source alone changes nothing already installed.
 VERSION : v9.08 (2026-09-06) [NEWS_SOURCES india ~113 in fetch_news.js,
 india checkbox list ~6255]: added 2 new India sources — Indian Express
@@ -5521,6 +5523,15 @@ body.dash-active .data-strip { display: block; }
       <div class="ctrl-row"><div><div class="ctrl-label">Semester Marks</div><div class="ctrl-sub">Show semester / exam results</div></div><label class="toggle"><input type="checkbox" id="g-semMarks" onchange="saveGlobal('semMarks',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Timetable</div><div class="ctrl-sub">Show weekly class schedule</div></div><label class="toggle"><input type="checkbox" id="g-timetable" onchange="saveGlobal('timetable',this.checked)"><span class="toggle-slider"></span></label></div>
       <div class="ctrl-row"><div><div class="ctrl-label">Internal Timetable</div><div class="ctrl-sub">Show internal exam schedule &amp; seat allocation</div></div><label class="toggle"><input type="checkbox" id="g-internalTimetable" onchange="saveGlobal('internalTimetable',this.checked)"><span class="toggle-slider"></span></label></div>
+      <!-- 16-Sep-2026 — direct admin report: Report Card was showing "not
+           available" for every student with Attendance toggled off, even
+           though admin never intended to block Report Card specifically —
+           renderReportCard() was piggybacking on canShow('attendance') with
+           no dedicated toggle to control it on purpose. Same fix pattern as
+           the Internal Timetable row above (v8.44): own flag, default ON
+           (not in CONTROL_FLAGS_DEFAULT_OFF), own checkbox, own canShow()
+           check at the render site instead of borrowing Attendance's flag. -->
+      <div class="ctrl-row"><div><div class="ctrl-label">Report Card</div><div class="ctrl-sub">Show the Report Card tab (attendance + results summary)</div></div><label class="toggle"><input type="checkbox" id="g-reportCard" onchange="saveGlobal('reportCard',this.checked)"><span class="toggle-slider"></span></label></div>
       <!-- 2026-09-07 — DEFAULT OFF, unlike every toggle above. Locked
            spec: nobody sees the DOB gate / horoscope card / birthday
            toasts until an admin turns it on, per class-section or per
@@ -5821,12 +5832,13 @@ body.dash-active .data-strip { display: block; }
       <input type="text" id="stu-search" placeholder="Search by name or URN…" class="no-icon" oninput="renderStudentTable()"/>
       <select id="stu-class-filter" class="no-icon" onchange="renderStudentTable()"><option value="">All Classes</option></select>
     </div>
-    <div class="table-wrap">
-      <table>
+    <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+      <table style="min-width:820px;">
         <thead id="stu-table-head"><tr><th>URN</th><th>Name</th><th>Class</th><th>Phone / Password</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
-        <tbody id="stu-table-body"><tr><td colspan="6"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr></tbody>
+        <tbody id="stu-table-body"><tr><td colspan="8"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr></tbody>
       </table>
     </div>
+    <div class="section-desc" style="margin-top:4px;color:var(--muted);font-size:11px;">↔ Scroll sideways on smaller screens to see every column.</div>
     <div class="pagination" id="stu-pagination"></div>
   </div>
 
@@ -7213,7 +7225,7 @@ const ADMIN_CREDENTIALS = [
   { username: 'vp',      password: 'vp123',       role: 'vp'      }
 ];
 
-const CONTROL_FLAGS = ['attendance','internals','semMarks','timetable','lessonPlan','internalTimetable','dobHoroscope','birthdayToast'];
+const CONTROL_FLAGS = ['attendance','internals','semMarks','timetable','lessonPlan','internalTimetable','reportCard','dobHoroscope','birthdayToast'];
 // 2026-09-07 — dobHoroscope/birthdayToast are the DEFAULT-OFF exceptions:
 // see CONTROL_FLAGS_DEFAULT_OFF near canShow() for why they need
 // different absent-value handling than every other flag in this array.
@@ -15178,7 +15190,7 @@ function renderStudentTable() {
   const theadNormal = document.getElementById('stu-table-head');
   // Last Login header is clickable — toggles newest-first / oldest-first / never-logged-in-first.
   const llArrow = STATE.stuLoginSort === 'oldest' ? ' ▲' : STATE.stuLoginSort === 'never' ? ' ⚠' : ' ▼';
-  if (theadNormal) theadNormal.innerHTML = '<tr><th>URN</th><th>Name</th><th>Class</th><th>Phone / Password</th><th>Status</th><th style="cursor:pointer;user-select:none;" onclick="stuCycleLoginSort()" title="Click to change sort">Last Login'+llArrow+'</th><th>Actions</th></tr>';
+  if (theadNormal) theadNormal.innerHTML = '<tr><th>URN</th><th>Name</th><th>Class</th><th>Phone / Password</th><th>Status</th><th style="cursor:pointer;user-select:none;" onclick="stuCycleLoginSort()" title="Click to change sort">Last Login'+llArrow+'</th><th>Info</th><th>Actions</th></tr>';
 
   STATE.stuFiltered = all.filter(s => {
     const mq  = !q   || (s.name||'').toLowerCase().includes(q) || (s.urn||'').toLowerCase().includes(q);
@@ -15210,7 +15222,7 @@ function renderStudentTable() {
   }
   const tbody=document.getElementById('stu-table-body');
   if (!slice.length) {
-    tbody.innerHTML='<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🔍</div>No students found.</div></td></tr>';
+    tbody.innerHTML='<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🔍</div>No students found.</div></td></tr>';
   } else {
     tbody.innerHTML=slice.map(s=>`
       <tr>
@@ -15220,8 +15232,10 @@ function renderStudentTable() {
         <td style="font-family:var(--mono);font-size:12px;">${s.phone?escapeHtml(s.phone):'<span style="color:var(--muted)">—</span>'}</td>
         <td><span class="badge ${s.passwordChanged?'badge-ok':'badge-warn'}">${s.passwordChanged?'Changed':'Default'}</span></td>
         <td style="font-family:var(--mono);font-size:11px;color:${s.lastLogin?'var(--muted)':'var(--danger)'};">${s.lastLogin?fmtDate(s.lastLogin):'Never logged in'}</td>
+        <td>${stuLoginInfoCellHtml(s)}</td>
         <td><button class="btn btn-sm btn-ghost" onclick="openStudentModal('${s.urn}')" style="margin-top:0;padding:4px 10px;">Edit</button></td>
       </tr>`).join('');
+    stuFillLoginParentCells(slice.map(s => s.urn).filter(Boolean));
   }
   const pgEl=document.getElementById('stu-pagination'); pgEl.innerHTML='';
   if (pages<=1) return;
@@ -23387,6 +23401,83 @@ async function rcLoadPrevResults(urn, forceRefresh) {
   return p;
 }
 
+// ── Pattern-based parent-name resolver, for the admin Student Logins table ──
+// Ported from index.html's rcParentNames() (16-Sep-2026), which reads a
+// DIFFERENT results source (Firestore rcResultsCache) than this file's own
+// davan_pub/results RTDB mirror, and matches keys by PATTERN (/father/,
+// /mother/, then /guardian|parent/ as a fallback) rather than requiring the
+// exact fatherName/motherName keys this file's dashboard code checks for.
+// Built after confirming directly with the admin that a real student (AFIFA,
+// U13DI24S0001) shows Father/Mother correctly in index.html's Report Card but
+// not on her own student_portal.html dashboard — the two apps' results data
+// can carry the name under a differently-cased or differently-worded key, and
+// only the pattern-matching side catches it. Used here (not swapped in for
+// the dashboard's existing exact-match code) because this table needs a
+// result cache, not a live one; the dashboard's own behavior is a separate,
+// not-yet-diagnosed gap noted for a future fix, not silently changed here.
+function stuParentNamesFromResults(resultsArr) {
+  const SKIP = /phone|mobile|number|no$|occupation|income|qual|edu|email|aadha?ar/i;
+  const pick = (obj, re) => {
+    if (!obj || typeof obj !== 'object') return '';
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v !== 'string') continue;
+      const val = v.trim();
+      if (!val || val === '-' || val === '\u2014' || val.toLowerCase() === 'na') continue;
+      if (SKIP.test(k)) continue;
+      if (re.test(k)) return val;
+    }
+    return '';
+  };
+  const sources = resultsArr || [];
+  let father = '', mother = '';
+  for (const src of sources) {
+    if (!father) father = pick(src, /father|^f_?name$/i);
+    if (!mother) mother = pick(src, /mother|^m_?name$/i);
+    if (father && mother) break;
+  }
+  if (!father) for (const src of sources) { father = pick(src, /guardian|parent/i); if (father) break; }
+  return { father, mother };
+}
+
+// ── Compact Info column (DOB/zodiac instant, parents filled in async) ──
+// DOB/zodiac come straight off the row's own `s` object (already loaded —
+// same davan_pub/portal_students data this whole file's astro system already
+// uses) so they render immediately, no extra fetch. Father/Mother need a
+// per-URN results fetch (rcLoadPrevResults), too slow to block the table
+// paint on, so each visible row's cell is filled in as its own fetch
+// resolves — independent per row, a slow one never blocks the others.
+function stuLoginInfoCellHtml(s) {
+  const dob = s && s.dob ? astroFormatDob(s.dob) : '';
+  const sign = s && s.dob ? astroSignFromDob(s.dob) : null;
+  const dobLine = dob ? (dob + (sign ? ' · ' + sign.sym : '')) : '<span style="color:var(--muted);">No DOB</span>';
+  return '<div style="font-size:11px;line-height:1.5;white-space:nowrap;">'
+    + dobLine
+    + '<br><span class="stu-login-parents" data-urn="' + (s.urn||'') + '" style="color:var(--muted);">…</span>'
+    + '</div>';
+}
+
+// Called once per rendered page of rows (stuFillLoginParents in renderStudentTable
+// below) — fetches each visible row's parent names independently and fills its
+// own cell in place, so one slow/failed fetch never blocks the rest of the page.
+async function stuFillLoginParentCells(urns) {
+  urns.forEach(async (urn) => {
+    try {
+      const results = await rcLoadPrevResults(urn);
+      const { father, mother } = stuParentNamesFromResults(results || []);
+      const cell = document.querySelector('.stu-login-parents[data-urn="' + CSS.escape(urn) + '"]');
+      if (!cell) return; // page changed before this fetch resolved — nothing to update
+      if (!father && !mother) { cell.textContent = 'No parent info'; return; }
+      const bits = [];
+      if (father) bits.push('F/O ' + escapeHtml(father));
+      if (mother) bits.push('M/O ' + escapeHtml(mother));
+      cell.innerHTML = bits.join(' · ');
+    } catch(e) {
+      const cell = document.querySelector('.stu-login-parents[data-urn="' + CSS.escape(urn) + '"]');
+      if (cell) cell.textContent = '—';
+    }
+  });
+}
+
 async function rcLoadPrevResultsReal(urn, forceRefresh) {
   const results = [];
   const COURSES = ['BCA','BBA','BCom'];
@@ -23735,7 +23826,7 @@ async function renderReportCard(showBrandedLoader, forceRefresh) {
   if (loadEl) loadEl.style.display = 'block';
   if (wrapEl) wrapEl.style.display = 'none';
 
-  if (!canShow('attendance')) {
+  if (!canShow('reportCard')) {
     if (loadEl) loadEl.style.display = 'none';
     if (hidEl)  hidEl.style.display  = 'block';
     if (showBrandedLoader) hideStuRcLoader();
