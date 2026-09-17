@@ -38,6 +38,11 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v9.54 (2026-09-16) -- REAL FIX for "No DOB" card still showing 0 after v9.53 (F12 data confirmed the actual cause): portal_students has 687 rows against a 403-student roster (old/passout/re-imported accounts, plus at least one non-roster URN in the live sample). noDobRows was checking whether a roster URN existed ANYWHERE in portal_students -- true for nearly every current student regardless of whether THEIR OWN record has dob, since so many extra rows exist. Fixed: exclusion set is now URNs that specifically HAVE dob (urnsWithDob), not just URNs present at all -- verified with the admin's own real numbers (403 roster, 369 with dob) produces exactly 34. Also fixed the sanity-check comparison, which would have misfired constantly comparing raw portal_students count to withDob count (differ by hundreds by design) -- now compares roster-scoped counts, the only comparison that means anything.
+VERSION : v9.53 (2026-09-16) -- TWO FIXES on v9.52. (1) "No DOB" card showed 0 instead of an expected ~34 (403 roster - 369 with DOB): STATE.allStudents can be empty when this tab opens (bulk load not yet finished, or a nav path that skipped it), silently zeroing the card with no sign anything failed. Now falls back to fetching davan_pub/students directly if the roster is empty; also logs a sanity check if any portal_students row is ever found without a dob (would mean the mandatory-DOB assumption this card relies on doesn't hold everywhere). (2) Admin reversed the tab-width decision -- wants ALL tabs at 1400px, not just wide-content ones. Moved max-width:1400px onto the base .tab-content rule itself (was 900px) and removed the now-redundant .tab-content-wide class -- one line now controls every tab including any added later, true "one helper" as originally asked.
+VERSION : v9.52 (2026-09-16) -- THREE FIXES. (1) Student Logins table: clickable Name header for A-Z/Z-A sort (stuCycleNameSort), independent of the existing Last Login sort cycle. (2) DOB & Horoscope admin tab: new "No DOB - never logged in" card. Admin confirmed DOB is mandatory at login, so the only way to lack one is never having logged in -- card is STATE.allStudents roster minus portal_students URNs, with its own drill-down list (baRenderOptInList's 'noDob' branch, separate render path since these rows have no dob/dobTime/dobPlace fields at all). (3) New .tab-content-wide CSS helper (max-width:1400px) replacing yesterday's one-off inline style on #tab-students; applied to it and #tab-engagement (the two tabs with a real <table>) -- NOT applied to all 19 tabs globally, per admin's own explicit call after I asked: short-form tabs should stay narrower rather than look stretched.
+VERSION : v9.51 (2026-09-16) -- REAL FIX for parent names not showing (admin confirmed suspicion: "might be it hs not scraped from db1 to db2" -- correct). ROOT CAUSE #1: index.html's manual Father/Mother overrides live in Firestore DB1 app_data/student_parents; this portal is DB2-only by hard rule (installDb1Guard() blocks any DB1 fetch outright) and had no bridge for that path at all. Added sync_parent_overrides_firestore_to_rtdb() to sync_db1_to_db2.py (mirrors the existing students sync) -> RTDB DB2 davan_pub/parent_overrides, wired in unconditionally next to the students sync. New stuLoadParentOverrides() reads it via rtdbGet() (this file's own real DB2 reader -- an earlier draft of this fix wrongly used lpDb2Get, a function that does not exist in this file at all; caught before shipping by grepping for its definition here and finding none). ROOT CAUSE #2, found while fixing #1: rcLoadPrevResultsReal() only ever extracted the exact keys st.fatherName/st.motherName when building each semester record -- a differently-cased real key (AFIFA's actual data: FatherName/MotherName) was discarded before any pattern-matching could even see it. Now spreads every string field from the raw record onto the pushed result (explicit fatherName/motherName assignment kept after the spread for backward compat), so stuParentNamesFromResults() has the real data to search. Fixed all THREE display sites to use stuParentNamesFromResults() + the override fallback consistently: dashboard (dash-parents), Report Card header, and the admin name-card popup (ascOpenNameCard) -- the last one previously used manual &lt; escaping instead of escapeHtml(), now consistent too. VERIFIED: Python syntax clean; JS syntax clean across all script blocks; a Node harness reproducing AFIFA's exact real key shape (FatherName/MotherName + fatherPhone noise) resolves correctly end-to-end through the full pipeline. NOT YET LIVE-TESTED: needs a real sync_db1_to_db2.py run before davan_pub/parent_overrides exists in DB2 at all -- please run the sync, then confirm AFIFA (or any student with a manual override) shows Father/Mother on her own dashboard, Report Card, and the admin Student Logins table Info column.
+VERSION : v9.50 (2026-09-16) -- FIX: Students tab wasted a lot of horizontal space on wide screens (.tab-content's shared max-width:900px, used by 19 tabs). Overrode max-width to 1400px on just #tab-students (not globally --other tabs are short forms/cards that would look stretched at full width). Table now width:100% to actually use the room; Info column's parent-name line no longer forced nowrap, so it wraps cleanly instead of cramping.
 VERSION : v9.49 (2026-09-16) -- FEAT: admin Student Logins table (Controls -> Students) now shows a compact "Info" column per student -- DOB, zodiac sign, and Father/Mother name -- so admin can see at a glance who has and hasn't filled in their birth details, without opening each student individually. Direct admin request, with a real example: AFIFA ANJUM M (U13DI24S0001) shows Father/Mother correctly on index.html's own Report Card (MUKTHAR AHAMED SHARIFF / BI BI AYEESHA) but her OWN student_portal.html dashboard shows neither -- confirmed via a real screenshot, no Father/Mother line rendered at all between the header and the DOB line. Traced the cause: this file's dashboard code (updateSidebarProfile()'s dash-parents block, and the identical logic in renderReportCard()/the WhatsApp message builder) all check ONLY the exact keys fatherName/motherName, while index.html's own rcParentNames() matches by PATTERN (any key containing father/mother, case-insensitive, skipping phone/occupation/etc false-positives) -- the two apps read differently-shaped copies of the same underlying data (index.html: Firestore rcResultsCache; this file: davan_pub/results RTDB mirror), and AFIFA's real record apparently carries the name under a key the exact-match check here does not catch. NOT fixed in the dashboard itself this pass (flagged as a separate, not-yet-diagnosed gaprather than silently changed under an unrelated request) -- instead, new stuParentNamesFromResults() ports index.html's own proven pattern-matching logic into THIS file for the new admin table column, verified with a standalone harness against AFIFA's real key shape (FatherName/MotherName, mixed case) plus the plain exact-key case, a guardian-only fallback case, and empty/missing data -- all four resolve correctly. IMPLEMENTATION: new stuLoginInfoCellHtml(s) renders DOB+zodiac INSTANTLY (already on the row's own `s` object -- same davan_pub/portal_students data this file's astro system already loads, zero extra fetch) plus a placeholder for parents; new stuFillLoginParentCells(urns), called once per rendered page of 25 rows (not all ~400 students at once), fetches each visible row's results via the existing rcLoadPrevResults(urn) (already session-cached, confirmed by reading it) and fills that row's own cell independently as its fetch resolves, keyed by data-urn + CSS.escape so a slow/failed fetch on one row can never block or corrupt another's cell -- also correctly does nothing if the admin has already paged away by the time a fetch resolves (the document.querySelector lookup simply finds no matching cell left in the DOM). Table header/rows/colspan updated for the new 8th column; two other colspan values in this same render path (the initial loading-state row and the empty loading placeholder in the base HTML) were ALSO still at their pre-this-session stale values (6 and 7) from before even my own earlier edits today -- corrected to 8 as well while in this code, not left stale a third time. MOBILE-FRIENDLY: table given an explicit min-width so it never cramps illegibly on a narrow screen, sitting inside the existing .table-wrap (already overflow-x:auto) -- added a small "scroll sideways" hint line underneath so the horizontal-scroll affordance is not silently discovered by accident. VERIFIED: real script blocks node --check clean; confirmed every new function and every function it calls (rcLoadPrevResults, astroFormatDob, astroSignFromDob, escapeHtml, stuAvatarHtml, renderStudentTable) all live in the same script block, so no cross-block reference risk at all for this change. NOT YET LIVE-TESTED: please confirm the Info column appears, DOB/zodiac shows immediately, Father/Mother fills in shortly after for students who have it (AFIFA should now show correctly), and paging through the table doesn't visibly stall or error.
 VERSION : v9.48 (2026-09-16) -- FIX: Report Card showed "not available at this time" for every student whenever admin turned OFF the Attendance visibility toggle, even though there was no way to intentionally block Report Card specifically -- direct admin report confirmed via screenshot (Visibility Controls panel has no Report Card row at all) plus explicit confirmation "i have not blocked ... i dont have option to do that also here". ROOT CAUSE: renderReportCard() [line ~23747] gated its entire panel on canShow('attendance') -- Report Card was silently piggybacking on the Attendance flag with no dedicated control of its own, same class of bug this file's own v8.44 entry above already fixed once for Internal Timetable (which used to piggyback on the weekly Timetable flag the same way). Checked all 4 other canShow('attendance') call sites in this file (renderDashAttSummary, the plain-language attendance-standing block, renderAttendance) before concluding this was the only one actually gating Report Card -- the other 4 are legitimately about attendance itself and were left untouched. FIX, same proven pattern as v8.44: added 'reportCard' to CONTROL_FLAGS (auto-gains byClass/byUrn override support + checkbox load/save, same as every other flag, confirmed by reading the CONTROL_FLAGS.forEach() loops at ~14683/14879 and the save path -- no flag-specific wiring needed beyond the array entry itself); new "Report Card" checkbox row [~5532] in the Controls tab, right after Internal Timetable; renderReportCard() now checks canShow('reportCard') instead of canShow('attendance'). Default ON (not added to CONTROL_FLAGS_DEFAULT_OFF), confirmed both canShow()'s own g[section]!==false fallback and renderControls()'s el.checked = ... !==false logic already treat an unset flag as checked/visible, so a fresh deploy with no saved value yet shows Report Card exactly as it always used to, without needing every admin to explicitly turn a new toggle on. VERIFIED: real script blocks node --check clean (one pre-existing script-tagged documentation-comment block, unrelated to this change, same known false-positive class already documented elsewhere in this project). NOT YET LIVE-TESTED: please confirm the new Report Card toggle appears in Visibility Controls, defaults to ON, and that turning Attendance off no longer hides Report Card while the Report Card toggle itself still works independently.
 VERSION : v9.47 (2026-09-13) -- WIDGET FIX + VERSION-DRIFT FIX, per admin report on-device (widget correctly self-reported its real build, but tapping it to pair opened the ADMIN index.html PWA instead of this student portal PWA). ROOT CAUSE found by reading the actual widget Kotlin source directly (DavanStudentWidget_w90.zip), not guessed: [StudentWidgetProvider.kt: resolveWebApkPackage() ~588] already had PackageManager-based WebAPK targeting (shipped at w30, see that changelog entry above) specifically to handle two WebAPKs sharing one origin -- admin app scoped to /davan-attendance/, this portal scoped to /davan-attendance/student_portal.html -- but its tie-breaker for which candidate to pick, when Android's PackageManager returns both, compared the RAW PATTERN-STRING LENGTH of each WebAPK's declared intent-filter path. That measures how long Chrome's encoded scope string happens to be, not how specific the match actually is for the real target URL -- the admin app's broader /davan-attendance/ scope can (and did, on the reporting device) encode as a LONGER string than this portal's narrower, literal /davan-attendance/student_portal.html filter, so the tie-break picked the wrong app, exactly backwards from its own stated intent. FIX (widget-side only, this file unaffected by the fix itself): resolveWebApkPackage() now asks each candidate's real PatternMatcher whether it actually matches the target path via PatternMatcher.match() -- the same check Android itself performs during intent resolution -- and among real matches ranks an exact PATTERN_LITERAL match (this portal's own filter) above a PATTERN_PREFIX/PATTERN_SIMPLE_GLOB whole-folder match (the admin app's), instead of ranking by string length. SEPARATE BUG FOUND WHILE INVESTIGATING (same report, different cause): StudentFetchWorker.kt's THIS_APK_VERSION -- the one number the running APK actually self-reports to RTDB -- was still 90, even though this project's own build.gradle (versionCode/versionName 92) and W91_CHANGES.md/W92_CHANGES.md were already ahead of it. Every real w92 install was truthfully self-reporting "w90" over RTDB, two releases behind reality -- the exact same self-report-lags-the-build bug class already fixed once on the faculty widget side (see index.html's own v1120 changelog for the identical mechanism). Bumped THIS_APK_VERSION 90->92 to match the real versionCode, and correspondingly bumped LATEST_STUDENT_WIDGET_APK.apkVersion 83->92 here (minApkVersion left unchanged at 55 -- ordinary fixes, not a safety/security release, per the standing soft-nag-only rule) so students on 83-91 now correctly see an update is available, and w92 installs correctly read as up to date instead of appearing 9 builds behind. [STUDENT_WIDGET_README.md:17] CURRENT_VERSION 90->92 for consistency, per this project's own stated auto-increment rule that all three markers move together. NOT VERIFIED BY A REAL BUILD: this sandbox has no network access to the Gradle distribution or Android SDK components required to compile the APK, so the Kotlin change was verified by careful manual reading only -- correct PatternMatcher/PackageManager API usage confirmed against the stable, unchanged-since-API-1 public Android API surface, project's own check_and_zip_student.py scan_file() string-escape checker run successfully against every .kt file with zero NEW issues introduced (pre-existing false positives on Javadoc-style block comments and a triple-quoted raw-string regex were found and left alone -- confirmed as scanner limitations, not real bugs, neither in the file this fix touched). ACTION REQUIRED: rebuild the widget APK from the corrected source and publish a new release before this fix reaches any real device -- editing the source alone changes nothing already installed.
@@ -3558,8 +3563,17 @@ textarea { padding-left: 11px; resize: vertical; min-height: 80px; }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 /* tab content */
-.tab-content { display: none; flex: 1; padding: 24px 16px 40px; max-width: 900px; width: 100%; margin: 0 auto; }
+.tab-content { display: none; flex: 1; padding: 24px 16px 40px; max-width: 1400px; width: 100%; margin: 0 auto; }
 .tab-content.active { display: block; }
+/* 16-Sep-2026 — was 900px; admin first asked to widen only wide-content
+   tabs (Students, Engagement) via a .tab-content-wide helper class, then
+   explicitly reversed that and asked for ALL tabs at 1400px. Applied to
+   the base rule directly rather than adding a class to all 19 divs by
+   hand, so this stays truly "one helper" — one line controls every tab,
+   including any added later, with nothing to remember to add per-tab.
+   .tab-content-wide (used briefly on #tab-students/#tab-engagement) is
+   now redundant with the base rule at the same 1400px and has been
+   removed; those two divs' extra class was removed along with it. */
 .section-title { font-family: var(--head); font-size: 20px; letter-spacing: 1.5px; color: var(--text); margin-bottom: 4px; }
 .section-desc { font-size: 12px; color: var(--muted); font-family: var(--mono); margin-bottom: 20px; }
 
@@ -5806,6 +5820,13 @@ body.dash-active .data-strip { display: block; }
   </div>
 
   <!-- STUDENTS TAB -->
+  <!-- 16-Sep-2026 — admin direct feedback: "why cant u make this wider i have
+       so much space" (screenshot showed the Info column wrapping/cramped
+       while a wide empty margin sat unused on a wide screen). .tab-content's
+       shared max-width:900px (line ~3561) applies to 19 different tabs —
+       narrowed the override to just this one tab rather than lifting the cap
+       globally, since some of the other 18 (short forms, single cards) would
+       look stretched and awkward at full width on a wide monitor. -->
   <div class="tab-content" id="tab-students">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;flex-wrap:wrap;gap:10px;">
       <div class="section-title">STUDENT LOGINS</div>
@@ -5833,7 +5854,7 @@ body.dash-active .data-strip { display: block; }
       <select id="stu-class-filter" class="no-icon" onchange="renderStudentTable()"><option value="">All Classes</option></select>
     </div>
     <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-      <table style="min-width:820px;">
+      <table style="min-width:820px;width:100%;">
         <thead id="stu-table-head"><tr><th>URN</th><th>Name</th><th>Class</th><th>Phone / Password</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
         <tbody id="stu-table-body"><tr><td colspan="8"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr></tbody>
       </table>
@@ -6730,6 +6751,7 @@ body.dash-active .data-strip { display: block; }
             <option value="timeOnly">Time only</option>
             <option value="placeOnly">Place only</option>
             <option value="neither">Neither given</option>
+            <option value="noDob">No DOB — never logged in</option>
           </select>
         </div>
         <div id="ba-optin-list" style="margin-top:10px;"></div>
@@ -14189,8 +14211,23 @@ function closeLiveStudentsModal() {
 /* ── Show students missing portal login for a class ── */
 function stuCycleLoginSort() {
   // newest → oldest → never-logged-in → back to newest
+  // Clicking Last Login switches the table back to login-based sorting,
+  // in case Name-sort (stuCycleNameSort, added 16-Sep-2026) was active.
   const order = { newest: 'oldest', oldest: 'never', never: 'newest' };
   STATE.stuLoginSort = order[STATE.stuLoginSort || 'newest'];
+  STATE.stuNameSort = null; // Last Login and Name sort are mutually exclusive
+  STATE.stuPage = 1;
+  renderStudentTable();
+}
+// A-Z / Z-A toggle on the Name column header, per direct admin request
+// ("how this table is sorted ... make it alphbitical a list"). Independent
+// of stuCycleLoginSort's own three-state cycle above (Newest/Oldest/Never
+// logged in) rather than folded into it, so clicking either header always
+// does exactly what it says — a combined cycle would make it ambiguous
+// which column a given click state was even sorting by.
+function stuCycleNameSort() {
+  const order = { az: 'za', za: null, null: 'az' };
+  STATE.stuNameSort = order[STATE.stuNameSort || null];
   STATE.stuPage = 1;
   renderStudentTable();
 }
@@ -15190,26 +15227,36 @@ function renderStudentTable() {
   const theadNormal = document.getElementById('stu-table-head');
   // Last Login header is clickable — toggles newest-first / oldest-first / never-logged-in-first.
   const llArrow = STATE.stuLoginSort === 'oldest' ? ' ▲' : STATE.stuLoginSort === 'never' ? ' ⚠' : ' ▼';
-  if (theadNormal) theadNormal.innerHTML = '<tr><th>URN</th><th>Name</th><th>Class</th><th>Phone / Password</th><th>Status</th><th style="cursor:pointer;user-select:none;" onclick="stuCycleLoginSort()" title="Click to change sort">Last Login'+llArrow+'</th><th>Info</th><th>Actions</th></tr>';
+  // Name header is clickable — toggles A-Z / Z-A / off (back to Last Login sort).
+  const nameArrow = STATE.stuNameSort === 'az' ? ' ▲' : STATE.stuNameSort === 'za' ? ' ▼' : '';
+  if (theadNormal) theadNormal.innerHTML = '<tr><th>URN</th><th style="cursor:pointer;user-select:none;" onclick="stuCycleNameSort()" title="Click to sort A-Z / Z-A">Name'+nameArrow+'</th><th>Class</th><th>Phone / Password</th><th>Status</th><th style="cursor:pointer;user-select:none;" onclick="stuCycleLoginSort()" title="Click to change sort">Last Login'+llArrow+'</th><th>Info</th><th>Actions</th></tr>';
 
   STATE.stuFiltered = all.filter(s => {
     const mq  = !q   || (s.name||'').toLowerCase().includes(q) || (s.urn||'').toLowerCase().includes(q);
     const mcls= !cls || s.class===cls;
     return mq && mcls;
   });
-  // Sort by lastLogin per STATE.stuLoginSort (default: newest-first, so recent
-  // activity is what you see without hunting through pages).
-  const sortMode = STATE.stuLoginSort || 'newest';
-  STATE.stuFiltered.sort((a, b) => {
-    const la = a.lastLogin || 0, lb = b.lastLogin || 0;
-    if (sortMode === 'never') {
-      // Students who have NEVER logged in first, then newest-first among the rest.
-      if (!la && lb) return -1;
-      if (la && !lb) return 1;
-      return lb - la;
-    }
-    return sortMode === 'oldest' ? (la - lb) : (lb - la);
-  });
+  if (STATE.stuNameSort) {
+    // Alphabetical, per direct admin request ("make it alphbitical a list").
+    // Independent of the Last Login sort below — only one of the two is
+    // ever active at a time (stuCycleLoginSort clears this when clicked).
+    const dir = STATE.stuNameSort === 'za' ? -1 : 1;
+    STATE.stuFiltered.sort((a, b) => dir * (a.name||'').localeCompare(b.name||''));
+  } else {
+    // Sort by lastLogin per STATE.stuLoginSort (default: newest-first, so recent
+    // activity is what you see without hunting through pages).
+    const sortMode = STATE.stuLoginSort || 'newest';
+    STATE.stuFiltered.sort((a, b) => {
+      const la = a.lastLogin || 0, lb = b.lastLogin || 0;
+      if (sortMode === 'never') {
+        // Students who have NEVER logged in first, then newest-first among the rest.
+        if (!la && lb) return -1;
+        if (la && !lb) return 1;
+        return lb - la;
+      }
+      return sortMode === 'oldest' ? (la - lb) : (lb - la);
+    });
+  }
   const total=STATE.stuFiltered.length;
   const pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
   if (STATE.stuPage>pages) STATE.stuPage=1;
@@ -19423,6 +19470,21 @@ function updateSidebarProfile() {
   // itself. Reuses the existing STATE._lastPrevResults lazy-cache: if the Report
   // Card (or another dashboard panel) has already fetched it this session, no
   // extra network call happens here.
+  //
+  // FIX (16-Sep-2026): was checking only the exact keys fatherName/motherName,
+  // which missed real records where the field is cased/worded differently (a
+  // real case: AFIFA ANJUM M, U13DI24S0001 — confirmed via screenshot to show
+  // NEITHER parent here despite index.html's Report Card showing both
+  // correctly for her). Switched to stuParentNamesFromResults(), the same
+  // pattern-based matcher (ported from index.html's own rcParentNames())
+  // already added for the admin Student Logins table column, plus the same
+  // manual-override fallback (davan_pub/parent_overrides, synced from
+  // index.html's admin-entered Firestore data) that table now uses — same
+  // precedence as index.html: real results win, the manual entry only fills
+  // in what results didn't provide. Also added escapeHtml() around both
+  // names before the innerHTML write, matching every other admin/student-
+  // entered string in this file that reaches innerHTML — this one was
+  // interpolating a results-sourced string unescaped.
   (async () => {
     const parentsEl = document.getElementById('dash-parents');
     if (!parentsEl || !u.urn) return;
@@ -19430,12 +19492,19 @@ function updateSidebarProfile() {
       if (STATE._lastPrevResults === undefined) {
         STATE._lastPrevResults = (await rcLoadPrevResults(u.urn)) || [];
       }
-      // Most recent semester that actually carries a father/mother name — newest first.
-      const withParents = [...(STATE._lastPrevResults || [])].reverse().find(r => r.fatherName || r.motherName);
-      if (withParents) {
+      let { father, mother } = stuParentNamesFromResults(STATE._lastPrevResults || []);
+      if (!father || !mother) {
+        await stuLoadParentOverrides();
+        const ov = stuParentOverrides[u.urn];
+        if (ov) {
+          if (!father && ov.f) father = ov.f;
+          if (!mother && ov.m) mother = ov.m;
+        }
+      }
+      if (father || mother) {
         const bits = [];
-        if (withParents.fatherName) bits.push('<span style="color:var(--blue);font-weight:600;">Father:</span> <span style="color:var(--text);">' + withParents.fatherName + '</span>');
-        if (withParents.motherName) bits.push('<span style="color:#a78bfa;font-weight:600;">Mother:</span> <span style="color:var(--text);">' + withParents.motherName + '</span>');
+        if (father) bits.push('<span style="color:var(--blue);font-weight:600;">Father:</span> <span style="color:var(--text);">' + escapeHtml(father) + '</span>');
+        if (mother) bits.push('<span style="color:#a78bfa;font-weight:600;">Mother:</span> <span style="color:var(--text);">' + escapeHtml(mother) + '</span>');
         parentsEl.innerHTML = bits.join('<span style="color:var(--muted);"> &nbsp;·&nbsp; </span>');
         parentsEl.style.display = 'block';
       }
@@ -23415,6 +23484,31 @@ async function rcLoadPrevResults(urn, forceRefresh) {
 // the dashboard's existing exact-match code) because this table needs a
 // result cache, not a live one; the dashboard's own behavior is a separate,
 // not-yet-diagnosed gap noted for a future fix, not silently changed here.
+// ── Manual parent-name overrides (admin-entered in index.html, synced via
+//    sync_db1_to_db2.py to davan_pub/parent_overrides) — 16-Sep-2026. Loaded
+//    once and cached, same pattern as stuDob/rcPhotos elsewhere in this file.
+//    Shape: { URN: { f: '<father>', m: '<mother>' } }, exactly as
+//    index.html's rcSaveParentOverrides() writes it — read as-is here, no
+//    reshaping, so a format change on the admin side only needs a fix in ONE
+//    place (the sync script) rather than in every reader.
+let stuParentOverrides = {};
+let stuParentOverridesReady = null;
+async function stuLoadParentOverrides() {
+  if (stuParentOverridesReady) return stuParentOverridesReady;
+  stuParentOverridesReady = (async () => {
+    try {
+      const v = await rtdbGet('davan_pub/parent_overrides');
+      stuParentOverrides = (v && v.data) || {};
+      console.log('[stuParentOverrides] loaded', Object.keys(stuParentOverrides).length, 'manual overrides');
+    } catch(e) {
+      console.warn('[stuParentOverrides] load failed:', e.message);
+      stuParentOverrides = {};
+    }
+    return stuParentOverrides;
+  })();
+  return stuParentOverridesReady;
+}
+
 function stuParentNamesFromResults(resultsArr) {
   const SKIP = /phone|mobile|number|no$|occupation|income|qual|edu|email|aadha?ar/i;
   const pick = (obj, re) => {
@@ -23450,7 +23544,7 @@ function stuLoginInfoCellHtml(s) {
   const dob = s && s.dob ? astroFormatDob(s.dob) : '';
   const sign = s && s.dob ? astroSignFromDob(s.dob) : null;
   const dobLine = dob ? (dob + (sign ? ' · ' + sign.sym : '')) : '<span style="color:var(--muted);">No DOB</span>';
-  return '<div style="font-size:11px;line-height:1.5;white-space:nowrap;">'
+  return '<div style="font-size:11px;line-height:1.5;white-space:normal;min-width:220px;">'
     + dobLine
     + '<br><span class="stu-login-parents" data-urn="' + (s.urn||'') + '" style="color:var(--muted);">…</span>'
     + '</div>';
@@ -23460,10 +23554,20 @@ function stuLoginInfoCellHtml(s) {
 // below) — fetches each visible row's parent names independently and fills its
 // own cell in place, so one slow/failed fetch never blocks the rest of the page.
 async function stuFillLoginParentCells(urns) {
+  await stuLoadParentOverrides(); // cheap after first call — cached
   urns.forEach(async (urn) => {
     try {
       const results = await rcLoadPrevResults(urn);
-      const { father, mother } = stuParentNamesFromResults(results || []);
+      let { father, mother } = stuParentNamesFromResults(results || []);
+      // Manual override fills in only what real results didn't provide —
+      // same precedence as index.html's rcParentNames(): scraped results
+      // win when present, the admin's manual entry is a fallback for
+      // students whose results aren't published yet, never an overwrite.
+      const ov = stuParentOverrides[urn];
+      if (ov) {
+        if (!father && ov.f) father = ov.f;
+        if (!mother && ov.m) mother = ov.m;
+      }
       const cell = document.querySelector('.stu-login-parents[data-urn="' + CSS.escape(urn) + '"]');
       if (!cell) return; // page changed before this fetch resolved — nothing to update
       if (!father && !mother) { cell.textContent = 'No parent info'; return; }
@@ -23684,6 +23788,19 @@ async function rcLoadPrevResultsReal(urn, forceRefresh) {
         sgpa: st.sgpa, cgpa: st.cgpa || null, pct: normPct, result: st.result,
         subjects: subArr, totalCredits,
         // Per-student CBCS ledger fields — same availability caveat as above.
+        // FIX (16-Sep-2026): this used to extract ONLY the exact keys
+        // st.fatherName/st.motherName, so if the raw scraped/synced record
+        // carried the name under any other casing or wording (a real
+        // confirmed case: AFIFA ANJUM M's record uses FatherName/MotherName,
+        // capital F/M), the name was already lost right here — no amount of
+        // pattern-matching downstream (stuParentNamesFromResults) could
+        // recover it, since this object simply never had the field. Now
+        // spreads every other string field from `st` onto the pushed record
+        // too (never overwriting the fields explicitly set above), so the
+        // pattern-based matcher downstream has the full raw record to search
+        // across, exactly like index.html's rcParentNames() already does
+        // against its own raw per-semester source objects.
+        ...Object.fromEntries(Object.entries(st).filter(([k, v]) => typeof v === 'string')),
         fatherName: st.fatherName || '', motherName: st.motherName || '',
         termGrade: st.termGrade || '', marksCardNo: st.marksCardNo || '',
       });
@@ -23895,10 +24012,22 @@ async function renderReportCard(showBrandedLoader, forceRefresh) {
     // Father's/Mother's Name — same source + same color language as the dashboard's
     // dash-parents line (blue label for Father, purple for Mother, matching the
     // faculty-name purple used elsewhere on this report card).
-    const _rcParents = [...(prevResults||[])].reverse().find(r => r.fatherName || r.motherName);
+    // FIX (16-Sep-2026): same exact-key-vs-pattern-match gap as the dashboard's
+    // dash-parents block above — switched to stuParentNamesFromResults() +
+    // the manual-override fallback for consistency, so this Report Card and
+    // the dashboard never disagree about whether a student's parents show.
+    let { father: _rcFather, mother: _rcMother } = stuParentNamesFromResults(prevResults || []);
+    if (!_rcFather || !_rcMother) {
+      await stuLoadParentOverrides();
+      const _rcOv = stuParentOverrides[urn];
+      if (_rcOv) {
+        if (!_rcFather && _rcOv.f) _rcFather = _rcOv.f;
+        if (!_rcMother && _rcOv.m) _rcMother = _rcOv.m;
+      }
+    }
     const _rcParentsBits = [];
-    if (_rcParents && _rcParents.fatherName) _rcParentsBits.push('<span style="color:var(--blue);font-weight:600;">Father:</span> <span style="color:var(--text);">' + _rcParents.fatherName + '</span>');
-    if (_rcParents && _rcParents.motherName) _rcParentsBits.push('<span style="color:#a78bfa;font-weight:600;">Mother:</span> <span style="color:var(--text);">' + _rcParents.motherName + '</span>');
+    if (_rcFather) _rcParentsBits.push('<span style="color:var(--blue);font-weight:600;">Father:</span> <span style="color:var(--text);">' + escapeHtml(_rcFather) + '</span>');
+    if (_rcMother) _rcParentsBits.push('<span style="color:#a78bfa;font-weight:600;">Mother:</span> <span style="color:var(--text);">' + escapeHtml(_rcMother) + '</span>');
     const _rcParentsHtml = _rcParentsBits.length
       ? '<div style="font-size:12px;margin-top:4px;">' + _rcParentsBits.join('<span style="color:var(--muted);"> &nbsp;·&nbsp; </span>') + '</div>'
       : '';
@@ -27998,6 +28127,78 @@ async function baLoadOptInStats() {
     const withPlaceOnly = withDob.filter(r => !r.dobTime && r.dobPlace);
     const withNeither = withDob.filter(r => !r.dobTime && !r.dobPlace);
     const pct = withDob.length ? ((withBoth.length / withDob.length) * 100).toFixed(1) : '0.0';
+    // Students with NO DOB at all — 16-Sep-2026, direct admin request, with
+    // an important correction from the admin: DOB is MANDATORY at login,
+    // meaning "no dob" can only happen if the URN either has no
+    // portal_students record at all, OR has one that (for whatever reason —
+    // a legacy/old-year re-import, a record created some other way) still
+    // lacks dob. Both cases are excluded from urnsWithDob below and both
+    // correctly count as "missing" — the roster (STATE.allStudents — same
+    // source the class-summary cards above already use) minus that set.
+    // window._baNoDobRows is kept on window for the drill-down list, same
+    // pattern as window._baOptInRows above.
+    //
+    // BUG FIX (same day, admin reported 0 instead of an expected ~34):
+    // STATE.allStudents is populated by the app's bulk login-load, but this
+    // tab can be opened before that has necessarily finished, or via a
+    // navigation path that never ran it this session — silently leaving the
+    // roster empty and this card wrong at exactly 0 every time, with no
+    // visible sign anything had failed. Now self-sufficient: fetches
+    // davan_pub/students directly if STATE.allStudents is empty, the same
+    // path/shape the bulk loader itself reads (confirmed: {data:[{urn,
+    // cls, class, ...}]}), rather than trusting it was already loaded
+    // elsewhere. Logged to console either way so a real 0 (empty roster)
+    // is distinguishable from a load-order miss during diagnosis.
+    let roster = STATE.allStudents || [];
+    if (!roster.length) {
+      try {
+        const studsRaw = await rtdbGet('davan_pub/students');
+        roster = (studsRaw && studsRaw.data) ? studsRaw.data
+          : (Array.isArray(studsRaw) ? studsRaw : (studsRaw ? Object.values(studsRaw) : []));
+        console.log('[baLoadOptInStats] STATE.allStudents was empty — fetched davan_pub/students directly:', roster.length, 'students');
+      } catch(e) {
+        console.warn('[baLoadOptInStats] roster fallback fetch failed:', e.message);
+      }
+    }
+    // REAL BUG FOUND from live data (F12 check, per admin's numbers):
+    // portalStudentsRows was 687 against a 403-student roster — portal_students
+    // holds every login ever created, including passout/old-year accounts and
+    // at least one non-current-roster URN (a real sample in the diagnostic:
+    // T13DI26S0001 — different prefix pattern, not in the current roster at
+    // all). With that many extra rows, "URN exists in portal_students" was
+    // TRUE for essentially every current-roster URN even when that specific
+    // student's own dob was actually missing — checking mere existence
+    // instead of the dob field itself was the mistake, not the roster-load
+    // timing I fixed last time (that fix is still correct/needed, just not
+    // the actual cause of the 0 the admin then reported). Fixed: the
+    // exclusion set below is now URNs that HAVE dob, matching the admin's
+    // own "DOB is mandatory at login" rule literally — present-but-no-dob
+    // and absent-entirely both correctly count as missing now.
+    const urnsWithDob = new Set(withDob.map(r => (r.urn || '').toUpperCase().trim()));
+    const noDobRows = roster.filter(s => {
+      const urn = (s.urn || s.URN || '').toString().toUpperCase().trim();
+      return urn && !urnsWithDob.has(urn);
+    }).map(s => ({
+      urn: (s.urn || s.URN || '').toString(),
+      name: s.name || s.Name || '',
+      class: s.cls || s.class || ''
+    }));
+    window._baNoDobRows = noDobRows;
+    // Sanity check, logged not shown: portal_students holds far more rows
+    // than the current roster (old/passout/re-imported accounts — confirmed
+    // via live data: 687 portal_students rows against a 403-student roster),
+    // so comparing rows.length to withDob.length directly is meaningless —
+    // it will differ by hundreds even when everything is working correctly.
+    // The only comparison that means anything is roster-scoped: does every
+    // CURRENT roster URN found in portal_students actually have a dob?
+    const rosterUrnsInPortal = roster.filter(s => {
+      const urn = (s.urn || s.URN || '').toString().toUpperCase().trim();
+      return urn && rows.some(r => (r.urn||'').toUpperCase().trim() === urn);
+    }).length;
+    const rosterUrnsWithDob = roster.length - noDobRows.length;
+    if (rosterUrnsInPortal !== rosterUrnsWithDob) {
+      console.warn('[baLoadOptInStats] ' + (rosterUrnsInPortal - rosterUrnsWithDob) + ' current-roster student(s) have a portal_students record but NO dob on it — mandatory-DOB-at-login assumption does not hold for them.');
+    }
     if (wrap) {
       // 2026-09-07 — each card is now clickable, filters the list below
       // to that category. baStatCardClickable() replaces baStatCard()
@@ -28012,10 +28213,11 @@ async function baLoadOptInStats() {
         + baStatCardClickable('Time only', withTimeOnly.length, 'timeOnly')
         + baStatCardClickable('Place only', withPlaceOnly.length, 'placeOnly')
         + baStatCardClickable('Neither given', withNeither.length, 'neither')
+        + baStatCardClickable('No DOB — never logged in', noDobRows.length, 'noDob')
         + '</div>';
     }
     const filterBar = document.getElementById('ba-optin-filter-bar');
-    if (filterBar) filterBar.style.display = withDob.length ? 'block' : 'none';
+    if (filterBar) filterBar.style.display = (withDob.length || noDobRows.length) ? 'block' : 'none';
     baRenderOptInList('all');
   } catch (e) {
     if (wrap) wrap.innerHTML = '<div class="empty-state">Could not load: ' + e.message + '</div>';
@@ -28053,9 +28255,31 @@ function baSetOptInFilter(key) {
 function baRenderOptInList(explicitKey) {
   const listEl = document.getElementById('ba-optin-list');
   if (!listEl) return;
-  const rows = window._baOptInRows || [];
   const sel = document.getElementById('ba-optin-filter-select');
   const key = explicitKey || (sel ? sel.value : 'all');
+  // "No DOB — never logged in" is a DIFFERENT data source (STATE.allStudents
+  // roster entries, not portal_students rows — see baLoadOptInStats()) with
+  // no dob/dobTime/dobPlace fields to show at all, so it gets its own render
+  // branch rather than trying to force it through the DOB-specific template
+  // below, which would just show "Invalid Date" for every row.
+  if (key === 'noDob') {
+    const noDobRows = (window._baNoDobRows || []).slice()
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    if (!noDobRows.length) {
+      listEl.innerHTML = '<div class="empty-state" style="padding:16px;">No students in this category.</div>';
+      return;
+    }
+    listEl.innerHTML = noDobRows.map(r =>
+      '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);">'
+      + (typeof davanAvatarHTML === 'function' ? davanAvatarHTML(r.urn, r.name, {size:32, zoom:true}) : '')
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-size:12px;color:var(--text);">' + String(r.name||'').replace(/</g,'&lt;') + '</div>'
+      + '<div style="font-size:10px;color:var(--muted);font-family:var(--mono);">' + r.urn + ' · ' + (r.class||'') + '</div>'
+      + '</div></div>'
+    ).join('');
+    return;
+  }
+  const rows = window._baOptInRows || [];
   const withDob = rows.filter(r => r.dob);
   let filtered;
   if (key === 'full') filtered = withDob.filter(r => r.dobTime && r.dobPlace);
@@ -29250,11 +29474,19 @@ async function ascOpenNameCard() {
   let parentsHtml = '';
   try {
     const results = await rcLoadPrevResults(s.urn);
-    const withParents = [...(results||[])].reverse().find(r => r.fatherName || r.motherName);
-    if (withParents) {
+    let { father: _ascFather, mother: _ascMother } = stuParentNamesFromResults(results || []);
+    if (!_ascFather || !_ascMother) {
+      await stuLoadParentOverrides();
+      const _ascOv = stuParentOverrides[s.urn];
+      if (_ascOv) {
+        if (!_ascFather && _ascOv.f) _ascFather = _ascOv.f;
+        if (!_ascMother && _ascOv.m) _ascMother = _ascOv.m;
+      }
+    }
+    if (_ascFather || _ascMother) {
       const bits = [];
-      if (withParents.fatherName) bits.push('<span style="color:var(--blue);font-weight:600;">Father:</span> ' + String(withParents.fatherName).replace(/</g,'&lt;'));
-      if (withParents.motherName) bits.push('<span style="color:#a78bfa;font-weight:600;">Mother:</span> ' + String(withParents.motherName).replace(/</g,'&lt;'));
+      if (_ascFather) bits.push('<span style="color:var(--blue);font-weight:600;">Father:</span> ' + escapeHtml(_ascFather));
+      if (_ascMother) bits.push('<span style="color:#a78bfa;font-weight:600;">Mother:</span> ' + escapeHtml(_ascMother));
       parentsHtml = bits.join('<br>');
     }
   } catch(e) { console.warn('[ascNameCard] parents fetch failed:', e.message); }

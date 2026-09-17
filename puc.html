@@ -6108,7 +6108,11 @@ body {
     <!-- INTERNALS (IA MARKS) PANEL -->
     <div class="panel" id="panel-internals">
       <div class="page-title">INTERNALS — IA MARKS</div>
-      <div class="page-sub" id="int-subtitle">Internal Assessment marks · AY 2026-27 · click student row to open card</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="page-sub" id="int-subtitle">Internal Assessment marks · AY 2026-27 · click student row to open card</div>
+        <button onclick="intRefresh(this)" title="Reload IA marks from the database"
+          style="padding:3px 10px;font-size:10px;font-family:var(--mono);font-weight:700;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:var(--surface2);color:var(--muted);white-space:nowrap;">⟳ Refresh</button>
+      </div>
 
       <!-- Row 1: Exam pills -->
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;" id="int-exam-tabs">
@@ -23387,15 +23391,25 @@ async function mrmRenderResults(body) {
 
     // Discover which IAs actually have data for this student
     const usnLow = (s.usn||'').toLowerCase();
+    const nameLow = (s.name||'').toLowerCase();
     // Order: known IA order first, then any newer exam bucket (e.g. 'Mid Term')
     // added to INT_EXAM_KEYS later — no code change needed for those.
     const _allExamKeys = MR_EXAM_ORDER.concat(
       Object.keys(_intCache || {}).filter(k => !MR_EXAM_ORDER.includes(k))
     );
+    // Match by USN when present; fall back to name (same pattern used
+    // throughout this file for students with no USN on the portal, e.g.
+    // DAKSH JAIN — his manually-allocated USN lives on allPucStudents but
+    // his raw marks records may have a blank usn, so a USN-only match here
+    // would silently exclude every exam he actually has data for).
     const availableIAs = _allExamKeys.filter(ia => {
       const bucket = _intCache[ia] || {};
       return Object.values(bucket).some(arr =>
-        Array.isArray(arr) && arr.some(r => (r.usn||'').toLowerCase() === usnLow)
+        Array.isArray(arr) && arr.some(r =>
+          (usnLow && (r.usn||'').toLowerCase() === usnLow) ||
+          (!usnLow && nameLow && (r.name||'').toLowerCase() === nameLow) ||
+          (usnLow && !(r.usn||'') && nameLow && (r.name||'').toLowerCase() === nameLow)
+        )
       );
     });
 
@@ -23414,7 +23428,11 @@ async function mrmRenderResults(body) {
       const bucket = _intCache[ia] || {};
       for (const [cls, arr] of Object.entries(bucket)) {
         if (!Array.isArray(arr)) continue;
-        const rec = arr.find(r => (r.usn||'').toLowerCase() === usnLow);
+        const rec = arr.find(r =>
+          (usnLow && (r.usn||'').toLowerCase() === usnLow) ||
+          (!usnLow && nameLow && (r.name||'').toLowerCase() === nameLow) ||
+          (usnLow && !(r.usn||'') && nameLow && (r.name||'').toLowerCase() === nameLow)
+        );
         if (!rec) continue;
         const list = (rec.courses || []).filter(c => !excSubjects.has(c.code));
         const m = {};
@@ -23447,7 +23465,12 @@ async function mrmRenderResults(body) {
     } else {
       html += `<span style="font-family:var(--mono);font-size:10px;color:var(--muted);">No internal assessments recorded yet</span>`;
     }
-    html += `</div>`;
+    if (_mrmSelectedIA) {
+      html += `<button onclick="imeOpen('${(s.usn||'').replace(/'/g,"\\'")}','${(s.name||'').replace(/'/g,"\\'")}','${intDisplayClass||''}','${_mrmSelectedIA}')"
+        style="padding:6px 12px;font-size:10px;font-family:var(--mono);font-weight:700;border:1px solid var(--accent);border-radius:6px;cursor:pointer;background:transparent;color:var(--accent);">✎ Edit Marks</button>`;
+    }
+    html += `</div>
+    <div id="ime-panel"></div>`;
 
     if (!availableIAs.length || !intCourses.length) {
       body.innerHTML = html + `<div style="font-family:var(--mono);font-size:12px;color:var(--muted);padding:20px 0;">No IA marks found for this student.</div>`;
@@ -29644,6 +29667,119 @@ const INT_EXAM_LABELS = {
   'IA - 4': '4th Test', 'IA - 5': '5th Test',
 };
 
+// ── Manual IA marks editor (imeOpen / imeSave) ───────────────────────────
+// For students the scraper structurally can't reach (no USN on the portal —
+// e.g. DAKSH JAIN, YASHWANTH J — see PUC_MANUAL_USN_MAP), faculty marks have
+// to be typed in by hand. This opens a small inline form inside the results
+// modal (Internals mode) listing every subject for the selected exam, and
+// PUTs the updated record straight to puc_marks/{AY}/{examKey}/{class} —
+// matching the student by usn (or by name when usn is blank, same fallback
+// used throughout this file for USN-less students).
+async function imeOpen(usn, name, cls, examLabel) {
+  const panel = document.getElementById('ime-panel');
+  if (!panel) return;
+  const examKey = INT_EXAM_KEYS[examLabel];
+  if (!examKey || !cls) { panel.innerHTML = ''; return; }
+
+  panel.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:var(--muted);padding:10px 0;">Loading…</div>`;
+
+  const url = `${INT_FB_URL}/puc_marks/${INT_AY_KEY}/${examKey}/${encodeURIComponent(cls)}.json`;
+  let arr;
+  try {
+    arr = await (await fetch(url)).json();
+    if (!Array.isArray(arr)) arr = [];
+  } catch (e) {
+    panel.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:#ef4444;padding:10px 0;">Failed to load: ${e.message}</div>`;
+    return;
+  }
+
+  const usnLow = (usn || '').toLowerCase();
+  const nameLow = (name || '').toLowerCase();
+  let idx = arr.findIndex(x => usnLow && (x.usn || '').toLowerCase() === usnLow);
+  if (idx === -1) idx = arr.findIndex(x => (x.name || '').toLowerCase() === nameLow);
+  if (idx === -1) {
+    panel.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:#ef4444;padding:10px 0;">Student not found in ${examLabel} data for ${cls}.</div>`;
+    return;
+  }
+
+  const student = arr[idx];
+  const courses = (student.courses || []).filter(c => !excSubjects.has(c.code));
+  if (!courses.length) {
+    panel.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:var(--muted);padding:10px 0;">No subjects on record for this student.</div>`;
+    return;
+  }
+
+  let rows = courses.map(c => {
+    const v = c.marks ? c.marks[examLabel] : undefined;
+    const val = (v === undefined || v === null || v === 'AB') ? '' : v;
+    const subName = (typeof intSubName === 'function') ? intSubName(c.code) : (c.name || c.code);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <span style="flex:1;font-family:var(--mono);font-size:11px;color:var(--text);">${subName}</span>
+      <input type="text" data-ime-code="${c.code}" value="${val}" placeholder="AB"
+        style="width:70px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-family:var(--mono);font-size:11px;text-align:center;">
+    </div>`;
+  }).join('');
+
+  panel.innerHTML = `<div style="border:1px solid var(--accent);border-radius:8px;padding:12px;margin:10px 0;background:rgba(240,165,0,0.05);">
+    <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:10px;letter-spacing:0.5px;">
+      MANUAL ENTRY · ${examLabel} · leave blank for AB
+    </div>
+    ${rows}
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button onclick="imeSave('${usnLow.replace(/'/g,"\\'")}','${nameLow.replace(/'/g,"\\'")}','${cls.replace(/'/g,"\\'")}','${examLabel}')"
+        style="padding:6px 14px;font-size:10px;font-family:var(--mono);font-weight:700;border:none;border-radius:6px;cursor:pointer;background:var(--accent);color:#000;">Save</button>
+      <button onclick="document.getElementById('ime-panel').innerHTML=''"
+        style="padding:6px 14px;font-size:10px;font-family:var(--mono);border:1px solid var(--border);border-radius:6px;cursor:pointer;background:transparent;color:var(--muted);">Cancel</button>
+      <span id="ime-status" style="font-family:var(--mono);font-size:10px;color:var(--muted);align-self:center;"></span>
+    </div>
+  </div>`;
+}
+
+async function imeSave(usnLow, nameLow, cls, examLabel) {
+  const statusEl = document.getElementById('ime-status');
+  const examKey = INT_EXAM_KEYS[examLabel];
+  const url = `${INT_FB_URL}/puc_marks/${INT_AY_KEY}/${examKey}/${encodeURIComponent(cls)}.json`;
+  if (statusEl) statusEl.textContent = 'Saving…';
+
+  try {
+    const arr = await (await fetch(url)).json();
+    if (!Array.isArray(arr)) throw new Error('No data at this path');
+    let idx = arr.findIndex(x => usnLow && (x.usn || '').toLowerCase() === usnLow);
+    if (idx === -1) idx = arr.findIndex(x => (x.name || '').toLowerCase() === nameLow);
+    if (idx === -1) throw new Error('Student not found');
+
+    const inputs = document.querySelectorAll('#ime-panel input[data-ime-code]');
+    inputs.forEach(inp => {
+      const code = inp.getAttribute('data-ime-code');
+      const raw = inp.value.trim();
+      const course = (arr[idx].courses || []).find(c => c.code === code);
+      if (!course) return;
+      course.marks = course.marks || {};
+      if (raw === '') {
+        // Blank = AB. RTDB drops empty objects, so explicitly write the
+        // literal string 'AB' rather than deleting the key — deleting would
+        // just make the field absent, which already renders as AB, but an
+        // explicit 'AB' is clearer when someone reads the raw record later.
+        course.marks[examLabel] = 'AB';
+      } else {
+        const num = Number(raw);
+        course.marks[examLabel] = isNaN(num) ? raw : num;
+      }
+    });
+
+    await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(arr) });
+    if (statusEl) { statusEl.textContent = 'Saved ✓'; statusEl.style.color = '#22c55e'; }
+    // Refresh caches so the table/modal reflect the new marks immediately
+    if (typeof intLoad === 'function') await intLoad();
+    const mrmBody = document.getElementById('mrm-body');
+    if (mrmBody && typeof mrmRenderResults === 'function') {
+      mrmRenderResults(mrmBody).catch(e => console.error('[imeSave refresh]', e));
+    }
+  } catch (e) {
+    if (statusEl) { statusEl.textContent = 'Failed: ' + e.message; statusEl.style.color = '#ef4444'; }
+  }
+}
+
 // Segment → class labels that belong to it
 const INT_SEG_CLASSES = {
   '1PUC-COM': ['1PUC-COM-A','1PUC-COM-B','1PUC-COM-C'],
@@ -29788,10 +29924,21 @@ async function intSetAY(ayKey) {
   await intLoad();
 }
 
+// Manual refresh button next to the Internals subtitle — re-pulls _intCache
+// from Firebase without reloading the whole page.
+async function intRefresh(btn) {
+  const origText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
+  try {
+    await intLoad();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origText || '⟳ Refresh'; }
+  }
+}
+
 async function intLoad() {
   const cont = document.getElementById('int-container');
   if (cont) cont.innerHTML = '<div class="loading-state"><div class="spinner"></div> Loading IA marks…</div>';
-
   const examKeys = Object.keys(INT_EXAM_KEYS);
   await Promise.all(examKeys.map(async exam => {
     const fbKey = INT_EXAM_KEYS[exam];
