@@ -27,7 +27,7 @@
 <!--
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  DAVAN PUC — PARENT PROGRESS CARD (PTM)                                       ║
-║  FILE: parent_ptm.html   ·   v4.0.1  ·  BUILD 2026-09-03 14:50 UTC           ║
+║  FILE: parent_ptm.html   ·   v4.3.0  ·  BUILD 2026-09-17 20:00 UTC           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Two audiences, one file:                                                     ║
 ║   • PARENT  — logs in with mobile number only → picks child → sees frozen     ║
@@ -90,6 +90,18 @@
 ║                    page-2 saga below for what ignoring this costs.)        ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
+║  v4.3.0  2026-09-17 20:00 UTC — Manual-USN students (ptmIsExcepted/          ║
+║                    PTM_MANUAL_USN_MAP, publishOneCard) now match roster+     ║
+║                    marks correctly; excepted/discontinued students filtered ║
+║                    from ad-student dropdown (ptmLoadExcStudents). Added     ║
+║                    Parent WhatsApp announcement panel (collapsible,         ║
+║                    Simple/Advanced modes, {CLASS}/{EVENT}/{DATE}/{TIME}     ║
+║                    tokens resolved from AD_PUBLISHED/PTM_LAST_PUBLISH at    ║
+║                    ~line 5182). publishOneCard now records PTM_LAST_PUBLISH ║
+║                    using visibleFrom, not click time. Published-list class  ║
+║                    chips + rows now show each class's visible-from/until    ║
+║                    window in blue. View log rows show student photo        ║
+║                    (parent_index lookup) with tap-to-zoom.                  ║
 ║  v4.1.2  2026-09-04 02:30 UTC — [downloadPDF() ~line 6190,                  ║
 ║                    adBulkDownloadClass() ~line 5406, pdf-mode note          ║
 ║                    ~line 1474] Scattered/spread-out PDF text RESOLVED as a  ║
@@ -1957,6 +1969,34 @@
       </div>
       <div class="mini" style="margin-top:4px">Publishes every student in the selected class, one at a time, each with their own auto-composed summary — same as publishing one by one, just automated. A list with each student's result and a Preview link appears below once done.</div>
       <div id="ad-bulk-list" style="margin-top:10px"></div>
+
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+        <div onclick="adAnnounceToggleSection()" style="cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none">
+          <span id="ad-announce-arrow" style="display:inline-block;transition:transform 0.15s">▶</span>
+          <label style="cursor:pointer;margin:0">Parent WhatsApp announcement</label>
+        </div>
+        <div id="ad-announce-body" style="display:none;margin-top:8px">
+        <div class="mini" style="margin-bottom:8px">Once all cards for a class are published, copy this and paste it into the parents' WhatsApp group. Simple = one message for everyone. Advanced = same message but names the class, test and today's date — handy if you send a fresh one each time results go out.</div>
+
+        <div class="row" style="gap:6px;margin-bottom:8px">
+          <button type="button" class="btn" id="ad-announce-mode-simple" onclick="adAnnounceSetMode('simple')" style="padding:6px 14px">Simple</button>
+          <button type="button" class="btn" id="ad-announce-mode-advanced" onclick="adAnnounceSetMode('advanced')" style="padding:6px 14px;background:transparent">Advanced</button>
+        </div>
+
+        <div id="ad-announce-class-row" style="display:none;margin-bottom:8px">
+          <label class="mini" style="display:block;margin-bottom:3px">Class to mention in the message</label>
+          <select id="ad-announce-class" class="fld"></select>
+        </div>
+
+        <textarea id="ad-announce-text" class="fld" rows="14" style="font-family:inherit;width:100%;resize:vertical;line-height:1.5" onfocus="this.dataset.touched='1'"></textarea>
+        <div class="mini" id="ad-announce-tokens" style="margin-top:4px"></div>
+
+        <div class="row" style="margin-top:8px">
+          <button class="btn" onclick="adAnnounceCopy()" id="ad-announce-copy-btn">📋 Copy message</button>
+          <button class="btn" type="button" onclick="adAnnounceReset()" style="background:transparent">↻ Reset to default</button>
+        </div>
+        </div>
+      </div>
     </div>
 
     <div class="pcard">
@@ -2221,8 +2261,8 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.2.2';
-const BUILD_STAMP   = '2026-09-13 09:00 UTC';
+const APP_VERSION   = 'v4.3.0';
+const BUILD_STAMP   = '2026-09-17 20:00 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
 // from and writes to. Change this ONE line to move the whole app onto the
@@ -3660,6 +3700,15 @@ async function adminLogin(){
 function adminSignOut(){ sessionStorage.removeItem('admin_on'); auth.signOut().finally(()=>location.reload()); }
 
 let AD_STUDENTS=[]; // students of the loaded class from puc_daily latest snapshot
+// Last successful publish (single or bulk) — {cls, event, at}. Loaded from
+// Firebase on admin entry, updated live by publishOneCard(). Drives the
+// WhatsApp announcement's Advanced template so it reflects what was actually
+// published, not whatever the class dropdown currently shows.
+let PTM_LAST_PUBLISH = null;
+async function ptmLoadLastPublish(){
+  try{ PTM_LAST_PUBLISH = (await rtdb.ref('ptm_config/last_publish').once('value')).val() || null; }
+  catch(e){ PTM_LAST_PUBLISH = null; }
+}
 let _adminEntered=false;
 async function enterAdmin(){
   if(_adminEntered) return; _adminEntered=true;
@@ -3667,11 +3716,24 @@ async function enterAdmin(){
   const sel=document.getElementById('ad-class'); sel.innerHTML='';
   CLASSES.forEach(c=>{ const o=document.createElement('option'); o.value=c.label; o.textContent=c.label+(c.started?'':' (not live)'); sel.appendChild(o); });
   await ptmLoadExcStudents(); // load exception students BEFORE the first roster fetch, so they're filtered from the very first class load
+  await ptmLoadLastPublish();
   await adLoadClass();
   adResetVisWindow();
   adLoadPublishedList();
   adLoadViewLogs();
   adLoadUsageSummary();
+}
+
+function adAnnounceToggleSection(){
+  const body=document.getElementById('ad-announce-body');
+  const arrow=document.getElementById('ad-announce-arrow');
+  const opening = body.style.display==='none';
+  body.style.display = opening ? 'block' : 'none';
+  if(arrow) arrow.style.transform = opening ? 'rotate(90deg)' : 'rotate(0deg)';
+  if(opening && !body.dataset.loaded){
+    body.dataset.loaded='1';
+    adAnnounceLoad();
+  }
 }
 
 async function adGetClassConfig(cls){
@@ -5041,6 +5103,258 @@ async function adDebugCopy(){
   }
 }
 
+// Parent WhatsApp announcement — two editable templates (Simple / Advanced),
+// each saved globally at ptm_config/announce_message_{mode}. Advanced supports
+// tokens {CLASS}, {EVENT}, {DATE}, {TIME}, {LINK} filled in at preview/copy
+// time from the currently selected class + today's date — so the same saved
+// template can be reused for every publish round without retyping the date.
+const PTM_ANNOUNCE_LINK = 'https://harshgujjar.github.io/davan-attendance/parent_ptm.html';
+
+const PTM_ANNOUNCE_DEFAULT_SIMPLE =
+`📢 Davan PUC — Parent Progress Card is now live!
+
+Dear Parent,
+
+You can now view your child's PUC Progress Card online — anytime, from your phone.
+
+🔗 Link: https://harshgujjar.github.io/davan-attendance/parent_ptm.html
+
+How to login:
+1️⃣ Open the link above
+2️⃣ Enter your registered mobile number (the one given at admission)
+3️⃣ Choose your language — English or ಕನ್ನಡ (Kannada)
+4️⃣ Tap "View my child's card"
+👉 If more than one child is registered on your number, just select the correct one.
+
+What you can see:
+✅ Attendance % and pattern
+✅ Internal test marks
+✅ Teacher's remarks/summary
+✅ Principal & class in-charge sign-off
+
+📥 You can also Print or Download as PDF directly from the page — useful to keep for your records or the PTM.
+
+⚠️ No app download needed — just open the link in any browser (Chrome recommended).
+
+For any issue logging in, please contact the college office.
+
+— Davan Pre-University College`;
+
+const PTM_ANNOUNCE_DEFAULT_ADVANCED =
+`📢 Davan PUC — {CLASS} Progress Card Published!
+
+Dear Parent,
+
+{PUBLISHED_LINE}
+
+You can view your child's PUC Progress Card online — anytime, from your phone.
+
+🔗 Link: https://harshgujjar.github.io/davan-attendance/parent_ptm.html
+
+How to login:
+1️⃣ Open the link above
+2️⃣ Enter your registered mobile number (the one given at admission)
+3️⃣ Choose your language — English or ಕನ್ನಡ (Kannada)
+4️⃣ Tap "View my child's card"
+👉 If more than one child is registered on your number, just select the correct one.
+
+What you can see:
+✅ Attendance % and pattern
+✅ Internal test marks
+✅ Teacher's remarks/summary
+✅ Principal & class in-charge sign-off
+
+📥 You can also Print or Download as PDF directly from the page — useful to keep for your records or the PTM.
+
+⚠️ No app download needed — just open the link in any browser (Chrome recommended).
+
+For any issue logging in, please contact the college office.
+
+— Davan Pre-University College`;
+
+const PTM_ANNOUNCE_TOKEN_HELP = 'Tokens you can use: {CLASS}  {EVENT}  {DATE}  {TIME}  {LINK} — filled in automatically from the class dropdown and today\'s date when you Preview or Copy.';
+
+let _ptmAnnounceMode = 'simple';
+let _ptmAnnounceTemplate = '';      // raw template with {TOKENS}, kept internally — never shown
+let _ptmAnnounceManualOverride = false; // true once admin has hand-edited the resolved text
+
+function ptmAnnounceDefault(mode){ return mode==='advanced' ? PTM_ANNOUNCE_DEFAULT_ADVANCED : PTM_ANNOUNCE_DEFAULT_SIMPLE; }
+function ptmAnnounceRtdbKey(mode){ return 'ptm_config/announce_message_'+(mode==='advanced'?'advanced':'simple'); }
+
+async function adAnnounceLoad(){
+  const ta=document.getElementById('ad-announce-text');
+  if(!ta) return;
+  await adAnnounceSetMode(_ptmAnnounceMode, /*skipConfirm*/true);
+}
+
+async function adAnnounceSetMode(mode, skipConfirm){
+  const ta=document.getElementById('ad-announce-text');
+  if(!ta) return;
+  _ptmAnnounceMode = mode==='advanced' ? 'advanced' : 'simple';
+  const simpleBtn=document.getElementById('ad-announce-mode-simple');
+  const advBtn=document.getElementById('ad-announce-mode-advanced');
+  if(simpleBtn) simpleBtn.style.background = _ptmAnnounceMode==='simple' ? '' : 'transparent';
+  if(advBtn) advBtn.style.background = _ptmAnnounceMode==='advanced' ? '' : 'transparent';
+
+  const classRow=document.getElementById('ad-announce-class-row');
+  if(classRow) classRow.style.display = _ptmAnnounceMode==='advanced' ? 'block' : 'none';
+  if(_ptmAnnounceMode==='advanced') ptmAnnouncePopulateClassSelect();
+
+  // Load the saved TEMPLATE (with {TOKENS} still in it) — this is kept
+  // internally, never shown to the admin. What's shown in the textarea is
+  // always the resolved text (tokens already filled in), per Harsha's ask:
+  // "no need show what u show in preview" — the textarea IS the preview now.
+  try{
+    const saved=(await rtdb.ref(ptmAnnounceRtdbKey(_ptmAnnounceMode)).once('value')).val();
+    _ptmAnnounceTemplate = (typeof saved==='string' && saved.trim()) ? saved : ptmAnnounceDefault(_ptmAnnounceMode);
+  }catch(e){
+    _ptmAnnounceTemplate = ptmAnnounceDefault(_ptmAnnounceMode);
+  }
+  ta.dataset.touched='0';
+  adAnnounceRefreshText();
+  adAnnounceUpdateTokHelp();
+
+  // Auto-save on edit, debounced. Since the box now shows RESOLVED text,
+  // typing here edits the resolved message directly, not the template — so
+  // we save what's typed as a plain (token-free) override for this mode,
+  // and stop auto-regenerating from the template until Reset is pressed.
+  if(!ta.dataset.wired){
+    ta.dataset.wired='1';
+    let t=null;
+    ta.addEventListener('input',()=>{
+      ta.dataset.touched='1';
+      _ptmAnnounceManualOverride=true;
+      clearTimeout(t);
+      t=setTimeout(()=>{ rtdb.ref(ptmAnnounceRtdbKey(_ptmAnnounceMode)).set(ta.value).catch(()=>{}); },600);
+    });
+  }
+}
+
+function adAnnounceUpdateTokHelp(){
+  const tokHelp=document.getElementById('ad-announce-tokens');
+  if(tokHelp){
+    if(_ptmAnnounceMode==='advanced'){
+      const clsSel=document.getElementById('ad-announce-class');
+      const curCls=clsSel?clsSel.value:'';
+      const classVisFrom = curCls ? ptmClassVisibleFrom(curCls) : null;
+      let lastInfo;
+      if(classVisFrom!=null){
+        lastInfo = `Using ${curCls}'s recorded visibility: <b>${new Date(classVisFrom).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</b>.`;
+      } else if(PTM_LAST_PUBLISH?.cls===curCls && PTM_LAST_PUBLISH?.at){
+        lastInfo = `Using last publish time for ${curCls}: <b>${new Date(PTM_LAST_PUBLISH.at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</b>.`;
+      } else {
+        lastInfo = `No publish record found for ${curCls||'this class'} yet — date/time will use right now.`;
+      }
+      tokHelp.innerHTML = lastInfo;
+    } else {
+      tokHelp.textContent = '';
+    }
+  }
+}
+
+// Re-render the textarea from the current template + live class/date/time —
+// called on mode switch, and whenever the "class to mention" dropdown
+// changes. Skipped once the admin has manually edited the resolved text
+// (their edit becomes the message as-is, same as before).
+function adAnnounceRefreshText(){
+  const ta=document.getElementById('ad-announce-text');
+  if(!ta || _ptmAnnounceManualOverride) return;
+  ta.value = ptmAnnounceFillTokens(_ptmAnnounceTemplate);
+}
+
+// Populate the announcement's own class dropdown — separate from the main
+// publish-workflow "ad-class" dropdown, so picking a class here to MENTION
+// in the message never affects what's loaded for publishing. Defaults to
+// the last-published class if we have one, else the first class in CLASSES.
+function ptmAnnouncePopulateClassSelect(){
+  const sel=document.getElementById('ad-announce-class');
+  if(!sel) return;
+  if(!sel.dataset.populated){
+    sel.dataset.populated='1';
+    sel.innerHTML='';
+    CLASSES.forEach(c=>{ const o=document.createElement('option'); o.value=c.label; o.textContent=c.label; sel.appendChild(o); });
+    const defaultCls = PTM_LAST_PUBLISH?.cls || (CLASSES[0]||{}).label || '';
+    if(defaultCls) sel.value=defaultCls;
+    sel.addEventListener('change', ()=>{ _ptmAnnounceManualOverride=false; adAnnounceRefreshText(); adAnnounceUpdateTokHelp(); });
+  }
+}
+
+// Fill {CLASS} {EVENT} {DATE} {TIME} tokens from current form state.
+// Same source the blue "Visible from..." chips use (AD_PUBLISHED) — so the
+// WhatsApp message always matches what's actually on record for a class,
+// even if that class hasn't been re-published since PTM_LAST_PUBLISH was
+// introduced. Returns null if the class has no published students yet, or
+// its students have mixed/differing windows (nothing single "the" date to use).
+function ptmClassVisibleFrom(cls){
+  const rowsInCls = (typeof AD_PUBLISHED!=='undefined' ? AD_PUBLISHED : []).filter(r=>r.cls===cls);
+  if(!rowsInCls.length) return null;
+  const froms=new Set(rowsInCls.map(r=>r.visibleFrom==null?'':r.visibleFrom));
+  if(froms.size!==1) return null;
+  const from = rowsInCls[0].visibleFrom;
+  return from!=null ? from : null;
+}
+
+function ptmAnnounceFillTokens(text){
+  const lp = PTM_LAST_PUBLISH;
+  const clsSel = document.getElementById('ad-announce-class');
+  const cls = (clsSel && clsSel.value) || lp?.cls || (document.getElementById('ad-class')||{}).value || 'your class';
+  const event = lp?.event || (document.getElementById('ad-event')||{}).value || 'progress';
+  // Prefer the actual published-list record for THIS class (same data the
+  // blue chips show) — falls back to PTM_LAST_PUBLISH only if this class
+  // has no published students yet, and to "now" only if neither has data.
+  const classVisFrom = ptmClassVisibleFrom(cls);
+  const when = classVisFrom!=null ? new Date(classVisFrom)
+             : (lp?.at && lp.cls===cls) ? new Date(lp.at)
+             : new Date();
+  const date=when.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+  const time=when.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+  // The visible-from time can be in the FUTURE (scheduled ahead) or in the
+  // past/now (already visible) — "has been published today, {DATE}" is
+  // simply wrong when {DATE} hasn't happened yet, so pick the wording that
+  // actually matches.
+  const isFuture = when.getTime() > Date.now();
+  const publishedLine = isFuture
+    ? `The ${event} progress card for ${cls} will be visible from ${date} at ${time}.`
+    : `The ${event} progress card for ${cls} has been published — visible since ${date} at ${time}.`;
+  return text
+    .replace(/\{CLASS\}/g, cls)
+    .replace(/\{EVENT\}/g, event)
+    .replace(/\{DATE\}/g, date)
+    .replace(/\{TIME\}/g, time)
+    .replace(/\{PUBLISHED_LINE\}/g, publishedLine);
+}
+
+function adAnnounceReset(){
+  const ta=document.getElementById('ad-announce-text');
+  if(!ta) return;
+  if(ta.dataset.touched==='1'){
+    if(!confirm('Replace this message with the default template? This cannot be undone.')) return;
+  }
+  _ptmAnnounceTemplate = ptmAnnounceDefault(_ptmAnnounceMode);
+  _ptmAnnounceManualOverride=false;
+  ta.dataset.touched='0';
+  adAnnounceRefreshText();
+  rtdb.ref(ptmAnnounceRtdbKey(_ptmAnnounceMode)).set(_ptmAnnounceTemplate).catch(()=>{});
+}
+
+async function adAnnounceCopy(){
+  const ta=document.getElementById('ad-announce-text');
+  const text=ta?ta.value:''; // textarea already shows resolved text — copy as-is
+  const btn=document.getElementById('ad-announce-copy-btn');
+  try{
+    await navigator.clipboard.writeText(text);
+    if(btn){ const orig=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>{btn.textContent=orig;},1500); }
+  }catch(e){
+    try{
+      const tmp=document.createElement('textarea');
+      tmp.value=text; tmp.style.position='fixed'; tmp.style.opacity='0';
+      document.body.appendChild(tmp); tmp.focus(); tmp.select();
+      document.execCommand('copy'); document.body.removeChild(tmp);
+      if(btn){ const orig=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>{btn.textContent=orig;},1500); }
+    }catch(e2){ alert('Could not copy — please select and copy the text manually.'); }
+  }
+}
+
 // SSLC (10th) — 1PUC classes only (classCfg().hasPrevAnnual===false). Single
 // combined total per student, entered in puc.html's SSLC panel and saved to
 // puc_marks/{CUR_AY}/sslc/{classLabel}. Shared by adGatherCard (baked into
@@ -5199,6 +5513,14 @@ async function publishOneCard(C, contact, visWindow){
   if(phone.length===10){
     await rtdb.ref('parent_index/'+phone+'/'+C.student.usn).set({name:C.student.name,cls:C.student.cls,photoUrl:C.branding?.photoUrl||''});
   }
+  // Record this as the "last publish" — the WhatsApp announcement's Advanced
+  // template reads THIS (not the live class dropdown) for {CLASS}/{DATE}/
+  // {TIME}, so the message reflects when the card actually becomes visible
+  // to parents (the "Visible to parent — from" field), not the moment the
+  // admin clicked publish — those can differ if visibility was scheduled
+  // for later.
+  PTM_LAST_PUBLISH = { cls: C.student.cls||'', event: C.event||'', at: vw.visibleFrom!=null ? vw.visibleFrom : Date.now() };
+  rtdb.ref('ptm_config/last_publish').set(PTM_LAST_PUBLISH).catch(()=>{});
   return eventId;
 }
 
@@ -5262,6 +5584,20 @@ async function adLoadViewLogs(){
   try{
     const val=(await rtdb.ref(ptmLogPathFor(VIEWING_ROUND,'view_logs')).once('value')).val()||{};
     const byUsn = new Map(AD_PUBLISHED.map(r=>[r.usn,r]));
+    // Student photos live in parent_index/{phone}/{usn}.photoUrl, not on
+    // published_index (AD_PUBLISHED) — fetched once here as a small
+    // usn->photoUrl map, keyed off whatever phone each log entry itself
+    // carries, so the view log can show a thumbnail without a per-row fetch.
+    const photoByUsn = new Map();
+    const uniquePhones = [...new Set(Object.values(val).flatMap(entries=>Object.values(entries||{}).map(e=>e.phone).filter(Boolean)))];
+    await Promise.all(uniquePhones.map(async phone=>{
+      try{
+        const pd=(await rtdb.ref('parent_index/'+phone).once('value')).val()||{};
+        for(const [usn,info] of Object.entries(pd)){
+          if(info && info.photoUrl && !photoByUsn.has(usn)) photoByUsn.set(usn, info.photoUrl);
+        }
+      }catch(e){/* best-effort — a missing photo just shows the fallback avatar */}
+    }));
     AD_VIEWLOGS = [];
     for(const [usn,entries] of Object.entries(val)){
       const info = byUsn.get(usn);
@@ -5270,6 +5606,7 @@ async function adLoadViewLogs(){
           usn, logId,
           studentName: info?.name || usn,
           cls: info?.cls || '',
+          photoUrl: photoByUsn.get(usn) || '',
           viewerName: e.viewerName || '(no name given)',
           relationship: e.relationship || '',
           device: e.device || '',
@@ -5392,9 +5729,12 @@ function adRenderViewLogs(){
         const countLabel = blockedN
           ? `${viewedN} view${viewedN!==1?'s':''}${blockedN?`, ${blockedN} blocked attempt${blockedN!==1?'s':''}`:''}`
           : `${viewedN} view${viewedN!==1?'s':''}`;
+        const avatar = s.photoUrl
+          ? `<img src="${s.photoUrl}" onclick="event.stopPropagation();zoomPhoto('${s.photoUrl}')" style="width:28px;height:28px;border-radius:50%;object-fit:cover;cursor:zoom-in;flex-shrink:0" title="Tap to zoom">`
+          : `<span style="width:28px;height:28px;border-radius:50%;background:var(--line);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">👤</span>`;
         return `<div style="padding:8px 10px;border-bottom:1px solid var(--line);font-size:12px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-            <span style="font-weight:600">${s.studentName}${s.usn?' · '+s.usn:''}${s.cls?' · '+s.cls:''} <span class="mini">(${countLabel})</span></span>
+            <span style="display:flex;align-items:center;gap:8px;font-weight:600">${avatar}${s.studentName}${s.usn?' · '+s.usn:''}${s.cls?' · '+s.cls:''} <span class="mini">(${countLabel})</span></span>
             <button type="button" class="btn" style="padding:1px 8px;font-size:10px;color:#e05a5a;border-color:#e05a5a;flex-shrink:0" onclick="adDeleteViewLogsForStudent('${s.usn}')" title="Delete all logged views/attempts shown here for this student">🗑 Delete all shown for this student</button>
           </div>
           <div style="margin-top:4px">${viewLines}</div>
@@ -5578,10 +5918,31 @@ function adRenderPublishedList(){
     if(chipsEl){
       const activeCls=clsSel.value;
       const allActive = activeCls==='';
+      const chipDateFmt = ms => new Date(ms).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      // Per-class visibility window, for display on each chip. When every
+      // student in a class shares the same window (the normal case — set
+      // once via "Apply to all in filter"), show it directly; when they
+      // differ, say so rather than showing one arbitrary student's window.
+      const classWindowLabel = c => {
+        const rowsInCls = AD_PUBLISHED.filter(r=>r.cls===c);
+        if(!rowsInCls.length) return '';
+        const froms=new Set(rowsInCls.map(r=>r.visibleFrom==null?'':r.visibleFrom));
+        const untils=new Set(rowsInCls.map(r=>r.visibleUntil==null?'':r.visibleUntil));
+        if(froms.size!==1 || untils.size!==1) return 'Mixed visibility windows';
+        const from=rowsInCls[0].visibleFrom, until=rowsInCls[0].visibleUntil;
+        const fromLabel = from!=null ? chipDateFmt(from) : '—';
+        const untilLabel = until!=null ? chipDateFmt(until) : 'no end date';
+        return `Visible from ${fromLabel} → ${untilLabel}`;
+      };
       let chipHtml = `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;${allActive?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetClassFilter('')">All (${AD_PUBLISHED.length})</button>`;
       chipHtml += classes.map(c=>{
         const active = c===activeCls;
-        return `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;${active?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetClassFilter('${c}')">${c} (${classCounts.get(c)})</button>`;
+        const winLabel = classWindowLabel(c);
+        const winColor = active ? '#cfe3ff' : 'var(--accent,#2a78d6)'; // lighter blue on the active (already-blue) chip so it stays readable against the accent background
+        return `<button type="button" class="btn" style="padding:5px 12px;font-size:11px;border-radius:14px;text-align:left;line-height:1.4;${active?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetClassFilter('${c}')">
+          <div>${c} (${classCounts.get(c)})</div>
+          ${winLabel?`<div style="font-size:10px;color:${winColor}">🕐 ${winLabel}</div>`:''}
+        </button>`;
       }).join('');
       chipsEl.innerHTML = chipHtml;
     }
@@ -5633,9 +5994,15 @@ function adRenderPublishedList(){
         const when = r.publishedAt ? new Date(r.publishedAt).toLocaleString() : '';
         const visible = r.visible!==false; // default true for older records with no field
         const printLang = r.printLang==='kn' ? 'kn' : 'en'; // default English for bulk print/download
-        const visWin = adVisWindowLabel(r.visibleFrom, r.visibleUntil);
+        // "Visible from" always has a value to show — falls back to the
+        // publish time itself for older records written before visibleFrom
+        // was tracked, so this line is never blank ("what time did I set
+        // this to be visible" should always have an answer).
+        const visFrom = r.visibleFrom!=null ? r.visibleFrom : r.publishedAt;
+        const visFromLabel = visFrom ? new Date(visFrom).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+        const visUntilLabel = r.visibleUntil!=null ? new Date(r.visibleUntil).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'no end date';
         return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:12px">
-          <span style="flex:1">${r.name||'(unnamed)'}${r.usn?' · '+r.usn:''}${r.cls?' · '+r.cls:''}<div class="mini">${r.phone?'📞 '+r.phone+' · ':''}${r.event||''}${when?' · '+when:''}</div>${visWin?`<div class="mini">🕐 ${visWin}</div>`:''}</span>
+          <span style="flex:1">${r.name||'(unnamed)'}${r.usn?' · '+r.usn:''}${r.cls?' · '+r.cls:''}<div class="mini">${r.phone?'📞 '+r.phone+' · ':''}${r.event||''}${when?' · published '+when:''}</div><div class="mini" style="color:var(--accent,#0a84ff)">🕐 Visible from ${visFromLabel} → ${visUntilLabel}</div></span>
           <span style="display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden" title="Language used for this student's bulk print/PDF only — doesn't affect what the parent sees when they log in">
             <button type="button" class="btn" style="padding:2px 8px;font-size:10px;border-radius:0;${printLang==='en'?'background:var(--accent);color:#fff':''}" onclick="adSetPrintLang('${r.usn}','en')">EN</button>
             <button type="button" class="btn" style="padding:2px 8px;font-size:10px;border-radius:0;${printLang==='kn'?'background:var(--accent);color:#fff':''}" onclick="adSetPrintLang('${r.usn}','kn')">ಕನ</button>
