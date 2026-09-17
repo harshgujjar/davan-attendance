@@ -2162,7 +2162,7 @@
       <div class="sidebar-item" data-panel="alloc-viewer" onclick="switchPanel('alloc-viewer');allocRenderViewer()" id="nav-alloc-viewer" style="display:none;">
         <span class="icon">📋</span> View Allocation
       </div>
-      <div class="sidebar-item" data-panel="tt-editor" onclick="switchPanel('tt-editor');ttRenderEditor()" id="nav-tt-editor" style="display:none;">
+      <div class="sidebar-item" data-panel="tt-editor" onclick="switchPanel('tt-editor')" id="nav-tt-editor" style="display:none;">
         <span class="icon">✏️</span> Edit Timetable
       </div>
       <div class="sidebar-item" data-panel="alloc-editor" onclick="switchPanel('alloc-editor');allocRenderEditor()" id="nav-alloc-editor" style="display:none;">
@@ -4843,6 +4843,13 @@
             style="accent-color:#60a5fa;width:14px;height:14px;">
           👤 Show faculty name
         </label>
+        <label id="tte-fullsubject-label"
+          style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;padding:7px 11px;border:1px solid #2a2a2a;border-radius:8px;white-space:nowrap;"
+          title="Show the full subject name under each cell code, same as Subject Index view.">
+          <input type="checkbox" id="tte-show-fullsubject" onchange="tteToggleFullSubject()"
+            style="accent-color:#c4a02a;width:14px;height:14px;">
+          📖 Show subject name
+        </label>
       </div>
 
       <!-- Grid view -->
@@ -5394,7 +5401,7 @@
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-top:16px;">
           <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;">🔗 Quick Access</div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button onclick="switchPanel('tt-editor');ttRenderEditor();"
+            <button onclick="switchPanel('tt-editor');"
               style="padding:9px 18px;background:rgba(196,160,42,0.12);color:var(--accent);border:1px solid rgba(196,160,42,0.3);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">
               ✏️ Edit Timetable
             </button>
@@ -17322,7 +17329,7 @@ function switchPanel(name) {
   const strip = document.getElementById('data-strip');
   if (strip) strip.style.display = name === 'login' ? 'none' : 'flex';
   if (name === 'login' && typeof updateLoginMetaCard === 'function') updateLoginMetaCard();
-  if (name === 'tt-editor')    ttRenderEditor();
+  if (name === 'tt-editor')    { ttRenderEditor(); if (typeof ttRestoreLastMode === 'function') ttRestoreLastMode(); }
   if (name === 'report-card')  rcInit();
   if (name === 'alloc-editor') allocRenderEditor();
   if (name === 'internal-marks-analysis') imaInit();
@@ -29186,7 +29193,7 @@ const TG_LS_KEY   = 'davan_tg_staging';
 const TG_RTDB     = 'davan_pub/tg_staging';
 const TG_ARCH_LS  = 'davan_tg_archive';
 
-let TG_STATE = { grids: {}, assign: {}, effectiveFrom: '', activatedAt: null, lastActive: null, scheduled: null, scheduledFor: '', draftTT: [], uiClass: '', buildClass: '', lastManualArchiveAt: null, draftNotes: {}, tteTransposed: false, showDraftToFaculty: false };
+let TG_STATE = { grids: {}, assign: {}, effectiveFrom: '', activatedAt: null, lastActive: null, scheduled: null, scheduledFor: '', draftTT: [], uiClass: '', buildClass: '', lastManualArchiveAt: null, draftNotes: {}, tteTransposed: false, showDraftToFaculty: false, showGridSetupSection: false, lastTteMode: 'grid' };
 let _tgSelGrid = '';
 let _tgPreview = null;
 
@@ -29251,7 +29258,9 @@ function tgLoad() {
           lastManualArchiveAt: v.lastManualArchiveAt || null,
           draftNotes: v.draftNotes || {},
           tteTransposed: v.tteTransposed || false,
-          showDraftToFaculty: v.showDraftToFaculty || false
+          showDraftToFaculty: v.showDraftToFaculty || false,
+          showGridSetupSection: v.showGridSetupSection || false,
+          lastTteMode: v.lastTteMode || 'grid'
         };
       }
     }
@@ -29286,7 +29295,9 @@ function tgLoad() {
           lastManualArchiveAt: remote.lastManualArchiveAt || null,
           draftNotes: remote.draftNotes || {},
           tteTransposed: remote.tteTransposed || false,
-          showDraftToFaculty: remote.showDraftToFaculty || false
+          showDraftToFaculty: remote.showDraftToFaculty || false,
+          showGridSetupSection: remote.showGridSetupSection || false,
+          lastTteMode: remote.lastTteMode || 'grid'
         };
         try { localStorage.setItem(TG_LS_KEY, JSON.stringify(TG_STATE)); } catch (e2) {}
         try { if (typeof tgRenderPanel === 'function') tgRenderPanel(); } catch (e2) {}
@@ -29437,6 +29448,20 @@ function tgValidate() {
         for (let j = i + 1; j < busy.length; j++) {
           if (busy[i].cls === busy[j].cls) continue;
           if (busy[i].s < busy[j].e && busy[j].s < busy[i].e) {
+            // Kannada/Hindi language periods are deliberately taught as ONE
+            // shared session across multiple classes at once — same faculty,
+            // same room, students from every class attending together. This
+            // is not a double-booking, so skip it when BOTH sides are a
+            // language code (plain Kannada, plain Hindi, or the combined K/H
+            // split) — lmBaseCode() normalizes all three of those variants
+            // to 'KAN' or 'K/H', so comparing base codes here catches the
+            // combined K/H case AND the plain-Kannada-taught-together case
+            // (e.g. Kotrappa K's Wednesday 02.30 Kan period across two
+            // classes) without needing a separate flag on the row.
+            const baseA = (typeof lmBaseCode === 'function') ? lmBaseCode(busy[i].code) : busy[i].code;
+            const baseB = (typeof lmBaseCode === 'function') ? lmBaseCode(busy[j].code) : busy[j].code;
+            const isLangPair = (baseA === 'KAN' || baseA === 'K/H') && (baseB === 'KAN' || baseB === 'K/H');
+            if (isLangPair) continue;
             clashes.push({
               faculty: fac, day: day,
               a: busy[i].cls + ' ' + busy[i].code,
@@ -30373,6 +30398,17 @@ function tgToggleShowDraftToFaculty() {
   tgRenderPanel();
 }
 
+// Global show/hide for the whole grid-setup area — Time grids (grid cards +
+// New grid), Grid name (rename field + periods table), and Assign grid per day
+// (class dropdown + day cells) — ONE flag covering all three together, per
+// admin's explicit correction: not three separate toggles, one that shows or
+// hides all three at once. Default HIDDEN.
+function tgToggleGridSetupSection() {
+  TG_STATE.showGridSetupSection = !TG_STATE.showGridSetupSection;
+  tgSave();
+  tgRenderPanel();
+}
+
 function tgRunPreview() {
   _tgPreview = tgValidate();
   tgRenderPanel();
@@ -30497,6 +30533,8 @@ function tgOnBuildCellInput(ev) {
     const td = inp.closest('.tte-cell');
     const lbl = td ? td.querySelector('.tte-facname') : null;
     if (lbl && typeof _ttCellFacName === 'function') lbl.innerHTML = _ttCellFacName(cls, inp.value.trim());
+    const fullLbl = td ? td.querySelector('.tte-fullsubject') : null;
+    if (fullLbl && typeof _ttCellFullSubject === 'function') fullLbl.innerHTML = tteShowFullSubject ? _ttCellFullSubject(cls, inp.value.trim()) : '';
   } catch (e) {}
   try { if (typeof _tteAutoFillLabNextSlot === 'function') _tteAutoFillLabNextSlot(inp); } catch (e) {}
 
@@ -30819,7 +30857,9 @@ function tgRenderPanel() {
   const buildHtml =
     '<div style="margin:14px 0 6px;font-size:11px;color:#6b7585;font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
     '<span>Build the new timetable (' + ds.total + ' entries so far)</span>' +
-    '<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">' +
+    '<span style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+    '<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text);cursor:pointer;padding:5px 9px;border:1px solid #2a2a2a;border-radius:6px;white-space:nowrap;" title="Show the full subject name under each cell code, same as Subject Index view.">' +
+    '<input type="checkbox" id="tte-show-fullsubject" onchange="tteToggleFullSubject()"' + (tteShowFullSubject ? ' checked' : '') + ' style="accent-color:#c4a02a;width:13px;height:13px;">\uD83D\uDCD6 Show subject name</label>' +
     '<button onclick="tgToggleTranspose()" title="Swap Days \u2194 Slots axes for the draft build table" style="padding:5px 10px;font-size:11px;background:#111;color:var(--text);border:1px solid #2a2a2a;border-radius:6px;cursor:pointer;">\u21c4 Transpose</button>' +
     '<button onclick="tgPrintDraft()" style="padding:5px 10px;font-size:11px;background:rgba(74,222,128,0.1);color:#4ade80;border:1px solid rgba(74,222,128,0.3);border-radius:6px;cursor:pointer;">\uD83D\uDDA8 Print</button>' +
     '<button onclick="tgDownloadDraftPDF()" style="padding:5px 10px;font-size:11px;background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;">\uD83D\uDCC4 PDF</button>' +
@@ -30899,26 +30939,32 @@ function tgRenderPanel() {
     '<span data-tg-save-dot>' + tgSaveIndicatorHtml() + '</span>' +
     '</div>' +
 
-    '<div style="margin-bottom:8px;font-size:11px;color:#6b7585;font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;">Time grids</div>' +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">' + cardsHtml +
-    '<div onclick="tgAddGrid()" style="cursor:pointer;flex:0 0 auto;min-width:110px;padding:10px 12px;border-radius:8px;border:1px dashed #2a2a2a;background:#0d0d0d;display:flex;align-items:center;justify-content:center;color:#6b7585;font-size:12px;">+ New grid</div>' +
+    '<div style="margin:14px 0 6px;display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="tgToggleGridSetupSection()">' +
+    '<span style="font-size:14px;font-weight:700;font-family:var(--body);color:var(--text);letter-spacing:0.2px;">Time grids &amp; assignment</span>' +
+    '<span style="font-size:11px;color:#7ab6ff;font-family:var(--mono);user-select:none;">' + (TG_STATE.showGridSetupSection ? '\u25be Hide' : '\u25b8 Show') + '</span>' +
     '</div>' +
+    (TG_STATE.showGridSetupSection ? (
+      '<div style="margin-bottom:8px;font-size:11px;color:#6b7585;font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;">Time grids</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">' + cardsHtml +
+      '<div onclick="tgAddGrid()" style="cursor:pointer;flex:0 0 auto;min-width:110px;padding:10px 12px;border-radius:8px;border:1px dashed #2a2a2a;background:#0d0d0d;display:flex;align-items:center;justify-content:center;color:#6b7585;font-size:12px;">+ New grid</div>' +
+      '</div>' +
 
-    '<div style="margin:14px 0 6px;font-size:11px;color:#6b7585;font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;">Grid name</div>' +
-    (sel ? '<input value="' + tgEsc(sel.name) + '" onchange="tgSetGridName(\'' + _tgSelGrid + '\',this.value);tgRenderPanel()" style="width:100%;max-width:320px;background:#0d0d0d;color:var(--text);border:1px solid #2a2a2a;border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:4px;" placeholder="e.g. I BBA New Timing"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><span style="font-size:11px;color:#6b7585;">Type directly to rename \u2014 no popup.</span><span data-tg-save-dot>' + tgSaveIndicatorHtml() + '</span></div>' : '') +
-    '<div style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:8px;padding:8px 10px;">' + periodsHtml + '</div>' +
+      '<div style="margin:14px 0 6px;font-size:11px;color:#6b7585;font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;">Grid name</div>' +
+      (sel ? '<input value="' + tgEsc(sel.name) + '" onchange="tgSetGridName(\'' + _tgSelGrid + '\',this.value);tgRenderPanel()" style="width:100%;max-width:320px;background:#0d0d0d;color:var(--text);border:1px solid #2a2a2a;border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:4px;" placeholder="e.g. I BBA New Timing"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><span style="font-size:11px;color:#6b7585;">Type directly to rename \u2014 no popup.</span><span data-tg-save-dot>' + tgSaveIndicatorHtml() + '</span></div>' : '') +
+      '<div style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:8px;padding:8px 10px;">' + periodsHtml + '</div>' +
 
-    '<div style="margin:14px 0 6px;font-size:11px;color:#6b7585;font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;">Assign grid per day</div>' +
-    '<div style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px;">' +
-    '<select id="tg-class-sel" onchange="TG_STATE.uiClass=this.value;tgSave();tgRenderPanel()" style="width:100%;max-width:260px;background:#111;color:#ccc;border:1px solid #2a2a2a;border-radius:8px;padding:7px 10px;font-size:12px;margin-bottom:10px;">' + clsOpts + '</select>' +
-    '<div style="display:grid;grid-template-columns:repeat(' + Math.max(days.length, 1) + ',minmax(0,1fr));gap:6px;">' + dayCells + '</div>' +
-    '<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
-    '<button onclick="tgApplyGridToWeek(\'' + tgEsc(curCls).replace(/'/g, '\\\'') + '\')" style="padding:6px 12px;font-size:12px;background:#1a1f2a;color:#7ab6ff;border:1px solid #2a3a4a;border-radius:7px;cursor:pointer;">Apply Monday\'s grid to the whole week</button>' +
-    '<span style="font-size:11px;color:#6b7585;">Or set each day separately above \u2014 each change saves immediately.</span>' +
-    '<span data-tg-save-dot style="margin-left:auto;">' + tgSaveIndicatorHtml() + '</span>' +
+      '<div style="margin:14px 0 6px;font-size:11px;color:#6b7585;font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;">Assign grid per day</div>' +
+      '<div style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px;">' +
+      '<select id="tg-class-sel" onchange="TG_STATE.uiClass=this.value;tgSave();tgRenderPanel()" style="width:100%;max-width:260px;background:#111;color:#ccc;border:1px solid #2a2a2a;border-radius:8px;padding:7px 10px;font-size:12px;margin-bottom:10px;">' + clsOpts + '</select>' +
+      '<div style="display:grid;grid-template-columns:repeat(' + Math.max(days.length, 1) + ',minmax(0,1fr));gap:6px;">' + dayCells + '</div>' +
+      '<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      '<button onclick="tgApplyGridToWeek(\'' + tgEsc(curCls).replace(/'/g, '\\\'') + '\')" style="padding:6px 12px;font-size:12px;background:#1a1f2a;color:#7ab6ff;border:1px solid #2a3a4a;border-radius:7px;cursor:pointer;">Apply Monday\'s grid to the whole week</button>' +
+      '<span style="font-size:11px;color:#6b7585;">Or set each day separately above \u2014 each change saves immediately.</span>' +
+      '<span data-tg-save-dot style="margin-left:auto;">' + tgSaveIndicatorHtml() + '</span>' +
     '</div>' +
-    (differingDays.length ? '<div style="margin-top:6px;font-size:11px;color:#fbbf24;">' + differingDays.join(', ') + ' ' + (differingDays.length === 1 ? 'differs' : 'differ') + ' from the rest of the week.</div>' : '') +
-    '</div>' +
+      (differingDays.length ? '<div style="margin-top:6px;font-size:11px;color:#fbbf24;">' + differingDays.join(', ') + ' ' + (differingDays.length === 1 ? 'differs' : 'differ') + ' from the rest of the week.</div>' : '') +
+      '</div>'
+    ) : '') +
 
     buildHtml +
 
@@ -34384,6 +34430,32 @@ function _ttCellFacName(cls, code) {
   return fac.replace(/</g,'&lt;');
 }
 
+// Full subject name for a cell's raw code, same resolution ttBuildSubjectIndexGrid's
+// own getFullSubject() uses (split-aware K/H → "Kannada + Hindi", plain Hin → "Hindi",
+// class-scoped allocation match falling back to any-class match) — kept here as one
+// shared top-level function so the Grid/Draft cell label and the Subject Index view can
+// never disagree about what a code's full name is.
+function _ttCellFullSubject(cls, code) {
+  if (!code) return '';
+  const parsed = (typeof lmParseCode === 'function') ? lmParseCode(code) : null;
+  if (parsed && parsed.isSplit) return 'Kannada + Hindi';
+  const allocs = (typeof lmGetAllocations === 'function') ? lmGetAllocations() : (LM_ALLOCATIONS || []);
+  const inClass = allocs.filter(a => lmClassMatch(a, cls) && lmAllocMatchesCode(a, code));
+  let hits = inClass.length ? inClass : allocs.filter(a => lmAllocMatchesCode(a, code));
+  if (typeof _ttIsPlainHin === 'function' && _ttIsPlainHin(code)) {
+    const hindiOnly = hits.filter(a => {
+      const s = String(a.subject || '').toLowerCase();
+      const rc = String(a.code || '').toUpperCase();
+      return s.includes('hindi') || s.includes('sanskrit') || s.includes('urdu') || rc === 'K/H';
+    });
+    if (hindiOnly.length) hits = hindiOnly;
+    return 'Hindi';
+  }
+  if (!hits.length) return '';
+  const subs = [...new Set(hits.map(a => a.subject).filter(Boolean))];
+  return subs.length ? subs.join(' / ').replace(/</g,'&lt;') : '';
+}
+
 function ttBuildGrid(cls, editable, showFaculty, showCt) {
   const entries = LM_TIMETABLE.filter(t => t.class === cls);
   const days    = LM_DAYS_ORDER;
@@ -34423,7 +34495,8 @@ function ttBuildGrid(cls, editable, showFaculty, showCt) {
         const code = (map[slot] && map[slot][day]) || '';
         if (editable) {
           const _facLbl = (tteShowFacName && typeof _ttCellFacName === 'function') ? _ttCellFacName(cls, code) : '';
-          return `<td class="tte-cell" data-day="${day}" data-slot="${slot}" style="${tdStyle}"><input type="text"${listAttr}${onInp}${pickerAttr} data-day="${day}" data-slot="${slot}" value="${code.replace(/"/g,'&quot;')}" style="${inpStyle}" placeholder="—"><div class="tte-facname" style="font-size:8px;color:var(--muted);font-family:var(--mono);line-height:1.1;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:82px;">${_facLbl}</div></td>`;
+          const _fullLbl = (tteShowFullSubject && typeof _ttCellFullSubject === 'function') ? _ttCellFullSubject(cls, code) : '';
+          return `<td class="tte-cell" data-day="${day}" data-slot="${slot}" style="${tdStyle}"><input type="text"${listAttr}${onInp}${pickerAttr} data-day="${day}" data-slot="${slot}" value="${code.replace(/"/g,'&quot;')}" style="${inpStyle}" placeholder="—"><div class="tte-fullsubject" style="font-size:8px;color:var(--text);font-family:var(--body);line-height:1.15;margin:1px auto 0;text-align:center;white-space:normal;max-width:82px;">${_fullLbl}</div><div class="tte-facname" style="font-size:8px;color:#60a5fa;font-style:italic;font-family:var(--mono);line-height:1.1;margin:1px auto 0;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:82px;">${_facLbl}</div></td>`;
         } else {
           const bg = code ? 'background:rgba(196,160,42,0.08);' : '';
           if (!code) return `<td style="${tdStyle}"><span style="color:#333">—</span></td>`;
@@ -34558,7 +34631,8 @@ function ttBuildGridTransposed(cls, editable, showFaculty, showCt) {
         const code = (map[slot] && map[slot][day]) || '';
         if (editable) {
           const _facLbl2 = (tteShowFacName && typeof _ttCellFacName === 'function') ? _ttCellFacName(cls, code) : '';
-          return `<td class="tte-cell" data-day="${day}" data-slot="${slot}" style="${tdStyle}"><input type="text"${listAttr2}${onInp2}${pickerAttr2} data-day="${day}" data-slot="${slot}" value="${code.replace(/"/g,'&quot;')}" style="${inpStyle}" placeholder="—"><div class="tte-facname" style="font-size:8px;color:var(--muted);font-family:var(--mono);line-height:1.1;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:82px;">${_facLbl2}</div></td>`;
+          const _fullLbl2 = (tteShowFullSubject && typeof _ttCellFullSubject === 'function') ? _ttCellFullSubject(cls, code) : '';
+          return `<td class="tte-cell" data-day="${day}" data-slot="${slot}" style="${tdStyle}"><input type="text"${listAttr2}${onInp2}${pickerAttr2} data-day="${day}" data-slot="${slot}" value="${code.replace(/"/g,'&quot;')}" style="${inpStyle}" placeholder="—"><div class="tte-fullsubject" style="font-size:8px;color:var(--text);font-family:var(--body);line-height:1.15;margin:1px auto 0;text-align:center;white-space:normal;max-width:82px;">${_fullLbl2}</div><div class="tte-facname" style="font-size:8px;color:#60a5fa;font-style:italic;font-family:var(--mono);line-height:1.1;margin:1px auto 0;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:82px;">${_facLbl2}</div></td>`;
         }
         const bg = code ? 'background:rgba(196,160,42,0.08);' : '';
         if (!code) return `<td style="${tdStyle}"><span style="color:#2a2a2a;">—</span></td>`;
@@ -35089,7 +35163,7 @@ async function ttRenderViewer() {
         This is <strong style="color:#60a5fa;">${(_semCurrentKey||'').replace(/_/g,' ')} — Planning Mode</strong>.
         Use the <strong>Edit Timetable</strong> panel to build the timetable for this semester.
       </div>
-      <button onclick="switchPanel('tt-editor');ttRenderEditor();"
+      <button onclick="switchPanel('tt-editor');"
         style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;">
         ✎ Open Timetable Editor
       </button>
@@ -35282,8 +35356,35 @@ async function ttRenderViewer() {
 let tteMode       = 'grid'; // 'grid' | 'list'
 let tteTransposed = false;  // false = slots as rows (default) | true = days as rows
 
-function ttSetMode(mode) {
+// Restores whichever tab (Grid/List/Times) the admin had open last time, so a
+// page refresh or fresh login lands back there instead of always resetting to
+// Grid. Called right after ttRenderEditor() from both places that open the
+// Edit Timetable panel (sidebar link + dashboard Quick Access button).
+function ttRestoreLastMode() {
+  try {
+    const m = (typeof TG_STATE !== 'undefined' && TG_STATE.lastTteMode) ? TG_STATE.lastTteMode : 'grid';
+    if (m && m !== tteMode) ttSetMode(m);
+  } catch (e) {}
+}
+
+function ttSetMode(mode, opts) {
   tteMode = mode;
+  // Persist the last-used tab (Grid/List/Times) so a page refresh or fresh
+  // login lands back exactly where the admin left off, instead of always
+  // resetting to Grid — same TG_STATE round-trip (localStorage + Firestore)
+  // every other Times-tab setting already uses.
+  // opts.silent skips this persistence — used by ttRenderEditor()'s internal
+  // fallback call, which is not a deliberate tab switch and must never
+  // overwrite a saved "times" preference with "grid" before ttRestoreLastMode()
+  // gets a chance to read and apply it.
+  if (!(opts && opts.silent)) {
+    try {
+      if (typeof TG_STATE !== 'undefined') {
+        TG_STATE.lastTteMode = mode;
+        if (typeof tgSave === 'function') tgSave();
+      }
+    } catch (e) {}
+  }
   // v1387: if the admin used the subject picker on the LIVE Grid page
   // earlier in this same session, its popup element (#tte-picker-pop,
   // position:absolute, z-index:9999) still exists in the DOM even after
@@ -35522,12 +35623,35 @@ function tteLoadNote(cls) {
 let tteUseSubjectPicker = true;  // default ON (checkbox is checked)
 let tteHoursCheck       = true;  // ⏱ hours check default ON
 let tteShowFacName      = false; // 👤 show faculty name under each cell code — default OFF
+let tteShowFullSubject  = false; // 📖 show full subject name under each cell code (Times/Grid) — default OFF, per admin's explicit "defaulty check box is off"
 function tteToggleHoursCheck() {
   tteHoursCheck = document.getElementById('tte-hours-check')?.checked || false;
+  // Same stay-on-current-page fix as tteToggleFacName/tteToggleFullSubject — this
+  // checkbox is shared with the Times/Draft toolbar too, so it must not bounce
+  // back to the live Grid tab when toggled from there.
+  const onTimesPage = !!document.getElementById('tg-build-grid');
+  if (onTimesPage && typeof tgRenderPanel === 'function') { tgRenderPanel(); return; }
   ttRenderEditor();
 }
 function tteToggleFacName() {
   tteShowFacName = document.getElementById('tte-show-facname')?.checked || false;
+  // v1405 FIX: this used to unconditionally call ttRenderEditor() (the LIVE Grid
+  // page's renderer), which bounced the admin out of the Times/Draft tab back to
+  // Grid the instant the checkbox was clicked there. Same detect-and-stay pattern
+  // as tteToggleFullSubject() below — re-render only whichever page is actually
+  // on screen, so toggling this from Times never leaves Times.
+  const onTimesPage = !!document.getElementById('tg-build-grid');
+  if (onTimesPage && typeof tgRenderPanel === 'function') { tgRenderPanel(); return; }
+  ttRenderEditor();
+}
+// 📖 Show subject name — same shared checkbox used by both the live Grid page and the
+// Times/Draft build grid. Detects which one is actually on screen and re-renders only
+// that one, so toggling it on the Times page never touches the live Grid (and vice
+// versa) and never wipes unsaved Times/Draft typing via a wrong-target rerender.
+function tteToggleFullSubject() {
+  tteShowFullSubject = document.getElementById('tte-show-fullsubject')?.checked || false;
+  const onTimesPage = !!document.getElementById('tg-build-grid');
+  if (onTimesPage && typeof tgRenderPanel === 'function') { tgRenderPanel(); return; }
   ttRenderEditor();
 }
 
@@ -36196,6 +36320,8 @@ function tteOnGridInput(inp) {
       const section = inp.closest('[data-cls-section]');
       const cellCls = section ? section.dataset.clsSection : cls;
       lbl.innerHTML = _ttCellFacName(cellCls, inp.value.trim());
+      const fullLbl = td ? td.querySelector('.tte-fullsubject') : null;
+      if (fullLbl && typeof _ttCellFullSubject === 'function') fullLbl.innerHTML = tteShowFullSubject ? _ttCellFullSubject(cellCls, inp.value.trim()) : '';
     }
   } catch(e) {}
   // Auto-fill the NEXT time slot for a 2-hour lab. When the admin picks a lab code
@@ -36638,7 +36764,15 @@ function ttRenderEditor() {
         });
       }
     }
-    ttSetMode('grid');
+    // Only force Grid mode when nothing has deliberately chosen Times —
+    // this used to run unconditionally on every ttRenderEditor() call
+    // (including tgCommit()/tgRestoreArchive()'s own post-save re-render),
+    // silently flipping the tab back to Grid even when the admin was on
+    // Times. silent:true so this internal fallback render never overwrites
+    // TG_STATE.lastTteMode — ttRestoreLastMode(), called right after this
+    // by switchPanel(), needs the ORIGINAL saved value still intact to
+    // correctly flip back to Times when that was the last real tab.
+    if (tteMode !== 'times') ttSetMode('grid', { silent: true });
     return;
   }
 
