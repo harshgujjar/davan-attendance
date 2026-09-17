@@ -27,7 +27,7 @@
 <!--
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  DAVAN PUC — PARENT PROGRESS CARD (PTM)                                       ║
-║  FILE: parent_ptm.html   ·   v4.4.1  ·  BUILD 2026-09-17 21:10 UTC           ║
+║  FILE: parent_ptm.html   ·   v4.4.2  ·  BUILD 2026-09-17 21:35 UTC           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Two audiences, one file:                                                     ║
 ║   • PARENT  — logs in with mobile number only → picks child → sees frozen     ║
@@ -90,6 +90,16 @@
 ║                    page-2 saga below for what ignoring this costs.)        ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
+║  v4.4.2  2026-09-17 21:35 UTC — BUGFIX: social click data-shape mismatch.   ║
+║                    _logSocialClick() pushes FLAT: social_clicks/{round}/    ║
+║                    {platform}/{pushId} = {usn,device,phone,ts} — one level. ║
+║                    Both readers (adLoadViewLogs ~5654, adLoadUsageSummary   ║
+║                    ~5924) wrongly assumed a SECOND nested level keyed by    ║
+║                    usn (like view_logs/action_logs have), so pushId got     ║
+║                    read as usn (garbled names/USNs, "(no class)" bucket)    ║
+║                    and each record's 4 fields got counted as 4 separate    ║
+║                    clicks. Fixed to read the flat shape directly, usn      ║
+║                    pulled from the record's own .usn field.                ║
 ║  v4.4.1  2026-09-17 21:10 UTC — BUGFIX: social click READ path              ║
 ║                    (adLoadUsageSummary ~5599, adLoadViewLogs ~5875) used     ║
 ║                    ptmLogPathFor(round,'social_clicks/facebook') which       ║
@@ -2284,8 +2294,8 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.4.1';
-const BUILD_STAMP   = '2026-09-17 21:10 UTC';
+const APP_VERSION   = 'v4.4.2';
+const BUILD_STAMP   = '2026-09-17 21:35 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
 // from and writes to. Change this ONE line to move the whole app onto the
@@ -5652,24 +5662,26 @@ async function adLoadViewLogs(){
     // These predate any card being loaded, so there's no viewerName/
     // relationship on record — shown plainly as "(social click)" instead.
     for(const [platform, val2] of [['facebook',fbVal],['youtube',ytVal],['instagram',igVal]]){
-      for(const [usn,entries] of Object.entries(val2)){
+      // Flat shape: social_clicks/{round}/{platform}/{pushId} = {usn,device,phone,ts}
+      // — one level, NOT nested by usn (unlike view_logs/action_logs).
+      for(const [logId,e] of Object.entries(val2||{})){
+        const usn = e?.usn || '';
+        if(!usn) continue;
         const info = byUsn.get(usn);
-        for(const [logId,e] of Object.entries(entries||{})){
-          AD_VIEWLOGS.push({
-            usn, logId,
-            studentName: info?.name || usn,
-            cls: info?.cls || '',
-            photoUrl: photoByUsn.get(usn) || '',
-            viewerName: '',
-            relationship: '',
-            device: e.device || '',
-            phone: e.phone || '',
-            status: 'social',
-            socialPlatform: platform,
-            gateFrom: null, gateUntil: null,
-            ts: e.ts || 0
-          });
-        }
+        AD_VIEWLOGS.push({
+          usn, logId,
+          studentName: info?.name || usn,
+          cls: info?.cls || '',
+          photoUrl: photoByUsn.get(usn) || '',
+          viewerName: '',
+          relationship: '',
+          device: e.device || '',
+          phone: e.phone || '',
+          status: 'social',
+          socialPlatform: platform,
+          gateFrom: null, gateUntil: null,
+          ts: e.ts || 0
+        });
       }
     }
     AD_VIEWLOGS.sort((a,b)=>b.ts-a.ts);
@@ -5917,16 +5929,16 @@ async function adLoadUsageSummary(){
       }
     }
     // Social clicks are logged BEFORE a card exists (the parent is on the
-    // gated "not available yet" screen), keyed by usn same as everything
-    // else — so class lookup works the same way via byUsn.
+    // gated "not available yet" screen) — flat shape (one push-id level,
+    // usn is a FIELD not a key), same fix as adLoadViewLogs above.
     for(const [platform, val] of [['facebook',fbVal],['youtube',ytVal],['instagram',igVal]]){
-      for(const [usn,entries] of Object.entries(val)){
+      for(const [logId,e] of Object.entries(val||{})){
+        const usn = e?.usn || '';
+        if(!usn) continue;
         const info = byUsn.get(usn);
         const cls = info?.cls || '(no class)';
         const bucket = ensureCls(cls);
-        for(const e of Object.values(entries||{})){
-          bucket.socialClicks[platform].push({usn, name: info?.name||usn, ts: e.ts||0, device: e.device||'', phone: e.phone||''});
-        }
+        bucket.socialClicks[platform].push({usn, name: info?.name||usn, ts: e.ts||0, device: e.device||'', phone: e.phone||''});
       }
     }
     window._AD_SUMMARY = classes;
