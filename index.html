@@ -29266,6 +29266,7 @@ function tgLoad() {
     }
   } catch (e) { console.warn('[TG] load failed', e && e.message); }
   if (!Object.keys(TG_STATE.grids).length) tgSeedFromLive();
+  tgSeedDraftFromLive();
   // v1393 BUG FIX: tgSave() has always written to localStorage AND Firebase
   // (rtdb + Firestore), but tgLoad() only ever read localStorage back — a
   // one-way street. On a different device, a different browser, or after
@@ -29372,6 +29373,28 @@ function tgSeedFromLive() {
   _tgSelGrid = 'std';
 }
 
+// Pre-fills the Times/Draft build area from whatever is CURRENTLY LIVE, so
+// building a new timetable starts from the existing one instead of a blank
+// grid — per explicit admin request: "what i have previously drafted and
+// made to move to main ... i dont want to start with scratch". Only runs
+// when the draft is genuinely empty (never overwrites a draft already in
+// progress — that would silently destroy real work). tgClearDraft() (the
+// existing "Clear draft" button) remains the way to deliberately start
+// fresh; after clearing, this does NOT re-seed automatically on the same
+// visit — draftTT stays empty until a full reload, so Clear actually
+// clears, matching what that button has always promised.
+function tgSeedDraftFromLive() {
+  if (TG_STATE.draftTT && TG_STATE.draftTT.length) return; // never overwrite existing draft work
+  const live = (typeof LM_TIMETABLE !== 'undefined' && LM_TIMETABLE) ? LM_TIMETABLE : [];
+  if (!live.length) return; // nothing live to copy — leave genuinely blank
+  // Deep-copy each row (never share references with LM_TIMETABLE) so editing
+  // the draft can never mutate the live timetable still on screen elsewhere.
+  TG_STATE.draftTT = live.map(function (t) {
+    return { class: t.class, day: t.day, slot: t.slot, code: t.code };
+  });
+  tgSave();
+}
+
 function tgNewGridId() {
   let n = 1;
   while (TG_STATE.grids['g' + n]) n++;
@@ -29419,6 +29442,32 @@ function tgBuildUnionSlots() {
 }
 
 // ── Validation: real interval overlap, not string equality ─────
+// Shared: every break (Leisure, Lunch, etc.) across every Time Grid a class
+// actually uses this week, as ready-to-render chip HTML. Pulled out of the
+// Times/Draft build grid so the SAME strip can also render on the live Grid
+// page — grid/break data lives in TG_STATE.grids + TG_STATE.assign, which is
+// identical whether you're looking at the draft build area or the live
+// timetable, so there is nothing draft-specific about this computation.
+function tgBreakStripHtmlForClass(c) {
+  const days = (typeof LM_DAYS_ORDER !== 'undefined') ? LM_DAYS_ORDER : [];
+  const usedGridIds = {};
+  days.forEach(function (d) { const g = tgGridFor(c, d); if (g) usedGridIds[g.id] = true; });
+  const breakChips = [];
+  Object.keys(usedGridIds).forEach(function (gid) {
+    const grid = TG_STATE.grids[gid];
+    if (!grid) return;
+    const sortedP = grid.periods.slice().sort(function (a, b) { return a.start - b.start; });
+    for (var k = 1; k < sortedP.length; k++) {
+      if (sortedP[k].start > sortedP[k - 1].end) {
+        const mins = sortedP[k].start - sortedP[k - 1].end;
+        const lbl = (grid.breakLabels && grid.breakLabels[sortedP[k - 1].start]) || 'Break';
+        breakChips.push('<span style="display:inline-block;padding:2px 8px;margin:2px 4px 2px 0;border-radius:6px;background:rgba(122,182,255,0.1);border:1px solid rgba(122,182,255,0.3);color:#7ab6ff;font-size:10px;font-family:var(--mono);">' + tgEsc(lbl) + ' ' + mins + 'm \u00b7 ' + tgMinToHHMM(sortedP[k - 1].end) + '\u2013' + tgMinToHHMM(sortedP[k].start) + (Object.keys(usedGridIds).length > 1 ? ' (' + tgEsc(grid.name) + ')' : '') + '</span>');
+      }
+    }
+  });
+  return breakChips.length ? '<div style="margin-bottom:8px;">' + breakChips.join('') + '</div>' : '';
+}
+
 function tgValidate() {
   // v1384: CLEAN BREAK. The draft has zero connection to the live
   // timetable, per explicit admin instruction — so there is nothing to
@@ -30664,6 +30713,7 @@ function tgRenderPanel() {
   const wrap = document.getElementById('tte-times-view');
   if (!wrap) return;
   if (!Object.keys(TG_STATE.grids).length) tgSeedFromLive();
+  tgSeedDraftFromLive();
 
   const gids = Object.keys(TG_STATE.grids);
   if (!TG_STATE.grids[_tgSelGrid]) _tgSelGrid = gids[0] || '';
@@ -30808,24 +30858,7 @@ function tgRenderPanel() {
     // uses across the week (a class can be on different grids per day),
     // deduped by grid, so the admin can see breaks right above the table
     // without having to reopen the periods editor per grid.
-    const usedGridIds = {};
-    days.forEach(function (d) { const g = tgGridFor(c, d); if (g) usedGridIds[g.id] = true; });
-    const breakChips = [];
-    Object.keys(usedGridIds).forEach(function (gid) {
-      const grid = TG_STATE.grids[gid];
-      if (!grid) return;
-      const sortedP = grid.periods.slice().sort(function (a, b) { return a.start - b.start; });
-      for (var k = 1; k < sortedP.length; k++) {
-        if (sortedP[k].start > sortedP[k - 1].end) {
-          const mins = sortedP[k].start - sortedP[k - 1].end;
-          const lbl = (grid.breakLabels && grid.breakLabels[sortedP[k - 1].start]) || 'Break';
-          breakChips.push('<span style="display:inline-block;padding:2px 8px;margin:2px 4px 2px 0;border-radius:6px;background:rgba(122,182,255,0.1);border:1px solid rgba(122,182,255,0.3);color:#7ab6ff;font-size:10px;font-family:var(--mono);">' + tgEsc(lbl) + ' ' + mins + 'm \u00b7 ' + tgMinToHHMM(sortedP[k - 1].end) + '\u2013' + tgMinToHHMM(sortedP[k].start) + (Object.keys(usedGridIds).length > 1 ? ' (' + tgEsc(grid.name) + ')' : '') + '</span>');
-        }
-      }
-    });
-    const breakStripHtml = breakChips.length
-      ? '<div style="margin-bottom:8px;">' + breakChips.join('') + '</div>'
-      : '';
+    const breakStripHtml = tgBreakStripHtmlForClass(c);
     return tgWithDraftOneClass(c, function () {
       const dNote = tgGetDraftNote(c);
       const escapedForJs = c.replace(/'/g, "&#39;");
@@ -36753,6 +36786,7 @@ function ttRenderEditor() {
         const escapedCls = c.replace(/"/g, '&quot;');
         return `<div data-cls-section="${escapedCls}" style="${mt}">` +
           `<div style="${clsHdrBase}">📚 ${c}</div>` +
+          ((typeof tgBreakStripHtmlForClass === 'function') ? tgBreakStripHtmlForClass(c) : '') +
           (tteTransposed ? ttBuildGridTransposed(c, true) : ttBuildGrid(c, true)) +
           _ttHoursSummaryHtml(c) +
           noteHtml +
@@ -36784,7 +36818,8 @@ function ttRenderEditor() {
 
   // Grid view — normal or transposed depending on tteTransposed flag
   if (gridWrap) {
-    gridWrap.innerHTML = (tteTransposed ? ttBuildGridTransposed(cls, true) : ttBuildGrid(cls, true)) + _ttHoursSummaryHtml(cls);
+    const _breakStrip = (typeof tgBreakStripHtmlForClass === 'function') ? tgBreakStripHtmlForClass(cls) : '';
+    gridWrap.innerHTML = _breakStrip + (tteTransposed ? ttBuildGridTransposed(cls, true) : ttBuildGrid(cls, true)) + _ttHoursSummaryHtml(cls);
     // Run duplicate scan if rule is active (catches existing data on load)
     if (tteEnforceRepeat) tteScanDuplicates(cls);
   }
