@@ -27,7 +27,7 @@
 <!--
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  DAVAN PUC — PARENT PROGRESS CARD (PTM)                                       ║
-║  FILE: parent_ptm.html   ·   v4.5.3  ·  BUILD 2026-09-18 07:20 UTC           ║
+║  FILE: parent_ptm.html   ·   v4.5.4  ·  BUILD 2026-09-18 08:10 UTC           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Two audiences, one file:                                                     ║
 ║   • PARENT  — logs in with mobile number only → picks child → sees frozen     ║
@@ -90,6 +90,20 @@
 ║                    page-2 saga below for what ignoring this costs.)        ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
+║  v4.5.4  2026-09-18 08:10 UTC — BUGFIX: confirmChild() (~line 2799) had     ║
+║                    no re-entrancy guard, so multiple taps on "Yes, this is  ║
+║                    my child" (very plausible on a slow Android device       ║
+║                    where the button doesn't visibly respond right away)     ║
+║                    each independently pushed their own view_logs entry —    ║
+║                    seen in the wild as 23 identical rows, same viewer,      ║
+║                    same minute. Renamed the original body to                ║
+║                    _confirmChildImpl(); confirmChild() is now a thin        ║
+║                    wrapper with an in-flight lock (_confirmChildInFlight)   ║
+║                    plus disabling #confirm-btn immediately on click, so     ║
+║                    only the first tap can ever actually log/navigate.       ║
+║                    Pre-existing duplicate rows from before this fix are     ║
+║                    NOT auto-cleaned — delete manually via the view-log's    ║
+║                    per-entry 🗑 if wanted.                                   ║
 ║  v4.5.3  2026-09-18 07:20 UTC — BUGFIX: "Chose English"/"Chose ಕನ್ನಡ"       ║
 ║                    dashboard boxes showed 0 despite real views existing —    ║
 ║                    every view logged BEFORE v4.5.0 (when lang tracking was   ║
@@ -2339,8 +2353,8 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.5.3';
-const BUILD_STAMP   = '2026-09-18 07:20 UTC';
+const APP_VERSION   = 'v4.5.4';
+const BUILD_STAMP   = '2026-09-18 08:10 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
 // from and writes to. Change this ONE line to move the whole app onto the
@@ -2796,8 +2810,38 @@ function _deviceSummary(){
   else if(/safari\//i.test(ua) && !/chrome\//i.test(ua)) browser='Safari';
   return browser ? `${os} · ${browser}` : os;
 }
+let _confirmChildInFlight = false;
 async function confirmChild(){
   if(!_confirmUsn) return;
+  // Re-entrancy guard: a slow/laggy device (very common on the Android
+  // phones most parents are using) can make the button feel unresponsive,
+  // so a parent taps it again — or even taps it many times in quick
+  // succession. Without this guard each tap pushes its own view_logs entry,
+  // producing many identical rows for one real view (seen in the wild:
+  // 20+ duplicate rows, same minute, same viewer). This makes the whole
+  // function a no-op while a previous call is still running, and the
+  // button below is also disabled immediately as a second layer of defense
+  // (covers the case where confirmChild() itself finishes fast but the
+  // parent's tap queue still has more clicks buffered).
+  if(_confirmChildInFlight) return;
+  _confirmChildInFlight = true;
+  const btnEl = document.getElementById('confirm-btn');
+  const btnOrigText = btnEl ? btnEl.textContent : '';
+  if(btnEl){ btnEl.disabled = true; btnEl.textContent = 'Loading…'; }
+  try{
+    await _confirmChildImpl();
+  } finally {
+    _confirmChildInFlight = false;
+    // Only re-enable if we're still on the confirm screen — a successful
+    // confirm navigates away (to the card or a gated screen), so leaving
+    // the button disabled in that case is fine and avoids a flash of the
+    // original text right before the screen changes.
+    if(btnEl && document.getElementById('scr-confirm') && !document.getElementById('scr-confirm').classList.contains('hide')){
+      btnEl.disabled = false; btnEl.textContent = btnOrigText;
+    }
+  }
+}
+async function _confirmChildImpl(){
   const nameEl=document.getElementById('confirm-viewer-name');
   const relEl=document.getElementById('confirm-viewer-rel');
   const relOtherEl=document.getElementById('confirm-viewer-rel-other');
