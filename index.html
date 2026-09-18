@@ -4714,11 +4714,11 @@
           background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;
           border-radius:6px;cursor:pointer;margin-left:8px;font-weight:700;">🖨 Print Master Timetable</button>
         <button id="ttv-btn-print-faculty" onclick="ttPrintFacultyMaster()" title="Print every faculty's own weekly schedule, all in one sheet (A4 landscape) — same masthead/signatures as Print Master Timetable; also your PDF (choose Save as PDF in the print dialog)"
-          style="display:none;font-size:12px;font-family:var(--mono);padding:7px 16px;
+          style="font-size:12px;font-family:var(--mono);padding:7px 16px;
           background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;
           border-radius:6px;cursor:pointer;margin-left:8px;font-weight:700;">🖨 Print Faculty Timetable</button>
         <button id="ttv-btn-excel-faculty" onclick="ttDownloadFacultyExcel()" title="Download every faculty's weekly schedule as one Excel workbook"
-          style="display:none;font-size:12px;font-family:var(--mono);padding:7px 16px;
+          style="font-size:12px;font-family:var(--mono);padding:7px 16px;
           background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.4);color:#22c55e;
           border-radius:6px;cursor:pointer;margin-left:8px;font-weight:700;">📊 Faculty Excel</button>
         <button id="push-tt-db2-btn" onclick="pushTimetableToPortalDB2()" title="Push the current timetable directly to the Student Portal (DB2) — no scrape needed"
@@ -17473,8 +17473,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1411;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '18-Sep-2026', time: '12:58', full: '18-Sep-2026 12:58 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1425;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '19-Sep-2026', time: '02:10', full: '19-Sep-2026 02:10 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -19600,7 +19600,20 @@ function lcbSetMode(mode) {
 //  Chip states: running (green pulse), upcoming (blue), over (gray), break (amber).
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const LCB_SLOTS = [
+// v1412 FIX per direct admin report: LCB_SLOTS used to be a hardcoded array
+// of the OLD period times (08.30-09.30, 10.45-11.45, 01.15-02.15, ...) —
+// completely disconnected from the Time Grid system, so once the admin
+// built and activated a new timetable with different period times, the
+// Live Class Board's day/slot chips (and its running/upcoming/over LIVE
+// detection, which depends on those same times) kept silently using the
+// stale old schedule instead of the real one. lcbGetSlots() now builds the
+// same { slot, label, short } shape LIVE from LM_SLOTS_ORDER — the same
+// slot list tgApplyOnLoad()/tgBuildUnionSlots() already keep correctly in
+// sync with whatever Time Grid(s) are actually activated — so this can
+// never drift out of date again the way a hardcoded list silently did.
+// Falls back to the original 8-slot list only if LM_SLOTS_ORDER is ever
+// empty (shouldn't happen once any timetable has been activated).
+const LCB_SLOTS_FALLBACK = [
   { slot: '08.30 to 09.30',  label: '8:30 – 9:30',   short: '8:30'  },
   { slot: '09.30 to 10.30',  label: '9:30 – 10:30',  short: '9:30'  },
   { slot: '10.45 to 11.45',  label: '10:45 – 11:45', short: '10:45' },
@@ -19610,6 +19623,251 @@ const LCB_SLOTS = [
   { slot: '03.30 to 04.30',  label: '3:30 – 4:30',   short: '3:30'  },
   { slot: '04.30 to 05.30',  label: '4:30 – 5:30',   short: '4:30'  },
 ];
+function lcbSlotDisplay(slotStr) {
+  // "08.30 to 09.30" -> label "8:30 – 9:30", short "8:30" (strip leading
+  // zero, drop the trailing :00-style minutes only when they're literally
+  // zero, exactly matching the original hand-written labels' style).
+  const parts = slotStr.split(' to ').map(s => s.trim());
+  const fmt = t => {
+    const m = t.match(/^(\d+)\.(\d+)$/);
+    if (!m) return t;
+    const h = parseInt(m[1], 10);
+    const min = m[2];
+    return h + ':' + min;
+  };
+  const a = fmt(parts[0]), b = fmt(parts[1] || '');
+  return { label: a + (b ? ' \u2013 ' + b : ''), short: a };
+}
+// Union of only the grids ACTUALLY ASSIGNED to at least one class/day right
+// now (via TG_STATE.assign), unlike tgBuildUnionSlots() which unions EVERY
+// grid that has ever been created in TG_STATE.grids regardless of whether
+// anything still uses it. A retired/unused grid's old times have no
+// business appearing as a selectable slot anywhere once nothing is
+// assigned to it — confirmed by direct admin report: a stale 2:15-3:15
+// slot from an old grid kept appearing as a chip and, worse, kept winning
+// the "current/next slot" header labels over the real, currently-assigned
+// 2:30-3:30 slot, even though NO class was assigned to that old grid
+// anymore. Same root class of bug v1391 already fixed once for the
+// Times/Draft build table (tgGridFor/tgHasAssignment there) — this is the
+// same fix applied to the Live Class Board's own slot source.
+function tgBuildAssignedUnionSlots() {
+  const seen = {};
+  const days = (typeof LM_DAYS_ORDER !== 'undefined') ? LM_DAYS_ORDER : [];
+  const classes = (typeof ttGetClasses === 'function') ? ttGetClasses() : [];
+  classes.forEach(function (cls) {
+    days.forEach(function (d) {
+      const grid = tgGridFor(cls, d);
+      if (!grid) return;
+      tgGridSlots(grid).forEach(function (s) { seen[s] = tgSlotStartMin(s); });
+    });
+  });
+  return Object.keys(seen).sort(function (a, b) { return seen[a] - seen[b]; });
+}
+
+// v1414 DIAGNOSTIC — read-only, changes nothing. Finds every class+day+slot
+// where MORE THAN ONE timetable row exists (parallel lab batches) — the
+// ONLY situation the v1414 .find()-vs-.filter() fix could ever have
+// affected, since a single-row slot was never at risk. Run from the
+// browser console: ttDiagnoseParallelSlots() — prints a table you can read
+// directly, and also returns the raw data. Use this to check the OTHER
+// faculty besides Priyanka V, since whether anyone else was actually
+// affected depends on the real data, which this reads live.
+// v1416 DIAGNOSTIC — read-only. Per direct admin report that Priyanka V's
+// grid/summary is STILL missing subjects after v1414 — and specifically
+// "not just A2 lab... what about subject 4 subject 3 different subject",
+// meaning ORDINARY (non-lab) subjects are missing too, not only the
+// parallel-lab-batch case v1414 targeted. Runs the EXACT SAME class-match
+// computation ttBuildFacultyGrid() does for a given faculty name, and
+// reports every one of their allocation rows individually — showing which
+// ones successfully resolved to a real timetable class and which did not
+// (and why: lmCourseInClass failed, year/YEAR prefix mismatch, or section
+// letter mismatch) — since ANY one allocation row that fails to match
+// silently drops that WHOLE CLASS (every subject in it, lab or not) from
+// that faculty's entire grid and summary. Run from the browser console:
+// ttDiagnoseFacultyAllocations('Priyanka V')
+// v1419 DIAGNOSTIC — read-only, changes nothing. Per direct admin report:
+// the live timetable broke on its own, without any Activate/commit action
+// between it working and it breaking — admin explicitly stated "it was not
+// fixed only still so I thought I'll look once timetable then I came to
+// know it's all not showing properly now". That rules out tgCommit() as
+// the trigger (nothing was committed in between) and calls the whole
+// "corrupted draft got activated" theory into question. Rather than guess
+// further, this reports the ACTUAL current state of LM_TIMETABLE, the
+// draft, and the archive side by side, so the real facts can be checked
+// instead of theorized about. Run from the browser console:
+// ttDiagnoseTimetableState()
+function ttDiagnoseTimetableState() {
+  const liveCount = (LM_TIMETABLE || []).length;
+  const draftCount = (TG_STATE && TG_STATE.draftTT) ? TG_STATE.draftTT.length : 0;
+  const liveClasses = [...new Set((LM_TIMETABLE || []).map(t => t.class))];
+  const draftClasses = (TG_STATE && TG_STATE.draftTT) ? [...new Set(TG_STATE.draftTT.map(t => t.class))] : [];
+  let archiveInfo = 'not checked (async — see below)';
+  console.log('%c=== CURRENT LIVE TIMETABLE (LM_TIMETABLE) ===', 'color:#60a5fa;font-weight:bold;');
+  console.log('Total rows:', liveCount);
+  console.log('Classes present (' + liveClasses.length + '):', liveClasses);
+  console.log('%c=== CURRENT DRAFT (TG_STATE.draftTT) ===', 'color:#f59e0b;font-weight:bold;');
+  console.log('Total rows:', draftCount);
+  console.log('Classes present (' + draftClasses.length + '):', draftClasses);
+  console.log('activatedAt:', TG_STATE.activatedAt ? new Date(TG_STATE.activatedAt).toLocaleString() : 'never');
+  console.log('%c=== LM_SLOTS_ORDER right now (governs what rows the plain Edit Timetable Grid page renders) ===', 'color:#34d399;font-weight:bold;');
+  console.log('Current LM_SLOTS_ORDER:', (typeof LM_SLOTS_ORDER !== 'undefined') ? LM_SLOTS_ORDER : '(undefined)');
+  console.log('%cIf this list is missing your new afternoon slot times, the plain Grid editor would have rendered NO input boxes for those periods at all \u2014 meaning any edit-and-save on that page would have silently dropped them, since ttSave() only ever writes back whatever input boxes actually exist on screen.', 'color:#fbbf24;');
+  console.log('%c=== SCHEDULED SNAPSHOT (TG_STATE.scheduled) \u2014 what was actually promoted ===', 'color:#f87171;font-weight:bold;');
+  if (TG_STATE.scheduled) {
+    const schedDraft = TG_STATE.scheduled.draftTT || [];
+    const schedClasses = [...new Set(schedDraft.map(t => t.class))];
+    const schedSlots = [...new Set(schedDraft.map(t => t.slot))].sort();
+    console.log('Frozen at:', TG_STATE.scheduled.at ? new Date(TG_STATE.scheduled.at).toLocaleString() : 'unknown');
+    console.log('scheduledFor date:', TG_STATE.scheduledFor || '(none)');
+    console.log('Rows in the FROZEN snapshot that was/will be promoted:', schedDraft.length);
+    console.log('Classes in the frozen snapshot (' + schedClasses.length + '):', schedClasses);
+    console.log('Distinct slot times in the frozen snapshot:', schedSlots);
+    console.log('%cIf this list is missing afternoon slot times (1.30/2.30/3.40/4.40 etc.), the snapshot itself never had afternoons in it at the moment Schedule was pressed \u2014 check this against when you actually finished the afternoon periods.', 'color:#fbbf24;');
+  } else {
+    console.log('No scheduled snapshot currently stored (either never scheduled, or already promoted and cleared).');
+  }
+  console.log('%c=== ARCHIVE (checking local + RTDB + Firestore) ===', 'color:#a78bfa;font-weight:bold;');
+  (async () => {
+    let localSnap = null;
+    try { localSnap = JSON.parse(localStorage.getItem(TG_ARCH_LS) || 'null'); } catch (e) {}
+    console.log('localStorage archive:', localSnap ? (localSnap.timetable || []).length + ' rows, saved ' + new Date(localSnap.at).toLocaleString() : 'none found');
+    try {
+      if (typeof rtdb !== 'undefined' && rtdb) {
+        const s = await rtdb.ref('davan_pub/tg_archive').once('value');
+        const v = s.val();
+        console.log('RTDB archive:', v ? (v.timetable || []).length + ' rows, saved ' + new Date(v.at).toLocaleString() : 'none found');
+      }
+    } catch (e) { console.log('RTDB archive: read failed —', e.message); }
+    try {
+      if (typeof fsGet === 'function') {
+        const v = await fsGet('app_data', 'tg_archive');
+        console.log('Firestore archive:', v ? (v.timetable || []).length + ' rows, saved ' + new Date(v.at).toLocaleString() : 'none found');
+      }
+    } catch (e) { console.log('Firestore archive: read failed —', e.message); }
+    console.log('%cAlso checking the LIVE data actually stored in Firebase right now (app_data/timetable + davan_pub/timetable) — to see if it matches what is loaded on screen:', 'color:#4ade80;font-weight:bold;');
+    try {
+      if (typeof fsGet === 'function') {
+        const v = await fsGet('app_data', 'timetable');
+        const rows = v && Array.isArray(v.data) ? v.data.length : (v && Array.isArray(v) ? v.length : 'unknown shape');
+        console.log('Firestore app_data/timetable:', rows, 'rows. Full object:', v);
+      }
+    } catch (e) { console.log('Firestore live read failed —', e.message); }
+    try {
+      if (typeof rtdb !== 'undefined' && rtdb) {
+        const s = await rtdb.ref('davan_pub/timetable').once('value');
+        const v = s.val();
+        const rows = v && Array.isArray(v.data) ? v.data.length : (v && Array.isArray(v) ? v.length : 'unknown shape');
+        console.log('RTDB davan_pub/timetable:', rows, 'rows. Full object:', v);
+      }
+    } catch (e) { console.log('RTDB live read failed —', e.message); }
+  })();
+  return { liveCount, draftCount, liveClasses, draftClasses };
+}
+
+function ttDiagnoseFacultyAllocations(facultyName) {
+  if (!LM_ALLOCATIONS || !LM_ALLOCATIONS.length) { console.warn('LM_ALLOCATIONS not loaded yet — open Edit Allocation or View Timetable first, then re-run.'); return []; }
+  const allClasses = (typeof ttGetClasses === 'function') ? ttGetClasses() : [];
+  const facultyAllocs = LM_ALLOCATIONS.filter(a => a.faculty === facultyName);
+  if (!facultyAllocs.length) { console.warn('No allocation rows found for faculty "' + facultyName + '" — check the exact spelling/spacing matches LM_ALLOCATIONS.'); return []; }
+  const rows = facultyAllocs.map(a => {
+    const matchedClass = allClasses.find(c => lmClassMatch(a, c));
+    let reason = '';
+    if (!matchedClass) {
+      const courseHit = allClasses.filter(c => (typeof lmCourseInClass === 'function') ? lmCourseInClass(a.course, c) : false);
+      if (!courseHit.length) {
+        reason = 'No timetable class matched course "' + a.course + '" at all (lmCourseInClass found nothing).';
+      } else {
+        const year = (typeof LM_SEM_TO_YEAR !== 'undefined' && LM_SEM_TO_YEAR[a.sem]) || a.sem;
+        const yearHit = courseHit.filter(c => c.startsWith(year + ' YEAR'));
+        if (!yearHit.length) {
+          reason = 'Course matched (' + courseHit.join(', ') + ') but none start with "' + year + ' YEAR" — check alloc.sem="' + a.sem + '" maps correctly in LM_SEM_TO_YEAR.';
+        } else {
+          reason = 'Course+year matched (' + yearHit.join(', ') + ') but section letter "(' + ((a.section||'').match(/\(([A-Z])\)/)||[])[1] + ')" from alloc.section="' + a.section + '" did not match any of their section letters.';
+        }
+      }
+    }
+    return {
+      course: a.course, sem: a.sem, section: a.section, subject: a.subject, code: a.code,
+      resolvedClass: matchedClass || '(NO MATCH — this class is being SILENTLY DROPPED, every subject in it included)',
+      matched: !!matchedClass,
+      failureReason: reason
+    };
+  });
+  const failed = rows.filter(r => !r.matched);
+  if (failed.length) {
+    console.log('%c' + failed.length + ' of ' + rows.length + ' allocation row(s) for "' + facultyName + '" FAILED to match a timetable class — every subject in each of these classes is being silently dropped from their grid, not just labs:', 'color:#f87171;font-weight:bold;');
+  } else {
+    console.log('%cAll ' + rows.length + ' allocation row(s) for "' + facultyName + '" matched a timetable class correctly — if subjects are still missing, the issue is elsewhere (check ttDiagnoseParallelSlots() for the lab-batch case).', 'color:#4ade80;font-weight:bold;');
+  }
+  console.table(rows);
+  return rows;
+}
+
+function ttDiagnoseParallelSlots() {
+  if (!LM_TIMETABLE || !LM_TIMETABLE.length) { console.warn('LM_TIMETABLE not loaded yet — open Edit Timetable or View Timetable first, then re-run.'); return []; }
+  const groups = {};
+  LM_TIMETABLE.forEach(t => {
+    const key = t.class + '||' + t.day + '||' + t.slot;
+    (groups[key] = groups[key] || []).push(t);
+  });
+  const rows = [];
+  Object.keys(groups).forEach(key => {
+    const entries = groups[key];
+    if (entries.length < 2) return; // single row at this slot — never at risk
+    const [cls, day, slot] = key.split('||');
+    // Which faculty is actually assigned to each row's code?
+    const perRow = entries.map(e => {
+      const allocs = (typeof lmAllocsForClass === 'function') ? lmAllocsForClass(e.class) : [];
+      const matched = allocs.filter(a => (typeof lmAllocMatchesCode === 'function') ? lmAllocMatchesCode(a, e.code) : false);
+      return { code: e.code, faculty: matched.map(a => a.faculty).join(', ') || '(no allocation match found)' };
+    });
+    rows.push({ class: cls, day, slot, rowCount: entries.length, rows: perRow });
+  });
+  if (!rows.length) {
+    console.log('%cNo parallel-batch slots found in the current timetable — the v1414 fix had nothing to affect here.', 'color:#4ade80;font-weight:bold;');
+    return rows;
+  }
+  console.log('%c' + rows.length + ' class+day+slot combination(s) with multiple parallel rows — these were the ONLY ones the old .find() bug could have affected. Check that each faculty listed below actually sees their own row on their timetable now (should already be correct after v1414):', 'color:#f59e0b;font-weight:bold;');
+  console.table(rows.flatMap(r => r.rows.map(row => ({ Class: r.class, Day: r.day, Slot: r.slot, Code: row.code, Faculty: row.faculty }))));
+  return rows;
+}
+
+function lcbGetSlots() {
+  // v1412-fix2: real bug found — LM_SLOTS_ORDER is only updated by
+  // tgApplyOnLoad() when TG_STATE.activatedAt is set (i.e. only after the
+  // Times/Draft timetable has gone through the formal Schedule/Activate
+  // flow). A Time Grid can be fully built and assigned to classes WITHOUT
+  // that separate activation step ever happening, so LM_SLOTS_ORDER can
+  // legitimately still be sitting at its hardcoded startup default even
+  // when TG_STATE.grids/assign genuinely already reflect the new times.
+  //
+  // v1413: FURTHER real bug found on top of that fix, confirmed by direct
+  // admin report with a screenshot — the fix above used tgBuildUnionSlots(),
+  // which unions EVERY grid that has ever existed in TG_STATE.grids, not
+  // only the ones actually assigned to a class. A retired old grid's stale
+  // times (e.g. 2:15-3:15) kept leaking in as a selectable chip and, worse,
+  // kept being chosen as the "current/next slot" header even when the real,
+  // currently-assigned time for that class was different (2:30-3:30) —
+  // admin confirmed directly: "Yes — the real class time should be
+  // 2:30–3:30, the old 2:15 slot shouldn't be selectable at all anymore."
+  // FIX: use tgBuildAssignedUnionSlots() instead — only grids with a real
+  // TG_STATE.assign entry contribute their times, so a stale/unused grid
+  // can never surface here again, no matter how long it stays in
+  // TG_STATE.grids.
+  let src = null;
+  try {
+    if (typeof tgBuildAssignedUnionSlots === 'function') {
+      const u = tgBuildAssignedUnionSlots();
+      if (u && u.length) src = u;
+    }
+  } catch (e) {}
+  if (!src) src = (typeof LM_SLOTS_ORDER !== 'undefined' && LM_SLOTS_ORDER && LM_SLOTS_ORDER.length) ? LM_SLOTS_ORDER : null;
+  if (!src) return LCB_SLOTS_FALLBACK;
+  return src.map(slotStr => {
+    const disp = lcbSlotDisplay(slotStr);
+    return { slot: slotStr, label: disp.label, short: disp.short };
+  });
+}
 
 let _lcbTimer    = null;
 let _lcbSelected = -1;  // -1 = LIVE mode
@@ -19636,7 +19894,7 @@ function lcbSlotEndMin(slot) {
 function lcbSlotState(idx) {
   const now = new Date();
   const cur = now.getHours() * 60 + now.getMinutes();
-  const s = LCB_SLOTS[idx];
+  const s = lcbGetSlots()[idx];
   const start = lcbSlotStartMin(s.slot);
   const end   = lcbSlotEndMin(s.slot);
   if (cur >= start && cur < end) return 'running';
@@ -19648,15 +19906,16 @@ function lcbSlotState(idx) {
 function lcbLiveIdx() {
   const now = new Date();
   const cur = now.getHours() * 60 + now.getMinutes();
-  for (let i = 0; i < LCB_SLOTS.length; i++) {
-    const start = lcbSlotStartMin(LCB_SLOTS[i].slot);
-    const end   = lcbSlotEndMin(LCB_SLOTS[i].slot);
+  const slots = lcbGetSlots();
+  for (let i = 0; i < slots.length; i++) {
+    const start = lcbSlotStartMin(slots[i].slot);
+    const end   = lcbSlotEndMin(slots[i].slot);
     if (cur >= start && cur < end) return i;
   }
-  for (let i = 0; i < LCB_SLOTS.length; i++) {
-    if (lcbSlotStartMin(LCB_SLOTS[i].slot) > cur) return i;
+  for (let i = 0; i < slots.length; i++) {
+    if (lcbSlotStartMin(slots[i].slot) > cur) return i;
   }
-  return LCB_SLOTS.length - 1;
+  return slots.length - 1;
 }
 
 function lcbRenderChips() {
@@ -19702,7 +19961,8 @@ function lcbRenderChips() {
     '">● LIVE</button>';
 
   // 8 slot chips
-  for (let i = 0; i < LCB_SLOTS.length; i++) {
+  const _lcbChipSlots = lcbGetSlots();
+  for (let i = 0; i < _lcbChipSlots.length; i++) {
     const state = lcbSlotState(i);
     const isSelected = _lcbSelected === i;
     let chipColor, chipBg, chipBorder, chipExtra;
@@ -19727,7 +19987,7 @@ function lcbRenderChips() {
       'padding:5px 11px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;' +
       'font-family:var(--mono);border:2px solid;transition:all 0.2s;' +
       'background:' + chipBg + ';color:' + chipColor + ';border-color:' + chipBorder + ';' + chipExtra +
-      '">' + LCB_SLOTS[i].short + '</button>';
+      '">' + _lcbChipSlots[i].short + '</button>';
   }
   html += '</div>';
 
@@ -19787,11 +20047,12 @@ function lcbBuildCtMaps() {
 
 // Build cards for one slot
 function lcbBuildPanel(slotIdx, dayName) {
-  if (slotIdx < 0 || slotIdx >= LCB_SLOTS.length) {
+  const _lcbPanelSlots = lcbGetSlots();
+  if (slotIdx < 0 || slotIdx >= _lcbPanelSlots.length) {
     return '<div style="color:var(--muted);font-size:11px;padding:16px;text-align:center;opacity:0.5;">End of Day</div>';
   }
   const tt = LM_TIMETABLE || [];
-  const slotInfo = LCB_SLOTS[slotIdx];
+  const slotInfo = _lcbPanelSlots[slotIdx];
   const state = lcbSlotState(slotIdx);
   const isMorning = lcbSlotStartMin(slotInfo.slot) < 13 * 60;
   const accentColor = isMorning ? '#60a5fa' : '#C4A02A';
@@ -19913,11 +20174,18 @@ function lcbBuildPanel(slotIdx, dayName) {
     }
     html += '</div>';
     // Faculty — photo avatar (click-to-zoom) beside the name. v970.
+    // v1412: horoscope badge (DOB + zodiac) removed from this card per
+    // direct admin request ("with dob and zodiac sign which is not
+    // needed") — was added here deliberately in v1340, now explicitly
+    // un-requested for this specific card. facHoroscopeBadgeHtml() itself
+    // is untouched and still used elsewhere (Faculty Report screen,
+    // topbar/sidebar badges, own-profile view) — this removes only the
+    // Live Class Board faculty row's own copy of it.
     const _facAv = (facStr && facStr !== '—' && typeof _facAvatar === 'function')
       ? _facAvatar(facStr, 22, true)
       : '';
     html += '<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#a78bfa;">'
-          + (_facAv || '👤') + '<span>' + facStr + '</span>' + ((typeof facHoroscopeBadgeHtml === 'function') ? facHoroscopeBadgeHtml(facStr) : '') + '</div>';
+          + (_facAv || '👤') + '<span>' + facStr + '</span></div>';
     html += '</div>';
   }
   return html || '<div style="color:var(--muted);font-size:11px;padding:12px;text-align:center;opacity:0.5;">' + (lcbResolveFaculty() ? 'No classes for ' + lcbResolveFaculty() + ' this slot' : _lcbLabOnly ? 'No lab classes this slot' : 'No entries') + '</div>';
@@ -20078,8 +20346,8 @@ function lcbRender() {
   const leftIdx  = _leftIdx0;
   const rightIdx = leftIdx + 1;
 
-  const leftSlot  = LCB_SLOTS[leftIdx];
-  const rightSlot = rightIdx < LCB_SLOTS.length ? LCB_SLOTS[rightIdx] : null;
+  const leftSlot  = lcbGetSlots()[leftIdx];
+  const rightSlot = rightIdx < lcbGetSlots().length ? lcbGetSlots()[rightIdx] : null;
 
   const leftState  = lcbSlotState(leftIdx);
   const stateLabel = leftState === 'running' ? ' ●' : leftState === 'upcoming' ? ' ◌' : ' ✓';
@@ -27867,6 +28135,20 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1425', date: '19-Sep-2026 IST', note: 'THREE ITEMS per direct admin request with reference screenshots. (1) Print Faculty Timetable / Faculty Excel buttons now ALWAYS visible on every Timetable Viewer tab, not only Faculty Schedule/Faculty Names Only -- admin: "i want it to been always". Fixed both the JS visibility toggle (ttSetViewMode) and the static HTML display:none that was baked into the button markup itself, which would have kept them hidden on first page load even after the JS fix. (2) BREAK STRIP DUPLICATE/INCONSISTENT LABELS, real bug found: the same real-world break (e.g. Leisure 15m 11.30-11.45) was printing multiple times with inconsistent labels ("Leisure" vs the bare "Break" fallback) on a faculty\'s combined break strip. Root cause: tgBreakStripHtmlForClass()/tgBreakStripTextForClass() iterate over every GRID a faculty\'s classes use, and v1424\'s live-reconstruction now frequently creates one grid PER CLASS (matching each class\'s own live timing) rather than one shared grid -- so a faculty teaching several classes saw the identical break gap reported once per grid instead of once overall, and inconsistently labeled since only some grids happened to carry a custom breakLabels entry for that exact gap. FIX: both functions now de-duplicate by the break\'s actual CONTENT (start/end time), not by which grid produced it -- a real label is preferred over the bare "Break" fallback when both exist for the same gap from different grids. Matches admin\'s explicit instruction: "its same for all i belive use one only for all faulty defulty". (3) CLICKABLE SUBJECT SUMMARY in Faculty Schedule, per two reference screenshots (pic 1: the Subject Code/Class/Hr-Week strip; pic 2: Anitha N\'s on-screen view showing it already works there for CLASS View) -- admin: "make this pic 1 clikable when clicked on BAMD I B.Com show 4 blockes as u show in veiw and edit". ttBuildFacultyGrid()\'s cells now carry class="ttv-cell" + data-ttv-base (same attribute the Edit Timetable and View Timetable Class View grids already use), and the workload-summary header cells (BAMD, BUCE, etc.) are now clickable, wired to a new faculty-scoped _ttvFacHighlightSubject(facId, base) -- same dim/outline isolate behavior as the existing _ttvHighlightSubject(), but scoped via a new id="ttv-fac-block-<facId>" wrapper around ttBuildFacultyGrid()\'s own output (rather than the existing [data-ttv-class-block] pattern, since one faculty grid spans several classes, not one class\'s own block) so isolating a subject for one faculty on an All-Faculty page never affects another faculty\'s block. MISTAKE MADE AND CAUGHT MID-EDIT, logged honestly: an early str_replace on _ttvHighlightSubject accidentally deleted the pre-existing _ttCellFacName() function\'s own declaration line (used elsewhere for the faculty-name-under-cell label feature) and, separately, left one stray extra closing DIV tag in ttBuildFacultyGrid\'s return template -- both caught by this session\'s own verification pass (node --check + div-balance check) BEFORE shipping, not shipped broken: reported the incomplete/unsafe state directly to the admin rather than delivering a file with the mismatch, then completed the fix in a follow-up turn. VERIFIED: 21 script blocks node --check clean; ttBuildFacultyGrid segment confirmed exactly balanced (4 opens/4 closes) AND correctly NESTED via a stack-based walk, not just numerically equal; whole-file div diff back to the established +2 baseline; all six touched functions/variables confirmed declared exactly once each. CODE_BUILD=1425.' },
+{ v: 'v1424', date: '19-Sep-2026 IST', note: 'REAL GAP FOUND per direct admin screenshot: after pressing "Copy from live timetable" (v1422), every class on the Times page still showed "No time grid assigned yet". Root cause: tgSeedDraftFromLiveNoConfirm() only ever copied TG_STATE.draftTT (the class placements/subjects) -- it never touched TG_STATE.assign (which Time Grid each class/day actually uses), a completely separate piece of state. A live timetable row carries its real slot STRING (e.g. "10.30 to 11.30") but nothing about which named grid produced it, so copying rows alone can never populate grid assignment. Admin confirmed the actual need directly: "all should come from live in draft i will not start from scratch". FIX: new tgReconstructAssignFromLive(), called automatically as part of the same Copy action -- for each class, collects every distinct slot string used ACROSS THE WHOLE WEEK (not per-day: admin confirmed a class can use both morning and afternoon periods while having specific days where the afternoon happens to be empty this week, and collecting per-day would have silently missed those periods on any empty day), builds a periods array from that full set, reuses an existing grid if one already has the exact same period set (avoiding redundant duplicate grids across classes sharing the same timing), otherwise creates a new one, and assigns it to EVERY day of the week for that class -- admin confirmed a day with zero periods placed can still be a real school day needing a grid, not necessarily a genuine day off. Toast after the copy now also reports how many grids were created vs reused and across how many classes. VERIFIED: 21 script blocks node --check clean; a standalone simulation reproducing the admin\'s exact scenario (a class with morning classes every day, afternoon classes only Monday/Wednesday, and a fully empty Saturday) confirms Saturday still receives the correct grid including the afternoon periods collected from the other days. CODE_BUILD=1424.' },
+{ v: 'v1423', date: '19-Sep-2026 IST', note: 'FEATURE per direct admin request with two reference screenshots: Print Faculty Timetable should show the same "Subject Code / Class / Hr Week" summary strip under EVERY faculty\'s printed grid that already appears under their on-screen timetable (pic 1: the strip itself with lab batches like ADAP-LAB A1\u00b7Lab1/A1\u00b7Lab2 as separate columns; pic 2: Anitha N\'s full on-screen view showing exactly where it sits). Pulled the existing workload-summary computation out of ttBuildFacultyGrid() (the on-screen renderer) into a new shared ttFacultyWorkloadSummary(faculty, facultyClasses) -- byte-identical logic, confirmed by direct comparison before extracting, so the printed strip can never disagree with what the admin already sees on screen for the same faculty. ttBuildFacultyGrid() now calls this shared function instead of duplicating the computation inline. ttPrintFacultyMaster()\'s facultyBlock() now builds the same three-row table (Subject Code header / Class / Hr Week, with a Total column) using the print page\'s own existing plain-color CSS classes (.ptab/.pday/.pslot/.pdn/.pc, already defined in that function\'s stylesheet for the main grid table) rather than var(--...) references, which do not resolve in the separate print window. Verified the lab-batch column-splitting behavior (each parallel batch like A1\u00b7Lab1 vs A1\u00b7Lab2 getting its own column) was ALREADY correct in the original code before touching anything -- confirmed lmBaseCode() does not strip the "\u00b7Lab N" batch suffix for this friendly-lab-format string, so it was already preserved intact as part of the base code, making each batch naturally distinct; caught and reverted one unnecessary change of my own during this edit where I had added a batch key to the dedup logic based on a wrong assumption before verifying, then corrected it back to the original, already-correct logic once checked. VERIFIED: 21 script blocks node --check clean; confirmed ttFacultyWorkloadSummary/ttPrintFacultyMaster/ttBuildFacultyGrid all in the same script block (no cross-block risk); div-balance unchanged. CODE_BUILD=1423.' },
+{ v: 'v1422', date: '19-Sep-2026 IST', note: 'FIX per direct admin report: "Copy from live timetable" button appeared to do nothing when pressed. Root cause: tgManualSeedFromLive() (v1417) deliberately shows TWO sequential confirm() dialogs when the draft already has entries (which it did -- 241 rows) -- one warning the draft will be replaced, one confirming the copy count. On mobile Firefox (admin\'s confirmed browser), native confirm() dialogs are easy to mis-tap or dismiss, and a dismissed/cancelled confirm() returns false, which the function correctly treats as "do nothing" -- silent by design, but indistinguishable from a broken button on the receiving end. Admin explicitly confirmed the actual intent: replace the draft with the current live timetable to start fresh editing from it, no ambiguity. FIX: new tgSeedDraftFromLiveNoConfirm() -- same copy logic as tgManualSeedFromLive(), skips both confirm() dialogs entirely per this explicit, already-given instruction, executes immediately on tap, and shows a toast afterward naming exactly what happened (new count, and the previous count it replaced) so the admin has confirmation without having to approve anything first. The button was repointed to call this instead. tgManualSeedFromLive() (the confirm-dialog version) was left in the file, unused, in case a more cautious confirm-first workflow is wanted again later -- not deleted, since removing it added no safety benefit here. VERIFIED: 21 script blocks node --check clean; confirmed both functions and the button wiring are unique with no leftover duplicate onclick handlers. CODE_BUILD=1422.' },
+{ v: 'v1421', date: '19-Sep-2026 IST', note: 'ROOT CAUSE FOUND, real data NEVER corrupted -- confirmed by direct Firebase reads run by the admin against both Firestore AND RTDB directly (bypassing all app code): app_data/timetable and davan_pub/timetable BOTH returned 241 rows with the CORRECT new slotsOrder (08.30, 09.30, 10.30, 11.45, 01.30, 02.30, 03.40, 04.40 -- the admin\'s real new grid), matching exactly what TG_STATE.draftTT/LM_TIMETABLE already held in the browser. The live data was correct the entire time. What was actually broken: View Timetable (ttRenderViewer(), the Class View page) was showing the OLD 08.30/09.30/10.45/11.45 + 01.15/02.15/03.30/04.30 grid despite this -- a pure DISPLAY bug, not data loss. FOUND BY READING THE FETCH CODE DIRECTLY: all three of ttRenderViewer()\'s Firestore-read branches (staging sem, archived sem, live sem) fetch a doc that has ALWAYS stored slotsOrder alongside data in the SAME object (confirmed directly: the admin\'s own console output showed Firestore returning { data: (241), slotsOrder: (8), activatedAt, ttSemKey } as one single object) -- but every one of the three branches only ever assigned LM_TIMETABLE from the fetch, never LM_SLOTS_ORDER, even though the correct slot axis was sitting right there in the same response the whole time. So View Timetable rendered the fully-correct timetable ROWS against whatever STALE LM_SLOTS_ORDER happened to already be in memory from earlier in the page\'s life (its hardcoded startup default) -- producing exactly the old-grid-with-empty-afternoons appearance the admin saw and (reasonably, given what was on screen) reported as data loss. This explains every observation across the whole investigation without contradiction: the draft was always fine (Times page reads TG_STATE.draftTT directly, never touched by this bug), the live Firebase data was always fine (confirmed by two independent direct reads), and only the ONE specific read path (View Timetable\'s Firestore fetch) forgot to also apply the slotsOrder that came back with the data it was already using. FIX: all three ttRenderViewer() fetch branches now also assign LM_SLOTS_ORDER from the fetched doc\'s own slotsOrder field when present, alongside the existing LM_TIMETABLE assignment -- three isolated one-line additions, no restructuring, matching the existing code style around each. CONTEXT ON THE INVESTIGATION ITSELF, logged honestly: this session took several wrong turns before reaching this -- v1417/v1418 wrongly assumed a corrupted DRAFT had been committed (admin corrected: draft was always fine); a subsequent theory wrongly assumed the LIVE data itself had reverted to July 3rd (admin\'s own direct Firebase console checks disproved this conclusively). The admin\'s insistence on checking the actual data directly via F12/console rather than accepting an unverified theory is what found the real, narrow, one-file bug. VERIFIED: 21 script blocks node --check clean; div-balance unchanged (no markup touched, pure JS logic). NOT YET LIVE-VERIFIED: admin has not yet reopened View Timetable to confirm it now shows the correct new times -- recommended next step. CODE_BUILD=1421.' },
+{ v: 'v1420', date: '19-Sep-2026 IST', note: 'CORRECTED DIAGNOSIS per direct admin clarification, after an earlier wrong turn this session (v1417/v1418 wrongly assumed a corrupted DRAFT got committed via Activate/Schedule -- admin corrected: the FULL timetable, mornings AND afternoons, was finished BEFORE scheduling, and it worked correctly once live -- "all were enjoying timetable"). Admin then clarified the real sequence: AFTER going live, they edited through the NORMAL Edit Timetable -> Grid page (NOT the Times/Draft page) to make changes -- "once I went live I started editing in editing option no times draft". This points at a DIFFERENT mechanism entirely: ttSave() (the plain Grid editor\'s save, index.html ~37801) rebuilds a class\'s timetable ENTIRELY from whatever <input> elements are currently rendered in the DOM for that class -- it does not merge with existing data, it REPLACES. If LM_SLOTS_ORDER (which governs which slot ROWS ttBuildGrid() renders as editable inputs) did not include the new afternoon slot times at the moment that Grid page was opened, there would have been NO input boxes for those periods at all -- meaning any save from that page would silently have dropped every afternoon period, class-by-class, exactly matching what the admin\'s posted document showed (old 08.30/09.30/10.45/11.45 + 01.15/02.15/03.30/04.30 axis, every afternoon cell blank). This has NOT yet been confirmed against the real data -- rather than ship a third guessed fix in one session (having already had to ask the admin to correct two prior wrong turns), ttDiagnoseTimetableState() was extended with two more direct checks: (1) TG_STATE.scheduled\'s actual frozen draftTT -- lists its real row count, classes, and distinct slot times, so it can be checked directly whether the snapshot itself ever had afternoon periods at the moment Schedule was pressed; (2) LM_SLOTS_ORDER\'s current live content, with an explicit note that if it is missing the new afternoon times, that is the direct, checkable explanation for why the plain Grid editor page would have silently dropped them on save. Run from the browser console: ttDiagnoseTimetableState() (same command as v1419, now with these two additional sections). Also explicitly did NOT revert the v1417 tgSave() scheduled-snapshot re-sync change without checking with the admin first, since blindly reverting a decision without confirming it was even relevant would have been the same kind of premature-guess mistake being corrected here -- admin confirmed the re-sync change does not conflict with what actually happened to them (they scheduled only after finishing, and edited via the live Grid page afterward, not the draft), so it was left in place as a reasonable safety net for the separate after-scheduling-edit scenario it targets. VERIFIED: 21 script blocks node --check clean. CODE_BUILD=1420.' },
+{ v: 'v1419', date: '18-Sep-2026 IST', note: 'DIAGNOSTIC per direct admin correction: the live timetable broke WITHOUT any admin action in between working and broken -- admin explicitly stated they just went to look at it, no Activate/commit was pressed in that window. This directly contradicts the v1418 theory that a corrupted draft got committed via tgCommit() (nothing was committed), so rather than continue guessing at a mechanism, a new read-only ttDiagnoseTimetableState() reports the actual current facts side by side: LM_TIMETABLE\'s real row count and class list right now, TG_STATE.draftTT\'s real row count and class list right now, and -- critically -- what is ACTUALLY stored in the archive (local/RTDB/Firestore) AND in the live Firebase paths themselves (app_data/timetable, davan_pub/timetable), fetched fresh over the network rather than read from whatever happens to be loaded in memory. Run from the browser console: ttDiagnoseTimetableState(). This exists to establish ground truth before attempting any further fix -- the exact failure mode is still unconfirmed, and guessing at another theory without this data risks another wrong fix. Changes no data -- read-only. CODE_BUILD=1419.' },
+{ v: 'v1418', date: '18-Sep-2026 IST', note: 'CRITICAL FOLLOW-UP to v1417: admin reported the LIVE timetable itself (not only the draft) has the same "few subjects, empty cells" damage. Traced the real mechanism: tgCommit() (fires on Activate now / scheduled promotion) does LM_TIMETABLE = TG_STATE.draftTT.slice() -- copying the draft directly into the live timetable, permanently, archiving the old live data first via tgArchiveCurrent(). If the v1417-fixed partial-seed bug had already corrupted the draft BEFORE this fix shipped, and Activate was pressed (or a scheduled activation fired) before the admin noticed, tgCommit() would have faithfully copied that corruption into the live timetable too -- explaining why both are now broken. THREE fixes: (1) tgRestoreArchive() was ASYNC-CONVERTED and now falls back to RTDB then Firestore when no archive is found in the CURRENT browser\'s localStorage -- it previously only ever checked localStorage, even though tgArchiveCurrent() has always written the same snapshot to all three; restoring from a different device/browser (or after a cleared localStorage) incorrectly reported "No archive found" even when a good remote copy existed -- confirmed as a real, currently-relevant gap since the admin is checking from a separate localhost instance. The confirm dialog now also names which source the archive was found in and when it was taken. (2) tgCommit() gained a SANITY CHECK: if the draft being committed is under half the size of the live timetable it is about to replace, the admin now gets an explicit warning naming both counts and must confirm before proceeding (a silent/scheduled commit logs a console warning instead of blocking, since no one is present to click a dialog) -- this is the second line of defense that would have caught the original incident BEFORE it reached the live timetable, not just after. (3) Confirmed tgArchiveCurrent() itself was always correct and unchanged -- it snapshots the FULL live timetable to localStorage+RTDB+Firestore before every commit, so the admin\'s pre-corruption live timetable should still be recoverable via Restore archive now that it can actually find it across devices. VERIFIED: 21 script blocks node --check clean; caught and fixed one apostrophe-escaping mistake of my own in the new confirm() message before shipping (same class of mistake as v1413/v1414, caught by the same verification pass both times). RECOMMENDED NEXT STEP for the admin: open Restore archive now (updated version) and check whether a pre-corruption snapshot is found via RTDB/Firestore even if none was in this browser\'s localStorage. CODE_BUILD=1418.' },
+{ v: 'v1417', date: '18-Sep-2026 IST', note: 'CRITICAL BUG FIX, real DATA DAMAGE confirmed by direct admin report: "These fixes have broken my timetable which was made using draft" -- "only few subjects allocation and empty cell". ROOT CAUSE, found by re-reading the exact function involved: tgSeedDraftFromLive() (added in an earlier turn this session to auto-copy the live timetable into an empty draft) was called from INSIDE tgLoad(), in its SYNCHRONOUS localStorage-only path -- running BEFORE any Firestore data has arrived. This file has its OWN already-documented race condition covering exactly this (a comment on lmLoadData()/renderAll(), unchanged, already on file: "lmLoadData() runs first from localStorage, renderAll() shows stale data"). If LM_TIMETABLE was only partially populated at that exact instant, tgSeedDraftFromLive() silently copied that INCOMPLETE snapshot into TG_STATE.draftTT and immediately tgSave()\'d it -- permanently overwriting/creating a broken partial draft, with NO automatic recovery possible afterward (the seed guard checks draftTT.length, which was now truthy, so it could never re-fire correctly even on a later, fully-loaded visit). This is real, admin-confirmed data damage caused by an earlier fix in this session, not a report of an old pre-existing bug. FIX: automatic seeding removed entirely from both call sites (tgLoad()\'s early synchronous path, and tgRenderPanel()\'s render-time path) -- neither can be trusted to run at a moment when LM_TIMETABLE is guaranteed complete. Replaced with an explicit, admin-triggered "Copy from live timetable" button on the Times/Draft toolbar (next to Preview & check), wired to a new tgManualSeedFromLive() -- it only ever runs when the admin deliberately presses it (by which point they can see the live timetable rendered correctly on screen first), asks for confirmation before overwriting an existing draft naming exactly how many entries would be lost, and asks for confirmation again naming exactly how many entries are about to be copied in, so a seed can never happen silently or by surprise again. The old tgSeedDraftFromLive() function itself was left in place, unused, rather than deleted -- removing it added no safety benefit and the smaller diff is easier to verify against this exact incident. VERIFIED: 21 script blocks node --check clean; confirmed grep-wide that tgSeedDraftFromLive() has zero remaining automatic call sites anywhere in the file. NOT YET VERIFIED: whether the admin\'s ALREADY-DAMAGED draft (the partial copy already saved before this fix) can be recovered -- that depends on whether their real live timetable is still fully intact (this bug only ever touched TG_STATE.draftTT, never LM_TIMETABLE/the live timetable itself) and whether Archive/backup snapshots exist from before the damage occurred; recommend checking Restore archive on the Times page, and using the new Copy from live timetable button to re-seed cleanly now that the live timetable itself was never touched by this bug. CODE_BUILD=1417.' },
+{ v: 'v1416', date: '18-Sep-2026 IST', note: 'FURTHER real bug reported on top of v1414: admin\'s follow-up screenshot showed Priyanka V\'s grid/summary STILL missing subjects after that fix -- and admin explicitly clarified this is NOT only the lab-batch case: "not just A2 lab... what about subject 4 subject 3 different subject", meaning ORDINARY non-lab subjects are also missing. Investigated ttBuildFacultyGrid()\'s facultyClasses computation (LM_ALLOCATIONS.filter(faculty).map(a => ttGetClasses().find(c => lmClassMatch(a,c)))) -- confirmed by direct code reading that if even ONE of a faculty\'s allocation rows fails lmClassMatch() against every real timetable class, that ENTIRE CLASS (every subject in it, lab or not) is silently dropped from BOTH the grid and the summary strip -- this would exactly explain "subject 3, subject 4, different subject" all going missing together, since they would all belong to the one class whose match is failing. Attempted to reproduce the specific lmClassMatch() failure with synthetic test data but could not find a genuine code-level bug through review and simulation alone -- the function\'s live-format matching (course/year/section) held up correctly against several deliberately malformed test cases. Being honest about this limit rather than guessing further or claiming a fix that hasn\'t been verified: WITHOUT access to Priyanka\'s real LM_ALLOCATIONS rows and the real ttGetClasses() list, the exact failing row and reason cannot be determined from code alone. FIX (diagnostic, not a guessed code change): new ttDiagnoseFacultyAllocations(facultyName) -- read-only, run from the browser console as ttDiagnoseFacultyAllocations(\'Priyanka V\') -- runs the EXACT SAME class-match computation ttBuildFacultyGrid() does, but reports EVERY allocation row individually: which timetable class it resolved to (or NO MATCH), and when it fails, WHY (course not found at all / year prefix mismatch / section letter mismatch) by walking the same lmCourseInClass()/LM_SEM_TO_YEAR()/section-letter logic lmClassMatch() itself uses, exposing each stage rather than only the final yes/no. This will show directly, against the real data, which specific allocation row (subject/class) is failing and the precise reason, so the actual fix can be targeted instead of guessed. Companion to v1415\'s ttDiagnoseParallelSlots() (still valid for the lab-batch case) -- together they cover both possible causes reported so far. Changes no data -- read-only. CODE_BUILD=1416.' },
+{ v: 'v1415', date: '18-Sep-2026 IST', note: 'DIAGNOSTIC TOOL added per direct admin request: "check every faculty\'s timetable grid for this same missing-period bug" (the v1414 parallel-lab-batch .find() fix). Whether any OTHER faculty besides Priyanka V were actually affected depends entirely on the real timetable data, which is not available for inspection outside the live app -- so rather than guess, a new read-only ttDiagnoseParallelSlots() was added. Run from the browser console (F12): ttDiagnoseParallelSlots() -- scans the real LM_TIMETABLE for every class+day+slot where MORE THAN ONE row exists (the only situation the v1414 fix could ever have applied to, since a single-row slot was never at risk of the old .find()-picks-the-wrong-row bug), and prints a table of exactly which classes/days/slots/codes/faculty are involved, so the admin can directly check each listed faculty\'s own timetable against it. Changes no data -- read-only. CODE_BUILD=1415.' },
+{ v: 'v1414', date: '18-Sep-2026 IST', note: 'REAL BUG, confirmed by direct admin report + two screenshots: Priyanka V\'s own faculty login timetable was missing periods she genuinely teaches. Admin\'s allocation screenshot showed 7 real weekly periods (ADEE 4, CNDC 4, COAR 4, and THREE parallel lab batches: OA-Lab A1\u00b7Lab1, A1\u00b7Lab2, A2\u00b7Lab1), but the on-screen grid only rendered 4-5 of them -- while the Subject Code/Class/Hr-Week summary strip directly below the SAME grid correctly showed all 7. That split was the key clue: the summary walks LM_TIMETABLE with .forEach() (checks every row independently), but the grid cells used LM_TIMETABLE.find() per class+day+slot -- which returns only the FIRST matching row. A lab slot can have multiple PARALLEL batch rows sharing the exact same class+day+slot (different batches, different faculty, different code strings -- confirmed via lmParseCode: each batch is its own distinct code like "OA - Lab A1\u00b7Lab 1" vs "OA - Lab A2\u00b7Lab 1", necessarily separate LM_TIMETABLE rows). If a faculty\'s own batch wasn\'t the first row Firebase happened to return for that slot, .find() silently returned a DIFFERENT batch\'s row (or that row\'s owner), the faculty-match check then failed, and the cell rendered as empty -- even though the faculty genuinely teaches there. FIX, both real call sites building a per-faculty weekly grid: ttBuildFacultyGrid() (the on-screen faculty-login/admin-viewer grid) and ttPrintFacultyMaster()\'s facultyBlock() (the PDF export) now do LM_TIMETABLE.filter(...) to get every row at that class+day+slot, THEN .find() the one matching THIS faculty via the existing lmIsFacultyPeriod() -- checking every parallel batch instead of only whichever came first. A third, unrelated .find() at ttGetFacultyForSlotAll() (line ~34451) was reviewed and deliberately left unchanged -- it serves a different purpose (listing all faculty teaching the SAME single code/subject jointly, e.g. split K/H), not the multiple-different-codes-at-one-slot case that was actually broken, and changing its contract risked affecting its other unrelated call sites for no benefit to this bug. VERIFIED: 21 script blocks node --check clean; a standalone simulation reproducing the exact reported scenario (3 parallel lab batch rows at one class+day+slot, target faculty\'s row deliberately placed LAST in the array) confirms the old .find() missed her period entirely while the new filter+find correctly locates her specific batch\'s row. The workload summary strip (already correct, per-row .forEach()) was left untouched as the reference/proof that the underlying data was always fine -- only the grid\'s cell-matching was ever wrong. CODE_BUILD=1414.' },
+{ v: 'v1413', date: '18-Sep-2026 IST', note: 'FURTHER real bug on top of v1412, confirmed by direct admin report with a screenshot showing the mismatch live: the LEFT/current-slot header showed 2:15-3:15 while the actual class card (Principles of Marketing, I YEAR B.Com, Friday) rendered under the RIGHT/next-slot header at 2:30-3:30 -- admin confirmed directly the real scheduled time is 2:30-3:30 and "the old 2:15 slot shouldn\'t be selectable at all anymore." ROOT CAUSE: v1412\'s fix correctly moved off the activation-gated LM_SLOTS_ORDER, but used tgBuildUnionSlots() -- which unions EVERY grid that has ever existed in TG_STATE.grids, not only the ones actually assigned to a class (TG_STATE.assign). A retired/old grid that nothing is assigned to anymore was still contributing its stale 2:15 time into the merged slot list, so it kept appearing as a selectable chip and, because the union sorts by real start-minute, kept sitting adjacent to and sometimes ahead of the real, currently-assigned 2:30 slot. FIX: new tgBuildAssignedUnionSlots() -- walks every real class (ttGetClasses()) x every day (LM_DAYS_ORDER), calling the EXISTING tgGridFor(cls, day) for each (the same function v1391 already fixed to honestly return null instead of a silent Standard-grid fallback) and only pulling a grid\'s periods in if it is the grid actually assigned there. lcbGetSlots() now calls this instead of tgBuildUnionSlots(), so a grid with zero assignments anywhere can never surface a stale slot again, no matter how long it lingers in TG_STATE.grids. tgBuildUnionSlots() itself is UNCHANGED and still used correctly elsewhere (Times/Draft page axis-building, where the broader "every grid that exists" definition is what that UI actually needs) -- this was a wrong-function-for-the-job bug in lcbGetSlots specifically, not a bug in tgBuildUnionSlots itself. VERIFIED: 21 script blocks node --check clean; a standalone simulation reproducing the exact reported scenario (an assigned 2:30 grid + an unassigned old 2:15 grid, both present in TG_STATE.grids) confirms the new function returns ONLY the assigned 2:30 slot, the stale 2:15 slot fully absent. Same documented cross-block-safety reasoning as v1412 applies (tgGridFor/ttGetClasses/tgGridSlots/tgSlotStartMin all live in block 42, tgBuildAssignedUnionSlots/lcbGetSlots in block 17 which loads first but is only CALLED later at render time, after every block has executed; wrapped in try/catch so even a hypothetical early call degrades safely to the LM_SLOTS_ORDER fallback instead of throwing). CODE_BUILD=1413.' },
+{ v: 'v1412', date: '18-Sep-2026 IST', note: 'REAL BUG FOUND AND FIXED, confirmed against a live Firebase-connected instance (admin explicitly confirmed: "this is my real live site/data, just opened via localhost for testing"), not a stale-cache or wrong-file issue. Follow-up to the SAME turn\'s earlier lcbGetSlots() fix (also CODE_BUILD=1411 in this same session -- that build number was reused by mistake for two separate edits; this is the first real bump since). That fix correctly stopped reading the hardcoded LCB_SLOTS constant, but read LM_SLOTS_ORDER instead -- and LM_SLOTS_ORDER turned out to have its own gate: tgApplyOnLoad() [index.html ~30806] only reassigns it from tgBuildUnionSlots() when TG_STATE.activatedAt is set, i.e. only after the Times/Draft timetable has gone through the FORMAL Schedule/Activate flow. A Time Grid can be fully built and assigned to real classes (TG_STATE.grids/assign) without ever going through that separate activation step, so LM_SLOTS_ORDER can legitimately still sit at its hardcoded startup default (08.30, 10.45, 01.15, 03.30, 04.30 -- the exact stale times the admin\'s screenshot showed) even while the real new grid already exists and is assigned. FIX: lcbGetSlots() now calls tgBuildUnionSlots() directly (reading TG_STATE.grids/assign straight from tgLoad(), which itself runs UNCONDITIONALLY at the top of tgApplyOnLoad() before the activatedAt gate -- confirmed by reading that function, not assumed) as its FIRST source, only falling back to LM_SLOTS_ORDER and then the hardcoded default if no grid is assigned to anything at all. This makes the Live Class Board correctly independent of whether the admin has separately pressed Activate -- it now reflects whatever Time Grid is actually assigned to classes right now, matching what the Times/Draft page\'s own period-times and break strip already show. VERIFIED: 21 script blocks node --check clean; tgBuildUnionSlots (block 42) and lcbGetSlots (block 17) are in DIFFERENT script blocks, block 17 loading/executing first -- checked this directly rather than assuming same-block safety. Confirmed safe by the same reasoning already used elsewhere in this file for cross-block references (facSignFromDob, lpDb2Get): lcbGetSlots() is only ever CALLED later, at Live Class Board render time, well after every script block on the page has finished executing and tgBuildUnionSlots exists as a real global -- and the call site already guards with typeof tgBuildUnionSlots === \'function\' regardless, so even a hypothetical early call would safely fall through to the LM_SLOTS_ORDER fallback instead of throwing. CODE_BUILD=1412.' },
 { v: 'v1411', date: '18-Sep-2026 IST', note: 'BUILD STAMP BUMP per direct admin report: topbar showed \"HTML: v1410 - Last Updated: 16-Sep-2026 15:45 IST\" while the real date was 18-Sep-2026 12:58pm. Confirmed this is working exactly as designed, not a bug -- BUILD_TIMESTAMP [index.html ~17477] is a deliberately HARDCODED \"when this code was last shipped\" stamp, not a live clock, per its own inline comment (\"do NOT use runtime time\") and HARD RULE 13 -- it only moves when a new version is actually bumped, confirmed directly with the admin before changing anything (admin confirmed: \"yes last build date and time only\"). CODE_BUILD 1410 -> 1411, BUILD_TIMESTAMP 16-Sep-2026 15:45 IST -> 18-Sep-2026 12:58 IST, both bumped together per this file\'s own stated rule (v902/v1010/v1200/v1329 all previously fixed the exact bug class of bumping only one of the two). No footer/topbar static fallback string existed to update in step -- confirmed via the v1200 fix already on file that both spans ship empty and are filled only from these two constants at runtime. CODE_BUILD=1411.' },
 { v: 'v1410', date: '16-Sep-2026 IST', note: 'FIX per direct admin report (screenshot: sidebar badge showing 27 only INSIDE the Follow-up Log panel, not in the sidebar itself until clicked in): confirmed via grep, #fl-sidebar-badge is a real element (index.html ~2106) and ciUpdateSummary() [index.html ~26331] already computes and paints it correctly from _flAllRecords + _ciAllIssues -- but that function was ONLY ever called from inside the Follow-up Log / Class Issues panels\' own render paths (flInit()/ciInit()/ciApplyFilters()), never from login. Confirmed separately that flPreload() (index.html ~25513, already called unconditionally at login, ~12732 -- \'pre-load follow-up records for Follow-ups widget\', per its own v647 changelog entry) already loads _flAllRecords in the background for the Follow-ups WIDGET, but never triggered the SIDEBAR badge paint from that same load. FIX: new flRefreshSidebarBadge() loads both _flAllRecords (flLoadAll) and _ciAllIssues (ciLoadAll) -- both already safe no-ops if already loaded via their own _flLoaded/_ciLoaded flags, confirmed by reading both loaders first -- then calls the REAL, existing ciUpdateSummary() to paint the badge, so there is still only one badge-counting formula in the whole file, never a second one that could drift out of sync with what the panel itself shows when opened. Wired into flPreload(), called BEFORE its existing _flLoaded early-return guard (a real ordering bug caught and fixed during this same edit -- my first draft called it AFTER the early return, which would have skipped the badge refresh on every login after the very first one, since _flAllRecords stays loaded across a session). VERIFIED: 21 script blocks node --check clean; confirmed ciLoadAll/ciUpdateSummary (block 14) are referenced from flRefreshSidebarBadge (block 13) safely -- block 13 executes its top-level code before block 14 defines those functions, but flRefreshSidebarBadge() is only ever CALLED later at login, well after every script block has already run, same safe cross-block pattern already relied on twice earlier in this file (facSignFromDob, lpDb2Get); confirmed panel-followup-log and its ci-count-* elements are static base-page markup (hidden via CSS, not lazily injected), so writing into them while the panel is closed is safe and harmless -- they are simply already correct the moment the panel is opened. NOT YET LIVE-TESTED: please confirm the sidebar badge now shows the correct open+overdue count immediately after login, without having clicked into Follow-up Log first, and that it still updates correctly after closing/creating a token from inside the panel. CODE_BUILD=1410.' },
 { v: 'v1409', date: '16-Sep-2026 IST', note: 'FIX per direct admin report (real example pasted: Sagittarius, 20:46, Davanagere -- confirmed a real live student record, DOB feature from v1407/1408 now genuinely loading): birth time showed as raw 24-hour 20:46 instead of 12-hour with AM/PM. dobTime is stored exactly as an <input type="time"> gives it (student_portal.html\'s own field, confirmed earlier this session), which is always 24-hour HH:MM -- this file\'s stuDobPlaceTimeLine() [index.html ~46708] was displaying that raw string unconverted. New stuFormatTime12(t) [index.html ~46703], a small manual HH:MM -> 12-hour converter -- not toLocaleTimeString, matching this file\'s own existing stated reason (facFormatDob\'s comment) for avoiding locale-dependent date/time formatting -- wired into stuDobPlaceTimeLine() so both the student card and Report Card header pick it up automatically, no separate edit needed on either surface. VERIFIED against the admin\'s own real value and edge cases with a standalone harness: 20:46 -> 8:46 PM (the exact reported case), 00:05 -> 12:05 AM, 12:00 -> 12:00 PM, a 1-digit-hour input (9:15) -> 9:15 AM, empty/undefined input returns empty string rather than throwing. 21 script blocks node --check clean. NOT YET LIVE-TESTED: please confirm the birth-time line now reads e.g. 8:46 PM instead of 20:46 on a real student card. CODE_BUILD=1409.' },
@@ -29276,7 +29558,23 @@ function tgLoad() {
     }
   } catch (e) { console.warn('[TG] load failed', e && e.message); }
   if (!Object.keys(TG_STATE.grids).length) tgSeedFromLive();
-  tgSeedDraftFromLive();
+  // v1417 REMOVED: tgSeedDraftFromLive() used to be called here — inside
+  // tgLoad()'s SYNCHRONOUS localStorage-only path, running BEFORE any
+  // Firestore data has arrived. If LM_TIMETABLE was only partially loaded
+  // at that exact instant (a real, already-documented race in this file —
+  // see the v1393-era comment on lmLoadData()/renderAll() below: "lmLoadData()
+  // runs first from localStorage, renderAll() shows stale data"), this
+  // silently copied that INCOMPLETE snapshot into TG_STATE.draftTT and
+  // immediately tgSave()'d it — permanently locking in a broken partial
+  // draft with no way to auto-recover, since draftTT.length was now
+  // truthy and the seed guard never re-fires. Confirmed as the real cause
+  // of a direct admin report: "only few subjects allocation and empty
+  // cell" on a real timetable that had been built via the draft page.
+  // Auto-seeding anywhere near login/page-load timing is fundamentally
+  // unsafe here — replaced with an explicit, one-click "Copy from live
+  // timetable" button on the Times page instead (tgManualSeedFromLive()),
+  // so it only ever runs when the admin deliberately presses it, after
+  // they can see the live timetable is actually fully loaded on screen.
   // v1393 BUG FIX: tgSave() has always written to localStorage AND Firebase
   // (rtdb + Firestore), but tgLoad() only ever read localStorage back — a
   // one-way street. On a different device, a different browser, or after
@@ -29331,6 +29629,31 @@ function tgLoad() {
 // show a real status via tgSaveIndicatorHtml()/tgFlashSaved(elId).
 let TG_SAVE_STATUS = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
 async function tgSave() {
+  // v1420 FIX: real bug found and confirmed with the admin, causing a
+  // genuine live-timetable data loss incident. tgSchedule() freezes a deep
+  // copy of TG_STATE.draftTT/grids/assign into TG_STATE.scheduled at the
+  // moment "Schedule for [date]" is pressed. Nothing anywhere kept that
+  // frozen copy in sync with further draft edits — the admin scheduled a
+  // date, then kept working on the draft (adding the afternoon periods),
+  // and when the scheduled date arrived, tgPromoteIfDue() silently
+  // promoted the OLD frozen snapshot (mornings only) instead of the
+  // finished draft — overwriting the real, completed timetable with no
+  // warning, on a plain login, with no admin action in between. Confirmed
+  // directly: admin used Schedule (not Activate now), finished the draft
+  // afterward, then found the live timetable reverted to an earlier,
+  // incomplete state on its own. FIX: every tgSave() now re-freezes
+  // TG_STATE.scheduled from the CURRENT grids/assign/draftTT whenever a
+  // schedule is active — so a schedule always promotes whatever the draft
+  // actually looks like at the moment its date arrives, not a stale
+  // moment-in-time copy from whenever Schedule was first pressed.
+  if (TG_STATE.scheduledFor && TG_STATE.scheduled) {
+    TG_STATE.scheduled = {
+      grids: JSON.parse(JSON.stringify(TG_STATE.grids)),
+      assign: JSON.parse(JSON.stringify(TG_STATE.assign)),
+      draftTT: JSON.parse(JSON.stringify(TG_STATE.draftTT || [])),
+      at: TG_STATE.scheduled.at // preserve the ORIGINAL schedule time, not when this re-sync happened
+    };
+  }
   try { localStorage.setItem(TG_LS_KEY, JSON.stringify(TG_STATE)); } catch (e) {}
   TG_SAVE_STATUS = 'saving';
   tgBroadcastSaveStatus();
@@ -29394,6 +29717,132 @@ function tgSeedFromLive() {
 // fresh; after clearing, this does NOT re-seed automatically on the same
 // visit — draftTT stays empty until a full reload, so Clear actually
 // clears, matching what that button has always promised.
+// v1417: converted from an automatic, silent seed into an explicit,
+// admin-triggered action — see the removal notes above tgLoad()'s old call
+// site for why automatic seeding near login/page-load was unsafe (a real
+// partial-copy bug it caused). Called ONLY from the "Copy from live
+// timetable" button below, never automatically. Still refuses to
+// overwrite an existing draft — that safety was always correct and stays.
+// v1422: skips both confirm() dialogs per explicit admin instruction —
+// native confirm() popups can be unreliable/easy to mis-tap on some mobile
+// browsers, and the admin has explicitly confirmed this exact action is
+// what they want ("Yes, that's what I want — make my Times draft show the
+// current live timetable to start editing from"), so asking again here
+// adds friction without adding safety. Still shows a toast afterward
+// confirming exactly what happened, and tgSave() persists it immediately.
+// v1424 FIX: real gap found in tgSeedDraftFromLiveNoConfirm() — it only ever
+// copied TG_STATE.draftTT (the class placements), never TG_STATE.assign (which
+// Time Grid each class/day actually uses). These are two separate pieces of
+// state; a live timetable's rows carry their real slot STRINGS (e.g. "10.30
+// to 11.30"), but nothing about which named grid produced them. So after
+// copying, every class still showed "No time grid assigned yet" even though
+// its periods were correctly copied in — confirmed directly by admin
+// screenshot. Per explicit admin instruction ("all should come from live in
+// draft i will not start from scratch"), this reconstructs grid assignment
+// too: for each class, collects the distinct slot strings its live rows
+// actually use, builds a periods array from them, reuses an existing grid
+// if one already has the exact same period set (so classes sharing the same
+// timing don't each get a redundant duplicate grid), otherwise creates a new
+// one, and assigns it to every day that class has any row on. Classes with
+// no live rows at all are left unassigned (nothing to reconstruct from).
+function tgReconstructAssignFromLive() {
+  const live = (typeof LM_TIMETABLE !== 'undefined' && LM_TIMETABLE) ? LM_TIMETABLE : [];
+  if (!live.length) return { classesAssigned: 0, gridsCreated: 0, gridsReused: 0 };
+  const allDays = (typeof LM_DAYS_ORDER !== 'undefined') ? LM_DAYS_ORDER : [];
+
+  // v1424-fix3: assign the reconstructed grid to EVERY day of the week for
+  // a class, not only the days it happens to have a row on this particular
+  // week. Confirmed directly with the admin: a day with zero periods placed
+  // (e.g. a currently-empty Saturday) can still be a real school day that
+  // should carry a grid assignment — it's just empty of classes right now,
+  // not a day the class genuinely never meets. Slots are still collected
+  // from whichever rows exist across the whole week (the only real source
+  // of truth for what times a class actually uses), but the resulting grid
+  // is then applied to all days, so no day is left unassigned purely
+  // because this week happened to have nothing scheduled on it.
+  const slotsByClass = {};  // class -> Set of ALL slot strings used that week
+  live.forEach(function (t) {
+    if (!t.class || !t.day || !t.slot) return;
+    if (!slotsByClass[t.class]) slotsByClass[t.class] = new Set();
+    slotsByClass[t.class].add(t.slot);
+  });
+
+  function periodsFromSlots(slotSet) {
+    return Array.from(slotSet)
+      .map(function (s) { return { start: tgSlotStartMin(s), end: tgSlotEndMin(s) }; })
+      .sort(function (a, b) { return a.start - b.start; });
+  }
+  function periodsMatch(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].start !== b[i].start || a[i].end !== b[i].end) return false;
+    }
+    return true;
+  }
+  function findExistingGrid(periods) {
+    const gid = Object.keys(TG_STATE.grids).find(function (id) {
+      return periodsMatch(tgGridSlots(TG_STATE.grids[id]).map(function (s) { return { start: tgSlotStartMin(s), end: tgSlotEndMin(s) }; }), periods);
+    });
+    return gid || null;
+  }
+
+  let gridsCreated = 0, gridsReused = 0;
+  const classesTouched = new Set();
+
+  Object.keys(slotsByClass).forEach(function (cls) {
+    const periods = periodsFromSlots(slotsByClass[cls]);
+    if (!periods.length) return;
+
+    let gid = findExistingGrid(periods);
+    if (gid) { gridsReused++; }
+    else {
+      gid = tgNewGridId();
+      TG_STATE.grids[gid] = { id: gid, name: cls + ' (from live)', periods: periods };
+      gridsCreated++;
+    }
+    if (!TG_STATE.assign[cls]) TG_STATE.assign[cls] = {};
+    allDays.forEach(function (day) { TG_STATE.assign[cls][day] = gid; });
+    classesTouched.add(cls);
+  });
+
+  return { classesAssigned: classesTouched.size, gridsCreated: gridsCreated, gridsReused: gridsReused };
+}
+
+function tgSeedDraftFromLiveNoConfirm() {
+  const live = (typeof LM_TIMETABLE !== 'undefined' && LM_TIMETABLE) ? LM_TIMETABLE : [];
+  if (!live.length) { if (typeof dvToast === 'function') dvToast('Live timetable is empty — nothing to copy.', 'error', 4000); return; }
+  const prevCount = (TG_STATE.draftTT || []).length;
+  TG_STATE.draftTT = live.map(function (t) {
+    return { class: t.class, day: t.day, slot: t.slot, code: t.code };
+  });
+  // v1424: also reconstruct grid assignment from the same live rows, not
+  // just the placements — otherwise every class still shows "No time grid
+  // assigned yet" after copying, since draftTT and assign are separate
+  // pieces of state and only draftTT was ever being copied before.
+  const recon = tgReconstructAssignFromLive();
+  tgSave();
+  const gridMsg = recon.classesAssigned
+    ? (recon.gridsCreated + recon.gridsReused) + ' grid(s) assigned across ' + recon.classesAssigned + ' class(es) (' + recon.gridsCreated + ' new, ' + recon.gridsReused + ' reused).'
+    : '';
+  if (typeof dvToast === 'function') dvToast('Draft replaced with the live timetable (' + live.length + ' entries' + (prevCount ? ', was ' + prevCount + ' before' : '') + '). ' + gridMsg, 'success', 7000);
+  tgRenderPanel();
+}
+
+function tgManualSeedFromLive() {
+  if (TG_STATE.draftTT && TG_STATE.draftTT.length) {
+    if (!confirm('The draft already has ' + TG_STATE.draftTT.length + ' entries. Copying the live timetable in will REPLACE the entire draft — everything currently drafted will be lost.\n\nContinue?')) return;
+  }
+  const live = (typeof LM_TIMETABLE !== 'undefined' && LM_TIMETABLE) ? LM_TIMETABLE : [];
+  if (!live.length) { if (typeof dvToast === 'function') dvToast('Live timetable is empty — nothing to copy.', 'error', 4000); return; }
+  if (!confirm('Copy the ' + live.length + '-entry live timetable into the draft now?\n\nMake sure the live timetable looks complete and correct on screen before doing this.')) return;
+  TG_STATE.draftTT = live.map(function (t) {
+    return { class: t.class, day: t.day, slot: t.slot, code: t.code };
+  });
+  tgSave();
+  if (typeof dvToast === 'function') dvToast('Copied ' + live.length + ' entries from the live timetable into the draft.', 'success', 5000);
+  tgRenderPanel();
+}
+
 function tgSeedDraftFromLive() {
   if (TG_STATE.draftTT && TG_STATE.draftTT.length) return; // never overwrite existing draft work
   const live = (typeof LM_TIMETABLE !== 'undefined' && LM_TIMETABLE) ? LM_TIMETABLE : [];
@@ -29464,17 +29913,40 @@ function tgBreakStripHtmlForClass(c) {
   const usedGridIds = {};
   days.forEach(function (d) { const g = tgGridFor(c, d); if (g) usedGridIds[g.id] = true; });
   const breakChips = [];
+  // v1425 FIX per direct admin report: the same real-world break (e.g.
+  // "Leisure 15m 11.30-11.45") was printing MULTIPLE TIMES — once per grid
+  // that happened to have a gap at that same point — because grids are now
+  // frequently per-class (tgReconstructAssignFromLive() creates one grid
+  // per distinct class timing), so a faculty teaching several classes with
+  // similar-but-separately-created grids saw the identical break repeated,
+  // and inconsistently labeled ("Leisure" vs the fallback "Break") since
+  // only some grids carry a custom breakLabels entry for that gap. FIX:
+  // de-duplicate by the break's actual CONTENT (label + time range), not
+  // by which grid produced it — the same real break is now shown once,
+  // using whichever label was actually set for it (skipping the bare
+  // "Break" fallback if a real label exists for the same gap from another
+  // grid), matching admin's explicit request: "its same for all i belive
+  // use one only for all faulty defulty".
+  const seenBreaks = {}; // "start-end" -> { label, mins, start, end }
   Object.keys(usedGridIds).forEach(function (gid) {
     const grid = TG_STATE.grids[gid];
     if (!grid) return;
     const sortedP = grid.periods.slice().sort(function (a, b) { return a.start - b.start; });
     for (var k = 1; k < sortedP.length; k++) {
       if (sortedP[k].start > sortedP[k - 1].end) {
-        const mins = sortedP[k].start - sortedP[k - 1].end;
+        const key = sortedP[k - 1].end + '-' + sortedP[k].start;
         const lbl = (grid.breakLabels && grid.breakLabels[sortedP[k - 1].start]) || 'Break';
-        breakChips.push('<span style="display:inline-block;padding:2px 8px;margin:2px 4px 2px 0;border-radius:6px;background:rgba(122,182,255,0.1);border:1px solid rgba(122,182,255,0.3);color:#7ab6ff;font-size:10px;font-family:var(--mono);">' + tgEsc(lbl) + ' ' + mins + 'm \u00b7 ' + tgMinToHHMM(sortedP[k - 1].end) + '\u2013' + tgMinToHHMM(sortedP[k].start) + (Object.keys(usedGridIds).length > 1 ? ' (' + tgEsc(grid.name) + ')' : '') + '</span>');
+        const existing = seenBreaks[key];
+        // Prefer a real, named label over the bare "Break" fallback if both exist for the same gap.
+        if (!existing || (existing.label === 'Break' && lbl !== 'Break')) {
+          seenBreaks[key] = { label: lbl, mins: sortedP[k].start - sortedP[k - 1].end, start: sortedP[k - 1].end, end: sortedP[k].start };
+        }
       }
     }
+  });
+  Object.keys(seenBreaks).sort(function (a, b) { return seenBreaks[a].start - seenBreaks[b].start; }).forEach(function (key) {
+    const b = seenBreaks[key];
+    breakChips.push('<span style="display:inline-block;padding:2px 8px;margin:2px 4px 2px 0;border-radius:6px;background:rgba(122,182,255,0.1);border:1px solid rgba(122,182,255,0.3);color:#7ab6ff;font-size:10px;font-family:var(--mono);">' + tgEsc(b.label) + ' ' + b.mins + 'm \u00b7 ' + tgMinToHHMM(b.start) + '\u2013' + tgMinToHHMM(b.end) + '</span>');
   });
   return breakChips.length ? '<div style="margin-bottom:8px;">' + breakChips.join('') + '</div>' : '';
 }
@@ -29490,18 +29962,28 @@ function tgBreakStripTextForClass(c) {
   const days = (typeof LM_DAYS_ORDER !== 'undefined') ? LM_DAYS_ORDER : [];
   const usedGridIds = {};
   days.forEach(function (d) { const g = tgGridFor(c, d); if (g) usedGridIds[g.id] = true; });
-  const out = [];
+  // v1425: same content-based de-duplication as tgBreakStripHtmlForClass()
+  // — see that function's comment for the full explanation.
+  const seenBreaks = {};
   Object.keys(usedGridIds).forEach(function (gid) {
     const grid = TG_STATE.grids[gid];
     if (!grid) return;
     const sortedP = grid.periods.slice().sort(function (a, b) { return a.start - b.start; });
     for (var k = 1; k < sortedP.length; k++) {
       if (sortedP[k].start > sortedP[k - 1].end) {
-        const mins = sortedP[k].start - sortedP[k - 1].end;
+        const key = sortedP[k - 1].end + '-' + sortedP[k].start;
         const lbl = (grid.breakLabels && grid.breakLabels[sortedP[k - 1].start]) || 'Break';
-        out.push(lbl + ' ' + mins + 'm \u00b7 ' + tgMinToHHMM(sortedP[k - 1].end) + '\u2013' + tgMinToHHMM(sortedP[k].start) + (Object.keys(usedGridIds).length > 1 ? ' (' + grid.name + ')' : ''));
+        const existing = seenBreaks[key];
+        if (!existing || (existing.label === 'Break' && lbl !== 'Break')) {
+          seenBreaks[key] = { label: lbl, mins: sortedP[k].start - sortedP[k - 1].end, start: sortedP[k - 1].end, end: sortedP[k].start };
+        }
       }
     }
+  });
+  const out = [];
+  Object.keys(seenBreaks).sort(function (a, b) { return seenBreaks[a].start - seenBreaks[b].start; }).forEach(function (key) {
+    const b = seenBreaks[key];
+    out.push(b.label + ' ' + b.mins + 'm \u00b7 ' + tgMinToHHMM(b.start) + '\u2013' + tgMinToHHMM(b.end));
   });
   return out;
 }
@@ -29648,6 +30130,26 @@ function tgFmtDate(iso) {
 
 // ── Commit (shared by manual activation and scheduled promotion) ───
 async function tgCommit(silent) {
+  // v1417-fix3 SAFETY CHECK: a draft that's dramatically smaller than the
+  // live timetable it's about to replace is a strong signal of exactly the
+  // kind of partial/corrupted draft that caused a real admin-reported
+  // incident (live timetable ending up with "only few subjects... and
+  // empty cell" after a corrupted draft got committed). Warn and require
+  // explicit confirmation rather than silently overwriting — silent mode
+  // (scheduled/automatic promotion) skips the interactive confirm but
+  // still logs a loud console warning so the drop is visible afterward.
+  try {
+    const draftLen = (TG_STATE.draftTT || []).length;
+    const liveLen = (LM_TIMETABLE || []).length;
+    if (liveLen > 0 && draftLen > 0 && draftLen < liveLen * 0.5) {
+      const msg = 'The draft has only ' + draftLen + ' entries, but the current live timetable has ' + liveLen + '. Committing will REPLACE the live timetable with this much smaller draft.\n\nIf this draft looks incomplete, press Cancel and check it first (or use "Copy from live timetable" to start over from what\'s currently live).\n\nContinue anyway?';
+      if (!silent) {
+        if (!confirm(msg)) { if (typeof dvToast === 'function') dvToast('Activation cancelled.', 'success', 3000); return; }
+      } else {
+        console.warn('[TG] tgCommit: draft (' + draftLen + ') is under half the size of live (' + liveLen + ') — proceeding because this is a silent/scheduled commit, but this is worth checking.');
+      }
+    }
+  } catch (e) {}
   tgArchiveCurrent();
   // The new timetable is the DRAFT, built from blank — not a remap of the old
   // one. Admin builds it fresh; nothing is carried across.
@@ -29773,15 +30275,44 @@ function tgArchiveNow() {
   tgRenderPanel();
 }
 
-function tgRestoreArchive() {
+// v1417-fix2: made async and now falls back to RTDB/Firestore when no
+// archive is found in THIS browser's localStorage. tgArchiveCurrent()
+// always writes the snapshot to all three (localStorage, RTDB, Firestore),
+// but this function only ever read localStorage back — so restoring from a
+// different device/browser than the one that wrote the archive (or after
+// localStorage was cleared) incorrectly reported "No archive found" even
+// though a good remote copy existed. Confirmed as a real gap while helping
+// recover from a genuine admin-reported live-timetable corruption incident
+// where checking from a different local dev instance was exactly the
+// situation this gap would have blocked.
+async function tgRestoreArchive() {
   let snap = null;
+  let source = 'local';
   try { snap = JSON.parse(localStorage.getItem(TG_ARCH_LS) || 'null'); } catch (e) {}
-  if (!snap) { if (typeof dvToast === 'function') dvToast('No archive found.', 'error', 4000); return; }
-  if (!confirm('Restore the archived timetable and timings? This replaces the current live one.')) return;
+  if (!snap) {
+    try {
+      if (typeof rtdb !== 'undefined' && rtdb) {
+        const rtdbSnap = await rtdb.ref('davan_pub/tg_archive').once('value');
+        const v = rtdbSnap.val();
+        if (v) { snap = v; source = 'RTDB (cloud)'; }
+      }
+    } catch (e) { console.warn('[TG] archive RTDB read failed', e && e.message); }
+  }
+  if (!snap) {
+    try {
+      if (typeof fsGet === 'function') {
+        const v = await fsGet('app_data', 'tg_archive');
+        if (v) { snap = v; source = 'Firestore (cloud)'; }
+      }
+    } catch (e) { console.warn('[TG] archive Firestore read failed', e && e.message); }
+  }
+  if (!snap) { if (typeof dvToast === 'function') dvToast('No archive found (checked local, RTDB, and Firestore).', 'error', 5000); return; }
+  const archivedAt = snap.at ? new Date(snap.at).toLocaleString() : 'unknown time';
+  if (!confirm('Restore the archived timetable from ' + archivedAt + ' (source: ' + source + ')? This replaces the current live one.')) return;
   LM_TIMETABLE = snap.timetable || [];
   LM_SLOTS_ORDER = (snap.slotsOrder && snap.slotsOrder.length) ? snap.slotsOrder : LM_SLOTS_ORDER;
   try { localStorage.setItem('davan_timetable', JSON.stringify(LM_TIMETABLE)); } catch (e) {}
-  if (typeof dvToast === 'function') dvToast('Archive restored locally. Re-activate to push live.', 'success', 5000);
+  if (typeof dvToast === 'function') dvToast('Archive restored locally (from ' + source + '). Re-activate to push live.', 'success', 6000);
   try { if (typeof ttRenderEditor === 'function') ttRenderEditor(); } catch (e) {}
   tgRenderPanel();
 }
@@ -30756,7 +31287,6 @@ function tgRenderPanel() {
   const wrap = document.getElementById('tte-times-view');
   if (!wrap) return;
   if (!Object.keys(TG_STATE.grids).length) tgSeedFromLive();
-  tgSeedDraftFromLive();
 
   const gids = Object.keys(TG_STATE.grids);
   if (!TG_STATE.grids[_tgSelGrid]) _tgSelGrid = gids[0] || '';
@@ -31054,6 +31584,7 @@ function tgRenderPanel() {
     '<input type="date" value="' + tgEsc(TG_STATE.effectiveFrom) + '" onchange="tgSetEffective(this.value);tgRenderPanel()" style="background:#111;color:var(--text);border:1px solid #2a2a2a;border-radius:6px;padding:5px 8px;font-size:12px;margin-top:3px;"></div>' +
     '<div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">' +
     '<button onclick="tgRunPreview()" style="padding:7px 13px;font-size:12px;background:#111;color:var(--text);border:1px solid #2a2a2a;border-radius:7px;cursor:pointer;">Preview &amp; check</button>' +
+    '<button onclick="tgSeedDraftFromLiveNoConfirm()" title="Replace the draft with the current live timetable, immediately, no confirmation — use this to start fresh editing from what is currently live." style="padding:7px 13px;font-size:12px;background:#111;color:#7ab6ff;border:1px solid #2a3a4a;border-radius:7px;cursor:pointer;">Copy from live timetable</button>' +
     '<button onclick="tgClearDraft()" style="padding:7px 13px;font-size:12px;background:#111;color:#8b94a3;border:1px solid #2a2a2a;border-radius:7px;cursor:pointer;">Clear draft</button>' +
     '<button onclick="tgArchiveNow()" title="Take a backup snapshot of today\'s live timetable right now \u2014 does not change what is live" style="padding:7px 13px;font-size:12px;background:#111;color:#7ab6ff;border:1px solid #2a3a4a;border-radius:7px;cursor:pointer;">Archive now</button>' +
     '<button onclick="tgRestoreArchive()" style="padding:7px 13px;font-size:12px;background:#111;color:#8b94a3;border:1px solid #2a2a2a;border-radius:7px;cursor:pointer;">Restore archive</button>' +
@@ -34028,8 +34559,22 @@ function ttPrintFacultyMaster() {
       const cellsHtml = days.map(day => {
         let disp = '';
         for (const cls of facultyClasses) {
-          const entry = LM_TIMETABLE.find(t => t.class === cls && t.day === day && t.slot === slot);
-          if (entry && lmIsFacultyPeriod(fac, entry)) {
+          // v1414 FIX: .find() only checked the FIRST timetable row at this
+          // class+day+slot — but a lab slot can have MULTIPLE parallel batch
+          // rows sharing the same class+day+slot (e.g. "OA - Lab A1·Lab 1"
+          // and "OA - Lab A2·Lab 1" both scheduled at the exact same period,
+          // different batches, different faculty). If Priyanka's batch
+          // wasn't the first row Firebase happened to return, her period
+          // was silently skipped even though she genuinely teaches it —
+          // confirmed by direct admin report + allocation screenshot
+          // showing 3 separate lab batch rows (A1·Lab1, A1·Lab2, A2·Lab1)
+          // that only rendered 4-5 of the real 7 allocated periods.
+          // .filter() + .find() on the SUBSET now checks every row at this
+          // slot for the one that's actually hers, not just whichever
+          // happened to come first.
+          const slotEntries = LM_TIMETABLE.filter(t => t.class === cls && t.day === day && t.slot === slot);
+          const entry = slotEntries.find(t => lmIsFacultyPeriod(fac, t));
+          if (entry) {
             const dispCode = lmBaseCode(entry.code) || entry.code;
             const clsLabel = cls.replace('III YEAR BCA','III BCA').replace('II YEAR BCA','II BCA').replace('I YEAR BCA','I BCA').replace(' YEAR','');
             disp = esc(dispCode) + ' <span style="color:#666;font-size:8px;">(' + esc(clsLabel) + ')</span>';
@@ -34049,10 +34594,31 @@ function ttPrintFacultyMaster() {
       b.forEach(line => { if (!seen.has(line)) { seen.add(line); breaksHtml += (breaksHtml ? ' &nbsp;\u00b7&nbsp; ' : '') + esc(line); } });
     });
 
+    // Subject Code / Class / Hr-Week summary strip — per direct admin
+    // request with reference screenshots: "add this what i showed in the
+    // pic to all faculty below the table like this in pic 2". Same
+    // ttFacultyWorkloadSummary() computation the on-screen faculty view
+    // (ttBuildFacultyGrid) already uses, so the printed strip can never
+    // disagree with what the admin sees on screen for the same faculty —
+    // just styled with the print page's own plain colors (.ptab/.pc etc.
+    // are CSS classes already defined in this function's stylesheet, not
+    // var(--...) references, which don't resolve in the print window).
+    let summaryHtml = '';
+    if (typeof ttFacultyWorkloadSummary === 'function') {
+      const { wRows, wTotal } = ttFacultyWorkloadSummary(fac, facultyClasses);
+      if (wRows.length) {
+        const sHead = `<tr><th class="pday">Subject Code</th>${wRows.map(r => `<th class="pslot">${esc(r.code)}</th>`).join('')}<th class="pslot" style="background:#fff3cd;">Total</th></tr>`;
+        const sCls  = `<tr><td class="pdn">Class</td>${wRows.map(r => `<td class="pc">${esc(r.cls.replace('III YEAR BCA','III BCA').replace('II YEAR BCA','II BCA').replace('I YEAR BCA','I BCA').replace(' YEAR',''))}</td>`).join('')}<td class="pc"></td></tr>`;
+        const sHrs  = `<tr><td class="pdn">Hr / Week</td>${wRows.map(r => `<td class="pc" style="color:#1a7d1a;font-weight:800;">${r.hrs}</td>`).join('')}<td class="pc" style="background:#fff3cd;color:#8a6d00;font-weight:800;">${wTotal}</td></tr>`;
+        summaryHtml = `<table class="ptab" style="width:100%;margin-top:6px;"><thead>${sHead}</thead><tbody>${sCls}${sHrs}</tbody></table>`;
+      }
+    }
+
     return `<div class="pblock">
       <div class="pbtitle">\uD83D\uDC64 ${esc(fac)}</div>
       ${breaksHtml ? `<div class="pbreak">${breaksHtml}</div>` : ''}
       ${table}
+      ${summaryHtml}
     </div>`;
   }
 
@@ -34274,13 +34840,13 @@ function ttSetViewMode(mode) {
   const ctLabel       = document.getElementById('ttv-show-ct-label');
   if (filterClass)   filterClass.style.display   = mode === 'class' ? 'flex' : 'none';
   if (filterFaculty) filterFaculty.style.display  = isFacultyMode   ? 'flex' : 'none';
-  // Faculty Print/Excel buttons only make sense on the two faculty-oriented
-  // tabs (Faculty Schedule, Faculty Names Only) — Class View already has
-  // its own Print Master Timetable, and Subject Index has neither.
+  // Faculty Print/Excel buttons always visible on every tab, per explicit
+  // admin request ("i want it to been always") — previously only shown on
+  // the two faculty-oriented tabs.
   const btnPrintFac = document.getElementById('ttv-btn-print-faculty');
   const btnExcelFac = document.getElementById('ttv-btn-excel-faculty');
-  if (btnPrintFac) btnPrintFac.style.display = isFacultyMode ? 'inline-block' : 'none';
-  if (btnExcelFac) btnExcelFac.style.display = isFacultyMode ? 'inline-block' : 'none';
+  if (btnPrintFac) btnPrintFac.style.display = 'inline-block';
+  if (btnExcelFac) btnExcelFac.style.display = 'inline-block';
   // Always show both checkboxes for all modes
   if (facLabel)      facLabel.style.display       = 'flex';
   if (ctLabel)       ctLabel.style.display        = 'flex';
@@ -34895,6 +35461,51 @@ function _ttvHighlightSubject(clsId, base) {
     if (reset) reset.style.display = base ? 'inline-flex' : 'none';
   }
 }
+
+// v1425: faculty-scoped sibling of _ttvHighlightSubject() — per direct
+// admin request to make the Subject Code summary strip in Faculty Schedule
+// clickable, same isolate-a-subject behavior, but scoped by FACULTY id
+// (ttv-fac-block-<facId>) instead of class id, since ttBuildFacultyGrid()'s
+// output isn't wrapped in [data-ttv-class-block] — it's one grid covering
+// several classes for one faculty, not one class's own grid.
+let _ttvFacActiveSubject = {};   // facId -> base currently isolated (or undefined)
+function _ttvFacHighlightSubject(facId, base) {
+  if (base && _ttvFacActiveSubject[facId] === base) base = null;
+  _ttvFacActiveSubject[facId] = base || undefined;
+
+  const block = document.getElementById('ttv-fac-block-' + facId);
+  const scope = block || document;
+
+  scope.querySelectorAll('td.ttv-cell').forEach(td => {
+    const bases = (td.getAttribute('data-ttv-base') || '').split(/\s+/).filter(Boolean);
+    if (!base) {
+      td.style.opacity = '';
+      td.style.filter = '';
+      td.style.outline = '';
+    } else if (bases.includes(base)) {
+      td.style.opacity = '1';
+      td.style.filter = '';
+      td.style.outline = '2px solid rgba(74,222,128,0.55)';
+      td.style.outlineOffset = '-2px';
+    } else {
+      td.style.opacity = '0.16';
+      td.style.filter = 'grayscale(0.6)';
+      td.style.outline = '';
+    }
+  });
+
+  if (block) {
+    block.querySelectorAll('.ttv-hrs-chip').forEach(ch => {
+      const cb = ch.getAttribute('data-ttv-chip-base');
+      ch.style.transform = (base && cb === base) ? 'scale(1.08)' : '';
+      ch.style.boxShadow = (base && cb === base) ? '0 0 0 2px rgba(74,222,128,0.5)' : '';
+      ch.style.opacity   = (base && cb !== base) ? '0.5' : '1';
+    });
+    const reset = document.getElementById('ttv-fac-hrs-reset-' + facId);
+    if (reset) reset.style.display = base ? 'inline-flex' : 'none';
+  }
+}
+
 function _ttCellFacName(cls, code) {
   if (!code) return '';
   const parsed = (typeof lmParseCode === 'function') ? lmParseCode(code) : null;
@@ -35169,6 +35780,37 @@ function ttBuildGridTransposed(cls, editable, showFaculty, showCt) {
     </div>
   </div>${datalistHtml2}`;
 }
+// Shared workload summary table ("Subject Code / Class / Hr Week" strip) for
+// one faculty — pulled out of ttBuildFacultyGrid() so the SAME computation
+// (including the lab-batch dedup logic that correctly counts each parallel
+// batch as its own column, e.g. "ADAP - LAB A1·Lab 1" and "A1·Lab 2" as
+// separate 1hr entries) also powers the Print Faculty Timetable, per direct
+// admin request with reference screenshots showing this exact strip should
+// appear under each faculty's printed grid, matching the on-screen view.
+// Returns {html, wRows, wTotal} — html is styled for on-screen use (CSS vars);
+// callers needing print-safe plain colors build their own markup from wRows/wTotal.
+function ttFacultyWorkloadSummary(faculty, facultyClasses) {
+  const workloadMap = {};
+  LM_TIMETABLE.forEach(t => {
+    if (!facultyClasses.includes(t.class)) return;
+    if (!lmIsFacultyPeriod(faculty, t)) return;
+    const parsed   = lmParseCode(t.code);
+    const baseCode = lmBaseCode(t.code) || t.code;
+    const batch    = parsed.batch || '';
+    const dedupKey = `${baseCode}||${t.class}||${t.day}||${batch}`;
+    const countKey = `${baseCode}||${t.class}`;
+    if (!workloadMap[dedupKey]) workloadMap[dedupKey] = { code: baseCode, cls: t.class, countKey };
+  });
+  const countMap = {};
+  Object.values(workloadMap).forEach(({ code, cls, countKey }) => {
+    if (!countMap[countKey]) countMap[countKey] = { code, cls, hrs: 0 };
+    countMap[countKey].hrs++;
+  });
+  const wRows = Object.values(countMap).sort((a,b) => a.code.localeCompare(b.code));
+  const wTotal = wRows.reduce((s,r) => s+r.hrs, 0);
+  return { wRows, wTotal };
+}
+
 function ttBuildFacultyGrid(faculty) {
   if (!LM_ALLOCATIONS || !LM_ALLOCATIONS.length) lmLoadData();
 
@@ -35199,11 +35841,31 @@ function ttBuildFacultyGrid(faculty) {
     const cells = days.map(day => {
       let cellContent = '<span style="color:#333">—</span>';
       let bg = '';
+      let cellBaseAttr = '';
       for (const cls of facultyClasses) {
-        const entry = LM_TIMETABLE.find(t => t.class===cls && t.day===day && t.slot===slot);
-        if (entry && lmIsFacultyPeriod(faculty, entry)) {
+        // v1414 FIX: same real bug as ttPrintFacultyMaster — .find() only
+        // checked the FIRST timetable row at this class+day+slot, but a lab
+        // slot can have multiple parallel batch rows sharing the exact same
+        // class+day+slot (different batches, different faculty, different
+        // codes: "OA - Lab A1·Lab 1", "OA - Lab A2·Lab 1", ...). If this
+        // faculty's own batch wasn't the first row, their period was
+        // silently skipped and the cell rendered as free even though they
+        // genuinely teach it — confirmed directly: admin's allocation
+        // screenshot showed 7 real weekly periods (ADEE, CNDC x2, COAR,
+        // 3 lab batches) but the on-screen grid only rendered 4-5 of them.
+        const slotEntries = LM_TIMETABLE.filter(t => t.class === cls && t.day === day && t.slot === slot);
+        const entry = slotEntries.find(t => lmIsFacultyPeriod(faculty, t));
+        if (entry) {
           bg = 'background:rgba(196,160,42,0.08);';
           const dispCode = lmBaseCode(entry.code) || entry.code;
+          // v1425: data-ttv-base for the click-a-subject-to-isolate feature
+          // (same pattern as the Edit Timetable and View Timetable Class
+          // View grids), per direct admin request: "make this pic 1
+          // clikable when clicked on BAMD I B.Com show 4 blockes as u show
+          // in veiw and edit".
+          const _fparsed = (typeof lmParseCode === 'function') ? lmParseCode(entry.code) : null;
+          let _facCellBase = (_fparsed && _fparsed.isLab && _fparsed.base) ? _fparsed.base : dispCode;
+          if (_facCellBase === 'K/H') _facCellBase = ((typeof _ttIsPlainHin === 'function') && _ttIsPlainHin(entry.code)) ? 'K/H HIN' : 'K/H KAN HIN';
           let ctHtml = '';
           if (showCt) {
             const ctVal = ttGetCt(cls, lmBaseCode(entry.code));
@@ -35215,41 +35877,33 @@ function ttBuildFacultyGrid(faculty) {
           const clsLabel = cls.replace('III YEAR BCA','III BCA').replace('II YEAR BCA','II BCA').replace('I YEAR BCA','I BCA').replace(' YEAR','');
           const belowHtml = `<div style="font-size:9px;color:#6b7585;margin-top:2px;line-height:1.2;">${clsLabel}</div>`;
           cellContent = `<div style="font-weight:600;">${dispCode}${ctHtml}</div>${belowHtml}`;
+          cellBaseAttr = _facCellBase;
           break;
         }
       }
-      return `<td style="${tdStyle}${bg}">${cellContent}</td>`;
+      return `<td class="ttv-cell" data-ttv-base="${String(cellBaseAttr).replace(/"/g,'&quot;')}" style="${tdStyle}${bg}">${cellContent}</td>`;
     }).join('');
     return `<tr><td style="${tdStyle}color:var(--accent);font-size:11px;white-space:nowrap;">${slot}</td>${cells}</tr>`;
   }).join('');
 
   // ── Workload summary ──
-  const workloadMap = {};
-  LM_TIMETABLE.forEach(t => {
-    if (!facultyClasses.includes(t.class)) return;
-    if (!lmIsFacultyPeriod(faculty, t)) return;
-    const parsed   = lmParseCode(t.code);
-    const baseCode = lmBaseCode(t.code) || t.code;
-    const batch    = parsed.batch || '';
-    const dedupKey = `${baseCode}||${t.class}||${t.day}||${batch}`;
-    const countKey = `${baseCode}||${t.class}`;
-    if (!workloadMap[dedupKey]) workloadMap[dedupKey] = { code: baseCode, cls: t.class, countKey };
-  });
-  const countMap = {};
-  Object.values(workloadMap).forEach(({ code, cls, countKey }) => {
-    if (!countMap[countKey]) countMap[countKey] = { code, cls, hrs: 0 };
-    countMap[countKey].hrs++;
-  });
-  const wRows = Object.values(countMap).sort((a,b) => a.code.localeCompare(b.code));
-  const wTotal = wRows.reduce((s,r) => s+r.hrs, 0);
+  const { wRows, wTotal } = ttFacultyWorkloadSummary(faculty, facultyClasses);
   const thW = 'padding:5px 12px;font-size:10px;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;border:1px solid var(--border);color:var(--muted);background:var(--surface2);text-align:center;';
   const tdW = 'padding:5px 12px;font-size:11px;font-family:var(--mono);border:1px solid var(--border);text-align:center;';
+  // v1425: clickable subject-code headers, per direct admin request:
+  // "make this pic 1 clikable when clicked on BAMD I B.Com show 4 blockes
+  // as u show in veiw and edit" — same click-to-isolate feature already
+  // built for the Edit Timetable and View Timetable Class View chip bars,
+  // now added here too, scoped to this one faculty's own grid+summary via
+  // a faculty-id container so isolating a subject for one faculty never
+  // affects another faculty block on the same page (e.g. All Faculty view).
+  const facId = String(faculty).replace(/[^A-Za-z0-9]/g,'_');
   const workloadHTML = wRows.length ? `
   <div style="margin-top:14px;overflow-x:auto;">
     <table style="border-collapse:collapse;font-size:11px;">
       <thead><tr>
         <th style="${thW}text-align:left;">Subject Code</th>
-        ${wRows.map(r=>`<th style="${thW}color:var(--accent);">${r.code}</th>`).join('')}
+        ${wRows.map(r=>`<th class="ttv-hrs-chip" data-ttv-chip-base="${r.code}" onclick="_ttvFacHighlightSubject('${facId}', '${r.code}')" title="Click to show only ${r.code} in the timetable" style="${thW}color:var(--accent);cursor:pointer;">${r.code}</th>`).join('')}
         <th style="${thW}background:rgba(240,165,0,0.12);color:var(--text);">Total</th>
       </tr></thead>
       <tbody>
@@ -35265,16 +35919,18 @@ function ttBuildFacultyGrid(faculty) {
         </tr>
       </tbody>
     </table>
+    <span id="ttv-fac-hrs-reset-${facId}" onclick="_ttvFacHighlightSubject('${facId}', null)"
+      style="display:none;cursor:pointer;user-select:none;align-items:center;gap:5px;background:rgba(96,165,250,0.14);border:1px solid #60a5fa88;color:#60a5fa;border-radius:6px;padding:4px 11px;font-size:11px;font-family:var(--mono);font-weight:700;margin-top:6px;">\u21ba Show all</span>
   </div>` : '';
 
   return `
-  <div style="overflow-x:auto;margin-bottom:12px;">
+  <div id="ttv-fac-block-${facId}" data-ttv-fac-id="${String(faculty).replace(/"/g,'&quot;')}" style="overflow-x:auto;margin-bottom:12px;">
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>${headers}</thead>
       <tbody>${bodyRows}</tbody>
     </table>
-  </div>
-  ${workloadHTML}`;
+  ${workloadHTML}
+  </div>`;
 }
 
 
@@ -35618,6 +36274,10 @@ async function ttRenderViewer() {
     try {
       const _ttDoc = await fsGet('semesters_' + _semCurrentKey, 'timetable');
       LM_TIMETABLE = _ttDoc?.data || [];
+      // v1421 FIX: same gap as the live-sem branch below — apply the
+      // fetched doc's own slotsOrder, not whatever stale value LM_SLOTS_ORDER
+      // already held in memory.
+      if (_ttDoc && Array.isArray(_ttDoc.slotsOrder) && _ttDoc.slotsOrder.length) LM_SLOTS_ORDER = _ttDoc.slotsOrder;
     } catch(e) { LM_TIMETABLE = []; }
     // Extra safety: strip any wrong-sem rows that may have been introduced by a bad clone.
     // e.g. if staging key is 2026-27_odd (Odd sem = I,III,V), remove II/IV/VI rows.
@@ -35635,6 +36295,7 @@ async function ttRenderViewer() {
     try {
       const _ad = await fsGet('semesters_' + _semCurrentKey, 'timetable');
       LM_TIMETABLE = (_ad && Array.isArray(_ad.data)) ? _ad.data : (LM_TIMETABLE || []);
+      if (_ad && Array.isArray(_ad.slotsOrder) && _ad.slotsOrder.length) LM_SLOTS_ORDER = _ad.slotsOrder;
     } catch(e) { /* keep whatever the archive load set */ }
   } else if (!_semStagingMode) {
     // Live sem: always try a fresh Firebase read (stamped for the active sem) so a
@@ -35647,6 +36308,23 @@ async function ttRenderViewer() {
         const _isSeed = (typeof LM_TT_SEED_SEMKEY !== 'undefined') && _ttk === LM_TT_SEED_SEMKEY;
         if (_doc.ttSemKey === _ttk || (_isSeed && !_doc.ttSemKey)) {
           LM_TIMETABLE = _doc.data;
+          // v1421 FIX: real bug found and confirmed directly against live
+          // Firebase data. _doc (app_data/timetable) has ALWAYS stored its
+          // own slotsOrder alongside data (confirmed: Firestore/RTDB both
+          // return { data, slotsOrder, activatedAt, ... } together, same
+          // object, same write) — but this fetch only ever assigned
+          // LM_TIMETABLE from it, never LM_SLOTS_ORDER. So View Timetable
+          // could show the real, fully-correct timetable rows against
+          // whatever STALE LM_SLOTS_ORDER happened to already be sitting
+          // in memory from earlier in the page's life (its hardcoded
+          // startup default, or an older grid) — silently rendering every
+          // class's periods at the wrong slot times/labels while the
+          // ACTUAL underlying data (confirmed via direct Firebase reads:
+          // both Firestore and RTDB) was correct the entire time. This
+          // was never a data-corruption incident — the stored timetable
+          // was fine throughout; only this one read path forgot to also
+          // apply the slot axis that came back with it.
+          if (Array.isArray(_doc.slotsOrder) && _doc.slotsOrder.length) LM_SLOTS_ORDER = _doc.slotsOrder;
           try { localStorage.setItem('davan_timetable', JSON.stringify(_doc.data)); localStorage.setItem('davan_timetable_semkey', _ttk); } catch(e){}
         }
       }
