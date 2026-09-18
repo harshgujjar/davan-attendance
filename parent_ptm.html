@@ -27,7 +27,7 @@
 <!--
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  DAVAN PUC — PARENT PROGRESS CARD (PTM)                                       ║
-║  FILE: parent_ptm.html   ·   v4.5.0  ·  BUILD 2026-09-17 22:15 UTC           ║
+║  FILE: parent_ptm.html   ·   v4.5.2  ·  BUILD 2026-09-17 23:00 UTC           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Two audiences, one file:                                                     ║
 ║   • PARENT  — logs in with mobile number only → picks child → sees frozen     ║
@@ -90,6 +90,17 @@
 ║                    page-2 saga below for what ignoring this costs.)        ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
+║  v4.5.2  2026-09-17 23:00 UTC — View-log class chips (section 8, ~line     ║
+║                    6031) now break down the flat total into: N students ·  ║
+║                    N viewed · N blocked · N social — was previously one    ║
+║                    undifferentiated row count (views + blocked attempts +   ║
+║                    social clicks all summed together, confusing to read).   ║
+║  v4.5.1  2026-09-17 22:40 UTC — View-log class chips (section 8, ~line     ║
+║                    6032) now show the blue "🕐 Visible from…" window line,  ║
+║                    same as the Published Students chips (section 7)         ║
+║                    already did. Extracted the shared logic into             ║
+║                    ptmClassWindowLabel() (~line 6311) so both chip sets     ║
+║                    stay in sync going forward.                              ║
 ║  v4.5.0  2026-09-17 22:15 UTC — Section 8 dashboard: stat-box grid above    ║
 ║                    the view-log list (adLoadDashboardStats/                 ║
 ║                    adRenderDashboardStats ~line 5765) — Viewed/Blocked      ║
@@ -2318,8 +2329,8 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.5.0';
-const BUILD_STAMP   = '2026-09-17 22:15 UTC';
+const APP_VERSION   = 'v4.5.2';
+const BUILD_STAMP   = '2026-09-17 23:00 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
 // from and writes to. Change this ONE line to move the whole app onto the
@@ -6026,17 +6037,36 @@ function adRenderViewLogs(){
   const listEl=document.getElementById('ad-viewlog-list');
   if(!listEl) return;
   // Class chips, same pattern as section 7 — one per class that has at
-  // least one logged view, with counts, clicking toggles the filter.
-  const classCounts=new Map();
-  for(const v of AD_VIEWLOGS){ if(v.cls) classCounts.set(v.cls, (classCounts.get(v.cls)||0)+1); }
+  // least one logged row, broken down by category (unique students /
+  // viewed / blocked / social) since one flat total conflates very
+  // different things (a real view vs a blocked attempt vs a social click).
+  const classBreakdown=new Map(); // cls -> {total, usns:Set, viewed, blocked, social}
+  for(const v of AD_VIEWLOGS){
+    if(!v.cls) continue;
+    if(!classBreakdown.has(v.cls)) classBreakdown.set(v.cls, {total:0, usns:new Set(), viewed:0, blocked:0, social:0});
+    const b = classBreakdown.get(v.cls);
+    b.total++;
+    if(v.usn) b.usns.add(v.usn);
+    if(v.status==='viewed') b.viewed++;
+    else if(v.status==='social') b.social++;
+    else b.blocked++; // early / expired / hidden
+  }
   const chipsEl=document.getElementById('ad-viewlog-class-chips');
   if(chipsEl){
-    const classes=[...classCounts.keys()].sort();
+    const classes=[...classBreakdown.keys()].sort();
     const allActive=_adViewlogClassFilter==='';
     let chipHtml = `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;${allActive?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetViewlogClassFilter('')">All (${AD_VIEWLOGS.length})</button>`;
     chipHtml += classes.map(c=>{
       const active = c===_adViewlogClassFilter;
-      return `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;${active?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetViewlogClassFilter('${c}')">${c} (${classCounts.get(c)})</button>`;
+      const winLabel = ptmClassWindowLabel(c);
+      const winColor = active ? '#cfe3ff' : 'var(--accent,#2a78d6)';
+      const b = classBreakdown.get(c);
+      const breakdownColor = active ? 'rgba(255,255,255,0.85)' : 'var(--mut)';
+      return `<button type="button" class="btn" style="padding:5px 12px;font-size:11px;border-radius:14px;text-align:left;line-height:1.4;${active?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetViewlogClassFilter('${c}')">
+        <div>${c} (${b.total})</div>
+        <div style="font-size:10px;color:${breakdownColor}">${b.usns.size} student${b.usns.size!==1?'s':''} · ${b.viewed} viewed · ${b.blocked} blocked · ${b.social} social</div>
+        ${winLabel?`<div style="font-size:10px;color:${winColor}">🕐 ${winLabel}</div>`:''}
+      </button>`;
     }).join('');
     chipsEl.innerHTML = chipHtml;
   }
@@ -6308,6 +6338,23 @@ function adSetClassFilter(cls){
   clsSel.value = (clsSel.value===cls) ? '' : cls;
   adRenderPublishedList();
 }
+// Shared by both the Published Students chips (section 7) and the View Log
+// chips (section 8) — the visible-from/until window for a class, from
+// AD_PUBLISHED. When every student in the class shares the same window
+// (the normal case), shows it directly; when they differ, says so rather
+// than showing one arbitrary student's window.
+function ptmClassWindowLabel(cls){
+  const rowsInCls = AD_PUBLISHED.filter(r=>r.cls===cls);
+  if(!rowsInCls.length) return '';
+  const froms=new Set(rowsInCls.map(r=>r.visibleFrom==null?'':r.visibleFrom));
+  const untils=new Set(rowsInCls.map(r=>r.visibleUntil==null?'':r.visibleUntil));
+  if(froms.size!==1 || untils.size!==1) return 'Mixed visibility windows';
+  const from=rowsInCls[0].visibleFrom, until=rowsInCls[0].visibleUntil;
+  const chipDateFmt = ms => new Date(ms).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const fromLabel = from!=null ? chipDateFmt(from) : '—';
+  const untilLabel = until!=null ? chipDateFmt(until) : 'no end date';
+  return `Visible from ${fromLabel} → ${untilLabel}`;
+}
 function adRenderPublishedList(){
   const listEl=document.getElementById('ad-published-list');
   if(!listEl) return;
@@ -6345,26 +6392,10 @@ function adRenderPublishedList(){
     if(chipsEl){
       const activeCls=clsSel.value;
       const allActive = activeCls==='';
-      const chipDateFmt = ms => new Date(ms).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-      // Per-class visibility window, for display on each chip. When every
-      // student in a class shares the same window (the normal case — set
-      // once via "Apply to all in filter"), show it directly; when they
-      // differ, say so rather than showing one arbitrary student's window.
-      const classWindowLabel = c => {
-        const rowsInCls = AD_PUBLISHED.filter(r=>r.cls===c);
-        if(!rowsInCls.length) return '';
-        const froms=new Set(rowsInCls.map(r=>r.visibleFrom==null?'':r.visibleFrom));
-        const untils=new Set(rowsInCls.map(r=>r.visibleUntil==null?'':r.visibleUntil));
-        if(froms.size!==1 || untils.size!==1) return 'Mixed visibility windows';
-        const from=rowsInCls[0].visibleFrom, until=rowsInCls[0].visibleUntil;
-        const fromLabel = from!=null ? chipDateFmt(from) : '—';
-        const untilLabel = until!=null ? chipDateFmt(until) : 'no end date';
-        return `Visible from ${fromLabel} → ${untilLabel}`;
-      };
       let chipHtml = `<button type="button" class="btn" style="padding:3px 12px;font-size:11px;border-radius:999px;${allActive?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetClassFilter('')">All (${AD_PUBLISHED.length})</button>`;
       chipHtml += classes.map(c=>{
         const active = c===activeCls;
-        const winLabel = classWindowLabel(c);
+        const winLabel = ptmClassWindowLabel(c);
         const winColor = active ? '#cfe3ff' : 'var(--accent,#2a78d6)'; // lighter blue on the active (already-blue) chip so it stays readable against the accent background
         return `<button type="button" class="btn" style="padding:5px 12px;font-size:11px;border-radius:14px;text-align:left;line-height:1.4;${active?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="adSetClassFilter('${c}')">
           <div>${c} (${classCounts.get(c)})</div>
