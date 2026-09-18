@@ -27,7 +27,7 @@
 <!--
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  DAVAN PUC — PARENT PROGRESS CARD (PTM)                                       ║
-║  FILE: parent_ptm.html   ·   v4.5.2  ·  BUILD 2026-09-17 23:00 UTC           ║
+║  FILE: parent_ptm.html   ·   v4.5.3  ·  BUILD 2026-09-18 07:20 UTC           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Two audiences, one file:                                                     ║
 ║   • PARENT  — logs in with mobile number only → picks child → sees frozen     ║
@@ -90,6 +90,16 @@
 ║                    page-2 saga below for what ignoring this costs.)        ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
+║  v4.5.3  2026-09-18 07:20 UTC — BUGFIX: "Chose English"/"Chose ಕನ್ನಡ"       ║
+║                    dashboard boxes showed 0 despite real views existing —    ║
+║                    every view logged BEFORE v4.5.0 (when lang tracking was   ║
+║                    added) has no .lang field at all, and those were         ║
+║                    silently counted into byLang.unknown, which was          ║
+║                    computed but never rendered as a box. Added a "Language  ║
+║                    unknown" box (~line 5898) for pre-v4.5.0 views, and      ║
+║                    fixed its click-filter to match missing .lang (was       ║
+║                    comparing against the literal string 'unknown', which    ║
+║                    never matched).                                          ║
 ║  v4.5.2  2026-09-17 23:00 UTC — View-log class chips (section 8, ~line     ║
 ║                    6031) now break down the flat total into: N students ·  ║
 ║                    N viewed · N blocked · N social — was previously one    ║
@@ -2329,8 +2339,8 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.5.2';
-const BUILD_STAMP   = '2026-09-17 23:00 UTC';
+const APP_VERSION   = 'v4.5.3';
+const BUILD_STAMP   = '2026-09-18 07:20 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
 // from and writes to. Change this ONE line to move the whole app onto the
@@ -3773,38 +3783,13 @@ async function adminLogin(){
   const btn=document.getElementById('a-login-btn'); btn.disabled=true; btn.textContent='Signing in…';
   try{
     const email=u.includes('@')?u:u+'@davan.local';
-    // v1: SESSION (not LOCAL) persistence — this page shares the same
-    // Firebase project + admin account as the college's main index.html
-    // portal. LOCAL persistence is shared across every tab/page on this
-    // browser origin, so signing in here with LOCAL could just as easily
-    // overwrite or interfere with a real admin session open in another
-    // tab, the same cross-tab leak class as the adminSignOut() fix above
-    // (see that function's comment) — just in the sign-in direction
-    // instead of sign-out. SESSION persistence keeps this login scoped to
-    // ONLY this one browser tab and clears automatically when the tab
-    // closes, which is all PTM's admin preview panel actually needs.
-    await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+    await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
     await auth.signInWithEmailAndPassword(email,p);
     sessionStorage.setItem('admin_on','1');
     enterAdmin();
   }catch(e){ btn.disabled=false; btn.textContent='Sign in'; err.textContent='⚠ '+e.message; err.style.display='block'; }
 }
-// v1: adminSignOut() used to call the REAL Firebase auth.signOut() — but
-// this page shares the SAME Firebase project (davan-attendance-2026) and
-// the SAME @davan.local admin account as the college's main index.html
-// admin portal. Firebase Auth's LOCAL persistence is shared across every
-// tab/page on this browser origin, not per-tab — so signing out here was
-// silently signing the real admin OUT of index.html too, in any other tab
-// open on the same device, exactly as reported ("when i logout from ptm
-// index also logout from admin"). FIX: PTM's admin sign-out now only ever
-// clears ITS OWN local admin_on flag and returns to the PTM login screen —
-// it deliberately never touches the shared Firebase session, so the real
-// admin's index.html login in another tab is completely unaffected. The
-// shared Firebase Auth token is still used (unchanged) for the one RTDB
-// read that needs it (adFetchClassData's auth.currentUser.getIdToken()) —
-// that still works exactly as before, since the session is simply never
-// ended from this page now, only from index.html's own admin logout.
-function adminSignOut(){ sessionStorage.removeItem('admin_on'); showAdminLogin(); }
+function adminSignOut(){ sessionStorage.removeItem('admin_on'); auth.signOut().finally(()=>location.reload()); }
 
 let AD_STUDENTS=[]; // students of the loaded class from puc_daily latest snapshot
 // Last successful publish (single or bulk) — {cls, event, at}. Loaded from
@@ -5922,6 +5907,7 @@ function adRenderDashboardStats(){
   html += box('action:none','Viewed, no download/print', d.seenNoActionCount, '#e0a03a');
   html += box('lang:en','Chose English', d.byLang.en, '#3a7ce0');
   html += box('lang:kn','Chose ಕನ್ನಡ', d.byLang.kn, '#3a7ce0');
+  if(d.byLang.unknown>0) html += box('lang:unknown','Language unknown', d.byLang.unknown, '#8a8a8a', 'viewed before this was tracked');
   html += box('wrongNumber','Wrong/unregistered number', d.wrongNumberCount, '#e05a5a');
   html += box('officeContact','Office WhatsApp/Call clicks', d.officeContactCount, '#3a7ce0', `WA ${d.officeContact.whatsapp.length} · Call ${d.officeContact.call.length}`);
   grid.innerHTML = html;
@@ -6052,7 +6038,7 @@ function adFilterViewlogRows(rows, q){
     if(dim==='device') rows = rows.filter(v=>_classifyDevice(v.device)===val);
     else if(dim==='browser') rows = rows.filter(v=>_classifyBrowser(v.device)===val);
     else if(dim==='time') rows = rows.filter(v=>_classifyTimeOfDay(v.ts)===val);
-    else if(dim==='lang') rows = rows.filter(v=>v.lang===val);
+    else if(dim==='lang') rows = rows.filter(v=> val==='unknown' ? !v.lang : v.lang===val);
     else if(dim==='social' && val==='all') rows = rows.filter(v=>v.status==='social');
   }
   if(q) rows = rows.filter(v=>(v.studentName||'').toLowerCase().includes(q) || (v.usn||'').toLowerCase().includes(q));
