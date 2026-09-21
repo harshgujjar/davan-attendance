@@ -4713,10 +4713,14 @@
           style="font-size:10px;font-family:var(--mono);padding:2px 8px;
           background:rgba(96,165,250,0.12);border:1px solid #60a5fa66;color:#60a5fa;
           border-radius:4px;cursor:pointer;margin-left:6px;">🔧 TT Debug</button>
-        <button onclick="ttPrintMaster()" title="Print all classes on one master sheet (A4 landscape) — with logos, timestamp & signatures"
+        <button onclick="ttPrintMaster()" title="Print all classes on one master sheet (A4 landscape) — with logos, timestamp & signatures; also your PDF (choose Save as PDF in the print dialog)"
           style="font-size:12px;font-family:var(--mono);padding:7px 16px;
           background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;
           border-radius:6px;cursor:pointer;margin-left:8px;font-weight:700;">🖨 Print Master Timetable</button>
+        <button id="ttv-btn-excel-class" onclick="ttDownloadClassExcel()" title="Download the master timetable (every class, same layout as Print Master Timetable) as an Excel workbook"
+          style="font-size:12px;font-family:var(--mono);padding:7px 16px;
+          background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.4);color:#22c55e;
+          border-radius:6px;cursor:pointer;margin-left:8px;font-weight:700;">📊 Class Excel</button>
         <button id="ttv-btn-print-faculty" onclick="ttPrintFacultyMaster()" title="Print every faculty's own weekly schedule, all in one sheet (A4 landscape) — same masthead/signatures as Print Master Timetable; also your PDF (choose Save as PDF in the print dialog)"
           style="font-size:12px;font-family:var(--mono);padding:7px 16px;
           background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;
@@ -10166,7 +10170,26 @@ async function _autoPushTimetableToPortal(opts) {
   try {
     const _ttk = (typeof _ttActiveSemKey === 'function') ? _ttActiveSemKey() : '';
     const classes = [...new Set(LM_TIMETABLE.map(r => r.class || r.cls).filter(Boolean))];
-    await lpDb2Set('davan_pub/timetable', { data: LM_TIMETABLE, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'auto', classes });
+    // 2026-09-21 per direct admin request: the same real break name+
+    // duration (Leisure 15m, Lunch 45m, etc) now shown as a merged column
+    // in Class View, Print and Excel is added to the DB2 payload here too,
+    // so the student portal can show the identical break — same source
+    // (tgBreakStripTextForClass), so it can never disagree with what the
+    // admin sees. This is an ADDITIVE new key (`breaks`) alongside the
+    // existing `data`/`ttSemKey`/`classes` fields already written here —
+    // it does not remove or reshape anything the portal already reads, so
+    // a portal build that doesn't yet look for `breaks` is unaffected.
+    // NOTE, stated honestly: this only makes the data available at
+    // davan_pub/timetable.breaks — actually DISPLAYING it as a merged
+    // column is separate work inside student_portal.html itself (a
+    // different file, not part of this one), not yet done here.
+    const breaks = {};
+    try {
+      classes.forEach(c => {
+        if (typeof tgBreakStripTextForClass === 'function') breaks[c] = tgBreakStripTextForClass(c) || [];
+      });
+    } catch (e) {}
+    await lpDb2Set('davan_pub/timetable', { data: LM_TIMETABLE, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'auto', classes, breaks });
     if (Array.isArray(LM_ALLOCATIONS) && LM_ALLOCATIONS.length) {
       await lpDb2Set('davan_pub/allocations', { data: LM_ALLOCATIONS, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'auto' });
     }
@@ -10296,9 +10319,17 @@ async function pushTimetableToPortalDB2() {
   setB('⏳ Pushing…', true);
   try {
     const _ttk = (typeof _ttActiveSemKey === 'function') ? _ttActiveSemKey() : '';
+    // 2026-09-21: same additive `breaks` field as _autoPushTimetableToPortal()
+    // above — see that function's comment for the full explanation.
+    const breaks = {};
+    try {
+      classes.forEach(c => {
+        if (typeof tgBreakStripTextForClass === 'function') breaks[c] = tgBreakStripTextForClass(c) || [];
+      });
+    } catch (e) {}
     await lpDb2Set('davan_pub/timetable', {
       data: LM_TIMETABLE, ttSemKey: _ttk, pushedAt: Date.now(),
-      pushedFrom: 'mother-app-direct', classes
+      pushedFrom: 'mother-app-direct', classes, breaks
     });
     // Also push allocations so the portal can resolve code → full subject name + faculty
     // (without these the portal timetable shows the raw code twice and no teacher).
@@ -17469,6 +17500,23 @@ function _navRestoreState(preCapturedSnapshot) {
     if (saved.panel === 'staff-directory' && typeof staffDirectoryRender === 'function') {
       staffDirectoryRender();
     }
+    // 2026-09-21 — same class of gap as internals/staff-directory above,
+    // confirmed by direct admin report: refreshing straight back onto the
+    // Timetable Viewer (tt-viewer) landed on Class View with an EMPTY
+    // grid, requiring a manual click to Faculty Schedule and back before
+    // it populated. Root cause: the sidebar's own onclick for this panel
+    // is "switchPanel('tt-viewer');ttSetViewMode(ttvMode||'class')" — TWO
+    // steps, since switchPanel() only shows the panel shell and it is
+    // ttSetViewMode() that actually calls ttRenderViewer() to fill
+    // #ttv-grid. This restore path only ever called switchPanel(), never
+    // the second step, so the panel appeared active/selected but its
+    // grid was never rendered — same missing-second-step shape as the
+    // internals/staff-directory fixes just above, just not caught for
+    // this panel until now. Fix: call ttSetViewMode() here too, same
+    // mode the sidebar click itself would have used.
+    if (saved.panel === 'tt-viewer' && typeof ttSetViewMode === 'function') {
+      ttSetViewMode((typeof ttvMode !== 'undefined' && ttvMode) || 'class');
+    }
   } catch(e) { console.warn('[NavRestore] threw:', e); }
 }
 
@@ -17507,8 +17555,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1441;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '21-Sep-2026', time: '12:00', full: '21-Sep-2026 12:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1442;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '21-Sep-2026', time: '23:23', full: '21-Sep-2026 23:23 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -28268,6 +28316,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1442', date: '21-Sep-2026 IST', note: 'CLASS VIEW BREAK COLUMN (Leisure/Lunch merged column, transposed grid) — full saga across this session, admin reported the same "cell too big/high" symptom four separate times before the real cause was found. FEATURE: ttBuildGridTransposed() now renders a merged, non-editable break column between two adjacent real slot columns wherever a genuine time gap exists on a class\'s own axis (Leisure, Lunch, etc), using tgBreakStripTextForClass() as the single source of truth so it can never disagree with the break chips already shown above the grid. Same feature added to Print (_ttPrintClassGrid, shared by both tgPrintDraft and ttPrintMaster), Excel (tgDownloadDraftExcel\'s existing merged break column, which only ever showed the literal word "BREAK", now shows the real name+duration), and the DB2 push to the student portal (new additive `breaks` field on the existing davan_pub/timetable payload, carried through the portal\'s own DB1->DB2 sync step, with a small divider card added between period cards in the student portal\'s per-day timetable view). WIDTH BUG (found and fixed): a single blanket <col span="N"> gave every column, break column included, the exact same width under table-layout:fixed — once real slot headers were widened to the full "08.30-09.30" range (per a separate admin request in the same session), the whole table grew and the break column stretched wide along with it. Two earlier attempts at a fix (percentage-weighted columns, then a hardcoded per-column pixel width) were both wrong and reverted after direct admin screenshots showed they were not matching the original compact layout. REAL width fix: the break column\'s own <col> in the colgroup gets an explicit narrow width (26px); real slot columns are left with no explicit width so they continue to divide the remaining space evenly among themselves, exactly as before this feature existed. HEIGHT BUG (found and fixed, found ENTIRELY BY THE ADMIN, not by this session\'s own investigation): even after the width fix was verified correct by rendering the real markup in a headless browser, the admin reported the cell was still oversized and, when this session failed to find the real cause after several rounds of re-guessing at CSS table-layout mechanics, the admin diffed two actual downloaded builds directly and found it: the break cell\'s rotated label was wrapped in a flex container with height:100% and writing-mode:vertical-rl — rotated text\'s own LENGTH becomes a HEIGHT requirement once rotated, and because this cell has rowspan spanning every day row, that height requirement stretched the entire tbody, inflating all 5-6 day rows together. Every earlier fix attempt in this session had only ever addressed the WIDTH side of this same cell, which is exactly why the rows never shrank no matter what was tried on width alone. Admin\'s fix, applied here: the rotated label is now position:absolute, centered, inside a position:relative cell — an absolutely positioned element contributes ZERO height to the row it sits in, while still rendering, staying centered, and keeping the 26px column width intact. Admin measured headlessly against the real markup: table 722px -> 136px, day row height 144px -> 27px; independently re-verified in this pass at 26px per row (real head CSS, real function, real data, real viewport width) before shipping. Superseded padding/max-width/overflow compensations from the width-only fix attempts were rolled back per the admin\'s own note that they were compensating for the wrong cause and would have made the grid tighter than the intended build. PROCESS FAILURE, stated honestly: this session repeatedly guessed at CSS causes (percentage weights, pixel widths, max-width/overflow caps) across four+ rounds instead of actually rendering the real generated markup and measuring it, despite HARD RULE 12 in this very file\'s own header explicitly requiring exactly that ("TEST THE ACTUAL CODE PATH, NOT A REWRITE OF IT... extract the REAL function(s) being changed... run it with realistic input") — and despite this session eventually doing exactly that successfully (via Playwright, extracting the real function and rendering it) for the WIDTH bug, that same rigor was dropped again once the admin reported the height problem, and further guesses were made before the admin was forced to do the actual diff investigation themselves. This build number was also not bumped once across the entire break-column feature (multiple real fixes shipped under stale HTML: v1441 in the topbar) until the admin asked directly why — CODE_BUILD/BUILD_TIMESTAMP are now bumped together per this file\'s own HARD RULE 13, and this entry itself is the first of this session\'s break-column work to actually be logged in HTML_CHANGELOG. VERIFIED: extracted the real ttBuildGridTransposed() from this exact file and rendered it in a headless browser (Playwright) with the real <head> CSS and the admin\'s real I YEAR B.Com data at the admin\'s real screen width (1546px) — every day row measured a uniform 26px, break columns 26px wide, real slot columns compact and undistorted; screenshot matches the admin\'s own description of the originally-correct layout. Script blocks node --check clean; div-balance unchanged at the established +2 baseline.' },
 { v: 'v1441', date: '21-Sep-2026 IST', note: 'CRITICAL, REAL, ACTIVE DATA-LOSS BUG FOUND AND FIXED, confirmed directly against live Firebase data via the v1440 TT Debug panel the admin ran and shared. I YEAR B.Com\'s real saved Firestore data was reduced from a genuine full week (its own document-level slotsOrder correctly showed the new 8-slot grid: 08.30, 09.30, 10.30, 11.45, 01.30, 02.30, 03.40, 04.40) down to just 3 surviving rows, at 08.30, 09.30, and 11.45 -- the ONLY slot strings that happen to be identical between this class\'s real new grid and the file\'s hardcoded OLD 8-slot default grid. ROOT CAUSE: ttBuildGrid() and ttBuildGridTransposed() -- the editable grid renderers behind the live Edit Timetable page -- built their entire row axis from the GLOBAL, PAGE-WIDE LM_SLOTS_ORDER variable, not from this specific class\'s own real assigned grid (tgAxisForClass(cls), already used correctly elsewhere in this file for exactly this reason, e.g. tgWithDraftOneClass()). Any class whose real grid differs from whatever LM_SLOTS_ORDER happened to hold in memory at build time got editable input boxes for the WRONG slot times -- its real data at the correct slots had literally nowhere to render. ttSave()\'s All-Classes branch then does LM_TIMETABLE = LM_TIMETABLE.filter(t => t.class !== c).concat(newEntries) PER CLASS, reading newEntries only from whatever input boxes actually exist in the DOM at save time -- so the very next "Save all classes" press PERMANENTLY REPLACED that class\'s entire real dataset with only the few rows that happened to survive on screen, silently deleting everything else, both locally and in Firestore. This is a genuinely severe class of bug: it can destroy real saved data on ANY class whose grid differs from the page-wide default, on an ordinary save, with no warning. FIX: ttBuildGrid() and ttBuildGridTransposed() now compute this class\'s own real axis via tgAxisForClass(cls) first, falling back to LM_SLOTS_ORDER only if that genuinely returns nothing (no grid assigned at all) -- never a page-wide value standing in for what this specific class actually uses. SAME FIX APPLIED to four more read-only renderers sharing the identical flaw (display-correctness issues, not data-loss, since none of them save back): _ttPrintClassGrid() (Print Master Timetable), ttBuildFacultyOnlyGrid() (Faculty Names Only view), and ttBuildSubjectIndexGrid() (Subject Index view, where a stray second LM_SLOTS_ORDER reference for afternoonSlots was found and fixed in the same pass after the first edit missed it). CONFIRMED SAFE AND CORRECTLY UNCHANGED: tgDownloadDraftExcel() (Times\' draft Excel export) already wraps its per-class logic in the existing tgWithDraftOneClass(cls, fn) helper, which ALREADY sets LM_SLOTS_ORDER = tgAxisForClass(cls) before running -- verified by reading that helper directly rather than assuming, so no duplicate fix was applied there. SCOPE BOUNDARY, stated honestly rather than guessed at: staging/planning-mode\'s own editable grid (_ttBuildStagingGrid/_ttRenderEditorStaging) shares the same LM_SLOTS_ORDER pattern but was NOT touched in this fix -- staging is a genuinely separate concept (its own Firestore document per planning semester, no per-class TG_STATE.grids/assign the way the live semester has) and applying tgAxisForClass() there without confirming it is even the right axis source for staging would risk a wrong fix; left for separate investigation if ever reported as broken. VERIFIED: 21 script blocks node --check clean; div-balance confirmed unchanged at the established +2 baseline (pure JS, zero markup touched); a standalone simulation using the admin\'s own real grid data (the correct new 8-slot grid) against the file\'s own real hardcoded old-default array reproduces the EXACT 3-row overlap (08.30, 09.30, 11.45) that was found in the live Firestore document, confirming this is genuinely the mechanism that caused the reported damage, not a coincidental resemblance. NOT YET DONE: recovering I YEAR B.Com\'s actual lost period data -- this fix stops the bug from recurring but does not restore what was already deleted; the admin will need to rebuild this one class\'s timetable (or restore from an Archive snapshot taken before the loss, if one exists, per the existing Restore archive feature) since the specific subjects/times that were on the missing 5 slots are not recoverable from code alone. CODE_BUILD=1441.' },
 { v: 'v1440', date: '21-Sep-2026 IST', note: 'FEATURE per direct admin request: "Put some debug ct debug and a copy button I can copy and send u the details" -- for a real, unresolved symptom (old grid times + empty afternoon for I YEAR B.Com) that showed identically on EVERY device (phone, laptop, principal\'s login), ruling out a device-specific cause, while direct browser-console investigation was repeatedly blocked by a live Firestore connection failure on the admin\'s phone (confirmed: every db.collection(...).get() call hung with no resolve/reject at all, alert() from inside the same callback never fired, though alert() on its own worked fine and typeof db correctly returned "object" -- narrowing it to the Firestore stream itself, not the page or the alert mechanism). Traced via static code reading as far as possible: the reported symptom (old subject-hours, times ending 04.30, no afternoon beyond that) matches this file\'s own hardcoded LM_TT_DEFAULT seed array EXACTLY -- I YEAR B.Com\'s entries in that array end at 04.30 with the identical old slot times. That seed only loads when _ttActiveSemKey() resolves to LM_TT_SEED_SEMKEY (\'2025-26_even\', the OLD seed key) instead of the real current session key -- which can only happen if SESSION_CONFIG is not yet the live one at read time, or if the live Firestore timetable document\'s own stored ttSemKey does not match what _ttActiveSemKey() currently computes (the guard at ttRenderViewer()\'s live-sem branch, v1421, silently skips assigning LM_TIMETABLE/LM_SLOTS_ORDER from a fetched doc whose ttSemKey does not match, falling through to whatever stale/cached/seed data is already in memory). NEW: a "\ud83d\udd27 TT Debug" button next to the existing CT Debug button on View Timetable, opening a panel that surfaces every one of these facts in one place -- SESSION_CONFIG\'s live values, _ttActiveSemKey()\'s actual result, whether that equals the seed key, what LM_TIMETABLE/LM_SLOTS_ORDER currently hold in memory, then a FRESH Firestore read of app_data/timetable (activatedAt, stored ttSemKey, stored slotsOrder, row counts, and an explicit YES/NO on whether the stored ttSemKey matches the active key -- flagged loudly if not, since that is the exact condition that causes this), and a fresh read of app_data/session_config (flagging an empty/missing doc as a KNOWN historical failure mode already documented in this file\'s own v1014 comment). A one-tap Copy button (Clipboard API with a manual-select textarea fallback for older browsers) lets the admin send the panel\'s exact real findings directly, instead of fighting a stuck console again. VERIFIED: 21 script blocks node --check clean; div-balance confirmed unchanged at the established +2 baseline; all new function/id declarations confirmed unique; a standalone simulation reproducing a ttSemKey mismatch (correct SESSION_CONFIG, but a Firestore document stamped with the old seed key) confirms the panel\'s comparison logic correctly flags the exact mismatch as the likely cause. NOT YET DIAGNOSED: the actual root cause remains unconfirmed until the admin runs this panel against their real live data and shares the output -- this turn intentionally ships a diagnostic tool, not a guessed fix, consistent with this session\'s established approach of confirming before changing production data logic. CODE_BUILD=1440.' },
 { v: 'v1439', date: '19-Sep-2026 IST', note: 'REAL BUG FOUND AND FIXED, confirmed by an actual Firestore error the admin captured directly from the browser console: "FirebaseError: Function DocumentReference.set() called with invalid data. Unsupported field value: undefined (found in field _realGridsDuringSwap in document app_data/tg_staging)" -- this was surfacing correctly as the "\u26a0 not synced" indicator the admin then (rightly) asked about, which is itself a genuine, working, honest status feature (v1396) doing exactly its job: reporting a real cloud-save failure rather than hiding it. ROOT CAUSE #1: v1434\'s fix used Object.assign(..., { _realGridsDuringSwap: undefined, ... }) to strip two internal scratch fields before persisting -- verified AT THE TIME that JSON.stringify() correctly omits undefined-valued keys (true, and correct for the localStorage.setItem() write), but fsSet() passes the object DIRECTLY to Firestore\'s own .set() method WITHOUT going through JSON.stringify() first -- and Firestore\'s SDK explicitly REJECTS any field holding a literal undefined value, unlike JSON.stringify\'s silent-drop behavior. So the localStorage save always succeeded while the Firestore save always failed, for every single live-editor edit since v1434 shipped. FIX: use actual `delete` to remove the two scratch keys entirely, instead of setting them to undefined -- a genuinely absent key is fine for both persistence paths. ROOT CAUSE #2, a SEPARATE race condition found and fixed in the same pass via a direct async-timing simulation before trusting the first fix alone: tgSave() is async and does `await fsSet(...)`, but none of the 16 grid-editing *Impl functions await tgSave()\'s own returned promise -- so tgWithLiveEditorGrids()\'s `finally` block (which deletes TG_STATE._realGridsDuringSwap/_realAssignDuringSwap) runs SYNCHRONOUSLY the instant tgSave() is merely CALLED, not after it actually finishes. Reading those two fields LATER in tgSave()\'s own function body (after its own await had already yielded control back to the caller) could read them as already-deleted/undefined from this race alone, reproducing the identical Firestore error through a completely different mechanism than root cause #1, even with #1 already fixed. Confirmed directly: a standalone simulation without the fix showed the scratch field already gone by the time it was read; the same simulation WITH the fix showed it correctly still present. FIX: tgSave() now captures _tgSavingLiveEditorGrids and both true grids/assign values as its very FIRST synchronous statements, before anything else in the function runs (including the scheduled-snapshot re-sync block, which also needed the true values and was updated to use this same snapshot) -- guaranteed to run before the caller\'s finally block gets a chance to fire, since JavaScript never yields control mid-way through a run of synchronous statements. VERIFIED: 21 script blocks node --check clean; div-balance confirmed unchanged at the established +2 baseline; a full end-to-end simulation reproducing the EXACT race (unawaited async save, real setTimeout-based delay standing in for the real Firestore round-trip) confirms the correct data (Times\' true grids, not the live editor\'s) is now written successfully with no error, whereas the same simulation without either fix reproduces the exact reported failure. CODE_BUILD=1439.' },
@@ -29785,6 +29834,29 @@ function tgLoad() {
         // their dashboard while this resolves sees the up-to-date draft/
         // schedule/toggle state without needing to refresh.
         try { if (typeof fdbRenderDraftPreview === 'function') fdbRenderDraftPreview(); } catch (e2) {}
+        // 2026-09-21 — same class of gap, found via direct admin report with
+        // screenshots: the Timetable Viewer (View Timetable → Class View)
+        // reads real per-class slot times through tgAxisForClass()/
+        // ttBuildGrid()/ttBuildGridTransposed(), which depend on
+        // TG_STATE.assign/grids exactly like tgRenderPanel() and
+        // fdbRenderDraftPreview() above — but unlike those two, nothing
+        // ever re-rendered the Viewer once this async Firebase catch-up
+        // landed. So a Class View grid that first painted from the
+        // synchronous localStorage snapshot (tgLoad()'s own fast path,
+        // above) — before a real Time Grid assignment had made it into
+        // that snapshot yet — kept showing the OLD hardcoded LM_SLOTS_ORDER
+        // literal (08.30, 10.45, 01.15...) as tgAxisForClass()'s empty-
+        // result fallback, permanently, until the admin navigated away and
+        // back and forced a fresh render. A page refresh "fixed" it only
+        // because tgLoad()'s localStorage snapshot was, BY THEN, already
+        // the one this same catch-up had written on the PREVIOUS load —
+        // not because the underlying gap was closed. FIX: re-render the
+        // Viewer here too, same guarded pattern as the two calls above —
+        // only if the panel is actually open (#ttv-grid exists), so this
+        // never fires pointless work on every other page.
+        try {
+          if (document.getElementById('ttv-grid') && typeof ttRenderViewer === 'function') ttRenderViewer();
+        } catch (e2) {}
       }).catch(function (e) { console.warn('[TG] Firebase catch-up failed', e && e.message); });
     }
   } catch (e) { console.warn('[TG] Firebase load failed', e && e.message); }
@@ -30175,19 +30247,43 @@ function tgBreakStripHtmlForClass(c) {
   // "Break" fallback if a real label exists for the same gap from another
   // grid), matching admin's explicit request: "its same for all i belive
   // use one only for all faulty defulty".
-  const seenBreaks = {}; // "start-end" -> { label, mins, start, end }
+  //
+  // 2026-09-21 REAL BUG FOUND, confirmed by direct admin report with a
+  // screenshot: renaming "1 bba"'s own break to Leisure/15m (correct, and
+  // confirmed saved — "✓ saved" visible in the editor) did NOT fix the
+  // strip shown under I YEAR B.Com — it kept showing 45m for a gap the
+  // admin had just set to 15m. Root cause: the v1425 "prefer a named
+  // label over the bare Break fallback" rule only looks at whether a
+  // label exists, never whether the DURATION also matches. If this class
+  // is assigned two different grids across its 6 days (a genuinely common
+  // setup now that grids are usually per-class-per-timing), and BOTH
+  // grids happen to have a gap starting at the exact same clock time but
+  // with a DIFFERENT length (this class's real grid: 15m; some other
+  // day's grid: 45m, unrelated to what the admin is actually editing),
+  // the old rule would silently keep whichever one had a name — even
+  // when that means substituting the WRONG grid's duration for the one
+  // the admin is actually looking at and just fixed. A name says nothing
+  // about which duration is the currently-correct one. FIX: the merge
+  // key now includes the actual duration, not just the start time — two
+  // breaks starting at the same clock time but lasting different amounts
+  // are no longer treated as "the same break" and silently collapsed;
+  // each real distinct duration shows as its own chip, so the true
+  // currently-assigned grid's real numbers can never be hidden behind a
+  // stale duration from a different grid.
+  const seenBreaks = {}; // "start-end-mins" -> { label, mins, start, end }
   Object.keys(usedGridIds).forEach(function (gid) {
     const grid = TG_STATE.grids[gid];
     if (!grid) return;
     const sortedP = grid.periods.slice().sort(function (a, b) { return a.start - b.start; });
     for (var k = 1; k < sortedP.length; k++) {
       if (sortedP[k].start > sortedP[k - 1].end) {
-        const key = sortedP[k - 1].end + '-' + sortedP[k].start;
+        const mins = sortedP[k].start - sortedP[k - 1].end;
+        const key = sortedP[k - 1].end + '-' + sortedP[k].start + '-' + mins;
         const lbl = (grid.breakLabels && grid.breakLabels[sortedP[k - 1].start]) || 'Break';
         const existing = seenBreaks[key];
-        // Prefer a real, named label over the bare "Break" fallback if both exist for the same gap.
+        // Prefer a real, named label over the bare "Break" fallback if both exist for the same gap+duration.
         if (!existing || (existing.label === 'Break' && lbl !== 'Break')) {
-          seenBreaks[key] = { label: lbl, mins: sortedP[k].start - sortedP[k - 1].end, start: sortedP[k - 1].end, end: sortedP[k].start };
+          seenBreaks[key] = { label: lbl, mins: mins, start: sortedP[k - 1].end, end: sortedP[k].start };
         }
       }
     }
@@ -30212,6 +30308,12 @@ function tgBreakStripTextForClass(c) {
   days.forEach(function (d) { const g = tgGridFor(c, d); if (g) usedGridIds[g.id] = true; });
   // v1425: same content-based de-duplication as tgBreakStripHtmlForClass()
   // — see that function's comment for the full explanation.
+  //
+  // 2026-09-21: same real fix as tgBreakStripHtmlForClass() above — the
+  // merge key now includes duration, not just start time, so a stale
+  // duration from a different grid can never silently override this
+  // class's real currently-assigned break length. See that function's
+  // comment for the full root-cause explanation.
   const seenBreaks = {};
   Object.keys(usedGridIds).forEach(function (gid) {
     const grid = TG_STATE.grids[gid];
@@ -30219,11 +30321,12 @@ function tgBreakStripTextForClass(c) {
     const sortedP = grid.periods.slice().sort(function (a, b) { return a.start - b.start; });
     for (var k = 1; k < sortedP.length; k++) {
       if (sortedP[k].start > sortedP[k - 1].end) {
-        const key = sortedP[k - 1].end + '-' + sortedP[k].start;
+        const mins = sortedP[k].start - sortedP[k - 1].end;
+        const key = sortedP[k - 1].end + '-' + sortedP[k].start + '-' + mins;
         const lbl = (grid.breakLabels && grid.breakLabels[sortedP[k - 1].start]) || 'Break';
         const existing = seenBreaks[key];
         if (!existing || (existing.label === 'Break' && lbl !== 'Break')) {
-          seenBreaks[key] = { label: lbl, mins: sortedP[k].start - sortedP[k - 1].end, start: sortedP[k - 1].end, end: sortedP[k].start };
+          seenBreaks[key] = { label: lbl, mins: mins, start: sortedP[k - 1].end, end: sortedP[k].start };
         }
       }
     }
@@ -30954,6 +31057,9 @@ function tgPrintDraft() {
     '.pday, .pslot { background:#f0f0f0; font-weight:700; font-size:9px; }' +
     '.pdn { background:#f7f7f7; font-weight:700; font-size:10px; }' +
     '.pc { font-weight:600; height:15px; white-space:nowrap; }' +
+    '.pbrk { background:#e3f2fd; color:#1565c0; padding:0; }' +
+    '.pbrk-inner { writing-mode:vertical-rl; text-orientation:mixed; letter-spacing:1px; white-space:nowrap; display:flex; align-items:center; justify-content:center; height:100%; width:100%; box-sizing:border-box; padding:2px 0; }' +
+    'th.pbrk { writing-mode:vertical-rl; text-orientation:mixed; letter-spacing:1px; white-space:nowrap; vertical-align:middle; }' +
     '.pnote { font-size:10px; color:#5d4037; background:#fff8e1; border-left:3px solid #ffb300; padding:2px 6px; margin-top:3px; border-radius:0 3px 3px 0; }' +
     '.pfoot { display:flex; justify-content:space-between; margin-top:12px; padding:0 40px; }' +
     '.psign { text-align:center; font-size:12px; } .psign .pn { font-weight:700; }' +
@@ -31041,24 +31147,53 @@ function tgDownloadDraftExcel() {
     const blocks = built.map(function (cls) {
       return tgWithDraftOneClass(cls, function () {
         const meta = (typeof lmGetClassMeta === 'function') ? lmGetClassMeta(cls) : {};
-        const morning = LM_SLOTS_ORDER.filter(function (s) { return parseInt(s.split('.')[0], 10) >= 7; });
-        const afternoon = LM_SLOTS_ORDER.filter(function (s) { return parseInt(s.split('.')[0], 10) <= 5; });
+        // 2026-09-21: same real-data-first fallback already applied to
+        // ttBuildGrid()/ttBuildGridTransposed()/_ttPrintClassGrid() — never
+        // fall straight back to LM_SLOTS_ORDER's own stale hardcoded
+        // literal for this class's axis. tgWithDraftOneClass() already
+        // points LM_SLOTS_ORDER/LM_TIMETABLE at this one class's draft
+        // data for the duration of this callback, so LM_TIMETABLE here IS
+        // already this class's own real rows — derive the axis from them
+        // directly when the class has no grid of its own assigned yet.
+        const _rowSlotsForClassX = [...new Set(LM_TIMETABLE.filter(function (t) { return t.class === cls; }).map(function (t) { return t.slot; }).filter(Boolean))]
+          .sort(function (a, b) { return tgSlotStartMin(a) - tgSlotStartMin(b); });
+        const _axisSrc = (_rowSlotsForClassX.length ? _rowSlotsForClassX : LM_SLOTS_ORDER);
+        const morning = _axisSrc.filter(function (s) { return parseInt(s.split('.')[0], 10) >= 7; });
+        const afternoon = _axisSrc.filter(function (s) { return parseInt(s.split('.')[0], 10) <= 5; });
         const allSlots = morning.concat(afternoon);
         const map = {};
         LM_TIMETABLE.filter(function (t) { return t.class === cls; }).forEach(function (t) {
           map[t.slot] = map[t.slot] || {};
           map[t.slot][t.day] = t.code;
         });
+        // Real break name+duration for this class (same source the
+        // on-screen chip strip, Class View's break column, and Print all
+        // already use), so a gap here can never show the generic word
+        // "BREAK" when the admin has actually named/timed it (Leisure
+        // 15m, Lunch 45m, etc) — keyed by the gap's own start minute.
+        const _classBreaksX = (typeof tgBreakStripTextForClass === 'function') ? (tgBreakStripTextForClass(cls) || []) : [];
+        const _breakByStartX = {};
+        _classBreaksX.forEach(function (line) {
+          const m = /^(.*)\s(\d+)m\s·\s(\d{2}\.\d{2})–(\d{2}\.\d{2})$/.exec(line);
+          if (!m) return;
+          const startMin = tgHHMMtoMin(m[3]);
+          _breakByStartX[startMin] = m[1].trim() + ' ' + m[2] + 'm';
+        });
         // A BREAK column is inserted between two adjacent real slots
         // wherever this class's own grid actually has a time gap there --
         // read straight off the axis's own start/end minutes, not assumed.
+        // This single sequential list also naturally catches the Lunch
+        // gap (Morning's last slot -> Afternoon's first slot), since both
+        // halves are concatenated into one list before this loop runs.
         const cols = [];
         for (let i = 0; i < allSlots.length; i++) {
           cols.push({ type: 'slot', slot: allSlots[i] });
           if (i + 1 < allSlots.length) {
             const curEnd = tgSlotEndMin(allSlots[i]);
             const nextStart = tgSlotStartMin(allSlots[i + 1]);
-            if (!isNaN(curEnd) && !isNaN(nextStart) && nextStart > curEnd) cols.push({ type: 'break' });
+            if (!isNaN(curEnd) && !isNaN(nextStart) && nextStart > curEnd) {
+              cols.push({ type: 'break', label: _breakByStartX[curEnd] || 'Break' });
+            }
           }
         }
         return { cls: cls, meta: meta, cols: cols, map: map };
@@ -31105,7 +31240,7 @@ function tgDownloadDraftExcel() {
         put(rowTop + 1, c0, 'Day/Time'); styleMap[(rowTop + 1) + ',' + c0] = dayHeadStyle;
         bl.cols.forEach(function (col, ci) {
           const cc = c0 + 1 + ci;
-          put(rowTop + 1, cc, col.type === 'break' ? 'BREAK' : col.slot.replace(' to ', '\u2013'));
+          put(rowTop + 1, cc, col.type === 'break' ? col.label : col.slot.replace(' to ', '\u2013'));
           styleMap[(rowTop + 1) + ',' + cc] = dayHeadStyle;
         });
 
@@ -31115,7 +31250,7 @@ function tgDownloadDraftExcel() {
           bl.cols.forEach(function (col, ci) {
             const cc = c0 + 1 + ci;
             if (col.type === 'break') {
-              put(rr, cc, di === 0 ? 'BREAK' : '');
+              put(rr, cc, di === 0 ? col.label : '');
               styleMap[rr + ',' + cc] = breakStyle;
             } else {
               const val = (bl.map[col.slot] && bl.map[col.slot][d]) || '';
@@ -31243,6 +31378,169 @@ function tgDownloadDraftExcel() {
 
   XLSX.writeFile(wb, 'draft-timetable-' + tgTodayISO() + '.xlsx');
   if (typeof dvToast === 'function') dvToast('Draft timetable Excel downloaded \u2014 Summary + All Faculty sheets.', 'success', 4000);
+}
+
+// 2026-09-21 FEATURE per direct admin request: Class View / View Timetable
+// only ever had a Faculty Excel button (ttDownloadFacultyExcel) — no
+// per-class Excel export existed for the LIVE timetable at all, only for
+// the separate Times/Draft page (tgDownloadDraftExcel, above). This is
+// that missing counterpart: same proven Summary-sheet shape (classes two
+// per row, real merged BREAK column with the class's own real name+
+// duration, thin borders, navy header fill) as tgDownloadDraftExcel()'s
+// own Summary sheet — deliberately reusing that exact tested layout, not
+// a new one — but sourced from the LIVE timetable (LM_TIMETABLE/
+// ttGetClasses()) rather than the draft, and covering every class that
+// actually has saved timetable rows (not gated on a Time Grid assignment,
+// since the live timetable can be populated with or without one).
+function ttDownloadClassExcel() {
+  if (typeof XLSX === 'undefined') { if (typeof dvToast === 'function') dvToast('XLSX not loaded \u2014 check your connection and reload.', 'error', 5000); return; }
+  if ((!LM_TIMETABLE || !LM_TIMETABLE.length)) { try { lmLoadData(); } catch (e) {} }
+  const allClasses = (typeof ttGetClasses === 'function') ? ttGetClasses() : [];
+  const built = allClasses.filter(function (c) { return LM_TIMETABLE.some(function (t) { return t.class === c; }); });
+  if (!built.length) { if (typeof dvToast === 'function') dvToast('No timetable data to export yet.', 'error', 4000); return; }
+
+  const thin = { style: 'thin' };
+  const border = { top: thin, bottom: thin, left: thin, right: thin };
+  const titleStyle    = { font: { bold: true, sz: 16, color: { rgb: '1A237E' } }, alignment: { horizontal: 'center' } };
+  const subTitleStyle = { font: { bold: true, sz: 10, color: { rgb: 'B71C1C' } }, alignment: { horizontal: 'center' } };
+  const metaStyle     = { font: { sz: 9 }, alignment: { horizontal: 'center' } };
+  const clsHeadStyle  = { font: { bold: true, sz: 10 }, alignment: { horizontal: 'left', vertical: 'center' }, fill: { fgColor: { rgb: 'FFF3E0' } }, border: border };
+  const dayHeadStyle  = { font: { bold: true, color: { rgb: 'FFFFFF' } }, alignment: { horizontal: 'center', vertical: 'center' }, fill: { fgColor: { rgb: '1A237E' } }, border: border };
+  const dayLabelStyle = { font: { bold: true }, alignment: { horizontal: 'center', vertical: 'center' }, fill: { fgColor: { rgb: 'EEEEEE' } }, border: border };
+  const cellStyle     = { alignment: { horizontal: 'center', vertical: 'center' }, border: border, font: { sz: 9 } };
+  const breakStyle    = { alignment: { horizontal: 'center', vertical: 'center', textRotation: 90 }, fill: { fgColor: { rgb: 'FFE0B2' } }, font: { bold: true, sz: 9 }, border: border };
+
+  const wb = XLSX.utils.book_new();
+  const days = LM_DAYS_ORDER;
+  const BRAND = (typeof BRAND_DEFAULT !== 'undefined') ? BRAND_DEFAULT : {};
+  const now = new Date();
+  const genStamp = now.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+
+  // Pre-compute each class's own block — same axis-resolution priority as
+  // ttBuildGrid()/ttBuildGridTransposed()/_ttPrintClassGrid(): this
+  // class's real Time Grid axis first, falling back to its own saved
+  // rows' real slot strings, never the shared page-wide LM_SLOTS_ORDER
+  // literal, so a class whose grid differs from whatever is loaded in
+  // memory can never show the wrong times here either.
+  const blocks = built.map(function (cls) {
+    const meta = (typeof lmGetClassMeta === 'function') ? lmGetClassMeta(cls) : {};
+    const _rowSlotsForClassY = [...new Set(LM_TIMETABLE.filter(function (t) { return t.class === cls; }).map(function (t) { return t.slot; }).filter(Boolean))]
+      .sort(function (a, b) { return tgSlotStartMin(a) - tgSlotStartMin(b); });
+    const _classAxisY = (typeof tgAxisForClass === 'function') ? tgAxisForClass(cls) : [];
+    const _axisSrc = (_classAxisY && _classAxisY.length) ? _classAxisY : (_rowSlotsForClassY.length ? _rowSlotsForClassY : LM_SLOTS_ORDER);
+    const morning = _axisSrc.filter(function (s) { return parseInt(s.split('.')[0], 10) >= 7; });
+    const afternoon = _axisSrc.filter(function (s) { return parseInt(s.split('.')[0], 10) <= 5; });
+    const allSlots = morning.concat(afternoon);
+    const map = {};
+    LM_TIMETABLE.filter(function (t) { return t.class === cls; }).forEach(function (t) {
+      map[t.slot] = map[t.slot] || {};
+      map[t.slot][t.day] = t.code;
+    });
+    const _classBreaksY = (typeof tgBreakStripTextForClass === 'function') ? (tgBreakStripTextForClass(cls) || []) : [];
+    const _breakByStartY = {};
+    _classBreaksY.forEach(function (line) {
+      const m = /^(.*)\s(\d+)m\s·\s(\d{2}\.\d{2})–(\d{2}\.\d{2})$/.exec(line);
+      if (!m) return;
+      const startMin = tgHHMMtoMin(m[3]);
+      _breakByStartY[startMin] = m[1].trim() + ' ' + m[2] + 'm';
+    });
+    const cols = [];
+    for (let i = 0; i < allSlots.length; i++) {
+      cols.push({ type: 'slot', slot: allSlots[i] });
+      if (i + 1 < allSlots.length) {
+        const curEnd = tgSlotEndMin(allSlots[i]);
+        const nextStart = tgSlotStartMin(allSlots[i + 1]);
+        if (!isNaN(curEnd) && !isNaN(nextStart) && nextStart > curEnd) {
+          cols.push({ type: 'break', label: _breakByStartY[curEnd] || 'Break' });
+        }
+      }
+    }
+    return { cls: cls, meta: meta, cols: cols, map: map };
+  });
+
+  const aoa = [];
+  const styleMap = {};
+  const merges = [];
+  function put(r, c, v, style) {
+    aoa[r] = aoa[r] || [];
+    aoa[r][c] = v;
+    if (style) styleMap[r + ',' + c] = style;
+  }
+
+  let maxColsUsed = 6;
+  blocks.forEach(function (bl) { maxColsUsed = Math.max(maxColsUsed, bl.cols.length + 1); });
+  const blockWidth = maxColsUsed + 1;
+  const totalCols = blockWidth * 2 - 1;
+
+  put(0, 0, BRAND.collegeName || 'College'); styleMap['0,0'] = titleStyle;
+  merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } });
+  put(1, 0, BRAND.subtitle || ''); styleMap['1,0'] = subTitleStyle;
+  merges.push({ s: { r: 1, c: 0 }, e: { r: 1, c: totalCols - 1 } });
+  let ayLabel = '';
+  try { if (typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG) ayLabel = (SESSION_CONFIG.academicYear || '') + ' ' + (SESSION_CONFIG.semType || ''); } catch (e) {}
+  put(2, 0, 'MASTER TIMETABLE' + (ayLabel ? '  \u2014  ' + ayLabel + ' Semester' : '') + '   |   Generated: ' + genStamp);
+  styleMap['2,0'] = metaStyle;
+  merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: totalCols - 1 } });
+  let r = 4;
+
+  for (let i = 0; i < blocks.length; i += 2) {
+    const left = blocks[i];
+    const right = blocks[i + 1] || null;
+    const rowTop = r;
+    [left, right].forEach(function (bl, side) {
+      if (!bl) return;
+      const c0 = side === 0 ? 0 : blockWidth;
+      const metaBits = [];
+      if (bl.meta.room) metaBits.push('Room: ' + bl.meta.room);
+      if (bl.meta.strength) metaBits.push(bl.meta.strength + ' students');
+      put(rowTop, c0, bl.cls + (metaBits.length ? '  (' + metaBits.join(' \u00b7 ') + ')' : ''));
+      styleMap[rowTop + ',' + c0] = clsHeadStyle;
+      merges.push({ s: { r: rowTop, c: c0 }, e: { r: rowTop, c: c0 + bl.cols.length } });
+
+      put(rowTop + 1, c0, 'Day/Time'); styleMap[(rowTop + 1) + ',' + c0] = dayHeadStyle;
+      bl.cols.forEach(function (col, ci) {
+        const cc = c0 + 1 + ci;
+        put(rowTop + 1, cc, col.type === 'break' ? col.label : col.slot.replace(' to ', '\u2013'));
+        styleMap[(rowTop + 1) + ',' + cc] = dayHeadStyle;
+      });
+
+      days.forEach(function (d, di) {
+        const rr = rowTop + 2 + di;
+        put(rr, c0, d); styleMap[rr + ',' + c0] = dayLabelStyle;
+        bl.cols.forEach(function (col, ci) {
+          const cc = c0 + 1 + ci;
+          if (col.type === 'break') {
+            put(rr, cc, di === 0 ? col.label : '');
+            styleMap[rr + ',' + cc] = breakStyle;
+          } else {
+            const val = (bl.map[col.slot] && bl.map[col.slot][d]) || '';
+            put(rr, cc, val);
+            styleMap[rr + ',' + cc] = cellStyle;
+          }
+        });
+      });
+      bl.cols.forEach(function (col, ci) {
+        if (col.type !== 'break') return;
+        const cc = c0 + 1 + ci;
+        merges.push({ s: { r: rowTop + 2, c: cc }, e: { r: rowTop + 2 + days.length - 1, c: cc } });
+      });
+    });
+    r = rowTop + 2 + days.length + 1;
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = Array(totalCols).fill({ wch: 10 });
+  ws['!merges'] = merges;
+  Object.keys(styleMap).forEach(function (key) {
+    const parts = key.split(',');
+    const rr = parseInt(parts[0], 10), cc = parseInt(parts[1], 10);
+    const addr = XLSX.utils.encode_cell({ r: rr, c: cc });
+    if (!ws[addr]) ws[addr] = { t: 's', v: (aoa[rr] && aoa[rr][cc]) || '' };
+    ws[addr].s = styleMap[key];
+  });
+  XLSX.utils.book_append_sheet(wb, ws, 'Summary');
+  XLSX.writeFile(wb, 'master-timetable-' + tgTodayISO() + '.xlsx');
+  if (typeof dvToast === 'function') dvToast('Class timetable Excel downloaded.', 'success', 4000);
 }
 
 function tgToggleTranspose() {
@@ -34834,11 +35132,41 @@ function _ttPrintClassGrid(cls) {
   // this class's own real axis (tgAxisForClass), not the shared page-wide
   // LM_SLOTS_ORDER, so the printed sheet shows this class's actual grid
   // times rather than whatever grid happened to be loaded in memory.
+  //
+  // 2026-09-21: same further fix already applied to ttBuildGrid()/
+  // ttBuildGridTransposed() — never fall back straight to LM_SLOTS_ORDER's
+  // own stale hardcoded literal; derive from this class's own real saved
+  // rows first. See those functions' matching comments for the full
+  // root-cause explanation.
+  const _rowSlotsForClassP = [...new Set(entries.map(t => t.slot).filter(Boolean))]
+    .sort((a, b) => {
+      const ta = (typeof tgSlotStartMin === 'function') ? tgSlotStartMin(a) : 0;
+      const tb = (typeof tgSlotStartMin === 'function') ? tgSlotStartMin(b) : 0;
+      return ta - tb;
+    });
   const _classAxisP = (typeof tgAxisForClass === 'function') ? tgAxisForClass(cls) : [];
-  const _slotsForThisClassP = (_classAxisP && _classAxisP.length) ? _classAxisP : LM_SLOTS_ORDER;
+  const _slotsForThisClassP = (_classAxisP && _classAxisP.length)
+    ? _classAxisP
+    : (_rowSlotsForClassP.length ? _rowSlotsForClassP : LM_SLOTS_ORDER);
   const morning   = _slotsForThisClassP.filter(s => parseInt(s.split('.')[0], 10) >= 7);
   const afternoon = _slotsForThisClassP.filter(s => parseInt(s.split('.')[0], 10) <= 5);
   const esc = s => (s || '').replace(/</g, '&lt;');
+
+  // 2026-09-21 FEATURE: same merged break column View Timetable's Class
+  // View (transposed) now shows, added here so the printed sheet matches
+  // it exactly — real gaps in this class's own axis (never a guess),
+  // labeled from the SAME tgBreakStripTextForClass() source the on-screen
+  // chip strip above this grid already uses, so print can never disagree
+  // with what the admin sees on screen for the same class.
+  const _classBreaksP = (typeof tgBreakStripTextForClass === 'function') ? (tgBreakStripTextForClass(cls) || []) : [];
+  const _breakByStartP = {};
+  _classBreaksP.forEach(function (line) {
+    const m = /^(.*)\s(\d+)m\s·\s(\d{2}\.\d{2})–(\d{2}\.\d{2})$/.exec(line);
+    if (!m) return;
+    const startMin = (typeof tgHHMMtoMin === 'function') ? tgHHMMtoMin(m[3]) : null;
+    if (startMin == null) return;
+    _breakByStartP[startMin] = { label: m[1].trim(), mins: m[2] };
+  });
 
   function codeCell(slot, day) {
     const raw = (map[slot] && map[slot][day]) || '';
@@ -34853,15 +35181,64 @@ function _ttPrintClassGrid(cls) {
                .trim();
     return `<td class="pc">${esc(disp)}</td>`;
   }
-  function section(slots, label) {
+  function section(slots, label, trailingBreak) {
     if (!slots.length) return '';
-    const head = `<tr><th class="pday">Day</th>${slots.map(s => `<th class="pslot">${esc(s.replace(' to ', '-'))}</th>`).join('')}</tr>`;
-    const body = days.map(d =>
-      `<tr><td class="pdn">${d.slice(0, 3)}</td>${slots.map(s => codeCell(s, d)).join('')}</tr>`
+    // Build the mixed slot/break column list, same shape as the on-screen
+    // transposed grid: a break column inserted wherever a real gap exists
+    // between two consecutive slots, plus an optional trailing break
+    // (used for Lunch — the gap between the Morning and Afternoon tables,
+    // which has no "next slot" inside either section's own list).
+    const cols = [];
+    slots.forEach((s, i) => {
+      cols.push({ type: 'slot', slot: s });
+      if (i < slots.length - 1 && typeof tgSlotEndMin === 'function' && typeof tgSlotStartMin === 'function') {
+        const endMin = tgSlotEndMin(s);
+        const nextStart = tgSlotStartMin(slots[i + 1]);
+        if (nextStart > endMin) {
+          const br = _breakByStartP[endMin] || { label: 'Break', mins: String(nextStart - endMin) };
+          cols.push({ type: 'break', label: br.label, mins: br.mins });
+        }
+      }
+    });
+    if (trailingBreak) cols.push(trailingBreak);
+    const colCount = cols.length + 1;
+    const head = `<tr><th class="pday">Day</th>${cols.map(c => c.type === 'slot'
+      ? `<th class="pslot">${esc(c.slot.replace(' to ', '-'))}</th>`
+      : `<th class="pslot pbrk">${esc(c.label)} ${c.mins}m</th>`
+    ).join('')}</tr>`;
+    const body = days.map((d, dayIdx) =>
+      `<tr><td class="pdn">${d.slice(0, 3)}</td>${cols.map(c => {
+        if (c.type === 'break') {
+          if (dayIdx > 0) return ''; // covered by the first row's rowspan
+          // 2026-09-21 per direct admin screenshot: the rotated break text
+          // sat pinned to the TOP of the tall rowspan cell instead of
+          // centered — vertical-align:middle does not reliably center
+          // writing-mode:vertical-rl text across browsers/print engines.
+          // FIX: wrap the label in an inner flex container that fills the
+          // cell height and centers its content on both axes — this is
+          // the robust way to center rotated text regardless of engine,
+          // rather than relying on vertical-align against rotated content.
+          return `<td class="pc pbrk" rowspan="${days.length}"><div class="pbrk-inner">${esc(c.label)} ${c.mins}m</div></td>`;
+        }
+        return codeCell(c.slot, d);
+      }).join('')}</tr>`
     ).join('');
-    return `<table class="ptab"><thead><tr><th class="psec" colspan="${slots.length + 1}">${label}</th></tr>${head}</thead><tbody>${body}</tbody></table>`;
+    return `<table class="ptab"><thead><tr><th class="psec" colspan="${colCount}">${label}</th></tr>${head}</thead><tbody>${body}</tbody></table>`;
   }
-  return `<div class="pgrids">${section(morning, 'Morning')}${section(afternoon, 'Afternoon')}</div>`;
+  // Lunch: the gap between Morning's last slot and Afternoon's first slot
+  // sits ACROSS the two separate tables — attach it as a trailing column
+  // at the end of the Morning table, same convention the on-screen
+  // transposed grid already uses for the exact same reason.
+  let lunchBreak = null;
+  if (morning.length && afternoon.length && typeof tgSlotEndMin === 'function' && typeof tgSlotStartMin === 'function') {
+    const lastMorningEnd = tgSlotEndMin(morning[morning.length - 1]);
+    const firstAfternoonStart = tgSlotStartMin(afternoon[0]);
+    if (firstAfternoonStart > lastMorningEnd) {
+      const br = _breakByStartP[lastMorningEnd] || { label: 'Break', mins: String(firstAfternoonStart - lastMorningEnd) };
+      lunchBreak = { type: 'break', label: br.label, mins: br.mins };
+    }
+  }
+  return `<div class="pgrids">${section(morning, 'Morning', lunchBreak)}${section(afternoon, 'Afternoon', null)}</div>`;
 }
 
 function ttPrintMaster() {
@@ -34964,6 +35341,9 @@ function ttPrintMaster() {
   .pday, .pslot { background:#f0f0f0; font-weight:700; font-size:9px; }
   .pdn { background:#f7f7f7; font-weight:700; font-size:10px; }
   .pc { font-weight:600; height:15px; white-space:nowrap; }
+  .pbrk { background:#e3f2fd; color:#1565c0; padding:0; }
+  .pbrk-inner { writing-mode:vertical-rl; text-orientation:mixed; letter-spacing:1px; white-space:nowrap; display:flex; align-items:center; justify-content:center; height:100%; width:100%; box-sizing:border-box; padding:2px 0; }
+  th.pbrk { writing-mode:vertical-rl; text-orientation:mixed; letter-spacing:1px; white-space:nowrap; vertical-align:middle; }
   .pnote { font-size:10px; color:#5d4037; background:#fff8e1; border-left:3px solid #ffb300; padding:2px 6px; margin-top:3px; border-radius:0 3px 3px 0; }
   .pfoot { display:flex; justify-content:space-between; margin-top:12px; padding:0 40px; }
   .psign { text-align:center; font-size:12px; }
@@ -35311,16 +35691,28 @@ function ttDownloadFacultyExcel() {
 }
 
 let ttvMode       = 'class'; // 'class' | 'faculty' | 'faculty-only' | 'subject-index'
-let ttvTransposed = false;   // false = slots as rows | true = days as rows (like editor ⇄)
+// Default ON per admin request; remembered across reloads via localStorage
+// so once the admin turns it off, it stays off (only an explicit toggle changes it).
+let ttvTransposed = (function(){
+  try {
+    const saved = localStorage.getItem('davan_ttv_transposed');
+    return saved === null ? true : saved === '1';
+  } catch(e) { return true; }
+})();
 
-function ttvToggleTranspose() {
-  ttvTransposed = !ttvTransposed;
+function _ttvSyncTransposeBtn() {
   const btn = document.getElementById('ttv-btn-transpose');
   if (btn) {
     btn.style.background = ttvTransposed ? 'rgba(96,165,250,0.2)' : '#111';
     btn.style.color      = ttvTransposed ? '#60a5fa' : '#aaa';
     btn.style.border     = ttvTransposed ? '1px solid rgba(96,165,250,0.5)' : '1px solid #2a2a2a';
   }
+}
+
+function ttvToggleTranspose() {
+  ttvTransposed = !ttvTransposed;
+  try { localStorage.setItem('davan_ttv_transposed', ttvTransposed ? '1' : '0'); } catch(e) {}
+  _ttvSyncTransposeBtn();
   ttRenderViewer();
 }
 
@@ -36102,8 +36494,40 @@ function ttBuildGrid(cls, editable, showFaculty, showCt) {
   // one is available, falling back to LM_SLOTS_ORDER only if it genuinely
   // returns nothing (e.g. no grid assigned at all) — never something
   // page-wide standing in for what this specific class actually uses.
+  //
+  // 2026-09-21: FURTHER real bug found and confirmed by direct admin
+  // screenshots — tgAxisForClass(cls) depends on TG_STATE.assign/grids,
+  // which tgLoad() populates SYNCHRONOUSLY from localStorage first and
+  // only refreshes from Firestore a moment later, asynchronously (see
+  // that function's own comment). On a fresh session (or any device
+  // whose localStorage hasn't caught up yet), a real, already-assigned
+  // Time Grid can genuinely not be in TG_STATE yet at the exact instant
+  // this renders — tgAxisForClass() then legitimately returns [], and the
+  // old fallback landed on LM_SLOTS_ORDER's own hardcoded startup literal
+  // (08.30, 10.45, 01.15...) — dead times from the very first default
+  // grid this file ever shipped with, now leaking into a live class's
+  // view. A page refresh only ever "fixed" it by coincidence: by then the
+  // async Firestore catch-up from the PREVIOUS load had already written
+  // the real grid into localStorage, so tgLoad()'s synchronous read
+  // started from correct data the second time. FIX: never fall back to
+  // that literal here. Derive the axis instead from this class's OWN
+  // real saved rows (`entries`, already fetched from Firestore above,
+  // long before this function runs) — the actual slot strings this class
+  // is really scheduled on cannot be wrong or stale, unlike a page-wide
+  // guess. Only if this class has genuinely no grid AND no saved rows at
+  // all (a brand-new, still-empty class) does LM_SLOTS_ORDER get used —
+  // and by then it is a harmless empty-state fallback, not a source of
+  // wrong data leaking into a real class's view.
+  const _rowSlotsForClass = [...new Set(entries.map(t => t.slot).filter(Boolean))]
+    .sort((a, b) => {
+      const ta = (typeof tgSlotStartMin === 'function') ? tgSlotStartMin(a) : 0;
+      const tb = (typeof tgSlotStartMin === 'function') ? tgSlotStartMin(b) : 0;
+      return ta - tb;
+    });
   const _classAxis = (typeof tgAxisForClass === 'function') ? tgAxisForClass(cls) : [];
-  const _slotsForThisClass = (_classAxis && _classAxis.length) ? _classAxis : LM_SLOTS_ORDER;
+  const _slotsForThisClass = (_classAxis && _classAxis.length)
+    ? _classAxis
+    : (_rowSlotsForClass.length ? _rowSlotsForClass : LM_SLOTS_ORDER);
 
   const morningSlots   = _slotsForThisClass.filter(s => { const h = parseInt(s.split(' ')[0].split('.')[0], 10); return h >= 7; });
   const afternoonSlots = _slotsForThisClass.filter(s => { const h = parseInt(s.split(' ')[0].split('.')[0], 10); return h <= 5; });
@@ -36253,8 +36677,24 @@ function ttBuildGridTransposed(cls, editable, showFaculty, showCt) {
   // real axis, not the shared page-wide LM_SLOTS_ORDER. See that
   // function's comment for the full explanation of the data-loss bug
   // this prevents.
+  //
+  // 2026-09-21: same further fix as ttBuildGrid() above too — never fall
+  // back to LM_SLOTS_ORDER's own stale hardcoded literal when
+  // tgAxisForClass() genuinely returns nothing (TG_STATE not caught up
+  // from Firestore yet on a fresh load). Derive from this class's own
+  // real saved rows first; only an empty, brand-new class with no rows
+  // at all reaches the literal. See ttBuildGrid()'s matching comment for
+  // the full root-cause explanation.
+  const _rowSlotsForClassT = [...new Set(entries.map(t => t.slot).filter(Boolean))]
+    .sort((a, b) => {
+      const ta = (typeof tgSlotStartMin === 'function') ? tgSlotStartMin(a) : 0;
+      const tb = (typeof tgSlotStartMin === 'function') ? tgSlotStartMin(b) : 0;
+      return ta - tb;
+    });
   const _classAxisT = (typeof tgAxisForClass === 'function') ? tgAxisForClass(cls) : [];
-  const _slotsForThisClassT = (_classAxisT && _classAxisT.length) ? _classAxisT : LM_SLOTS_ORDER;
+  const _slotsForThisClassT = (_classAxisT && _classAxisT.length)
+    ? _classAxisT
+    : (_rowSlotsForClassT.length ? _rowSlotsForClassT : LM_SLOTS_ORDER);
 
   const morningSlots   = _slotsForThisClassT.filter(s => { const h = parseInt(s.split(' ')[0].split('.')[0], 10); return h >= 7; });
   const afternoonSlots = _slotsForThisClassT.filter(s => { const h = parseInt(s.split(' ')[0].split('.')[0], 10); return h <= 5; });
@@ -36284,14 +36724,154 @@ function ttBuildGridTransposed(cls, editable, showFaculty, showCt) {
   // Shorten: "08.30 to 09.30" → "08.30"
   const shortSlot = s => s.split(' ')[0];
 
+  // 2026-09-21 FEATURE per direct admin request with reference screenshot
+  // (pic 2: a merged "B R E A K" column sitting between the adjacent real
+  // slot columns, spanning every day row, matching the college's own
+  // printed-timetable convention) — "creat one full row beside that show
+  // make merge and say there Leisure 15m break ans at lunch break also".
+  // Detects a real GAP between two consecutive slots on this class's own
+  // axis (using tgSlotEndMin/tgSlotStartMin, the same real clock-minute
+  // math the rest of the Time Grid system already uses — never a guess)
+  // and inserts a synthetic, non-editable break column there, with a
+  // single cell that spans every day row (rowspan) the way the printed
+  // layout in the reference screenshot does. Labeled with this class's
+  // own real, currently-assigned break name+length via
+  // tgBreakStripTextForClass() (the SAME source already feeding the break
+  // chips above the grid) so it can never show a different, stale
+  // duration than what the admin sees elsewhere — deliberately reusing
+  // that one function rather than re-deriving break info a third time.
+  function breaksForThisClass() {
+    if (typeof tgBreakStripTextForClass !== 'function') return [];
+    try { return tgBreakStripTextForClass(cls) || []; } catch (e) { return []; }
+  }
+  const _classBreaks = breaksForThisClass();
+  // Map "startMin" → break object, so a gap in THIS section's own slot
+  // list can be looked up directly by its real clock-minute boundary.
+  const _breakByStart = {};
+  _classBreaks.forEach(function (line) {
+    // line format: "Leisure 15m · 10.30–11.45" (built by tgBreakStripTextForClass)
+    const m = /^(.*)\s(\d+)m\s·\s(\d{2}\.\d{2})–(\d{2}\.\d{2})$/.exec(line);
+    if (!m) return;
+    const startMin = (typeof tgHHMMtoMin === 'function') ? tgHHMMtoMin(m[3]) : null;
+    if (startMin == null) return;
+    _breakByStart[startMin] = { label: m[1].trim(), mins: m[2], start: m[3], end: m[4] };
+  });
+
   function buildSection(slots, label) {
-    const colCount = slots.length + 1;
+    // Walk the real slots in this section and splice in a break marker
+    // wherever this class's own axis has a genuine gap — i.e. the next
+    // slot's start does not immediately follow the previous slot's end.
+    // `cols` becomes a mixed list of {type:'slot', slot} and
+    // {type:'break', ...} entries, in real left-to-right order.
+    // Read-only viewer ONLY (matches the admin's actual request, which was
+    // about View Timetable / Class View) — the live Edit Timetable grid
+    // keeps its plain slot-only columns so break gaps never intrude on
+    // the editable input layout the admin edits subjects in.
+    const cols = [];
+    slots.forEach((s, i) => {
+      cols.push({ type: 'slot', slot: s });
+      if (!editable && i < slots.length - 1 && typeof tgSlotEndMin === 'function' && typeof tgSlotStartMin === 'function') {
+        const endMin  = tgSlotEndMin(s);
+        const nextStart = tgSlotStartMin(slots[i + 1]);
+        if (nextStart > endMin) {
+          const br = _breakByStart[endMin] || { label: 'Break', mins: String(nextStart - endMin), start: tgMinToHHMM(endMin), end: tgMinToHHMM(nextStart) };
+          // 2026-09-21 REAL BUG FOUND, confirmed by direct admin
+          // screenshot: the header read c.start/c.end, but this push only
+          // ever copied label and mins onto the column object — start and
+          // end were never copied over, so the header always rendered
+          // "undefined - undefined" no matter what br actually held. Copy
+          // start/end through too.
+          cols.push({ type: 'break', label: br.label, mins: br.mins, start: br.start, end: br.end });
+        }
+      }
+    });
+    // 2026-09-21 per direct admin follow-up: "lunch time as Leisure is not
+    // showing still" — Lunch is the gap between the Morning table's LAST
+    // slot and the Afternoon table's FIRST slot, which sits ACROSS the two
+    // separate <table> elements this view already renders side by side —
+    // not within either section's own `slots` list, so the loop above can
+    // never find it (there is no "next slot" after Morning's last one
+    // inside Morning's own array). Appended here instead, as a trailing
+    // column at the end of the MORNING table specifically (Afternoon's own
+    // first slot has no "previous" slot on its side to hang a leading
+    // column off in the same way this file already threads gaps — Morning
+    // is the natural, unambiguous side to attach it to, immediately after
+    // the slot whose end time genuinely equals the gap's start, exactly
+    // like every other break column already does).
+    if (!editable && slots === morningSlots && slots.length && morningSlots.length && afternoonSlots.length
+        && typeof tgSlotEndMin === 'function' && typeof tgSlotStartMin === 'function') {
+      const lastMorningEnd   = tgSlotEndMin(slots[slots.length - 1]);
+      const firstAfternoonStart = tgSlotStartMin(afternoonSlots[0]);
+      if (firstAfternoonStart > lastMorningEnd) {
+        const br = _breakByStart[lastMorningEnd] || { label: 'Break', mins: String(firstAfternoonStart - lastMorningEnd), start: tgMinToHHMM(lastMorningEnd), end: tgMinToHHMM(firstAfternoonStart) };
+        cols.push({ type: 'break', label: br.label, mins: br.mins, start: br.start, end: br.end });
+      }
+    }
+    const colCount = cols.length + 1;
+    // 2026-09-21: column width is controlled entirely by the <col
+    // style="width:26px"> in the <colgroup> below (table-layout:fixed
+    // only respects <col>/<colgroup> widths — a max-width set on a later
+    // <th>/<td> is silently ignored, confirmed by direct rendering).
+    // Simple header style: narrow, rotated, centered — no extra width/
+    // overflow properties needed here since the <col> already does that
+    // job.
+    const breakThStyle = 'padding:2px 0;font-size:9px;font-family:var(--mono);letter-spacing:0.5px;color:#7ab6ff;background:rgba(122,182,255,0.08);border:1px solid var(--border);text-align:center;vertical-align:middle;writing-mode:vertical-rl;text-orientation:mixed;white-space:nowrap;';
+    // 2026-09-21 per direct admin follow-up on the break-column feature
+    // above:
+    // (1) "we ll add full time like 8.30-9.30 9.30-10.30" — a real slot
+    //     header showed only its short start time (shortSlot, "08.30");
+    //     now shows the FULL "08.30-09.30" range, same shape the break
+    //     column's own header already uses.
+    // (2) Break column: header shows the break's own real TIME RANGE
+    //     (e.g. "10.30 - 10.45"), matching every real slot header's
+    //     format.
+    // (3) REVERTED per direct admin correction — "why u made Leisure 15m
+    //     hrrisontal its vertical is correct": the body cell's
+    //     name+duration goes back to vertical (rotated) text, matching
+    //     the original reference screenshot's own "B R E A K"-style
+    //     column. The horizontal version in the immediately prior turn
+    //     was wrong; this restores the original vertical orientation.
+    const fullSlot = s => { const p = s.split(' to '); return p.length === 2 ? (p[0] + '-' + p[1]) : s; };
     const headerRow = `<tr>
       <th style="${thStyle.replace('text-align:center','text-align:left')}color:var(--accent);">Day</th>
-      ${slots.map(s => `<th style="${thStyle}" title="${s}">${shortSlot(s)}</th>`).join('')}
+      ${cols.map(c => c.type === 'slot'
+        ? `<th style="${thStyle}color:var(--accent);" title="${c.slot}">${fullSlot(c.slot)}</th>`
+        : `<th style="${breakThStyle}" title="${tgEsc ? tgEsc(c.label) : c.label} ${c.mins}m">${c.start}-${c.end}</th>`
+      ).join('')}
     </tr>`;
-    const bodyRows = days.map(day => {
-      const cells = slots.map(slot => {
+    // One merged break cell per break column, spanning every day row —
+    // built once (rowspan = days.length), only for the FIRST day's row;
+    // every other day's row simply omits that column entirely, which is
+    // how an HTML rowspan is expressed across sibling <tr>s.
+    const bodyRows = days.map((day, dayIdx) => {
+      const cells = cols.map(c => {
+        if (c.type === 'break') {
+          if (dayIdx > 0) return ''; // covered by the first row's rowspan
+          // 2026-09-21 per direct admin clarification: vertical orientation
+          // 2026-09-21 REAL BUG FOUND by direct admin diff between two
+          // downloaded builds (index_8 vs index_16): an earlier flex-
+          // wrapper attempt (height:100%, writing-mode:vertical-rl) was
+          // the actual cause of oversized rows, not a column-width
+          // problem at all. Rotated text's own LENGTH becomes a HEIGHT
+          // requirement once rotated — and because this cell has rowspan
+          // spanning every day row, that height requirement stretched the
+          // entire tbody, inflating all 5-6 day rows together. Earlier
+          // max-width/overflow caps only ever addressed the WIDTH side of
+          // this same cell, which is exactly why the rows never shrank no
+          // matter what was tried on width alone. REAL FIX, verified
+          // headlessly against the real markup by the admin (table 722px
+          // → 136px, each day row 144px → 27px): take the rotated text
+          // OUT OF FLOW entirely with position:absolute inside a
+          // position:relative cell — an absolutely positioned element
+          // contributes ZERO height to the row it sits in, while still
+          // rendering, staying centered, and keeping the narrow column
+          // width from the <colgroup> fix intact. This exact cell shape
+          // is also what PDF (tgPrintDraft/ttPrintMaster-style print),
+          // Excel (tgDownloadDraftExcel-style exports) and the DB2 push
+          // to the student portal should stay visually consistent with.
+          return `<td rowspan="${days.length}" style="position:relative;border:1px solid var(--border);background:rgba(122,182,255,0.06);color:#7ab6ff;padding:0;"><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:10px;font-family:var(--mono);writing-mode:vertical-rl;text-orientation:mixed;letter-spacing:1px;white-space:nowrap;">${tgEsc ? tgEsc(c.label) : c.label} ${c.mins}m</div></td>`;
+        }
+        const slot = c.slot;
         const code = (map[slot] && map[slot][day]) || '';
         if (editable) {
           const _facLbl2 = (tteShowFacName && typeof _ttCellFacName === 'function') ? _ttCellFacName(cls, code) : '';
@@ -36307,23 +36887,72 @@ function ttBuildGridTransposed(cls, editable, showFaculty, showCt) {
         }
         const bg = code ? 'background:rgba(196,160,42,0.08);' : '';
         if (!code) return `<td style="${tdStyle}"><span style="color:#2a2a2a;">—</span></td>`;
-        const baseC   = lmBaseCode(code);
-        const ct      = showCt ? ttGetCt(cls, baseC) : null;
-        const ctBadge = ct != null ? `<span style="color:var(--muted);font-size:8px;font-family:var(--mono);margin-left:3px;">(${ct})</span>` : '';
         let facHtml = '';
         if (showFaculty) {
           const facList = ttGetFacultyForSlotAll(cls, slot, day);
-          if (facList.length === 1) facHtml = `<div style="font-size:10px;color:var(--text);line-height:1.2;font-family:var(--body);margin-top:2px;">${facList[0].faculty}</div>`;
-          else if (facList.length > 1) facHtml = facList.map(f=>`<div style="font-size:9px;color:var(--text);line-height:1.2;font-family:var(--body);">${f.splitSubject?f.splitSubject+': ':''}${f.faculty}</div>`).join('');
+          if (facList.length > 1) {
+            facHtml = facList.map(f =>
+              `<div style="font-size:9px;margin-top:2px;line-height:1.3;font-family:var(--mono);">` +
+              (f.splitSubject ? `<span style="color:var(--accent);opacity:0.7;">${f.splitSubject}:</span> ` : '') +
+              `<span style="color:#6b7585;">${f.faculty}</span></div>`
+            ).join('');
+          } else if (facList.length === 1) {
+            facHtml = `<div style="font-size:9px;color:#6b7585;margin-top:3px;line-height:1.2;font-family:var(--mono);">${facList[0].faculty}</div>`;
+          }
         }
-        const _parsedT = (typeof lmParseCode === 'function') ? lmParseCode(code) : null;
-        let baseAttrT = (_parsedT && _parsedT.isLab && _parsedT.base) ? _parsedT.base : baseC;
-        if (baseC === 'K/H') baseAttrT = _ttIsPlainHin(code) ? 'K/H|HIN' : 'K/H|KAN|HIN';
-        return `<td class="ttv-cell" data-ttv-base="${String(baseAttrT||'').replace(/"/g,'&quot;')}" style="${tdStyle}${bg}"><strong>${code}</strong>${ctBadge}${facHtml}</td>`;
+        // Rich code display: parse lab/room/time annotations — same as ttBuildGrid()
+        const parsed = lmParseCode(code);
+        let ctHtml = '';
+        if (showCt) {
+          const _hideCt = (typeof _legacyDataInScope === 'function') && !_legacyDataInScope();
+          if (parsed.isSplit) {
+            const kanCt = ttGetCt(cls, 'KAN');
+            const hinCt = ttGetCt(cls, 'K/H');
+            if (kanCt === null && hinCt === null && _hideCt) {
+              ctHtml = '';
+            } else {
+              const kanStr = kanCt !== null ? kanCt : '?';
+              const hinStr = hinCt !== null ? hinCt : '?';
+              ctHtml = `<span style="font-size:9px;color:#facc15;font-family:var(--mono);margin-left:3px;font-weight:700;">${kanStr}/<span style="color:#86efac;">${hinStr}</span></span>`;
+            }
+          } else {
+            const ctVal = ttGetCt(cls, code);
+            ctHtml = ctVal !== null
+              ? `<span style="font-size:9px;color:#facc15;font-family:var(--mono);margin-left:3px;font-weight:700;">${ctVal}</span>`
+              : (_hideCt ? '' : `<span style="font-size:8px;color:#3a3a3a;font-family:var(--mono);margin-left:2px;">?</span>`);
+          }
+        }
+        let codeHtml = `<div style="font-weight:700;font-size:12px;">${parsed.base}${ctHtml}</div>`;
+        if (parsed.isLab) {
+          codeHtml += `<div style="font-size:9px;color:#a78bfa;margin-top:1px;white-space:nowrap;">🧪 ${parsed.batch}·Lab ${parsed.lab}</div>`;
+          if (parsed.timeOverride) codeHtml += `<div style="font-size:9px;color:#fb923c;">⏱ ${parsed.timeOverride}</div>`;
+        } else if (parsed.room) {
+          codeHtml += `<div style="font-size:9px;color:#60a5fa;margin-top:1px;">🚪 ${parsed.room}</div>`;
+        }
+        const cellBase = (parsed.isLab && parsed.base) ? parsed.base : (typeof lmBaseCode === 'function' ? lmBaseCode(code) : parsed.base);
+        let baseAttrT = cellBase || '';
+        if (cellBase === 'K/H') baseAttrT = _ttIsPlainHin(code) ? 'K/H|HIN' : 'K/H|KAN|HIN';
+        return `<td class="ttv-cell" data-ttv-base="${String(baseAttrT||'').replace(/"/g,'&quot;')}" style="${tdStyle}${bg}">${codeHtml}${facHtml}</td>`;
       }).join('');
       return `<tr><td style="${dayTd}">${day.slice(0,3).toUpperCase()}</td>${cells}</tr>`;
     }).join('');
-    return `<colgroup><col style="width:64px;"><col span="${slots.length}"></colgroup><thead><tr><th colspan="${colCount}" style="${secHdr}">${label}</th></tr>${headerRow}</thead><tbody>${bodyRows}</tbody>`;
+    // REAL FIX, this time VERIFIED by actually rendering the real
+    // generated HTML with a headless browser (Playwright) and measuring
+    // pixel widths — not guessed. Confirmed finding: table-layout:fixed
+    // ONLY respects widths set on <colgroup>/<col> (or the very first
+    // row's cells if no <col> width given) — a max-width set later on a
+    // <th>/<td> (my previous attempt) is silently IGNORED by the fixed
+    // layout algorithm, which is why that attempt measured 121px on every
+    // column, break column included, verified by rendering it. Giving the
+    // BREAK column's own <col> an explicit small width (26px), while
+    // leaving every real slot column's <col> with NO width (so they
+    // continue to divide the remaining space evenly among themselves,
+    // exactly like the pre-break-column original), is the one approach
+    // actually confirmed working by rendering: break columns measured
+    // exactly 26px, and real slot columns divided the rest evenly without
+    // ballooning.
+    const colgroupCols = cols.map(c => c.type === 'break' ? '<col style="width:26px;">' : '<col>').join('');
+    return `<colgroup><col style="width:64px;">${colgroupCols}</colgroup><thead><tr><th colspan="${colCount}" style="${secHdr}">${label}</th></tr>${headerRow}</thead><tbody>${bodyRows}</tbody>`;
   }
 
   // Side-by-side: Morning LEFT | divider | Afternoon RIGHT — identical to normal grid layout
@@ -36964,6 +37593,9 @@ async function ttRenderViewer() {
     if (_pushBtn) _pushBtn.style.display = _isAdmin ? '' : 'none';
     if (_archBtn) _archBtn.style.display = _isAdmin ? '' : 'none';
   })();
+  // Keep the Transpose button's look in sync with ttvTransposed (default ON,
+  // remembered via localStorage) on every render, including the first.
+  if (typeof _ttvSyncTransposeBtn === 'function') _ttvSyncTransposeBtn();
   // In staging/planning mode, NEVER call lmLoadData() — it restores live localStorage data into LM_TIMETABLE.
   // Re-fetch from Firestore instead to guarantee we show the correct staging timetable.
   if (_semStagingMode && _semCurrentKey && _semCurrentKey !== '__live__') {

@@ -17028,11 +17028,18 @@ async function autoSyncTimetableToPortal() {
       return;
     }
     setS('⏳ Auto-syncing updated timetable to portal…');
+    // 2026-09-21 per direct admin request: DB1 now also carries a `breaks`
+    // field (real break name+duration per class — Leisure 15m, Lunch 45m,
+    // etc, pushed from the mother app's Times/Draft grid) alongside `data`.
+    // This sync step only ever copied `data`/`classes` through — `breaks`
+    // was silently dropped here even though it reached DB1 correctly, so
+    // students never got it. Carry it through unchanged.
     const payload = {
       data: rows,
       syncedAt: Date.now(),
       syncedFrom: 'davan_pub/timetable',
-      classes: [...new Set(rows.map(r => r.class || r.cls).filter(Boolean))]
+      classes: [...new Set(rows.map(r => r.class || r.cls).filter(Boolean))],
+      breaks: (src && src.breaks) ? src.breaks : {}
     };
     await rtdbSet(PORTAL_TT_PATH, payload);
     setS('✅ Auto-synced ' + rows.length + ' rows to portal (' + payload.classes.length + ' classes) at ' +
@@ -17052,11 +17059,14 @@ async function syncTimetableToPortal() {
     const src = await rtdbGet('davan_pub/timetable').catch(() => null);
     const rows = (src && src.data) ? src.data : (Array.isArray(src) ? src : null);
     if (!rows || !rows.length) { setS('❌ DB1 (davan_pub/timetable) is empty — nothing to sync.'); return; }
+    // 2026-09-21: same `breaks` carry-through as autoSyncTimetableToPortal()
+    // above — see that function's comment for the full explanation.
     const payload = {
       data: rows,
       syncedAt: Date.now(),
       syncedFrom: 'davan_pub/timetable',
-      classes: [...new Set(rows.map(r => r.class || r.cls).filter(Boolean))]
+      classes: [...new Set(rows.map(r => r.class || r.cls).filter(Boolean))],
+      breaks: (src && src.breaks) ? src.breaks : {}
     };
     setS('⏳ Writing ' + rows.length + ' rows to portal copy…');
     await rtdbSet(PORTAL_TT_PATH, payload);
@@ -18351,11 +18361,18 @@ async function loadStudentDashboard() {
     STATE.lessonPlan        = filterLPForStudent(lessonPlan, cls);
     STATE.currentScrapedLP  = STATE.lessonPlan;  // alias so getLPForSubject can find scraped LP in timetable
     STATE.motherTT     = (motherTTRaw    && motherTTRaw.data)    ? motherTTRaw.data    : [];
+    // 2026-09-21: same real break name+duration (Leisure 15m, Lunch 45m,
+    // etc) the mother app now shows as a merged column in Class View,
+    // Print and Excel is carried through the sync into `breaks` on this
+    // same portal doc — pick it up here alongside motherTT so the
+    // Timetable panel can show the identical break, never a guess.
+    STATE.motherBreaks = (motherTTRaw && motherTTRaw.breaks) ? motherTTRaw.breaks : {};
     // v6.79i: if the portal copy (DB2) is empty (never synced), fall back to DB1 so the
     // timetable still shows until the admin runs the first "Sync to Portal".
     if (!STATE.motherTT.length) {
       const db1 = await rtdbGet('davan_pub/timetable').catch(() => null);
       if (db1 && db1.data && db1.data.length) STATE.motherTT = db1.data;
+      if (db1 && db1.breaks) STATE.motherBreaks = db1.breaks;
     }
     STATE.motherAllocs = (motherAllocsRaw && motherAllocsRaw.data) ? motherAllocsRaw.data : [];
     STATE.metaData     = metaRaw || null;
@@ -22461,6 +22478,8 @@ async function stuRefreshTimetable(btn) {
     ]);
     STATE.motherTT     = (tt && tt.data) ? tt.data : (Array.isArray(tt)?tt:[]);
     STATE.motherAllocs = (al && al.data) ? al.data : (Array.isArray(al)?al:[]);
+    // 2026-09-21: same breaks carry-through as the primary load path above.
+    STATE.motherBreaks = (tt && tt.breaks) ? tt.breaks : (STATE.motherBreaks || {});
     if (typeof renderStudentTimetable === "function") renderStudentTimetable();
   } catch(e) { console.warn("[stuRefreshTimetable]", e); }
   if (btn) { btn.textContent = "✓ Updated"; setTimeout(()=>{ btn.textContent = orig || "↻ Refresh"; btn.disabled = false; }, 1500); }
@@ -23511,7 +23530,36 @@ function renderStudentTimetable() {
     if (!slots.length) {
       listEl.innerHTML = '<div style="text-align:center;padding:24px;font-family:var(--mono);font-size:12px;color:var(--muted);">No classes scheduled</div>';
     } else {
-      slots.forEach(row => {
+      // 2026-09-21 per direct admin request: same real break name+duration
+      // (Leisure 15m, Lunch 45m, etc) now shown in the mother app's Class
+      // View/Print/Excel is shown here too, as a small centered divider
+      // card between two consecutive periods wherever a real time gap
+      // exists — sourced from STATE.motherBreaks[motherCls] (synced
+      // through from the mother app's own tgBreakStripTextForClass()), so
+      // it can never show a different name/duration than what the admin
+      // set. Falls back to a bare "Break" label with the real computed
+      // gap length if this class has no named break data yet.
+      const _classBreakLines = (STATE.motherBreaks && STATE.motherBreaks[motherCls]) || [];
+      const _breakByStartMin = {};
+      _classBreakLines.forEach(line => {
+        // line format: "Leisure 15m · 10.30–11.45"
+        const m = /^(.*)\s(\d+)m\s·\s(\d{1,2}[.:]\d{2})–(\d{1,2}[.:]\d{2})$/.exec(line);
+        if (!m) return;
+        const p = m[3].split(/[.:]/);
+        const h = collegeHour(parseInt(p[0], 10));
+        const mins = parseInt(p[1], 10) || 0;
+        _breakByStartMin[h * 60 + mins] = { label: m[1].trim(), mins: m[2] };
+      });
+      const parseSlotBoundary = (slotStr, which) => {
+        const parts = (slotStr || '').split(' to ');
+        if (parts.length < 2) return null;
+        const t = (which === 'start' ? parts[0] : parts[1]).trim();
+        const p = t.split(/[.:]/);
+        const h = parseInt(p[0], 10);
+        if (isNaN(h)) return null;
+        return collegeHour(h) * 60 + (parseInt(p[1], 10) || 0);
+      };
+      slots.forEach((row, idx) => {
         const slotAllocs = getAllocsForSlot(row.code);
         const alloc      = slotAllocs[0] || null;
         const parsed     = stuLmParseCode(row.code);
@@ -23641,6 +23689,20 @@ function renderStudentTimetable() {
         }
 
         listEl.appendChild(card);
+
+        // Insert a break divider after this card if a real gap exists
+        // before the NEXT scheduled period today.
+        if (idx < slots.length - 1) {
+          const endMin = parseSlotBoundary(row.slot, 'end');
+          const nextStartMin = parseSlotBoundary(slots[idx + 1].slot, 'start');
+          if (endMin != null && nextStartMin != null && nextStartMin > endMin) {
+            const br = _breakByStartMin[endMin] || { label: 'Break', mins: String(nextStartMin - endMin) };
+            const brEl = document.createElement('div');
+            brEl.style.cssText = 'text-align:center;font-size:11px;font-family:var(--mono);color:#7ab6ff;background:rgba(122,182,255,0.08);border:1px solid rgba(122,182,255,0.25);border-radius:6px;padding:4px 10px;margin:4px 0;';
+            brEl.textContent = br.label + ' ' + br.mins + 'm';
+            listEl.appendChild(brEl);
+          }
+        }
       });
     }
     ttWrapInner.appendChild(listEl);
