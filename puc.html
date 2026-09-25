@@ -7,9 +7,9 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.219                                                      ║
-║  FILE NAME       : puc_v5.219.html                                             ║
-║  LAST UPDATED    : 2026-09-13 03:15 PM IST                                   ║
+║  CURRENT VERSION : v5.221                                                      ║
+║  FILE NAME       : puc_v5.221.html                                             ║
+║  LAST UPDATED    : 2026-09-25 02:15 PM IST                                   ║
 ║                                                                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  RULES FOR CLAUDE — READ BEFORE MAKING ANY CHANGES                          ║
@@ -57,6 +57,16 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v5.221 2026-09-25  FIX: Period-wise Absent — no-URN students (DAKSH JAIN, ║
+║          YASHWANTH J) showed no photo/URN. New arpUrnOf() falls back to   ║
+║          PUC_MANUAL_USN_MAP; row photo uses pucGetPhoto().                ║
+║          Files: puc_v5.221.html arpUrnOf (above arpToArr), 5 urnKey sites,║
+║          arpStudentRowHtml photoUrl.                                      ║
+║  v5.220 2026-09-25  FIX: Period-wise Absent "No data" — spPushFB() wrote  ║
+║          classes whose students all had 0 sessions (courses:[]), and      ║
+║          update() replaced the whole class node, wiping good slots from   ║
+║          an earlier scrape. Now skips all-empty classes (same guard as    ║
+║          backfill). Files: puc_v5.220.html spPushFB:13464-13480.        ║
 ║  v5.219 2026-09-13  FEATURE: Bulk Create → "🔄 Rebuild Roster" button on    ║
 ║          every already-assigned row, next to "👥 View Roster". Lets admin   ║
 ║          fix a roster that was built before the v5.218 MX-pair fix (e.g.   ║
@@ -9160,11 +9170,11 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.219";
+const APP_VERSION = "v5.221";
 // ⚠ CLAUDE: update this to the current date/time (IST, "YYYY-MM-DD HH:MM")
 // on EVERY change too — shown live next to the version badge in the topbar
 // as "last edited" so admin can see at a glance how fresh the file is.
-const APP_LAST_EDIT = "2026-09-13 03:15 PM";
+const APP_LAST_EDIT = "2026-09-25 02:15 PM";
 
 // ── Manually allocated USNs (v5.178) ─────────────────────────────────────────
 // Single source of truth for students whose portal record has NO USN/URN and
@@ -13456,6 +13466,22 @@ async function spPushFB(dailySnapshot, totalStudents, scrapeKey, classesOk) {
       if (spIsWithinTimeMapLookback(dateKey)) {
         await spLogSlotTimeDiff(dateKey, firebasePayload);
       }
+      // v5.220: never overwrite a class with an all-empty snapshot. update()
+      // replaces the WHOLE class node, so a later scrape where today's sessions
+      // came back empty (API not ready / all courses skipped) wiped the good
+      // slot data from an earlier scrape → "No data for 1:15 PM".
+      // Same guard the backfill path already has (anyHasCourses).
+      for (const clsLabel of Object.keys(firebasePayload)) {
+        const anyHasCourses = (firebasePayload[clsLabel] || []).some(s => s.courses && s.courses.length > 0);
+        if (!anyHasCourses) {
+          delete firebasePayload[clsLabel];
+          spLog(`  ⚠ ${clsLabel}: 0 sessions for ${dateKey} — skipped write (existing Firebase data kept)`, 'warn');
+        }
+      }
+      if (!Object.keys(firebasePayload).length) {
+        spLog(`  ⚠ ${dateKey}: no class had sessions — nothing written to puc_daily`, 'warn');
+        continue;
+      }
       // Use update() — only overwrites classes present in this scrape, preserves others
       await rtdb.ref(`puc_daily/${SP_AY_KEY}/${dateKey}`).update(firebasePayload);
       spLog(`  ✓ Firebase puc_daily/${SP_AY_KEY}/${dateKey} — ${Object.keys(firebasePayload).length} classes`, 'fire');
@@ -16480,6 +16506,16 @@ const ARP_DAY_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const ARP_DAY_LONG  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
 // ── Helper: coerce RTDB value (array or object) to array of students ──
+// v5.221: URN for a puc_daily student row. Portal gives no URN for some
+// students (DAKSH JAIN, YASHWANTH J) — fall back to Admin Settings →
+// Manually Allocated USNs (PUC_MANUAL_USN_MAP), same as pucLoad().
+function arpUrnOf(s) {
+  const u = ((s && (s.urn || s.usn)) || '').trim();
+  if (u) return u;
+  const nk = ((s && s.name) || '').trim().toLowerCase().replace(/\s+/g, '_');
+  return (nk && typeof PUC_MANUAL_USN_MAP !== 'undefined' && PUC_MANUAL_USN_MAP[nk]) || '';
+}
+
 function arpToArr(v) {
   if (!v || typeof v !== 'object') return [];
   return Array.isArray(v) ? v : Object.values(v);
@@ -16922,7 +16958,7 @@ function arpRenderResults() {
       if (stuArr.length) anyDataForClass = true;
 
       stuArr.forEach(s => {
-        const urnKey = (s.urn || s.usn || '').trim();
+        const urnKey = arpUrnOf(s);
         if (urnKey && excStudentMap[urnKey]) return;
 
         (s.courses || []).forEach(c => {
@@ -16950,7 +16986,7 @@ function arpRenderResults() {
       const raw = _arpDayCache[key];
       if (!raw || !raw[label]) return;
       arpToArr(raw[label]).forEach(s => {
-        const urnKey = (s.urn || s.usn || '').trim();
+        const urnKey = arpUrnOf(s);
         if (!absentMap[urnKey]) return;
         const allowedCodes = absentSubjects[urnKey];
         if (!allowedCodes) return;
@@ -17042,7 +17078,7 @@ function arpStudentRowHtml(s, i, classLabel) {
   const urnSafe  = (s.urn||'').replace(/'/g,"&#39;");
   const nameSafe = (s.name||'?').replace(/</g,'&lt;');
   const urnKey   = s.urn || '';
-  const photoUrl = (typeof pucPhotos !== 'undefined') ? (pucPhotos[urnKey] || pucPhotos[urnKey.toLowerCase()] || '') : '';
+  const photoUrl = (typeof pucGetPhoto === 'function' && typeof pucPhotos !== 'undefined') ? pucGetPhoto({ urn: urnKey, name: s.name }) : '';
   const inits    = (s.name||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
   const avatar   = photoUrl
     ? `<img src="${photoUrl}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid var(--border);flex-shrink:0;cursor:zoom-in;" onclick="event.stopPropagation();zoomPhotoUrl(this.src)" onerror="this.style.display='none'">`
@@ -17208,7 +17244,7 @@ function pucYpaRenderColumn(dateKey, period, raw, countKeys) {
     if (stuArr.length) { anyDataForClass = true; anyClassData = true; }
 
     stuArr.forEach(s => {
-      const urnKey = (s.urn || s.usn || '').trim();
+      const urnKey = arpUrnOf(s);
       if (urnKey && excStudentMap[urnKey]) return;
       (s.courses || []).forEach(c => {
         const sl = lastSlotAt(c, period.start);
@@ -17227,7 +17263,7 @@ function pucYpaRenderColumn(dateKey, period, raw, countKeys) {
       const r = cache[key];
       if (!r || !r[label]) return;
       arpToArr(r[label]).forEach(s => {
-        const urnKey = (s.urn || s.usn || '').trim();
+        const urnKey = arpUrnOf(s);
         if (!absentMap[urnKey]) return;
         const allowedCodes = absentSubjects[urnKey];
         if (!allowedCodes) return;
@@ -17687,7 +17723,7 @@ async function drRun() {
 
       students.forEach(s => {
         // Skip exception students
-        const urnKey = (s.urn || s.usn || '').trim();
+        const urnKey = arpUrnOf(s);
         if (urnKey && excStudentMap[urnKey]) return;
 
         allStudents.push(s);
