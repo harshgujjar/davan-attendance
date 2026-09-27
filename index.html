@@ -2191,6 +2191,12 @@
       <div class="sidebar-item" data-panel="hostel-notices" onclick="switchPanel('hostel-notices')" id="nav-hostel-notices" style="display:none;">
         <span class="icon">📢</span> Hostel Notices
       </div>
+      <div class="sidebar-item" data-panel="hostel-rollcall" onclick="switchPanel('hostel-rollcall')" id="nav-hostel-rollcall" style="display:none;">
+        <span class="icon">🌙</span> Night Roll Call
+      </div>
+      <div class="sidebar-item" data-panel="hostel-cleaning" onclick="switchPanel('hostel-cleaning')" id="nav-hostel-cleaning" style="display:none;">
+        <span class="icon">🧹</span> Cleaning
+      </div>
       <div class="sidebar-item" data-panel="hostel-settings" onclick="switchPanel('hostel-settings')" id="nav-hostel-settings" style="display:none;">
         <span class="icon">⚙️</span> Hostel Settings
       </div>
@@ -7571,6 +7577,16 @@
       <div class="page-sub">Shown only to hostel students in their portal</div>
       <div id="hc-notices-root"></div>
     </div>
+    <div class="panel" id="panel-hostel-rollcall">
+      <div class="page-title">🌙 Night Roll Call</div>
+      <div class="page-sub">Widget check-ins, leave and manual P / A for tonight</div>
+      <div id="hc-rollcall-root"></div>
+    </div>
+    <div class="panel" id="panel-hostel-cleaning">
+      <div class="page-title">🧹 Room &amp; Washroom Cleaning</div>
+      <div class="page-sub">Today's cleaning, marking for warden / manager, cleaning staff PINs, year report</div>
+      <div id="hc-cleaning-root"></div>
+    </div>
     <div class="panel" id="panel-hostel-settings">
       <div class="page-title">⚙️ Hostel Settings</div>
       <div class="page-sub">Hostel names, phones, wardens and meal times</div>
@@ -10193,7 +10209,10 @@ async function lpDb2Get(path) {
     console.log('[LP db2] GET', path);
     const res   = await fetch(url);
     if (!res.ok) { const b = await res.text(); console.warn('[LP db2]', res.status, b); return null; }
-    const data  = await res.json();
+    // v1490 DB2 METER: read as text so the downloaded size can be counted
+    const txt   = await res.text();
+    if (typeof dbmNote === 'function') dbmNote(path, txt.length);
+    const data  = txt ? JSON.parse(txt) : null;
     console.log('[LP db2] keys:', data ? Object.keys(data).length : 'null');
     return data;
   } catch(e) { console.warn('[LP db2] failed:', e.message); return null; }
@@ -10254,10 +10273,31 @@ async function lpDb4Get(path) {
     console.log('[LP db4] GET', path);
     const res   = await fetch(url);
     if (!res.ok) { const b = await res.text(); console.warn('[LP db4]', res.status, b); return null; }
-    const data  = await res.json();
+    const txt   = await res.text();
+    if (typeof dbmNote === 'function') dbmNote('DB4/' + path, txt.length); // v1491 meter (DB4 reads tagged)
+    const data  = txt ? JSON.parse(txt) : null;
     console.log('[LP db4] keys:', data ? Object.keys(data).length : 'null');
     return data;
   } catch(e) { console.warn('[LP db4] failed:', e.message); return null; }
+}
+
+/* v1491: Hostel & Canteen live in DB4 (davan-lessonplan-archive - "DB3" to the
+   admin): own Spark quota, so hostel keeps working when DB2 is over quota.
+   DB4 rules must allow writes under hostel/ and canteen/ (see HANDOFF section 12).
+   print=silent: the write's echo is not downloaded. */
+async function lpDb4Patch(path, value) {
+  const token = await _lpGetArchiveToken();
+  const url = LP_ARCHIVE_URL + '/' + path + '.json?print=silent' + (token ? '&auth=' + token : '');
+  const res = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+  if (!res.ok && res.status !== 204) { const b = await res.text(); throw new Error('DB4 patch ' + res.status + ': ' + b); }
+  return true;
+}
+async function lpDb4Set(path, value) {
+  const token = await _lpGetArchiveToken();
+  const url = LP_ARCHIVE_URL + '/' + path + '.json?print=silent' + (token ? '&auth=' + token : '');
+  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+  if (!res.ok && res.status !== 204) { const b = await res.text(); throw new Error('DB4 write ' + res.status + ': ' + b); }
+  return true;
 }
 
 // Write to DB2 (student portal) via REST PUT using the anon-auth token. Mirrors lpDb2Get.
@@ -14497,7 +14537,7 @@ function secOpenForPanel(panelId) {
     'notify':'tools','navigator':'tools','downloads':'tools','comments':'tools',
     'leave-mark':'leave','leave-faculty':'leave','leave-history':'leave',
     'leave-comp':'leave','leave-admin':'leave','leave-myrecords':'leave',
-    'hostel-dash':'hostel','hostel-rooms':'hostel','hostel-residents':'hostel','hostel-settings':'hostel','hostel-menu':'hostel','hostel-leave':'hostel','hostel-notices':'hostel',
+    'hostel-dash':'hostel','hostel-rooms':'hostel','hostel-residents':'hostel','hostel-settings':'hostel','hostel-menu':'hostel','hostel-leave':'hostel','hostel-notices':'hostel','hostel-rollcall':'hostel','hostel-cleaning':'hostel',
     'tt-viewer':'tt','alloc-viewer':'tt','tt-editor':'tt',
     'alloc-editor':'tt','class-settings':'tt',
     'results':'results',
@@ -14701,6 +14741,8 @@ function applySidebarForRole(role) {
     'nav-hostel-menu':      ['admin','manager','vp','principal','warden'],
     'nav-hostel-leave':     ['admin','manager','vp','principal','warden'],
     'nav-hostel-notices':   ['admin','manager','vp','principal','warden'],
+    'nav-hostel-rollcall':  ['admin','manager','vp','principal','warden'],
+    'nav-hostel-cleaning':  ['admin','manager','vp','principal','warden'],
     'nav-card-sem-switcher': ['admin','manager','vp','principal'],
   };
   Object.entries(access).forEach(([id, roles]) => {
@@ -17758,7 +17800,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1489;  // always = HTML footer version number
+const CODE_BUILD = 1496;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '25-Sep-2026', time: '14:45', full: '25-Sep-2026 14:45 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -28519,6 +28561,13 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1496', date: '27-Sep-2026 IST', note: 'Cleaning: one Common washroom per hostel (hostel/cleaning/{date}/{hid}~_common, card + Mark in Cleaning panel; pairs with cleaning.html v1.2). hcRoomLabel falls back to room ID when a room entry has no number (was showing "undefined").' },
+{ v: 'v1495', date: '27-Sep-2026 IST', note: 'Cleaning staff list shows each PIN (stored with the hash; staff added before this show "tap New PIN"). Pairs with cleaning.html v1.1 (login fix).' },
+{ v: 'v1494', date: '27-Sep-2026 IST', note: 'MEAL ATTENDANCE from compulsory feedback (widget w97 / portal v9.75): Canteen Menu > Who ate - per meal (had it good/not good, didn\'t have, pre-marked, on leave, closed, not answered yet / no response after the window) with counts, and This month per student. Source canteen/meal_log.' },
+{ v: 'v1493', date: '27-Sep-2026 IST', note: 'HOSTEL CLEANING (pairs with new cleaning.html): Cleaning panel - today\'s room/washroom status per room with Mark buttons for warden/manager/admin (by = their name), date picker (28 days), Cleaning staff tab (name, rooms/washrooms/both, hostels, 4-digit PIN stored as SHA-256 hash, reset/remove), admin Year report from monthly snapshots; days older than 28 compacted into hostel/cleaning_snap when admin opens the panel.' },
+{ v: 'v1492', date: '27-Sep-2026 IST', note: 'HOSTEL x widget w97: live SOS alert (DB4 listener on hostel/sos_open, full-screen red box + beep, call student/parent, I\'m handling it -> sos_ack), Night Roll Call panel (widget check-ins + leave + manual P/A), Laundry schedule (floor or room -> hostel/laundry), check-in window in Hostel Settings, per-student meal-alert switch, DB4 read label fix.' },
+{ v: 'v1491', date: '27-Sep-2026 IST', note: 'HOSTEL -> DB4 (davan-lessonplan-archive, "DB3"): all hostel/* and canteen/* reads+writes moved off DB2 (new lpDb4Patch/lpDb4Set, print=silent). Canteen Menu > Closures tab (date range, canteen or whole-hostel, all/specific meals, reason+note) shown on dashboard/headcount; canteen/ver bumped on every menu/closure change (for widget w97). Leave types (Home/Medical/Personal/College) + Add leave for a student (warden/admin; goes straight to Out if already started) + WhatsApp includes type. DB4 rules need hostel/canteen write access.' },
+{ v: 'v1490', date: '27-Sep-2026 IST', note: 'DB2 METER: every lpDb2Get / hcDb2Range download counted per grouped path, flushed every 3 min (silent PATCH, server increments) to davan_pub/meter + meter_t + meter_big. Admin-role red banner when today\'s DB2 total passes the budget (meter_cfg.budgetMB, default 300 MB); full meter card in student portal v9.72 > Data Usage.' },
 { v: 'v1489', date: '26-Sep-2026 IST', note: 'DB2 QUOTA FIX (profiler-confirmed): stuPreloadDob no longer downloads all of davan_pub/portal_students (274 KB) at every login; student card + report card fetch one row on demand (stuDobFetch). Hostel: badge reads only hostel/leave_pending (visible tab, admin/manager/warden, 10 min); headcount uses hostel/leave_out; full hostel/leave read only in Leave panel; expired notices auto-pruned. Pairs with portal v9.71.' },
 { v: 'v1488', date: '26-Sep-2026 IST', note: 'FEATURE Hostel student-linked admin (pairs with student_portal v9.70, all DB2): Leave / Outpass panel (pending/out/history, approve/reject with remark, mark out/returned, overdue flag, WhatsApp parent with number saved to hostel/private), sidebar pending badge (5-min refresh), Hostel Notices panel (publish per hostel/both, expiry), Dashboard kitchen headcount (residents - skips - out) + today ratings, Canteen Menu Ratings tab (7-day grid, least/most liked dishes).' },
 { v: 'v1487', date: '26-Sep-2026 IST', note: 'FEATURE Canteen Menu (HC Phase 2 part 1): new Hostel & Canteen > Canteen Menu panel - weekly menu grid (4 meals x 7 days, Veg/Egg/Non-veg), Special days (date overrides with note), Excel upload with sample download + dry run. Hostel Dashboard now shows Today\'s Menu with meal times and Next meal highlighted. Data in DB2 canteen/template + canteen/override. Edit: admin/manager/warden.' },
@@ -80426,7 +80475,7 @@ window.addEventListener('keydown', function (e) {
 <script>
 /* ════════════════════════════════════════════════════════════════════
    HC HOSTEL & CANTEEN - PHASE 1 (CODE_BUILD=1486)
-   Single source of truth: DB2 RTDB `hostel/*` via lpDb2Get / lpDb2Patch
+   Single source of truth: DB4 RTDB (davan-lessonplan-archive, "DB3") `hostel/*` via lpDb4Get / lpDb4Patch (moved from DB2 in v1491)
    (index.html writes DB2 directly - no sync_db1_to_db2.py step).
    Data model: see HANDOFF_HOSTEL_CANTEEN.md section 3.5.
      hostel/config/hostels/{boys|girls}: { name, phone, gender, wardens:{uid:name} }
@@ -80494,8 +80543,10 @@ function hcRoomsOf(hid) {
 }
 function hcBedIds(r) { const n = Math.max(1, Math.min(20, +r.capacity || 1)); return Array.from({ length: n }, (_, i) => 'B' + (i + 1)); }
 function hcRoomLabel(hid, roomId) {
+  if (roomId === '_common') return 'Common washroom';
   const r = (HC.rooms[hid] || {})[roomId];
   if (!r) return roomId || '';
+  if (r.number == null || r.number === '') return roomId + ' (no number)';   // v1496: ghost/partial room entry
   return (r.block ? r.block + '-' : '') + r.number;
 }
 function hcActiveResidents(hid) {
@@ -80520,7 +80571,7 @@ async function hcLoad(force) {
   HC.loading = (async () => {
     try {
       const [cfg, rooms, res] = await Promise.all([
-        lpDb2Get('hostel/config'), lpDb2Get('hostel/rooms'), lpDb2Get('hostel/residents'),
+        lpDb4Get('hostel/config'), lpDb4Get('hostel/rooms'), lpDb4Get('hostel/residents'),
         (typeof hcLoadMenu === 'function') ? hcLoadMenu().catch(e => console.warn('[HC] menu load failed', e)) : null,
         (typeof hcLoadStudentLinked === 'function') ? hcLoadStudentLinked().catch(e => console.warn('[HC] leave/notices load failed', e)) : null
       ]);
@@ -80537,7 +80588,7 @@ async function hcWrite(patch, hist, okMsg) {
     patch['history/' + k] = Object.assign({ by: (currentProfile && currentProfile.name) || '', role: hcRole(), at: new Date().toISOString() }, hist);
   }
   try {
-    await lpDb2Patch('hostel', patch);
+    await lpDb4Patch('hostel', patch);
   } catch (e) {
     console.error('[HC] write failed', e);
     dvToast('\u274c Save failed: ' + e.message, 'error', 6000);
@@ -80577,6 +80628,8 @@ function hcRerender() {
   else if (_hcCurPanel === 'hostel-menu') hcRenderMenu();
   else if (_hcCurPanel === 'hostel-leave') hcRenderLeave();
   else if (_hcCurPanel === 'hostel-notices') hcRenderNotices();
+  else if (_hcCurPanel === 'hostel-rollcall' && typeof hcRenderRollcall === 'function') hcRenderRollcall();
+  else if (_hcCurPanel === 'hostel-cleaning' && typeof hcRenderCleaning === 'function') hcRenderCleaning();
 }
 function hcNoHostelMsg() {
   return '<div class="hc-card">No hostel is assigned to you yet. Ask admin to add you as warden in <b>Hostel Settings</b>.</div>';
@@ -80638,6 +80691,7 @@ function hcRenderRooms() {
   </div>`;
   html += `<div class="hc-bar">
     ${hcCanSetup() ? `<button class="hc-btn pri" onclick="hcOpenAddRooms()">\u2795 Add rooms</button><button class="hc-btn" onclick="hcOpenImport()">\u{1F4E5} Import Excel</button>` : ''}
+    ${hcCanAllot() ? '<button class="hc-btn" onclick="hcOpenLaundry()">\u{1F9FA} Laundry</button>' : ''}
     <button class="hc-btn" onclick="hcLoad(true).then(hcRerender)">\u{1F504} Refresh</button>
     ${hcCanAllot() ? '' : '<span class="hc-muted">View only</span>'}
   </div>`;
@@ -80793,7 +80847,7 @@ async function hcAllotPick(urn) {
   if (res && res.active && res.roomId) { dvToast('Already in ' + hcRoomLabel(res.hostelId, res.roomId) + ' \u2014 use Transfer', 'warn', 4000); return; }
   if (res && res.active && res.hostelId && res.hostelId !== hid) { dvToast('Student is marked for ' + H[res.hostelId].name + ' \u2014 remove from there first', 'warn', 5000); return; }
   // race guard: re-read the bed right before writing
-  const live = await lpDb2Get('hostel/rooms/' + hid + '/' + roomId + '/beds/' + bed);
+  const live = await lpDb4Get('hostel/rooms/' + hid + '/' + roomId + '/beds/' + bed);
   if (live) { dvToast('That bed was just taken by ' + (live.name || live.urn), 'warn', 4000); await hcLoad(true); hcRerender(); hcCloseModal(); return; }
   const s = hcStudent(urn);
   const occ = hcOccupant(urn, hid, s);
@@ -80818,6 +80872,7 @@ function hcOpenOccupied(hid, roomId, bed) {
   hcOpenModal(`<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">${hcAvatar(o.urn, o.name, 56, o.photo)}
       <div><div style="font-weight:700;font-size:15px;">${hcEsc(o.name)}</div><div class="hc-muted">${hcEsc(o.urn)} \u00b7 ${hcEsc(o.cls || '')}</div>
       <div class="hc-muted">Room ${hcEsc(hcRoomLabel(hid, roomId))} \u00b7 ${bed} \u00b7 since ${hcEsc(hcFmtDate(res.since))}</div></div></div>
+    ${canEdit ? `<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:10px;"><input type="checkbox" ${res.mealNotif === false ? '' : 'checked'} onchange="hcToggleMealNotif('${hcKey(o.urn)}',this.checked)"> Meal notifications on this student's widget</label>` : ''}
     ${canEdit ? `<div class="hc-floor-h" style="margin-top:0;">Transfer to</div>
       <div class="hc-bar"><select id="hc-tr-to" class="hc-in" style="flex:1;min-width:160px;">${vacant.length ? vacant.map(x => `<option value="${hcEsc(x.v)}">${hcEsc(x.t)}</option>`).join('') : '<option value="">No vacant beds</option>'}</select>
       <button class="hc-btn pri" onclick="hcTransfer()" ${vacant.length ? '' : 'disabled'}>Transfer</button></div>
@@ -80831,7 +80886,7 @@ async function hcTransfer() {
   const val = (document.getElementById('hc-tr-to') || {}).value || '';
   if (!val) return;
   const [toRoom, toBed] = val.split('|');
-  const live = await lpDb2Get('hostel/rooms/' + hid + '/' + toRoom + '/beds/' + toBed);
+  const live = await lpDb4Get('hostel/rooms/' + hid + '/' + toRoom + '/beds/' + toBed);
   if (live) { dvToast('That bed was just taken', 'warn', 4000); await hcLoad(true); hcRerender(); hcCloseModal(); return; }
   const occ = Object.assign({}, HC.rooms[hid][roomId].beds[bed]);
   const patch = {};
@@ -81083,6 +81138,8 @@ async function hcRenderSettings() {
     </div>`).join('') + `<div class="hc-card">
       <div style="font-weight:700;margin-bottom:10px;">\u{1F37D}\ufe0f Meal times (used from Phase 2)</div>
       ${['breakfast', 'lunch', 'snacks', 'dinner'].map(m => `<label class="hc-muted" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">${m[0].toUpperCase() + m.slice(1)}<input id="hc-s-meal-${m}" type="time" class="hc-in" value="${hcEsc(M[m])}"></label>`).join('')}
+      <label class="hc-muted" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">Night check-in from<input id="hc-s-ci-start" type="time" class="hc-in" value="${hcEsc(((HC.cfg || {}).checkin || {}).start || '21:00')}"></label>
+      <label class="hc-muted" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">Night check-in till<input id="hc-s-ci-end" type="time" class="hc-in" value="${hcEsc(((HC.cfg || {}).checkin || {}).end || '21:30')}"></label>
       <label class="hc-muted" style="display:flex;justify-content:space-between;align-items:center;">Skip cutoff (min before meal)<input id="hc-s-meal-cut" type="number" class="hc-in" style="width:80px;" value="${+M.skipCutoffMin || 120}"></label>
     </div></div>
     <div class="hc-bar"><button class="hc-btn pri" onclick="hcSaveSettings()">\u{1F4BE} Save settings</button><span id="hc-s-msg" style="font-size:12px;"></span></div>`;
@@ -81099,7 +81156,8 @@ async function hcSaveSettings() {
   const meals = { breakfast: g('hc-s-meal-breakfast') || HC_DEFAULT_MEALS.breakfast, lunch: g('hc-s-meal-lunch') || HC_DEFAULT_MEALS.lunch,
     snacks: g('hc-s-meal-snacks') || HC_DEFAULT_MEALS.snacks, dinner: g('hc-s-meal-dinner') || HC_DEFAULT_MEALS.dinner,
     skipCutoffMin: parseInt(g('hc-s-meal-cut'), 10) || 120 };
-  await hcWrite({ 'config/hostels': hostels, 'config/meals': meals }, { action: 'settings' }, '\u2705 Hostel settings saved');
+  const checkin = { start: g('hc-s-ci-start') || '21:00', end: g('hc-s-ci-end') || '21:30' };
+  await hcWrite({ 'config/hostels': hostels, 'config/meals': meals, 'config/checkin': checkin }, { action: 'settings' }, '\u2705 Hostel settings saved');
 }
 </script>
 
@@ -81117,7 +81175,19 @@ const HC_DAY_NAME = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thu
 const HC_MEALS = ['breakfast', 'lunch', 'snacks', 'dinner'];
 const HC_MEAL_ICON = { breakfast: '\u{1F373}', lunch: '\u{1F35B}', snacks: '\u2615', dinner: '\u{1F37D}\ufe0f' };
 const HC_TAG = { veg: { c: '#22c55e', t: 'Veg' }, egg: { c: '#eab308', t: 'Egg' }, nonveg: { c: '#ef4444', t: 'Non-veg' } };
-HC.menuTpl = {}; HC.menuOv = {}; HC.menuTab = 'week'; HC.menuImport = null;
+HC.menuTpl = {}; HC.menuOv = {}; HC.menuTab = 'week'; HC.menuImport = null; HC.closed = {};
+/* v1491 CLOSURES: canteen/closed/{YYYY-MM-DD}: { scope:'canteen'|'hostel', all:true | meals:{breakfast:true,..},
+   reason:'Festival'|'Maintenance'|'Vacation'|'Other', note, by, at }. scope 'hostel' = whole hostel shut (no
+   notifications at all). MENU VERSION: canteen/ver = Date.now() bumped on every menu/closure change so the
+   widget (w97) re-downloads the menu only when it changed. */
+const HC_CLOSE_REASONS = ['Festival', 'Maintenance', 'Vacation', 'Other'];
+function hcBumpMenuVer() { lpDb4Set('canteen/ver', Date.now()).catch(e => console.warn('[HC] menu ver', e.message)); }
+function hcClosedFor(iso, meal) {
+  const c = HC.closed[iso]; if (!c) return null;
+  if (c.scope === 'hostel' || c.all || (c.meals && c.meals[meal])) return c;
+  return null;
+}
+function hcClosedLabel(c) { return (c.scope === 'hostel' ? 'Hostel closed' : 'Canteen closed') + ' \u2014 ' + (c.reason || '') + (c.note ? ': ' + c.note : ''); }
 
 function hcCanMenu() { return ['admin', 'manager', ROLE_WARDEN].includes(hcRole()); }
 function hcAddDays(iso, n) { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); }
@@ -81128,24 +81198,29 @@ function hcFmt12(hhmm) { if (!hhmm) return ''; let [h, m] = hhmm.split(':').map(
 
 // DB2 key-range read (lpDb2Get cannot carry query params)
 async function hcDb2Range(path, startKey, endKey) {
-  const token = await _lpGetPortalToken();
+  const token = await _lpGetArchiveToken();
   const q = 'orderBy=' + encodeURIComponent('"$key"') + '&startAt=' + encodeURIComponent('"' + startKey + '"') + '&endAt=' + encodeURIComponent('"' + endKey + '"');
-  const res = await fetch(LP_PORTAL_URL + '/' + path + '.json?' + q + (token ? '&auth=' + token : ''));
-  if (!res.ok) throw new Error('DB2 read ' + res.status);
-  return (await res.json()) || {};
+  const res = await fetch(LP_ARCHIVE_URL + '/' + path + '.json?' + q + (token ? '&auth=' + token : ''));
+  if (!res.ok) throw new Error('DB4 read ' + res.status);
+  const txt = await res.text();
+  if (typeof dbmNote === 'function') dbmNote('DB4/' + path + '?range', txt.length); // v1490 meter
+  return (txt ? JSON.parse(txt) : null) || {};
 }
 async function hcLoadMenu() {
   const today = hcTodayIST();
-  const [tpl, ov] = await Promise.all([
-    lpDb2Get('canteen/template'),
-    hcDb2Range('canteen/override', today, hcAddDays(today, 60)).catch(e => { console.warn('[HC menu] override read', e); return {}; })
+  const [tpl, ov, cl] = await Promise.all([
+    lpDb4Get('canteen/template'),
+    hcDb2Range('canteen/override', today, hcAddDays(today, 60)).catch(e => { console.warn('[HC menu] override read', e); return {}; }),
+    hcDb2Range('canteen/closed', hcAddDays(today, -1), hcAddDays(today, 90)).catch(e => { console.warn('[HC menu] closed read', e); return {}; })
   ]);
-  HC.menuTpl = tpl || {}; HC.menuOv = ov || {};
+  HC.menuTpl = tpl || {}; HC.menuOv = ov || {}; HC.closed = cl || {};
 }
 function hcMenuFor(iso) {
   const day = hcDayKey(iso), ov = HC.menuOv[iso] || {}, tp = HC.menuTpl[day] || {}, out = {};
   HC_MEALS.forEach(m => {
-    if (ov[m] && ov[m].items) out[m] = { items: ov[m].items, tag: ov[m].tag || 'veg', special: true, note: ov[m].note || '' };
+    const cl = hcClosedFor(iso, m);
+    if (cl) out[m] = { closed: true, items: '', reason: hcClosedLabel(cl), scope: cl.scope };
+    else if (ov[m] && ov[m].items) out[m] = { items: ov[m].items, tag: ov[m].tag || 'veg', special: true, note: ov[m].note || '' };
     else if (tp[m] && tp[m].items) out[m] = { items: tp[m].items, tag: tp[m].tag || 'veg', special: false };
     else out[m] = null;
   });
@@ -81164,7 +81239,7 @@ function hcMenuCardHtml(iso, title) {
       <div style="font-size:20px;line-height:1.2;">${HC_MEAL_ICON[m]}</div>
       <div style="flex:1;min-width:0;">
         <div style="display:flex;justify-content:space-between;gap:6px;font-size:12px;"><b>${hcMealTitle(m)}${on ? ' \u00b7 <span style="color:var(--accent)">Next</span>' : ''}</b><span class="hc-muted">${hcFmt12(M[m])}</span></div>
-        <div style="font-size:13px;margin-top:2px;">${x ? hcTagDot(x.tag) + hcEsc(x.items) : '<span class="hc-muted">Menu not set</span>'}</div>
+        <div style="font-size:13px;margin-top:2px;">${x && x.closed ? '<span style="color:var(--danger)">\u{1F6AB} ' + hcEsc(x.reason) + '</span>' : x ? hcTagDot(x.tag) + hcEsc(x.items) : '<span class="hc-muted">Menu not set</span>'}</div>
         ${x && x.special ? `<div style="font-size:10px;color:#f472b6;margin-top:2px;">\u2728 Special${x.note ? ' \u2014 ' + hcEsc(x.note) : ''}</div>` : ''}
       </div></div>`;
   }).join('');
@@ -81179,12 +81254,16 @@ async function hcRenderMenu() {
   let html = `<div class="hc-bar">
     <button class="hc-tab ${t === 'week' ? 'on' : ''}" onclick="HC.menuTab='week';hcRenderMenu()">\u{1F4C5} Weekly menu</button>
     <button class="hc-tab ${t === 'special' ? 'on' : ''}" onclick="HC.menuTab='special';hcRenderMenu()">\u2728 Special days</button>
+    <button class="hc-tab ${t === 'closed' ? 'on' : ''}" onclick="HC.menuTab='closed';hcRenderMenu()">\u{1F6AB} Closures${Object.keys(HC.closed).filter(d => d >= hcTodayIST()).length ? ' (' + Object.keys(HC.closed).filter(d => d >= hcTodayIST()).length + ')' : ''}</button>
     ${edit ? `<button class="hc-tab ${t === 'upload' ? 'on' : ''}" onclick="HC.menuTab='upload';hcRenderMenu()">\u{1F4E5} Upload Excel</button>` : ''}
     <button class="hc-tab ${t === 'ratings' ? 'on' : ''}" onclick="HC.menuTab='ratings';hcRenderMenu()">\u2B50 Ratings</button>
+    <button class="hc-tab ${t === 'whoate' ? 'on' : ''}" onclick="HC.menuTab='whoate';hcRenderMenu()">\u{1F9FE} Who ate</button>
     <button class="hc-btn" style="margin-left:auto;" onclick="hcLoadMenu().then(hcRenderMenu)">\u{1F504} Refresh</button></div>`;
   if (t === 'week') html += hcMenuWeekHtml(edit);
   else if (t === 'special') html += hcMenuSpecialHtml(edit);
+  else if (t === 'closed') html += hcClosuresHtml(edit);
   else if (t === 'ratings') { root.innerHTML = html + '<div class="hc-muted">Loading ratings\u2026</div>'; html += await hcRatingsHtml(); }
+  else if (t === 'whoate') { root.innerHTML = html + '<div class="hc-muted">Loading\u2026</div>'; html += await hcWhoAteHtml(); }
   else html += hcMenuUploadHtml();
   root.innerHTML = html;
 }
@@ -81218,9 +81297,9 @@ async function hcMenuSaveWeek() {
     const it = (document.getElementById('hc-mt-' + d + '-' + m).value || '').trim();
     if (it) { tpl[d] = tpl[d] || {}; tpl[d][m] = { items: it, tag: document.getElementById('hc-mg-' + d + '-' + m).value }; }
   }));
-  try { await lpDb2Set('canteen/template', tpl); }
+  try { await lpDb4Set('canteen/template', tpl); }
   catch (e) { dvToast('\u274c Save failed: ' + e.message, 'error', 6000); return; }
-  HC.menuTpl = tpl;
+  HC.menuTpl = tpl; hcBumpMenuVer();
   dvToast('\u2705 Weekly menu saved', 'ok');
   hcRenderMenu();
 }
@@ -81263,16 +81342,17 @@ async function hcMenuSaveOv() {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { dvToast('Pick a date', 'warn'); return; }
   const note = document.getElementById('hc-ov-note').value.trim(), val = {};
   HC_MEALS.forEach(m => { const it = document.getElementById('hc-ov-' + m).value.trim(); if (it) val[m] = { items: it, tag: document.getElementById('hc-ovg-' + m).value, note }; });
-  try { await lpDb2Set('canteen/override/' + d, Object.keys(val).length ? val : null); }
+  try { await lpDb4Set('canteen/override/' + d, Object.keys(val).length ? val : null); }
   catch (e) { dvToast('\u274c Save failed: ' + e.message, 'error', 6000); return; }
   if (Object.keys(val).length) HC.menuOv[d] = val; else delete HC.menuOv[d];
+  hcBumpMenuVer();
   dvToast(Object.keys(val).length ? '\u2705 Special menu saved for ' + hcFmtDate(d) : 'Cleared \u2014 ' + hcFmtDate(d) + ' uses weekly menu', 'ok');
   hcRenderMenu();
 }
 function hcMenuDelOv(d) {
   dvConfirm('Remove special menu?', hcFmtDate(d) + ' will go back to the weekly menu.', async () => {
-    try { await lpDb2Set('canteen/override/' + d, null); } catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); return; }
-    delete HC.menuOv[d]; dvToast('\u{1F5D1} Removed', 'ok'); hcRenderMenu();
+    try { await lpDb4Set('canteen/override/' + d, null); } catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); return; }
+    delete HC.menuOv[d]; hcBumpMenuVer(); dvToast('\u{1F5D1} Removed', 'ok'); hcRenderMenu();
   }, { okLabel: 'Remove' });
 }
 
@@ -81353,12 +81433,64 @@ async function hcMenuApplyImport() {
     if (r.target.day) patch['template/' + r.target.day + '/' + m] = { items: r.meals[m], tag: r.tag };
     else patch['override/' + r.target.date + '/' + m] = { items: r.meals[m], tag: r.tag, note: r.note };
   }));
-  try { await lpDb2Patch('canteen', patch); }
+  try { await lpDb4Patch('canteen', patch); }
   catch (e) { dvToast('\u274c Upload failed: ' + e.message, 'error', 6000); return; }
-  await hcLoadMenu();
+  await hcLoadMenu(); hcBumpMenuVer();
   HC.menuImport = null; HC.menuTab = 'week';
   dvToast('\u2705 Menu uploaded (' + rows.length + ' row(s))', 'ok');
   hcRenderMenu();
+}
+
+// ── v1491 Closures tab ───────────────────────────────────────────────
+function hcClosuresHtml(edit) {
+  const today = hcTodayIST();
+  const dates = Object.keys(HC.closed).filter(d => d >= today).sort();
+  let h = '';
+  if (edit) h += `<div class="hc-card" style="margin-bottom:14px;">
+    <div style="font-weight:700;margin-bottom:10px;">\u{1F6AB} Close canteen / hostel</div>
+    <div class="hc-bar"><label class="hc-muted">From <input type="date" id="hc-cl-from" class="hc-in" min="${today}" value="${today}"></label>
+      <label class="hc-muted">To <input type="date" id="hc-cl-to" class="hc-in" min="${today}" value="${today}"></label></div>
+    <div class="hc-bar"><label style="font-size:13px;"><input type="radio" name="hc-cl-scope" value="canteen" checked> Canteen closed (hostel open)</label>
+      <label style="font-size:13px;"><input type="radio" name="hc-cl-scope" value="hostel"> Hostel closed (vacation \u2014 no notifications)</label></div>
+    <div class="hc-bar"><label style="font-size:13px;"><input type="checkbox" id="hc-cl-all" checked onchange="document.querySelectorAll('.hc-cl-m').forEach(c=>c.disabled=this.checked)"> All meals</label>
+      ${HC_MEALS.map(m => `<label style="font-size:13px;"><input type="checkbox" class="hc-cl-m" value="${m}" disabled> ${hcMealTitle(m)}</label>`).join('')}</div>
+    <div class="hc-bar"><select id="hc-cl-reason" class="hc-in">${HC_CLOSE_REASONS.map(r => `<option>${r}</option>`).join('')}</select>
+      <input id="hc-cl-note" class="hc-in" style="flex:1;min-width:180px;" maxlength="80" placeholder="Note shown to students, e.g. Dasara holiday"></div>
+    <div class="hc-bar"><button class="hc-btn pri" onclick="hcSaveClosure()">Save closure</button><span class="hc-muted">Students see it on the portal and widget; meal notifications are replaced or stopped.</span></div></div>`;
+  h += '<div class="hc-floor-h">Upcoming closures</div>';
+  if (!dates.length) return h + '<div class="hc-muted">None planned.</div>';
+  h += '<div class="hc-wrap"><table class="hc-tbl"><tr><th>Date</th><th>Type</th><th>Meals</th><th>Reason</th><th></th></tr>' + dates.map(d => {
+    const c = HC.closed[d] || {};
+    const meals = c.scope === 'hostel' || c.all ? 'All' : HC_MEALS.filter(m => c.meals && c.meals[m]).map(hcMealTitle).join(', ');
+    return `<tr><td>${hcFmtDate(d)} <span class="hc-muted">${HC_DAY_NAME[hcDayKey(d)].slice(0, 3)}</span></td><td>${c.scope === 'hostel' ? '\u{1F3E0} Hostel' : '\u{1F37D}\ufe0f Canteen'}</td><td>${hcEsc(meals)}</td>
+      <td>${hcEsc(c.reason || '')}${c.note ? ' \u2014 ' + hcEsc(c.note) : ''}</td><td>${edit ? `<button class="hc-btn dng" style="padding:2px 8px;" onclick="hcDelClosure('${d}')">\u{1F5D1}</button>` : ''}</td></tr>`;
+  }).join('') + '</table></div>';
+  return h;
+}
+async function hcSaveClosure() {
+  if (!hcCanMenu()) return;
+  const g = id => (document.getElementById(id) || {}).value || '';
+  const from = g('hc-cl-from'), to = g('hc-cl-to') || from;
+  if (!from || to < from) { dvToast('Check the dates', 'warn'); return; }
+  const scope = (document.querySelector('input[name="hc-cl-scope"]:checked') || {}).value || 'canteen';
+  const all = scope === 'hostel' || document.getElementById('hc-cl-all').checked;
+  const meals = {}; if (!all) document.querySelectorAll('.hc-cl-m').forEach(c => { if (c.checked) meals[c.value] = true; });
+  if (!all && !Object.keys(meals).length) { dvToast('Pick at least one meal', 'warn'); return; }
+  const rec = { scope, reason: g('hc-cl-reason'), note: g('hc-cl-note').trim().slice(0, 80), by: (currentProfile && currentProfile.name) || '', at: new Date().toISOString() };
+  if (all) rec.all = true; else rec.meals = meals;
+  const patch = {}; let d = from, n = 0;
+  while (d <= to && n < 62) { patch['closed/' + d] = rec; d = hcAddDays(d, 1); n++; }
+  try { await lpDb4Patch('canteen', patch); } catch (e) { dvToast('\u274c Save failed: ' + e.message, 'error', 6000); return; }
+  Object.keys(patch).forEach(k => { HC.closed[k.slice(7)] = rec; });
+  hcBumpMenuVer();
+  dvToast('\u2705 Closure saved (' + n + ' day' + (n > 1 ? 's' : '') + ')', 'ok');
+  hcRenderMenu();
+}
+function hcDelClosure(d) {
+  dvConfirm('Remove closure?', hcFmtDate(d) + ' will be a normal day again.', async () => {
+    try { await lpDb4Set('canteen/closed/' + d, null); } catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); return; }
+    delete HC.closed[d]; hcBumpMenuVer(); dvToast('\u{1F5D1} Closure removed', 'ok'); hcRenderMenu();
+  }, { okLabel: 'Remove' });
 }
 </script>
 
@@ -81380,6 +81512,7 @@ HC.leave = {}; HC.notices = {}; HC.skipsToday = {}; HC.rateToday = {}; HC.lvTab 
      hostel/leave_pending/{urn}_{id}: { hostelId }   (present while status=pending)
      hostel/leave_out/{urn}: { id, hostelId, to }     (present while status=out) */
 HC.leavePending = {}; HC.leaveOut = {}; HC.leaveFull = false;
+const HC_LV_TYPES = { home: '\u{1F3E0} Home', medical: '\u{1FA7A} Medical', personal: '\u{1F464} Personal', college: '\u{1F3EB} College event' };
 const HC_LV_ST = { pending: ['\u23F3 Pending', 'var(--warn)'], approved: ['\u2705 Approved', 'var(--ok)'], rejected: ['\u274C Rejected', 'var(--danger)'], out: ['\u{1F6B6} Out', '#60a5fa'], returned: ['\u{1F3E0} Returned', 'var(--muted)'], cancelled: ['Cancelled', 'var(--muted)'] };
 
 function hcNowLocalIST() { return new Date(Date.now() + 330 * 60000).toISOString().slice(0, 16); } // 'YYYY-MM-DDTHH:MM' IST
@@ -81387,14 +81520,14 @@ function hcFmtDT(v) { if (!v) return ''; const [d, t] = String(v).split('T'); re
 async function hcLoadStudentLinked() {
   const today = hcTodayIST();
   const [lp, lo, nt, sk, rt] = await Promise.all([
-    lpDb2Get('hostel/leave_pending'), lpDb2Get('hostel/leave_out'), lpDb2Get('hostel/notices'),
-    lpDb2Get('canteen/skips/' + today), lpDb2Get('canteen/ratings/' + today)
+    lpDb4Get('hostel/leave_pending'), lpDb4Get('hostel/leave_out'), lpDb4Get('hostel/notices'),
+    lpDb4Get('canteen/skips/' + today), lpDb4Get('canteen/ratings/' + today)
   ]);
   HC.leavePending = lp || {}; HC.leaveOut = lo || {}; HC.notices = nt || {}; HC.skipsToday = sk || {}; HC.rateToday = rt || {};
   hcBadgeApply();
 }
 async function hcLoadLeaveFull() {
-  HC.leave = (await lpDb2Get('hostel/leave')) || {};
+  HC.leave = (await lpDb4Get('hostel/leave')) || {};
   HC.leaveFull = true;
 }
 function hcPendingCount() {
@@ -81424,7 +81557,7 @@ async function hcBadgeTick() {
   if (!currentProfile || !['admin', 'manager', 'warden'].includes(hcRole())) return;
   if (document.visibilityState && document.visibilityState !== 'visible') return;
   if (hcRole() === ROLE_WARDEN && !HC.loaded) return; // warden's hostel list comes from hcLoad
-  try { HC.leavePending = (await lpDb2Get('hostel/leave_pending')) || {}; hcBadgeApply(); } catch (e) { console.warn('[HC] badge tick', e.message); }
+  try { HC.leavePending = (await lpDb4Get('hostel/leave_pending')) || {}; hcBadgeApply(); } catch (e) { console.warn('[HC] badge tick', e.message); }
 }
 setTimeout(hcBadgeTick, 20000);
 setInterval(hcBadgeTick, 10 * 60000);
@@ -81446,6 +81579,7 @@ async function hcRenderLeave(force) {
     <button class="hc-tab ${t === 'pending' ? 'on' : ''}" onclick="HC.lvTab='pending';hcRenderLeave()">\u23F3 Pending (${groups.pending.length})</button>
     <button class="hc-tab ${t === 'out' ? 'on' : ''}" onclick="HC.lvTab='out';hcRenderLeave()">\u{1F6B6} Approved / Out (${groups.out.length})${overdue ? ' \u00b7 <span style="color:var(--danger)">' + overdue + ' overdue</span>' : ''}</button>
     <button class="hc-tab ${t === 'all' ? 'on' : ''}" onclick="HC.lvTab='all';hcRenderLeave()">\u{1F4DC} History</button>
+    ${act ? '<button class="hc-btn pri" onclick="hcOpenAddLeave()">\u2795 Add leave for a student</button>' : ''}
     <button class="hc-btn" style="margin-left:auto;" onclick="hcLoadStudentLinked().then(()=>hcRenderLeave(true))">\u{1F504} Refresh</button></div>`;
   if (!list.length) { root.innerHTML = h + '<div class="hc-card hc-muted">Nothing here.</div>'; return; }
   h += '<div class="hc-cards">' + list.map(l => {
@@ -81460,7 +81594,7 @@ async function hcRenderLeave(force) {
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">${hcAvatar(l.urn, l.name, 40, res.photo)}
         <div style="flex:1;min-width:0;"><div style="font-weight:700;">${hcEsc(l.name)}</div><div class="hc-muted">${hcEsc(l.urn)} \u00b7 ${hcEsc(l.cls || '')} \u00b7 ${hcEsc((H[l.hostelId] || {}).name || '')} ${l.roomId ? hcEsc(hcRoomLabel(l.hostelId, l.roomId)) + ' ' + hcEsc(l.bed || '') : ''}</div></div>
         <span style="font-size:11px;color:${st[1]};">${st[0]}</span></div>
-      <div style="font-size:13px;"><b>${hcEsc(l.destination)}</b> \u2014 ${hcEsc(l.reason)}</div>
+      <div style="font-size:13px;">${l.type ? '<span style="font-size:11px;padding:1px 6px;border:1px solid var(--border);border-radius:8px;margin-right:4px;">' + (HC_LV_TYPES[l.type] || hcEsc(l.type)) + '</span>' : ''}<b>${hcEsc(l.destination)}</b> \u2014 ${hcEsc(l.reason)}${l.createdBy ? ' <span class="hc-muted">(added by ' + hcEsc(l.createdBy) + ')</span>' : ''}</div>
       <div style="font-size:12px;margin:4px 0;">${hcEsc(hcFmtDT(l.from))} \u2192 ${hcEsc(hcFmtDT(l.to))}${late ? ' <b style="color:var(--danger)">OVERDUE</b>' : ''}</div>
       ${l.remark ? `<div class="hc-muted">Remark: ${hcEsc(l.remark)}</div>` : ''}
       ${l.actedBy ? `<div class="hc-muted">By ${hcEsc(l.actedBy)}${l.outAt ? ' \u00b7 out ' + hcEsc(hcFmtDT(l.outAt)) : ''}${l.returnedAt ? ' \u00b7 back ' + hcEsc(hcFmtDT(l.returnedAt)) : ''}</div>` : ''}
@@ -81470,7 +81604,7 @@ async function hcRenderLeave(force) {
 }
 async function hcLeaveAct(urn, id, status) {
   if (!hcCanAllot()) return;
-  const cur = await lpDb2Get('hostel/leave/' + urn + '/' + id);
+  const cur = await lpDb4Get('hostel/leave/' + urn + '/' + id);
   if (!cur) { dvToast('Request not found', 'warn'); return; }
   const allowed = { approved: ['pending'], rejected: ['pending'], out: ['approved'], returned: ['out'] };
   if (!(allowed[status] || []).includes(cur.status)) { dvToast('Already ' + cur.status + ' \u2014 refreshing', 'warn'); await hcLoadStudentLinked(); await hcRenderLeave(true); return; }
@@ -81489,18 +81623,19 @@ async function hcLeaveAct(urn, id, status) {
 }
 async function hcLeaveWhatsApp(urn, id) {
   const l = ((HC.leave || {})[urn] || {})[id]; if (!l) return;
-  let phone = await lpDb2Get('hostel/private/' + urn + '/parentPhone');
+  let phone = await lpDb4Get('hostel/private/' + urn + '/parentPhone');
   if (!phone) {
     phone = prompt('Parent WhatsApp number for ' + (l.name || urn) + ' (10 digits):', '');
     if (!phone) return;
     phone = String(phone).replace(/\D/g, '').slice(-10);
     if (phone.length !== 10) { dvToast('Enter a 10-digit number', 'warn'); return; }
-    try { await lpDb2Set('hostel/private/' + urn + '/parentPhone', phone); } catch (e) { console.warn('[HC] parentPhone save', e); }
+    try { await lpDb4Set('hostel/private/' + urn + '/parentPhone', phone); } catch (e) { console.warn('[HC] parentPhone save', e); }
   }
   const H = hcHostels(), hn = (H[l.hostelId] || {}).name || 'Hostel';
   const word = { approved: 'has been APPROVED', rejected: 'has NOT been approved', out: 'has LEFT the hostel', returned: 'has RETURNED to the hostel' }[l.status] || 'status: ' + l.status;
+  const typeLine = l.type ? 'Type: ' + ((HC_LV_TYPES[l.type] || l.type).replace(/^\S+\s/, '')) + '\n' : '';
   const msg = 'Dear Parent,\n' + (l.name || urn) + ' (' + urn + ') leave request ' + word + '.\n' +
-    'Going to: ' + (l.destination || '') + '\nFrom: ' + hcFmtDT(l.from) + '\nReturn: ' + hcFmtDT(l.to) +
+    typeLine + 'Going to: ' + (l.destination || '') + '\nFrom: ' + hcFmtDT(l.from) + '\nReturn: ' + hcFmtDT(l.to) +
     (l.remark ? '\nRemark: ' + l.remark : '') + '\n\u2014 ' + hn + ', Davan College';
   window.open('https://wa.me/91' + String(phone).replace(/\D/g, '').slice(-10) + '?text=' + encodeURIComponent(msg), '_blank');
 }
@@ -81514,7 +81649,7 @@ function hcRenderNotices() {
   if (hcCanSetup()) {
     const cut = hcAddDays(today, -3), dead = {};
     Object.entries(HC.notices || {}).forEach(([id, n]) => { if (n && n.expires && n.expires < cut) dead['notices/' + id] = null; });
-    if (Object.keys(dead).length) { lpDb2Patch('hostel', dead).then(() => { Object.keys(dead).forEach(k => delete HC.notices[k.slice(8)]); }).catch(e => console.warn('[HC] notice prune', e.message)); }
+    if (Object.keys(dead).length) { lpDb4Patch('hostel', dead).then(() => { Object.keys(dead).forEach(k => delete HC.notices[k.slice(8)]); }).catch(e => console.warn('[HC] notice prune', e.message)); }
   }
   const list = Object.entries(HC.notices || {}).map(([id, n]) => Object.assign({ id }, n))
     .filter(n => n.hostelId === 'all' || mine.includes(n.hostelId))
@@ -81560,6 +81695,8 @@ function hcHeadcountHtml() {
   const outNow = hcOutUrns();
   const rows = HC_MEALS.map(m => {
     let skip = 0, away = 0;
+    const cl = (typeof hcClosedFor === 'function') ? hcClosedFor(hcTodayIST(), m) : null;
+    if (cl) return `<tr><td>${HC_MEAL_ICON[m]} ${hcMealTitle(m)}</td><td colspan="3" style="color:var(--danger);">\u{1F6AB} ${hcEsc(hcClosedLabel(cl))}</td></tr>`;
     res.forEach(r => { if (outNow.has(r.urn)) away++; else if ((HC.skipsToday[r.urn] || {})[m]) skip++; });
     let sum = 0, cnt = 0;
     Object.entries(HC.rateToday || {}).forEach(([urn, x]) => { if (x && x[m] && HC.residents[urn] && mine.includes(HC.residents[urn].hostelId)) { sum += +x[m]; cnt++; } });
@@ -81605,6 +81742,494 @@ async function hcRatingsHtml() {
     <div class="hc-card"><b>\u{1F44D} Most liked (last 7 days)</b><div style="margin-top:8px;">${top.length ? top.map(li).join('') : '<div class="hc-muted">Needs at least 3 ratings per dish.</div>'}</div></div></div>
     <div class="hc-floor-h">Daily average \u2014 red below 2.5, amber below 3.5</div>${grid}`;
 }
+
+// ── v1491 warden/admin-created leave (e.g. student fell sick and went home) ──
+function hcOpenAddLeave() {
+  if (!hcCanAllot()) return;
+  const now = hcNowLocalIST();
+  HC.ctx = { addLeave: true };
+  hcOpenModal(`<div style="font-weight:700;font-size:15px;margin-bottom:10px;">\u2795 Add leave for a student</div>
+    <input id="hc-al2-q" class="hc-in" style="width:100%;margin-bottom:8px;" placeholder="Search hostel student by name / URN / room" oninput="hcAddLeaveList()">
+    <div id="hc-al2-list" class="hc-muted">Type at least 2 letters.</div>
+    <div id="hc-al2-pick" style="margin:8px 0;font-size:13px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <label class="hc-muted">Type<select id="hc-al2-type" class="hc-in" style="width:100%;">${Object.entries(HC_LV_TYPES).map(([k, v]) => `<option value="${k}" ${k === 'medical' ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="hc-muted">Going to<input id="hc-al2-dest" class="hc-in" style="width:100%;" value="Home"></label>
+      <label class="hc-muted">From<input id="hc-al2-from" type="datetime-local" class="hc-in" style="width:100%;" value="${now}"></label>
+      <label class="hc-muted">Till<input id="hc-al2-to" type="datetime-local" class="hc-in" style="width:100%;"></label></div>
+    <label class="hc-muted">Reason<input id="hc-al2-reason" class="hc-in" style="width:100%;" maxlength="200" placeholder="e.g. Fever, sent home with parent"></label>
+    <div class="hc-bar" style="justify-content:flex-end;margin-top:12px;"><button class="hc-btn" onclick="hcCloseModal()">Cancel</button><button class="hc-btn pri" onclick="hcSaveAddLeave()">Save leave</button></div>`);
+}
+function hcAddLeaveList() {
+  const el = document.getElementById('hc-al2-list'); if (!el) return;
+  const q = ((document.getElementById('hc-al2-q') || {}).value || '').trim().toLowerCase();
+  if (q.length < 2) { el.innerHTML = 'Type at least 2 letters.'; return; }
+  const mine = hcMyHostelIds();
+  const hits = hcActiveResidents().filter(r => mine.includes(r.hostelId) && ((r.name || '').toLowerCase().includes(q) || r.urn.toLowerCase().includes(q) || hcRoomLabel(r.hostelId, r.roomId).toLowerCase().includes(q))).slice(0, 15);
+  el.innerHTML = hits.length ? hits.map(r => `<div class="hc-row" onclick="hcAddLeavePick('${hcKey(r.urn)}')">${hcAvatar(r.urn, r.name, 28, r.photo)}<div><div>${hcEsc(r.name)}</div><div class="hc-muted">${hcEsc(r.urn)} \u00b7 ${hcEsc(hcRoomLabel(r.hostelId, r.roomId))} ${hcEsc(r.bed || '')}</div></div></div>`).join('') : 'No hostel student matches.';
+}
+function hcAddLeavePick(urn) {
+  HC.ctx.urn = urn; const r = HC.residents[urn] || {};
+  const el = document.getElementById('hc-al2-pick'); if (el) el.innerHTML = 'Selected: <b>' + hcEsc(r.name || urn) + '</b> (' + hcEsc(urn) + ')';
+}
+async function hcSaveAddLeave() {
+  const urn = HC.ctx && HC.ctx.urn; if (!urn) { dvToast('Pick a student first', 'warn'); return; }
+  const g = id => ((document.getElementById(id) || {}).value || '').trim();
+  const from = g('hc-al2-from'), to = g('hc-al2-to');
+  if (!from || !to || to <= from) { dvToast('Check From / Till', 'warn'); return; }
+  const r = HC.residents[urn] || {}, now = hcNowLocalIST();
+  const status = from <= now ? 'out' : 'approved';
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  const by = (currentProfile && currentProfile.name) || '';
+  const rec = { urn, name: r.name || urn, cls: r.cls || '', hostelId: r.hostelId, roomId: r.roomId || '', bed: r.bed || '', type: g('hc-al2-type'),
+    from, to, destination: g('hc-al2-dest') || 'Home', reason: g('hc-al2-reason') || '', status, createdBy: by, actedBy: by,
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  if (status === 'out') rec.outAt = now;
+  const patch = { ['leave/' + urn + '/' + id]: rec };
+  if (status === 'out') patch['leave_out/' + urn] = { id, hostelId: r.hostelId, to };
+  const ok = await hcWrite(patch, { urn, action: 'leave_added_' + status, hostelId: r.hostelId }, '\u2705 Leave saved (' + status + ')');
+  if (ok) { hcCloseModal(); await hcLoadStudentLinked(); await hcRenderLeave(true); hcLeaveWhatsApp(urn, id); }
+}
+</script>
+
+<script>
+/* v1490 DB2 METER - index.html side (see student portal v9.72 for the meter card) */
+/* ════════════════════════════════════════════════════════════════════
+   DBM — DB2 METER (portal v9.72 / index.html v1490 / widget w96)
+   Every client counts the bytes it DOWNLOADS from DB2, per grouped path,
+   and flushes every 3 min with server-side increments (writes are free on
+   Spark; only downloads count against 10 GB/month):
+     davan_pub/meter/{IST date}/{app}/{pathKey}: { n, b }
+     davan_pub/meter_t/{IST date}/{app}: bytes            (tiny: banner + chart)
+     davan_pub/meter_big/{IST date}/{app}~{pathKey}: { n, b, at }  (single read >= bigKB)
+     davan_pub/meter_cfg: { budgetMB (default 300), bigKB (default 300) }
+   pathKey = grouped path (URN/date/pushkey/ids collapsed), '/' -> '~'.
+   Estimates: REST body length (portal, index.html) / snapshot size (widget).
+   Firebase Usage page stays the official number.
+   ════════════════════════════════════════════════════════════════════ */
+const DBM = { app: 'index', pend: {}, big: {}, bigKB: 300, t: null, patch: null, flushing: false };
+function dbmDate() { return new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10); }
+function dbmAddDays(iso, n) { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); }
+function dbmGroup(path) {
+  const segs = String(path || '').split('?')[0].split('/').filter(Boolean).map(seg =>
+    /^\d{4}-\d{2}-\d{2}$/.test(seg) ? '<DATE>' :
+    /^-[A-Za-z0-9_-]{15,}$/.test(seg) ? '<PUSH>' :
+    /^U\d{2}[A-Z]{2}\d{2}[A-Z]\d{4}$/i.test(seg) ? '<URN>' :
+    (/^\d+$/.test(seg) && seg.length > 3) ? '<ID>' : seg);
+  return segs.slice(0, 5).join('/') || '/';
+}
+function dbmKey(g) { return String(g).replace(/[.#$\[\]]/g, '_').replace(/\//g, '~').slice(0, 180); }
+function dbmNote(path, bytes) {
+  try {
+    const k = dbmKey(dbmGroup(path));
+    const r = DBM.pend[k] || (DBM.pend[k] = { n: 0, b: 0 });
+    r.n++; r.b += bytes;
+    if (bytes >= DBM.bigKB * 1024) { const x = DBM.big[k] || (DBM.big[k] = { n: 0, b: 0 }); x.n++; if (bytes > x.b) x.b = bytes; }
+    if (!DBM.t) DBM.t = setTimeout(dbmFlush, 180000);
+  } catch (e) { /* metering must never break a read */ }
+}
+async function dbmFlush() {
+  if (DBM.t) { clearTimeout(DBM.t); DBM.t = null; }
+  if (DBM.flushing || !DBM.patch) return;
+  const pend = DBM.pend, big = DBM.big, keys = Object.keys(pend);
+  if (!keys.length) return;
+  DBM.pend = {}; DBM.big = {}; DBM.flushing = true;
+  const d = dbmDate(), app = DBM.app, inc = v => ({ '.sv': { increment: v } }), body = {};
+  let tot = 0;
+  keys.forEach(k => { body['meter/' + d + '/' + app + '/' + k + '/n'] = inc(pend[k].n); body['meter/' + d + '/' + app + '/' + k + '/b'] = inc(pend[k].b); tot += pend[k].b; });
+  body['meter_t/' + d + '/' + app] = inc(tot);
+  Object.keys(big).forEach(k => { const p = 'meter_big/' + d + '/' + app + '~' + k; body[p + '/n'] = inc(big[k].n); body[p + '/b'] = big[k].b; body[p + '/at'] = Date.now(); });
+  try { await DBM.patch('davan_pub', body); }
+  catch (e) {
+    // put counts back so nothing is lost; retry on the next note
+    keys.forEach(k => { const r = DBM.pend[k] || (DBM.pend[k] = { n: 0, b: 0 }); r.n += pend[k].n; r.b += pend[k].b; });
+    Object.keys(big).forEach(k => { const x = DBM.big[k] || (DBM.big[k] = { n: 0, b: 0 }); x.n += big[k].n; if (big[k].b > x.b) x.b = big[k].b; });
+    console.warn('[DBM] flush failed (kept for retry):', e.message);
+  } finally { DBM.flushing = false; }
+}
+try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') dbmFlush(); }); } catch (e) {}
+function dbmFmt(b) { b = +b || 0; if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB'; if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB'; if (b >= 1024) return (b / 1024).toFixed(1) + ' KB'; return b + ' B'; }
+
+// index.html: silent PATCH to DB2 (empty response body = no download cost for the meter itself)
+DBM.patch = async function (path, body) {
+  const token = await _lpGetPortalToken();
+  const res = await fetch(LP_PORTAL_URL + '/' + path + '.json?print=silent' + (token ? '&auth=' + token : ''), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true });
+  if (!res.ok && res.status !== 204) throw new Error('meter patch ' + res.status);
+};
+/* Over-budget banner for admin roles: reads ONLY davan_pub/meter_t/{today} (a few bytes)
+   30 s after load, then every 30 min while the tab is visible. Full meter lives in
+   student portal -> admin -> Data Usage. */
+let _dbmCfg = null, _dbmHideDay = null;
+async function dbmBannerTick() {
+  try {
+    if (!currentProfile || !['admin', 'manager', 'principal', 'vp'].includes(currentProfile.role)) return;
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
+    const d = dbmDate();
+    if (_dbmHideDay === d) return;
+    if (!_dbmCfg) _dbmCfg = (await lpDb2Get('davan_pub/meter_cfg')) || {};
+    const t = (await lpDb2Get('davan_pub/meter_t/' + d)) || {};
+    const used = Object.values(t).reduce((a, v) => a + (+v || 0), 0), budget = (+_dbmCfg.budgetMB || 300) * 1048576;
+    let el = document.getElementById('dbm-banner');
+    if (used <= budget) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div'); el.id = 'dbm-banner';
+      el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:calc(8px + env(safe-area-inset-top,0px));z-index:10060;max-width:94vw;background:#7f1d1d;color:#fff;border:1px solid #ef4444;border-radius:10px;padding:8px 12px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.4);display:flex;gap:10px;align-items:center;';
+      document.body.appendChild(el);
+    }
+    const top = Object.entries(t).sort((a, b) => b[1] - a[1]).map(([a, v]) => a + ' ' + dbmFmt(v)).join(' \u00b7 ');
+    el.innerHTML = '<span>\u26FD <b>DB2 over today\'s budget:</b> ' + dbmFmt(used) + ' / ' + dbmFmt(budget) + ' <span style="opacity:.8">(' + top + ')</span> \u2014 open student portal \u2192 Data Usage</span><button style="background:none;border:1px solid #fff;color:#fff;border-radius:6px;padding:2px 8px;cursor:pointer;" onclick="_dbmHideDay=dbmDate();this.parentNode.remove()">Hide today</button>';
+  } catch (e) { console.warn('[DBM] banner', e.message); }
+}
+setTimeout(dbmBannerTick, 30000);
+setInterval(dbmBannerTick, 30 * 60000);
+</script>
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   HC WIDGET-LINKED ADMIN (CODE_BUILD=1492) - pairs with widget w97 / portal v9.74
+   DB4 (hostel DB):
+     hostel/sos/{push}, hostel/sos_open/{urn}   <- widget SOS (double tap)
+     hostel/sos_ack/{urn}_{at}                  <- acknowledged here
+     hostel/checkin/{date}/{urn}: {at, via}     <- widget "I'm in hostel"
+     hostel/rollcall/{date}/{urn}: 'P'|'A'      <- warden manual mark
+     hostel/laundry/{hid}/{roomId}: {days:{mon:true..}, time}
+     hostel/config/checkin: {start, end}
+     hostel/residents/{urn}/mealNotif: false    <- per-student meal alerts off
+   ════════════════════════════════════════════════════════════════════ */
+const HC_DAYK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+HC.sosSeen = {}; HC.rc = { date: null, data: null };
+
+// ── SOS: live listener on the tiny hostel/sos_open node ─────────────
+let _hcSosRef = null, _hcSosBeep = null;
+async function hcSosAttach() {
+  try {
+    if (_hcSosRef || !currentProfile || !['admin', 'manager', 'principal', 'vp', 'warden'].includes(currentProfile.role)) return;
+    await _lpGetArchiveToken();                       // signs the lp-archive app in anonymously
+    if (!_lpArchiveApp || !_lpArchiveApp.database) return;
+    if (!HC.loaded) { try { await hcLoad(false); } catch (e) {} }
+    _hcSosRef = _lpArchiveApp.database().ref('hostel/sos_open');
+    _hcSosRef.on('value', snap => hcSosShow(snap.val() || {}), err => console.warn('[HC] SOS listener', err && err.message));
+  } catch (e) { console.warn('[HC] SOS attach', e.message); }
+}
+setTimeout(hcSosAttach, 8000);
+setInterval(() => { if (!_hcSosRef) hcSosAttach(); }, 5 * 60000);
+function hcSosShow(open) {
+  const mine = hcMyHostelIds();
+  const list = Object.entries(open).map(([urn, x]) => Object.assign({ urn }, x)).filter(x => x && mine.includes(x.hostelId)).sort((a, b) => (b.at || 0) - (a.at || 0));
+  let el = document.getElementById('hc-sos-box');
+  if (!list.length) { if (el) el.remove(); if (_hcSosBeep) { clearInterval(_hcSosBeep); _hcSosBeep = null; } return; }
+  if (!el) {
+    el = document.createElement('div'); el.id = 'hc-sos-box';
+    el.style.cssText = 'position:fixed;inset:0;z-index:10080;background:rgba(127,29,29,.88);display:flex;align-items:center;justify-content:center;padding:16px;';
+    document.body.appendChild(el);
+  }
+  const tf = t => new Date(t).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' });
+  el.innerHTML = `<div style="background:#1a0b0b;border:2px solid #ef4444;border-radius:16px;max-width:520px;width:100%;padding:18px;color:#fff;">
+    <div style="font-size:22px;font-weight:800;margin-bottom:10px;">\u{1F198} HOSTEL SOS</div>` + list.map(x => `
+    <div style="border-top:1px solid #7f1d1d;padding:10px 0;">
+      <div style="font-size:16px;font-weight:700;">${hcEsc(x.name || x.urn)}</div>
+      <div style="font-size:13px;opacity:.9;">${hcEsc(x.hostel || '')} \u00b7 Room ${hcEsc(x.room || '?')} ${hcEsc(x.bed || '')} \u00b7 ${hcEsc(x.cls || '')}</div>
+      <div style="font-size:13px;opacity:.9;">Sent ${hcEsc(tf(x.at || Date.now()))}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        ${x.phone ? `<a href="tel:${hcEsc(String(x.phone).replace(/[^0-9+]/g, ''))}" style="background:#ef4444;color:#fff;padding:7px 12px;border-radius:8px;text-decoration:none;font-weight:700;">\u{1F4DE} Call student</a>` : ''}
+        <button onclick="hcSosParent('${hcKey(x.urn)}')" style="background:#7f1d1d;color:#fff;border:1px solid #ef4444;padding:7px 12px;border-radius:8px;cursor:pointer;">\u{1F4DE} Parent</button>
+        <button onclick="hcSosAck('${hcKey(x.urn)}',${+x.at || 0})" style="background:#fff;color:#7f1d1d;border:none;padding:7px 12px;border-radius:8px;font-weight:700;cursor:pointer;">\u2705 I'm handling it</button>
+      </div></div>`).join('') + `</div>`;
+  const fresh = list.some(x => !HC.sosSeen[x.urn + '_' + x.at]);
+  list.forEach(x => { HC.sosSeen[x.urn + '_' + x.at] = 1; });
+  if (fresh && !_hcSosBeep) {
+    const beep = () => { try { const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(); o.frequency.value = 880; o.connect(a.destination); o.start(); setTimeout(() => { o.stop(); a.close(); }, 400); } catch (e) {} };
+    beep(); _hcSosBeep = setInterval(beep, 3000);
+  }
+}
+async function hcSosParent(urn) {
+  const ph = await lpDb4Get('hostel/private/' + urn + '/parentPhone');
+  if (ph) location.href = 'tel:' + String(ph).replace(/[^0-9+]/g, '');
+  else dvToast('No parent number saved for this student yet', 'warn', 5000);
+}
+async function hcSosAck(urn, at) {
+  const by = (currentProfile && currentProfile.name) || '';
+  try {
+    await lpDb4Patch('hostel', { ['sos_open/' + urn]: null, ['sos_ack/' + urn + '_' + at]: { urn, at, ackBy: by, ackAt: Date.now() } });
+    if (_hcSosBeep) { clearInterval(_hcSosBeep); _hcSosBeep = null; }
+    dvToast('\u2705 SOS marked as handled by ' + by, 'ok');
+  } catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); }
+}
+
+// ── Night roll call ─────────────────────────────────────────────────
+async function hcRenderRollcall(force) {
+  const root = document.getElementById('hc-rollcall-root'); if (!root) return;
+  const mine = hcMyHostelIds(); if (!mine.length) { root.innerHTML = hcNoHostelMsg(); return; }
+  const date = HC.rc.date || hcTodayIST(); HC.rc.date = date;
+  if (!HC.rc.data || HC.rc.data.date !== date || force) {
+    root.innerHTML = '<div class="hc-muted">Loading roll call\u2026</div>';
+    const [ci, rc, lo] = await Promise.all([lpDb4Get('hostel/checkin/' + date), lpDb4Get('hostel/rollcall/' + date), lpDb4Get('hostel/leave_out')]);
+    HC.rc.data = { date, ci: ci || {}, rc: rc || {}, lo: lo || {} };
+  }
+  const D = HC.rc.data, H = hcHostels(), can = hcCanAllot();
+  const res = hcActiveResidents().filter(r => mine.includes(r.hostelId) && r.roomId)
+    .sort((a, b) => hcRoomLabel(a.hostelId, a.roomId).localeCompare(hcRoomLabel(b.hostelId, b.roomId), undefined, { numeric: true }) || String(a.bed).localeCompare(String(b.bed)));
+  const st = r => D.lo[r.urn] ? 'L' : D.rc[r.urn] ? D.rc[r.urn] : D.ci[r.urn] ? 'C' : '';
+  const cnt = k => res.filter(r => st(r) === k).length;
+  const notYet = res.filter(r => !st(r)).length;
+  const tf = t => new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  let h = `<div class="hc-bar"><input type="date" class="hc-in" value="${date}" max="${hcTodayIST()}" onchange="HC.rc.date=this.value;hcRenderRollcall(true)">
+    <button class="hc-btn" onclick="hcRenderRollcall(true)">\u{1F504} Refresh</button>
+    <span class="hc-muted" style="margin-left:auto;">\u2705 ${cnt('C')} checked in \u00b7 P ${cnt('P')} \u00b7 <b style="color:var(--danger)">A ${cnt('A')}</b> \u00b7 L ${cnt('L')} \u00b7 <b style="color:var(--warn)">${notYet} not yet</b></span></div>
+    <div class="hc-muted" style="margin-bottom:8px;">Widget check-in window: ${hcEsc(((HC.cfg || {}).checkin || {}).start || '21:00')}\u2013${hcEsc(((HC.cfg || {}).checkin || {}).end || '21:30')}. Students without the widget: mark P / A by hand.</div>
+    <div class="hc-wrap"><table class="hc-tbl"><tr><th>Room</th><th>Student</th><th>Status</th><th></th></tr>`;
+  h += res.map(r => {
+    const s = st(r);
+    const lbl = s === 'L' ? '<span style="color:var(--warn)">\u{1F6B6} On leave</span>' : s === 'C' ? '<span style="color:var(--ok)">\u2705 Checked in ' + hcEsc(tf(D.ci[r.urn].at)) + '</span>' : s === 'P' ? '<b style="color:var(--ok)">P</b>' : s === 'A' ? '<b style="color:var(--danger)">A \u2014 absent</b>' : '<span style="color:var(--warn)">not checked in</span>';
+    return `<tr><td>${hcEsc(hcRoomLabel(r.hostelId, r.roomId))} ${hcEsc(r.bed || '')}</td><td>${hcAvatar(r.urn, r.name, 24, r.photo)} ${hcEsc(r.name)}</td><td>${lbl}</td>
+      <td style="white-space:nowrap;">${can && s !== 'L' ? `<button class="hc-btn" style="padding:2px 8px;" onclick="hcRcMark('${hcKey(r.urn)}','P')">P</button> <button class="hc-btn dng" style="padding:2px 8px;" onclick="hcRcMark('${hcKey(r.urn)}','A')">A</button>` : ''}</td></tr>`;
+  }).join('') + '</table></div>';
+  root.innerHTML = h;
+}
+async function hcRcMark(urn, v) {
+  const d = HC.rc.date || hcTodayIST();
+  try { await lpDb4Set('hostel/rollcall/' + d + '/' + urn, v); HC.rc.data.rc[urn] = v; hcRenderRollcall(); }
+  catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); }
+}
+
+// ── Laundry schedule (floor-wide or single room) ────────────────────
+function hcOpenLaundry() {
+  if (!hcCanAllot() || !HC.hostel) return;
+  const hid = HC.hostel, rooms = hcRoomsOf(hid);
+  const floors = [...new Set(rooms.map(r => String(r.floor == null ? '' : r.floor)))];
+  hcOpenModal(`<div style="font-weight:700;font-size:15px;margin-bottom:10px;">\u{1F9FA} Laundry schedule \u2014 ${hcEsc(hcHostels()[hid].name)}</div>
+    <label class="hc-muted">Apply to<select id="hc-ld-scope" class="hc-in" style="width:100%;margin-bottom:8px;">
+      ${floors.map(f => `<option value="f:${hcEsc(f)}">All rooms on floor ${hcEsc(f)}</option>`).join('')}
+      ${rooms.map(r => `<option value="r:${r.id}">Room ${hcEsc(hcRoomLabel(hid, r.id))}</option>`).join('')}</select></label>
+    <div class="hc-bar">${HC_DAYK.map(d => `<label style="font-size:13px;"><input type="checkbox" class="hc-ld-d" value="${d}"> ${d[0].toUpperCase() + d.slice(1)}</label>`).join('')}</div>
+    <label class="hc-muted">Time <input id="hc-ld-time" type="time" class="hc-in" value="07:00"></label>
+    <div class="hc-muted" style="margin-top:6px;">Students get a reminder at 8 PM the evening before, and see it on widget page 8. Untick all days to remove.</div>
+    <div class="hc-bar" style="justify-content:flex-end;margin-top:12px;"><button class="hc-btn" onclick="hcCloseModal()">Cancel</button><button class="hc-btn pri" onclick="hcSaveLaundry()">Save</button></div>`);
+}
+async function hcSaveLaundry() {
+  const hid = HC.hostel, scope = document.getElementById('hc-ld-scope').value, time = document.getElementById('hc-ld-time').value || '07:00';
+  const days = {}; document.querySelectorAll('.hc-ld-d').forEach(c => { if (c.checked) days[c.value] = true; });
+  const ids = scope.startsWith('f:') ? hcRoomsOf(hid).filter(r => String(r.floor == null ? '' : r.floor) === scope.slice(2)).map(r => r.id) : [scope.slice(2)];
+  const patch = {}; ids.forEach(id => { patch['laundry/' + hid + '/' + id] = Object.keys(days).length ? { days, time } : null; });
+  const ok = await hcWrite(patch, { action: 'laundry', hostelId: hid, count: ids.length }, '\u2705 Laundry schedule saved for ' + ids.length + ' room(s)');
+  if (ok) hcCloseModal();
+}
+
+// ── Per-student meal notifications on/off ───────────────────────────
+async function hcToggleMealNotif(urn, on) {
+  try { await lpDb4Set('hostel/residents/' + urn + '/mealNotif', on ? null : false); (HC.residents[urn] || {}).mealNotif = on ? undefined : false; dvToast(on ? 'Meal alerts ON' : 'Meal alerts OFF for this student', 'ok'); }
+  catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); }
+}
+</script>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   HC CLEANING (CODE_BUILD=1493) - pairs with cleaning.html v1.0 + widget w97
+   DB4:
+     hostel/cleaning_staff/{id}: { name, role:'room'|'wash'|'both', hostels:{boys,girls}, pinHash, active }
+         pinHash = SHA-256(pin + ':' + id) - PIN itself is never stored
+     hostel/cleaning/{date}/{hid}~{roomId}: { room:{at,by,byId,via}, wash:{...} }   (kept 28 days)
+     hostel/cleaning_snap/{YYYY-MM}/{hid}~{roomId}: { room:n, wash:n, days:n }        (monthly summary, kept for the AY)
+   Retention: admin opening the Cleaning panel compacts every day older than 28 days
+   into cleaning_snap (server increments) and deletes the day. Only admin sees the AY report.
+   ════════════════════════════════════════════════════════════════════ */
+const HC_CL_KEEP_DAYS = 28;
+HC.cl = { date: null, day: {}, staff: {}, tab: 'today' };
+async function hcSha(s) { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''); }
+function hcCanClean() { return ['admin', 'manager', 'warden'].includes(hcRole()); }
+
+async function hcRenderCleaning(force) {
+  const root = document.getElementById('hc-cleaning-root'); if (!root) return;
+  const mine = hcMyHostelIds(); if (!mine.length) { root.innerHTML = hcNoHostelMsg(); return; }
+  const t = HC.cl.tab;
+  let h = `<div class="hc-bar">
+    <button class="hc-tab ${t === 'today' ? 'on' : ''}" onclick="HC.cl.tab='today';hcRenderCleaning()">\u{1F9F9} Rooms</button>
+    ${hcCanSetup() ? `<button class="hc-tab ${t === 'staff' ? 'on' : ''}" onclick="HC.cl.tab='staff';hcRenderCleaning(true)">\u{1F464} Cleaning staff</button>` : ''}
+    ${hcRole() === 'admin' ? `<button class="hc-tab ${t === 'year' ? 'on' : ''}" onclick="HC.cl.tab='year';hcRenderCleaning(true)">\u{1F4C5} Year report</button>` : ''}
+    <a class="hc-btn" style="margin-left:auto;text-decoration:none;" href="cleaning.html" target="_blank">\u{1F4F1} Open cleaning.html</a></div>`;
+  if (t === 'staff') { root.innerHTML = h + await hcClStaffHtml(); return; }
+  if (t === 'year') { root.innerHTML = h + '<div class="hc-muted">Loading\u2026</div>'; root.innerHTML = h + await hcClYearHtml(); return; }
+  const date = HC.cl.date || hcTodayIST(); HC.cl.date = date;
+  if (force || !HC.cl.day._date || HC.cl.day._date !== date) {
+    root.innerHTML = h + '<div class="hc-muted">Loading\u2026</div>';
+    HC.cl.day = Object.assign({ _date: date }, (await lpDb4Get('hostel/cleaning/' + date)) || {});
+    if (hcRole() === 'admin' && !HC.cl.compacted) { HC.cl.compacted = true; hcClCompact().catch(e => console.warn('[HC] cleaning compact', e.message)); }
+  }
+  const tf = at => { const s = new Date(at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }); return /^12:00\s*pm$/i.test(s) ? '12:00 noon' : s; };
+  const minDate = hcAddDays(hcTodayIST(), -(HC_CL_KEEP_DAYS - 1));
+  h += `<div class="hc-bar"><input type="date" class="hc-in" value="${date}" min="${minDate}" max="${hcTodayIST()}" onchange="HC.cl.date=this.value;hcRenderCleaning(true)">
+    <button class="hc-btn" onclick="hcRenderCleaning(true)">\u{1F504} Refresh</button>${hcHostelTabs('hcRenderCleaning')}</div>`;
+  const hid = HC.hostel || mine[0];
+  const rooms = hcRoomsOf(hid);
+  const done = k => rooms.filter(r => (HC.cl.day[hid + '~' + r.id] || {})[k]).length;
+  h += `<div class="hc-muted" style="margin-bottom:8px;">Rooms cleaned ${done('room')}/${rooms.length} \u00b7 Washrooms ${done('wash')}/${rooms.length} \u00b7 Details kept ${HC_CL_KEEP_DAYS} days, then summarised.</div><div class="hc-grid">`;
+  const can = hcCanClean() && date === hcTodayIST();
+  { const cc = HC.cl.day[hid + '~_common'] || {};
+    h += `<div class="hc-room" style="${cc.wash ? 'border-color:var(--ok);' : ''}"><div class="hc-room-h"><b>\u{1F6BF} Common washroom</b><span class="hc-muted">whole hostel</span></div>` +
+      (cc.wash ? `<div style="color:var(--ok);font-size:12px;">\u2705 Cleaned ${hcEsc(tf(cc.wash.at))} <span class="hc-muted">by ${hcEsc(cc.wash.by || '')}</span></div>`
+        : `<div style="font-size:12px;" class="hc-muted">\u25CB Not yet ${can ? `<button class="hc-btn" style="padding:1px 8px;margin-left:4px;" onclick="hcClMark('${hid}','_common','wash')">Mark</button>` : ''}</div>`) + '</div>'; }
+  h += rooms.map(r => {
+    const c = HC.cl.day[hid + '~' + r.id] || {};
+    const cell = (k, label) => c[k] ? `<div style="color:var(--ok);font-size:12px;">\u2705 ${label} ${hcEsc(tf(c[k].at))} <span class="hc-muted">by ${hcEsc(c[k].by || '')}</span></div>`
+      : `<div style="font-size:12px;" class="hc-muted">\u25CB ${label} not yet ${can ? `<button class="hc-btn" style="padding:1px 8px;margin-left:4px;" onclick="hcClMark('${hid}','${r.id}','${k}')">Mark</button>` : ''}</div>`;
+    return `<div class="hc-room" style="${c.room && c.wash ? 'border-color:var(--ok);' : ''}"><div class="hc-room-h"><b>${hcEsc(hcRoomLabel(hid, r.id))}</b><span class="hc-muted">Floor ${hcEsc(r.floor)}</span></div>${cell('room', 'Room')}${cell('wash', 'Washroom')}</div>`;
+  }).join('') + '</div>';
+  root.innerHTML = h;
+}
+async function hcClMark(hid, roomId, kind) {
+  const by = (currentProfile && currentProfile.name) || 'Warden';
+  const val = { at: Date.now(), by, byId: 'staff:' + hcUid(), via: hcRole() };
+  try {
+    await lpDb4Patch('hostel/cleaning/' + hcTodayIST() + '/' + hid + '~' + roomId, { [kind]: val });
+    const k = hid + '~' + roomId; HC.cl.day[k] = Object.assign({}, HC.cl.day[k] || {}, { [kind]: val });
+    dvToast('\u2705 ' + (roomId === '_common' ? 'Common washroom' : (kind === 'room' ? 'Room' : 'Washroom') + ' ' + hcRoomLabel(hid, roomId)) + ' marked clean' + (roomId === '_common' ? '' : ' \u2014 students notified within 30 min'), 'ok', 4000);
+    hcRenderCleaning();
+  } catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); }
+}
+
+// ── cleaning staff (admin / manager) ────────────────────────────────
+async function hcClStaffHtml() {
+  HC.cl.staff = (await lpDb4Get('hostel/cleaning_staff')) || {};
+  const H = hcHostels();
+  const list = Object.entries(HC.cl.staff).map(([id, s]) => Object.assign({ id }, s)).filter(s => s.active !== false).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const roleTxt = { room: 'Rooms', wash: 'Washrooms', both: 'Rooms + washrooms' };
+  return `<div class="hc-card" style="margin-bottom:14px;"><div style="font-weight:700;margin-bottom:10px;">\u2795 Add cleaning staff</div>
+    <div class="hc-bar"><input id="hc-cs-name" class="hc-in" placeholder="Name shown to students, e.g. Manjula" maxlength="30" style="flex:1;min-width:160px;">
+      <select id="hc-cs-role" class="hc-in"><option value="room">Rooms</option><option value="wash">Washrooms</option><option value="both">Both</option></select></div>
+    <div class="hc-bar">${['boys', 'girls'].map(id => `<label style="font-size:13px;"><input type="checkbox" class="hc-cs-h" value="${id}" checked> ${hcEsc(H[id].name)}</label>`).join('')}
+      <input id="hc-cs-pin" class="hc-in" inputmode="numeric" maxlength="4" placeholder="4-digit PIN" style="width:110px;"></div>
+    <div class="hc-bar"><button class="hc-btn pri" onclick="hcClAddStaff()">Save staff</button><span class="hc-muted">Give them the PIN and the link <b>cleaning.html</b>.</span></div></div>
+    ${list.length ? '<div class="hc-wrap"><table class="hc-tbl"><tr><th>Name</th><th>PIN</th><th>Cleans</th><th>Hostels</th><th></th></tr>' + list.map(s => `<tr><td>${hcEsc(s.name)}</td>
+      <td>${s.pin ? '<b style="font-family:var(--mono);font-size:14px;letter-spacing:2px;">' + hcEsc(s.pin) + '</b>' : '<span class="hc-muted">hidden \u2014 tap New PIN</span>'}</td><td>${roleTxt[s.role] || s.role}</td>
+      <td>${['boys', 'girls'].filter(x => (s.hostels || {})[x]).map(x => hcEsc(H[x].name)).join(', ')}</td>
+      <td style="white-space:nowrap;"><button class="hc-btn" style="padding:2px 8px;" onclick="hcClResetPin('${s.id}')">New PIN</button> <button class="hc-btn dng" style="padding:2px 8px;" onclick="hcClRemove('${s.id}')">Remove</button></td></tr>`).join('') + '</table></div>'
+      : '<div class="hc-muted">No cleaning staff yet.</div>'}`;
+}
+function hcClPinTaken(pin, exceptId) {
+  return Promise.all(Object.entries(HC.cl.staff).filter(([id, s]) => id !== exceptId && s && s.active !== false && s.pinHash).map(async ([id, s]) => s.pinHash === await hcSha(pin + ':' + id))).then(a => a.some(Boolean));
+}
+async function hcClAddStaff() {
+  const name = (document.getElementById('hc-cs-name').value || '').trim(), role = document.getElementById('hc-cs-role').value, pin = (document.getElementById('hc-cs-pin').value || '').trim();
+  const hostels = {}; document.querySelectorAll('.hc-cs-h').forEach(c => { if (c.checked) hostels[c.value] = true; });
+  if (!name) { dvToast('Enter a name', 'warn'); return; }
+  if (!/^\d{4}$/.test(pin)) { dvToast('PIN must be exactly 4 digits', 'warn'); return; }
+  if (!Object.keys(hostels).length) { dvToast('Pick at least one hostel', 'warn'); return; }
+  if (await hcClPinTaken(pin)) { dvToast('That PIN is already used by someone else \u2014 pick another', 'warn', 5000); return; }
+  const id = 'cs' + Date.now().toString(36);
+  try {
+    await lpDb4Set('hostel/cleaning_staff/' + id, { name, role, hostels, pin, pinHash: await hcSha(pin + ':' + id), active: true, addedBy: (currentProfile && currentProfile.name) || '', at: Date.now() });
+    dvToast('\u2705 ' + name + ' added. PIN: ' + pin, 'ok', 6000); hcRenderCleaning(true);
+  } catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); }
+}
+async function hcClResetPin(id) {
+  const pin = (prompt('New 4-digit PIN for ' + ((HC.cl.staff[id] || {}).name || '') + ':', '') || '').trim(); if (!pin) return;
+  if (!/^\d{4}$/.test(pin)) { dvToast('PIN must be exactly 4 digits', 'warn'); return; }
+  if (await hcClPinTaken(pin, id)) { dvToast('That PIN is already used', 'warn'); return; }
+  try { await lpDb4Patch('hostel/cleaning_staff/' + id, { pin, pinHash: await hcSha(pin + ':' + id) }); dvToast('\u2705 PIN changed to ' + pin + ' \u2014 they must log in again', 'ok', 6000); hcRenderCleaning(true); }
+  catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); }
+}
+function hcClRemove(id) {
+  dvConfirm('Remove cleaning staff?', ((HC.cl.staff[id] || {}).name || '') + ' will no longer be able to log in. Past cleaning records stay.', async () => {
+    try { await lpDb4Set('hostel/cleaning_staff/' + id + '/active', false); dvToast('Removed', 'ok'); hcRenderCleaning(true); } catch (e) { dvToast('\u274c ' + e.message, 'error', 6000); }
+  }, { okLabel: 'Remove' });
+}
+
+// ── retention: days older than 28 -> monthly snapshot, then delete ──
+async function hcClCompact() {
+  const token = await _lpGetArchiveToken();
+  const r = await fetch(LP_ARCHIVE_URL + '/hostel/cleaning.json?shallow=true' + (token ? '&auth=' + token : ''));
+  if (!r.ok) return;
+  const days = Object.keys((await r.json()) || {}).sort();
+  const cutoff = hcAddDays(hcTodayIST(), -HC_CL_KEEP_DAYS);
+  const old = days.filter(d => d < cutoff).slice(0, 31);
+  for (const d of old) {
+    const day = (await lpDb4Get('hostel/cleaning/' + d)) || {};
+    const inc = v => ({ '.sv': { increment: v } }), patch = {}, mon = d.slice(0, 7);
+    Object.entries(day).forEach(([k, c]) => {
+      const p = 'cleaning_snap/' + mon + '/' + k + '/';
+      patch[p + 'days'] = inc(1);
+      if (c && c.room) patch[p + 'room'] = inc(1);
+      if (c && c.wash) patch[p + 'wash'] = inc(1);
+    });
+    patch['cleaning_snap/' + mon + '/_days/' + d] = true;
+    patch['cleaning/' + d] = null;
+    await lpDb4Patch('hostel', patch);
+  }
+  if (old.length) console.log('[HC] cleaning compacted', old.length, 'day(s) into monthly snapshots');
+}
+async function hcClYearHtml() {
+  const snap = (await lpDb4Get('hostel/cleaning_snap')) || {};
+  const months = Object.keys(snap).sort();
+  if (!months.length) return '<div class="hc-card hc-muted">No monthly summaries yet. Days older than ' + HC_CL_KEEP_DAYS + ' are summarised here automatically when an admin opens this panel.</div>';
+  const H = hcHostels(), rows = {};
+  months.forEach(m => Object.entries(snap[m] || {}).forEach(([k, v]) => { if (k === '_days') return; (rows[k] = rows[k] || {})[m] = v; }));
+  const md = m => Object.keys((snap[m] || {})._days || {}).length || 1;
+  const keys = Object.keys(rows).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  return `<div class="hc-muted" style="margin-bottom:8px;">Per room: rooms cleaned / washrooms cleaned out of days recorded that month. Red below 80%.</div><div class="hc-wrap"><table class="hc-tbl"><tr><th>Room</th>${months.map(m => `<th>${m}</th>`).join('')}</tr>` +
+    keys.map(k => { const [hid, roomId] = k.split('~'); return `<tr><td>${hcEsc((H[hid] || {}).name || hid)} ${hcEsc(hcRoomLabel(hid, roomId))}</td>` + months.map(m => { const v = rows[k][m]; if (!v) return '<td class="hc-muted">\u2014</td>'; const d = md(m); const col = x => (x || 0) / d < 0.8 ? 'var(--danger)' : 'var(--ok)'; return `<td><span style="color:${col(v.room)}">${v.room || 0}</span> / <span style="color:${col(v.wash)}">${v.wash || 0}</span> <span class="hc-muted">of ${d}</span></td>`; }).join('') + '</tr>'; }).join('') + '</table></div>';
+}
+</script>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   HC MEAL ATTENDANCE (CODE_BUILD=1494) - from compulsory meal feedback
+   canteen/meal_log/{date}/{urn}/{meal}: {ate, s (stars, 0 = didn't have), at, via widget|portal}
+   Status per resident per meal: had (good/not good) · didn't have · pre-marked not eating ·
+   on leave · closed · pending (window open) · no response (window closed, never answered)
+   ════════════════════════════════════════════════════════════════════ */
+HC.wa = { date: null, meal: 'lunch', view: 'meal', data: null };
+const HC_WA_MEALS = ['breakfast', 'lunch', 'dinner'];
+async function hcWhoAteHtml() {
+  const W = HC.wa, today = hcTodayIST(); W.date = W.date || today;
+  const mine = hcMyHostelIds(), H = hcHostels();
+  let h = `<div class="hc-bar"><button class="hc-tab ${W.view === 'meal' ? 'on' : ''}" onclick="HC.wa.view='meal';hcRenderMenu()">Per meal</button>
+    <button class="hc-tab ${W.view === 'month' ? 'on' : ''}" onclick="HC.wa.view='month';hcRenderMenu()">This month per student</button></div>`;
+  const res = hcActiveResidents().filter(r => mine.includes(r.hostelId));
+  if (W.view === 'month') {
+    const from = today.slice(0, 8) + '01';
+    const log = await hcDb2Range('canteen/meal_log', from, today).catch(() => ({}));
+    const days = Object.keys(log).length || 1;
+    const rows = res.map(r => { let had = 0, not = 0, ans = 0; Object.values(log).forEach(d => { const x = d && d[r.urn]; if (x) Object.values(x).forEach(v => { ans++; if (v && v.ate) had++; else not++; }); }); return { r, had, not, ans }; })
+      .sort((a, b) => a.ans - b.ans);
+    return h + `<div class="hc-muted" style="margin-bottom:8px;">${hcFmtDate(from)} \u2013 ${hcFmtDate(today)} \u00b7 answers counted over ${days} day(s) \u00b7 lowest answer count first</div>
+      <div class="hc-wrap"><table class="hc-tbl"><tr><th>Student</th><th>Room</th><th>Had</th><th>Didn't have</th><th>Answered</th></tr>` +
+      rows.map(x => `<tr><td>${hcAvatar(x.r.urn, x.r.name, 24, x.r.photo)} ${hcEsc(x.r.name)}</td><td>${hcEsc(hcRoomLabel(x.r.hostelId, x.r.roomId))}</td><td style="color:var(--ok)">${x.had}</td><td>${x.not}</td><td>${x.ans}</td></tr>`).join('') + '</table></div>';
+  }
+  if (!W.data || W.data.date !== W.date) {
+    const [log, sk, cl, lo] = await Promise.all([lpDb4Get('canteen/meal_log/' + W.date), lpDb4Get('canteen/skips/' + W.date), lpDb4Get('canteen/closed/' + W.date), lpDb4Get('hostel/leave_out')]);
+    W.data = { date: W.date, log: log || {}, sk: sk || {}, cl: cl, lo: lo || {} };
+  }
+  const D = W.data, m = W.meal, M = hcMeals();
+  const closedMeal = D.cl && (D.cl.scope === 'hostel' || D.cl.all || (D.cl.meals && D.cl.meals[m]));
+  const now = new Date(Date.now() + 330 * 60000), nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const idx = HC_WA_MEALS.indexOf(m), closeMin = idx < 2 ? hcMinOf(M[HC_WA_MEALS[idx + 1]]) : 24 * 60;
+  const windowOver = W.date < today || nowMin >= closeMin;
+  const st = r => {
+    const x = (D.log[r.urn] || {})[m];
+    if (x) return x.ate ? (x.s >= 4 ? ['had', '\u{1F60B} Had it: good'] : ['had', '\u{1F615} Had it: not good']) : ['not', '\u{1F6AB} Didn\'t have it'];
+    if (closedMeal) return ['closed', 'Closed'];
+    if (D.lo[r.urn]) return ['leave', '\u{1F6B6} On leave'];
+    if ((D.sk[r.urn] || {})[m]) return ['skip', 'Pre-marked not eating'];
+    return windowOver ? ['nr', '\u26A0 No response'] : ['pend', '\u23F3 Not answered yet'];
+  };
+  const list = res.map(r => ({ r, s: st(r) }));
+  const c = k => list.filter(x => x.s[0] === k).length;
+  h += `<div class="hc-bar"><input type="date" class="hc-in" value="${W.date}" max="${today}" onchange="HC.wa.date=this.value;HC.wa.data=null;hcRenderMenu()">
+    ${HC_WA_MEALS.map(x => `<button class="hc-tab ${m === x ? 'on' : ''}" onclick="HC.wa.meal='${x}';hcRenderMenu()">${HC_MEAL_ICON[x]} ${hcMealTitle(x)}</button>`).join('')}
+    <button class="hc-btn" onclick="HC.wa.data=null;hcRenderMenu()">\u{1F504}</button></div>
+    <div class="hc-cards" style="margin-bottom:10px;">
+      <div class="hc-card"><div class="hc-num" style="color:var(--ok)">${c('had')}</div><div class="hc-muted">Had it</div></div>
+      <div class="hc-card"><div class="hc-num">${c('not') + c('skip')}</div><div class="hc-muted">Didn't have (incl. pre-marked)</div></div>
+      <div class="hc-card"><div class="hc-num" style="color:var(--warn)">${c('nr') + c('pend')}</div><div class="hc-muted">${windowOver ? 'No response' : 'Not answered yet'}</div></div>
+      <div class="hc-card"><div class="hc-num">${c('leave')}</div><div class="hc-muted">On leave</div></div></div>
+    ${closedMeal ? '<div class="hc-card" style="color:var(--danger);margin-bottom:10px;">\u{1F6AB} This meal was closed.</div>' : ''}
+    <div class="hc-wrap"><table class="hc-tbl"><tr><th>Room</th><th>Student</th><th>Answer</th><th>When</th></tr>` +
+    list.sort((a, b) => ['nr', 'pend', 'not', 'skip', 'had', 'leave', 'closed'].indexOf(a.s[0]) - ['nr', 'pend', 'not', 'skip', 'had', 'leave', 'closed'].indexOf(b.s[0]) || hcRoomLabel(a.r.hostelId, a.r.roomId).localeCompare(hcRoomLabel(b.r.hostelId, b.r.roomId), undefined, { numeric: true }))
+      .map(x => { const lg = (D.log[x.r.urn] || {})[m]; const col = { had: 'var(--ok)', nr: 'var(--danger)', pend: 'var(--warn)' }[x.s[0]] || 'inherit';
+        return `<tr><td>${hcEsc(hcRoomLabel(x.r.hostelId, x.r.roomId))} ${hcEsc(x.r.bed || '')}</td><td>${hcAvatar(x.r.urn, x.r.name, 24, x.r.photo)} ${hcEsc(x.r.name)}</td><td style="color:${col}">${x.s[1]}</td>
+        <td class="hc-muted">${lg ? new Date(lg.at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) + ' \u00b7 ' + hcEsc(lg.via || '') : ''}</td></tr>`; }).join('') + '</table></div>';
+  return h;
+}
+function hcMinOf(hhmm) { const p = String(hhmm || '0:0').split(':'); return (+p[0] || 0) * 60 + (+p[1] || 0); }
 </script>
 
 </body>
