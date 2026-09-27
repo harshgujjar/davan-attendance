@@ -10380,9 +10380,9 @@ async function _autoPushTimetableToPortal(opts) {
         if (typeof tgBreakStripTextForClass === 'function') breaks.push({ class: c, items: tgBreakStripTextForClass(c) || [] });
       });
     } catch (e) {}
-    await lpDb2Set('davan_pub/timetable', { data: LM_TIMETABLE, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'auto', classes, breaks });
+    await lpDb2Set('davan_pub/timetable', rtdbSanitizeKeys({ data: LM_TIMETABLE, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'auto', classes, breaks }));
     if (Array.isArray(LM_ALLOCATIONS) && LM_ALLOCATIONS.length) {
-      await lpDb2Set('davan_pub/allocations', { data: LM_ALLOCATIONS, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'auto' });
+      await lpDb2Set('davan_pub/allocations', rtdbSanitizeKeys({ data: LM_ALLOCATIONS, ttSemKey: _ttk, pushedAt: Date.now(), pushedFrom: 'auto' }));
     }
     console.log('[AutoPush] timetable+allocations → portal DB2 (' + LM_TIMETABLE.length + ' slots)');
     const badge = document.getElementById('push-tt-db2-btn');
@@ -10592,9 +10592,9 @@ async function archiveTimetableToPortalDB2() {
   setB('⏳ Archiving…', true);
   try {
     const base = 'davan_pub/archive/' + PORTAL_ARCHIVE_AY;
-    await lpDb2Set(base + '/timetable', { data: LM_TIMETABLE, ay: PORTAL_ARCHIVE_AY, archivedAt: Date.now(), classes });
+    await lpDb2Set(base + '/timetable', rtdbSanitizeKeys({ data: LM_TIMETABLE, ay: PORTAL_ARCHIVE_AY, archivedAt: Date.now(), classes }));
     if (Array.isArray(LM_ALLOCATIONS) && LM_ALLOCATIONS.length) {
-      await lpDb2Set(base + '/allocations', { data: LM_ALLOCATIONS, ay: PORTAL_ARCHIVE_AY, archivedAt: Date.now() });
+      await lpDb2Set(base + '/allocations', rtdbSanitizeKeys({ data: LM_ALLOCATIONS, ay: PORTAL_ARCHIVE_AY, archivedAt: Date.now() }));
     }
     // Also archive the lesson plan (the currently-loaded 2025-26 LP) so the student past-view
     // Lesson Plan tab shows data. Read it fresh from DB2's davan_pub/lessonPlan.
@@ -10602,7 +10602,7 @@ async function archiveTimetableToPortalDB2() {
     try {
       const lpRaw = await lpDb2Get('davan_pub/lessonPlan');
       if (lpRaw && typeof lpRaw === 'object' && Object.keys(lpRaw).length) {
-        await lpDb2Set(base + '/lessonPlan', lpRaw);
+        await lpDb2Set(base + '/lessonPlan', rtdbSanitizeKeys(lpRaw));
         lpN = Object.keys(lpRaw).length;
       }
     } catch(e) { console.warn('[archive LP] failed', e); }
@@ -10644,6 +10644,28 @@ function hasTtAllocExtraAccess(p) {
 // ║  fsGet, fsSet, fsGetAll, fsAdd, fsDelete, loadFirestoreData, RTDB║
 // ║  Lines (approx): 4023–4192                                      ║
 // ╚══════════════════════════════════════════════════════════════════╝
+
+// Realtime Database keys cannot contain . $ # [ ] / or be empty — Firestore
+// has no such restriction, so data copied from Firestore (e.g. scraped subject
+// names like "Indian Constitution - 1 (40/10)" used as attendance object keys)
+// can silently fail an RTDB .set() with "contains an invalid key". This walks
+// any value recursively and rewrites offending object keys so the write
+// always succeeds, without dropping or reordering any of the real data.
+function rtdbSanitizeKeys(val) {
+  if (Array.isArray(val)) return val.map(rtdbSanitizeKeys);
+  if (val !== null && typeof val === 'object') {
+    const out = {};
+    for (const k in val) {
+      if (!Object.prototype.hasOwnProperty.call(val, k)) continue;
+      let safeKey = String(k).replace(/[.$#\[\]\/]/g, '_').trim();
+      if (safeKey === '') safeKey = '_empty_';
+      out[safeKey] = rtdbSanitizeKeys(val[k]);
+    }
+    return out;
+  }
+  return val;
+}
+
 // ── Firestore helpers ──
 async function fsGet(col, id) {
   // Throws on error so callers can distinguish "doc doesn't exist" (null) from "read failed" (throws)
@@ -11636,6 +11658,16 @@ async function davanWidgetSync(user, profile) {
 
     if (!rtdb) return;
 
+    // Guard against a subtle Firebase quirk: firebase.auth().currentUser can be set
+    // (Auth SDK ready) slightly before the Realtime Database SDK's own socket has
+    // finished attaching that same auth token to its connection — RTDB re-authenticates
+    // its connection separately in the background. A write issued in that gap gets
+    // permission_denied even though auth looks fully ready. Forcing a fresh ID token
+    // fetch here waits for a live, confirmed token before any RTDB write below runs.
+    if (user) {
+      try { await user.getIdToken(false); } catch(e) { console.warn('[WidgetSync] getIdToken before RTDB write failed:', e && e.message); }
+    }
+
     // ── Get or create a permanent device token for this browser/device ──
     // Survives page reloads; unique per Chrome profile / device.
     let devToken = localStorage.getItem('davan_widget_dev_token');
@@ -11844,10 +11876,24 @@ async function davanWidgetSync(user, profile) {
       // (keyed by devToken), which requires a coordinated APK change. Until then, the
       // node MUST stay — APK v88 Tier-0 (fetchIdentityFromRTDB) returns "Please log in"
       // if this node is absent. Do not remove without shipping the matching APK.
-      await rtdb.ref('davan_pub/widget_active_user').set({
-        uid:       user.uid,
-        updatedAt: Date.now()
-      });
+      //
+      // Wrapped in its own try/catch (was previously unguarded here) so a transient
+      // permission_denied on this one legacy node can't abort the per-device pairing
+      // write below it, which matters more for current APK builds. One short retry
+      // covers the rare case where the RTDB connection's own auth handshake was still
+      // catching up to a just-completed sign-in.
+      try {
+        await rtdb.ref('davan_pub/widget_active_user').set({
+          uid:       user.uid,
+          updatedAt: Date.now()
+        });
+      } catch(e) {
+        console.warn('[WidgetSync] widget_active_user write failed, retrying once:', e && e.message);
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          await rtdb.ref('davan_pub/widget_active_user').set({ uid: user.uid, updatedAt: Date.now() });
+        } catch(e2) { console.warn('[WidgetSync] widget_active_user retry also failed:', e2 && e2.message); }
+      }
 
       // v998 — PER-DEVICE PAIRING (the real fix for "widget shifts to whoever
       // logged in last", per the v896 audit note + APK w92).
@@ -12756,7 +12802,7 @@ async function onLoginSuccess() {
         if (studDoc.exists) {
           const _stuData = studDoc.data().data || [];
           if (_stuData.length > 0) {
-            const payload = { data: _stuData, savedAt: new Date().toISOString() };
+            const payload = { data: rtdbSanitizeKeys(_stuData), savedAt: new Date().toISOString() };
             await rtdb.ref('davan_pub/students').set(payload);
             await rtdb.ref('davan_students').set(payload);
             console.log('[Auto-sync] Students mirrored to RTDB:', _stuData.length);
@@ -17380,18 +17426,46 @@ window.onerror = function(msg, src, line, col, err) {
   return false;
 };
 window.addEventListener('unhandledrejection', e => {
-  sysLogStore('error', 'Unhandled Promise: ' + (e.reason?.message||e.reason||'unknown'), e.reason?.stack?.slice(0,200)||'');
+  const msg = e.reason?.message || e.reason || 'unknown';
+  const msgStr = String(msg);
+  // These two are near-always benign network/navigation noise (request cancelled
+  // by navigation, or a truncated response on a flaky connection) — log as
+  // warnings instead of errors so the Errors filter stays focused on real bugs.
+  const isBenignNetwork = /operation was aborted/i.test(msgStr) || /Content-Length header/i.test(msgStr);
+  sysLogStore(isBenignNetwork ? 'warn' : 'error', 'Unhandled Promise: ' + msgStr, e.reason?.stack?.slice(0,200)||'');
 });
 // Override console.warn and console.error
 const _origWarn  = console.warn.bind(console);
 const _origError = console.error.bind(console);
+// Safely stringify a value for logging — never throws, handles circular
+// references (Firebase SDK objects commonly have these) and DOM/Error objects.
+function safeStringify(a) {
+  if (a === null || a === undefined) return String(a);
+  if (typeof a !== 'object') return String(a);
+  if (a instanceof Error) return (a.name||'Error') + ': ' + (a.message||'');
+  const seen = new WeakSet();
+  try {
+    return JSON.stringify(a, (key, val) => {
+      if (typeof val === 'object' && val !== null) {
+        if (seen.has(val)) return '[Circular]';
+        seen.add(val);
+      }
+      if (typeof val === 'function') return '[Function]';
+      return val;
+    }).slice(0, 100);
+  } catch (e) {
+    // Fallback if stringify still fails for any reason
+    try { return Object.prototype.toString.call(a) + (a.message ? ': '+a.message : ''); }
+    catch (e2) { return '[Unserializable object]'; }
+  }
+}
 console.warn = function(...args) {
   _origWarn(...args);
-  sysLogStore('warn', args.map(a=>typeof a==='object'?JSON.stringify(a).slice(0,100):String(a)).join(' ').slice(0,200));
+  sysLogStore('warn', args.map(a=>typeof a==='object'?safeStringify(a):String(a)).join(' ').slice(0,200));
 };
 console.error = function(...args) {
   _origError(...args);
-  sysLogStore('error', args.map(a=>typeof a==='object'?JSON.stringify(a).slice(0,100):String(a)).join(' ').slice(0,200));
+  sysLogStore('error', args.map(a=>typeof a==='object'?safeStringify(a):String(a)).join(' ').slice(0,200));
 };
 // ═══════════════════════════════════════════════════════════════
 
@@ -18880,7 +18954,7 @@ async function _emergencyRestoreStudents() {
           await _safeWriteStudents(cp.data, 'emergency-restore');
           await fsSet('app_data', 'students', { data: cp.data, savedAt: cp.checkpointAt, restoredAt: new Date().toISOString() });
           if (typeof rtdb !== 'undefined' && rtdb) {
-            var payload = { data: cp.data, savedAt: cp.checkpointAt };
+            var payload = { data: rtdbSanitizeKeys(cp.data), savedAt: cp.checkpointAt };
             await rtdb.ref('davan_pub/students').set(payload);
             await rtdb.ref('davan_students').set(payload);
           }
@@ -23246,7 +23320,7 @@ async function autoScrapeOnLogin(successId) {
         if (_scrapeOk) {
           await fsSet('app_data', 'students', { data: allStudents, savedAt: new Date().toISOString() });
           if (rtdb) {
-            const payload = { data: allStudents, savedAt: new Date().toISOString() };
+            const payload = { data: rtdbSanitizeKeys(allStudents), savedAt: new Date().toISOString() };
             await rtdb.ref('davan_students').set(payload);
             await rtdb.ref('davan_pub/students').set(payload);
           }
@@ -23345,7 +23419,7 @@ async function syncStudentsToFirestore() {
           total_students: allStudents.length,
           saved_at:       new Date().toISOString(),
         };
-        const studentsPayload = { data: allStudents, savedAt: new Date().toISOString() };
+        const studentsPayload = { data: rtdbSanitizeKeys(allStudents), savedAt: new Date().toISOString() };
         if (!allStudents.length) { console.error('[Sync to Cloud] RTDB write BLOCKED: allStudents is empty'); } else {
         // Authenticated path (existing)
         await rtdb.ref('davan_students').set(studentsPayload);
@@ -29529,8 +29603,22 @@ function setTopbarVersion(text) { /* duplicate — handled by first definition *
 window.addEventListener('DOMContentLoaded', () => {
   syncDataTimestampUI();
   setInterval(syncDataTimestampUI, 30000);
-  // Start banner listener — moved here from block 1 for Firefox compatibility
-  if (typeof liveBannerInit === 'function') liveBannerInit();
+  // Start banner listener — moved here from block 1 for Firefox compatibility.
+  // Waits for Firebase Auth to confirm sign-in first: this listener reads
+  // app_data/live_banner via Firestore, which requires request.auth != null,
+  // and DOMContentLoaded can fire before login has actually resolved,
+  // causing a one-time "lb1 error permission-denied" on fresh page loads.
+  if (typeof liveBannerInit === 'function') {
+    if (typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) {
+      liveBannerInit();
+    } else if (typeof firebase !== 'undefined' && firebase.auth) {
+      const _lbUnsub = firebase.auth().onAuthStateChanged(user => {
+        if (user) { _lbUnsub(); liveBannerInit(); }
+      });
+    } else {
+      liveBannerInit();
+    }
+  }
 
   // ── PWA Install Prompt ──────────────────────────────────────
   let _deferredInstallPrompt = null;
