@@ -3709,6 +3709,12 @@
             <input type="password" id="um-password" placeholder="••••••••"
               style="background:#111;color:#ccc;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px;font-size:13px;width:100%;" />
           </div>
+          <!-- v1525: phone is required - saved on the account and in Staff Directory (Contact) -->
+          <div class="field" style="margin:0;">
+            <label>Phone number</label>
+            <input type="tel" id="um-phone" inputmode="numeric" maxlength="14" placeholder="10-digit mobile, e.g. 98765 43210"
+              style="background:#111;color:#ccc;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px;font-size:13px;width:100%;" />
+          </div>
           <div class="field" style="margin:0;">
             <label>Role</label>
             <select id="um-role" style="background:#111;color:#ccc;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px;font-size:13px;width:100%;">
@@ -5771,7 +5777,7 @@
           </button>
           <button onclick="sdSyncFromUM()" id="sd-sync-btn"
             style="padding:9px 18px;background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;" title="Pull passwords from User Management into Staff Directory">
-            🔄 Sync Passwords from UM
+            🔄 Sync from User Management
           </button>
           <!-- CODE_BUILD=1379 — one-click backfill for the confirmed real bug where a
                faculty/manager's own DOB save (users/{uid}) never reached Staff Directory
@@ -16376,6 +16382,15 @@ function staffDirectoryRender() {
         if (u.password) sdExistingUsernames.add(String(u.password));
         if (u.name)     sdExistingUsernames.add(String(u.name));
       });
+      // v1525: logins made in User Management (warden, managers...) get their Staff Directory row
+      try {
+        const n = sdAddMissingAccounts(usersList);
+        if (n) {
+          db.collection('app_data').doc(SD_DOC).set(sdData).then(() => dvToast('➕ ' + n + ' account(s) from User Management added to Staff Directory', 'ok', 4000))
+            .catch(e => console.warn('[SD] add missing accounts save failed', e.message));
+          try { localStorage.setItem('davan_staff_directory', JSON.stringify(sdData)); } catch (e) {}
+        }
+      } catch (e) { console.warn('[SD] add missing accounts', e.message); }
       sdRenderSection('fulltime');
       sdRenderSection('visiting');
       sdRenderSection('nonteaching');
@@ -16441,6 +16456,28 @@ function sdDeleteRow(sec, idx) {
   }, { icon:'🗑️', okLabel:'Delete', okColor:'var(--danger)' });
 }
 
+// v1525: accounts created in User Management (e.g. a Hostel Warden, a manager like Nagaratna)
+// never appeared in Staff Directory - sync only ever copied passwords. This adds every login
+// that has no row yet (matched by name, username or password; admin logins skipped) to the
+// section for its role, and fills an empty Contact from the account's phone. Returns count added.
+function sdSectionForRole(role) { return role === 'visiting' ? 'visiting' : (role === 'fulltime' || role === 'principal' || role === 'vp') ? 'fulltime' : 'nonteaching'; }
+function sdFmtPhone(p) { const d = String(p || '').replace(/\D/g, '').slice(-10); return d.length === 10 ? d.slice(0, 5) + ' ' + d.slice(5) : String(p || ''); }
+function sdAddMissingAccounts(usersList) {
+  if (!sdData) return 0;
+  const key = s => (typeof _facKey === 'function' ? _facKey(s) : String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''));
+  let added = 0;
+  (usersList || []).forEach(u => {
+    if (!u || !u.name || !u.username || u.role === 'admin') return;
+    const hit = ['fulltime', 'visiting', 'nonteaching'].map(s => (Array.isArray(sdData[s]) ? sdData[s] : []).find(r => r && (key(r.name) === key(u.name) || (r.password && (String(r.password) === String(u.username) || String(r.password) === String(u.password)))))).find(Boolean);
+    const phone = u.phone || u.mobile || '';
+    if (hit) { if (!hit.contact && phone) { hit.contact = sdFmtPhone(phone); added++; } return; }
+    const sec = sdSectionForRole(u.role);
+    if (!Array.isArray(sdData[sec])) sdData[sec] = [];
+    sdData[sec].push({ name: u.name, password: String(u.username), contact: sdFmtPhone(phone), role: u.role || 'manager', subjects: '—' });
+    added++;
+  });
+  return added;
+}
 async function sdSyncFromUM() {
   const btn = document.getElementById('sd-sync-btn');
   const msg = document.getElementById('sd-save-msg');
@@ -16476,13 +16513,15 @@ async function sdSyncFromUM() {
         }
       });
     });
+    const addedRows = sdAddMissingAccounts(usersList);   // v1525: also add logins missing from the directory
+    changed += addedRows;
     if (changed) {
       await db.collection('app_data').doc(SD_DOC).set(sdData);
       sdRenderSection('fulltime');
       sdRenderSection('visiting');
       sdRenderSection('nonteaching');
-      if (msg) { msg.style.color='var(--ok)'; msg.textContent=`✅ ${changed} password(s) pulled from User Management`; }
-      dvToast(`🔄 ${changed} SD password(s) updated from User Management`, 'ok', 4000);
+      if (msg) { msg.style.color='var(--ok)'; msg.textContent=`✅ ${changed} change(s) pulled from User Management` + (addedRows ? ` (${addedRows} account(s) added / phone filled)` : ''); }
+      dvToast(`🔄 ${changed} Staff Directory change(s) from User Management`, 'ok', 4000);
     } else {
       if (msg) { msg.style.color='var(--muted)'; msg.textContent='✅ Already in sync — no changes needed'; }
       dvToast('✅ Staff Directory passwords already match User Management', 'ok', 3000);
@@ -16491,7 +16530,7 @@ async function sdSyncFromUM() {
     if (msg) { msg.style.color='var(--danger)'; msg.textContent='❌ Sync failed: '+e.message; }
     dvToast('❌ Sync failed: '+e.message, 'error', 5000);
   }
-  if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync Passwords from UM'; }
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync from User Management'; }
 }
 
 // NEW FEATURE (CODE_BUILD=1379): one-click backfill for the confirmed real
@@ -16763,6 +16802,18 @@ async function staffBulkCreate() {
   await umRebuildLoginIndex().catch(()=>{});
 }
 
+// v1525: a new login also gets its Staff Directory row (role + phone as Contact). Best effort.
+async function umAddToStaffDirectory(u) {
+  try {
+    if (!sdData) { const snap = await db.collection('app_data').doc(SD_DOC).get(); sdData = snap.exists ? snap.data() : JSON.parse(JSON.stringify(SD_DEFAULT)); }
+    ['fulltime', 'visiting', 'nonteaching'].forEach(s => { if (!Array.isArray(sdData[s])) sdData[s] = sdData[s] && typeof sdData[s] === 'object' ? Object.values(sdData[s]).filter(r => r && r.name) : []; });
+    if (sdAddMissingAccounts([u])) {
+      await db.collection('app_data').doc(SD_DOC).set(sdData);
+      try { localStorage.setItem('davan_staff_directory', JSON.stringify(sdData)); } catch (e) {}
+      dvToast('\u2795 ' + u.name + ' added to Staff Directory', 'ok', 3000);
+    }
+  } catch (e) { console.warn('[UM] add to Staff Directory failed', e.message); }
+}
 // v1523: lower-case, spaces -> ".", only a-z 0-9 . _ - (valid in an email address)
 function umCleanUsername(s) {
   return String(s || '').trim().toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9._-]/g, '').replace(/\.{2,}/g, '.').replace(/^[.]+|[.]+$/g, '');
@@ -16780,6 +16831,9 @@ async function umCreateUser() {
   const incharge   = document.getElementById('um-incharge')?.value.trim();
   const msgEl      = document.getElementById('um-msg');
   if (!name || !username || !password) { msgEl.style.color='var(--danger)'; msgEl.textContent='⚠ Name, username and password are required.'; return; }
+  // v1525: phone number required (10-digit mobile; +91 / spaces allowed)
+  const phone = (document.getElementById('um-phone')?.value || '').replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '');
+  if (!/^[6-9]\d{9}$/.test(phone)) { msgEl.style.color='var(--danger)'; msgEl.textContent='⚠ Enter a valid 10-digit mobile number.'; return; }
   dvToast('Creating account…', 'info', 10000);
   try {
     const email = `${username}@davan.local`;
@@ -16788,10 +16842,11 @@ async function umCreateUser() {
     const cred = await secAuth.createUserWithEmailAndPassword(email, password);
     const uid = cred.user.uid;
     await secAuth.signOut();
-    await db.collection('users').doc(uid).set({ name, username, role, facultyKey, classIncharge: incharge||'', password, createdAt: new Date().toISOString(), createdBy: currentProfile?.name||'admin' });
+    await db.collection('users').doc(uid).set({ name, username, role, facultyKey, classIncharge: incharge||'', password, phone, createdAt: new Date().toISOString(), createdBy: currentProfile?.name||'admin' });
     dvToast(`✅ Account created for ${name}`, 'ok');
     await umRebuildLoginIndex();
-    ['um-name','um-username','um-password','um-facultykey','um-incharge'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; }); const _fks=document.getElementById('um-facultykey-select'); if(_fks) _fks.value=''; const _cis=document.getElementById('um-incharge-select'); if(_cis) _cis.value='';
+    umAddToStaffDirectory({ name, username, role, phone, password });   // v1525
+    ['um-name','um-username','um-password','um-phone','um-facultykey','um-incharge'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; }); const _fks=document.getElementById('um-facultykey-select'); if(_fks) _fks.value=''; const _cis=document.getElementById('um-incharge-select'); if(_cis) _cis.value='';
     renderUserManagement();
   } catch(err) {
     if (err.code === 'auth/email-already-in-use') {
@@ -16820,11 +16875,12 @@ async function umCreateUser() {
             const cred2 = await secAuth2.createUserWithEmailAndPassword(email, password);
             const uid2 = cred2.user.uid;
             await secAuth2.signOut();
-            await db.collection('users').doc(uid2).set({ name, username, role, facultyKey, classIncharge: incharge||'', password, createdAt: new Date().toISOString(), createdBy: currentProfile?.name||'admin' });
+            await db.collection('users').doc(uid2).set({ name, username, role, facultyKey, classIncharge: incharge||'', password, phone, createdAt: new Date().toISOString(), createdBy: currentProfile?.name||'admin' });
             dvToast(`✅ Account created for ${name}`, 'ok');
             msgEl.style.color='var(--ok)'; msgEl.textContent='✅ Account created successfully!';
             await umRebuildLoginIndex();
-            ['um-name','um-username','um-password','um-facultykey','um-incharge'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+            umAddToStaffDirectory({ name, username, role, phone, password });   // v1525
+            ['um-name','um-username','um-password','um-phone','um-facultykey','um-incharge'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
             const _fks=document.getElementById('um-facultykey-select'); if(_fks) _fks.value='';
             const _cis=document.getElementById('um-incharge-select'); if(_cis) _cis.value='';
             renderUserManagement();
@@ -17972,8 +18028,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1524;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '28-Sep-2026', time: '16:15', full: '28-Sep-2026 16:15 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1525;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '28-Sep-2026', time: '16:45', full: '28-Sep-2026 16:45 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -28733,6 +28789,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1525', date: '28-Sep-2026 IST', note: 'Staff Directory + accounts. (1) Accounts made in User Management (Hostel Warden, managers such as Nagaratna Pallev) now appear in Staff Directory: opening Staff Directory adds every login with no row yet (matched by name / username / password; admin logins skipped) to Full-time, Visiting or Non-teaching by role, and fills an empty Contact from the account phone; the Sync button (now Sync from User Management) does the same plus passwords. (2) Create New Account asks for a 10-digit mobile number (required, +91 allowed), saves it on the account and adds the person to Staff Directory with that number as Contact.' },
 { v: 'v1524', date: '28-Sep-2026 IST', note: 'Hostel Warden access: sees BOTH hostels (was only the hostel listed under their name in Hostel Settings -> "No hostel is assigned to you yet"); can add/edit rooms, mark hostel students, manage cleaning staff, notices for both hostels, allot beds, leave, complaints, roll call, cleaning. Canteen Menu is view only for wardens (no edit / upload / specials / closures). Hostel Settings stays admin-only. Dashboard Warden: line also lists whoever holds a warden bed in that hostel.' },
 { v: 'v1523', date: '28-Sep-2026 IST', note: 'Hostel Warden accounts. (1) User Management > Create New Account failed with "email address is badly formatted" when the username had a space (Rangaswammy Gs): usernames are now cleaned (lower case, spaces -> dot, only a-z 0-9 . _ -) -> rangaswammy.gs, shown in the box; Admin-tab login applies the same clean-up. (2) Staff Directory role list now has warden (pink). (3) A warden sees only Hostel & Canteen: lands on the Hostel dashboard after login, every other page redirects there, Student Portal / Subject Tracker / My Photo shortcuts hidden.' },
 { v: 'v1522', date: '28-Sep-2026 IST', note: 'Canteen Menu plans: (1) setting an end date on a regular menu no longer creates a "<name> (next)" copy - the end date is stored on the menu itself; copies v1521 made are folded back automatically (the menu keeps its end date). (2) Menu plans is ONE list in date order, oldest first (1 Jan-15 Jan, 16 Jan-15 Feb ...), each marked Regular or Dated. (3) New dated menu starts the day after the last plan ends.' },
