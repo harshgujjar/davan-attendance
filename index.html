@@ -3722,7 +3722,8 @@
               <option value="visiting">Visiting Faculty</option>
               <option value="principal">Principal</option>
               <option value="manager">Manager</option>
-              <option value="warden">Hostel Warden</option>
+              <option value="warden:boys">Boys Hostel Warden</option>
+              <option value="warden:girls">Girls Hostel Warden</option>
             </select>
           </div>
           <div class="field" style="margin:0;">
@@ -12672,7 +12673,7 @@ async function onLoginSuccess() {
   const roleLabels = { admin:'Admin', manager:'Manager', vp:'Vice Principal', principal:'Principal', fulltime:'Full-Time', visiting:'Visiting', warden:'Warden' };
   const roleColors = { admin:'var(--accent)', manager:'#60a5fa', vp:'#a78bfa', principal:'#a78bfa', fulltime:'var(--ok)', visiting:'var(--muted)', warden:'#f472b6' };
   document.getElementById('sidebar-role-badge').innerHTML =
-    `<span style="font-size:10px;font-family:var(--mono);color:${roleColors[p.role]||'#888'};background:rgba(255,255,255,0.06);border-radius:4px;padding:2px 7px;">${roleLabels[p.role]||p.role}</span>`;
+    `<span style="font-size:10px;font-family:var(--mono);color:${roleColors[p.role]||'#888'};background:rgba(255,255,255,0.06);border-radius:4px;padding:2px 7px;">${p.role === 'warden' && (p.wardenOf === 'boys' || p.wardenOf === 'girls') ? (p.wardenOf === 'boys' ? 'Boys' : 'Girls') + ' Hostel Warden' : (roleLabels[p.role]||p.role)}</span>`;
   if (p.classIncharge && p.role === ROLE_FULLTIME) {
     const ci = document.getElementById('sidebar-class-incharge');
     ci.textContent = '📌 Incharge: ' + p.classIncharge; ci.style.display = 'block';
@@ -16099,8 +16100,17 @@ const SD_DEFAULT = {
 
 let sdData = null; // loaded from Firestore or default
 
-const SD_ROLES = ['principal','fulltime','visiting','manager','warden','admin'];   // v1523: + warden (Hostel Warden)
-const SD_ROLE_COLORS = { principal:'#a78bfa', fulltime:'var(--ok)', visiting:'#60a5fa', manager:'#f59e0b', warden:'#f472b6', admin:'var(--accent)' };
+// v1527: Boys / Girls Hostel Warden. The account keeps role 'warden' (all warden access checks unchanged)
+// plus wardenOf: 'boys' | 'girls'. Staff Directory shows it as warden_boys / warden_girls; the two stay in sync.
+const SD_ROLES = ['principal','fulltime','visiting','manager','warden_boys','warden_girls','admin'];
+const SD_ROLE_COLORS = { principal:'#a78bfa', fulltime:'var(--ok)', visiting:'#60a5fa', manager:'#f59e0b', warden:'#f472b6', warden_boys:'#60a5fa', warden_girls:'#f472b6', admin:'var(--accent)' };
+const SD_ROLE_LABEL = { warden_boys: 'Boys Hostel Warden', warden_girls: 'Girls Hostel Warden', warden: 'Warden (hostel not set)' };
+// "warden:boys" (account forms) / "warden_boys" (Staff Directory) -> { role, wardenOf }
+function umRoleFromPick(v) {
+  const m = String(v || '').match(/^warden[:_](boys|girls)$/);
+  return m ? { role: 'warden', wardenOf: m[1] } : { role: v, wardenOf: '' };
+}
+function sdRoleOfAccount(u) { return u && u.role === 'warden' && (u.wardenOf === 'boys' || u.wardenOf === 'girls') ? 'warden_' + u.wardenOf : ((u && u.role) || ''); }
 
 const sdInp = (val, field, section, idx, style='') =>
   `<input data-sec="${section}" data-idx="${idx}" data-field="${field}"
@@ -16110,8 +16120,9 @@ const sdInp = (val, field, section, idx, style='') =>
            padding:4px 7px;font-size:11px;font-family:var(--mono);${style}">`;
 
 const sdRoleSelect = (val, section, idx) => {
-  const opts = SD_ROLES.map(r =>
-    `<option value="${r}" ${val===r?'selected':''}>${r}</option>`).join('');
+  const list = SD_ROLES.includes(val) || !val ? SD_ROLES : SD_ROLES.concat([val]);   // v1527: keep a legacy value (e.g. plain warden) visible
+  const opts = list.map(r =>
+    `<option value="${r}" ${val===r?'selected':''}>${SD_ROLE_LABEL[r] || r}</option>`).join('');
   return `<select data-sec="${section}" data-idx="${idx}" data-field="role" onchange="sdOnChange(this)"
     style="width:100%;background:#111;color:${SD_ROLE_COLORS[val]||'var(--muted)'};border:1px solid #2a2a2a;
            border-radius:5px;padding:4px 6px;font-size:11px;font-family:var(--mono);">${opts}</select>`;
@@ -16470,10 +16481,19 @@ function sdAddMissingAccounts(usersList) {
     if (!u || !u.name || !u.username || u.role === 'admin') return;
     const hit = ['fulltime', 'visiting', 'nonteaching'].map(s => (Array.isArray(sdData[s]) ? sdData[s] : []).find(r => r && (key(r.name) === key(u.name) || (r.password && (String(r.password) === String(u.username) || String(r.password) === String(u.password)))))).find(Boolean);
     const phone = u.phone || u.mobile || '';
-    if (hit) { if (!hit.contact && phone) { hit.contact = sdFmtPhone(phone); added++; } return; }
+    // v1527: the row's code must be the account's PASSWORD (Save All Changes copies it back to the
+    // account as its password). v1525 used the username - repair rows it made that way.
+    const code = String(u.password || u.username);
+    if (hit) {
+      if (!hit.contact && phone) { hit.contact = sdFmtPhone(phone); added++; }
+      if (u.password && String(hit.password) === String(u.username) && String(u.password) !== String(u.username)) { hit.password = code; added++; }
+      const sr = sdRoleOfAccount(u);
+      if (u.role === 'warden' && sr !== 'warden' && hit.role !== sr) { hit.role = sr; added++; }
+      return;
+    }
     const sec = sdSectionForRole(u.role);
     if (!Array.isArray(sdData[sec])) sdData[sec] = [];
-    sdData[sec].push({ name: u.name, password: String(u.username), contact: sdFmtPhone(phone), role: u.role || 'manager', subjects: '—' });
+    sdData[sec].push({ name: u.name, password: code, contact: sdFmtPhone(phone), role: sdRoleOfAccount(u) || 'manager', subjects: '—' });
     added++;
   });
   return added;
@@ -16488,8 +16508,12 @@ async function sdSyncFromUM() {
     const umMap = {};
     usersList.forEach(u => {
       if (u.username) {
-        umMap[u.name]     = u.username; // match by name
-        umMap[u.username] = u.username; // match by username itself
+        // v1527: the Staff Directory code is copied back as the account's PASSWORD on save, so pull the
+        // password (same as the username for numeric-code logins; different for e.g. rangaswammy.gs)
+        const code = u.password || u.username;
+        umMap[u.name]     = code; // match by name
+        umMap[u.username] = code; // match by username itself
+        if (u.password) umMap[u.password] = code;
       }
     });
     if (!sdData) await new Promise(res => {
@@ -16656,7 +16680,12 @@ async function sdSaveToFirestore() {
         // v1024: also sync role — previously ONLY password was synced here, so changing
         // someone's role in Staff Directory (e.g. Anitha vp -> fulltime) silently never
         // reached their actual users doc, leaving their live login role stale/wrong.
-        if (sdEntry.role && sdEntry.role !== u.role) updates.role = sdEntry.role;
+        // v1527: warden_boys / warden_girls -> role 'warden' + wardenOf
+        if (sdEntry.role) {
+          const acc = umRoleFromPick(sdEntry.role);
+          if (acc.role !== u.role) updates.role = acc.role;
+          if (acc.wardenOf && acc.wardenOf !== u.wardenOf) updates.wardenOf = acc.wardenOf;
+        }
         if (sdEntry.name && sdEntry.name !== u.name) updates.name = sdEntry.name;
         // 2026-09-07 — DOB/time/place, same direction as password/role/name
         // above. Confirmed as a real gap: admin corrections in Staff
@@ -16734,7 +16763,7 @@ async function sdCreateSingleLogin(sec, idx) {
     const uid  = cred.user.uid;
     await secAuth.signOut();
     await db.collection('users').doc(uid).set({
-      name: staff.name, username, role: staff.role, facultyKey: staff.name,
+      name: staff.name, username, role: umRoleFromPick(staff.role).role, wardenOf: umRoleFromPick(staff.role).wardenOf, facultyKey: staff.name,
       classIncharge:'', password: username, createdAt: new Date().toISOString(),
       createdBy: currentProfile?.name || 'admin',
     });
@@ -16782,7 +16811,7 @@ async function staffBulkCreate() {
       const uid  = cred.user.uid;
       await secAuth.signOut();
       await db.collection('users').doc(uid).set({
-        name: staff.name, username, role: staff.role, facultyKey: staff.name,
+        name: staff.name, username, role: umRoleFromPick(staff.role).role, wardenOf: umRoleFromPick(staff.role).wardenOf, facultyKey: staff.name,
         classIncharge:'', password: username, createdAt: new Date().toISOString(),
         createdBy: currentProfile?.name || 'admin',
       });
@@ -16802,6 +16831,23 @@ async function staffBulkCreate() {
   await umRebuildLoginIndex().catch(()=>{});
 }
 
+// v1527: account edit -> Staff Directory row role (Boys / Girls Hostel Warden ...), adds the row if missing
+async function umSyncSdRole(u) {
+  try {
+    if (!sdData) { const snap = await db.collection('app_data').doc(SD_DOC).get(); sdData = snap.exists ? snap.data() : JSON.parse(JSON.stringify(SD_DEFAULT)); }
+    ['fulltime', 'visiting', 'nonteaching'].forEach(s => { if (!Array.isArray(sdData[s])) sdData[s] = sdData[s] && typeof sdData[s] === 'object' ? Object.values(sdData[s]).filter(r => r && r.name) : []; });
+    const want = sdRoleOfAccount(u), key = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    let row = null;
+    ['fulltime', 'visiting', 'nonteaching'].forEach(s => { if (!row) row = sdData[s].find(r => r && (key(r.name) === key(u.name) || (r.password && (String(r.password) === String(u.username) || String(r.password) === String(u.password))))); });
+    let changed = false;
+    if (row) { if (want && row.role !== want) { row.role = want; changed = true; } }
+    else changed = sdAddMissingAccounts([u]) > 0;
+    if (changed) {
+      await db.collection('app_data').doc(SD_DOC).set(sdData);
+      try { localStorage.setItem('davan_staff_directory', JSON.stringify(sdData)); } catch (e) {}
+    }
+  } catch (e) { console.warn('[UM] Staff Directory role sync failed', e.message); }
+}
 // v1525: a new login also gets its Staff Directory row (role + phone as Contact). Best effort.
 async function umAddToStaffDirectory(u) {
   try {
@@ -16825,7 +16871,8 @@ async function umCreateUser() {
   const _unRaw     = document.getElementById('um-username')?.value.trim() || '';
   const username   = umCleanUsername(_unRaw);
   const password   = document.getElementById('um-password')?.value.trim();
-  const role       = document.getElementById('um-role')?.value;
+  const _rp        = umRoleFromPick(document.getElementById('um-role')?.value);   // v1527: warden:boys / warden:girls
+  const role       = _rp.role, wardenOf = _rp.wardenOf;
   if (_unRaw && username !== _unRaw.toLowerCase()) { const _ue = document.getElementById('um-username'); if (_ue) _ue.value = username; }
   const facultyKey = document.getElementById('um-facultykey')?.value.trim();
   const incharge   = document.getElementById('um-incharge')?.value.trim();
@@ -16842,10 +16889,10 @@ async function umCreateUser() {
     const cred = await secAuth.createUserWithEmailAndPassword(email, password);
     const uid = cred.user.uid;
     await secAuth.signOut();
-    await db.collection('users').doc(uid).set({ name, username, role, facultyKey, classIncharge: incharge||'', password, phone, createdAt: new Date().toISOString(), createdBy: currentProfile?.name||'admin' });
+    await db.collection('users').doc(uid).set({ name, username, role, facultyKey, classIncharge: incharge||'', password, phone, wardenOf, createdAt: new Date().toISOString(), createdBy: currentProfile?.name||'admin' });
     dvToast(`✅ Account created for ${name}`, 'ok');
     await umRebuildLoginIndex();
-    umAddToStaffDirectory({ name, username, role, phone, password });   // v1525
+    umAddToStaffDirectory({ name, username, role, phone, password, wardenOf });   // v1525
     ['um-name','um-username','um-password','um-phone','um-facultykey','um-incharge'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; }); const _fks=document.getElementById('um-facultykey-select'); if(_fks) _fks.value=''; const _cis=document.getElementById('um-incharge-select'); if(_cis) _cis.value='';
     renderUserManagement();
   } catch(err) {
@@ -16875,11 +16922,11 @@ async function umCreateUser() {
             const cred2 = await secAuth2.createUserWithEmailAndPassword(email, password);
             const uid2 = cred2.user.uid;
             await secAuth2.signOut();
-            await db.collection('users').doc(uid2).set({ name, username, role, facultyKey, classIncharge: incharge||'', password, phone, createdAt: new Date().toISOString(), createdBy: currentProfile?.name||'admin' });
+            await db.collection('users').doc(uid2).set({ name, username, role, facultyKey, classIncharge: incharge||'', password, phone, wardenOf, createdAt: new Date().toISOString(), createdBy: currentProfile?.name||'admin' });
             dvToast(`✅ Account created for ${name}`, 'ok');
             msgEl.style.color='var(--ok)'; msgEl.textContent='✅ Account created successfully!';
             await umRebuildLoginIndex();
-            umAddToStaffDirectory({ name, username, role, phone, password });   // v1525
+            umAddToStaffDirectory({ name, username, role, phone, password, wardenOf });   // v1525
             ['um-name','um-username','um-password','um-phone','um-facultykey','um-incharge'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
             const _fks=document.getElementById('um-facultykey-select'); if(_fks) _fks.value='';
             const _cis=document.getElementById('um-incharge-select'); if(_cis) _cis.value='';
@@ -17106,7 +17153,8 @@ async function umSaveEdit(uid) {
   const name      = document.getElementById('edit-name-' + uid)?.value.trim();
   const username  = document.getElementById('edit-username-' + uid)?.value.trim().toLowerCase();
   const password  = document.getElementById('edit-pass-' + uid)?.value.trim();
-  const role      = document.getElementById('edit-role-' + uid)?.value;
+  const _rp       = umRoleFromPick(document.getElementById('edit-role-' + uid)?.value);   // v1527: warden:boys / warden:girls
+  const role      = _rp.role, wardenOf = _rp.wardenOf;
   const fk        = document.getElementById('edit-fk-' + uid)?.value.trim();
   const ci        = document.getElementById('edit-ci-' + uid)?.value.trim();
   const msgEl     = document.getElementById('edit-msg-' + uid);
@@ -17117,7 +17165,9 @@ async function umSaveEdit(uid) {
     const curDoc = await db.collection('users').doc(uid).get();
     const curPass = curDoc.data()?.password || '';
 
-    await db.collection('users').doc(uid).update({ name, username, role, facultyKey: fk, classIncharge: ci });
+    await db.collection('users').doc(uid).update({ name, username, role, facultyKey: fk, classIncharge: ci, wardenOf: role === 'warden' ? (wardenOf || curDoc.data()?.wardenOf || '') : '' });
+    // v1527: keep the Staff Directory role in step (Boys / Girls Hostel Warden etc.)
+    try { umSyncSdRole({ name, username, password: password || curPass, role, wardenOf: role === 'warden' ? (wardenOf || curDoc.data()?.wardenOf || '') : '' }); } catch (e) {}
     // Always sync Firebase Auth — even if password field is blank (ensures account exists)
     const authPass = password || curPass || username;
     if (authPass) {
@@ -17265,7 +17315,9 @@ async function renderUserManagement() {
               <option value="vp" ${u.role==='vp'?'selected':''} style="display:none;">Vice Principal (legacy)</option>
               <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
               <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-              <option value="warden" ${u.role==='warden'?'selected':''}>Hostel Warden</option>
+              <option value="warden:boys" ${u.role==='warden' && u.wardenOf==='boys'?'selected':''}>Boys Hostel Warden</option>
+              <option value="warden:girls" ${u.role==='warden' && u.wardenOf==='girls'?'selected':''}>Girls Hostel Warden</option>
+              ${u.role==='warden' && u.wardenOf!=='boys' && u.wardenOf!=='girls' ? `<option value="warden" selected>Hostel Warden (pick Boys or Girls)</option>` : ''}
             </select>
           </div>
           <div>
@@ -18028,8 +18080,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1526;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '28-Sep-2026', time: '17:15', full: '28-Sep-2026 17:15 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1527;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '28-Sep-2026', time: '17:45', full: '28-Sep-2026 17:45 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -28789,6 +28841,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1527', date: '28-Sep-2026 IST', note: 'Boys / Girls Hostel Warden as a role. Create account and Edit account now offer Boys Hostel Warden and Girls Hostel Warden (account keeps role warden + wardenOf boys|girls, so all warden access is unchanged); Staff Directory shows the same (warden_boys / warden_girls) and the two sync both ways (Save All Changes, Create Login, Bulk Create, account edit). The account setting decides the warden\'s hostel for Rooms & Beds and Night Roll Call (roll call now per hostel: a warden sees only their hostel, admin/manager get Boys / Girls / Both tabs). Sidebar badge shows Boys/Girls Hostel Warden. FIX (from v1525): a login added to Staff Directory stored its USERNAME in the code column, which Save All Changes copies back as the account PASSWORD - for a login like rangaswammy.gs that would have changed the password. Rows now store the password, and rows v1525 made are repaired on open; Sync from User Management also pulls the password.' },
 { v: 'v1526', date: '28-Sep-2026 IST', note: 'Rooms & Beds per warden: a boys hostel warden sees only Boys Hostel rooms and beds, a girls hostel warden only Girls Hostel (hostel tabs limited, and opening a resident of the other hostel does not show their room/bed). A warden\'s hostel = Wardens list in Hostel Settings or the hostel where they hold a warden bed; not linked yet = both. Everything else unchanged (dashboard, residents list, leave, complaints etc. still both hostels).' },
 { v: 'v1525', date: '28-Sep-2026 IST', note: 'Staff Directory + accounts. (1) Accounts made in User Management (Hostel Warden, managers such as Nagaratna Pallev) now appear in Staff Directory: opening Staff Directory adds every login with no row yet (matched by name / username / password; admin logins skipped) to Full-time, Visiting or Non-teaching by role, and fills an empty Contact from the account phone; the Sync button (now Sync from User Management) does the same plus passwords. (2) Create New Account asks for a 10-digit mobile number (required, +91 allowed), saves it on the account and adds the person to Staff Directory with that number as Contact.' },
 { v: 'v1524', date: '28-Sep-2026 IST', note: 'Hostel Warden access: sees BOTH hostels (was only the hostel listed under their name in Hostel Settings -> "No hostel is assigned to you yet"); can add/edit rooms, mark hostel students, manage cleaning staff, notices for both hostels, allot beds, leave, complaints, roll call, cleaning. Canteen Menu is view only for wardens (no edit / upload / specials / closures). Hostel Settings stays admin-only. Dashboard Warden: line also lists whoever holds a warden bed in that hostel.' },
@@ -81115,6 +81168,9 @@ function hcNoHostelMsg() {
 // warden bed. Not linked to either yet -> both (so nothing is hidden by mistake). Everyone else: both.
 function hcRoomHostelIds() {
   if (hcRole() !== ROLE_WARDEN) return ['boys', 'girls'];
+  // v1527: the account says Boys / Girls Hostel Warden -> that decides
+  const wo = currentProfile && currentProfile.wardenOf;
+  if (wo === 'boys' || wo === 'girls') return [wo];
   const uid = hcUid(), nm = String((currentProfile && currentProfile.name) || '').trim().toLowerCase(), H = hcHostels();
   const mine = ['boys', 'girls'].filter(id => {
     if (uid && (H[id].wardens || {})[uid]) return true;
@@ -83025,7 +83081,12 @@ async function hcSosAck(urn, at) {
 // ── Night roll call ─────────────────────────────────────────────────
 async function hcRenderRollcall(force) {
   const root = document.getElementById('hc-rollcall-root'); if (!root) return;
-  const mine = hcMyHostelIds(); if (!mine.length) { root.innerHTML = hcNoHostelMsg(); return; }
+  // v1527: Boys / Girls Hostel Warden sees only their hostel's roll call; others pick a hostel tab
+  const allowed = hcRoomHostelIds(); if (!allowed.length) { root.innerHTML = hcNoHostelMsg(); return; }
+  if (!HC.rc.hid || (HC.rc.hid !== 'all' && !allowed.includes(HC.rc.hid))) HC.rc.hid = allowed.length > 1 ? 'all' : allowed[0];
+  const mine = HC.rc.hid === 'all' ? allowed : [HC.rc.hid];
+  const _Hn = hcHostels();
+  const rcTabs = allowed.length > 1 ? `<div class="hc-bar">${[['all', 'Both hostels']].concat(allowed.map(id => [id, (id === 'boys' ? '\u{1F466} ' : '\u{1F467} ') + _Hn[id].name])).map(([id, t]) => `<button class="hc-tab ${HC.rc.hid === id ? 'on' : ''}" onclick="HC.rc.hid='${id}';hcRenderRollcall()">${hcEsc(t)}</button>`).join('')}</div>` : `<div class="hc-bar"><span class="hc-tab on">${allowed[0] === 'boys' ? '\u{1F466}' : '\u{1F467}'} ${hcEsc(_Hn[allowed[0]].name)}</span></div>`;
   const date = HC.rc.date || hcTodayIST(); HC.rc.date = date;
   if (!HC.rc.data || HC.rc.data.date !== date || force) {
     root.innerHTML = '<div class="hc-muted">Loading roll call\u2026</div>';
@@ -83039,7 +83100,7 @@ async function hcRenderRollcall(force) {
   const cnt = k => res.filter(r => st(r) === k).length;
   const notYet = res.filter(r => !st(r)).length;
   const tf = t => new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-  let h = `<div class="hc-bar"><input type="date" class="hc-in" value="${date}" max="${hcTodayIST()}" onchange="HC.rc.date=this.value;hcRenderRollcall(true)">
+  let h = rcTabs + `<div class="hc-bar"><input type="date" class="hc-in" value="${date}" max="${hcTodayIST()}" onchange="HC.rc.date=this.value;hcRenderRollcall(true)">
     <button class="hc-btn" onclick="hcRenderRollcall(true)">\u{1F504} Refresh</button>
     <span class="hc-muted" style="margin-left:auto;">\u2705 ${cnt('C')} checked in \u00b7 P ${cnt('P')} \u00b7 <b style="color:var(--danger)">A ${cnt('A')}</b> \u00b7 L ${cnt('L')} \u00b7 <b style="color:var(--warn)">${notYet} not yet</b></span></div>
     <div class="hc-muted" style="margin-bottom:8px;">Widget check-in window: ${hcEsc(((HC.cfg || {}).checkin || {}).start || '21:00')}\u2013${hcEsc(((HC.cfg || {}).checkin || {}).end || '21:30')}. Students without the widget (and \u{1F4F5} PUC students, who have no phone): mark P / A by hand.</div>
