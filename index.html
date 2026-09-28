@@ -12712,6 +12712,7 @@ async function onLoginSuccess() {
         6000
       );
     }, 500);
+    window._dvLoginWasManual = !!_isManualLogin;   // v1529: remembered for the admin "just logged in" alert below
     _isManualLogin = false; // Clear flag (was set for manual logins to guard onAuthStateChanged)
   }
   // Load from localStorage immediately — charts render before any network call.
@@ -13137,14 +13138,23 @@ async function onLoginSuccess() {
 
   // ── Notify admin when ANY role logs in (per user request — was missing manager;
   // admin deliberately excluded since an admin login would just notify admin themself) ──
-  if (['fulltime','visiting','vp','principal','manager'].includes(p.role)) {
+  // v1529: this used to fire on EVERY app open with a saved session (page reload, PWA reopened, tab
+  // restored), so admin got "X just logged in" again and again while X never typed a password.
+  // Now: a real sign-in (username/password) always alerts; a restored session at most once per 8 h
+  // per person per device.
+  const _loginNotifKey = 'dv_login_notif_' + ((currentUser && currentUser.uid) || p.username || p.name || '');
+  let _loginNotifOk = !!window._dvLoginWasManual;
+  if (!_loginNotifOk) { try { _loginNotifOk = Date.now() - (+localStorage.getItem(_loginNotifKey) || 0) > 8 * 3600000; } catch (e) { _loginNotifOk = false; } }
+  if (_loginNotifOk) { try { localStorage.setItem(_loginNotifKey, String(Date.now())); } catch (e) {} }
+  window._dvLoginWasManual = false;
+  if (_loginNotifOk && ['fulltime','visiting','vp','principal','manager','warden','hostel_head'].includes(p.role)) {
     // Delay 2s so facAlertBootstrap() finishes loading faWorkerUrl from Firestore first
     setTimeout(async () => {
       try {
         const now = new Date();
         const timeStr = now.toLocaleString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit', hour12:true });
         const dateStr = now.toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric' });
-        const roleLabel = { fulltime:'Full-Time Faculty', visiting:'Visiting Faculty', vp:'Vice Principal', principal:'Principal', manager:'Manager', admin:'Admin', warden:'Hostel Warden' }[p.role] || p.role;
+        const roleLabel = { fulltime:'Full-Time Faculty', visiting:'Visiting Faculty', vp:'Vice Principal', principal:'Principal', manager:'Manager', admin:'Admin', warden:'Hostel Warden', hostel_head:'Hostel Head' }[p.role] || p.role;
         const title = `🔑 ${p.name || p.username} just logged in`;
         const body  = `${roleLabel} · ${dateStr} at ${timeStr}`;
         const logEntry = {
@@ -17271,13 +17281,31 @@ async function umSaveEdit(uid) {
   } catch(e) { dvToast('❌ ' + e.message, 'error', 5000); }
 }
 
+// v1529: any error while building the list now shows on screen instead of a false "No accounts yet (0)"
 async function renderUserManagement() {
+  try { await _umRenderList(); }
+  catch (e) {
+    console.error('[UM] render failed', e);
+    const wrap = document.getElementById('um-list');
+    if (wrap) wrap.innerHTML = '<div style="color:var(--danger);font-size:12px;padding:8px 0;">⚠ Could not show accounts: ' + String(e && e.message || e).replace(/</g, '&lt;') + ' — <a href="#" onclick="renderUserManagement();return false;" style="color:var(--accent);">try again</a></div>';
+  }
+}
+async function _umRenderList() {
   umPopulateDropdowns();
   const wrap = document.getElementById('um-list');
   const cnt  = document.getElementById('um-count');
   if (!wrap) return;
   wrap.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;">Loading…</div>';
-  const users = await fsGetAll('users');
+  // v1529: a failed read left the page's placeholder "No accounts yet (0)" - show the real error instead
+  let users;
+  try { users = await fsGetAll('users'); }
+  catch (e) {
+    console.error('[UM] users read failed', e);
+    wrap.innerHTML = '<div style="color:var(--danger);font-size:12px;padding:8px 0;">⚠ Could not load accounts: ' + String(e && e.message || e).replace(/</g, '&lt;') + ' — <a href="#" onclick="renderUserManagement();return false;" style="color:var(--accent);">try again</a></div>';
+    return;
+  }
+  // v1529: an account without a name (e.g. half-created) crashed the whole list at u.name.replace(...)
+  users.forEach(u => { if (!u.name) u.name = u.username || u.id; });
   if (cnt) cnt.textContent = users.length;
   if (!users.length) { wrap.innerHTML='<div class="empty"><div class="empty-icon">👥</div>No accounts yet.</div>'; return; }
   const roleLabel = { admin:'Admin', manager:'Manager', vp:'Vice Principal', fulltime:'Full-Time', visiting:'Visiting', warden:'Warden', hostel_head:'Hostel Head' };
@@ -18093,8 +18121,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1528;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '28-Sep-2026', time: '18:30', full: '28-Sep-2026 18:30 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1529;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '28-Sep-2026', time: '19:00', full: '28-Sep-2026 19:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -28854,6 +28882,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1529', date: '28-Sep-2026 IST', note: 'FIX repeating admin "X just logged in" alerts: they fired on every app open with a saved session (reload, PWA reopened, tab restored), not only on a real sign-in. Now a username/password sign-in always alerts; a restored session alerts at most once per 8 h per person per device. Wardens and Hostel Head included. FIX User Management showing "No accounts yet (0)": the list crashed on an account without a name (u.name.replace) or on a failed read and left the page placeholder. Missing names now fall back to the username, and any read / render error is shown with a try-again link.' },
 { v: 'v1528', date: '28-Sep-2026 IST', note: 'New role Hostel Head (e.g. PUC principal Sumithra K T): Hostel & Canteen only, BOTH hostels, full control - rooms, beds, residents, leave, complaints, notices, roll call, cleaning and canteen menu editing; only Hostel Settings excluded. In Create / Edit account and Staff Directory (synced). Managers, wardens and Hostel Heads now get the Add My Photo option (sidebar + banner) like faculty, and wardens / Hostel Heads are asked for date of birth at login like managers. Staff Directory rows added from User Management now copy the date of birth (time / place) from the account when the row has none (Nagaratna DOB was on her account but not shown).' },
 { v: 'v1527', date: '28-Sep-2026 IST', note: 'Boys / Girls Hostel Warden as a role. Create account and Edit account now offer Boys Hostel Warden and Girls Hostel Warden (account keeps role warden + wardenOf boys|girls, so all warden access is unchanged); Staff Directory shows the same (warden_boys / warden_girls) and the two sync both ways (Save All Changes, Create Login, Bulk Create, account edit). The account setting decides the warden\'s hostel for Rooms & Beds and Night Roll Call (roll call now per hostel: a warden sees only their hostel, admin/manager get Boys / Girls / Both tabs). Sidebar badge shows Boys/Girls Hostel Warden. FIX (from v1525): a login added to Staff Directory stored its USERNAME in the code column, which Save All Changes copies back as the account PASSWORD - for a login like rangaswammy.gs that would have changed the password. Rows now store the password, and rows v1525 made are repaired on open; Sync from User Management also pulls the password.' },
 { v: 'v1526', date: '28-Sep-2026 IST', note: 'Rooms & Beds per warden: a boys hostel warden sees only Boys Hostel rooms and beds, a girls hostel warden only Girls Hostel (hostel tabs limited, and opening a resident of the other hostel does not show their room/bed). A warden\'s hostel = Wardens list in Hostel Settings or the hostel where they hold a warden bed; not linked yet = both. Everything else unchanged (dashboard, residents list, leave, complaints etc. still both hostels).' },
