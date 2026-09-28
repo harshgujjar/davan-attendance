@@ -17951,8 +17951,8 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1521;  // always = HTML footer version number
-const BUILD_TIMESTAMP = { date: '28-Sep-2026', time: '14:30', full: '28-Sep-2026 14:30 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
+const CODE_BUILD = 1522;  // always = HTML footer version number
+const BUILD_TIMESTAMP = { date: '28-Sep-2026', time: '15:00', full: '28-Sep-2026 15:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
 // nag "update available" against the widget's SELF-REPORTED apkVersion (see
@@ -28712,6 +28712,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1522', date: '28-Sep-2026 IST', note: 'Canteen Menu plans: (1) setting an end date on a regular menu no longer creates a "<name> (next)" copy - the end date is stored on the menu itself; copies v1521 made are folded back automatically (the menu keeps its end date). (2) Menu plans is ONE list in date order, oldest first (1 Jan-15 Jan, 16 Jan-15 Feb ...), each marked Regular or Dated. (3) New dated menu starts the day after the last plan ends.' },
 { v: 'v1521', date: '28-Sep-2026 IST', note: 'Canteen Menu: regular menu Ends on is now a date picker (was fixed text). Empty = until changed (button to clear). Picking an end date makes the next regular menu start the day after: an existing next menu is moved there, otherwise a copy of this menu is created there to edit. An end date that would swallow the whole next menu is blocked. Dates never overlap.' },
 { v: 'v1520', date: '28-Sep-2026 IST', note: 'Canteen Menu dates never collide. Regular menu: every version is listed in Menu plans with its own From and To - To is the day before the next version starts (end 04/09 -> next starts 05/09), shown live as Ends on in the editor. Edit any version: same start date updates it, an upcoming one can be moved, a running one saved from today becomes a new version (past kept); a start date already used asks to replace; versions can be deleted. Dated menus: overlapping dates are now blocked (was a warning) - the message names the clashing menu and fills in the next free From/To; Copy to next week/month and New dated menu start on the first free day and stop before the next dated menu.' },
 { v: 'v1519', date: '28-Sep-2026 IST', note: 'Canteen Menu: the regular weekly menu now has an editable Name and a Starts from date (default today; pick a later date to schedule the change, e.g. next Monday; a past date asks first). To stays until changed - for an end date use New dated menu. Menu plans shows the regular menu by its name plus any scheduled change, and on phones is a card list (To and Status were cut off). History and Excel upload keep the name.' },
@@ -81809,6 +81810,21 @@ async function hcLoadMenu() {
     HC.menuDefs = { '2000-01-01': rec };
     if (hcCanMenu()) lpDb4Set('canteen/defaults/2000-01-01', rec).catch(e => console.warn('[HC menu] migrate', e.message));
   }
+  // v1522: undo the automatic "<name> (next)" copies v1521 made - fold them back into the menu before
+  // them, which keeps its end date (the day before the copy started).
+  if (hcCanMenu()) {
+    const ks = Object.keys(HC.menuDefs).sort(), fix = {};
+    ks.forEach((k, i) => {
+      const r = HC.menuDefs[k] || {}, pk = ks[i - 1], p = pk ? HC.menuDefs[pk] || {} : null;
+      if (p && r.name && r.name === (p.name || 'Regular weekly menu') + ' (next)' && hcStableJson(r.tpl || {}) === hcStableJson(p.tpl || {})) {
+        fix[k] = null; fix[pk] = Object.assign({}, p, { to: p.to || hcAddDays(k, -1) });
+      }
+    });
+    if (Object.keys(fix).length) {
+      Object.keys(fix).forEach(k => { if (fix[k] === null) delete HC.menuDefs[k]; else HC.menuDefs[k] = fix[k]; });
+      lpDb4Patch('canteen/defaults', fix).catch(e => console.warn('[HC menu] next-copy cleanup', e.message));
+    }
+  }
   hcMenuSyncLive();
 }
 async function hcMenuSyncLive() {
@@ -81889,7 +81905,11 @@ function hcPeriodStatus(p) {
 }
 // v1520: regular menu versions form a chain - each one ENDS the day before the next one starts.
 function hcRegKeys() { return Object.keys(HC.menuDefs || {}).sort(); }
-function hcRegEnd(key) { const n = hcRegKeys().find(k => k > key); return n ? hcAddDays(n, -1) : ''; }
+function hcRegEnd(key) {
+  // v1522: own end date (to) if set, never past the day before the next regular menu starts
+  const n = hcRegKeys().find(k => k > key), byNext = n ? hcAddDays(n, -1) : '', own = ((HC.menuDefs || {})[key] || {}).to || '';
+  return own && (!byNext || own < byNext) ? own : byNext;
+}
 function hcRegStatus(key) {
   const today = hcTodayIST(), end = hcRegEnd(key);
   if (key > today) return { t: 'Upcoming', c: 'var(--accent)' };
@@ -81928,7 +81948,12 @@ function hcMenuNew(mode) {
   let from, to;
   if (mode === 'week') from = after || hcAddDays(hcMondayOf(today), 7);
   else if (mode === 'month') from = after || hcNextMonthStart(today);
-  else from = today;
+  else {
+    // v1522: a new plan starts the day after the last plan ends (1 Jan-15 Jan -> 16 Jan), never before today
+    const ends = Object.values(HC.menuPer || {}).map(p => p && p.to).concat(hcRegKeys().map(k => ((HC.menuDefs[k] || {}).to))).filter(Boolean).sort();
+    const last = ends.length ? ends[ends.length - 1] : '';
+    from = last && last >= today ? hcAddDays(last, 1) : today;
+  }
   // v1520: never on top of another dated menu - move to the first free day, stop before the next one
   from = hcNextFree(from) || from;
   to = mode === 'week' ? hcAddDays(from, 6) : hcMonthEnd(from);
@@ -81955,23 +81980,26 @@ function hcMenuWeekHtml(edit) {
   // v1520: every regular version with its own From - To (To = day before the next one starts).
   // Finished ones: only the last 2 are listed (History still has all of them).
   const regAll = hcRegKeys(), regFin = regAll.filter(k => { const e = hcRegEnd(k); return e && e < today; });
-  const regShow = regAll.filter(k => !regFin.includes(k) || regFin.slice(-2).includes(k)).reverse();
+  const regShow = regAll.filter(k => !regFin.includes(k) || regFin.slice(-2).includes(k));
   const onNow = hcPeriodFor(today);
   h += `<div class="hc-card" style="margin:14px 0;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
       <b>\u{1F5D3}️ Menu plans</b><span class="hc-muted">Running today: <b>${hcEsc(onNow ? onNow.p.name || 'Dated menu' : hcRegularName(today))}</b></span></div>
     <div class="hc-wrap"><table class="hc-tbl hc-mp-plans"><thead><tr><th>Menu</th><th>From</th><th>To</th><th>Status</th></tr></thead><tbody>
     ${regAll.length ? '' : `<tr><td><b>Regular weekly menu</b><div class="hc-muted">Not saved yet</div><div style="margin-top:5px;"><button class="hc-btn" style="padding:3px 9px;" onclick="hcMenuPick('reg')">${edit ? '✏️ Edit' : '\u{1F441}️ View'}</button></div></td><td data-l="From">—</td><td data-l="To">until changed</td><td data-l="Status">—</td></tr>`}` +
-    regShow.map(k => {
-      const r = HC.menuDefs[k] || {}, end = hcRegEnd(k), st = hcRegStatus(k), on = sel.kind === 'reg' && sel.key === k;
-      return `<tr ${on ? 'style="background:rgba(196,160,42,.10);"' : ''}><td><b>${hcEsc(r.name || 'Regular weekly menu')}</b><div class="hc-muted">Regular weekly menu — days no dated menu covers</div>
-        <div style="margin-top:5px;white-space:nowrap;"><button class="hc-btn" style="padding:3px 9px;" onclick="hcMenuPick('r:${k}')">${edit ? '✏️ Edit' : '\u{1F441}️ View'}</button>${edit && regAll.length > 1 ? ` <button class="hc-btn dng" style="padding:3px 9px;" onclick="hcMenuDelReg('${k}')">\u{1F5D1}</button>` : ''}</div></td>
-        <td data-l="From">${k > '2000-01-01' ? hcFmtDate(k) : '—'}</td><td data-l="To">${end ? hcFmtDate(end) : 'until changed'}</td><td data-l="Status" style="color:${st.c};">${st.t}</td></tr>`;
-    }).join('') +
-    pers.map(([id, p]) => {
-      const st = hcPeriodStatus(p), on = sel.kind === 'period' && sel.id === id;
-      return `<tr ${on ? 'style="background:rgba(196,160,42,.10);"' : ''}><td><b>${hcEsc(p.name || 'Dated menu')}</b>
+    // v1522: ONE list, oldest first by From date (1 Jan-15 Jan, 16 Jan-15 Feb, ...)
+    regShow.map(k => ({ from: k, t: 'r', k })).concat(pers.map(([id, p]) => ({ from: p.from, t: 'p', id, p })))
+      .sort((a, b) => String(a.from).localeCompare(String(b.from)) || (a.t === 'r' ? -1 : 1)).map(x => {
+      if (x.t === 'r') {
+        const k = x.k, r = HC.menuDefs[k] || {}, end = hcRegEnd(k), st = hcRegStatus(k), on = sel.kind === 'reg' && sel.key === k;
+        return `<tr ${on ? 'style="background:rgba(196,160,42,.10);"' : ''}><td><b>${hcEsc(r.name || 'Regular weekly menu')}</b> <span class="hc-tag">Regular</span>
+          <div style="margin-top:5px;white-space:nowrap;"><button class="hc-btn" style="padding:3px 9px;" onclick="hcMenuPick('r:${k}')">${edit ? '✏️ Edit' : '\u{1F441}️ View'}</button>${edit && regAll.length > 1 ? ` <button class="hc-btn dng" style="padding:3px 9px;" onclick="hcMenuDelReg('${k}')">\u{1F5D1}</button>` : ''}</div></td>
+          <td data-l="From">${k > '2000-01-01' ? hcFmtDate(k) : '—'}</td><td data-l="To">${end ? hcFmtDate(end) : 'until changed'}</td><td data-l="Status" style="color:${st.c};">${st.t}</td></tr>`;
+      }
+      const id = x.id, p = x.p, st = hcPeriodStatus(p), on = sel.kind === 'period' && sel.id === id;
+      return `<tr ${on ? 'style="background:rgba(196,160,42,.10);"' : ''}><td><b>${hcEsc(p.name || 'Dated menu')}</b> <span class="hc-tag">Dated</span>
         <div style="margin-top:5px;white-space:nowrap;"><button class="hc-btn" style="padding:3px 9px;" onclick="hcMenuPick('p:${id}')">${edit ? '✏️ Edit' : '\u{1F441}️ View'}</button>${edit ? ` <button class="hc-btn dng" style="padding:3px 9px;" onclick="hcMenuDelPeriod('${id}')">\u{1F5D1}</button>` : ''}</div></td><td data-l="From">${hcFmtDate(p.from)}</td><td data-l="To">${p.to ? hcFmtDate(p.to) : 'until changed'}</td><td data-l="Status" style="color:${st.c};">${st.t}</td></tr>`;
     }).join('') + `</tbody></table></div>
+    <div class="hc-muted" style="margin-top:6px;">A dated menu is used on its days; a regular menu covers every other day (after its end date too, until another menu is set).</div>
     ${edit ? `<div class="hc-bar" style="margin-top:10px;"><button class="hc-btn pri" onclick="hcMenuNew('')">➕ New dated menu (From – To)</button></div>` : ''}</div>`;
   // Editor
   const title = sel.kind === 'reg' ? (sel.rec.name || 'Regular weekly menu') : sel.kind === 'new' ? 'New dated menu' : (sel.p.name || 'Dated menu');
@@ -81986,9 +82014,9 @@ function hcMenuWeekHtml(edit) {
     h += `<div class="hc-bar" style="align-items:flex-end;">
       <label style="font-size:11px;flex:1;min-width:160px;">Name<input id="hc-mp-rname" class="hc-in" style="width:100%;" value="${hcEsc(sel.rec.name || 'Regular weekly menu')}" ${edit ? '' : 'readonly'}></label>
       <label style="font-size:11px;">Starts from<input type="date" id="hc-mp-rfrom" class="hc-in" value="${defFrom}" ${edit ? '' : 'readonly'} oninput="hcRegEndHint()"></label>
-      <label style="font-size:11px;">Ends on<input type="date" id="hc-mp-rend" class="hc-in" value="${nextK ? hcAddDays(nextK, -1) : ''}" ${edit ? '' : 'readonly'} oninput="this.dataset.touched='1'"></label>
+      <label style="font-size:11px;">Ends on<input type="date" id="hc-mp-rend" class="hc-in" value="${sel.rec.to || (nextK ? hcAddDays(nextK, -1) : '')}" ${edit ? '' : 'readonly'} oninput="this.dataset.touched='1'"></label>
       ${edit ? `<button class="hc-btn" style="padding:5px 9px;" onclick="const e=document.getElementById('hc-mp-rend');e.value='';e.dataset.touched='1'">Until changed</button>` : ''}</div>
-    <div class="hc-muted" id="hc-mp-rhint">Empty end date = runs until changed. Pick an end date (e.g. 04/10) and the next regular menu starts the day after (05/10) — the next one is moved there, or a copy of this menu is made there for you to edit. Dates never overlap.
+    <div class="hc-muted" id="hc-mp-rhint">Empty end date = runs until changed. Pick an end date (e.g. 15/01): if another regular menu comes after, it is moved to start the day after (16/01). Dates never overlap.
       ${running && K && K < t0 ? ' Saving from today keeps past weeks as they were.' : ''}</div>`;
   }
   else h += `<div class="hc-bar" style="align-items:flex-end;">
@@ -82042,7 +82070,7 @@ function hcRegEndHint() {
   const sel = hcMenuSelected(), moving = sel.key && sel.key > hcTodayIST();
   if (e.dataset.touched === '1') return;   // the admin picked an end date - keep it
   const n = hcRegKeys().find(k => k > f && !(moving && k === sel.key));
-  e.value = n ? hcAddDays(n, -1) : '';
+  e.value = sel.rec.to || (n ? hcAddDays(n, -1) : '');
 }
 function hcMenuDelReg(key) {
   if (hcRegKeys().length < 2) { dvToast('This is the only regular menu — edit it instead', 'warn'); return; }
@@ -82082,10 +82110,9 @@ async function hcMenuSaveWeek() {
         if (nEnd && target > nEnd) { dvToast('⚠️ That end date covers all of “' + ((HC.menuDefs[N] || {}).name || 'Regular weekly menu') + '” (' + hcFmtDate(N) + ' – ' + hcFmtDate(nEnd) + '). Delete that menu first, or pick an earlier end date.', 'warn', 8000); return; }
         patch[N] = null; patch[target] = HC.menuDefs[N];
         nextMsg = ' “' + ((HC.menuDefs[N] || {}).name || 'Regular weekly menu') + '” now starts ' + hcFmtDate(target) + '.';
-      } else if (!N) {
-        patch[target] = { name: name + ' (next)', tpl: JSON.parse(JSON.stringify(tpl)), by, at };
-        nextMsg = ' A copy starts ' + hcFmtDate(target) + ' — edit it in Menu plans.';
       }
+      // v1522: no automatic "(next)" copy any more - the end date is simply stored on this menu
+      rec.to = endIn;
     }
     const doSave = async () => {
       try { await lpDb4Patch('canteen/defaults', patch); }
