@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1543 · 29-Sep-2026 IST
+
+Fix (user report: student-app Hostel login always said "Wrong password"): portal v10.05 read the staff database's login list, which the student app's golden-rule guard blocks. hostel/logins/{username} now also carries u (username) and h = SHA-256("davan-hostel|<username>|<password>") so the student app can check a password without the staff database and without storing any password. Written by hcSyncHostelLogins when User Management opens (open it once after this update, and after any password change). Pairs with portal v10.06. Functions: hcPwHash, hcSyncHostelLogins.
+
 ## v1542 · 29-Sep-2026 IST
 
 Chat: every message now updates hostel/chat_stamp for every other member, staff included (was students only), so staff widgets (w102 Hostel login) can alert new chat messages. One extra tiny field per recipient per message. Pairs with portal v10.05 and widget w102. Function: hcChatMsgPatch.
