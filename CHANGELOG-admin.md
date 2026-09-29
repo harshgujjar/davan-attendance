@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1539 · 29-Sep-2026 IST
+
+Guest photo in the hostel (user request): the Guest tab of Allot bed has Take / choose photo; guest and staff beds have Add / Change photo and View photo. The photo is shrunk to 400 px JPEG on the phone and uploaded to Cloudinary (same preset as student photos, folder davan_hostel_guests); only the URL is saved on hostel/rooms/{hostel}/{room}/beds/{bed}/photo (no extra Firebase reads). Room-mates see it in the student app's My Room (hsMateHtml already shows photo). Functions: hcOccIcon, hcAllotGuest, hcGuestPhotoPrev, hcShrinkImage, hcUploadOccPhoto, hcOccPhotoChange, hcOpenOccupiedOther.
+
 ## v1538 · 29-Sep-2026 IST
 
 Smaller, faster app file: the old HTML_CHANGELOG (822 entries, 1.3 MB of index.html, downloaded by every admin/faculty open) moved here; the What's new popup keeps the latest 15 (renderChangelogBody links to this file). Changelog rule is now short entries without line numbers (CLAUDE.md); tools/changelog_lines.py removed. No data or Firebase change.
