@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1541 · 29-Sep-2026 IST
+
+Hostel Chat > Contacts tab (admin only, user request): tick / untick which staff appear in the students' Chat list. Not set = shown, except managers: only Lalitha by default (the other managers are hidden for now). Data: hostel/config/chat_contacts/{U_uid}: true|false (one small write per change; students already read hostel/config). Pairs with portal v10.04. Functions: hcChatContactsHtml, hcChatSetContact, hcChatShownDefault, hcRenderChat.
+
 ## v1540 · 29-Sep-2026 IST
 
 Hostel Chat panel (user request): WhatsApp-style chats between hostel students / resident staff and each warden (own hostel), Hostel Head, Principal, Manager and Director, with blue ticks, unread badge, Message all (admin, principal, manager, hostel head, wardens for their hostel) and, for the admin only, Conference (group chat), All chats (read any chat) and delete of single / selected messages and chats; chats idle for 6 months are deleted when the admin opens All chats. Boys / Girls Hostel Wardens now see only their own hostel's leave, complaints, who ate and notices (hcMyHostelIds). New role Resident staff (Boys / Girls hostel, "Shown as" title such as Graphic Designer): opening the staff app sends them to the student app's Hostel login; they are hostel residents (RS_<USERNAME>) so meal questions, leave, complaints and chat work as for students. Guest beds get a guest code (+ optional DOB) for the Hostel login and widget. Data (DB4): hostel/chat/{t,m,seen,box}, hostel/chat_stamp/{urn}, hostel/logins/{username} (no passwords; synced when User Management opens), hostel/guest_pass/{code}, hostel/residents/RS_*. No listeners: an open chat re-reads only new messages every 5 s; the unread badge reads the small inbox every 2 min. Pairs with portal v10.01 and widget w102. Functions: hcRenderChat, hcChatMsgPatch, hcChatOpen, hcChatSend, hcChatBroadcast, hcChatConfCreate, hcChatDelMsgs, hcChatDelChats, hcChatAutoClean, hcSyncHostelLogins, hcGuestCode, hcAllotGuest, hcMyHostelIds, umRoleFromPick.
