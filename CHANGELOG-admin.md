@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1544 · 29-Sep-2026 IST
+
+Fix (user report: student-app Hostel login said "not set up yet" although the person can log in here): after a password login to this app (faculty password tab or username login) the person's own hostel/logins entry is written with the password hash (hcSelfHostelLogin), so it no longer depends on the admin opening User Management; resident staff are saved before being sent to the student app, with their hostel resident record. User Management's sync now shows an error toast instead of failing silently. One small write per staff login. Functions: hcSelfHostelLogin, doFacultyLogin, doFirebaseLogin, role landing, _umRenderList.
+
 ## v1543 · 29-Sep-2026 IST
 
 Fix (user report: student-app Hostel login always said "Wrong password"): portal v10.05 read the staff database's login list, which the student app's golden-rule guard blocks. hostel/logins/{username} now also carries u (username) and h = SHA-256("davan-hostel|<username>|<password>") so the student app can check a password without the staff database and without storing any password. Written by hcSyncHostelLogins when User Management opens (open it once after this update, and after any password change). Pairs with portal v10.06. Functions: hcPwHash, hcSyncHostelLogins.
