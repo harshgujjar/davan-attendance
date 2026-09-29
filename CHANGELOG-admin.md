@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1546 · 29-Sep-2026 IST
+
+User report: only some staff could use the student app's Hostel login. User Management has a new "🏨 Update hostel logins" button: runs the hostel-login sync now, then reads hostel/logins back and says how many staff have a working login (or shows the error). The sync writes logins and resident records in two separate writes so one cannot block the other, and returns counts. Pairs with portal v10.07. Functions: hcHostelLoginsNow, hcSyncHostelLogins.
+
 ## v1545 · 29-Sep-2026 IST
 
 Fix (user report: User Management said "No accounts yet (0)"): when the app reopens it restores the last panel with switchPanel() only, and the account list was loaded only by the menu click, so the empty placeholder stayed and the hostel-login sync never ran (which is also why the student app's Hostel login said "not set up yet"). switchPanel now loads User Management whenever it is shown; the menu item no longer loads it a second time. No data change. Functions: switchPanel, nav-user-management onclick.
