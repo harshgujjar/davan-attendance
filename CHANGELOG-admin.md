@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1542 · 29-Sep-2026 IST
+
+Chat: every message now updates hostel/chat_stamp for every other member, staff included (was students only), so staff widgets (w102 Hostel login) can alert new chat messages. One extra tiny field per recipient per message. Pairs with portal v10.05 and widget w102. Function: hcChatMsgPatch.
+
 ## v1541 · 29-Sep-2026 IST
 
 Hostel Chat > Contacts tab (admin only, user request): tick / untick which staff appear in the students' Chat list. Not set = shown, except managers: only Lalitha by default (the other managers are hidden for now). Data: hostel/config/chat_contacts/{U_uid}: true|false (one small write per change; students already read hostel/config). Pairs with portal v10.04. Functions: hcChatContactsHtml, hcChatSetContact, hcChatShownDefault, hcRenderChat.
