@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1548 · 29-Sep-2026 IST
+
+Fix (user report: the Director's Hostel login in the student app said "Wrong password" with admin123). A hostel login saved by the person's own typed login (hcSelfHostelLogin) was overwritten whenever User Management opened: hcSyncHostelLogins hashed the account list's password, and the Director's account has none, so it saved the username as the password. Own-login hashes are now marked `self` and the sync keeps them. Data: hostel/logins/{user}.self (DB4, a few bytes). Pairs with portal v10.17. Functions: hcSelfHostelLogin, hcSyncHostelLogins.
+
 ## v1547 · 29-Sep-2026 IST
 
 User request: the Cleaning page should show who lives in each room. Every room card now lists its members with photo (tap to zoom) and first two names (tap opens the occupant card); guests / staff show their icon or photo. No new reads (uses the rooms already loaded). Functions: hcRenderCleaning.
