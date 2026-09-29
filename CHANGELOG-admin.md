@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1549 · 29-Sep-2026 IST
+
+User request: the Director could not add their own date / time / place of birth (admin is not in FAC_DOB_ROLES, so the automatic birthday form never opened, and it only opens when no DOB is saved). The DOB page has a "🎂 My own birthday, birth time & place (horoscope)" button that opens the same form for anyone, date filled in, then step 2 (time + place) filled in. Saving a date also updates the Hostel login's dob (hostel/logins/{user}.dob, DB4, one tiny read + write) so the widget's horoscope page shows the right sign after the next Hostel login. Functions: facOpenOwnDob (new), hcHostelDobSync (new), facSaveDob.
+
 ## v1548 · 29-Sep-2026 IST
 
 Fix (user report: the Director's Hostel login in the student app said "Wrong password" with admin123). A hostel login saved by the person's own typed login (hcSelfHostelLogin) was overwritten whenever User Management opened: hcSyncHostelLogins hashed the account list's password, and the Director's account has none, so it saved the username as the password. Own-login hashes are now marked `self` and the sync keeps them. Data: hostel/logins/{user}.self (DB4, a few bytes). Pairs with portal v10.17. Functions: hcSelfHostelLogin, hcSyncHostelLogins.
