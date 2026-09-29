@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1545 · 29-Sep-2026 IST
+
+Fix (user report: User Management said "No accounts yet (0)"): when the app reopens it restores the last panel with switchPanel() only, and the account list was loaded only by the menu click, so the empty placeholder stayed and the hostel-login sync never ran (which is also why the student app's Hostel login said "not set up yet"). switchPanel now loads User Management whenever it is shown; the menu item no longer loads it a second time. No data change. Functions: switchPanel, nav-user-management onclick.
+
 ## v1544 · 29-Sep-2026 IST
 
 Fix (user report: student-app Hostel login said "not set up yet" although the person can log in here): after a password login to this app (faculty password tab or username login) the person's own hostel/logins entry is written with the password hash (hcSelfHostelLogin), so it no longer depends on the admin opening User Management; resident staff are saved before being sent to the student app, with their hostel resident record. User Management's sync now shows an error toast instead of failing silently. One small write per staff login. Functions: hcSelfHostelLogin, doFacultyLogin, doFirebaseLogin, role landing, _umRenderList.
