@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1547 · 29-Sep-2026 IST
+
+User request: the Cleaning page should show who lives in each room. Every room card now lists its members with photo (tap to zoom) and first two names (tap opens the occupant card); guests / staff show their icon or photo. No new reads (uses the rooms already loaded). Functions: hcRenderCleaning.
+
 ## v1546 · 29-Sep-2026 IST
 
 User report: only some staff could use the student app's Hostel login. User Management has a new "🏨 Update hostel logins" button: runs the hostel-login sync now, then reads hostel/logins back and says how many staff have a working login (or shows the error). The sync writes logins and resident records in two separate writes so one cannot block the other, and returns counts. Pairs with portal v10.07. Functions: hcHostelLoginsNow, hcSyncHostelLogins.
