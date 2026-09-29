@@ -20,3 +20,9 @@ Every change adds its entry **in the same commit**. An entry is **short** (2–5
 Line numbers and the detailed list of changed functions go in the **git commit message** only.
 
 Never put long notes, handoff text or history back into `index.html` / `student_portal.html`: every byte there is downloaded by every user and read on every edit.
+
+## Widget builds
+
+Every new student-widget zip gets a NEW version (never re-zip the same number): bump `versionCode` / `versionName`
+in app/build.gradle, `THIS_APK_VERSION` in StudentFetchWorker.kt and `CURRENT_VERSION` in STUDENT_WIDGET_README.md,
+name the folder and zip `DavanStudentWidget_w<nn>`, and write `W<nn>_CHANGES.md`. The widget source stays out of git.
