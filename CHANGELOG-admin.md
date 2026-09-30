@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1561 · 30-Sep-2026 IST
+
+Staff widget s04 (user asked for card slide-in and filling bars): the cards of a page slide up one after another when the page opens, and the cleaning (rooms, washrooms) and night check-in cards show bars that fill from the left. DavanHostelStaff.apk is s04 and STAFF_WIDGET_APK.apkVersion is 4, so older staff widgets update themselves. No new reads or writes. Function: STAFF_WIDGET_APK (constant).
+
 ## v1560 · 30-Sep-2026 IST
 
 Staff widget s03 (user: taps opened the browser although the staff app is installed; wanted a way to open the widget app from the widget, a one-tap update and an animated refresh). The widget now sees the installed staff app (its app-visibility list names harshgujjar.github.io) and opens it; ⚙ opens the widget app; Check for update checks, downloads and installs; ⟳ turns into a spinner while refreshing. DavanHostelStaff.apk is s03 and STAFF_WIDGET_APK.apkVersion is 3, so s01 and s02 phones update themselves. No new reads or writes. Function: STAFF_WIDGET_APK (constant).
