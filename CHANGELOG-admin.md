@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1559 · 30-Sep-2026 IST
+
+User: the new staff widget stayed on "Loading…" although its app said "Linked to Admin · Director". On Android 14 the widget's list tap link (a changeable link straight to another app) is refused, which stopped the widget drawing; staff widget s02 routes card taps through its own invisible screen. DavanHostelStaff.apk is now s02 and STAFF_WIDGET_APK.apkVersion is 2, so s01 phones download and install it themselves once the admin's app has opened (it publishes davan_pub/student_widget_latest/staff). No new reads or writes. Function: STAFF_WIDGET_APK (constant).
+
 ## v1558 · 30-Sep-2026 IST
 
 User: a separate staff widget app so staff and student widgets can never cross-link (the DB9D3G / AFIFA case). New Java app "Davan Hostel Staff" s01 (APK on main: DavanHostelStaff.apk; source kept out of git). Its codes are always S-XXXXXX. Tapping it opens this app with ?swdev=, which is remembered. A typed login, or that tap while already logged in, links an EMPTY staff widget or refreshes your own. Moving one that shows another staff member needs Link to me plus a confirm. Log out frees it. Staff roles (Director, Principal, Manager, Hostel Head, Warden) no longer link the student widget at login; resident staff keep the student widget. The admin's app keeps davan_pub/student_widget_latest/staff = {apkVersion, apkUrl}, which the widgets update themselves from. Data: davan_pub/student_widget_active/S-xxxxxx (same list, so the admin log shows it), pair log rows via 'staff-widget'. The widget reads DB4 hostel and canteen data every 15 min and DB3 news hourly, about the same as the staff pages of the student widget. Pairs with portal v10.31 and staff widget s01. Functions: swLink, swRelease, swUnlink, swBoxHtml, swBoxFill, swPublishVersion (new); hswBoxHtml, hswBoxFill, onLoginSuccess, doFirebaseLogout.
