@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1560 · 30-Sep-2026 IST
+
+Staff widget s03 (user: taps opened the browser although the staff app is installed; wanted a way to open the widget app from the widget, a one-tap update and an animated refresh). The widget now sees the installed staff app (its app-visibility list names harshgujjar.github.io) and opens it; ⚙ opens the widget app; Check for update checks, downloads and installs; ⟳ turns into a spinner while refreshing. DavanHostelStaff.apk is s03 and STAFF_WIDGET_APK.apkVersion is 3, so s01 and s02 phones update themselves. No new reads or writes. Function: STAFF_WIDGET_APK (constant).
+
 ## v1559 · 30-Sep-2026 IST
 
 User: the new staff widget stayed on "Loading…" although its app said "Linked to Admin · Director". On Android 14 the widget's list tap link (a changeable link straight to another app) is refused, which stopped the widget drawing; staff widget s02 routes card taps through its own invisible screen. DavanHostelStaff.apk is now s02 and STAFF_WIDGET_APK.apkVersion is 2, so s01 phones download and install it themselves once the admin's app has opened (it publishes davan_pub/student_widget_latest/staff). No new reads or writes. Function: STAFF_WIDGET_APK (constant).
