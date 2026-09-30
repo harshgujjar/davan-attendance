@@ -33,6 +33,12 @@ Source stays out of git (folder `DavanHostelStaff_s<nn>`, built with its `build.
 `versionCode` / `versionName` in AndroidManifest.xml and `BuildInfo.CODE` / `NAME`, write `S<nn>_CHANGES.md`, copy the APK to `DavanHostelStaff.apk` on main and
 bump `STAFF_WIDGET_APK.apkVersion` in index.html (the widgets auto-update from it). Its codes are always `S-XXXXXX`; the student app must never link them.
 
+## PWA rule (every installable page)
+
+Each page links its OWN `manifest-<app>.json` with a unique `id` and `scope` = that one page (never "./" or the folder), and registers its
+service worker for its own page only (`register('app-sw.js', {scope: './<page>.html'})`). Only index.html's `sw.js` (push) sits at the folder.
+No data: / blob: manifests or blob: workers. Every icon a manifest lists must exist.
+
 ## Always commit, push and merge to main (standing instruction)
 
 After every change: bump versions, write the changelog entries, commit, push the session branch, then **merge it into `main` and push `main`** so the apps go live. Do this automatically, never ask. This holds in every session.

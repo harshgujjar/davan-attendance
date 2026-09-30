@@ -1,5 +1,5 @@
 // sw.js — Davan Attendance System v6
-const CACHE_VERSION = 'davan-v6';
+const CACHE_VERSION = 'davan-v7';
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
 const ICON_URL = 'https://harshgujjar.github.io/davan-attendance/icon-192.png';
 
@@ -104,10 +104,12 @@ self.addEventListener('notificationclick', e => {
   e.notification.close();
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      // 2026-09-30: only the STAFF app's own window (index.html) - a student-portal or faculty window is a different app
       for (const client of list) {
-        if (client.url.includes('davan-attendance') && 'focus' in client) return client.focus();
+        const p = new URL(client.url).pathname;
+        if ((p === '/davan-attendance/' || p === '/davan-attendance/index.html') && 'focus' in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow(APP_URL);
+      if (clients.openWindow) return clients.openWindow(APP_URL + 'index.html');
     })
   );
 });

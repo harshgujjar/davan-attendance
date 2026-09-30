@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1562 · 30-Sep-2026 IST
+
+User: installing a second Davan app said "already installed" and apps opened each other (index and the student portal too). Causes: faculty.html used a manifest with scope "./" (the whole folder) and no id; Grocery, Library, Meter and PUC used built-in (data:/blob:) manifests without id or scope; Results and Parent PTM had none; and faculty, meter and PUC registered their service workers for the whole folder, replacing this app's sw.js (push). Now every page links its own manifest-<app>.json (unique id, scope = that page) and registers its worker for its own page only (new app-sw.js pass-through); sw.js opens index.html on a notification tap; swRepair puts sw.js back if another app's worker had replaced it. No database change. Pairs with portal v10.32, faculty v2.5, Grocery 3.16, Library v1.42, Meter v2.10.51, PUC v5.224, Results r496, Parent PTM v4.6.4. Functions: swRepair (new), sw.js notificationclick.
+
 ## v1561 · 30-Sep-2026 IST
 
 Staff widget s04 (user asked for card slide-in and filling bars): the cards of a page slide up one after another when the page opens, and the cleaning (rooms, washrooms) and night check-in cards show bars that fill from the left. DavanHostelStaff.apk is s04 and STAFF_WIDGET_APK.apkVersion is 4, so older staff widgets update themselves. No new reads or writes. Function: STAFF_WIDGET_APK (constant).
