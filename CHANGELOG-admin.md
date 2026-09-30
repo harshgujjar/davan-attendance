@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1552 · 30-Sep-2026 IST
+
+Fix: the student card's Widget section showed no data ("Unknown"). It searched davan_pub/student_widget_active by urn, which Firebase rejects without an ".indexOn": "urn" rule; it now reads that pair list once (cached 10 min, one small read per 10 min) and matches the URN case-insensitively. Functions: siWidgetActive (new), siLoad.
+
 ## v1551 · 30-Sep-2026 IST
 
 Both student cards (dashboard report card and the name-click card, new tab "🏨 HOSTEL · APP") now show a box with: hostel, room/bed/floor, roommates, parent phone, out-on-leave, 7-day food ratings and skips, complaints and leaves (latest 5); student app PWA or browser, device, sessions and last 5 days seen (or "Not opened"); widget in use, version vs latest, phone, last update, notifications. Reads only on card open, one student, cached 3 min: DB4 hostel/residents|rooms|config|complaints|leave|leave_out|private/{URN}, canteen/ratings|skips/{date}/{URN} (7 days); DB2 davan_pub/usage/{date}/{URN} (30 days), student_widget_active (query by urn), student_widget_report/{code}, student_widget_latest — about 20-55 tiny reads per card open. Functions: siLoad, siHtml, siAppend, scRenderHostelApp, rcRenderCard wrapper, scSwitchTab.
