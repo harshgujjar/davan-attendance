@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1557 · 30-Sep-2026 IST
+
+User saw "My hostel widget · DB9D3G · linked to AFIFA ANJUM M" (a day scholar) in the staff app - a cross-link risk. Safety: a typed staff-app login (hswLink automatic) never moves a widget that belongs to a student any more, even when this browser held it before; only the Link to me button can, after a warning naming the student. The box shows the student widget code this browser last opened (shared with the student app on the same phone). It now says who the widget is showing, whether it is a student, and whether this phone held it before (Link to me can switch it back) or not (nothing changes, Link to me is refused). The hostel-widget link also sends the staff member's phone and login name for the w108 header. Data: davan_pub/student_widget_active/{code} gains phone / login (a few bytes); the box reads up to 100 pair-log rows only when another person shows. Pairs with portal v10.30. Functions: hswBoxFill, hswPayload.
+
 ## v1556 · 30-Sep-2026 IST
 
 Found while explaining how to test SOS: the live 🆘 HOSTEL SOS pop-up (listener on DB4 hostel/sos_open) was attached only for admin, manager, principal, VP and warden, so a Hostel Head never saw a student's SOS. hostel_head is added. No new reads for other roles; one small live listener for Hostel Head logins. Function: hcSosAttach.
