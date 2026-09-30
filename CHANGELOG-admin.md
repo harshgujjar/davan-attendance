@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1551 · 30-Sep-2026 IST
+
+Both student cards (dashboard report card and the name-click card, new tab "🏨 HOSTEL · APP") now show a box with: hostel, room/bed/floor, roommates, parent phone, out-on-leave, 7-day food ratings and skips, complaints and leaves (latest 5); student app PWA or browser, device, sessions and last 5 days seen (or "Not opened"); widget in use, version vs latest, phone, last update, notifications. Reads only on card open, one student, cached 3 min: DB4 hostel/residents|rooms|config|complaints|leave|leave_out|private/{URN}, canteen/ratings|skips/{date}/{URN} (7 days); DB2 davan_pub/usage/{date}/{URN} (30 days), student_widget_active (query by urn), student_widget_report/{code}, student_widget_latest — about 20-55 tiny reads per card open. Functions: siLoad, siHtml, siAppend, scRenderHostelApp, rcRenderCard wrapper, scSwitchTab.
+
 ## v1550 · 30-Sep-2026 IST
 
 Hostel students now show 🏨 before their name on every screen (user request, so hostel students stand out). A small script at the end of the page reads DB4 hostel/residents (names of active residents) once, caches it 6 h in localStorage (1 read per device per 6 h), and tags any text that is exactly a resident's name; no data is changed. Pairs with admin v1550, portal v10.28, PUC v5.223, faculty v2.4.
