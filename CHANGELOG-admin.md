@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1555 · 30-Sep-2026 IST
+
+DB2 usage report: the staff app's hostel-widget link checks whether this phone held the widget before by reading the latest 400 pair-log rows (about 216 KB each time); it now reads 100. Data: davan_pub/student_widget_pair_log, about a quarter of the bytes, no new writes. Pairs with portal v10.29. Function: hswHeld.
+
 ## v1554 · 30-Sep-2026 IST
 
 User report: the app felt slow, Refresh and loading took long. Measured in Chromium: the file and start-up are unchanged; two things added work to every redraw / open and are now lighter: (1) the 🏨 hostel-name marker (v1550) scanned new text on the next animation frame after every change - it now runs when the phone is idle (requestIdleCallback), skips nodes already removed, and its first whole-page pass is idle too; (2) User Management re-saved all hostel logins (hash every password + read hostel/logins and hostel/residents) on every open - now at most every 15 minutes, the Update hostel logins button still forces it. No data change; fewer DB4 reads. Functions: hostel-name marker (set / observer), renderUserManagement.
