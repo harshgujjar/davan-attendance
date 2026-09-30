@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1563 · 30-Sep-2026 IST
+
+User: the staff widget's Check for update did not download s04. The widgets only learned the newest version from davan_pub/student_widget_latest/staff, written when the admin's app opens the Hostel dashboard, which had not happened. Staff widget s05 reads staff-widget-version.json (new file on main, next to the APK) and uses the database only as a fallback; the admin's app still writes the database copy. No new database reads; one tiny GitHub file per widget refresh. Pairs with staff widget s05. Function: STAFF_WIDGET_APK (constant).
+
 ## v1562 · 30-Sep-2026 IST
 
 User: installing a second Davan app said "already installed" and apps opened each other (index and the student portal too). Causes: faculty.html used a manifest with scope "./" (the whole folder) and no id; Grocery, Library, Meter and PUC used built-in (data:/blob:) manifests without id or scope; Results and Parent PTM had none; and faculty, meter and PUC registered their service workers for the whole folder, replacing this app's sw.js (push). Now every page links its own manifest-<app>.json (unique id, scope = that page) and registers its worker for its own page only (new app-sw.js pass-through); sw.js opens index.html on a notification tap; swRepair puts sw.js back if another app's worker had replaced it. No database change. Pairs with portal v10.32, faculty v2.5, Grocery 3.16, Library v1.42, Meter v2.10.51, PUC v5.224, Results r496, Parent PTM v4.6.4. Functions: swRepair (new), sw.js notificationclick.

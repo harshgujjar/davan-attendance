@@ -31,7 +31,7 @@ name the folder and zip `DavanStudentWidget_w<nn>`, and write `W<nn>_CHANGES.md`
 
 Source stays out of git (folder `DavanHostelStaff_s<nn>`, built with its `build.sh`; keep `staff.jks`, password davanstaff). Every new APK gets a NEW version: bump
 `versionCode` / `versionName` in AndroidManifest.xml and `BuildInfo.CODE` / `NAME`, write `S<nn>_CHANGES.md`, copy the APK to `DavanHostelStaff.apk` on main and
-bump `STAFF_WIDGET_APK.apkVersion` in index.html (the widgets auto-update from it). Its codes are always `S-XXXXXX`; the student app must never link them.
+bump `STAFF_WIDGET_APK.apkVersion` in index.html AND `apkVersion` in `staff-widget-version.json` (the widgets auto-update from that file, from s05). Its codes are always `S-XXXXXX`; the student app must never link them.
 
 ## PWA rule (every installable page)
 
