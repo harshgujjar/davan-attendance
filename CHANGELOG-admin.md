@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1556 · 30-Sep-2026 IST
+
+Found while explaining how to test SOS: the live 🆘 HOSTEL SOS pop-up (listener on DB4 hostel/sos_open) was attached only for admin, manager, principal, VP and warden, so a Hostel Head never saw a student's SOS. hostel_head is added. No new reads for other roles; one small live listener for Hostel Head logins. Function: hcSosAttach.
+
 ## v1555 · 30-Sep-2026 IST
 
 DB2 usage report: the staff app's hostel-widget link checks whether this phone held the widget before by reading the latest 400 pair-log rows (about 216 KB each time); it now reads 100. Data: davan_pub/student_widget_pair_log, about a quarter of the bytes, no new writes. Pairs with portal v10.29. Function: hswHeld.
