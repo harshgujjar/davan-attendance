@@ -12623,7 +12623,7 @@ async function doFirebaseLogout() {
   // await, so signOut revoked the token mid-way and davan_pub/widget_active_user removal failed
   // with PERMISSION_DENIED (widget kept showing the old user).
   try { await Promise.race([davanWidgetSync(null, null), new Promise(r => setTimeout(r, 4000))]); } catch(e) {}
-  try { await Promise.race([hswRelease(), new Promise(r => setTimeout(r, 4000))]); } catch(e) {}   // v1553: free the hostel widget
+  try { await Promise.race([Promise.all([hswRelease(), swRelease()]), new Promise(r => setTimeout(r, 4000))]); } catch(e) {}   // v1553: free the hostel widget; v1558: and the staff widget
   _signingOut = true;
   await auth.signOut();
   _signingOut = false;
@@ -12819,7 +12819,7 @@ async function onLoginSuccess() {
       location.href = 'student_portal.html?hlogin=staff'; })(); return; }
   // v1544: staff who can use the student app's Hostel login keep their own entry (hashed password) up to date
   if (['warden', 'hostel_head', 'admin', 'principal', 'manager'].includes(p.role)) setTimeout(() => { hcSelfHostelLogin(p).catch(e => console.warn('[hostel login]', e.message));
-    if (window._dvHostelPw) hswLink(p, false).then(r => { if (r && r.ok) console.log('[hostel widget]', r.msg); }).catch(() => {}); }, 4000);   // v1553: typed login only (never a reopen)
+    if (window._dvHostelPw || window._swFresh) swLink(p, false).then(r => { if (r && window._swFresh) dvToast(r.msg, r.ok ? 'ok' : 'warn', 6000); window._swFresh = false; }).catch(() => {}); }, 4000);   // v1558: the staff widget (v1553 linked the student widget here)
   // Auto-unlock admin features for privileged roles — already authenticated via Firebase, no PIN needed
   adminUnlocked = [ROLE_ADMIN, ROLE_MANAGER, ROLE_VP, ROLE_PRINCIPAL].includes(p.role);
   // Set role-appropriate empty dashboard message
@@ -18290,7 +18290,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1557;  // always = HTML footer version number
+const CODE_BUILD = 1558;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29051,6 +29051,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1558', date: '30-Sep-2026 IST', note: 'New staff widget app "Davan Hostel Staff" (Hostel > dashboard > My staff widget > Download). Its codes start with S- and can never mix with a student widget. Log in here and it links itself; logging out frees it.' },
 { v: 'v1557', date: '30-Sep-2026 IST', note: 'Safety: logging in to this app never takes a student\'s widget any more - only Link to me can, after a warning. The My hostel widget box explains when it shows someone else and whether Link to me can switch it. Your phone number and login name now go to the widget (shown from widget w108).' },
 { v: 'v1556', date: '30-Sep-2026 IST', note: 'Fix: the Hostel Head now also gets the red 🆘 HOSTEL SOS alert in this app (it was only for admin, principal, manager, VP and wardens).' },
 { v: 'v1555', date: '30-Sep-2026 IST', note: 'Lighter: linking the hostel widget reads a smaller part of the widget history (saves database use).' },
@@ -29065,7 +29066,6 @@ const HTML_CHANGELOG = [
 { v: 'v1546', date: '29-Sep-2026 IST', note: 'User Management: new Update hostel logins button - saves every staff member\'s student-app Hostel login now and tells you how many are ready.' },
 { v: 'v1545', date: '29-Sep-2026 IST', note: 'Fix: User Management showed "No accounts (0)" when the app reopened on it; it now always loads (and saves the hostel logins).' },
 { v: 'v1544', date: '29-Sep-2026 IST', note: 'Hostel login in the student app now works for anyone who has signed in to this app with their password once (resident staff are set up on the way to their hostel app).' },
-{ v: 'v1543', date: '29-Sep-2026 IST', note: 'Fix: the student app\'s Hostel login said Wrong password for everyone. Open User Management once so the hostel logins get their password check.' },
   // Older entries: CHANGELOG-admin.md (moved out 29-Sep-2026, v1538 - the full list was 1.3 MB of this file)
 ];
 
@@ -81159,6 +81159,7 @@ async function hswUnlink() {
 }
 async function hswLinkNow() { const r = await hswLink(currentProfile, true); dvToast(r.msg, r.ok ? 'ok' : 'warn', 6000); hswBoxFill(); }
 function hswBoxHtml() {
+  if (SW_ROLES.includes(hcRole())) return swBoxHtml();   // v1558: staff use the separate staff widget
   if (!HSW_ROLES.includes(hcRole())) return '';
   return `<div class="hc-card" id="hsw-box" style="margin-bottom:10px;padding:10px 12px;font-size:13px;">\u{1F4F1} <b>My hostel widget</b> <span id="hsw-state" class="hc-muted">…</span>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
@@ -81168,6 +81169,7 @@ function hswBoxHtml() {
     </div></div>`;
 }
 async function hswBoxFill() {
+  if (document.getElementById('sw-state')) return swBoxFill();   // v1558
   const el = document.getElementById('hsw-state'); if (!el) return;
   const code = hswCode();
   if (!code) { el.textContent = '· not set up on this phone: install the hostel widget, tap it once, then press Link to me'; return; }
@@ -81180,6 +81182,92 @@ async function hswBoxFill() {
   el.innerHTML = '· ' + hcEsc(code) + ' · now showing <b>' + who + '</b>' + (stu ? ' (student)' : '') + '<div class="hc-muted" style="margin-top:4px;">' +
     (held ? 'This phone linked this widget before, so it is probably the widget on this phone - someone logged in to ' + who + ' in the student app here. <b>Link to me</b> switches it back to you.'
           : 'This is not your widget: this browser only remembers the code because ' + who + '\'s widget opened the student app here once. Nothing is changed - <b>Link to me</b> will be refused. On your own phone, tap your widget once, then open this page there.') + '</div>';
+}
+// ── v1558 STAFF WIDGET (separate Java app "Davan Hostel Staff", codes S-XXXXXX) ────────────────────────
+// The staff widget never uses a student widget code: its codes always start with "S-" and the student app ignores them.
+// Tapping the widget opens index.html?swdev=S-XXXXXX, which is remembered here; a typed login (or that tap, when already
+// logged in) links an EMPTY staff widget, or refreshes your own. Moving one that shows another staff member needs the
+// Link to me button + a confirm. Stored at davan_pub/student_widget_active/S-XXXXXX (same list, so the admin log sees it).
+const STAFF_WIDGET_APK = { apkVersion: 1, apkUrl: 'https://github.com/harshgujjar/davan-attendance/raw/main/DavanHostelStaff.apk' };
+const SW_ROLES = ['warden', 'hostel_head', 'admin', 'principal', 'manager'];
+(function () {
+  try {
+    const q = new URLSearchParams(location.search), c = String(q.get('swdev') || '').trim().toUpperCase();
+    if (/^S-[A-Z2-9]{6}$/.test(c)) {
+      localStorage.setItem('davan_staff_widget_code', c); window._swFresh = true;
+      q.delete('swdev'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash);
+    }
+  } catch (e) {}
+})();
+function swCode() { try { const c = localStorage.getItem('davan_staff_widget_code') || ''; return /^S-[A-Z2-9]{6}$/.test(c) ? c : ''; } catch (e) { return ''; } }
+async function swLink(p, manual) {
+  p = p || currentProfile; if (!p || !SW_ROLES.includes(p.role)) return { ok: false, msg: 'Only hostel staff can link the staff widget.' };
+  const code = swCode(), key = hswKey(p);
+  if (!code) return { ok: false, msg: 'This phone does not know its staff widget yet - install Davan Hostel Staff, add the widget, tap it once (it opens this app), then come back.' };
+  if (!key) return { ok: false, msg: 'Could not tell who you are - log in again with your password.' };
+  const r = await hswGet('davan_pub/student_widget_active/' + code);
+  if (!r.ok) return { ok: false, msg: 'Could not reach the server - try again.' };
+  const owner = r.v && r.v.urn ? String(r.v.urn).toUpperCase() : '', who = (r.v && r.v.name) || owner;
+  let why = '';
+  if (!owner) why = 'Staff widget linked from the staff app: it was empty';
+  else if (owner !== key) {
+    if (!manual) { await hswLog(code, owner, key, 'staff-widget', true, 'Kept: a login never moves a staff widget that shows ' + who); return { ok: false, msg: 'Staff widget ' + code + ' shows ' + who + ' - not changed.' }; }
+    if (!confirm('Staff widget ' + code + ' is linked to ' + who + '.\n\nOnly continue if this widget is on YOUR phone. Move it to you?')) return { ok: false, msg: 'Kept as it is.' };
+    why = 'Staff widget moved from ' + who + ' with Link to me (confirmed)';
+  }
+  try { await lpDb2Set('davan_pub/student_widget_active/' + code, Object.assign(hswPayload(p, key), { staffWidget: true })); } catch (e) { return { ok: false, msg: 'Could not save: ' + e.message }; }
+  if (why) await hswLog(code, owner, key, 'staff-widget', false, why);
+  return { ok: true, msg: 'Your staff widget (' + code + ') is linked - tap refresh on it.' };
+}
+async function swRelease() {
+  try {
+    const p = currentProfile, code = swCode(); if (!p || !SW_ROLES.includes(p.role) || !code) return;
+    const key = hswKey(p); if (!key) return;
+    const r = await hswGet('davan_pub/student_widget_active/' + code);
+    if (!r.ok || !r.v || String(r.v.urn || '').toUpperCase() !== key) return;
+    await lpDb2Set('davan_pub/student_widget_active/' + code, null);
+    await hswLog(code, key, '', 'logout', false, 'Staff widget freed: ' + (p.name || key) + ' logged out of the staff app on this phone');
+  } catch (e) { console.warn('[staff widget] release', e.message); }
+}
+async function swUnlink() {
+  const code = swCode(); if (!code) return;
+  const r = await hswGet('davan_pub/student_widget_active/' + code);
+  if (!r.ok) { dvToast('Could not reach the server', 'warn'); return; }
+  if (!r.v) { dvToast('The staff widget is not linked to anyone', 'info'); swBoxFill(); return; }
+  const key = hswKey(currentProfile || {}), mine = String(r.v.urn || '').toUpperCase() === key;
+  if (!mine && hcRole() !== 'admin') { dvToast('This widget belongs to ' + (r.v.name || r.v.urn) + ' - only they or the admin can unlink it', 'warn', 5000); return; }
+  if (!confirm('Unlink staff widget ' + code + ' from ' + (r.v.name || r.v.urn) + '?')) return;
+  try { await lpDb2Set('davan_pub/student_widget_active/' + code, null); } catch (e) { dvToast('Could not unlink: ' + e.message, 'warn'); return; }
+  await hswLog(code, String(r.v.urn || '').toUpperCase(), '', mine ? 'logout' : 'admin-unlink', false, mine ? 'Staff widget freed (My widget > Unlink)' : 'Admin pressed Unlink on a staff widget');
+  dvToast('Widget unlinked - tap refresh on it', 'ok'); swBoxFill();
+}
+async function swLinkNow() { const r = await swLink(currentProfile, true); dvToast(r.msg, r.ok ? 'ok' : 'warn', 6000); swBoxFill(); }
+function swBoxHtml() {
+  return `<div class="hc-card" id="sw-box" style="margin-bottom:10px;padding:10px 12px;font-size:13px;">\u{1F4F1} <b>My staff widget</b> <span id="sw-state" class="hc-muted">…</span>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+      <button class="hc-btn" onclick="swLinkNow()">\u{1F517} Link to me</button>
+      <button class="hc-btn" onclick="swUnlink()">\u{1F513} Unlink</button>
+      <a class="hc-btn" style="text-decoration:none;" href="${STAFF_WIDGET_APK.apkUrl}">⬇ Download staff widget (Davan Hostel Staff)</a>
+    </div></div>`;
+}
+async function swBoxFill() {
+  const el = document.getElementById('sw-state'); if (!el) return;
+  if (hcRole() === 'admin') swPublishVersion();
+  const code = swCode();
+  if (!code) { el.innerHTML = '· not set up on this phone: <b>Download</b> and install Davan Hostel Staff, add its widget to the home screen, tap it once, then log in here (or press Link to me).'; return; }
+  const r = await hswGet('davan_pub/student_widget_active/' + code);
+  if (!r.ok) { el.textContent = '· ' + code + ' (could not check)'; return; }
+  const mine = r.v && String(r.v.urn || '').toUpperCase() === hswKey(currentProfile || {});
+  el.innerHTML = '· ' + hcEsc(code) + ' · ' + (!r.v ? 'not linked - press Link to me' : mine ? '<span style="color:var(--ok)">linked to you ✓</span>' : 'shows <b>' + hcEsc(r.v.name || r.v.urn) + '</b> - Link to me moves it to you (asks first)');
+}
+// the admin's staff app keeps davan_pub/student_widget_latest/staff = STAFF_WIDGET_APK (the widgets update themselves from it)
+async function swPublishVersion() {
+  try {
+    if (window._swPub) return; window._swPub = 1;
+    const r = await hswGet('davan_pub/student_widget_latest/staff');
+    if (r.ok && r.v && +r.v.apkVersion === STAFF_WIDGET_APK.apkVersion && r.v.apkUrl === STAFF_WIDGET_APK.apkUrl) return;
+    await lpDb2Set('davan_pub/student_widget_latest/staff', Object.assign({}, (r.ok && r.v) || {}, STAFF_WIDGET_APK, { at: Date.now() }));
+  } catch (e) { console.warn('[staff widget] version', e.message); }
 }
 async function hcPwHash(username, password) {
   const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('davan-hostel|' + String(username || '').toLowerCase() + '|' + String(password || '')));

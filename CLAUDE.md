@@ -27,6 +27,12 @@ Every new student-widget zip gets a NEW version (never re-zip the same number): 
 in app/build.gradle, `THIS_APK_VERSION` in StudentFetchWorker.kt and `CURRENT_VERSION` in STUDENT_WIDGET_README.md,
 name the folder and zip `DavanStudentWidget_w<nn>`, and write `W<nn>_CHANGES.md`. The widget source stays out of git.
 
+## Staff widget (Davan Hostel Staff, Java, no Gradle)
+
+Source stays out of git (folder `DavanHostelStaff_s<nn>`, built with its `build.sh`; keep `staff.jks`, password davanstaff). Every new APK gets a NEW version: bump
+`versionCode` / `versionName` in AndroidManifest.xml and `BuildInfo.CODE` / `NAME`, write `S<nn>_CHANGES.md`, copy the APK to `DavanHostelStaff.apk` on main and
+bump `STAFF_WIDGET_APK.apkVersion` in index.html (the widgets auto-update from it). Its codes are always `S-XXXXXX`; the student app must never link them.
+
 ## Always commit, push and merge to main (standing instruction)
 
 After every change: bump versions, write the changelog entries, commit, push the session branch, then **merge it into `main` and push `main`** so the apps go live. Do this automatically, never ask. This holds in every session.
