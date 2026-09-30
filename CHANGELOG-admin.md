@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1550 · 30-Sep-2026 IST
+
+Hostel students now show 🏨 before their name on every screen (user request, so hostel students stand out). A small script at the end of the page reads DB4 hostel/residents (names of active residents) once, caches it 6 h in localStorage (1 read per device per 6 h), and tags any text that is exactly a resident's name; no data is changed. Pairs with admin v1550, portal v10.28, PUC v5.223, faculty v2.4.
+
 ## v1549 · 29-Sep-2026 IST
 
 User request: the Director could not add their own date / time / place of birth (admin is not in FAC_DOB_ROLES, so the automatic birthday form never opened, and it only opens when no DOB is saved). The DOB page has a "🎂 My own birthday, birth time & place (horoscope)" button that opens the same form for anyone, date filled in, then step 2 (time + place) filled in. Saving a date also updates the Hostel login's dob (hostel/logins/{user}.dob, DB4, one tiny read + write) so the widget's horoscope page shows the right sign after the next Hostel login. Functions: facOpenOwnDob (new), hcHostelDobSync (new), facSaveDob.

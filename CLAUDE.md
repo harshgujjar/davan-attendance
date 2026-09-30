@@ -26,3 +26,7 @@ Never put long notes, handoff text or history back into `index.html` / `student_
 Every new student-widget zip gets a NEW version (never re-zip the same number): bump `versionCode` / `versionName`
 in app/build.gradle, `THIS_APK_VERSION` in StudentFetchWorker.kt and `CURRENT_VERSION` in STUDENT_WIDGET_README.md,
 name the folder and zip `DavanStudentWidget_w<nn>`, and write `W<nn>_CHANGES.md`. The widget source stays out of git.
+
+## Always commit and push
+
+After every change: bump versions, write the changelog entries, then **commit and push to GitHub without asking**. The user will not repeat this each session.
