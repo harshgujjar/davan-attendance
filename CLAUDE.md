@@ -27,6 +27,6 @@ Every new student-widget zip gets a NEW version (never re-zip the same number): 
 in app/build.gradle, `THIS_APK_VERSION` in StudentFetchWorker.kt and `CURRENT_VERSION` in STUDENT_WIDGET_README.md,
 name the folder and zip `DavanStudentWidget_w<nn>`, and write `W<nn>_CHANGES.md`. The widget source stays out of git.
 
-## Always commit and push
+## Always commit, push and merge to main (standing instruction)
 
-After every change: bump versions, write the changelog entries, then **commit and push to GitHub without asking**. The user will not repeat this each session.
+After every change: bump versions, write the changelog entries, commit, push the session branch, then **merge it into `main` and push `main`** so the apps go live. Do this automatically, never ask. This holds in every session.
