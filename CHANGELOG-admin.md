@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1554 · 30-Sep-2026 IST
+
+User report: the app felt slow, Refresh and loading took long. Measured in Chromium: the file and start-up are unchanged; two things added work to every redraw / open and are now lighter: (1) the 🏨 hostel-name marker (v1550) scanned new text on the next animation frame after every change - it now runs when the phone is idle (requestIdleCallback), skips nodes already removed, and its first whole-page pass is idle too; (2) User Management re-saved all hostel logins (hash every password + read hostel/logins and hostel/residents) on every open - now at most every 15 minutes, the Update hostel logins button still forces it. No data change; fewer DB4 reads. Functions: hostel-name marker (set / observer), renderUserManagement.
+
 ## v1553 · 30-Sep-2026 IST
 
 User: managers, principal and wardens had to log in to the student app (Hostel login) only for the widget, while working in this app - confusing. A typed-password login here now links the phone's student (hostel) widget to hostel staff (Director, Principal, Manager, Hostel Head, Warden, Resident staff) with the student app's rules: widget code, phone id and the phone's own list of widgets are shared with the student app (same site); link an empty widget or your own, move it only on a phone that has held it before, never on a reopen; Log out frees it; every change goes to the pair log with a reason ("staff app (index.html)"). Hostel dashboard has a "My hostel widget" box (who it is linked to, Link to me, Unlink, Download hostel widget). The Faculty / Admin widget download links now point to DavanWidget.apk on main (the latest GitHub release holds only the student widget). Data: DB2 davan_pub/student_widget_active/{code} (1 read + 1 write per typed login, 1 read to show the box), student_widget_pair_log. Pairs with portal v10.27 and widget w106 (taps still open the student app until w107). Functions: hswLink, hswRelease, hswUnlink, hswLinkNow, hswBoxHtml, hswBoxFill, hswHeld, hswGet, hswLog, hswPayload (new), hcRenderDash, doFirebaseLogout, onLoginSuccess.
