@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1605 · 02-Oct-2026 IST
+
+User: the staff widget stayed linked to Admin when a faculty member tapped its Link button. A widget tap counted as a plain login, and a plain login never moves a widget that shows someone else (v1574 rule). A tap on the widget's own Link button is now treated like Link to me: it asks "linked to Admin - move it to you?" and moves it on OK. A password login without a widget tap still never moves it. DB2 davan_pub/student_widget_active/<S-code>, 1 write on a move. Functions: onLoginSuccess (swLink calls).
+
 ## v1604 · 02-Oct-2026 IST
 
 Bug (faculty: Lesson plan showed "No LP data in portal DB" after refresh; Link to me could not move the staff widget from admin; logout did not free it): the DB2 / DB4 sign-in tokens kept since v1592 / v1588 were treated as valid 1 h from when they were handed over, but Firebase can hand over a cached token already near its end, so expired tokens failed DB2 / DB4 reads and writes quietly. Tokens now use their real expiry (JWT exp, renewed if under 5 min left), and any DB2 / DB4 request refused with 401/403 gets a fresh token and is retried once. No extra reads. Functions: _jwtExp, _lpTokReset (new), fetch retry wrapper, _lpGetPortalToken, _lpGetArchiveToken.
