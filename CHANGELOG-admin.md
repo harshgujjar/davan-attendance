@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1593 · 01-Oct-2026 IST
+
+Debug (v1592 line still showed a 65 s DB2 sign-in and 17 s for small DB4 reads): an early start-up profiler records every main-thread block over 50 ms (PerformanceObserver longtask, interval fallback) with the last console line before it, and the DB2 sign-in records its steps (saved login, new anonymous sign-in, token). Both appear in the hostel dashboard timing line (admin). No reads or writes. Functions: start-up profiler (head), hcBusyText, _lpGetPortalToken, hcTimingShow.
+
 ## v1592 · 01-Oct-2026 IST
 
 Bug (from the v1591 hostel timing line): the hostel dashboard's staff widget box took 52 s. Its one tiny DB2 read waited for the DB2 sign-in: at start-up many DB2 reads ran at once and each started its own anonymous sign-in (rate-limited). The DB2 token is now shared by all callers, kept across app opens for 1 h (localStorage lp2_tok), and the saved sign-in is awaited (max 3 s) before signing in again - every DB2 read in the app benefits. Same fix as v1588 for DB4. Functions: _lpGetPortalToken, hswGet (timing).
