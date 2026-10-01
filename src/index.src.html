@@ -10362,7 +10362,12 @@ let _lpPortalTokExp = 0;
 async function _lpGetPortalToken() {
   const now = Date.now();
   if (_lpPortalToken && now < _lpPortalTokExp - 60000) return _lpPortalToken;
-  try {
+  // v1592: the hostel dashboard's staff-widget box waited 52 s here. At start-up many DB2 reads ran at once, each
+  // found no user yet and started its OWN anonymous sign-in (rate-limited). Now: the token is kept across app opens
+  // (1 h), every caller shares one sign-in, and the saved sign-in is awaited (max 3 s) before making a new one.
+  try { const c = JSON.parse(localStorage.getItem('lp2_tok') || 'null'); if (c && c.t && now < c.exp - 120000) { _lpPortalToken = c.t; _lpPortalTokExp = c.exp; return c.t; } } catch (e) {}
+  if (_lpPortalTokP) return _lpPortalTokP;
+  _lpPortalTokP = (async () => { try {
     // Init portal Firebase app if not done
     if (!_lpPortalApp) {
       _lpPortalApp = firebase.apps.find(a => a.name === 'lp-portal')
@@ -10370,19 +10375,24 @@ async function _lpGetPortalToken() {
     }
     const auth = _lpPortalApp.auth ? _lpPortalApp.auth() : firebase.auth(_lpPortalApp);
     let user = auth.currentUser;
+    if (!user) user = await new Promise(res => { let done = false; const fin = u => { if (!done) { done = true; try { off(); } catch (e) {} res(u || null); } };
+      const off = auth.onAuthStateChanged(fin); setTimeout(() => fin(auth.currentUser), 3000); });
     if (!user) {
       const cred = await auth.signInAnonymously();
       user = cred.user;
     }
     _lpPortalToken  = await user.getIdToken(false);
-    _lpPortalTokExp = now + 3600000;
+    _lpPortalTokExp = Date.now() + 3300000;
+    try { localStorage.setItem('lp2_tok', JSON.stringify({ t: _lpPortalToken, exp: _lpPortalTokExp })); } catch (e) {}
     console.log('[LP portal] anon auth OK');
     return _lpPortalToken;
   } catch(e) {
     console.warn('[LP portal] auth failed:', e.message);
     return '';
-  }
+  } finally { _lpPortalTokP = null; } })();
+  return _lpPortalTokP;
 }
+let _lpPortalTokP = null;
 
 async function lpDb2Get(path) {
   try {
@@ -18344,7 +18354,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1591;  // always = HTML footer version number
+const CODE_BUILD = 1592;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29119,6 +29129,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1592', date: '01-Oct-2026 IST', note: 'Much faster student-database reads: the app signs in to it once and reuses it, instead of many sign-ins at start-up (the hostel dashboard\'s staff widget box waited 52 s).' },
 { v: 'v1591', date: '01-Oct-2026 IST', note: 'The opening progress bar moves again with the real loading (signed in, data, dashboard). The hostel dashboard shows how long it took and what was slowest (admin, tap the line at the bottom).' },
 { v: 'v1590', date: '01-Oct-2026 IST', note: 'Database savings: saving allocations, the calendar, the portal timetable, IA status or the internal timetable now tells students\' phones to refresh their saved copy, so students no longer download these on every open.' },
 { v: 'v1589', date: '01-Oct-2026 IST', note: 'Student widget w122 released: page 3 now shows university results (SGPA, subject marks with grades, centums, backlogs, SGPA so far) and a notification when a new result is out.' },
@@ -29133,7 +29144,6 @@ const HTML_CHANGELOG = [
 { v: 'v1580', date: '01-Oct-2026 IST', note: 'The "Install Widget App" boxes now say "Install the Davan Staff widget" (all download links already give the new Davan Staff app).' },
 { v: 'v1579', date: '01-Oct-2026 IST', note: 'Staff widget PUC page: "Today\'s classes" renamed "Today\'s periods" with "2nd PUC timetable" - it counts the filled period slots of the 2nd PUC timetable (0 on a PUC exam / holiday day).' },
 { v: 'v1578', date: '01-Oct-2026 IST', note: 'Staff widget w145: a staff member whose Title has "PUC" in it (e.g. PUC Principal) sees only PUC on the widget - PUC at a glance, PUC live board, their PUC classes, hostel - no Degree pages.' },
-{ v: 'v1577', date: '01-Oct-2026 IST', note: 'Staff widget w144: anyone who teaches (also the Principal, Director, Hostel Head) gets a Today page with their degree AND PUC classes, duty and class reminders, besides their own pages.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -81190,7 +81200,7 @@ function hswKey(p) { const u = hswUser(); if (!u) return ''; return p.role === '
 // strict read: {ok:false} on any error, so a failed read is never mistaken for an empty widget
 async function hswGet(path, query) {
   try {
-    const t = await _lpGetPortalToken();
+    const _t0 = performance.now(); const t = await _lpGetPortalToken(); if (typeof hcT === 'function' && performance.now() - _t0 > 30) hcT('DB2 sign-in (for ' + path.split('/').slice(0, 2).join('/') + ')', performance.now() - _t0);
     const res = await fetch(LP_PORTAL_URL + '/' + path + '.json?' + (t ? 'auth=' + t + '&' : '') + (query || ''));
     if (!res.ok) return { ok: false };
     const txt = await res.text(); if (typeof dbmNote === 'function') dbmNote(path, txt.length);

@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1592 · 01-Oct-2026 IST
+
+Bug (from the v1591 hostel timing line): the hostel dashboard's staff widget box took 52 s. Its one tiny DB2 read waited for the DB2 sign-in: at start-up many DB2 reads ran at once and each started its own anonymous sign-in (rate-limited). The DB2 token is now shared by all callers, kept across app opens for 1 h (localStorage lp2_tok), and the saved sign-in is awaited (max 3 s) before signing in again - every DB2 read in the app benefits. Same fix as v1588 for DB4. Functions: _lpGetPortalToken, hswGet (timing).
+
 ## v1591 · 01-Oct-2026 IST
 
 User: the opening progress bar did not move and the hostel dashboard was slow. (1) Since the v1581 split the page code loads in ~1 s, and the opening screen closed 200 ms after that - before sign-in or data - so its steps never moved. It now follows the real loading (signed in, student data loaded, then closes; at most 6 s after sign-in, 15 s overall) and the bar shimmers and creeps between steps. (2) The hostel dashboard records where its time goes (DB4 sign-in, each read with size and time, drawing, staff widget box) - admin sees it at the bottom of the dashboard (tap to expand), everyone in the console. No new reads. Functions: dvBoot (dvBootStep, dvBootDone), auth.onAuthStateChanged, loadFirestoreData, lpDb4Get, hcT, hcOnPanel, hcRenderDash, hcTimingShow.
