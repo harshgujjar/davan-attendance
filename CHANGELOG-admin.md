@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1587 · 01-Oct-2026 IST
+
+Bug: the staff widget's admin page showed "On w119 (latest)" and old staff widget versions after w121 / w147, because another Director / Principal / Manager phone still running an older copy of this app kept republishing the widget data with its older numbers. Each publish now saves this app's build in DB2 davan_pub/staff_pub/build, and a copy older than that stops and asks to be reopened (1 tiny read per publish). Functions: stwPublish.
+
 ## v1586 · 01-Oct-2026 IST
 
 Bug (same as the student app): the staff widget Download buttons opened a blank github.com page in the installed app instead of downloading. Every button and update message now uses the APK on this app's own site (GitHub Pages) with a download name DavanWidget_w<version>.apk; the widgets' own update link (LATEST_APK.apkUrl) is unchanged. No database change. Pairs with staff widget w147. Functions: STAFF_APK_DL, stfApkName.
