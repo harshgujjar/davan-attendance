@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1596 · 01-Oct-2026 IST
+
+Debug (v1595: freezes of 15.5 s right after the first DB1 call, class_notes backfill, and 18.5 s at ~21 s; no app function slow): the one-run profiler also records every download - Realtime Database once/on (DB1, DB4 listeners), Firestore get and fetch - with path, size and answer time, and each RTDB listener callback over 100 ms. Viewing the hostel timing line (admin) arms the profiler for the next open once per version. No extra reads. Functions: start-up profiler (head), hcBusyText, hcTimingShow.
+
 ## v1595 · 01-Oct-2026 IST
 
 Debug (v1594 profile: no app function over 1.3 s, yet two 17 s freezes after login): the one-run profiler now also times localStorage setItem/getItem, JSON.parse/stringify, Firestore doc.data(), query.forEach and every onSnapshot callback (over 100 ms, with size and calling code). No reads or writes. Functions: start-up profiler (head).

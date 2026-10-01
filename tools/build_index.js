@@ -14,6 +14,9 @@ const MIN_BYTES = 20000;
   const re = /<script([^>]*)>([\s\S]*?)<\/script>/g;
   let out = '', last = 0, n = 0; const files = [];
   for (let m; (m = re.exec(src)); ) {
+    // v1596: a "<script>" written inside an HTML comment (the rules comment at the top) is not a script - skip past it
+    const co = src.lastIndexOf('<!--', m.index), cc = src.lastIndexOf('-->', m.index);
+    if (co > cc) { re.lastIndex = m.index + 7; continue; }
     const attrs = m[1], code = m[2];
     const classic = !/\bsrc\s*=/.test(attrs) && (!/\btype\s*=/.test(attrs) || /type\s*=\s*["']text\/javascript["']/.test(attrs));
     if (!classic || Buffer.byteLength(code) < MIN_BYTES) continue;
