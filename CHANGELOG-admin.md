@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1594 · 01-Oct-2026 IST
+
+Debug (v1593 line: the phone was blocked 40 s in the first 45 s, two 17 s blocks after [AutoLogin] and [strComputeCounts]): the hostel timing panel gets a Copy button (user: every debug panel needs one) and "Profile next app open", which for one open wraps every global function of the app and lists calls over 150 ms with start time and nesting, then switches off. No reads or writes. Functions: start-up profiler (head), dvCopyText (new), hcBusyText, hcTimingShow.
+
 ## v1593 · 01-Oct-2026 IST
 
 Debug (v1592 line still showed a 65 s DB2 sign-in and 17 s for small DB4 reads): an early start-up profiler records every main-thread block over 50 ms (PerformanceObserver longtask, interval fallback) with the last console line before it, and the DB2 sign-in records its steps (saved login, new anonymous sign-in, token). Both appear in the hostel dashboard timing line (admin). No reads or writes. Functions: start-up profiler (head), hcBusyText, _lpGetPortalToken, hcTimingShow.

@@ -57,6 +57,10 @@ Each page links its OWN `manifest-<app>.json` with a unique `id` and `scope` = t
 service worker for its own page only (`register('app-sw.js', {scope: './<page>.html'})`). Only index.html's `sw.js` (push) sits at the folder.
 No data: / blob: manifests or blob: workers. Every icon a manifest lists must exist.
 
+## Debug panels (user, 01-Oct-2026)
+
+Every debug / timing / diagnostic text shown to the user gets a one-tap **📋 Copy** button (`dvCopyText(text, btn)` in the staff app) so it can be pasted back fast.
+
 ## Always commit, push and merge to main (standing instruction)
 
 After every change: bump versions, write the changelog entries, commit, push the session branch, then **merge it into `main` and push `main`** so the apps go live. Do this automatically, never ask. This holds in every session.
