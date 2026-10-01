@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1604 · 02-Oct-2026 IST
+
+Bug (faculty: Lesson plan showed "No LP data in portal DB" after refresh; Link to me could not move the staff widget from admin; logout did not free it): the DB2 / DB4 sign-in tokens kept since v1592 / v1588 were treated as valid 1 h from when they were handed over, but Firebase can hand over a cached token already near its end, so expired tokens failed DB2 / DB4 reads and writes quietly. Tokens now use their real expiry (JWT exp, renewed if under 5 min left), and any DB2 / DB4 request refused with 401/403 gets a fresh token and is retried once. No extra reads. Functions: _jwtExp, _lpTokReset (new), fetch retry wrapper, _lpGetPortalToken, _lpGetArchiveToken.
+
 ## v1603 · 02-Oct-2026 IST
 
 User (faculty login): the DOB + zodiac in the top bar hid the version number - removed there (sidebar and dashboard title keep them). That spot now shows a green "📱 w147 ✓" pill when this phone's Davan Staff widget is linked to the login (amber "not linked" if a widget code is on the phone but linked to someone else / nobody). Data: DB2 davan_pub/student_widget_active/<S-code> + staff_widget_report/<S-code>, 2 tiny reads per login. Functions: swTopBadge (new), onLoginSuccess.

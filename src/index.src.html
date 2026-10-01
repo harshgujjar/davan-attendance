@@ -10444,7 +10444,7 @@ async function _lpGetPortalToken() {
   // v1592: the hostel dashboard's staff-widget box waited 52 s here. At start-up many DB2 reads ran at once, each
   // found no user yet and started its OWN anonymous sign-in (rate-limited). Now: the token is kept across app opens
   // (1 h), every caller shares one sign-in, and the saved sign-in is awaited (max 3 s) before making a new one.
-  try { const c = JSON.parse(localStorage.getItem('lp2_tok') || 'null'); if (c && c.t && now < c.exp - 120000) { _lpPortalToken = c.t; _lpPortalTokExp = c.exp; return c.t; } } catch (e) {}
+  try { const c = JSON.parse(localStorage.getItem('lp2_tok') || 'null'); if (c && c.t && now < Math.min(c.exp, _jwtExp(c.t) || c.exp) - 120000) { _lpPortalToken = c.t; _lpPortalTokExp = Math.min(c.exp, _jwtExp(c.t) || c.exp); return c.t; } } catch (e) {}
   if (_lpPortalTokP) return _lpPortalTokP;
   _lpPortalTokP = (async () => { try {
     // Init portal Firebase app if not done
@@ -10465,7 +10465,9 @@ async function _lpGetPortalToken() {
     }
     const _s2 = performance.now();
     _lpPortalToken  = await user.getIdToken(false); _st('token', _s2);
-    _lpPortalTokExp = Date.now() + 3300000;
+    // v1604: a cached token can already be up to 1 h old - use its real expiry, refresh it if it ends within 5 min
+    if ((_jwtExp(_lpPortalToken) || 0) - Date.now() < 300000) _lpPortalToken = await user.getIdToken(true);
+    _lpPortalTokExp = _jwtExp(_lpPortalToken) || (Date.now() + 1800000);
     try { localStorage.setItem('lp2_tok', JSON.stringify({ t: _lpPortalToken, exp: _lpPortalTokExp })); } catch (e) {}
     console.log('[LP portal] anon auth OK');
     return _lpPortalToken;
@@ -10521,7 +10523,7 @@ async function _lpGetArchiveToken() {
   const now = Date.now();
   if (_lpArchiveToken && now < _lpArchiveTokExp - 60000) return _lpArchiveToken;
   // v1588: reuse the last token across app opens (valid 1 h) - no sign-in round trip before the first hostel read
-  try { const c = JSON.parse(localStorage.getItem('lp4_tok') || 'null'); if (c && c.t && now < c.exp - 120000) { _lpArchiveToken = c.t; _lpArchiveTokExp = c.exp; return c.t; } } catch (e) {}
+  try { const c = JSON.parse(localStorage.getItem('lp4_tok') || 'null'); if (c && c.t && now < Math.min(c.exp, _jwtExp(c.t) || c.exp) - 120000) { _lpArchiveToken = c.t; _lpArchiveTokExp = Math.min(c.exp, _jwtExp(c.t) || c.exp); return c.t; } } catch (e) {}
   if (_lpArchiveTokP) return _lpArchiveTokP;
   _lpArchiveTokP = (async () => { try {
     if (!_lpArchiveApp) {
@@ -10538,7 +10540,8 @@ async function _lpGetArchiveToken() {
       user = cred.user;
     }
     _lpArchiveToken  = await user.getIdToken(false);
-    _lpArchiveTokExp = now + 3300000;
+    if ((_jwtExp(_lpArchiveToken) || 0) - Date.now() < 300000) _lpArchiveToken = await user.getIdToken(true);   // v1604: real expiry
+    _lpArchiveTokExp = _jwtExp(_lpArchiveToken) || (Date.now() + 1800000);
     try { localStorage.setItem('lp4_tok', JSON.stringify({ t: _lpArchiveToken, exp: _lpArchiveTokExp })); } catch (e) {}
     console.log('[LP archive] anon auth OK');
     return _lpArchiveToken;
@@ -10550,6 +10553,33 @@ async function _lpGetArchiveToken() {
 }
 let _lpArchiveTokP = null;
 
+// v1604: a sign-in token's real expiry (its "exp" claim). v1588/v1592 assumed 1 h from when it was handed over, but
+// Firebase can hand over a cached token that is already up to 1 h old - the expired token then failed every DB2 / DB4
+// read and write quietly (faculty lesson plans empty, staff widget could not be linked or freed).
+function _jwtExp(t) { try { return JSON.parse(atob(String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp * 1000; } catch (e) { return 0; } }
+function _lpTokReset(which) {
+  if (which === 'p') { _lpPortalToken = ''; _lpPortalTokExp = 0; try { localStorage.removeItem('lp2_tok'); } catch (e) {} }
+  else { _lpArchiveToken = ''; _lpArchiveTokExp = 0; try { localStorage.removeItem('lp4_tok'); } catch (e) {} }
+}
+// Any DB2 / DB4 request refused for its token (401/403) gets a fresh token and is tried once more.
+(function () {
+  const f0 = window.fetch.bind(window);
+  window.fetch = async function (u, o) {
+    const r = await f0(u, o);
+    try {
+      if ((r.status === 401 || r.status === 403) && typeof u === 'string' && /[?&]auth=/.test(u)) {
+        const p = u.indexOf(LP_PORTAL_URL) === 0, a = u.indexOf(LP_ARCHIVE_URL) === 0;
+        if (p || a) {
+          console.warn('[token] ' + (p ? 'DB2' : 'DB4') + ' refused (' + r.status + ') - new sign-in token, trying again');
+          _lpTokReset(p ? 'p' : 'a');
+          const t = p ? await _lpGetPortalToken() : await _lpGetArchiveToken();
+          if (t) return f0(u.replace(/([?&]auth=)[^&]*/, '$1' + t), o);
+        }
+      }
+    } catch (e) {}
+    return r;
+  };
+})();
 // v1591 HOSTEL TIMING: what the hostel pages wait for (shown on the hostel dashboard for admin, and in the console)
 window.HC_T = window.HC_T || { t0: 0, ev: [] };
 function hcT(label, ms, extra) { try { HC_T.ev.push({ label, ms: Math.round(ms), extra: extra || '', at: Math.round(performance.now()) }); if (HC_T.ev.length > 60) HC_T.ev.shift(); } catch (e) {} }
@@ -18479,7 +18509,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1603;  // always = HTML footer version number
+const CODE_BUILD = 1604;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29254,6 +29284,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1604', date: '02-Oct-2026 IST', note: 'Fixed: faculty lesson plans empty and the staff widget not linking / not freed at logout - an expired sign-in token was reused. Tokens now use their real expiry and are renewed automatically.' },
 { v: 'v1603', date: '02-Oct-2026 IST', note: 'Top bar: no date of birth / zodiac any more (it hid the version). A green \u{1F4F1} w147 \u2713 shows when your staff widget is linked to you.' },
 { v: 'v1602', date: '02-Oct-2026 IST', note: 'The original college logo now shows on every phone straight away (phones were still using their saved copy of the lighter one).' },
 { v: 'v1601', date: '02-Oct-2026 IST', note: 'The original animated college logo is back (the lighter copy did not look right; it was not the cause of the slowness).' },
@@ -29268,7 +29299,6 @@ const HTML_CHANGELOG = [
 { v: 'v1592', date: '01-Oct-2026 IST', note: 'Much faster student-database reads: the app signs in to it once and reuses it, instead of many sign-ins at start-up (the hostel dashboard\'s staff widget box waited 52 s).' },
 { v: 'v1591', date: '01-Oct-2026 IST', note: 'The opening progress bar moves again with the real loading (signed in, data, dashboard). The hostel dashboard shows how long it took and what was slowest (admin, tap the line at the bottom).' },
 { v: 'v1590', date: '01-Oct-2026 IST', note: 'Database savings: saving allocations, the calendar, the portal timetable, IA status or the internal timetable now tells students\' phones to refresh their saved copy, so students no longer download these on every open.' },
-{ v: 'v1589', date: '01-Oct-2026 IST', note: 'Student widget w122 released: page 3 now shows university results (SGPA, subject marks with grades, centums, backlogs, SGPA so far) and a notification when a new result is out.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
