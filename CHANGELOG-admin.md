@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1591 · 01-Oct-2026 IST
+
+User: the opening progress bar did not move and the hostel dashboard was slow. (1) Since the v1581 split the page code loads in ~1 s, and the opening screen closed 200 ms after that - before sign-in or data - so its steps never moved. It now follows the real loading (signed in, student data loaded, then closes; at most 6 s after sign-in, 15 s overall) and the bar shimmers and creeps between steps. (2) The hostel dashboard records where its time goes (DB4 sign-in, each read with size and time, drawing, staff widget box) - admin sees it at the bottom of the dashboard (tap to expand), everyone in the console. No new reads. Functions: dvBoot (dvBootStep, dvBootDone), auth.onAuthStateChanged, loadFirestoreData, lpDb4Get, hcT, hcOnPanel, hcRenderDash, hcTimingShow.
+
 ## v1590 · 01-Oct-2026 IST
 
 DB2 quota (283 of 300 MB on 01-Oct): every write of allocations, calendar, timetable_portal (restore), IA live status and the internal timetable now bumps a tiny stamp DB2 davan_pub/pub_ver/<key> (1 small write each), so the student app (v10.50) keeps its saved copy until the stamp moves instead of downloading these on every open (~90 MB/day). Pairs with portal v10.50. Functions: pubVerBump (new), _autoPushTimetableToPortal, _autoPushCalendarToPortal, the IA live-status publisher and the internals_current writers.
