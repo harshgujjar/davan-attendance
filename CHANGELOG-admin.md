@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1598 · 01-Oct-2026 IST
+
+Fix (v1596 profile: the phone froze ~15 s twice on every open while Firestore reads were pending, all answered right after; no app function slow): Firestore app_data/students (549 KB) is read at login over Firestore's REST API with the signed-in user's token (same rules) and plain JSON.parse instead of the Firestore library, whose conversion of that document runs on the main thread. Any failure falls back to the normal read. Same 1 read. Functions: fsGetFast, _fsRestVal (new), loadFirestoreData.
+
 ## v1597 · 01-Oct-2026 IST
 
 Debug (v1596: both 15 s freezes start right after renderAll while Firestore reads are pending, and those reads - including the 549 KB app_data/students - are answered right after each freeze): the profiled open also lists browser resource timing (when each response finished arriving, real size), to tell network time from Firestore processing time. No reads or writes. Functions: hcBusyText, start-up profiler.

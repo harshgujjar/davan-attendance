@@ -10957,6 +10957,45 @@ async function fsGet(col, id) {
   const s = await db.collection(col).doc(id).get();
   return s.exists ? s.data() : null;
 }
+// v1598 START-UP FREEZE FIX: the Firestore library turns a large document into data on the phone's main thread. For
+// app_data/students (549 KB, every student x subject) that froze the admin's phone ~15 s on every open (v1596 profile:
+// all Firestore reads answered only after the freeze; sign-ins, the progress bar and the hostel box all waited).
+// This reads the same document over Firestore's REST API with the signed-in user's token (same security rules) and a
+// plain JSON.parse - milliseconds. Any failure falls back to the normal fsGet, so it can never lose the data.
+function _fsRestVal(v) {
+  if (!v || typeof v !== 'object') return null;
+  if ('stringValue' in v) return v.stringValue;
+  if ('integerValue' in v) return Number(v.integerValue);
+  if ('doubleValue' in v) return Number(v.doubleValue);
+  if ('booleanValue' in v) return v.booleanValue;
+  if ('nullValue' in v) return null;
+  if ('mapValue' in v) { const o = {}, f = (v.mapValue && v.mapValue.fields) || {}; for (const k in f) o[k] = _fsRestVal(f[k]); return o; }
+  if ('arrayValue' in v) return ((v.arrayValue && v.arrayValue.values) || []).map(_fsRestVal);
+  if ('timestampValue' in v) { try { return firebase.firestore.Timestamp.fromDate(new Date(v.timestampValue)); } catch (e) { return v.timestampValue; } }
+  if ('referenceValue' in v) return v.referenceValue;
+  if ('geoPointValue' in v) return v.geoPointValue;
+  if ('bytesValue' in v) return v.bytesValue;
+  return null;
+}
+async function fsGetFast(col, id) {
+  const t0 = performance.now();
+  try {
+    const u = firebase.auth().currentUser; if (!u) throw new Error('not signed in yet');
+    const tok = await u.getIdToken();
+    const pid = (firebase.app().options || {}).projectId || 'davan-attendance-2026';
+    const res = await fetch('https://firestore.googleapis.com/v1/projects/' + pid + '/databases/(default)/documents/' + col + '/' + id, { headers: { Authorization: 'Bearer ' + tok } });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('REST ' + res.status);
+    const j = await res.json();
+    const out = {}, f = j.fields || {}; for (const k in f) out[k] = _fsRestVal(f[k]);
+    console.log('[fsGetFast] ' + col + '/' + id + ' in ' + Math.round(performance.now() - t0) + ' ms (REST)');
+    if (typeof hcT === 'function') hcT('Firestore ' + col + '/' + id + ' (fast read)', performance.now() - t0);
+    return out;
+  } catch (e) {
+    console.warn('[fsGetFast] ' + col + '/' + id + ' -> normal read:', e && e.message);
+    return fsGet(col, id);
+  }
+}
 // v1512: opts.replace = write the whole document (no merge). Needed wherever keys are DELETED from a
 // nested map: with { merge: true } Firestore keeps map keys the new data no longer has, so a deleted
 // grid / assignment silently came back on the next load (Tidy grids, Delete grid).
@@ -11045,7 +11084,7 @@ async function loadFirestoreData() {
   let studentsDoc, ttDoc, allocDoc, exSubDoc, metaDoc, exStudDoc, sessionCfgDoc, staffDirDoc, sessionCfgsDoc, classMetaDoc, classDelDoc, classNotesDoc;
   try {
     [studentsDoc, ttDoc, allocDoc, exSubDoc, metaDoc, exStudDoc, sessionCfgDoc, staffDirDoc, sessionCfgsDoc, classMetaDoc, classDelDoc, classNotesDoc] = await Promise.all([
-      fsGet('app_data', 'students'),
+      fsGetFast('app_data', 'students'),   // v1598: no main-thread freeze
       fsGet('app_data', 'timetable'),
       fsGet('app_data', 'allocations'),
       fsGet('app_data', 'exempt_subjects'),
@@ -18437,7 +18476,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1597;  // always = HTML footer version number
+const CODE_BUILD = 1598;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29212,6 +29251,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1598', date: '01-Oct-2026 IST', note: 'Faster opening: the big student list is read directly instead of through the Firestore library, which froze the phone for about 15 seconds on every open.' },
 { v: 'v1597', date: '01-Oct-2026 IST', note: 'Start-up profiler also shows when each download really finished arriving, to separate network time from the phone processing it.' },
 { v: 'v1596', date: '01-Oct-2026 IST', note: 'Start-up profiler also lists every download (database reads, size, how long) and runs by itself on the next open after you view the hostel timing line.' },
 { v: 'v1595', date: '01-Oct-2026 IST', note: 'Start-up profiler also times phone storage, JSON and Firestore work, to find the two 17-second freezes after login.' },
@@ -29226,7 +29266,6 @@ const HTML_CHANGELOG = [
 { v: 'v1586', date: '01-Oct-2026 IST', note: 'Staff widget download buttons and update messages now download the APK directly (named DavanWidget_w147.apk) instead of opening a blank GitHub page.' },
 { v: 'v1585', date: '01-Oct-2026 IST', note: 'Staff widget w147: same text size on every phone, slimmer edges, one-line date box and a correct screen time (same fixes as student widget w121).' },
 { v: 'v1584', date: '01-Oct-2026 IST', note: 'Student widget w121 released: same text size on every phone, slimmer edges, one-line date box and a correct screen time.' },
-{ v: 'v1583', date: '01-Oct-2026 IST', note: 'A student widget release now reaches the students as soon as you open this app (it raises the published widget version); before, a student had to open the new student app first.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
