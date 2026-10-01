@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1580 · 01-Oct-2026 IST
+
+User: are all the staff-widget download places in the staff app changed? Yes - every download link and update line already points to DavanWidget.apk (Davan Staff, via LATEST_APK); the three "Install Widget App" boxes are renamed "Install the Davan Staff widget" with the link step. No data change. Functions: none (page text).
+
 ## v1579 · 01-Oct-2026 IST
 
 User: what is "PUC today's classes 30" on the widget. It counts the filled period slots in the Live Class Board's 2nd PUC timetable (Commerce A/B/C and Science), not classes or students, so the card is now "Today's periods" with "2nd PUC timetable" in its text; on a PUC exam / holiday day it is 0 with the event name (since v1576). No data change. Functions: stwPucGlance.
