@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1579 · 01-Oct-2026 IST
+
+User: what is "PUC today's classes 30" on the widget. It counts the filled period slots in the Live Class Board's 2nd PUC timetable (Commerce A/B/C and Science), not classes or students, so the card is now "Today's periods" with "2nd PUC timetable" in its text; on a PUC exam / holiday day it is 0 with the event name (since v1576). No data change. Functions: stwPucGlance.
+
 ## v1578 · 01-Oct-2026 IST
 
 User: Sumitra is the PUC Principal, not degree - her widget should show only PUC. The staff-widget link (davan_pub/student_widget_active/S-...) now carries scope "puc" when the person's Title in User Management contains "PUC", and widget w145 then shows only PUC pages and PUC classes. The link is refreshed on her next login or widget tap. Pairs with widget w145 (LATEST_APK 145). Functions: hswPayload.
