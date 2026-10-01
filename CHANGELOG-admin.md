@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1575 · 01-Oct-2026 IST
+
+User: the linked staff widget still showed no college numbers. Hostel > My staff widget now has a "Send numbers to widgets now" button for the Director, Principal and Manager, and a line showing when the numbers were last sent from this phone or which step failed and why. The automatic send starts 8 s after opening (it runs in small idle pieces), and the 30-minute pause now starts only after a successful send, so a failed or interrupted send is retried. Same data (DB2 davan_pub/staff_pub). Functions: stwPublish, stwSendNow, stwStatus, stwStatusHtml (new), swBoxHtml, wgtRenderAdmin.
+
 ## v1574 · 01-Oct-2026 IST
 
 User: the staff widget was not getting connected. The code being linked (S-7UP47U) was most likely the old Davan Hostel Staff app's, which only shows "moved to Davan Staff". Linking now first reads davan_pub/staff_widget_report/<code> (1 small read) and refuses a code that is not from Davan Staff w140+, with a clear message. Davan Staff w142 writes that report even before it is linked; the old app (s11) now opens Davan Staff on every tap instead of linking itself. Pairs with widget w142 and old app s11. Functions: swLink, stwUsage, LATEST_APK, STAFF_WIDGET_APK.
