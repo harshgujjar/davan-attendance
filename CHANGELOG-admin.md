@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1583 · 01-Oct-2026 IST
+
+User: w120 was released but students' widgets did not update. Widgets learn the version from DB2 davan_pub/student_widget_latest, which only the student app wrote, and only once someone opened the new student app. When the Director, Principal or Manager opens this app it now raises that node to the released version (never lowers it): 1 small read, 1 write only when it is behind. Pairs with student widget w120 / portal v10.43. Functions: stuWidgetLatestRaise (new), wgtRenderAdmin, LATEST_STUDENT_WIDGET_APK_V.
+
 ## v1582 · 01-Oct-2026 IST
 
 User: the widget page content and page name were different (page 3 "Results" showed Internals). Each page's list feed read "the page open now", so after switching pages a kept feed could hold another page's cards; each feed now shows only its own page. Staff widget w146 live (LATEST_APK 146, davan-widget-version.json 146); student widget w120 as a test build (student-widget-test.json 120). No data change. Functions: LATEST_APK.

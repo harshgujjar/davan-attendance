@@ -35,7 +35,8 @@ Every new student-widget zip gets a NEW version (never re-zip the same number). 
 as w107, keep it): bump `versionCode` / `versionName` in AndroidManifest.xml and `BuildInfo.CODE` / `NAME`,
 name the folder and zip `DavanStudentWidget_w<nn>`, and write `W<nn>_CHANGES.md`. The widget source stays out of git.
 LIVE (from w115, no GitHub Release step): copy the APK to `Davan.Student.apk` on main and raise `LATEST_STUDENT_WIDGET_APK.apkVersion`
-in student_portal.html (students' widgets update themselves from davan_pub/student_widget_latest). Only when the user says so.
+in student_portal.html AND `LATEST_STUDENT_WIDGET_APK_V` in src/index.src.html (the admin's staff app raises davan_pub/student_widget_latest,
+which the students' widgets update from). Only when the user says so.
 TEST builds: copy to `Davan.Student-test.apk` and bump `apkVersion` in `student-widget-test.json` (phones in its `testUrns` update to it).
 Never put a test build in `Davan.Student.apk`. The published version is never raised from phone self-reports.
 
