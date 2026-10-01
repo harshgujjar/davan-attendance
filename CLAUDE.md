@@ -1,12 +1,19 @@
 # Davan attendance — working rules
 
+## index.html is BUILT (from v1581) - edit src/index.src.html
+
+Never edit `index.html` or `js/admin-*.js` by hand. Edit `src/index.src.html` (the whole staff app, as before), then run
+`node tools/build_index.js` (first time in a session: `cd tools && npm install`). It writes `index.html` (HTML + small scripts) and
+`js/admin-<n>-<hash>.js` (each big script, comments removed by terser, no renaming) and deletes the old ones. Commit all of them together.
+Everything below that says `index.html` (CODE_BUILD, HTML_CHANGELOG, ...) means `src/index.src.html`. Syntax-check the source, not the output.
+
 ## Changelog: short entries, kept OUT of the app files
 
 The full history lives in markdown files that the apps never download:
 
 | App file | History file | Also in the app file |
 |---|---|---|
-| `index.html` | `CHANGELOG-admin.md` | bump `CODE_BUILD`; add a one-line entry at the top of `HTML_CHANGELOG` (the "What's new" popup) and remove the oldest so it keeps **15** entries |
+| `src/index.src.html` (builds `index.html`) | `CHANGELOG-admin.md` | bump `CODE_BUILD`; add a one-line entry at the top of `HTML_CHANGELOG` (the "What's new" popup) and remove the oldest so it keeps **15** entries |
 | `student_portal.html` | `CHANGELOG-portal.md` (new `VERSION : vX.YY (date) -- ...` line at the top of the VERSION list) | bump `APP_VERSION` + the topbar / footer version strings |
 | other app files | their own changelog / version header | — |
 | student widget source (kept out of git) | `W<nn>_CHANGES.md` in the widget folder | — |

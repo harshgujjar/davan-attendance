@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1581 · 01-Oct-2026 IST
+
+User: the app is still very slow to open and the welcome bar does not move, although the databases are fine. Measured at phone CPU speed: the page spent ~2 s frozen reading and compiling 4.5 MB of code written inside index.html (on every open) plus 1.7 MB of Excel / PDF libraries loaded before the app could start. Now index.html is BUILT from src/index.src.html by tools/build_index.js: big scripts go to js/admin-<n>-<hash>.js with comments removed (2.75 MB instead of 4.5 MB, kept compiled by the phone, a new hash on every change), and xlsx-js-style / html2pdf / jspdf / autotable load in the background 20 s after opening (an early export tap shows "tap again in a moment"). Result in tests: ready 2.9 s -> 1.3 s, frozen 2.0 s -> 0.6 s, longest freeze 0.6 s -> 0.18 s, same behaviour and no errors. Also: the "Widget update available" banner reads this phone's Davan Staff report (davan_pub/staff_widget_report/<S- code>, 1 small read) so it no longer shows w132 for people on w145. Functions: dvLibs (new), wcpReadOwnApkReport.
+
 ## v1580 · 01-Oct-2026 IST
 
 User: are all the staff-widget download places in the staff app changed? Yes - every download link and update line already points to DavanWidget.apk (Davan Staff, via LATEST_APK); the three "Install Widget App" boxes are renamed "Install the Davan Staff widget" with the link step. No data change. Functions: none (page text).
