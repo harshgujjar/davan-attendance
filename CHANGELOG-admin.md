@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1566 · 01-Oct-2026 IST
+
+User: highlight the admin's own phone (Motorola Edge 50 Pro) wherever logs show it. The student info panel's widget "Phone" row shows a gold "👑 Admin phone" tag when the student's widget is EMTH7Q (the admin's widget). No database change. Pairs with portal v10.35 (login log, pair log, widget health list). Function: the student info widget section (siRender phone row).
+
 ## v1565 · 01-Oct-2026 IST
 
 User: gold and silver rates were still missing on the widgets. Cause: the news job (davan-student-news, fetch_news.js) timed out on goldprice.dev after 10 s and wrote empty rates; fixed there in v1.4.1 (25 s, 3 tries, keeps the last good rates with goldSilverAsOf). Staff widget s07 shows "as of <day>" for kept rates. No new database reads. Pairs with fetch_news.js v1.4.1, portal v10.33, student widget w113 (test build). Function: STAFF_WIDGET_APK (apkVersion 7).
