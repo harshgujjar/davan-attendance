@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1584 · 01-Oct-2026 IST
+
+Student widget w121 released (user: release directly, no test round). Raises LATEST_STUDENT_WIDGET_APK_V to 121 so opening this app publishes it to DB2 davan_pub/student_widget_latest (1 write only when behind). Pairs with portal v10.48 and student widget w121. Functions: LATEST_STUDENT_WIDGET_APK_V (stuWidgetLatestRaise).
+
 ## v1583 · 01-Oct-2026 IST
 
 User: w120 was released but students' widgets did not update. Widgets learn the version from DB2 davan_pub/student_widget_latest, which only the student app wrote, and only once someone opened the new student app. When the Director, Principal or Manager opens this app it now raises that node to the released version (never lowers it): 1 small read, 1 write only when it is behind. Pairs with student widget w120 / portal v10.43. Functions: stuWidgetLatestRaise (new), wgtRenderAdmin, LATEST_STUDENT_WIDGET_APK_V.

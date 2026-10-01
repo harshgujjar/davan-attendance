@@ -36,7 +36,8 @@ as w107, keep it): bump `versionCode` / `versionName` in AndroidManifest.xml and
 name the folder and zip `DavanStudentWidget_w<nn>`, and write `W<nn>_CHANGES.md`. The widget source stays out of git.
 LIVE (from w115, no GitHub Release step): copy the APK to `Davan.Student.apk` on main and raise `LATEST_STUDENT_WIDGET_APK.apkVersion`
 in student_portal.html AND `LATEST_STUDENT_WIDGET_APK_V` in src/index.src.html (the admin's staff app raises davan_pub/student_widget_latest,
-which the students' widgets update from). Only when the user says so.
+which the students' widgets update from). From w121 (user, 01-Oct-2026): every new student widget build is RELEASED LIVE directly,
+no test round, unless the user asks for testing; also copy it to `Davan.Student-test.apk` and bump `student-widget-test.json` so test phones stay level.
 TEST builds: copy to `Davan.Student-test.apk` and bump `apkVersion` in `student-widget-test.json` (phones in its `testUrns` update to it).
 Never put a test build in `Davan.Student.apk`. The published version is never raised from phone self-reports.
 
