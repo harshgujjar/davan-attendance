@@ -23,9 +23,11 @@ Never put long notes, handoff text or history back into `index.html` / `student_
 
 ## Widget builds
 
-Every new student-widget zip gets a NEW version (never re-zip the same number): bump `versionCode` / `versionName`
-in app/build.gradle, `THIS_APK_VERSION` in StudentFetchWorker.kt and `CURRENT_VERSION` in STUDENT_WIDGET_README.md,
+Every new student-widget zip gets a NEW version (never re-zip the same number). From w108 the widget is Java with no Gradle
+(built with its `build.sh`, signed with `davan-student-widget.keystore`, alias davanstudent, password davanstudent2026 — the SAME key
+as w107, keep it): bump `versionCode` / `versionName` in AndroidManifest.xml and `BuildInfo.CODE` / `NAME`,
 name the folder and zip `DavanStudentWidget_w<nn>`, and write `W<nn>_CHANGES.md`. The widget source stays out of git.
+Test builds go to main as `Davan.Student.apk` only; a release (GitHub Releases + `LATEST_STUDENT_WIDGET_APK`) happens only when the user says so.
 
 ## Staff widget (Davan Hostel Staff, Java, no Gradle)
 
