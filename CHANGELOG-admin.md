@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1606 · 02-Oct-2026 IST
+
+User: linking the staff widget was a roller-coaster; it must be plug and play. Now: install Davan Staff, add the widget, tap it once (the app learns the widget's S-code); from then on every login or app open on that phone links the widget to whoever is logged in - no questions, no Link to me needed (a move is still written to the link log). Logout frees it. The top-bar pill is smaller (green w147✓ when linked) and turns green as soon as the link happens. DB2 davan_pub/student_widget_active/<S-code>: 2 tiny reads + 1 write per app open on a phone with the widget. Staff widget w148 released with it (photo on its settings screen, plug-and-play wording; DavanWidget.apk, davan-widget-version.json and LATEST_APK 148). Functions: swLink, onLoginSuccess, swTopBadge.
+
 ## v1605 · 02-Oct-2026 IST
 
 User: the staff widget stayed linked to Admin when a faculty member tapped its Link button. A widget tap counted as a plain login, and a plain login never moves a widget that shows someone else (v1574 rule). A tap on the widget's own Link button is now treated like Link to me: it asks "linked to Admin - move it to you?" and moves it on OK. A password login without a widget tap still never moves it. DB2 davan_pub/student_widget_active/<S-code>, 1 write on a move. Functions: onLoginSuccess (swLink calls).
