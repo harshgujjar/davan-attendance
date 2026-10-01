@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1589 · 01-Oct-2026 IST
+
+Student widget w122 released: LATEST_STUDENT_WIDGET_APK_V = 122, so opening this app publishes it to DB2 davan_pub/student_widget_latest (1 write only when behind). Pairs with portal v10.49 and widget w122 (page 3 results). Functions: LATEST_STUDENT_WIDGET_APK_V.
+
 ## v1588 · 01-Oct-2026 IST
 
 User: hostel data took long to load and slowed the app. Three causes fixed: (1) every app open signed in to DB4 again before the first hostel read - the saved sign-in and its token (1 h) are now reused; (2) the Hostel dashboard / Rooms / Residents waited for hostel/config, rooms and residents each time - the last copy is kept on the phone (localStorage hc_cache_v1, max 7 days), shown at once and refreshed in the background (re-drawn only if it changed; bed moves still check the live bed); (3) every hostel save re-read the canteen menu - now read once per session. Fewer DB4 reads, no new paths. Functions: _lpGetArchiveToken, hcLoad, hcHash.
