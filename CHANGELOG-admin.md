@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1572 · 01-Oct-2026 IST
+
+User: staff and Davan widget should be one app, not two. The retired Davan Hostel Staff app gets a last update (s10, staff-widget-version.json 10) whose every page only says it moved to Davan Staff, with Install and Remove buttons, and no more notifications; Davan Staff w141 (davan-widget-version.json 141, LATEST_APK 141) shows a "Remove the old app" card while the old app is still on the phone. No database change. Functions: LATEST_APK, STAFF_WIDGET_APK.
+
 ## v1571 · 01-Oct-2026 IST
 
 User: build the faculty and admin widget into the staff widget, by login, and go live. The new Davan Staff widget w140 (DavanWidget.apk, app id com.davan.widget, w132 key) installs over the old faculty widget w132; LATEST_APK is raised to 140 so w132 phones show their update line. Faculty roles (full-time, visiting, VP) now link the staff widget on a typed login or a widget tap, with their faculty names in the link. When the Director, Principal or Manager opens this app, it saves small summaries for the widget at DB2 davan_pub/staff_pub (glance, syl, usage, ph, cal, board/<Day>, fac/<name>, ver): one PATCH at most every 30 min and only when something changed (otherwise only the small usage node), so phones never read Firestore or the student list. Pairs with widget w140, davan-widget-version.json 140 and portal v10.42. Functions: stwPublish, stwDegGlance, stwPucGlance, stwDegDay, stwPucDay, stwDegClassStats, stwUsage, stwCards (new), hswPayload (facKeys), SW_ROLES, wgtRenderAdmin (calls stwPublish), LATEST_APK.
