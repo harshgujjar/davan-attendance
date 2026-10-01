@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1578 · 01-Oct-2026 IST
+
+User: Sumitra is the PUC Principal, not degree - her widget should show only PUC. The staff-widget link (davan_pub/student_widget_active/S-...) now carries scope "puc" when the person's Title in User Management contains "PUC", and widget w145 then shows only PUC pages and PUC classes. The link is refreshed on her next login or widget tap. Pairs with widget w145 (LATEST_APK 145). Functions: hswPayload.
+
 ## v1577 · 01-Oct-2026 IST
 
 User: Sumitra is Principal and Hostel Head and also teaches Kannada - her widget should show her classes too. The widget summaries now add PUC timetable periods to each teacher's node (davan_pub/staff_pub/fac/<name>, matched by exact name; PUC-only teachers get a node too), with their class stats. No extra reads. Pairs with widget w144 (LATEST_APK 144): anyone who teaches gets the Today page with degree + PUC classes and reminders, whatever their role. Functions: stwPublish.
