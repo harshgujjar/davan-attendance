@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1567 · 01-Oct-2026 IST
+
+User: go live with the new student widget for everyone. The hostel widget download link now points to raw/main/Davan.Student.apk (w115) instead of GitHub Releases. No database change. Pairs with portal v10.36 and widget w115. Function: the hostel widget download button.
+
 ## v1566 · 01-Oct-2026 IST
 
 User: highlight the admin's own phone (Motorola Edge 50 Pro) wherever logs show it. The student info panel's widget "Phone" row shows a gold "👑 Admin phone" tag when the student's widget is EMTH7Q (the admin's widget). No database change. Pairs with portal v10.35 (login log, pair log, widget health list). Function: the student info widget section (siRender phone row).
