@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1573 · 01-Oct-2026 IST
+
+User: the app became very slow after login and the welcome bar stopped moving. The staff-widget summaries (v1571) were built in one long block 1.5 s after the dashboard drew, which froze the page on phones. They now start 25 s after login when the browser is idle, are built in small pieces with a pause after each day, each piece of the syllabus and every 4 faculty, and the change check no longer builds a huge character array. Same data and the same writes (DB2 davan_pub/staff_pub). Functions: stwIdle, stwYield (new), stwPublish, stwDegDay, wgtRenderAdmin.
+
 ## v1572 · 01-Oct-2026 IST
 
 User: staff and Davan widget should be one app, not two. The retired Davan Hostel Staff app gets a last update (s10, staff-widget-version.json 10) whose every page only says it moved to Davan Staff, with Install and Remove buttons, and no more notifications; Davan Staff w141 (davan-widget-version.json 141, LATEST_APK 141) shows a "Remove the old app" card while the old app is still on the phone. No database change. Functions: LATEST_APK, STAFF_WIDGET_APK.
