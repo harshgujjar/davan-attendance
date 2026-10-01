@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1602 · 02-Oct-2026 IST
+
+User: the original logo was still not back after v1601 - phones kept their saved copy of the v1599 lighter GIF. Every davan_logo_2026.gif reference now carries ?v=1601, so browsers load the restored original at once (same in student_portal v10.52, results.html, library v1.43). Files: davan_logo_2026.gif references.
+
 ## v1601 · 02-Oct-2026 IST
 
 User: the v1599 lighter logo did not show properly - davan_logo_2026.gif restored to the original (12 MB, 400x400, as since v1411). The start-up freeze was the hostel-name marker (fixed in v1600), not the logo. All apps use the same file. Files: davan_logo_2026.gif.
