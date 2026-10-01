@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1574 · 01-Oct-2026 IST
+
+User: the staff widget was not getting connected. The code being linked (S-7UP47U) was most likely the old Davan Hostel Staff app's, which only shows "moved to Davan Staff". Linking now first reads davan_pub/staff_widget_report/<code> (1 small read) and refuses a code that is not from Davan Staff w140+, with a clear message. Davan Staff w142 writes that report even before it is linked; the old app (s11) now opens Davan Staff on every tap instead of linking itself. Pairs with widget w142 and old app s11. Functions: swLink, stwUsage, LATEST_APK, STAFF_WIDGET_APK.
+
 ## v1573 · 01-Oct-2026 IST
 
 User: the app became very slow after login and the welcome bar stopped moving. The staff-widget summaries (v1571) were built in one long block 1.5 s after the dashboard drew, which froze the page on phones. They now start 25 s after login when the browser is idle, are built in small pieces with a pause after each day, each piece of the syllabus and every 4 faculty, and the change check no longer builds a huge character array. Same data and the same writes (DB2 davan_pub/staff_pub). Functions: stwIdle, stwYield (new), stwPublish, stwDegDay, wgtRenderAdmin.
