@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1571 · 01-Oct-2026 IST
+
+User: build the faculty and admin widget into the staff widget, by login, and go live. The new Davan Staff widget w140 (DavanWidget.apk, app id com.davan.widget, w132 key) installs over the old faculty widget w132; LATEST_APK is raised to 140 so w132 phones show their update line. Faculty roles (full-time, visiting, VP) now link the staff widget on a typed login or a widget tap, with their faculty names in the link. When the Director, Principal or Manager opens this app, it saves small summaries for the widget at DB2 davan_pub/staff_pub (glance, syl, usage, ph, cal, board/<Day>, fac/<name>, ver): one PATCH at most every 30 min and only when something changed (otherwise only the small usage node), so phones never read Firestore or the student list. Pairs with widget w140, davan-widget-version.json 140 and portal v10.42. Functions: stwPublish, stwDegGlance, stwPucGlance, stwDegDay, stwPucDay, stwDegClassStats, stwUsage, stwCards (new), hswPayload (facKeys), SW_ROLES, wgtRenderAdmin (calls stwPublish), LATEST_APK.
+
 ## v1570 · 01-Oct-2026 IST
 
 User: add resident staff to the staff widget and show them only hostel data. Resident staff link the Davan Hostel Staff widget when they log in here (typed password, or after tapping the widget), then go on to the hostel app as before. Staff widget s09 shows them only their own hostel's menu and meals with their own "Did you have it?" answer (canteen/meal_log/<date>/<their key>), and reads only hostel/config, canteen/ver, override, closed and their own meal log - no residents, leave, complaints, SOS or chat. Pairs with portal v10.41 and staff-widget-version.json 9. Functions: SW_ROLES, STAFF_WIDGET_APK (apkVersion 9), the resident login branch.
