@@ -8,7 +8,7 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.226                                                      ║
+║  CURRENT VERSION : v5.227                                                      ║
 ║  FILE NAME       : puc_v5.223.html                                             ║
 ║  LAST UPDATED    : 2026-09-28 01:18 AM IST                                   ║
 ║                                                                              ║
@@ -58,6 +58,9 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v5.227 2026-10-01  The 🏨 hostel-name marker walked the whole page in  ║
+║          one go (froze the staff app 15-49 s); now a length check +    ║
+║          small idle slices, never blocks. Fns: hostel marker tag/pump. ║
 ║  v5.226 2026-10-01  Names must match exactly again (only capitals and    ║
 ║          extra spaces ignored): a wrong spelling is fixed in the data,   ║
 ║          not matched loosely. Photo fallback kept. Fns: pfdNameKey.      ║
@@ -9199,7 +9202,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.226";   // v5.226 (01-Oct-2026): exact faculty names again (spelling fixed in the data); photo from the faculty record; no auto-scrape on Sundays / no-class days   // v5.224 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
+const APP_VERSION = "v5.227";   // v5.227 (01-Oct-2026): the hostel-name marker no longer freezes the phone (length check + small idle slices)   // v5.226 (01-Oct-2026): exact faculty names again (spelling fixed in the data); photo from the faculty record; no auto-scrape on Sundays / no-class days   // v5.224 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
 // ⚠ CLAUDE: update this to the current date/time (IST, "YYYY-MM-DD HH:MM")
 // on EVERY change too — shown live next to the version badge in the topbar
 // as "last edited" so admin can see at a glance how fresh the file is.
@@ -38471,20 +38474,32 @@ async function pscfgReadCalendar(stream, ay) {
   const K = 'hostelNames_v1', TTL = 6 * 3600e3, URL = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
   const CFG = { apiKey: 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ', authDomain: 'davan-lessonplan-archive.firebaseapp.com', databaseURL: URL, projectId: 'davan-lessonplan-archive' };
   const norm = t => t.trim().toUpperCase().replace(/\s+/g, ' ');
-  let names = null, queued = [];
+  // FREEZE FIX (01-Oct-2026, same as staff app v1600): a quick length check before any work and small idle slices,
+  // so marking names never blocks the phone (in the staff app the old whole-page pass froze it 15-49 s).
+  let names = null, lens = null, queued = [], busy = false;
+  const idle = window.requestIdleCallback ? (f => requestIdleCallback(f, { timeout: 1500 })) : (f => setTimeout(() => f({ timeRemaining: () => 8 }), 60));
+  function check(n) {
+    const v = n.nodeValue; if (v.length < 3 || v.length > 60) return;
+    const t = v.trim(); if (!lens.has(t.length) || v.indexOf('\u{1F3E8}') >= 0 || !names.has(norm(t))) return;
+    const p = n.parentNode; if (!p || /^(SCRIPT|STYLE|TEXTAREA|TITLE)$/.test(p.nodeName)) return;
+    n.nodeValue = v.replace(/^(\s*)/, '$1\u{1F3E8} ');
+  }
+  function pump(dl) {
+    const end = performance.now() + Math.min(8, Math.max(2, dl && dl.timeRemaining ? dl.timeRemaining() : 8));
+    while (queued.length && performance.now() < end) {
+      const job = queued[0];
+      if (!job.w) { let r = job.root; if (r.nodeType === 3) r = r.parentNode; if (!r || !r.isConnected) { queued.shift(); continue; } job.w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT); }
+      let n, k = 0; while (k++ < 400 && (n = job.w.nextNode())) check(n);
+      if (!n) queued.shift();
+    }
+    if (queued.length) idle(pump); else busy = false;
+  }
   function tag(root) {
     if (!names || !names.size || !root) return;
-    if (root.nodeType === 3) root = root.parentNode;
-    if (!root || !root.nodeType) return;
-    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); let n;
-    while ((n = w.nextNode())) {
-      const v = n.nodeValue;
-      if (v.length < 3 || v.length > 60 || v.indexOf('🏨') >= 0 || !names.has(norm(v))) continue;
-      const p = n.parentNode; if (!p || /^(SCRIPT|STYLE|TEXTAREA|TITLE)$/.test(p.nodeName)) continue;
-      n.nodeValue = v.replace(/^(\s*)/, '$1🏨 ');
-    }
+    queued.push({ root }); if (queued.length > 300) queued.splice(0, queued.length - 300);
+    if (!busy) { busy = true; idle(pump); }
   }
-  function set(list) { names = new Set(list.map(norm)); tag(document.body); }
+  function set(list) { names = new Set(list.map(norm)); lens = new Set([...names].map(x => x.length)); tag(document.body); }
   async function load() {
     try {
       if (!window.firebase || !firebase.initializeApp) return;
@@ -38503,8 +38518,7 @@ async function pscfgReadCalendar(stream, ay) {
     if (!c || Date.now() - c.at > TTL) setTimeout(load, 4000);
     new MutationObserver(ms => {
       if (!names) return;
-      if (!queued.length) requestAnimationFrame(() => { const q = queued; queued = []; q.forEach(tag); });
-      ms.forEach(m => m.addedNodes.forEach(x => queued.push(x)));
+      ms.forEach(m => m.addedNodes.forEach(x => tag(x)));   // sliced, see tag()
     }).observe(document.body, { childList: true, subtree: true });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
