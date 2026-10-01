@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1603 · 02-Oct-2026 IST
+
+User (faculty login): the DOB + zodiac in the top bar hid the version number - removed there (sidebar and dashboard title keep them). That spot now shows a green "📱 w147 ✓" pill when this phone's Davan Staff widget is linked to the login (amber "not linked" if a widget code is on the phone but linked to someone else / nobody). Data: DB2 davan_pub/student_widget_active/<S-code> + staff_widget_report/<S-code>, 2 tiny reads per login. Functions: swTopBadge (new), onLoginSuccess.
+
 ## v1602 · 02-Oct-2026 IST
 
 User: the original logo was still not back after v1601 - phones kept their saved copy of the v1599 lighter GIF. Every davan_logo_2026.gif reference now carries ?v=1601, so browsers load the restored original at once (same in student_portal v10.52, results.html, library v1.43). Files: davan_logo_2026.gif references.
