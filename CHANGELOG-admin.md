@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1595 · 01-Oct-2026 IST
+
+Debug (v1594 profile: no app function over 1.3 s, yet two 17 s freezes after login): the one-run profiler now also times localStorage setItem/getItem, JSON.parse/stringify, Firestore doc.data(), query.forEach and every onSnapshot callback (over 100 ms, with size and calling code). No reads or writes. Functions: start-up profiler (head).
+
 ## v1594 · 01-Oct-2026 IST
 
 Debug (v1593 line: the phone was blocked 40 s in the first 45 s, two 17 s blocks after [AutoLogin] and [strComputeCounts]): the hostel timing panel gets a Copy button (user: every debug panel needs one) and "Profile next app open", which for one open wraps every global function of the app and lists calls over 150 ms with start time and nesting, then switches off. No reads or writes. Functions: start-up profiler (head), dvCopyText (new), hcBusyText, hcTimingShow.
