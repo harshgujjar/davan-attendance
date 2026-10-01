@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1607 · 02-Oct-2026 IST
+
+User: show faculty what they taught last and what is next from the lesson plan, a calendar page for all faculty, Sl No and aligned tables everywhere, page 3 as the mockup, and check faculty notifications. stwPublish now adds the lesson-plan position to each faculty class and syllabus row (last taught Sl No = newest check mark, next = first unchecked after it; matched by faculty, subject, section and semester) in DB2 davan_pub/staff_pub/fac/<name> - same publish, slightly larger. Faculty Alerts gets a Notification check (web push sent today / yesterday from app_data/fa_fired, who is subscribed, each staff widget's version / notifications / on-time alerts, this phone) with a Copy button - 2 Firestore reads + 1 DB2 read per tap. Pairs with staff widget w149 (DavanWidget.apk, davan-widget-version.json, LATEST_APK 149) and student widget w123 (LATEST_STUDENT_WIDGET_APK_V 123, portal v10.53). Functions: stwPublish (lpPos, ttLp), faNotifCheck (new).
+
 ## v1606 · 02-Oct-2026 IST
 
 User: linking the staff widget was a roller-coaster; it must be plug and play. Now: install Davan Staff, add the widget, tap it once (the app learns the widget's S-code); from then on every login or app open on that phone links the widget to whoever is logged in - no questions, no Link to me needed (a move is still written to the link log). Logout frees it. The top-bar pill is smaller (green w147✓ when linked) and turns green as soon as the link happens. DB2 davan_pub/student_widget_active/<S-code>: 2 tiny reads + 1 write per app open on a phone with the widget. Staff widget w148 released with it (photo on its settings screen, plug-and-play wording; DavanWidget.apk, davan-widget-version.json and LATEST_APK 148). Functions: swLink, onLoginSuccess, swTopBadge.
