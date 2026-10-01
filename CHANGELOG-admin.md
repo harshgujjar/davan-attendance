@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1599 · 01-Oct-2026 IST
+
+Fix (v1598 network timing: davan_logo_2026.gif was 12,378 KB): the college logo GIF was 400x400 px, 400 frames at 20 fps, looping, shown at 32-72 px in several places at once (sidebar, headers, brand logos, loaders) - decoding it kept the phone's main thread busy (~15 s freezes, everything else waited). Replaced in place, same file name, with a 96x96 px, 200-frame, 10 fps version (1.1 MB); student_portal.html, results.html and library.html use the same file and get the fix too. No data change. Files: davan_logo_2026.gif.
+
 ## v1598 · 01-Oct-2026 IST
 
 Fix (v1596 profile: the phone froze ~15 s twice on every open while Firestore reads were pending, all answered right after; no app function slow): Firestore app_data/students (549 KB) is read at login over Firestore's REST API with the signed-in user's token (same rules) and plain JSON.parse instead of the Firestore library, whose conversion of that document runs on the main thread. Any failure falls back to the normal read. Same 1 read. Functions: fsGetFast, _fsRestVal (new), loadFirestoreData.
