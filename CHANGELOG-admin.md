@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1585 · 01-Oct-2026 IST
+
+User: same fixes as student widget w121 for the staff widget. Staff widget w147 is live (DavanWidget.apk, davan-widget-version.json 147, LATEST_APK 147): fixed text sizes, 6dp edges, one-line weather/screen-time and quote, and a corrected screen time (one timeline, home screen not counted, screen off stops it). No database change. Pairs with student widget w121. Functions: LATEST_APK.
+
 ## v1584 · 01-Oct-2026 IST
 
 Student widget w121 released (user: release directly, no test round). Raises LATEST_STUDENT_WIDGET_APK_V to 121 so opening this app publishes it to DB2 davan_pub/student_widget_latest (1 write only when behind). Pairs with portal v10.48 and student widget w121. Functions: LATEST_STUDENT_WIDGET_APK_V (stuWidgetLatestRaise).
