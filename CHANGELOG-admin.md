@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1576 · 01-Oct-2026 IST
+
+User: PUC Science and Commerce have mid-term exams today but the staff widget showed PUC classes; remove the Live class board info card. The widget summaries now include the PUC app's Calendar of Events (Firestore app_data/puc_academic_calendar_<com|sci>_<AY>, 2 small reads per publish) as cal entries tagged com / sci, and the PUC "Today's classes" card counts none on a PUC exam / holiday. Pairs with widget w143 (LATEST_APK 143) and puc.html v5.225 (faculty name spelling + photo, no auto-scrape on Sundays / no-class days). Functions: stwPucCal, stwPucOffToday (new), stwPucGlance, stwPublish.
+
 ## v1575 · 01-Oct-2026 IST
 
 User: the linked staff widget still showed no college numbers. Hostel > My staff widget now has a "Send numbers to widgets now" button for the Director, Principal and Manager, and a line showing when the numbers were last sent from this phone or which step failed and why. The automatic send starts 8 s after opening (it runs in small idle pieces), and the 30-minute pause now starts only after a successful send, so a failed or interrupted send is retried. Same data (DB2 davan_pub/staff_pub). Functions: stwPublish, stwSendNow, stwStatus, stwStatusHtml (new), swBoxHtml, wgtRenderAdmin.

@@ -8,7 +8,7 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.223                                                      ║
+║  CURRENT VERSION : v5.225                                                      ║
 ║  FILE NAME       : puc_v5.223.html                                             ║
 ║  LAST UPDATED    : 2026-09-28 01:18 AM IST                                   ║
 ║                                                                              ║
@@ -58,6 +58,13 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v5.225 2026-10-01  Faculty dashboard: subjects + timetable match the    ║
+║          login name in any spelling (SUMITHRA K T = Sumitra K.T), photo   ║
+║          from the faculty record when the account has none. Auto-scrape  ║
+║          skips Sundays and days both calendars mark holiday/exam/event   ║
+║          (working-day still scrapes; manual button always works).       ║
+║          Fns: pfdNameKey, pfdIsMe (new), pucFacDashInit,                 ║
+║          pfdDiscoverClasses, pfdRenderTimetable, _spFireScrape.          ║
 ║  v5.223 2026-09-30  🏨 before hostel students' names on every screen.     ║
 ║          Pairs with index v1550, portal v10.28, faculty v2.4.            ║
 ║  v5.222 2026-09-28  FEATURE: Hostel room / bed on PUC student cards.        ║
@@ -9189,7 +9196,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.224";   // v5.224 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
+const APP_VERSION = "v5.225";   // v5.225 (01-Oct-2026): faculty dashboard matches names in any spelling + photo from the faculty record; no auto-scrape on Sundays / no-class days   // v5.224 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
 // ⚠ CLAUDE: update this to the current date/time (IST, "YYYY-MM-DD HH:MM")
 // on EVERY change too — shown live next to the version badge in the topbar
 // as "last edited" so admin can see at a glance how fresh the file is.
@@ -12897,6 +12904,16 @@ function _spGetTargets() {
 async function _spFireScrape(slotKey, label) {
   _spSchedFired[slotKey] = true;
   _spSaveFired();
+  // v5.225: no AUTO scrape on a Sunday or when both calendars say no classes today (holiday / exam / event).
+  // A "working-day" event in either calendar still allows it; the manual Scrape button always works.
+  try {
+    if (typeof pucCalPreload === 'function') await pucCalPreload();
+    const ist = new Date(Date.now() + 330 * 60000), today = ist.toISOString().slice(0, 10);
+    const working = ['com', 'sci'].some(st => (_pucCalEvents[st] || []).some(e => e.type === 'working-day' && (e.to ? today >= e.from && today <= e.to : today === e.from)));
+    const com = pucCalTodayStatus('com'), sci = pucCalTodayStatus('sci');
+    if (ist.getUTCDay() === 0 && !working) { spLog('⏰ Sunday - auto-scrape skipped (' + label + ')', 'info'); return; }
+    if (com && sci) { spLog('⏰ No PUC classes today (' + com.name + (sci.name !== com.name ? ' / ' + sci.name : '') + ') - auto-scrape skipped', 'info'); return; }
+  } catch (e) { spLog('⏰ Calendar check failed: ' + e.message, 'warn'); }
   _spMarkScrapedFb(slotKey); // write to Firebase so other browsers/devices skip this slot
   spLog(`⏰ Auto-scrape triggered — ${label}`, 'info');
   if (!spToken || (spTokenExpiry && Date.now() > spTokenExpiry - 30000)) {
@@ -34976,9 +34993,20 @@ let _pfdFacultyId = null;
 let _pfdFac        = null;
 let _pfdClasses     = []; // [{classLabel, code, subjectName}]
 
+// v5.225: "is this me" ignores spelling (SUMITHRA K T = Sumitra K.T = Sumitra KT): letters only, no h. The faculty
+// record (facultyMap) with the same name gives the photo when the login account has none (it was copied once at creation).
+let _pfdMyKeys = [];
+function pfdNameKey(n) { return String(n || '').toLowerCase().replace(/[^a-z]/g, '').replace(/h/g, ''); }
+function pfdIsMe(name) { return String(name || '').split('/').some(x => { const k = pfdNameKey(x); return k && _pfdMyKeys.includes(k); }); }
 async function pucFacDashInit(facultyId, fac) {
   _pfdFacultyId = facultyId;
-  _pfdFac = fac;
+  _pfdFac = fac = Object.assign({}, fac);
+  _pfdMyKeys = [pfdNameKey(fac.name)].filter(Boolean);
+  try {
+    const rec = Object.values(facultyMap || {}).find(f => f && pfdNameKey(f.name) === _pfdMyKeys[0]);
+    if (rec) { if (!fac.photo && rec.photo) fac.photo = rec.photo; }
+    if (fac.photo) { const sa = document.getElementById('pfd-sidebar-avatar'); if (sa) sa.innerHTML = `<img src="${fac.photo}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--border);">`; }
+  } catch (e) {}
 
   const subNameEl = document.getElementById('pfd-sub-name');
   if (subNameEl) subNameEl.textContent = fac.name || 'Faculty';
@@ -35034,7 +35062,7 @@ async function pfdDiscoverClasses(facultyName) {
 
       allCodes.forEach(code => {
         const resolvedName = (_resolveSubjectFaculty(cls.label, code) || '').trim().toLowerCase();
-        if (resolvedName !== nameLc) return; // not this faculty's subject — skip entirely, not their concern
+        if (!pfdIsMe(resolvedName)) return; // not this faculty's subject — skip entirely, not their concern (v5.225: any spelling)
         if (!markedCodes.has(code)) {
           // Their own subject, genuinely zero marks yet this exam.
           _pfdUngradedSubjects.push({ classLabel: cls.label, code, subjectName: subjectMap[code]?.name || code });
@@ -35233,7 +35261,7 @@ async function pfdRenderTimetable() {
           const val = row[i];
           if (!val) return;
           const fac = (resolveFacultyFn(val, sec) || '').trim().toLowerCase();
-          if (fac !== facName) return;
+          if (!pfdIsMe(fac)) return;   // v5.225: any spelling
           const timeLabel = p.start + '-' + p.end;
           allTimeLabels.add(timeLabel);
           const key = day + '__' + timeLabel;
