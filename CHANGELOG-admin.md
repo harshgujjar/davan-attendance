@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1597 · 01-Oct-2026 IST
+
+Debug (v1596: both 15 s freezes start right after renderAll while Firestore reads are pending, and those reads - including the 549 KB app_data/students - are answered right after each freeze): the profiled open also lists browser resource timing (when each response finished arriving, real size), to tell network time from Firestore processing time. No reads or writes. Functions: hcBusyText, start-up profiler.
+
 ## v1596 · 01-Oct-2026 IST
 
 Debug (v1595: freezes of 15.5 s right after the first DB1 call, class_notes backfill, and 18.5 s at ~21 s; no app function slow): the one-run profiler also records every download - Realtime Database once/on (DB1, DB4 listeners), Firestore get and fetch - with path, size and answer time, and each RTDB listener callback over 100 ms. Viewing the hostel timing line (admin) arms the profiler for the next open once per version. No extra reads. Functions: start-up profiler (head), hcBusyText, hcTimingShow.
