@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1590 · 01-Oct-2026 IST
+
+DB2 quota (283 of 300 MB on 01-Oct): every write of allocations, calendar, timetable_portal (restore), IA live status and the internal timetable now bumps a tiny stamp DB2 davan_pub/pub_ver/<key> (1 small write each), so the student app (v10.50) keeps its saved copy until the stamp moves instead of downloading these on every open (~90 MB/day). Pairs with portal v10.50. Functions: pubVerBump (new), _autoPushTimetableToPortal, _autoPushCalendarToPortal, the IA live-status publisher and the internals_current writers.
+
 ## v1589 · 01-Oct-2026 IST
 
 Student widget w122 released: LATEST_STUDENT_WIDGET_APK_V = 122, so opening this app publishes it to DB2 davan_pub/student_widget_latest (1 write only when behind). Pairs with portal v10.49 and widget w122 (page 3 results). Functions: LATEST_STUDENT_WIDGET_APK_V.
