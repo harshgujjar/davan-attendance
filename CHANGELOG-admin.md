@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1570 · 01-Oct-2026 IST
+
+User: add resident staff to the staff widget and show them only hostel data. Resident staff link the Davan Hostel Staff widget when they log in here (typed password, or after tapping the widget), then go on to the hostel app as before. Staff widget s09 shows them only their own hostel's menu and meals with their own "Did you have it?" answer (canteen/meal_log/<date>/<their key>), and reads only hostel/config, canteen/ver, override, closed and their own meal log - no residents, leave, complaints, SOS or chat. Pairs with portal v10.41 and staff-widget-version.json 9. Functions: SW_ROLES, STAFF_WIDGET_APK (apkVersion 9), the resident login branch.
+
 ## v1569 · 01-Oct-2026 IST
 
 User: remove every w107-era connection between staff and the student widget. The staff app no longer links the phone's student widget (resident staff login auto-link, "My hostel widget" box, Link to me, Download hostel widget are gone); on a staff login a student widget still linked to that person is freed (1 read, 1 write only when it is theirs), and the admin's browser frees every remaining staff / resident-staff link once (1 read of davan_pub/student_widget_active). The staff widget (S- codes) is unchanged. Pairs with portal v10.37. Functions: hswFreeOld, hswSweepOld (new), hswRelease, hswBoxHtml, hswBoxFill; removed hswLink, hswLinkNow, hswUnlink, hswHeld.
