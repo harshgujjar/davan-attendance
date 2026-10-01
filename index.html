@@ -8264,7 +8264,7 @@
 <!-- ═══════════════════════════════════════════════════════════════
      JAVASCRIPT
 ═══════════════════════════════════════════════════════════════ -->
-<script src="js/admin-1-5612c5fb82.js"></script>
+<script src="js/admin-1-686d06b4e2.js"></script>
 <!-- ══════════════════════════════════════════════════════════
      FOLLOW-UP RECORD MODAL
 ════════════════════════════════════════════════════════════ -->
@@ -8841,7 +8841,7 @@ function renderExemptions() {
   </div>
 </div>
 
-<script src="js/admin-6-47569ddb42.js"></script>
+<script src="js/admin-6-c0942534d2.js"></script>
 
 <script src="js/admin-7-23f675a2da.js"></script>
 
@@ -9061,7 +9061,7 @@ function renderExemptions() {
   .hc-floor-h{font-family:var(--mono);font-size:11px;color:var(--muted);margin:14px 0 8px;text-transform:uppercase;}
 </style>
 
-<script src="js/admin-10-561177a755.js"></script>
+<script src="js/admin-10-d22d2e6b63.js"></script>
 
 <script src="js/admin-11-4335a11a56.js"></script>
 
@@ -9673,20 +9673,38 @@ setInterval(appBuildCheck, 10 * 60000);
   const K = 'hostelNames_v1', TTL = 6 * 3600e3, URL = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
   const CFG = { apiKey: 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ', authDomain: 'davan-lessonplan-archive.firebaseapp.com', databaseURL: URL, projectId: 'davan-lessonplan-archive' };
   const norm = t => t.trim().toUpperCase().replace(/\s+/g, ' ');
-  let names = null, queued = [];
+  // v1600 START-UP FREEZE FIX: this used to walk ALL ~120,000 text pieces of the page (every hidden panel with all
+  // 450 students, several times) in one go on every change - a 49 s freeze in a desktop test, 15-20 s blocks on phones,
+  // everything else (sign-ins, data, progress bar, hostel box) waited. Now: only what is on screen (open panel, header,
+  // sidebar, popups), a cheap length check before any work, and small slices that never block more than ~8 ms.
+  let names = null, lens = null, queued = [], busy = false;
+  const idle = window.requestIdleCallback ? (f => requestIdleCallback(f, { timeout: 1500 })) : (f => setTimeout(() => f({ timeRemaining: () => 8 }), 60));
+  const hidden = el => { for (let x = el; x && x !== document.body; x = x.parentElement) { if (x.classList && x.classList.contains('panel') && !x.classList.contains('active')) return true; if (x.style && x.style.display === 'none') return true; } return false; };
+  function check(n) {
+    const v = n.nodeValue; if (v.length < 3 || v.length > 60) return;
+    const t = v.trim(); if (!lens.has(t.length) || v.indexOf('\u{1F3E8}') >= 0 || !names.has(norm(t))) return;
+    const p = n.parentNode; if (!p || /^(SCRIPT|STYLE|TEXTAREA|TITLE)$/.test(p.nodeName)) return;
+    n.nodeValue = v.replace(/^(\s*)/, '$1\u{1F3E8} ');
+  }
+  function pump(dl) {
+    const end = performance.now() + Math.min(8, Math.max(2, dl && dl.timeRemaining ? dl.timeRemaining() : 8));
+    while (queued.length && performance.now() < end) {
+      const job = queued[0];
+      if (!job.w) { let r = job.root; if (r.nodeType === 3) r = r.parentNode; if (!r || !r.isConnected || hidden(r)) { queued.shift(); continue; } job.w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT); }
+      let n, k = 0; while (k++ < 400 && (n = job.w.nextNode())) check(n);
+      if (!n) queued.shift();
+    }
+    if (queued.length) idle(pump); else busy = false;
+  }
   function tag(root) {
     if (!names || !names.size || !root) return;
-    if (root.nodeType === 3) root = root.parentNode;
-    if (!root || !root.nodeType) return;
-    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); let n;
-    while ((n = w.nextNode())) {
-      const v = n.nodeValue;
-      if (v.length < 3 || v.length > 60 || v.indexOf('🏨') >= 0 || !names.has(norm(v))) continue;
-      const p = n.parentNode; if (!p || /^(SCRIPT|STYLE|TEXTAREA|TITLE)$/.test(p.nodeName)) continue;
-      n.nodeValue = v.replace(/^(\s*)/, '$1🏨 ');
-    }
+    queued.push({ root }); if (queued.length > 300) queued.splice(0, queued.length - 300);
+    if (!busy) { busy = true; idle(pump); }
   }
-  function set(list) { names = new Set(list.map(norm)); (window.requestIdleCallback || (f => setTimeout(f, 300)))(() => tag(document.body), { timeout: 3000 }); }   // v1554: whole-page pass when idle
+  // what is on screen now: the open panel plus header / sidebar / popups (everything that is not a hidden panel)
+  function tagVisible() { document.querySelectorAll('.panel.active').forEach(tag); ['.sidebar', 'header', '#hc-modal', '.modal'].forEach(q => document.querySelectorAll(q).forEach(tag)); }
+  window.hcTagVisible = tagVisible;
+  function set(list) { names = new Set(list.map(norm)); lens = new Set([...names].map(x => x.length)); idle(tagVisible); }
   async function load() {
     try {
       if (!window.firebase || !firebase.initializeApp) return;
@@ -9705,9 +9723,8 @@ setInterval(appBuildCheck, 10 * 60000);
     if (!c || Date.now() - c.at > TTL) setTimeout(load, 4000);
     new MutationObserver(ms => {
       if (!names) return;
-      // v1554: marked when the phone is idle, never in the middle of a tap or a redraw
-      if (!queued.length) (window.requestIdleCallback || (f => setTimeout(f, 200)))(() => { const q = queued; queued = []; q.forEach(n => { if (n.isConnected) tag(n); }); }, { timeout: 1500 });
-      ms.forEach(m => m.addedNodes.forEach(x => queued.push(x)));
+      // v1600: only new content that is on screen; a hidden panel is marked when it is opened (switchPanel -> hcTagVisible)
+      ms.forEach(m => m.addedNodes.forEach(x => { const el = x.nodeType === 3 ? x.parentNode : x; if (el && el.nodeType === 1 && !hidden(el)) tag(x); }));
     }).observe(document.body, { childList: true, subtree: true });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();

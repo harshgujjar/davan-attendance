@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1600 · 01-Oct-2026 IST
+
+THE START-UP FREEZE (user: slow since hostel/canteen). Reproduced locally with the real app + Firebase SDK and 450 students: one 49 s main-thread block; CPU profile: the v1554 hostel-name marker (tag / norm / TreeWalker.nextNode) = 46 s. It walked all ~120,000 text nodes of the page (85,773 elements, every hidden panel) on every DOM change and in one go. Now it marks only on-screen content (active panel, header, sidebar, popups), checks the text length before normalizing, works in idle slices of at most ~8 ms, and marks a panel when it is opened (switchPanel -> hcTagVisible). Display only, no data change. The automatic one-run profiling (v1596) is switched off; the hostel timing line and its Profile button stay. Pairs with portal v10.51 (same marker fix). Functions: the 🏨 marker (tag, pump, check, tagVisible), switchPanel, hcTimingShow.
+
 ## v1599 · 01-Oct-2026 IST
 
 Fix (v1598 network timing: davan_logo_2026.gif was 12,378 KB): the college logo GIF was 400x400 px, 400 frames at 20 fps, looping, shown at 32-72 px in several places at once (sidebar, headers, brand logos, loaders) - decoding it kept the phone's main thread busy (~15 s freezes, everything else waited). Replaced in place, same file name, with a 96x96 px, 200-frame, 10 fps version (1.1 MB); student_portal.html, results.html and library.html use the same file and get the fix too. No data change. Files: davan_logo_2026.gif.
