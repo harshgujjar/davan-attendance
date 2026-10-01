@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1564 · 01-Oct-2026 IST
+
+User: the staff widget had no college logo or branding, no date and time, and gold/silver rates were missing (also on the student widget). Staff widget s06 adds the Davan logo + "DAVAN" on the right of the header, a live date-and-time line, and shows each rate (gold 24K/22K, silver 10 g/kg, USD/INR) on its own, keeping the last known value with its day when today's is missing. No new database reads. Pairs with staff widget s06 and student widget w109 (test build). Function: STAFF_WIDGET_APK (apkVersion 6).
+
 ## v1563 · 30-Sep-2026 IST
 
 User: the staff widget's Check for update did not download s04. The widgets only learned the newest version from davan_pub/student_widget_latest/staff, written when the admin's app opens the Hostel dashboard, which had not happened. Staff widget s05 reads staff-widget-version.json (new file on main, next to the APK) and uses the database only as a fallback; the admin's app still writes the database copy. No new database reads; one tiny GitHub file per widget refresh. Pairs with staff widget s05. Function: STAFF_WIDGET_APK (constant).
