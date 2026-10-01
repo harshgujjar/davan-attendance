@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1565 · 01-Oct-2026 IST
+
+User: gold and silver rates were still missing on the widgets. Cause: the news job (davan-student-news, fetch_news.js) timed out on goldprice.dev after 10 s and wrote empty rates; fixed there in v1.4.1 (25 s, 3 tries, keeps the last good rates with goldSilverAsOf). Staff widget s07 shows "as of <day>" for kept rates. No new database reads. Pairs with fetch_news.js v1.4.1, portal v10.33, student widget w113 (test build). Function: STAFF_WIDGET_APK (apkVersion 7).
+
 ## v1564 · 01-Oct-2026 IST
 
 User: the staff widget had no college logo or branding, no date and time, and gold/silver rates were missing (also on the student widget). Staff widget s06 adds the Davan logo + "DAVAN" on the right of the header, a live date-and-time line, and shows each rate (gold 24K/22K, silver 10 g/kg, USD/INR) on its own, keeping the last known value with its day when today's is missing. No new database reads. Pairs with staff widget s06 and student widget w109 (test build). Function: STAFF_WIDGET_APK (apkVersion 6).
