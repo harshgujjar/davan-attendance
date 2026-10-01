@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1569 · 01-Oct-2026 IST
+
+User: remove every w107-era connection between staff and the student widget. The staff app no longer links the phone's student widget (resident staff login auto-link, "My hostel widget" box, Link to me, Download hostel widget are gone); on a staff login a student widget still linked to that person is freed (1 read, 1 write only when it is theirs), and the admin's browser frees every remaining staff / resident-staff link once (1 read of davan_pub/student_widget_active). The staff widget (S- codes) is unchanged. Pairs with portal v10.37. Functions: hswFreeOld, hswSweepOld (new), hswRelease, hswBoxHtml, hswBoxFill; removed hswLink, hswLinkNow, hswUnlink, hswHeld.
+
 ## v1568 · 01-Oct-2026 IST
 
 User: the student widget fixes should also reach the staff widget. Staff widget s08: live refresh steps, update download with real progress into Downloads (only the newest file kept), tappable page numbers with the page name, news emojis, Follow Davan strip on every page and the Sunday 9 pm reminder (writes davan_pub/follow/<staff URN>, reads the follow switches every 6 h). Pairs with staff-widget-version.json 8 and student widget w117 (test build). Function: STAFF_WIDGET_APK (apkVersion 8).
