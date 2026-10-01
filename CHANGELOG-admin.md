@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1577 · 01-Oct-2026 IST
+
+User: Sumitra is Principal and Hostel Head and also teaches Kannada - her widget should show her classes too. The widget summaries now add PUC timetable periods to each teacher's node (davan_pub/staff_pub/fac/<name>, matched by exact name; PUC-only teachers get a node too), with their class stats. No extra reads. Pairs with widget w144 (LATEST_APK 144): anyone who teaches gets the Today page with degree + PUC classes and reminders, whatever their role. Functions: stwPublish.
+
 ## v1576 · 01-Oct-2026 IST
 
 User: PUC Science and Commerce have mid-term exams today but the staff widget showed PUC classes; remove the Live class board info card. The widget summaries now include the PUC app's Calendar of Events (Firestore app_data/puc_academic_calendar_<com|sci>_<AY>, 2 small reads per publish) as cal entries tagged com / sci, and the PUC "Today's classes" card counts none on a PUC exam / holiday. Pairs with widget w143 (LATEST_APK 143) and puc.html v5.225 (faculty name spelling + photo, no auto-scrape on Sundays / no-class days). Functions: stwPucCal, stwPucOffToday (new), stwPucGlance, stwPublish.
