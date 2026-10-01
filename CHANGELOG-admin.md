@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1586 · 01-Oct-2026 IST
+
+Bug (same as the student app): the staff widget Download buttons opened a blank github.com page in the installed app instead of downloading. Every button and update message now uses the APK on this app's own site (GitHub Pages) with a download name DavanWidget_w<version>.apk; the widgets' own update link (LATEST_APK.apkUrl) is unchanged. No database change. Pairs with staff widget w147. Functions: STAFF_APK_DL, stfApkName.
+
 ## v1585 · 01-Oct-2026 IST
 
 User: same fixes as student widget w121 for the staff widget. Staff widget w147 is live (DavanWidget.apk, davan-widget-version.json 147, LATEST_APK 147): fixed text sizes, 6dp edges, one-line weather/screen-time and quote, and a corrected screen time (one timeline, home screen not counted, screen off stops it). No database change. Pairs with student widget w121. Functions: LATEST_APK.
