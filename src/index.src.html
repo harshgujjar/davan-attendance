@@ -10417,26 +10417,35 @@ let _lpArchiveTokExp = 0;
 async function _lpGetArchiveToken() {
   const now = Date.now();
   if (_lpArchiveToken && now < _lpArchiveTokExp - 60000) return _lpArchiveToken;
-  try {
+  // v1588: reuse the last token across app opens (valid 1 h) - no sign-in round trip before the first hostel read
+  try { const c = JSON.parse(localStorage.getItem('lp4_tok') || 'null'); if (c && c.t && now < c.exp - 120000) { _lpArchiveToken = c.t; _lpArchiveTokExp = c.exp; return c.t; } } catch (e) {}
+  if (_lpArchiveTokP) return _lpArchiveTokP;
+  _lpArchiveTokP = (async () => { try {
     if (!_lpArchiveApp) {
       _lpArchiveApp = firebase.apps.find(a => a.name === 'lp-archive')
                    || firebase.initializeApp(LP_ARCHIVE_CFG, 'lp-archive');
     }
     const auth = _lpArchiveApp.auth ? _lpArchiveApp.auth() : firebase.auth(_lpArchiveApp);
     let user = auth.currentUser;
+    // v1588: the saved sign-in is restored a moment after start - wait for it (max 3 s) instead of signing in again every open
+    if (!user) user = await new Promise(res => { let done = false; const fin = u => { if (!done) { done = true; try { off(); } catch (e) {} res(u || null); } };
+      const off = auth.onAuthStateChanged(fin); setTimeout(() => fin(auth.currentUser), 3000); });
     if (!user) {
       const cred = await auth.signInAnonymously();
       user = cred.user;
     }
     _lpArchiveToken  = await user.getIdToken(false);
-    _lpArchiveTokExp = now + 3600000;
+    _lpArchiveTokExp = now + 3300000;
+    try { localStorage.setItem('lp4_tok', JSON.stringify({ t: _lpArchiveToken, exp: _lpArchiveTokExp })); } catch (e) {}
     console.log('[LP archive] anon auth OK');
     return _lpArchiveToken;
   } catch(e) {
     console.warn('[LP archive] auth failed:', e.message);
     return '';
-  }
+  } finally { _lpArchiveTokP = null; } })();
+  return _lpArchiveTokP;
 }
+let _lpArchiveTokP = null;
 
 async function lpDb4Get(path) {
   try {
@@ -18316,7 +18325,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1587;  // always = HTML footer version number
+const CODE_BUILD = 1588;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29091,6 +29100,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1588', date: '01-Oct-2026 IST', note: 'Hostel pages open faster: the hostel login is reused instead of repeated on every open, the dashboard, rooms and residents show the last copy at once and refresh in the background, and saves no longer re-download the menu.' },
 { v: 'v1587', date: '01-Oct-2026 IST', note: 'Staff widget admin numbers ("On w119 (latest)", staff widget versions) were being overwritten by an older copy of this app on another phone; an older copy can no longer send them.' },
 { v: 'v1586', date: '01-Oct-2026 IST', note: 'Staff widget download buttons and update messages now download the APK directly (named DavanWidget_w147.apk) instead of opening a blank GitHub page.' },
 { v: 'v1585', date: '01-Oct-2026 IST', note: 'Staff widget w147: same text size on every phone, slimmer edges, one-line date box and a correct screen time (same fixes as student widget w121).' },
@@ -29105,7 +29115,6 @@ const HTML_CHANGELOG = [
 { v: 'v1576', date: '01-Oct-2026 IST', note: 'Staff widget w143: PUC exam and holiday days from the PUC Calendar of Events (no PUC classes shown then), degree exams/holidays respected, and the extra info cards are gone.' },
 { v: 'v1575', date: '01-Oct-2026 IST', note: 'Hostel > My staff widget has a "Send numbers to widgets now" button and shows when the widget numbers were last sent (or why it failed). The automatic send starts 8 s after opening and retries until it works.' },
 { v: 'v1574', date: '01-Oct-2026 IST', note: 'Staff widget linking fixed: only the Davan Staff widget links now. Tapping the old Davan Hostel Staff widget opens Davan Staff instead, and its old code is refused with a clear message.' },
-{ v: 'v1573', date: '01-Oct-2026 IST', note: 'Faster after login: the staff-widget numbers are now prepared 25 seconds after login, when the app is idle, in small pieces, so the screen and the welcome bar never freeze.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -80665,18 +80674,40 @@ function hcStats(hid) {
 }
 
 // ── Load / write ─────────────────────────────────────────────────────
+function hcHash(t) { let h = 0; for (let i = 0; i < t.length; i += 7) h = (h * 31 + t.charCodeAt(i)) | 0; return h; }
+// v1588: the last rooms / residents / settings are kept on this phone, so the hostel pages show at once and refresh
+// in the background (re-drawn only if something changed). Bed moves still re-check the live bed before saving.
+const HC_CACHE_K = 'hc_cache_v1';
 async function hcLoad(force) {
-  if (HC.loaded && !force) return true;
+  if (HC.loaded && !force) return HC.loading || true;   // a background refresh in flight: wait for it
   if (HC.loading) return HC.loading;
+  const quick = ['hostel-dash', 'hostel-rooms', 'hostel-residents'];   // pages that may show the saved copy first
+  if (!force && !HC.loaded && quick.includes(_hcCurPanel)) {
+    try {
+      const c = JSON.parse(localStorage.getItem(HC_CACHE_K) || 'null');
+      if (c && c.rooms && Date.now() - (+c.at || 0) < 7 * 864e5) {
+        HC.cfg = c.cfg || {}; HC.rooms = c.rooms || {}; HC.residents = c.res || {}; HC.loaded = true; HC._sig = c.sig || '';
+        const before = HC._sig;
+        hcLoad(true).then(() => {   // fresh copy in the background; the dashboard also shows leave / meal numbers from it
+          const open = document.querySelector('#hc-modal.open');
+          if (!open && (_hcCurPanel === 'hostel-dash' || (HC._sig !== before && quick.includes(_hcCurPanel)))) hcRerender();
+        }).catch(() => {});
+        return true;
+      }
+    } catch (e) {}
+  }
   HC.loading = (async () => {
     try {
       const [cfg, rooms, res] = await Promise.all([
         lpDb4Get('hostel/config'), lpDb4Get('hostel/rooms'), lpDb4Get('hostel/residents'),
-        (typeof hcLoadMenu === 'function') ? hcLoadMenu().catch(e => console.warn('[HC] menu load failed', e)) : null,
+        // v1588: the menu is canteen/, which hostel saves never change - read it once, not after every save
+        (typeof hcLoadMenu === 'function' && !HC._menuOnce) ? hcLoadMenu().then(() => { HC._menuOnce = true; }).catch(e => console.warn('[HC] menu load failed', e)) : null,
         (typeof hcLoadStudentLinked === 'function') ? hcLoadStudentLinked().catch(e => console.warn('[HC] leave/notices load failed', e)) : null
       ]);
       HC.cfg = cfg || {}; HC.rooms = rooms || {}; HC.residents = res || {};
       HC.loaded = true;
+      try { const js = JSON.stringify({ cfg: HC.cfg, rooms: HC.rooms, res: HC.residents }); HC._sig = js.length + ':' + hcHash(js);
+        localStorage.setItem(HC_CACHE_K, JSON.stringify({ at: Date.now(), sig: HC._sig, cfg: HC.cfg, rooms: HC.rooms, res: HC.residents })); } catch (e) {}
       if (typeof hcLoadPuc === 'function' && !HC.puc) hcLoadPuc().catch(() => {});   // v1509: PUC students for search (DB1, read once)
       return true;
     } finally { HC.loading = null; }

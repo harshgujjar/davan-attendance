@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1588 · 01-Oct-2026 IST
+
+User: hostel data took long to load and slowed the app. Three causes fixed: (1) every app open signed in to DB4 again before the first hostel read - the saved sign-in and its token (1 h) are now reused; (2) the Hostel dashboard / Rooms / Residents waited for hostel/config, rooms and residents each time - the last copy is kept on the phone (localStorage hc_cache_v1, max 7 days), shown at once and refreshed in the background (re-drawn only if it changed; bed moves still check the live bed); (3) every hostel save re-read the canteen menu - now read once per session. Fewer DB4 reads, no new paths. Functions: _lpGetArchiveToken, hcLoad, hcHash.
+
 ## v1587 · 01-Oct-2026 IST
 
 Bug: the staff widget's admin page showed "On w119 (latest)" and old staff widget versions after w121 / w147, because another Director / Principal / Manager phone still running an older copy of this app kept republishing the widget data with its older numbers. Each publish now saves this app's build in DB2 davan_pub/staff_pub/build, and a copy older than that stops and asks to be reopened (1 tiny read per publish). Functions: stwPublish.
