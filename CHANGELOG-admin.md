@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1656 · 02-Oct-2026 IST
+
+User: count unique PUC faculty (some teach in many classes) and the Science teachers (Sanjana S, Savitha K H, Praveena M, Rudramurthy C V) were missing. The staff app now reads the PUC app's Subject Map, RTDB puc_faculty_allocation/<AY> ({1COM, 2COM, 1SCI, 2SCI}: {'A|PHY': name}), one small read: PUC Faculty = unique names across all four (per-stream counts shown), the timetable count only as fallback; the PUC Live Class Board resolves teachers from it first (Science subjects now named). Functions: lcbPucLoadStudents, lcbPucResolveFaculty, stwPucGlance.
+
 ## v1655 · 02-Oct-2026 IST
 
 User: PUC Faculty 15 counts people who left (they still have logins); count only those with subjects allocated, degree and PUC. PUC Faculty = distinct teachers in the PUC Commerce + Science timetables (lcbPucResolveFaculty, both of a split cell), with the per-stream counts; falls back to the PUC staff list only if no timetable is loaded. Total Faculty (degree) = distinct faculty in this semester's allocations (_fdbScopeAllocs). Staff app cards + staff widget (via Send numbers). No Firebase cost change. Functions: stwPucGlance, wgtTotalFaculty.
