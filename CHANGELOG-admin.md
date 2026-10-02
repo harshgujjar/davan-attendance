@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1615 · 02-Oct-2026 IST
+
+User: the widget's Live class board showed only the 3 classes of the next hour; show the first hour and the next hour, with PUC below Degree. Staff widget w152 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 152): two hours per part (now or next, then the hour after), Degree first, then PUC on its own timings. No data or Firebase cost change. Functions: LATEST_APK.
+
 ## v1614 · 02-Oct-2026 IST
 
 User: make the staff widget's faculty Today page match the app's My classes today card, with the progress bar and a proper table. Staff widget w151 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 151): NOW / NEXT / THEN cards with last class / teach today (#Sl No + topic), topic bar, a 2-hour lab as one class, numbered day table. stwPublish now gives each faculty class's lesson plan the class before today, the Sl Nos ticked today and the next 4 open topics (DB2 davan_pub/staff_pub/fac/<name>, about 300 bytes more per class; same publish). Functions: stwPublish (lpRich; ttLp2 removed).
