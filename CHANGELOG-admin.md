@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1648 · 02-Oct-2026 IST
+
+User: Kannada s20 and Hindi s20 for the same class - on what basis? s = students whose attendance record (scraped college portal, allStudents) has the subject, ct = the most classes held for it. The portal lists both Kannada and Hindi on every student, so each language counted the whole class. Now a student counts only in the language with more classes attended (ca); with nothing attended yet or a tie, in both as before. Applies to the Live Class Board and the staff widget. No Firebase cost change. Functions: lcbBuildCtMaps.
+
 ## v1647 · 02-Oct-2026 IST
 
 User: the Kannada / Hindi box showed one count (s60 · ct39) though Kannada (Kotrappa K, s30) and Hindi (Rekha M R, s30) have their own students and classes taken. The combined count is gone; each teacher line shows its own language's (sN · ctN); the staff widget gets "Kannada (s30 · ct39) / Hindi (s30 · ctNN)" as the subject and no combined count. No Firebase cost change. Functions: lcbStatsFor, lcbBuildPanel, stwDegDay.
