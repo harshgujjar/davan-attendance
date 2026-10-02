@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1653 · 02-Oct-2026 IST
+
+User: Veeresh Patil's photo was added but did not show on his dashboard or in the side panel. The side-panel photo was only for faculty / principal / manager; it now also covers other admins (not the Super Admin), wardens and the Hostel Head. The admin / manager Dashboard title shows the person's photo before the name (refreshed when the photos finish loading). No Firebase cost change. Functions: onLoginSuccess (sidebar avatar, dashboard title).
+
 ## v1652 · 02-Oct-2026 IST
 
 User: why does Rangaswammy Gs not show a password like the others? The others' login (@515515) is also their password; his login is rangaswammy.gs with a different password, so nothing showed it. The User Management card now shows "🔒 Password" when it differs from the login (the page is Super Admin only since v1646). No Firebase cost change. Functions: _umRenderList.
