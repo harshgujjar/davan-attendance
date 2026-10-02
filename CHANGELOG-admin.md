@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1621 · 02-Oct-2026 IST
+
+User: cannot log in ("Failed to execute 'setItem' on 'Storage': ... exceeded the quota") and every refresh logs out. All the college pages share one origin and one ~5 MB localStorage; big saved copies (davan_students, hc_cache_v1, logs) filled it, so Remember me, Firebase's own sign-in keys (the earlier "unsupported persistence type") and the session could not be saved. A storage guard at the top of <head> wraps Storage.setItem: on a quota error it drops the largest saved copies (over 20 KB; never Firebase sign-in, remember, token or widget keys) and retries, and never throws to the caller; at start-up it trims storage over 4 M characters to 3 M. No Firebase cost change (the dropped copies are downloaded again as before). Pairs with portal v10.56. Functions: storage guard (new inline script).
+
 ## v1620 · 02-Oct-2026 IST
 
 User: always hide My Subject Dashboard; explain Subscribe and hide it when not needed; bring reminders to the widget. The faculty dashboard's My Subject Dashboard banner is hidden. The class-notification banner hides when this device is subscribed or the Davan Staff widget is linked on this phone, and otherwise explains what it gives. Staff widget w156 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 156): the class reminder uses the Today page's plan (Teach today #Sl No + topic, Last class; one reminder for a 2-hour lab). No Firebase cost change. Functions: fdbUpdateNotifBanner.
