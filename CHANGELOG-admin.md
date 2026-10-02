@@ -4,7 +4,7 @@ Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in in
 
 ## v1626 · 02-Oct-2026 IST
 
-User: Sumitra K T and Trupti J teach PUC and degree; their photo is uploaded in the PUC staff list but the degree board showed initials. _facPhotoUrl now falls back to the PUC staff photos (RTDB puc_faculty, name / PUC alias / faculty alias), loading that small node once when needed and redrawing the Live Class Board. The staff widget already used PUC photos. One small RTDB read per app open, only when a photo is missing. Functions: _facPhotoUrl, _pucFacPhoto (new).
+User: Sumitra K T and Trupti J teach PUC and degree; their photo is uploaded in the PUC staff list but the degree board showed initials. _facPhotoUrl now falls back to the PUC staff photos (RTDB puc_faculty, name / PUC alias / faculty alias), loading that small node once when needed and redrawing the Live Class Board. The staff widget already used PUC photos. One small RTDB read per app open, only when a photo is missing. Functions: _facPhotoUrl, _pucFacPhoto (new), stwPublish (addPh, so the widgets get the same photos).
 
 ## v1625 · 02-Oct-2026 IST
 
