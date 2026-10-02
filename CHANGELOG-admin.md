@@ -4,7 +4,7 @@ Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in in
 
 ## v1629 · 02-Oct-2026 IST
 
-User: tapping the staff widget opened an older app (v1627 while the icon had v1628, no photo) and asked for the password every time even after logging in. (1) The widget opened index.html?swdev=..., which the phone cached separately from index.html; staff widget w159 opens index.html#swdev=... (same address as the icon; the app reads the code from the hash, also on hashchange). (2) Sign-in without Remember me uses session-only persistence, and each widget tap is a new app window; on a phone with the staff widget, Remember me now starts ticked. No Firebase cost change. Pairs with staff widget w159 (DavanWidget.apk, davan-widget-version.json, LATEST_APK 159). Functions: swdev capture (IIFE).
+User: if I am logged in, show the dashboard directly - the widget opened an older app (v1627, no photo) and asked for the password every time. (1) Sign-in without Remember me used session-only persistence, and every widget tap / app open is a new window, so the login was lost; Remember me is removed and every sign-in (faculty and admin) is kept until Logout (Firebase LOCAL persistence). (2) The widget opened index.html?swdev=..., cached separately from index.html; staff widget w159 opens index.html#swdev=... (same address as the icon; the app reads the code from the hash, also on hashchange). No Firebase cost change. Pairs with staff widget w159 (DavanWidget.apk, davan-widget-version.json, LATEST_APK 159). Functions: doFacultyLogin, doFirebaseLogin, swdev capture.
 
 ## v1628 · 02-Oct-2026 IST
 
