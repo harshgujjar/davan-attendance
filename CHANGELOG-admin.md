@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1609 · 02-Oct-2026 IST
+
+User: the faculty Today page on the staff widget showed no lesson-plan line under each class. The v1607 match (faculty + subject name + section + semester) missed classes whose timetable name differs from the lesson plan's. Each Today class now finds its lesson plan by class label (e.g. III YEAR BCA (B)) and subject code, falling back to the subject name, so the widget shows the last taught Sl No and today's next Sl No under the subject. DB2 davan_pub/staff_pub/fac/<name>: timetable rows gain the subject code and lesson-plan position - same publish, no new reads. Works with staff widget w149 (no new build). Functions: stwDegDay, stwPublish (ttLp2, _lpCode).
+
 ## v1608 · 02-Oct-2026 IST
 
 Student widget w124 released (LATEST_STUDENT_WIDGET_APK_V 124): page 2 showed "No internal exam" although IA-1 marks exist - the widget took only whole-number marks, so marks stored as text, half marks or AB were skipped. Pairs with portal v10.54. Functions: LATEST_STUDENT_WIDGET_APK_V.
