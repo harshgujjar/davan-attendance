@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1658 · 02-Oct-2026 IST
+
+User: labs are 2 hours straight - the student widget showed two lab cards (10:30-11:30, 11:45-12:45) and a lab has no 15-min break. Student widget w128 released (Davan.Student.apk + test, LATEST_STUDENT_WIDGET_APK_V 128): back-to-back lab periods of the same subject are one card, end = start + both periods (10:30-12:30). Staff widget w168 (DavanWidget.apk, davan-widget-version.json, LATEST_APK 168) and My classes today end the merged lab the same way (were 12:45). Pairs with portal v10.65. No Firebase cost change. Functions: fdbTodayLpRender.
+
 ## v1657 · 02-Oct-2026 IST
 
 User: where to create Almas Banu T (PUC Commerce Principal)? The Title box in Create account / Edit said "Resident staff only", though it is saved for every role and "PUC" in it makes the staff widget PUC-only (v1578). Labels / placeholder now say Title / Shown as, any role. No data change. Functions: (HTML labels only).
