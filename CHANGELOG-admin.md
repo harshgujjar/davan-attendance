@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1662 · 02-Oct-2026 IST
+
+User: once he logs in with his own id / password (any phone), the widget settings app should show page 2 where he can open any account directly and see their widget. The staff-widget link carries sup:true for the Super Admin (and after his master-password test, v1661); stwPublishViewAs sends DB2 davan_pub/view_as = {staff: {key: link payload without phone / DOB}, stu: {URN: {n, c}}} (~35 KB, only when changed) with the widget numbers. Staff widget w169 and student widget w129 released (DavanWidget.apk / Davan.Student.apk + test, version jsons, LATEST_APK 169, LATEST_STUDENT_WIDGET_APK_V 129): page 2 "Open as" (search, Sl No list, Back to me); the choice stays on that phone (view_as), nothing re-linked. Pairs with portal v10.68 (adm:true from the admin view). Functions: hswPayload, swLink, stwPublishViewAs, stwPublish.
+
 ## v1661 · 02-Oct-2026 IST
 
 User: he tests staff accounts on his own phone (logs in as Anitha, 30 min later as Arun) - v1660 blocked his widget from following them. swLink now, for the Super Admin's widget code and a non-super login, asks for the master password (checked against its SHA-256, SUPER_MASTER_SHA, never stored in plain text); correct = link for testing (logged in davan_pub/student_widget_pair_log, via super-test), cancel / wrong = widget stays his. Functions: swLink.
