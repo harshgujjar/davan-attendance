@@ -8,7 +8,7 @@
 ║           DAVAN PUC DASHBOARD — AI HANDOFF & VERSION RULES                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  CURRENT VERSION : v5.227                                                      ║
+║  CURRENT VERSION : v5.228                                                      ║
 ║  FILE NAME       : puc_v5.223.html                                             ║
 ║  LAST UPDATED    : 2026-09-28 01:18 AM IST                                   ║
 ║                                                                              ║
@@ -58,6 +58,12 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
+║  v5.228 2026-10-02  No scrape on a PUC holiday / exam / event / Sunday  ║
+║          (auto, catch-up, manual and re-scrape of a past date); the    ║
+║          stream that has classes still runs. Calendar read the same    ║
+║          everywhere (saved, original, built-in); IST date. Fns:        ║
+║          spCalOffDay, spCalKeep, spDoScrape, spScrapeAndWriteDate,     ║
+║          pucCalPreload, pucCalStartLiveSync, pucCalTodayStatus.        ║
 ║  v5.227 2026-10-01  The 🏨 hostel-name marker walked the whole page in  ║
 ║          one go (froze the staff app 15-49 s); now a length check +    ║
 ║          small idle slices, never blocks. Fns: hostel marker tag/pump. ║
@@ -9202,7 +9208,7 @@ body {
 // APP VERSION
 // =====================
 // ⚠ CLAUDE: increment this on EVERY change. See handoff rules at top of file.
-const APP_VERSION = "v5.227";   // v5.227 (01-Oct-2026): the hostel-name marker no longer freezes the phone (length check + small idle slices)   // v5.226 (01-Oct-2026): exact faculty names again (spelling fixed in the data); photo from the faculty record; no auto-scrape on Sundays / no-class days   // v5.224 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
+const APP_VERSION = "v5.228";   // v5.228 (02-Oct-2026): no scrape (auto, manual or re-scrape) on a PUC holiday / exam / event / Sunday - per stream; calendar read the same everywhere   // v5.227 (01-Oct-2026): the hostel-name marker no longer freezes the phone (length check + small idle slices)   // v5.226 (01-Oct-2026): exact faculty names again (spelling fixed in the data); photo from the faculty record; no auto-scrape on Sundays / no-class days   // v5.224 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
 // ⚠ CLAUDE: update this to the current date/time (IST, "YYYY-MM-DD HH:MM")
 // on EVERY change too — shown live next to the version badge in the topbar
 // as "last edited" so admin can see at a glance how fresh the file is.
@@ -12906,20 +12912,34 @@ function _spGetTargets() {
   return [t1, t2, t3, t4].filter(Boolean);
 }
 
+// v5.228: one calendar check for EVERY scrape (auto, catch-up, manual, re-scrape of a past date).
+// iso = YYYY-MM-DD. Returns { com, sci } = the event that stops classes for that stream (or Sunday),
+// all = both streams off, why = text. A "working-day" event in a stream's calendar keeps that stream on.
+async function spCalOffDay(iso) {
+  if (typeof pucCalPreload === 'function') await pucCalPreload();
+  const sun = new Date(iso + 'T00:00:00Z').getUTCDay() === 0, out = {};
+  ['com', 'sci'].forEach(st => {
+    const evs = (_pucCalEvents[st] || []).filter(e => e && e.from && (e.to ? iso >= e.from && iso <= e.to : iso === e.from));
+    if (evs.some(e => e.type === 'working-day')) return;
+    const e = evs.find(e => ['holiday', 'exam', 'event', 'sports', 'internal'].includes(e.type));
+    if (e) out[st] = { type: e.type, name: e.name || e.type }; else if (sun) out[st] = { type: 'holiday', name: 'Sunday' };
+  });
+  out.all = !!(out.com && out.sci);
+  out.why = [out.com && 'Commerce: ' + out.com.name, out.sci && 'Science: ' + out.sci.name].filter(Boolean).join(' · ');
+  return out;
+}
+// classes of a stream that has no classes that day are left out
+function spCalKeep(c, off) { const st = c.program === 'Science' ? 'sci' : 'com'; return !off[st]; }
+
 // ── Helper: auto-login + scrape with deduplication key ───────────────────────
 async function _spFireScrape(slotKey, label) {
   _spSchedFired[slotKey] = true;
   _spSaveFired();
   // v5.225: no AUTO scrape on a Sunday or when both calendars say no classes today (holiday / exam / event).
   // A "working-day" event in either calendar still allows it; the manual Scrape button always works.
-  try {
-    if (typeof pucCalPreload === 'function') await pucCalPreload();
-    const ist = new Date(Date.now() + 330 * 60000), today = ist.toISOString().slice(0, 10);
-    const working = ['com', 'sci'].some(st => (_pucCalEvents[st] || []).some(e => e.type === 'working-day' && (e.to ? today >= e.from && today <= e.to : today === e.from)));
-    const com = pucCalTodayStatus('com'), sci = pucCalTodayStatus('sci');
-    if (ist.getUTCDay() === 0 && !working) { spLog('⏰ Sunday - auto-scrape skipped (' + label + ')', 'info'); return; }
-    if (com && sci) { spLog('⏰ No PUC classes today (' + com.name + (sci.name !== com.name ? ' / ' + sci.name : '') + ') - auto-scrape skipped', 'info'); return; }
-  } catch (e) { spLog('⏰ Calendar check failed: ' + e.message, 'warn'); }
+  try { const off = await spCalOffDay(new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10));
+    if (off.all) { spLog('⏰ No PUC classes today (' + off.why + ') - auto-scrape skipped (' + label + ')', 'info'); return; } }
+  catch (e) { spLog('⏰ Calendar check failed: ' + e.message, 'warn'); }
   _spMarkScrapedFb(slotKey); // write to Firebase so other browsers/devices skip this slot
   spLog(`⏰ Auto-scrape triggered — ${label}`, 'info');
   if (!spToken || (spTokenExpiry && Date.now() > spTokenExpiry - 30000)) {
@@ -13286,8 +13306,18 @@ async function spFetchAttend(studentId, term) {
 async function spDoScrape(trigger, reason) {
   if (!spToken) { spLog('Login first', 'err'); return; }
 
-  const toScrape = SP_CLASSES.filter(c => spSelected.has(c.label));
+  let toScrape = SP_CLASSES.filter(c => spSelected.has(c.label));
   if (!toScrape.length) { spLog('No classes selected', 'err'); return; }
+  // v5.228: no scrape on a holiday / exam / event / Sunday (PUC Calendar of Events) - manual too. The stream that has classes still runs.
+  try { const off = await spCalOffDay(new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10));
+    if (off.com || off.sci) {
+      const keep = toScrape.filter(c => spCalKeep(c, off));
+      spLog('📅 No classes today - ' + off.why + (keep.length ? ' - scraping only ' + keep.map(c => c.label).join(', ') : ' - scrape stopped, nothing written'), 'warn');
+      if (typeof dvToast === 'function') dvToast('📅 ' + off.why + (keep.length ? ' - only the other stream is scraped' : ' - no scrape today'), 'warn', 6000);
+      if (!keep.length) return;
+      toScrape = keep;
+    }
+  } catch (e) { spLog('📅 Calendar check failed: ' + e.message, 'warn'); }
 
   const _scrapeStartKey = spTodayKey();
   const _scrapeStartTime = Date.now();
@@ -14346,7 +14376,11 @@ async function spBfRescrape() {
 
 // ── Core: scrape all started classes and write to a specific date key ─────────
 async function spScrapeAndWriteDate(dateKey) {
-  const activeClasses = SP_CLASSES;
+  // v5.228: a holiday / exam / event / Sunday in the PUC calendar is not re-scraped (that stream only)
+  let activeClasses = SP_CLASSES;
+  try { const off = await spCalOffDay(spKeyToIso(dateKey));
+    if (off.com || off.sci) { activeClasses = SP_CLASSES.filter(c => spCalKeep(c, off)); spLog('📅 ' + dateKey + ': ' + off.why + (activeClasses.length ? ' - only ' + activeClasses.map(c => c.label).join(', ') : ' - skipped, nothing written'), 'warn'); if (!activeClasses.length) return; } }
+  catch (e) { spLog('📅 Calendar check failed: ' + e.message, 'warn'); }
   const firebasePayload = {};
   // v5.146: per-run dedup set for the timeMap MATCH/MISS diagnostic below —
   // logs once per (class, course_code) instead of once per student, so the
@@ -29773,7 +29807,7 @@ function pucCalIsHoliday(stream, dateStr) {
 // ── Public helper: returns blocking event for today (holiday/exam/event/sports/internal) ──
 // Returns { type, name } or null if regular teaching day
 function pucCalTodayStatus(stream) {
-  const today = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+  const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0,10); // v5.228: IST date (was UTC: yesterday before 5:30 am)
   const BLOCK_TYPES = new Set(['holiday','exam','event','sports','internal','working-day']);
   for (const e of (_pucCalEvents[stream] || [])) {
     if (!BLOCK_TYPES.has(e.type)) continue;
@@ -29791,8 +29825,11 @@ async function pucCalPreload() {
   await Promise.all(['com','sci'].map(async stream => {
     if (_pucCalEvents[stream].length) return; // already loaded
     try {
-      const doc = await db.collection('app_data').doc(pscfgCalDocFor(stream, activeAY)).get();
-      _pucCalEvents[stream] = (doc.exists && doc.data().events) ? doc.data().events : PUC_CAL_DEFAULTS[stream];
+      // v5.228: same read as the Calendar page (pscfgReadCalendar: AY doc, else the original doc, else built-in) -
+      // was AY doc else built-in, so a calendar saved in the original doc was ignored by the board / scraper
+      let ev = await pscfgReadCalendar(stream, activeAY);
+      if (!ev || !ev.length) ev = (activeAY === PSCFG_LEGACY_CAL_AY) ? PUC_CAL_DEFAULTS[stream] : [];
+      _pucCalEvents[stream] = ev.slice();
       _pucCalEvents[stream].sort((a,b) => a.from.localeCompare(b.from));
     } catch(e) {
       _pucCalEvents[stream] = PUC_CAL_DEFAULTS[stream];
@@ -29807,7 +29844,8 @@ async function pucCalPreload() {
 function pucCalStartLiveSync() {
   ['com','sci'].forEach(stream => {
     db.collection('app_data').doc(pscfgCalDocFor(stream, activeAY)).onSnapshot(doc => {
-      _pucCalEvents[stream] = (doc.exists && doc.data().events) ? doc.data().events : PUC_CAL_DEFAULTS[stream];
+      if (!doc.exists || !Array.isArray(doc.data().events)) return;   // v5.228: no AY doc yet -> keep what pucCalPreload loaded
+      _pucCalEvents[stream] = doc.data().events.slice();
       _pucCalEvents[stream].sort((a,b) => a.from.localeCompare(b.from));
       if (typeof pucLcbRender === 'function') pucLcbRender();
       if (typeof pucDashCalRender === 'function') pucDashCalRender();
