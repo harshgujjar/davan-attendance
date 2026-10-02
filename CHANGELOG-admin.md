@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1655 · 02-Oct-2026 IST
+
+User: PUC Faculty 15 counts people who left (they still have logins); count only those with subjects allocated, degree and PUC. PUC Faculty = distinct teachers in the PUC Commerce + Science timetables (lcbPucResolveFaculty, both of a split cell), with the per-stream counts; falls back to the PUC staff list only if no timetable is loaded. Total Faculty (degree) = distinct faculty in this semester's allocations (_fdbScopeAllocs). Staff app cards + staff widget (via Send numbers). No Firebase cost change. Functions: stwPucGlance, wgtTotalFaculty.
+
 ## v1654 · 02-Oct-2026 IST
 
 Follow-up to v1653: the staff-widget link sent the college logo as the photo for every admin; now only the Super Admin gets the logo and other admins their own photo (facPhotos). Reaches the widget on the admin's next staff-app login. Functions: hswPayload.
