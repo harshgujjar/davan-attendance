@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1635 · 02-Oct-2026 IST
+
+User: on the widget's settings screen, a list of all pages with a tick each (default yes) to show or hide them - only for the Director for now, extendable later. Staff widget w164 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 164): "Pages on my widget" with one tick per page; unticked pages disappear from the widget at once (saved on the phone). No Firebase cost change. Functions: LATEST_APK.
+
 ## v1634 · 02-Oct-2026 IST
 
 User: a new Meal ratings page as in the mockup, for wardens, Hostel Head, Manager, Director and Principal, in proper tables. Staff widget w163 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 163): "Meal ratings · today" and "Meal ratings · overall" right after Hostel. The widget works the numbers out itself from DB4 canteen/ratings + canteen/meal_log (+ canteen/override for dish names): today = 1 small read per refresh; past days are read once (range read of the missing days) and kept on the phone, so after the first day 1 new day a day. No staff-app change needed. Functions: LATEST_APK.
