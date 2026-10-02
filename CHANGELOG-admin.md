@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1625 · 02-Oct-2026 IST
+
+User: on the widget's Live class board the NOW summary with the PUC exam notes still came first; start with Degree, then PUC Commerce, then PUC Science. Staff widget w158 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 158): the summary card is gone; each part (Degree, PUC Commerce, PUC Science) has its own section, and a part with an exam / holiday shows the reason there. No data or Firebase cost change. Functions: LATEST_APK.
+
 ## v1624 · 02-Oct-2026 IST
 
 User: students (portal and widget) and faculty see no IA-1 marks. The marks reach the apps only through the scrape (app_data/students) and the PC sync script (DB2), which cannot be read from here, so a 🔍 Marks check button is added to Internal Marks: data source this phone used (Firestore or the RTDB fallback with its saved time), last scrape, and per class the students with IA-1, IA-1 / IA-2 mark counts and IA-1 counts per subject, with a 📋 Copy button. No extra reads (uses the list already loaded). Functions: imMarksCheck (new), loadFirestoreData / _loadFromRTDB (window._stuSrc).
