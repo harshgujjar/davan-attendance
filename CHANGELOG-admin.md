@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1641 · 02-Oct-2026 IST
+
+User: the PUC calendar is in the PUC app (puc.html). When no PUC calendar was ever saved in Firestore (neither puc_academic_calendar_<st>_2026-27 nor puc_academic_calendar_<st>), puc.html shows its built-in PUC_CAL_DEFAULTS (Mid-year Exam 1st & 2nd PUC, 25-Sep to 09-Oct-2026), but the staff app had no copy and saw no exam. stwPucCal now falls back to the same list (STW_PUC_CAL_DEFAULTS, copied from puc.html), exactly like pscfgReadCalendar. No extra reads. Functions: stwPucCal.
+
 ## v1640 · 02-Oct-2026 IST
 
 User: still not checking the calendar - PUC classes shown during the PUC mid-term exam. (1) The staff app's own Live Class Board for PUC Commerce / Science had no calendar check at all: on an exam / holiday / event day (PUC Calendar of Events) it now shows that instead of the classes (calendar re-read at most every 10 min, 2 small Firestore reads). (2) A PUC exam written in the college Calendar of Events (name or "for" mentions PUC; Commerce / Science in the name = that stream only) now counts for PUC too, on the board and in the data sent to the staff widget. Functions: stwPucCal, lcbPucOffLoad, lcbPucOffBanner, lcbPucRender.
