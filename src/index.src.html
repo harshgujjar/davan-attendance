@@ -3953,6 +3953,7 @@
               <option value="visiting">Visiting Faculty</option>
               <option value="principal">Principal</option>
               <option value="manager">Manager</option>
+              <option value="admin" class="um-super-only" style="display:none;">Admin (full access, like the Director)</option>
               <option value="warden:boys">Boys Hostel Warden</option>
               <option value="warden:girls">Girls Hostel Warden</option>
               <option value="hostel_head">Hostel Head (both hostels, full control)</option>
@@ -17313,10 +17314,17 @@ async function umAddToStaffDirectory(u) {
   } catch (e) { console.warn('[UM] add to Staff Directory failed', e.message); }
 }
 // v1523: lower-case, spaces -> ".", only a-z 0-9 . _ - (valid in an email address)
+// v1645 SUPER ADMIN (user, 02-Oct-2026): more people can have the Admin role (full access, everything the admin sees).
+// The Director's own login (username "admin", or superAdmin:true on the account) is the Super Admin: only he can
+// create / promote / delete admins, and other admins cannot see, edit, reset or delete his account.
+function umIsSuper(u) { return !!u && u.role === 'admin' && (String(u.username || '').toLowerCase() === 'admin' || u.superAdmin === true); }
+function umMeSuper() { return typeof currentProfile !== 'undefined' && (umIsSuper(currentProfile) || (!!currentProfile && currentProfile.role === 'admin' && typeof currentUser !== 'undefined' && !!currentUser && String(currentUser.email || '').toLowerCase() === 'admin@davan.local')); }
+function umGuardSuper(u, what) { if (umIsSuper(u) && !umMeSuper()) { dvToast('\u{1F512} Only the Super Admin can ' + what + ' the Super Admin account', 'warn', 6000); return false; } return true; }
 function umCleanUsername(s) {
   return String(s || '').trim().toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9._-]/g, '').replace(/\.{2,}/g, '.').replace(/^[.]+|[.]+$/g, '');
 }
 async function umCreateUser() {
+  if (document.getElementById('um-role')?.value === 'admin' && !umMeSuper()) { dvToast('\u{1F512} Only the Super Admin can create an admin', 'warn', 6000); return; }
   const name       = document.getElementById('um-name')?.value.trim();
   // v1523: the username becomes the login email (<username>@davan.local), so it must not contain
   // spaces or symbols - "Rangaswammy Gs" failed with auth/invalid-email. Now -> "rangaswammy.gs".
@@ -17404,6 +17412,7 @@ async function umCreateUser() {
 }
 
 async function umResetPassword(uid, name) {
+  try { const d = await db.collection('users').doc(uid).get(); if (!umGuardSuper(d.data(), 'change the password of')) return; } catch (e) {}
   const newPass = prompt(`New password for ${name} (min 6 characters):`);
   if (!newPass) return;
   if (newPass.length < 6) { dvAlert('Password Too Short', 'Password must be at least 6 characters.', {icon:'🔑'}); return; }
@@ -17484,6 +17493,9 @@ async function umResetPassword(uid, name) {
 }
 
 async function umDeleteUser(uid, name) {
+  try { const d = await db.collection('users').doc(uid).get(), u = d.data() || {};
+    if (umIsSuper(u)) { dvToast('\u{1F512} The Super Admin account cannot be deleted', 'warn', 6000); return; }
+    if (u.role === 'admin' && !umMeSuper()) { dvToast('\u{1F512} Only the Super Admin can delete an admin', 'warn', 6000); return; } } catch (e) {}
   dvConfirm('Delete Account', `Delete account for ${name}? This cannot be undone.`, async () => {
     try {
       await db.collection('users').doc(uid).delete();
@@ -17610,6 +17622,10 @@ async function umSaveEdit(uid) {
   const fk        = document.getElementById('edit-fk-' + uid)?.value.trim();
   const ci        = document.getElementById('edit-ci-' + uid)?.value.trim();
   const msgEl     = document.getElementById('edit-msg-' + uid);
+  try { const d = await db.collection('users').doc(uid).get(), cur = d.data() || {};   // v1645
+    if (!umGuardSuper(cur, 'edit')) return;
+    if (umIsSuper(cur) && role !== 'admin') { msgEl.style.color='var(--danger)'; msgEl.textContent='\u26A0 The Super Admin stays Admin.'; return; }
+    if ((role === 'admin') !== (cur.role === 'admin') && !umMeSuper()) { msgEl.style.color='var(--danger)'; msgEl.textContent='\u{1F512} Only the Super Admin can make someone an admin or remove an admin.'; return; } } catch (e) {}
   if (!name || !username) { msgEl.style.color='var(--danger)'; msgEl.textContent='⚠ Name and username required.'; return; }
   dvToast('Saving…', 'info', 8000);
   try {
@@ -17743,7 +17759,14 @@ async function _umRenderList() {
   if (Date.now() - (window._hcSyncAt || 0) > 15 * 60e3) { window._hcSyncAt = Date.now();
     hcSyncHostelLogins(users).catch(e => { window._hcSyncAt = 0; console.warn('[hostel logins]', e.message); dvToast('\u26A0 Hostel logins not saved: ' + e.message, 'error', 8000); }); }   // v1540; v1544 shows errors
   const roleColor = { admin:'var(--accent)', manager:'#60a5fa', vp:'#a78bfa', fulltime:'var(--ok)', visiting:'var(--muted)' };
-  wrap.innerHTML = users.map(u => `
+  document.querySelectorAll('.um-super-only').forEach(o => { o.style.display = umMeSuper() ? '' : 'none'; });   // v1645
+  const _meSuper = umMeSuper();
+  users.sort((a, b) => (umIsSuper(b) ? 1 : 0) - (umIsSuper(a) ? 1 : 0));
+  wrap.innerHTML = users.map(u => (umIsSuper(u) && !_meSuper) ? `
+    <div style="background:var(--surface);border:1px solid var(--accent);border-radius:8px;margin-bottom:10px;padding:12px 16px;">
+      <strong style="font-size:14px;">${u.name}</strong>
+      <span style="font-size:10px;font-family:var(--mono);padding:2px 8px;border-radius:4px;margin-left:8px;background:rgba(255,255,255,0.06);color:var(--accent)">\u2B50 Super Admin</span>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">\u{1F512} Only the Super Admin can change this account.</div></div>` : `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;overflow:hidden;">
       <!-- Header row -->
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:12px 16px;">
@@ -17751,14 +17774,14 @@ async function _umRenderList() {
           <strong style="font-size:14px;">${u.name}</strong>
           <span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px;">@${u.username||u.id}</span>
           <span style="font-size:10px;font-family:var(--mono);padding:2px 8px;border-radius:4px;margin-left:8px;
-            background:rgba(255,255,255,0.06);color:${roleColor[u.role]||'#888'}">${roleLabel[u.role]||u.role}</span>
+            background:rgba(255,255,255,0.06);color:${roleColor[u.role]||'#888'}">${umIsSuper(u) ? '\u2B50 Super Admin' : (roleLabel[u.role]||u.role)}</span>
           ${u.facultyKey?('<div style="font-size:11px;color:var(--muted);margin-top:4px;">🔑 '+u.facultyKey+'</div>'):''}
           ${u.classIncharge?('<div style="font-size:11px;color:var(--muted);">📌 '+u.classIncharge+'</div>'):''}
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button onclick="umToggleEdit('${u.id}')"
             style="background:transparent;color:#60a5fa;border:1px solid #60a5fa;border-radius:6px;padding:5px 11px;font-size:11px;cursor:pointer;">✏️ Edit</button>
-          ${u.role!=='admin'?('<button onclick="umDeleteUser(\''+u.id+'\',\''+u.name.replace(/'/g,"&#39;")+'\')" style="background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:6px;padding:5px 11px;font-size:11px;cursor:pointer;">🗑 Delete</button>'):''}
+          ${(u.role!=='admin' || (_meSuper && !umIsSuper(u)))?('<button onclick="umDeleteUser(\''+u.id+'\',\''+u.name.replace(/'/g,"&#39;")+'\')" style="background:transparent;color:var(--danger);border:1px solid var(--danger);border-radius:6px;padding:5px 11px;font-size:11px;cursor:pointer;">🗑 Delete</button>'):''}
         </div>
       </div>
       <!-- Inline edit panel (hidden by default) -->
@@ -17787,7 +17810,7 @@ async function _umRenderList() {
               <option value="principal" ${u.role==='principal'?'selected':''}>Principal</option>
               <option value="vp" ${u.role==='vp'?'selected':''} style="display:none;">Vice Principal (legacy)</option>
               <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
-              <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+              ${(_meSuper || u.role==='admin') ? `<option value="admin" ${u.role==='admin'?'selected':''}>${umIsSuper(u) ? 'Super Admin' : 'Admin (full access)'}</option>` : ''}
               <option value="warden:boys" ${u.role==='warden' && u.wardenOf==='boys'?'selected':''}>Boys Hostel Warden</option>
               <option value="warden:girls" ${u.role==='warden' && u.wardenOf==='girls'?'selected':''}>Girls Hostel Warden</option>
               <option value="hostel_head" ${u.role==='hostel_head'?'selected':''}>Hostel Head (both hostels, full control)</option>
@@ -18564,7 +18587,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1644;  // always = HTML footer version number
+const CODE_BUILD = 1645;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29414,6 +29437,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1645', date: '02-Oct-2026 IST', note: 'More admins: the Super Admin (the Director\'s own login) can now create Admin accounts with full access in User Management; only the Super Admin can add, remove or delete admins, and nobody else can see or change the Super Admin account.' },
 { v: 'v1644', date: '02-Oct-2026 IST', note: 'New 📅 PUC calendar check (next to Send numbers to widgets): one table with what the staff app reads from the PUC calendars, what it says for today and what the widgets were last sent - with Copy.' },
 { v: 'v1643', date: '02-Oct-2026 IST', note: 'Staff widget w167: every staff member can choose the pages on their widget and which calendars it shows (Degree, PUC Commerce, PUC Science); the PUC Principal (Sumitra K T) gets the PUC Commerce and Science calendars only.' },
 { v: 'v1642', date: '02-Oct-2026 IST', note: 'PUC exam days: a "Working Day" (e.g. Gandhi Jayanti 02-Oct) inside the mid-term exam no longer brings the classes back - the exam wins, on the Live Class Board and the staff widget.' },
@@ -29428,7 +29452,6 @@ const HTML_CHANGELOG = [
 { v: 'v1633', date: '02-Oct-2026 IST', note: 'Staff widget w162: a Manager (e.g. Lalitha) sees only Hostel (home), Calendar, News & rates and Stars.' },
 { v: 'v1632', date: '02-Oct-2026 IST', note: 'Staff widget w161: resident staff now count in the hostel Grand total; allowing the widget to install updates is step 1 and required, so new versions always install.' },
 { v: 'v1631', date: '02-Oct-2026 IST', note: 'Staff widget w160: In hostel now shows Students in, Guests, Resident staff, Wardens and the Grand total.' },
-{ v: 'v1630', date: '02-Oct-2026 IST', note: 'Faculty login screen: staff whose photo is only in the PUC list (e.g. SUMITHRA K T) now show their photo while typing the password too - those photos are copied into the shared faculty photo list.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -81752,7 +81775,7 @@ async function hswLog(code, prevUrn, newUrn, via, blocked, why) {
 function hswPayload(p, key) {
   const name = p.name || hswUser();
   const photo = p.role === 'admin' ? new URL('icon-student_portal-192.png', location.href).href : ((typeof facPhotos !== 'undefined' && facPhotos[_facKey(name)]) || p.photo || p.photoUrl || '');
-  return { urn: key, name, class: p.role === 'resident' ? (p.title || 'Resident staff') : (HSW_TITLE[p.role] || p.role), updatedAt: Date.now(), hostelOnly: true,
+  return { urn: key, name, class: p.role === 'resident' ? (p.title || 'Resident staff') : (p.role === 'admin' && !umIsSuper(p)) ? 'Admin' : (HSW_TITLE[p.role] || p.role),   /* v1645: other admins "Admin", the Director = Super Admin */ updatedAt: Date.now(), hostelOnly: true,
     hoKind: p.role === 'resident' ? 'resident' : 'staff', hostelId: p.role === 'resident' ? (p.wardenOf === 'girls' ? 'girls' : 'boys') : (p.wardenOf || ''),
     dob: p.dob || '', hoRole: p.role, staffUid: hcUid(), photo, phone: p.phone || '', login: hswUser(),   // v1557: phone + login name for the widget header (w108)
     facKeys: [...new Set([p.facultyKey, p.name, FACULTY_NAME_ALIASES[p.facultyKey], FACULTY_NAME_ALIASES[p.name]].filter(Boolean))], dept: p.title || p.dept || '',   // v1571: widget w140 finds this person's faculty pages by these names

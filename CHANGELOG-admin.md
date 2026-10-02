@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1645 · 02-Oct-2026 IST
+
+User: add 2 more admins with all admin rights; only the Director is "Super Admin". User Management: "Admin (full access)" in Create account and in Edit role, shown only to the Super Admin (username admin / admin@davan.local, or superAdmin:true). Only the Super Admin can make, remove or delete admins; other admins see the Super Admin as a locked card (no password, edit, reset or delete). Their staff widget says "Admin" (the Director's says Director). No Firebase cost change. Functions: umIsSuper, umMeSuper, umGuardSuper, umCreateUser, umSaveEdit, umResetPassword, umDeleteUser, _umRenderList, hswPayload.
+
 ## v1644 · 02-Oct-2026 IST
 
 User: the widget still does not show the PUC calendar. New 📅 PUC calendar check button (staff widget box, next to Send numbers): table per stream - which calendar doc was read (saved 2026-27 / saved original / built-in) and any read error, events, what the app says for today, which app build last sent the widget data, PUC events sent and what the widgets say for today, events around today; 📋 Copy. Reads: the 2 PUC calendar docs + 2 small DB2 reads, only when pressed. Functions: stwPucCalCheck, stwPucCal.
