@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1608 · 02-Oct-2026 IST
+
+Student widget w124 released (LATEST_STUDENT_WIDGET_APK_V 124): page 2 showed "No internal exam" although IA-1 marks exist - the widget took only whole-number marks, so marks stored as text, half marks or AB were skipped. Pairs with portal v10.54. Functions: LATEST_STUDENT_WIDGET_APK_V.
+
 ## v1607 · 02-Oct-2026 IST
 
 User: show faculty what they taught last and what is next from the lesson plan, a calendar page for all faculty, Sl No and aligned tables everywhere, page 3 as the mockup, and check faculty notifications. stwPublish now adds the lesson-plan position to each faculty class and syllabus row (last taught Sl No = newest check mark, next = first unchecked after it; matched by faculty, subject, section and semester) in DB2 davan_pub/staff_pub/fac/<name> - same publish, slightly larger. Faculty Alerts gets a Notification check (web push sent today / yesterday from app_data/fa_fired, who is subscribed, each staff widget's version / notifications / on-time alerts, this phone) with a Copy button - 2 Firestore reads + 1 DB2 read per tap. Pairs with staff widget w149 (DavanWidget.apk, davan-widget-version.json, LATEST_APK 149) and student widget w123 (LATEST_STUDENT_WIDGET_APK_V 123, portal v10.53). Functions: stwPublish (lpPos, ttLp), faNotifCheck (new).
