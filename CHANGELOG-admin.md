@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1664 · 02-Oct-2026 IST
+
+User: if Veeresh logs in on his phone, Veeresh must not see page 2 or anything of his - show Veeresh's own data; only his Admin login shows the admin view + page 2 (Open as, Back to me). swLink links the widget to whoever logs in again (the v1660 lock and v1663 quiet refusal are gone); sup:true only for the Super Admin's own login (widget w169 clears the view-as choice and hides page 2 when sup is false). Pairs with portal v10.69. Functions: swLink, hswPayload.
+
 ## v1663 · 02-Oct-2026 IST
 
 User: why this master-password box - he can log in as Veeresh directly. swLink no longer prompts: a non-Super-Admin login on the Super Admin's phone leaves his staff widget as it is (quietly); testing other people is page 2 "Open as" (w169). Functions: swLink.
