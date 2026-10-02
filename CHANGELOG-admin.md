@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1628 · 02-Oct-2026 IST
+
+User: SUMITHRA K T's photo showed, then not in the Staff Directory. The PUC photo fallback (v1626) only had the PUC list after the PUC board loaded and redrew only the Live Class Board; the Staff Directory drew first and showed initials. facPreloadPhotos now also reads RTDB puc_faculty (small) and adds those photos for anyone without a degree photo (degree photos win), so every page has them on the first draw. Cost: 1 small RTDB read per app open (was read later anyway). Functions: facPreloadPhotos.
+
 ## v1627 · 02-Oct-2026 IST
 
 User: one name per person - degree staff should use the same spelling as the PUC staff list (Trupthi Jannu, SUMITHRA K T), from the source so it shows the same everywhere. Staff Directory gets 🔗 Match names with PUC: it lists degree names whose spelling differs from a PUC name (same first name ignoring "h", same initials) with the PUC photo and a "Use this name" button, plus a manual rename. Renaming changes the name in app_data/staff_directory and app_data/allocations (+ RTDB davan_pub/allocations, local caches) and writes old -> new to RTDB davan_pub/faculty_renames; every app open loads those into FACULTY_NAME_ALIASES both ways, so logins, photos, lesson plans and data under the old spelling still match. Photos also match by that name key before any rename. Cost: 1 small RTDB read per app open; writes only on a rename. Functions: facLoadRenames, facApplyRenames, facRenameEverywhere, facNameMatchOpen, _facRenKey (new), _pucFacPhoto, loadFirestoreData.
