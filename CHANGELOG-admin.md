@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1632 · 02-Oct-2026 IST
+
+User: resident staff are there but not in the total; in the widget's settings show the install permission first and make it mandatory so new versions can be pushed. Staff widget w161 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 161): resident staff count with or without a room; "Install unknown apps" is a required STEP 1 (red button at the top, the app opens the setting by itself, a red row on every widget page until allowed). No Firebase cost change. Functions: LATEST_APK.
+
 ## v1631 · 02-Oct-2026 IST
 
 User: In hostel now - show the total and a grand total with wardens and resident staff. Staff widget w160 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 160): boys / girls count students only, then Students in, Guests · Resident staff · Wardens, and Grand total (wardens from DB4 hostel/config/hostels/<id>/wardens, already read). No new reads. Functions: LATEST_APK.
