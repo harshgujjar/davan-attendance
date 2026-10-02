@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1614 · 02-Oct-2026 IST
+
+User: make the staff widget's faculty Today page match the app's My classes today card, with the progress bar and a proper table. Staff widget w151 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 151): NOW / NEXT / THEN cards with last class / teach today (#Sl No + topic), topic bar, a 2-hour lab as one class, numbered day table. stwPublish now gives each faculty class's lesson plan the class before today, the Sl Nos ticked today and the next 4 open topics (DB2 davan_pub/staff_pub/fac/<name>, about 300 bytes more per class; same publish). Functions: stwPublish (lpRich; ttLp2 removed).
+
 ## v1613 · 02-Oct-2026 IST
 
 User: make the widget's Live class board the home page (page 1) and show every class like the staff app's board - Degree first, then PUC - so the Director sees which classes are running and who is taking them. Staff widget w150 released with it (DavanWidget.apk, davan-widget-version.json, LATEST_APK 150). stwPublish now adds each degree class's lesson-plan position (last Sl No, today's Sl No + topic) to DB2 davan_pub/staff_pub/board/<Day> - same publish, about 3-5 KB more per day; the widget reads it once a day. Functions: stwPublish.
