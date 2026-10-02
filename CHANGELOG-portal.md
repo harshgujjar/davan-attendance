@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v10.72 (2026-10-02) -- Student widget w132 released (LATEST_STUDENT_WIDGET_APK 132): page 2 has a "Page 1 - widget settings" button back to page 1. Pairs with staff app v1667 / staff widget w171.
 VERSION : v10.71 (2026-10-02) -- Student widget w131 released (LATEST_STUDENT_WIDGET_APK 131): page 2 "Open as" shows student photos once 2+ letters are typed and 20 or fewer match (davan_student_photos/<URN> link + Cloudinary thumbnail, ~0.1 MB per search). Pairs with staff app v1666.
 VERSION : v10.70 (2026-10-02) -- Student widget w130 released (LATEST_STUDENT_WIDGET_APK 130): page 2 "Open as" shows each student's URN + phone with Call / Copy, saves the choice at once (the widget stayed on the linked student) and has a check line with Copy. Pairs with staff app v1665 / staff widget w170.
 VERSION : v10.69 (2026-10-02) -- User: on the admin's phone the student widget follows the login - a student's own password links it to that student (no adm flag, so no page 2 in the widget settings app); the master password (admin view) links with adm:true = page 2 "Open as" + Back to me. The v10.67 refusal of EMTH7Q is removed. Pairs with staff app v1664. Functions: pairing write, manual code entry.

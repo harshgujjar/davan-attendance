@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1667 · 02-Oct-2026 IST
+
+User: a button to go to page 1 in both widgets' settings apps. Staff widget w171 + student widget w132 released (APKs, version jsons, LATEST_APK 171, LATEST_STUDENT_WIDGET_APK_V 132): "Page 1 · widget settings" at the top of page 2. Pairs with portal v10.72. Functions: LATEST_APK, LATEST_STUDENT_WIDGET_APK_V.
+
 ## v1666 · 02-Oct-2026 IST
 
 User: add student photos to page 2 the light way. Student widget w131 released (Davan.Student.apk + test, LATEST_STUDENT_WIDGET_APK_V 131): photos only after 2+ letters and at most 20 matches - DB2 davan_student_photos/<URN> (~100 B each) + ~5 KB Cloudinary thumbnails, about 0.1 MB per search on the admin's phone only. Pairs with portal v10.71. Functions: LATEST_STUDENT_WIDGET_APK_V.
