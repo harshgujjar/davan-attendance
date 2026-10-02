@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1674 · 02-Oct-2026 IST
+Staff widget w174 released (LATEST_APK 174). User: "still not showing horoscope" (Smitha on page 2). The widget kept a copy of the person taken when picked on page 2, so the DOB added in v1673 never reached it; it now refreshes that person from DB2 davan_pub/view_as/staff/<key> (1 small read, at most every 30 minutes, only while viewing someone). Widget: Sync.run.
+
 ## v1673 · 02-Oct-2026 IST
 User: "they have added DOB but still not showing her horoscope" (Vijayalakshmi P S, opened on widget page 2). The page 2 list dropped the date of birth, so the horoscope was empty; it is now kept. Data: DB2 davan_pub/view_as gains `dob` per staff (the same one write when the list changes). Function: stwPublishViewAs.
 
