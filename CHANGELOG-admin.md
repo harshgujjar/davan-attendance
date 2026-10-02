@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1649 · 02-Oct-2026 IST
+
+User: Priyanka V's photo is not seen on a student's widget (Attendance page showed "PV"). The student widget fetched teacher photos only for today's and tomorrow's timetable, so a teacher with no class in those two days never got one. Student widget w127 released (Davan.Student.apk + test, LATEST_STUDENT_WIDGET_APK_V 127): Attendance and 100% lists included (at most 8 new photos per refresh, from DB2 davan_pub/faculty_photos, kept on the phone). Pairs with portal v10.64. Functions: LATEST_STUDENT_WIDGET_APK_V.
+
 ## v1648 · 02-Oct-2026 IST
 
 User: Kannada s20 and Hindi s20 for the same class - on what basis? s = students whose attendance record (scraped college portal, allStudents) has the subject, ct = the most classes held for it. The portal lists both Kannada and Hindi on every student, so each language counted the whole class. Now a student counts only in the language with more classes attended (ca); with nothing attended yet or a tie, in both as before. Applies to the Live Class Board and the staff widget. No Firebase cost change. Functions: lcbBuildCtMaps.
