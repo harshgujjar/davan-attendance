@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1647 · 02-Oct-2026 IST
+
+User: the Kannada / Hindi box showed one count (s60 · ct39) though Kannada (Kotrappa K, s30) and Hindi (Rekha M R, s30) have their own students and classes taken. The combined count is gone; each teacher line shows its own language's (sN · ctN); the staff widget gets "Kannada (s30 · ct39) / Hindi (s30 · ctNN)" as the subject and no combined count. No Firebase cost change. Functions: lcbStatsFor, lcbBuildPanel, stwDegDay.
+
 ## v1646 · 02-Oct-2026 IST
 
 User: (1) the side panel's Admin section and all its pages only for him (Super Admin), not other admins or the Manager; (2) Kannada and Hindi - combined (B.Com + BBA), split by students, or only one in the timetable - must always show as one box with both languages and both teachers with photos, on the board, the student app and the student widget. (1) applySidebarForRole hides the Admin card for non-super logins and switchPanel refuses its pages (SUPER_ONLY_PANELS). (2) New lmLangPairs (slot allocations + every Kannada / Hindi allocation of the class): Live Class Board card says "Kannada / Hindi" with one teacher line + photo each (faculty filter matches either), stwDegDay sends the same to the staff widget (sub, fs). Student widget w126 released (Davan.Student.apk + test, LATEST_STUDENT_WIDGET_APK_V 126). Pairs with portal v10.63. No Firebase cost change. Functions: lmLangPairs, lmLangLabel, lmLangFacs, lcbBuildPanel, stwDegDay, applySidebarForRole, switchPanel.
