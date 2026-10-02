@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1617 · 02-Oct-2026 IST
+
+User: check the student widget for the same lab / theory mix-up. Student widget w125 released live (Davan.Student.apk, Davan.Student-test.apk, student-widget-test.json, LATEST_STUDENT_WIDGET_APK_V 125): its lesson-plan match now prefers a plan of the same kind (lab / theory). Pairs with portal v10.55. No Firebase cost change. Functions: LATEST_STUDENT_WIDGET_APK_V.
+
 ## v1616 · 02-Oct-2026 IST
 
 User: lab and theory have different lesson plans, but the theory class showed the lab's (ADA theory got "ADAP - LAB", 32/42, instead of its own 41/50). The theory code "ADA" is a prefix of the lab code "ADAP", so the prefix match took the lab plan. A lab class now only takes a lab lesson plan and a theory class only a theory one (any plan only when none of the right kind exists) - in My classes today, the widget Today page and the widget board. Staff widget w153 released (Sl No shown in full, no false "all topics done"; DavanWidget.apk, davan-widget-version.json, LATEST_APK 153). No Firebase cost change. Functions: lpKeyForTt.
