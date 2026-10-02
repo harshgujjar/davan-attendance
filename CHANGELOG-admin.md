@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1660 · 02-Oct-2026 IST
+
+User: the admin's widget codes must never be swapped by any student (or anyone) now or in future. swLink refuses SUPER_WIDGET_CODES (S-7UP47U) for any login but the Super Admin (the staff app on his phone with someone else logged in no longer moves his widget). Pairs with portal v10.67 (students can never link EMTH7Q). No Firebase cost change. Functions: swLink.
+
 ## v1659 · 02-Oct-2026 IST
 
 User: fix "lab = 2 hours" in every app and widget. stwDegDay merges back-to-back periods of the same lab (class + timetable code) into one row, end = first end + second period length (no break), so the staff widget's Live class board / Today / reminders get one 2-hour lab; My classes today and widgets w128 / w168 already did (v1658). Pairs with portal v10.66 (timetable + Now / Next). The staff app's Live Class Board stays per hour slot (a 2-hour lab shows in both of its hours). No Firebase cost change. Functions: stwDegDay.
