@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1612 · 02-Oct-2026 IST
+
+User: labs are two hours. On the faculty dashboard My classes today card, back-to-back lab periods of the same class and subject (gap up to 15 min) are now one card (e.g. 8:30 - 10:30, B1 · Lab 1 + 2) with one "teach today" topic, so later classes of that subject get the right next Sl No. No data or Firebase cost change. Functions: fdbTodayLpRender.
+
 ## v1611 · 02-Oct-2026 IST
 
 User: could not log in as admin - "Firebase: The current environment does not support the specified persistence type (auth/unsupported-persistence-type)". Sign-in set Firebase persistence from Remember me (SESSION when off) and stopped when the phone refused it. Now the wanted type is tried, then LOCAL, SESSION and NONE, and sign-in always continues. No data or Firebase cost change. Functions: dvSetPersistence (new), doFacultyLogin, doFirebaseLogin, _ensureAuth.
