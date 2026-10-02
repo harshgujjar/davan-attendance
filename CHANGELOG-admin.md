@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1642 · 02-Oct-2026 IST
+
+User's PUC calendars: Mid-Term Exam 28-Sep to 03-Oct and 02-Oct Gandhi Jayanti as a Working Day. The rule "a Working Day cancels any day off" turned today back into a class day, so the board and widget showed PUC classes. Now an exam / internal test wins over a Working Day; a Working Day still cancels a holiday / event / sports day / Sunday. Working Days inside an exam are not sent to the widget (its first match decides), so no widget change. Pairs with puc.html v5.229. Functions: stwPucOffToday, stwPublish.
+
 ## v1641 · 02-Oct-2026 IST
 
 User: the PUC calendar is in the PUC app (puc.html). When no PUC calendar was ever saved in Firestore (neither puc_academic_calendar_<st>_2026-27 nor puc_academic_calendar_<st>), puc.html shows its built-in PUC_CAL_DEFAULTS (Mid-year Exam 1st & 2nd PUC, 25-Sep to 09-Oct-2026), but the staff app had no copy and saw no exam. stwPucCal now falls back to the same list (STW_PUC_CAL_DEFAULTS, copied from puc.html), exactly like pscfgReadCalendar. No extra reads. Functions: stwPucCal.
