@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1637 · 02-Oct-2026 IST
+
+User: the hostel shows 0 on leave though a leave exists. K.Pratyusha's leave was approved but nobody tapped "Mark gone out" (and it has already ended), so she was counted in the hostel and the widget had no small list of approved leaves to show. New DB4 node hostel/leave_ok/{urn}_{id} = {hostelId, name, from, to}: written when a leave is approved / added approved, removed when it is rejected / changed; the Leave page re-syncs it at most once a minute (1 small read + a few writes only when something differs). Staff widget w166 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 166) lists these leaves under In hostel. Functions: hcLeaveOkSet, hcLeaveOkSync, hcLeaveAct, hcRenderLeave.
+
 ## v1636 · 02-Oct-2026 IST
 
 User: is the Apps & widgets data right; show app and widget as two numbers. (1) The Student widgets box counted every widget link ever stored in DB2 davan_pub/student_widget_active (183) - old links after reinstalls, students who left and the admin's test phone - while the student app's Widget tab counts current students with one widget each (76). stwUsage now keeps only current students (allStudents), the newest link per student, and leaves out the admin phone (EMTH7Q). (2) davan_pub/usage/<today> is read in full (was keys only, ~60 KB per send) so app users (reads / sessions) and widget users (widgetFetches) are counted apart, plus both and total. Staff widget w165 shows both as tables (DavanWidget.apk, davan-widget-version.json, LATEST_APK 165). Functions: stwUsage.
