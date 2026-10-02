@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1629 · 02-Oct-2026 IST
+
+User: tapping the staff widget opened an older app (v1627 while the icon had v1628, no photo) and asked for the password every time even after logging in. (1) The widget opened index.html?swdev=..., which the phone cached separately from index.html; staff widget w159 opens index.html#swdev=... (same address as the icon; the app reads the code from the hash, also on hashchange). (2) Sign-in without Remember me uses session-only persistence, and each widget tap is a new app window; on a phone with the staff widget, Remember me now starts ticked. No Firebase cost change. Pairs with staff widget w159 (DavanWidget.apk, davan-widget-version.json, LATEST_APK 159). Functions: swdev capture (IIFE).
+
 ## v1628 · 02-Oct-2026 IST
 
 User: SUMITHRA K T's photo showed, then not in the Staff Directory. The PUC photo fallback (v1626) only had the PUC list after the PUC board loaded and redrew only the Live Class Board; the Staff Directory drew first and showed initials. facPreloadPhotos now also reads RTDB puc_faculty (small) and adds those photos for anyone without a degree photo (degree photos win), so every page has them on the first draw. Cost: 1 small RTDB read per app open (was read later anyway). Functions: facPreloadPhotos.
