@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1626 · 02-Oct-2026 IST
+
+User: Sumitra K T and Trupti J teach PUC and degree; their photo is uploaded in the PUC staff list but the degree board showed initials. _facPhotoUrl now falls back to the PUC staff photos (RTDB puc_faculty, name / PUC alias / faculty alias), loading that small node once when needed and redrawing the Live Class Board. The staff widget already used PUC photos. One small RTDB read per app open, only when a photo is missing. Functions: _facPhotoUrl, _pucFacPhoto (new).
+
 ## v1625 · 02-Oct-2026 IST
 
 User: on the widget's Live class board the NOW summary with the PUC exam notes still came first; start with Degree, then PUC Commerce, then PUC Science. Staff widget w158 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 158): the summary card is gone; each part (Degree, PUC Commerce, PUC Science) has its own section, and a part with an exam / holiday shows the reason there. No data or Firebase cost change. Functions: LATEST_APK.
