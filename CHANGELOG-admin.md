@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1636 · 02-Oct-2026 IST
+
+User: is the Apps & widgets data right; show app and widget as two numbers. (1) The Student widgets box counted every widget link ever stored in DB2 davan_pub/student_widget_active (183) - old links after reinstalls, students who left and the admin's test phone - while the student app's Widget tab counts current students with one widget each (76). stwUsage now keeps only current students (allStudents), the newest link per student, and leaves out the admin phone (EMTH7Q). (2) davan_pub/usage/<today> is read in full (was keys only, ~60 KB per send) so app users (reads / sessions) and widget users (widgetFetches) are counted apart, plus both and total. Staff widget w165 shows both as tables (DavanWidget.apk, davan-widget-version.json, LATEST_APK 165). Functions: stwUsage.
+
 ## v1635 · 02-Oct-2026 IST
 
 User: on the widget's settings screen, a list of all pages with a tick each (default yes) to show or hide them - only for the Director for now, extendable later. Staff widget w164 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 164): "Pages on my widget" with one tick per page; unticked pages disappear from the widget at once (saved on the phone). No Firebase cost change. Functions: LATEST_APK.
