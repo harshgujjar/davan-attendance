@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1650 · 02-Oct-2026 IST
+
+User's DB2 usage report: index.html read the whole davan_pub/lessonPlan (655 KB) 85 times today = 54 MB, a third of all DB2 downloads (it was kept only 5 minutes in memory). The plans are now kept on the phone (IndexedDB davan_lp_cache): each open reads davan_pub/lessonPlan?shallow (~2 KB) + each subject's updated_at (~30 B each) and downloads only changed subjects; more than half changed (after a scraper sync) or a copy older than 3 days = one full read as before. Expected: ~5 KB per open between syncs instead of 655 KB. Functions: _lpFetchCurrent, _lpDb2Q, _lpcGet, _lpcPut, _lpFetch.
+
 ## v1649 · 02-Oct-2026 IST
 
 User: Priyanka V's photo is not seen on a student's widget (Attendance page showed "PV"). The student widget fetched teacher photos only for today's and tomorrow's timetable, so a teacher with no class in those two days never got one. Student widget w127 released (Davan.Student.apk + test, LATEST_STUDENT_WIDGET_APK_V 127): Attendance and 100% lists included (at most 8 new photos per refresh, from DB2 davan_pub/faculty_photos, kept on the phone). Pairs with portal v10.64. Functions: LATEST_STUDENT_WIDGET_APK_V.

@@ -18595,7 +18595,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1649;  // always = HTML footer version number
+const CODE_BUILD = 1650;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29461,6 +29461,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1650', date: '02-Oct-2026 IST', note: 'Less data: the lesson plans are kept on the phone and only the subjects that changed are downloaded (the whole 655 KB was read on every open - 54 MB today, a third of all use).' },
 { v: 'v1649', date: '02-Oct-2026 IST', note: 'Student widget w127: the Attendance page now shows every teacher\'s photo (before, only teachers with a class today or tomorrow had one - e.g. Priyanka V showed PV).' },
 { v: 'v1648', date: '02-Oct-2026 IST', note: 'Kannada / Hindi student counts: a student now counts only in the language they attend (the one with more classes attended) - the college portal lists both languages for everyone, so each showed the whole class.' },
 { v: 'v1647', date: '02-Oct-2026 IST', note: 'Kannada / Hindi box: students and classes taken are now shown separately for each language, next to its teacher (they were added together as one number).' },
@@ -29475,7 +29476,6 @@ const HTML_CHANGELOG = [
 { v: 'v1638', date: '02-Oct-2026 IST', note: 'New ⭐ Meal ratings page (Hostel menu, for wardens, Hostel Head, Manager, Director, Principal, VP): a text summary with Copy / WhatsApp, then tables - today by meal, week at a glance, by meal (today / week / last week / month), boys and girls hostel, best and lowest dishes, reasons, what students wrote, low alerts and the daily table.' },
 { v: 'v1637', date: '02-Oct-2026 IST', note: 'Hostel: an approved leave that nobody marked gone out now shows on the staff widget (Approved, not marked out, with a warning when the leave has already ended). Widget w166.' },
 { v: 'v1636', date: '02-Oct-2026 IST', note: 'Staff widget Apps & widgets page: students who used the app and students whose widget was active today are now two separate numbers; the student widget counts match the student app (current students, one widget each, your phone not counted).' },
-{ v: 'v1635', date: '02-Oct-2026 IST', note: 'Staff widget w164: the Director can choose which pages his widget shows - a tick per page on the widget settings screen, all on by default.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -79646,6 +79646,39 @@ async function _lpFetchArchiveFromDb4() {
 let _lpHasArchive = false;
 function _lpViewingArchive() { return (typeof _semCurrentKey !== 'undefined' && _semCurrentKey && _semCurrentKey !== '__live__'); }
 function _lpNeedArchive() { return _lpViewingArchive() && !_lpHasArchive; }
+// v1650 LESSON PLAN CACHE (user's DB2 report 02-Oct: the staff app read the whole davan_pub/lessonPlan, 655 KB, 85 times =
+// 54 MB in one day - a third of all DB2 downloads). The plans are kept on the phone (IndexedDB, not localStorage - too big);
+// each open reads only the subject keys (shallow) + every subject's updated_at (a few bytes each) and downloads just the
+// subjects that changed. The scraper stamps updated_at on each sync, so after a sync the changed ones come again (if more
+// than half changed: one full read, as before). A copy older than 3 days is refreshed in full.
+const _LPC = { db: 'davan_lp_cache', st: 'kv' };
+function _lpcOpen() { return new Promise((res, rej) => { try { const r = indexedDB.open(_LPC.db, 1); r.onupgradeneeded = () => r.result.createObjectStore(_LPC.st); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } }); }
+async function _lpcGet() { try { const db = await _lpcOpen(); return await new Promise(res => { const q = db.transaction(_LPC.st).objectStore(_LPC.st).get('lp'); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch (e) { return null; } }
+async function _lpcPut(v) { try { const db = await _lpcOpen(); db.transaction(_LPC.st, 'readwrite').objectStore(_LPC.st).put(v, 'lp'); } catch (e) {} }
+async function _lpDb2Q(path, q) {   // like lpDb2Get but with a query (shallow) and no console noise; undefined = failed
+  try { const token = await _lpGetPortalToken();
+    const res = await fetch(LP_PORTAL_URL + '/' + path + '.json?' + (q ? q + '&' : '') + (token ? 'auth=' + token : ''));
+    if (!res.ok) return undefined; const txt = await res.text();
+    if (typeof dbmNote === 'function') dbmNote(path.replace(/^(davan_pub\/lessonPlan)\/[^/]+/, '$1/<KEY>') + (q ? '?' + q.split('=')[0] : ''), txt.length);
+    return txt ? JSON.parse(txt) : null; } catch (e) { return undefined; }
+}
+async function _lpFetchCurrent() {
+  const full = async () => { const d = await lpDb2Get('davan_pub/lessonPlan'); if (d && typeof d === 'object') _lpcPut({ data: d, at: Date.now() }); window._lpCacheInfo = 'full read'; return d; };
+  const c = await _lpcGet();
+  if (!c || !c.data || Date.now() - (c.at || 0) > 3 * 864e5) return full();
+  const keys = await _lpDb2Q('davan_pub/lessonPlan', 'shallow=true');
+  if (!keys || typeof keys !== 'object') return keys === null ? {} : (keys === undefined ? c.data : full());
+  const list = Object.keys(keys), enc = k => encodeURIComponent(k);
+  const stamps = await Promise.all(list.map(k => c.data[k] ? _lpDb2Q('davan_pub/lessonPlan/' + enc(k) + '/updated_at') : Promise.resolve(undefined)));
+  const changed = list.filter((k, i) => !c.data[k] || stamps[i] === undefined || String(stamps[i] || '') !== String((c.data[k] || {}).updated_at || ''));
+  if (changed.length > list.length / 2) return full();
+  const fresh = await Promise.all(changed.map(k => _lpDb2Q('davan_pub/lessonPlan/' + enc(k))));
+  const data = {}; list.forEach(k => { if (c.data[k]) data[k] = c.data[k]; });
+  changed.forEach((k, i) => { if (fresh[i] && typeof fresh[i] === 'object') data[k] = fresh[i]; });
+  _lpcPut({ data, at: c.at });
+  window._lpCacheInfo = 'cache: ' + (list.length - changed.length) + ' kept, ' + changed.length + ' downloaded';
+  return data;
+}
 async function _lpFetch(force) {
   if (_lpRaw && !force && !_lpNeedArchive() && Date.now() - _lpFetchedAt < 300000) {
     _lpData = _lpFilterByAY(_lpRaw);
@@ -79657,7 +79690,7 @@ async function _lpFetch(force) {
   try {
     const _wantArch = _lpViewingArchive();
     const [current, archived] = await Promise.all([
-      lpDb2Get('davan_pub/lessonPlan'),
+      _lpFetchCurrent(),   // v1650: phone copy + only the changed subjects
       _wantArch ? _lpFetchArchiveFromDb4() : Promise.resolve(null),   // v1535: only for an archive sem
     ]);
     _lpHasArchive = _wantArch;
