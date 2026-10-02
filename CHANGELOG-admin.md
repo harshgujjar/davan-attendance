@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1644 · 02-Oct-2026 IST
+
+User: the widget still does not show the PUC calendar. New 📅 PUC calendar check button (staff widget box, next to Send numbers): table per stream - which calendar doc was read (saved 2026-27 / saved original / built-in) and any read error, events, what the app says for today, which app build last sent the widget data, PUC events sent and what the widgets say for today, events around today; 📋 Copy. Reads: the 2 PUC calendar docs + 2 small DB2 reads, only when pressed. Functions: stwPucCalCheck, stwPucCal.
+
 ## v1643 · 02-Oct-2026 IST
 
 User: give the widget's page chooser to all staff (not students), and Sumitra (PUC Principal) should see only the PUC Commerce and Science calendars, no Degree calendar. Staff widget w167 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 167): "Pages on my widget" for every staff member, new "Calendars on my widget" (College / PUC Commerce / PUC Science, one table each). The staff-widget link now carries calScope "puc" for PUC-only logins and the PUC Principal (HSW_PUC_CAL_NAMES: Sumitra K T), which makes PUC Commerce + Science her default. No Firebase cost change. Functions: hswPayload.
