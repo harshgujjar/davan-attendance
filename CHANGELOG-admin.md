@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1651 · 02-Oct-2026 IST
+
+User: the new admin Veeresh Patil had no Staff Directory row (so no code / password shown and no way to add his photo), the directory showed an old "Session: 06/03/2025 – 01/07/2025", and Create account should offer an optional photo. sdAddMissingAccounts now skips only the Super Admin (role Admin added to the role labels), so other admins get a row on the next Staff Directory open / sync; the session line comes from SESSION_CONFIG (_scfgLabel); Create account has an optional Photo saved with facUploadPhoto. Firestore app_data/staff_directory + faculty photos as before. Functions: sdAddMissingAccounts, staffDirectoryRender, umUploadNewPhoto, umCreateUser.
+
 ## v1650 · 02-Oct-2026 IST
 
 User's DB2 usage report: index.html read the whole davan_pub/lessonPlan (655 KB) 85 times today = 54 MB, a third of all DB2 downloads (it was kept only 5 minutes in memory). The plans are now kept on the phone (IndexedDB davan_lp_cache): each open reads davan_pub/lessonPlan?shallow (~2 KB) + each subject's updated_at (~30 B each) and downloads only changed subjects; more than half changed (after a scraper sync) or a copy older than 3 days = one full read as before. Expected: ~5 KB per open between syncs instead of 655 KB. Functions: _lpFetchCurrent, _lpDb2Q, _lpcGet, _lpcPut, _lpFetch.
