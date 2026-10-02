@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1633 · 02-Oct-2026 IST
+
+User: Lalitha is a Manager and should see only pages 6-9 (Hostel as home). Staff widget w162 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 162): role manager gets Hostel · Calendar · News & rates · Stars (Hostel · Today · ... when she teaches); no college-number downloads or college / syllabus alerts for managers (fewer DB2 reads). Director and Principal unchanged. Functions: LATEST_APK.
+
 ## v1632 · 02-Oct-2026 IST
 
 User: resident staff are there but not in the total; in the widget's settings show the install permission first and make it mandatory so new versions can be pushed. Staff widget w161 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 161): resident staff count with or without a room; "Install unknown apps" is a required STEP 1 (red button at the top, the app opens the setting by itself, a red row on every widget page until allowed). No Firebase cost change. Functions: LATEST_APK.
