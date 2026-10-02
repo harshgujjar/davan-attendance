@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1672 · 02-Oct-2026 IST
+Staff widget w173 + student widget w137 released (LATEST_APK 173, LATEST_STUDENT_WIDGET_APK_V 137). User: "Back to page 1 but still it shows the selected student". The Page 1 button on page 2 now clears the view-as choice so the widget returns to the logged-in person, and page 1 shows a "Back to <name>" button while viewing someone else. No new database reads or writes. Pairs with portal v10.77. Widget: ViewAsActivity, MainActivity / StudentPermissionActivity (backMeBtn).
+
 ## v1671 · 02-Oct-2026 IST
 
 User: Kotrappa K's photo looked wrong on the Kannada / Hindi card, and Dr. Shilpa R Y's updated photo never reached the student widget. Student widget w136 released (Davan.Student.apk + test, version jsons, LATEST_STUDENT_WIDGET_APK_V 136): teacher photos are re-downloaded when their link in DB2 davan_pub/faculty_photos changes (it kept the first file for ever); the two-teacher card uses only real photos, side by side, instead of overlapping a half-cut initials circle (Rekha M R has no photo yet). Pairs with portal v10.76. Functions: LATEST_STUDENT_WIDGET_APK_V.

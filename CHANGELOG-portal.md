@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v10.77 (2026-10-02) -- Student widget w137 released (LATEST_STUDENT_WIDGET_APK 137): the Page 1 button on page 2 brings the widget back to the student you logged in as, and page 1 shows a Back to ... button while viewing someone else. Pairs with staff app v1672.
 VERSION : v10.76 (2026-10-02) -- Student widget w136 released (LATEST_STUDENT_WIDGET_APK 136): a teacher photo changed in the staff app is downloaded again (Dr. Shilpa R Y), and the Kannada / Hindi card shows only real photos (no half-cut initials over Kotrappa K). Pairs with staff app v1671.
 VERSION : v10.75 (2026-10-02) -- User: page 2 "Open as" still fell back to V NEESHA - the link was refreshed without the admin mark. stuPairPayload: adm:true from the admin view, adm:false only on a real student-password sign-in (_freshLogin), nothing on a refresh (the widget keeps its last state). Student widget w135 released (LATEST_STUDENT_WIDGET_APK 135). Pairs with staff app v1670. Functions: stuPairPayload.
 VERSION : v10.74 (2026-10-02) -- Student widget w134 released (LATEST_STUDENT_WIDGET_APK 134): page 2's Now showing box has the student's photo, URN, phone, Call and Copy. Pairs with staff app v1669 / staff widget w172.
