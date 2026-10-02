@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1659 · 02-Oct-2026 IST
+
+User: fix "lab = 2 hours" in every app and widget. stwDegDay merges back-to-back periods of the same lab (class + timetable code) into one row, end = first end + second period length (no break), so the staff widget's Live class board / Today / reminders get one 2-hour lab; My classes today and widgets w128 / w168 already did (v1658). Pairs with portal v10.66 (timetable + Now / Next). The staff app's Live Class Board stays per hour slot (a 2-hour lab shows in both of its hours). No Firebase cost change. Functions: stwDegDay.
+
 ## v1658 · 02-Oct-2026 IST
 
 User: labs are 2 hours straight - the student widget showed two lab cards (10:30-11:30, 11:45-12:45) and a lab has no 15-min break. Student widget w128 released (Davan.Student.apk + test, LATEST_STUDENT_WIDGET_APK_V 128): back-to-back lab periods of the same subject are one card, end = start + both periods (10:30-12:30). Staff widget w168 (DavanWidget.apk, davan-widget-version.json, LATEST_APK 168) and My classes today end the merged lab the same way (were 12:45). Pairs with portal v10.65. No Firebase cost change. Functions: fdbTodayLpRender.
