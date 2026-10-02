@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1661 · 02-Oct-2026 IST
+
+User: he tests staff accounts on his own phone (logs in as Anitha, 30 min later as Arun) - v1660 blocked his widget from following them. swLink now, for the Super Admin's widget code and a non-super login, asks for the master password (checked against its SHA-256, SUPER_MASTER_SHA, never stored in plain text); correct = link for testing (logged in davan_pub/student_widget_pair_log, via super-test), cancel / wrong = widget stays his. Functions: swLink.
+
 ## v1660 · 02-Oct-2026 IST
 
 User: the admin's widget codes must never be swapped by any student (or anyone) now or in future. swLink refuses SUPER_WIDGET_CODES (S-7UP47U) for any login but the Super Admin (the staff app on his phone with someone else logged in no longer moves his widget). Pairs with portal v10.67 (students can never link EMTH7Q). No Firebase cost change. Functions: swLink.
