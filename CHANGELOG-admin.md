@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1631 · 02-Oct-2026 IST
+
+User: In hostel now - show the total and a grand total with wardens and resident staff. Staff widget w160 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 160): boys / girls count students only, then Students in, Guests · Resident staff · Wardens, and Grand total (wardens from DB4 hostel/config/hostels/<id>/wardens, already read). No new reads. Functions: LATEST_APK.
+
 ## v1630 · 02-Oct-2026 IST
 
 User: SUMITHRA K T's photo still missing on the faculty login preview. Before sign-in the app reads only the shared faculty photo list (davan_pub/faculty_photos); the PUC staff list is read after sign-in. facPreloadPhotos now copies PUC photos for names without a photo into app_data/faculty_photos (merge) and davan_pub/faculty_photos - only on an admin / principal / manager login, only missing names, keys without . # $ [ ] /. A few small writes once; no new reads. Functions: facPreloadPhotos.
