@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1666 · 02-Oct-2026 IST
+
+User: add student photos to page 2 the light way. Student widget w131 released (Davan.Student.apk + test, LATEST_STUDENT_WIDGET_APK_V 131): photos only after 2+ letters and at most 20 matches - DB2 davan_student_photos/<URN> (~100 B each) + ~5 KB Cloudinary thumbnails, about 0.1 MB per search on the admin's phone only. Pairs with portal v10.71. Functions: LATEST_STUDENT_WIDGET_APK_V.
+
 ## v1665 · 02-Oct-2026 IST
 
 User: page 2 staff list only faculty with allocated subjects (others: Principal, admin, manager are fine), with photo (and password); the student switch did not change the widget (stayed on V NEESHA); students' page 2 should show phone with URN, with call / copy. stwPublishViewAs: fulltime / visiting / VP only with a subject this semester (_fdbScopeAllocs + aliases); students carry p = 10-digit phone. Passwords are NOT put in this list (DB2 davan_pub/view_as is readable by every widget) - the login name is shown instead (for most staff it is also the password). Staff widget w170 + student widget w130 released (APKs, version jsons, LATEST_APK 170, LATEST_STUDENT_WIDGET_APK_V 130): photo rows, Call / Copy, choice saved with commit() before the refresh, check line with Copy. Pairs with portal v10.70. Functions: stwPublishViewAs.
