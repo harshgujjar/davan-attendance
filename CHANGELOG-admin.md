@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1634 · 02-Oct-2026 IST
+
+User: a new Meal ratings page as in the mockup, for wardens, Hostel Head, Manager, Director and Principal, in proper tables. Staff widget w163 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 163): "Meal ratings · today" and "Meal ratings · overall" right after Hostel. The widget works the numbers out itself from DB4 canteen/ratings + canteen/meal_log (+ canteen/override for dish names): today = 1 small read per refresh; past days are read once (range read of the missing days) and kept on the phone, so after the first day 1 new day a day. No staff-app change needed. Functions: LATEST_APK.
+
 ## v1633 · 02-Oct-2026 IST
 
 User: Lalitha is a Manager and should see only pages 6-9 (Hostel as home). Staff widget w162 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 162): role manager gets Hostel · Calendar · News & rates · Stars (Hostel · Today · ... when she teaches); no college-number downloads or college / syllabus alerts for managers (fewer DB2 reads). Director and Principal unchanged. Functions: LATEST_APK.
