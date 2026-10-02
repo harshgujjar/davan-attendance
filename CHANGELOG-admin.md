@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1639 · 02-Oct-2026 IST
+
+User: PUC has the mid-term exam till tomorrow but the widget's Live class board shows PUC Commerce / Science classes running. The staff app read only Firestore app_data/puc_academic_calendar_<com|sci>_2026-27, which does not exist yet; the PUC app falls back to the original doc puc_academic_calendar_<com|sci> (pscfgReadCalendar), where the exam is. stwPucCal now does the same (+1 small read only when the AY doc is missing). PUC events sent to the widget list day-off types first, so a second event on an exam day cannot hide it. No widget change. Functions: stwPucCal, stwPublish.
+
 ## v1638 · 02-Oct-2026 IST
 
 User: the same meal ratings as the widget pages (or more), with a text summary, in the staff app for wardens, Hostel Head, Manager, Director and Principal. The Ratings tab of Canteen Menu is now a full page (also a new ⭐ Meal ratings sidebar item): numbered text summary with 📋 Copy and WhatsApp, then Sl No tables - today by meal (stars 5-1, had / didn't, top reasons), week at a glance, by meal (today / week / last week / month), boys and girls hostel, best and lowest dishes (30 days), reasons, what students wrote, low alerts this week, daily table (tap = who rated). Data: DB4 canteen/ratings, meal_log, override - the 7-day read as before; days 8-30 are read once and kept summed on the device (localStorage hcRday_*), so afterwards no extra reads. Functions: hcRatingsHtml, hcRtDay, hcRtDays, hcRtTot, hcRtTable.
