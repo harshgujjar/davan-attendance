@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1638 · 02-Oct-2026 IST
+
+User: the same meal ratings as the widget pages (or more), with a text summary, in the staff app for wardens, Hostel Head, Manager, Director and Principal. The Ratings tab of Canteen Menu is now a full page (also a new ⭐ Meal ratings sidebar item): numbered text summary with 📋 Copy and WhatsApp, then Sl No tables - today by meal (stars 5-1, had / didn't, top reasons), week at a glance, by meal (today / week / last week / month), boys and girls hostel, best and lowest dishes (30 days), reasons, what students wrote, low alerts this week, daily table (tap = who rated). Data: DB4 canteen/ratings, meal_log, override - the 7-day read as before; days 8-30 are read once and kept summed on the device (localStorage hcRday_*), so afterwards no extra reads. Functions: hcRatingsHtml, hcRtDay, hcRtDays, hcRtTot, hcRtTable.
+
 ## v1637 · 02-Oct-2026 IST
 
 User: the hostel shows 0 on leave though a leave exists. K.Pratyusha's leave was approved but nobody tapped "Mark gone out" (and it has already ended), so she was counted in the hostel and the widget had no small list of approved leaves to show. New DB4 node hostel/leave_ok/{urn}_{id} = {hostelId, name, from, to}: written when a leave is approved / added approved, removed when it is rejected / changed; the Leave page re-syncs it at most once a minute (1 small read + a few writes only when something differs). Staff widget w166 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 166) lists these leaves under In hostel. Functions: hcLeaveOkSet, hcLeaveOkSync, hcLeaveAct, hcRenderLeave.
