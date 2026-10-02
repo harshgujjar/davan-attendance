@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1611 · 02-Oct-2026 IST
+
+User: could not log in as admin - "Firebase: The current environment does not support the specified persistence type (auth/unsupported-persistence-type)". Sign-in set Firebase persistence from Remember me (SESSION when off) and stopped when the phone refused it. Now the wanted type is tried, then LOCAL, SESSION and NONE, and sign-in always continues. No data or Firebase cost change. Functions: dvSetPersistence (new), doFacultyLogin, doFirebaseLogin, _ensureAuth.
+
 ## v1610 · 02-Oct-2026 IST
 
 User: on the faculty dashboard, above At a glance, show the first class and the next one (subject, class, time, room, classes held), what was taught in the previous class and what to teach today; once a class is over show the next, and so on. New "My classes today" card: NOW / NEXT / THEN with a countdown, last class (#Sl No, topic, date; "earlier today" when a subject repeats), teach today (next Sl No, or the one already ticked today), topic progress bar, the rest of the day in one line, and a warning when an earlier class was not ticked in the lesson plan; it refreshes every minute and shows holidays. Also fixed: lesson-plan handled dates ("DD/MM HH:MM AM/PM") were compared as text, so "last taught" on the staff widget could be wrong; they are now parsed and sent as yyyy-mm-dd. No new Firebase reads (timetable, students and davan_pub/lessonPlan are already loaded). Functions: fdbTodayLpRender (new), lpHandledTs / lpPosOf / lpKeyForTt (new, shared), stwPublish, wgtRenderFaculty.
