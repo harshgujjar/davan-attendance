@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1616 · 02-Oct-2026 IST
+
+User: lab and theory have different lesson plans, but the theory class showed the lab's (ADA theory got "ADAP - LAB", 32/42, instead of its own 41/50). The theory code "ADA" is a prefix of the lab code "ADAP", so the prefix match took the lab plan. A lab class now only takes a lab lesson plan and a theory class only a theory one (any plan only when none of the right kind exists) - in My classes today, the widget Today page and the widget board. Staff widget w153 released (Sl No shown in full, no false "all topics done"; DavanWidget.apk, davan-widget-version.json, LATEST_APK 153). No Firebase cost change. Functions: lpKeyForTt.
+
 ## v1615 · 02-Oct-2026 IST
 
 User: the widget's Live class board showed only the 3 classes of the next hour; show the first hour and the next hour, with PUC below Degree. Staff widget w152 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 152): two hours per part (now or next, then the hour after), Degree first, then PUC on its own timings. No data or Firebase cost change. Functions: LATEST_APK.
