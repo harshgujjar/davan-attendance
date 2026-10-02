@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1675 · 02-Oct-2026 IST
+Staff widget w175 + student widget w138 released (LATEST_APK 175, LATEST_STUDENT_WIDGET_APK_V 138). User: birthday wishes for all faculty, visiting faculty, Principal, staff (Director included) and students, as in the student app. A 7-day countdown, the wish on the day and one late wish, each at a different time between 8 am and 12 noon (notification + a card on top of every page until 12 noon, 🎂 by the name on the day); staff and students get different wording; an ON/OFF switch in each widget's settings. No new reads or writes: the DOB is already in each widget's data. Pairs with portal v10.78. Widget: Bday (new), Alarms.schedule, Rx, Pages.rows.
+
 ## v1674 · 02-Oct-2026 IST
 Staff widget w174 released (LATEST_APK 174). User: "still not showing horoscope" (Smitha on page 2). The widget kept a copy of the person taken when picked on page 2, so the DOB added in v1673 never reached it; it now refreshes that person from DB2 davan_pub/view_as/staff/<key> (1 small read, at most every 30 minutes, only while viewing someone). Widget: Sync.run.
 
