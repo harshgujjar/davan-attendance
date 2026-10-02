@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1610 · 02-Oct-2026 IST
+
+User: on the faculty dashboard, above At a glance, show the first class and the next one (subject, class, time, room, classes held), what was taught in the previous class and what to teach today; once a class is over show the next, and so on. New "My classes today" card: NOW / NEXT / THEN with a countdown, last class (#Sl No, topic, date; "earlier today" when a subject repeats), teach today (next Sl No, or the one already ticked today), topic progress bar, the rest of the day in one line, and a warning when an earlier class was not ticked in the lesson plan; it refreshes every minute and shows holidays. Also fixed: lesson-plan handled dates ("DD/MM HH:MM AM/PM") were compared as text, so "last taught" on the staff widget could be wrong; they are now parsed and sent as yyyy-mm-dd. No new Firebase reads (timetable, students and davan_pub/lessonPlan are already loaded). Functions: fdbTodayLpRender (new), lpHandledTs / lpPosOf / lpKeyForTt (new, shared), stwPublish, wgtRenderFaculty.
+
 ## v1609 · 02-Oct-2026 IST
 
 User: the faculty Today page on the staff widget showed no lesson-plan line under each class. The v1607 match (faculty + subject name + section + semester) missed classes whose timetable name differs from the lesson plan's. Each Today class now finds its lesson plan by class label (e.g. III YEAR BCA (B)) and subject code, falling back to the subject name, so the widget shows the last taught Sl No and today's next Sl No under the subject. DB2 davan_pub/staff_pub/fac/<name>: timetable rows gain the subject code and lesson-plan position - same publish, no new reads. Works with staff widget w149 (no new build). Functions: stwDegDay, stwPublish (ttLp2, _lpCode).

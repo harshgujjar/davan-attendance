@@ -3155,6 +3155,7 @@
       <!-- ── Notification subscription banner ── -->
       <div id="fdb-notif-banner" style="display:none;margin-bottom:16px;"></div>
 
+      <div id="fdb-today-lp"></div>   <!-- v1610: My classes today (lesson plan) -->
       <!-- ── Faculty Widgets ── -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
         <span style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;">At a Glance</span>
@@ -18518,7 +18519,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1609;  // always = HTML footer version number
+const CODE_BUILD = 1610;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -20127,7 +20128,76 @@ function wgtRenderFaculty() {
       if (_outOfScope) allStudents = _savedStudents;
     }
     wgtFillWidgetVersion();          // v1119
+    fdbTodayLpRender();              // v1610
   }, 60);
+}
+
+// v1610: faculty dashboard "My classes today" (above AT A GLANCE): the class running now / next and the one after it, each with
+// what was taught in the previous class and what to teach today (lesson-plan Sl No), room, students and classes held.
+// Finished classes drop off by themselves (1-minute ticker). Uses only data the dashboard already has (timetable, students,
+// lesson plan) - no extra Firebase reads.
+function fdbTlFmt(min) { const h = Math.floor(min / 60), m = min % 60; return ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + (h >= 12 ? ' pm' : ' am'); }
+function fdbTlDur(min) { return min >= 60 ? Math.floor(min / 60) + 'h' + (min % 60 ? ' ' + (min % 60) + 'm' : '') : min + ' min'; }
+function fdbTlDay(ymd) { if (!ymd) return ''; const d = new Date(ymd + 'T00:00:00'), t = new Date(); t.setHours(0, 0, 0, 0); const n = Math.round((t - d) / 86400000);
+  return (n === 1 ? 'Yesterday, ' : '') + d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }); }
+function fdbTodayLpRender() {
+  const el = document.getElementById('fdb-today-lp'); if (!el) return;
+  try {
+    if (!window._fdbTlTimer) window._fdbTlTimer = setInterval(() => { const e = document.getElementById('fdb-today-lp'); if (e && e.offsetParent) fdbTodayLpRender(); }, 60000);
+    if ((typeof isSemOver === 'function' && isSemOver()) || !currentProfile || !(LM_TIMETABLE || []).length) { el.innerHTML = ''; return; }
+    const lp = (typeof _lpData !== 'undefined' && _lpData) || null;
+    if (!lp && (window._fdbTlLpAsk || 0) < 3) { window._fdbTlLpAsk = (window._fdbTlLpAsk || 0) + 1; _lpFetch(false).then(d => setTimeout(fdbTodayLpRender, d ? 0 : 1500)).catch(() => {}); }
+    const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes(), today = lpYmd(now.getTime()), dayName = FA_DAYS[now.getDay()];
+    const esc = hcEsc, head = t => '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;"><span style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;">📚 My classes today · ' + esc(now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })) + '</span>' + (t ? '<span style="font-size:11px;color:var(--muted);">' + t + '</span>' : '') + '</div>';
+    const hol = (typeof calEvents !== 'undefined' ? calEvents : []).find(e => e && e.type === 'holiday' && e.from <= today && (e.to || e.from) >= today);
+    if (hol) { el.innerHTML = '<div style="margin-bottom:18px;">' + head('') + '<div class="card" style="padding:14px 16px;">🎉 Holiday today - <b>' + esc(hol.name || '') + '</b></div></div>'; return; }
+    const keys = new Set(getMyFacultyKeys()); Object.keys(FACULTY_NAME_ALIASES || {}).forEach(k => { if (keys.has(FACULTY_NAME_ALIASES[k])) keys.add(k); });
+    const { ctMap, scMap } = lcbBuildCtMaps();
+    const rows = stwDegDay(dayName, ctMap, scMap).filter(r => (r.fs || [r.f]).some(f => keys.has(f))).sort((a, b) => a.s - b.s);
+    if (!rows.length) { el.innerHTML = ''; return; }
+    // lesson plan per period; a subject taught twice today gets the next Sl No for the second period
+    const byKey = {};
+    rows.forEach(r => { r._k = lp ? lpKeyForTt(lp, r) : null; if (r._k) (byKey[r._k] = byKey[r._k] || []).push(r); });
+    Object.keys(byKey).forEach(k => {
+      const pos = lpPosOf(lp, k, now); if (!pos) return; const t = lpTopicsOf(lp[k]), td = pos.td || [];
+      const open = []; for (let i = (pos.l || 0); i < t.length && open.length < 8; i++) if (t[i] && !t[i].handled_date) open.push(i);
+      byKey[k].forEach((r, j) => { r._p = pos;
+        if (j < td.length) r._today = { sl: td[j], t: lpTopicName(t[td[j] - 1]), done: 1 };
+        else { const i = open[j - td.length]; if (i != null) r._today = { sl: i + 1, t: lpTopicName(t[i]) }; }
+        const pr = j > 0 && byKey[k][j - 1]._today; r._prev = pr ? { sl: pr.sl, t: pr.t, lbl: 'Earlier today' } : pos.p ? { sl: pos.p, t: pos.pt, lbl: fdbTlDay(pos.pd) } : null; });
+    });
+    const left = rows.filter(r => r.e > nowMin), shown = left.slice(0, 2);
+    const unticked = rows.filter(r => r.e <= nowMin && r._k && !(r._today && r._today.done)).length;
+    if (!shown.length) {
+      el.innerHTML = '<div style="margin-bottom:18px;">' + head(rows.length + ' classes') + '<div class="card" style="padding:14px 16px;line-height:1.6;">✅ <b>All ' + rows.length + ' classes done today</b> - well done!' +
+        (unticked ? '<div style="color:var(--warn);font-size:12px;margin-top:4px;">⚠️ ' + unticked + ' class' + (unticked > 1 ? 'es' : '') + ' not ticked in the lesson plan yet</div>' : '') + '</div></div>';
+      return;
+    }
+    const card = (r, first) => {
+      const live = r.s <= nowMin, p = r._p, td = r._today, acc = live ? '#ef4444' : first ? 'var(--gold,#f5b301)' : '#60a5fa';
+      const chip = live ? '<span style="background:rgba(239,68,68,.15);color:#f87171;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700;">● NOW · ' + fdbTlDur(r.e - nowMin) + ' left</span>'
+        : '<span style="background:rgba(96,165,250,.13);color:#93c5fd;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700;">' + (first ? 'NEXT' : 'THEN') + ' · in ' + fdbTlDur(r.s - nowMin) + '</span>';
+      const meta = [esc(r.c), r.lab ? '🧪 ' + esc(r.lab) : '', r.r ? '🚪 ' + esc(r.r) : '', r.n ? '👥 ' + r.n : '', r.ct ? 'CT ' + r.ct : ''].filter(Boolean).join(' · ');
+      const line = (ic, lbl, sl, txt, col) => '<div style="display:grid;grid-template-columns:22px 92px 44px 1fr;gap:4px;align-items:baseline;padding:5px 0;border-top:1px dashed var(--border);font-size:12.5px;">' +
+        '<span>' + ic + '</span><span style="color:var(--muted);">' + lbl + '</span><b style="font-family:var(--mono);color:' + col + ';">' + (sl ? '#' + sl : '') + '</b><span>' + txt + '</span></div>';
+      let lpHtml;
+      if (!r._k) lpHtml = '<div style="font-size:12px;color:var(--muted);padding-top:6px;border-top:1px dashed var(--border);">' + (lp ? '📖 No lesson plan found for this class yet' : '⏳ Loading the lesson plan…') + '</div>';
+      else {
+        const pv = r._prev; lpHtml = line('⏮', 'Last class' + (pv && pv.lbl ? '<br><small>' + esc(pv.lbl) + '</small>' : ''), pv && pv.sl, pv ? esc(pv.t) : '<span style="color:var(--muted)">first class - nothing ticked yet</span>', 'var(--muted)')
+          + (td ? line(td.done ? '✅' : '▶️', td.done ? 'Ticked today' : 'Teach today', td.sl, '<b>' + esc(td.t) + '</b>', td.done ? 'var(--ok)' : acc) : line('🏁', 'Teach today', 0, 'all ' + p.tot + ' topics done 🎉', 'var(--ok)'));
+        const pct = p.tot ? Math.round(p.done / p.tot * 100) : 0;
+        lpHtml += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:11px;color:var(--muted);"><div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:' + (pct < 40 ? 'var(--danger)' : pct < 70 ? 'var(--warn)' : 'var(--ok)') + ';"></div></div>' + p.done + '/' + p.tot + ' topics · ' + pct + '%</div>';
+      }
+      return '<div class="card" style="padding:12px 14px;border-left:4px solid ' + acc + ';' + (first ? '' : 'opacity:.92;') + '">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><span style="font-family:var(--mono);font-size:12px;color:var(--muted);">' + fdbTlFmt(r.s) + ' – ' + fdbTlFmt(r.e) + '</span>' + chip + '</div>' +
+        '<div style="font-size:' + (first ? 17 : 15) + 'px;font-weight:700;margin:6px 0 2px;">' + esc(r.sub) + '</div><div style="font-size:12px;color:var(--muted);margin-bottom:8px;">' + meta + '</div>' + lpHtml + '</div>';
+    };
+    const later = left.slice(2);
+    el.innerHTML = '<div style="margin-bottom:18px;">' + head((rows.length - left.length) + ' of ' + rows.length + ' done') +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;">' + shown.map((r, i) => card(r, i === 0)).join('') + '</div>' +
+      (later.length ? '<div style="font-size:12px;color:var(--muted);margin-top:8px;">Later today: ' + later.map(r => '<b style="color:var(--text)">' + fdbTlFmt(r.s) + '</b> ' + esc(r.sub) + ' (' + esc(r.c) + ')' + (r._today ? ' #' + r._today.sl : '')).join(' · ') + '</div>' : '') +
+      (unticked ? '<div style="font-size:12px;color:var(--warn);margin-top:6px;">⚠️ ' + unticked + ' earlier class' + (unticked > 1 ? 'es' : '') + ' today not ticked in the lesson plan yet</div>' : '') + '</div>';
+  } catch (e) { console.warn('[fdbTodayLp]', e); el.innerHTML = ''; }
 }
 
 // Individual refresh (with spin animation on button)
@@ -29293,6 +29363,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1610', date: '02-Oct-2026 IST', note: 'Faculty dashboard: new My classes today card above At a glance - the class now / next and the one after, each with room, students, classes held, the last class topic (#Sl No, date) and what to teach today; finished classes drop off by themselves. Lesson-plan dates are now read correctly (last taught was sometimes wrong).' },
 { v: 'v1609', date: '02-Oct-2026 IST', note: 'Staff widget: each class on the faculty Today page finds its lesson plan by class and subject code (last taught # / today #), so labs and long subject names match too.' },
 { v: 'v1608', date: '02-Oct-2026 IST', note: 'Student widget w124: IA-1 marks now show on page 2 (marks stored as text, half marks or AB were missed); the exam countdown and timetable appear when the next internal is scheduled.' },
 { v: 'v1607', date: '02-Oct-2026 IST', note: 'Staff widget w149: each class shows the lesson plan (last taught #20, today #21), a Calendar page for faculty, numbered tables. Student widget w123: results, marks and calendar as numbered tables. Faculty Alerts: Notification check.' },
@@ -29307,7 +29378,6 @@ const HTML_CHANGELOG = [
 { v: 'v1598', date: '01-Oct-2026 IST', note: 'Faster opening: the big student list is read directly instead of through the Firestore library, which froze the phone for about 15 seconds on every open.' },
 { v: 'v1597', date: '01-Oct-2026 IST', note: 'Start-up profiler also shows when each download really finished arriving, to separate network time from the phone processing it.' },
 { v: 'v1596', date: '01-Oct-2026 IST', note: 'Start-up profiler also lists every download (database reads, size, how long) and runs by itself on the next open after you view the hostel timing line.' },
-{ v: 'v1595', date: '01-Oct-2026 IST', note: 'Start-up profiler also times phone storage, JSON and Firestore work, to find the two 17-second freezes after login.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -79183,6 +79253,53 @@ function _lpParseClass(key) {
   return `${yr} YEAR ${course} (${sec})`;
 }
 
+// v1610: shared lesson-plan helpers (faculty dashboard "My classes today" + staff widget publish).
+// handled_date is scraped as "DD/MM HH:MM AM/PM" (sometimes "DD/MM/YYYY ..."), so it must be parsed, never compared as text.
+function lpHandledTs(s, ref) {
+  if (!s) return 0; const t = String(s).trim(); ref = ref || new Date();
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() || 0;
+  m = t.match(/^(\d{1,2})[-/.](\d{1,2})(?:[-/.](\d{2,4}))?(?:\s+(\d{1,2})[:.](\d{2})\s*(AM|PM)?)?/i); if (!m) return 0;
+  let h = +(m[4] || 0); if (m[6]) { h = h % 12; if (/pm/i.test(m[6])) h += 12; }
+  const y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : ref.getFullYear();
+  let d = new Date(y, +m[2] - 1, +m[1], h, +(m[5] || 0));
+  if (!m[3] && d - ref > 60 * 86400000) d = new Date(y - 1, +m[2] - 1, +m[1], h, +(m[5] || 0));   // "28/12" read in January
+  return d.getTime() || 0;
+}
+function lpYmd(ts) { const d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function lpTopicsOf(d) { return d ? (Array.isArray(d.topics) ? d.topics : Object.values(d.topics || {})) : []; }
+function lpTopicName(x, n) { return [x && x.topic, x && x.sub_topic].filter(Boolean).join(' - ').slice(0, n || 70); }
+// where one lesson plan stands: l = last taught Sl No (newest check-mark date, then the higher Sl No), n = next unchecked after it,
+// p = last one taught BEFORE today (the "previous class"), td = Sl Nos checked today. Dates as yyyy-mm-dd.
+function lpPosOf(lp, key, now) {
+  const t = lpTopicsOf(lp && lp[key]); if (!t.length) return null; now = now || new Date();
+  const today = lpYmd(now.getTime()), ts = t.map(x => x && x.handled_date ? (lpHandledTs(x.handled_date, now) || 1) : 0);
+  let li = -1, pi = -1; const td = [];
+  ts.forEach((v, i) => { if (!v) return; if (li < 0 || v >= ts[li]) li = i; if (v > 1 && lpYmd(v) === today) td.push(i + 1); else if (pi < 0 || v >= ts[pi]) pi = i; });
+  let ni = -1; for (let i = li + 1; i < t.length; i++) if (t[i] && !t[i].handled_date) { ni = i; break; } if (ni < 0) ni = t.findIndex(x => x && !x.handled_date);
+  const o = { tot: t.length, done: ts.filter(Boolean).length };
+  if (li >= 0) Object.assign(o, { l: li + 1, lt: lpTopicName(t[li]), ld: ts[li] > 1 ? lpYmd(ts[li]) : '' });
+  if (pi >= 0) Object.assign(o, { p: pi + 1, pt: lpTopicName(t[pi]), pd: ts[pi] > 1 ? lpYmd(ts[pi]) : '' });
+  if (ni >= 0) Object.assign(o, { n: ni + 1, nt: lpTopicName(t[ni]) });
+  if (td.length) o.td = td;
+  return o;
+}
+// a timetable class (row.c "III YEAR BCA (B)", row.cd timetable code, row.sub subject name) -> its lesson-plan key.
+// Exact: same class label (_lpParseClass) + the subject code between course and Sem ("BCA-ADA-SemV-SecB"); then a code prefix; then the name.
+const _lpByClsCache = new WeakMap();
+function lpKeyForTt(lp, row) {
+  if (!lp || !row) return null; let by = _lpByClsCache.get(lp);
+  if (!by) { by = {}; Object.keys(lp).forEach(k => { const c = _lpParseClass(k); (by[c] = by[c] || []).push(k); }); _lpByClsCache.set(lp, by); }
+  const ks = by[row.c] || []; if (!ks.length) return null;
+  const nz = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const code = k => { const p = String(k).split('-'); const i = p.findIndex(x => /^Sem/i.test(x)); return i > 1 ? p.slice(1, i).join('-') : (p[1] || ''); };
+  const cd = nz(row.cd);
+  let k = cd && ks.find(x => nz(code(x)) === cd);
+  if (!k && cd) k = ks.find(x => { const y = nz(code(x)); return y && (y.startsWith(cd) || cd.startsWith(y)); });
+  if (!k) { const s0 = nz(row.sub); k = ks.find(x => { const s1 = nz(_lpResolveName(x, lp[x])); return s1 && s0 && (s1.includes(s0) || s0.includes(s1)); }); }
+  return k || null;
+}
+
 // ── Timestamp label ───────────────────────────────────────────────────────────
 function _lpTimeLabel(ts) {
   if (!ts) return '—';
@@ -81787,11 +81904,8 @@ async function stwPublish(force) {
     const nextTopic = key => { const d = lp[key]; const t = d ? (Array.isArray(d.topics) ? d.topics : Object.values(d.topics || {})) : []; const n = t.find(x => x && !x.handled_date); return n ? [n.topic, n.sub_topic].filter(Boolean).join(' — ').slice(0, 90) : ''; };
     // v1607: where each lesson plan stands - last taught Sl No (newest check mark / handled date) and the next Sl No
     // (first unchecked topic after it); Sl No = position in the lesson plan, as on the staff app's lesson plan cards.
-    const lpPos = key => { const d = lp[key]; const t = d ? (Array.isArray(d.topics) ? d.topics : Object.values(d.topics || {})) : []; if (!t.length) return null;
-      const nm = x => [x && x.topic, x && x.sub_topic].filter(Boolean).join(' - ').slice(0, 70);
-      let li = -1; t.forEach((x, i) => { if (x && x.handled_date && (li < 0 || String(x.handled_date) >= String(t[li].handled_date))) li = i; });
-      let ni = -1; for (let i = li + 1; i < t.length; i++) if (t[i] && !t[i].handled_date) { ni = i; break; } if (ni < 0) ni = t.findIndex(x => x && !x.handled_date);
-      const o = { tot: t.length }; if (li >= 0) Object.assign(o, { l: li + 1, lt: nm(t[li]), ld: String(t[li].handled_date).slice(0, 10) }); if (ni >= 0) Object.assign(o, { n: ni + 1, nt: nm(t[ni]) }); return o; };
+    // v1610: shared lpPosOf (handled_date parsed - it is "DD/MM HH:MM AM/PM", v1607 compared it as text)
+    const lpPos = key => { const o = lpPosOf(lp, key); if (o) { delete o.p; delete o.pt; delete o.pd; delete o.td; delete o.done; } return o; };
     const sylRow = r => ({ c: r.classLabel, sub: r.subName, f: r.faculty, d: r.lpDone, t: r.lpTotal, h: r.conducted, st: r.status, x: r.extraNeeded || 0, by: r.extraDeadline || '', nx: nextTopic(r.key), lp: lpPos(r.key) });
     // v1607: a timetable class -> its lesson plan (same faculty, subject, section and semester), for "last taught / next" on the widget
     const _nz = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -81801,15 +81915,8 @@ async function stwPublish(force) {
       rows.forEach(r => { const s1 = _nz(r.subName); if (!s1 || !(s1.includes(s0) || s0.includes(s1))) return;
         let sc = 2; if (_sec(row.c) && _sec(row.c) === _sec(r.classLabel)) sc++; if (_rom(row.k) && _rom(row.k) === _rom(r.classLabel)) sc++; if (sc > bs) { bs = sc; best = r; } });
       return best ? lpPos(best.key) : null; };
-    // v1608: exact match first - a lesson-plan key "BCA-ADA-SemV-SecB" is the timetable class "III YEAR BCA (B)" (_lpParseClass)
-    // + the subject code between course and Sem ("ADA", "ADAP - LAB"); then the subject name within that class.
-    const _lpCode = key => { const p = String(key).split('-'); const i = p.findIndex(x => /^Sem/i.test(x)); return i > 1 ? p.slice(1, i).join('-') : (p[1] || ''); };
-    const _lpByCls = {}; Object.keys(lp).forEach(k => { const c = _lpParseClass(k); (_lpByCls[c] = _lpByCls[c] || []).push(k); });
-    const ttLp2 = row => { const ks = _lpByCls[row.c] || []; if (!ks.length) return null; const cd = _nz(row.cd);
-      let k = cd && ks.find(x => _nz(_lpCode(x)) === cd);
-      if (!k && cd) k = ks.find(x => { const y = _nz(_lpCode(x)); return y && (y.startsWith(cd) || cd.startsWith(y)); });
-      if (!k) { const s0 = _nz(row.sub); k = ks.find(x => { const s1 = _nz(typeof _lpResolveName === 'function' ? _lpResolveName(x, lp[x]) : (lp[x] && (lp[x].subject || lp[x].subName))); return s1 && s0 && (s1.includes(s0) || s0.includes(s1)); }); }
-      return k ? lpPos(k) : null; };
+    // v1608/v1610: exact match first (class label + subject code), shared lpKeyForTt
+    const ttLp2 = row => { const k = lpKeyForTt(lp, row); return k ? lpPos(k) : null; };
     // internal exam timetable + invigilation duty
     step = 'exams'; let ic = null; try { ic = (await rtdb.ref('davan_pub/internals_current').once('value')).val(); } catch (e) {}
     // boards
