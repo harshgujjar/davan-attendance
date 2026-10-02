@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1669 · 02-Oct-2026 IST
+
+User: the "Now showing" person on page 2 should have photo, phone, Copy and Call, in both widgets. Staff widget w172 + student widget w134 released (APKs, version jsons incl. student-widget-version.json, LATEST_APK 172, LATEST_STUDENT_WIDGET_APK_V 134). stwPublishViewAs now keeps staff phones in davan_pub/view_as/staff (for Call / Copy; DOB still left out). Pairs with portal v10.74. Functions: stwPublishViewAs.
+
 ## v1668 · 02-Oct-2026 IST
 
 User: the student widget stayed on w129 - it learned new versions only from davan_pub/student_widget_latest, raised when an admin opens the staff app; no dependency wanted, auto update / download / install. Student widget w133 released (Davan.Student.apk + test, LATEST_STUDENT_WIDGET_APK_V 133) also reads the new student-widget-version.json on GitHub (the higher version wins); download and install were already automatic (silent on Android 12+). From now on each student widget release bumps student-widget-version.json too (CLAUDE.md). Pairs with portal v10.73. Functions: LATEST_STUDENT_WIDGET_APK_V.
