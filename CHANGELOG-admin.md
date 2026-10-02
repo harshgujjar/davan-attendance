@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1618 · 02-Oct-2026 IST
+
+User: why tap Send to see the lesson plan - show it directly with Sl No; also show the app version next to the widget version. Staff widget w154 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 154): it reads each class's lesson plan itself from DB2 davan_pub/lessonPlan/<key> (updated_at every refresh, the topics only when changed - a few KB per faculty per change), so last class / teach today and new check marks show without the staff app; its footer shows "app v<build>" from staff_pub/build. stwPublish adds lk (the lesson-plan key) to each faculty class, and the first open after an app update sends the widget data at once (no 30-min wait, no button). Functions: stwPublish.
+
 ## v1617 · 02-Oct-2026 IST
 
 User: check the student widget for the same lab / theory mix-up. Student widget w125 released live (Davan.Student.apk, Davan.Student-test.apk, student-widget-test.json, LATEST_STUDENT_WIDGET_APK_V 125): its lesson-plan match now prefers a plan of the same kind (lab / theory). Pairs with portal v10.55. No Firebase cost change. Functions: LATEST_STUDENT_WIDGET_APK_V.
