@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1654 · 02-Oct-2026 IST
+
+Follow-up to v1653: the staff-widget link sent the college logo as the photo for every admin; now only the Super Admin gets the logo and other admins their own photo (facPhotos). Reaches the widget on the admin's next staff-app login. Functions: hswPayload.
+
 ## v1653 · 02-Oct-2026 IST
 
 User: Veeresh Patil's photo was added but did not show on his dashboard or in the side panel. The side-panel photo was only for faculty / principal / manager; it now also covers other admins (not the Super Admin), wardens and the Hostel Head. The admin / manager Dashboard title shows the person's photo before the name (refreshed when the photos finish loading). No Firebase cost change. Functions: onLoginSuccess (sidebar avatar, dashboard title).
