@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1640 · 02-Oct-2026 IST
+
+User: still not checking the calendar - PUC classes shown during the PUC mid-term exam. (1) The staff app's own Live Class Board for PUC Commerce / Science had no calendar check at all: on an exam / holiday / event day (PUC Calendar of Events) it now shows that instead of the classes (calendar re-read at most every 10 min, 2 small Firestore reads). (2) A PUC exam written in the college Calendar of Events (name or "for" mentions PUC; Commerce / Science in the name = that stream only) now counts for PUC too, on the board and in the data sent to the staff widget. Functions: stwPucCal, lcbPucOffLoad, lcbPucOffBanner, lcbPucRender.
+
 ## v1639 · 02-Oct-2026 IST
 
 User: PUC has the mid-term exam till tomorrow but the widget's Live class board shows PUC Commerce / Science classes running. The staff app read only Firestore app_data/puc_academic_calendar_<com|sci>_2026-27, which does not exist yet; the PUC app falls back to the original doc puc_academic_calendar_<com|sci> (pscfgReadCalendar), where the exam is. stwPucCal now does the same (+1 small read only when the AY doc is missing). PUC events sent to the widget list day-off types first, so a second event on an exam day cannot hide it. No widget change. Functions: stwPucCal, stwPublish.
