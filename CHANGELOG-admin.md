@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1673 · 02-Oct-2026 IST
+User: "they have added DOB but still not showing her horoscope" (Vijayalakshmi P S, opened on widget page 2). The page 2 list dropped the date of birth, so the horoscope was empty; it is now kept. Data: DB2 davan_pub/view_as gains `dob` per staff (the same one write when the list changes). Function: stwPublishViewAs.
+
 ## v1672 · 02-Oct-2026 IST
 Staff widget w173 + student widget w137 released (LATEST_APK 173, LATEST_STUDENT_WIDGET_APK_V 137). User: "Back to page 1 but still it shows the selected student". The Page 1 button on page 2 now clears the view-as choice so the widget returns to the logged-in person, and page 1 shows a "Back to <name>" button while viewing someone else. No new database reads or writes. Pairs with portal v10.77. Widget: ViewAsActivity, MainActivity / StudentPermissionActivity (backMeBtn).
 
