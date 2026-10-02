@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1613 · 02-Oct-2026 IST
+
+User: make the widget's Live class board the home page (page 1) and show every class like the staff app's board - Degree first, then PUC - so the Director sees which classes are running and who is taking them. Staff widget w150 released with it (DavanWidget.apk, davan-widget-version.json, LATEST_APK 150). stwPublish now adds each degree class's lesson-plan position (last Sl No, today's Sl No + topic) to DB2 davan_pub/staff_pub/board/<Day> - same publish, about 3-5 KB more per day; the widget reads it once a day. Functions: stwPublish.
+
 ## v1612 · 02-Oct-2026 IST
 
 User: labs are two hours. On the faculty dashboard My classes today card, back-to-back lab periods of the same class and subject (gap up to 15 min) are now one card (e.g. 8:30 - 10:30, B1 · Lab 1 + 2) with one "teach today" topic, so later classes of that subject get the right next Sl No. No data or Firebase cost change. Functions: fdbTodayLpRender.
