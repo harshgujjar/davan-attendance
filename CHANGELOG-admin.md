@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1619 · 02-Oct-2026 IST
+
+User: the widget still said "the topic after the one above (open the staff app once)" - the data came from staff app v1612, which does not send each class's lesson-plan key. Staff widget w155 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 155): it finds the key itself from the list of lesson-plan names (DB2 davan_pub/lessonPlan?shallow=true, keys only, every 6 h) - same class, lab / theory, subject code - and never shows that hint. Functions: LATEST_APK.
+
 ## v1618 · 02-Oct-2026 IST
 
 User: why tap Send to see the lesson plan - show it directly with Sl No; also show the app version next to the widget version. Staff widget w154 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 154): it reads each class's lesson plan itself from DB2 davan_pub/lessonPlan/<key> (updated_at every refresh, the topics only when changed - a few KB per faculty per change), so last class / teach today and new check marks show without the staff app; its footer shows "app v<build>" from staff_pub/build. stwPublish adds lk (the lesson-plan key) to each faculty class, and the first open after an app update sends the widget data at once (no 30-min wait, no button). Functions: stwPublish.
