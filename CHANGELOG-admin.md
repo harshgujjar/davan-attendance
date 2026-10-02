@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1652 · 02-Oct-2026 IST
+
+User: why does Rangaswammy Gs not show a password like the others? The others' login (@515515) is also their password; his login is rangaswammy.gs with a different password, so nothing showed it. The User Management card now shows "🔒 Password" when it differs from the login (the page is Super Admin only since v1646). No Firebase cost change. Functions: _umRenderList.
+
 ## v1651 · 02-Oct-2026 IST
 
 User: the new admin Veeresh Patil had no Staff Directory row (so no code / password shown and no way to add his photo), the directory showed an old "Session: 06/03/2025 – 01/07/2025", and Create account should offer an optional photo. sdAddMissingAccounts now skips only the Super Admin (role Admin added to the role labels), so other admins get a row on the next Staff Directory open / sync; the session line comes from SESSION_CONFIG (_scfgLabel); Create account has an optional Photo saved with facUploadPhoto. Firestore app_data/staff_directory + faculty photos as before. Functions: sdAddMissingAccounts, staffDirectoryRender, umUploadNewPhoto, umCreateUser.
