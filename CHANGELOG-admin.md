@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1622 · 02-Oct-2026 IST
+
+User: My Subject Dashboard should show with Show / Hide, closed by default (not removed in code); the Subscribe banner should show whenever not subscribed. The v1620 CSS hide is removed; the faculty dashboard's card opens closed (▼ Show) and keeps the faculty's choice until a reload. The notification banner hides only when this phone is subscribed (no longer when the staff widget is linked). No data or Firebase cost change. Functions: sptFillBanner, fdbSptBannerToggle, fdbUpdateNotifBanner.
+
 ## v1621 · 02-Oct-2026 IST
 
 User: cannot log in ("Failed to execute 'setItem' on 'Storage': ... exceeded the quota") and every refresh logs out. All the college pages share one origin and one ~5 MB localStorage; big saved copies (davan_students, hc_cache_v1, logs) filled it, so Remember me, Firebase's own sign-in keys (the earlier "unsupported persistence type") and the session could not be saved. A storage guard at the top of <head> wraps Storage.setItem: on a quota error it drops the largest saved copies (over 20 KB; never Firebase sign-in, remember, token or widget keys) and retries, and never throws to the caller; at start-up it trims storage over 4 M characters to 3 M. No Firebase cost change (the dropped copies are downloaded again as before). Pairs with portal v10.56. Functions: storage guard (new inline script).
