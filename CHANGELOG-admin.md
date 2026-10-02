@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1620 · 02-Oct-2026 IST
+
+User: always hide My Subject Dashboard; explain Subscribe and hide it when not needed; bring reminders to the widget. The faculty dashboard's My Subject Dashboard banner is hidden. The class-notification banner hides when this device is subscribed or the Davan Staff widget is linked on this phone, and otherwise explains what it gives. Staff widget w156 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 156): the class reminder uses the Today page's plan (Teach today #Sl No + topic, Last class; one reminder for a 2-hour lab). No Firebase cost change. Functions: fdbUpdateNotifBanner.
+
 ## v1619 · 02-Oct-2026 IST
 
 User: the widget still said "the topic after the one above (open the staff app once)" - the data came from staff app v1612, which does not send each class's lesson-plan key. Staff widget w155 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 155): it finds the key itself from the list of lesson-plan names (DB2 davan_pub/lessonPlan?shallow=true, keys only, every 6 h) - same class, lab / theory, subject code - and never shows that hint. Functions: LATEST_APK.
