@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1657 · 02-Oct-2026 IST
+
+User: where to create Almas Banu T (PUC Commerce Principal)? The Title box in Create account / Edit said "Resident staff only", though it is saved for every role and "PUC" in it makes the staff widget PUC-only (v1578). Labels / placeholder now say Title / Shown as, any role. No data change. Functions: (HTML labels only).
+
 ## v1656 · 02-Oct-2026 IST
 
 User: count unique PUC faculty (some teach in many classes) and the Science teachers (Sanjana S, Savitha K H, Praveena M, Rudramurthy C V) were missing. The staff app now reads the PUC app's Subject Map, RTDB puc_faculty_allocation/<AY> ({1COM, 2COM, 1SCI, 2SCI}: {'A|PHY': name}), one small read: PUC Faculty = unique names across all four (per-stream counts shown), the timetable count only as fallback; the PUC Live Class Board resolves teachers from it first (Science subjects now named). Functions: lcbPucLoadStudents, lcbPucResolveFaculty, stwPucGlance.
