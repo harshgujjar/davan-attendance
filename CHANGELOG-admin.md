@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1643 · 02-Oct-2026 IST
+
+User: give the widget's page chooser to all staff (not students), and Sumitra (PUC Principal) should see only the PUC Commerce and Science calendars, no Degree calendar. Staff widget w167 released (DavanWidget.apk, davan-widget-version.json, LATEST_APK 167): "Pages on my widget" for every staff member, new "Calendars on my widget" (College / PUC Commerce / PUC Science, one table each). The staff-widget link now carries calScope "puc" for PUC-only logins and the PUC Principal (HSW_PUC_CAL_NAMES: Sumitra K T), which makes PUC Commerce + Science her default. No Firebase cost change. Functions: hswPayload.
+
 ## v1642 · 02-Oct-2026 IST
 
 User's PUC calendars: Mid-Term Exam 28-Sep to 03-Oct and 02-Oct Gandhi Jayanti as a Working Day. The rule "a Working Day cancels any day off" turned today back into a class day, so the board and widget showed PUC classes. Now an exam / internal test wins over a Working Day; a Working Day still cancels a holiday / event / sports day / Sunday. Working Days inside an exam are not sent to the widget (its first match decides), so no widget change. Pairs with puc.html v5.229. Functions: stwPucOffToday, stwPublish.
