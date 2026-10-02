@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1665 · 02-Oct-2026 IST
+
+User: page 2 staff list only faculty with allocated subjects (others: Principal, admin, manager are fine), with photo (and password); the student switch did not change the widget (stayed on V NEESHA); students' page 2 should show phone with URN, with call / copy. stwPublishViewAs: fulltime / visiting / VP only with a subject this semester (_fdbScopeAllocs + aliases); students carry p = 10-digit phone. Passwords are NOT put in this list (DB2 davan_pub/view_as is readable by every widget) - the login name is shown instead (for most staff it is also the password). Staff widget w170 + student widget w130 released (APKs, version jsons, LATEST_APK 170, LATEST_STUDENT_WIDGET_APK_V 130): photo rows, Call / Copy, choice saved with commit() before the refresh, check line with Copy. Pairs with portal v10.70. Functions: stwPublishViewAs.
+
 ## v1664 · 02-Oct-2026 IST
 
 User: if Veeresh logs in on his phone, Veeresh must not see page 2 or anything of his - show Veeresh's own data; only his Admin login shows the admin view + page 2 (Open as, Back to me). swLink links the widget to whoever logs in again (the v1660 lock and v1663 quiet refusal are gone); sup:true only for the Super Admin's own login (widget w169 clears the view-as choice and hides page 2 when sup is false). Pairs with portal v10.69. Functions: swLink, hswPayload.
