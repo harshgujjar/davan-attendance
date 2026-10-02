@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1630 · 02-Oct-2026 IST
+
+User: SUMITHRA K T's photo still missing on the faculty login preview. Before sign-in the app reads only the shared faculty photo list (davan_pub/faculty_photos); the PUC staff list is read after sign-in. facPreloadPhotos now copies PUC photos for names without a photo into app_data/faculty_photos (merge) and davan_pub/faculty_photos - only on an admin / principal / manager login, only missing names, keys without . # $ [ ] /. A few small writes once; no new reads. Functions: facPreloadPhotos.
+
 ## v1629 · 02-Oct-2026 IST
 
 User: if I am logged in, show the dashboard directly - the widget opened an older app (v1627, no photo) and asked for the password every time. (1) Sign-in without Remember me used session-only persistence, and every widget tap / app open is a new window, so the login was lost; Remember me is removed and every sign-in (faculty and admin) is kept until Logout (Firebase LOCAL persistence). (2) The widget opened index.html?swdev=..., cached separately from index.html; staff widget w159 opens index.html#swdev=... (same address as the icon; the app reads the code from the hash, also on hashchange). No Firebase cost change. Pairs with staff widget w159 (DavanWidget.apk, davan-widget-version.json, LATEST_APK 159). Functions: doFacultyLogin, doFirebaseLogin, swdev capture.
