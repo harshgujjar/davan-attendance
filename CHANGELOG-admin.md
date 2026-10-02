@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1624 · 02-Oct-2026 IST
+
+User: students (portal and widget) and faculty see no IA-1 marks. The marks reach the apps only through the scrape (app_data/students) and the PC sync script (DB2), which cannot be read from here, so a 🔍 Marks check button is added to Internal Marks: data source this phone used (Firestore or the RTDB fallback with its saved time), last scrape, and per class the students with IA-1, IA-1 / IA-2 mark counts and IA-1 counts per subject, with a 📋 Copy button. No extra reads (uses the list already loaded). Functions: imMarksCheck (new), loadFirestoreData / _loadFromRTDB (window._stuSrc).
+
 ## v1623 · 02-Oct-2026 IST
 
 User: internal marks not seen in the faculty login; the widget quote is cut. loadFirestoreData read 12 app_data documents in one Promise.all - a single refused side document (staff_directory, class_notes ... for a faculty login) failed the whole batch and dropped the faculty onto _loadFromRTDB (davan_pub/students, a manual-sync copy without the IA-1 marks). Side reads are now soft (_fsSoft: skipped with a warning); only app_data/students decides the fallback. Internal Marks also takes the subject entry that carries marks when a student has the same subject twice. Staff widget w157 released (quote up to 3 lines, footer 2 lines; DavanWidget.apk, davan-widget-version.json, LATEST_APK 157). No new reads. Functions: loadFirestoreData, _fsSoft (new), imRender (_imFindSub).
