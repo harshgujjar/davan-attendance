@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1646 · 02-Oct-2026 IST
+
+User: (1) the side panel's Admin section and all its pages only for him (Super Admin), not other admins or the Manager; (2) Kannada and Hindi - combined (B.Com + BBA), split by students, or only one in the timetable - must always show as one box with both languages and both teachers with photos, on the board, the student app and the student widget. (1) applySidebarForRole hides the Admin card for non-super logins and switchPanel refuses its pages (SUPER_ONLY_PANELS). (2) New lmLangPairs (slot allocations + every Kannada / Hindi allocation of the class): Live Class Board card says "Kannada / Hindi" with one teacher line + photo each (faculty filter matches either), stwDegDay sends the same to the staff widget (sub, fs). Student widget w126 released (Davan.Student.apk + test, LATEST_STUDENT_WIDGET_APK_V 126). Pairs with portal v10.63. No Firebase cost change. Functions: lmLangPairs, lmLangLabel, lmLangFacs, lcbBuildPanel, stwDegDay, applySidebarForRole, switchPanel.
+
 ## v1645 · 02-Oct-2026 IST
 
 User: add 2 more admins with all admin rights; only the Director is "Super Admin". User Management: "Admin (full access)" in Create account and in Edit role, shown only to the Super Admin (username admin / admin@davan.local, or superAdmin:true). Only the Super Admin can make, remove or delete admins; other admins see the Super Admin as a locked card (no password, edit, reset or delete). Their staff widget says "Admin" (the Director's says Director). No Firebase cost change. Functions: umIsSuper, umMeSuper, umGuardSuper, umCreateUser, umSaveEdit, umResetPassword, umDeleteUser, _umRenderList, hswPayload.
