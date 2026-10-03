@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1725 · 03-Oct-2026 IST
+User: DB2 usage 49.9 MB today - cut the three big avoidable reads; also v1724 fixed Admin Settings running off a phone screen (mobile `table{min-width:500px}` hit the switch tables; CSS only). (1) Student widget w152 (LATEST_STUDENT_WIDGET_APK_V 152) reads ia_live_status/IA1/status/<URN> + /locked instead of the whole IA node (23 KB x 261 = ~6 MB/day). (2) stwWidgetLists (new): student_widget_active, student_widget_report (~151 KB), staff_widget_report read once and shared 10 min by stwUsage, the view_as list and the Device report (was 29 reads, 4.3 MB). (3) Portal v10.97 reads the widget link history with limitToLast (see its log). Pairs with portal v10.97. Functions: stwWidgetLists (new), stwUsage, stwPublishViewAs, dvrLoad.
+
 ## v1724 · 03-Oct-2026 IST
 User screenshot: Admin Settings ran off the right edge on a phone. The mobile rule `table { min-width: 500px }` (for data tables inside a sideways-scroll box) also hit the plain switch tables of Widget switches, Saturday and the others, so the page itself became 500 px wide. Admin Settings tables now have no minimum width (the device report's name lists keep 560 px inside their scroll box); text inputs are capped at 46% of the screen. CSS only.
 
