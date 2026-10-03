@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1691 · 03-Oct-2026 IST
+Staff widget w182 + student widget w140 released (LATEST_APK 182, LATEST_STUDENT_WIDGET_APK_V 140). User: every permission in one place, the widget opens only when they are given, Pages / Calendars lists hidden until tapped, and the same for permissions added later. Admin Settings → Widget switches gets a Must tick per permission (install, notifications, on-time alerts, battery, screen time; first four Must by default), saved in DB2 davan_pub/widget_flags.must (WF_PERMS). The widgets report the missing ones (perm); Apps & widgets lists "🔐 Setup not finished" staff and Faculty Alerts → Notification check shows them per person. No new reads. Pairs with portal v10.81. Functions: wfLoad, wfSave, stwUsage, faNotifCheck.
+
 ## v1690 · 03-Oct-2026 IST
 User: "table is not opening" (Faculty Subscription Status stuck on Loading…, LATEST_APK badge empty). facAlertInit ran only from the side-menu click; when the app restored the Faculty Alerts page after an update it never ran. switchPanel now runs it for faculty-alerts (skipped if it just ran), and the widget_identity, widget report and staff_widget_report reads are capped at 8 s. No new reads. Functions: switchPanel, facAlertInit, facAlertRefreshSubs.
 

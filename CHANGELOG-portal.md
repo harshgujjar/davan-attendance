@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v10.81 (2026-10-03) -- Student widget w140 released (LATEST_STUDENT_WIDGET_APK 140): all permissions in one block with Fix buttons; the widget stays locked with a red Finish setup card until the Must ones are given (chosen by the Super Admin in the staff app). The Widget tab shows '🔐 setup not finished · n missing'. Pairs with staff app v1691.
 VERSION : v10.80 (2026-10-03) -- Old student widgets (below w108) are blocked: LATEST_STUDENT_WIDGET_APK.minApkVersion 106 -> 108 (they show 'update required', no data); the Widget tab marks them '⛔ old · blocked, must update'. Pairs with staff app v1689 (which also enforces minApkVersion 108).
 VERSION : v10.79 (2026-10-03) -- Student widget w139 released (LATEST_STUDENT_WIDGET_APK 139): birthday wishes follow one global switch set by the Super Admin in the staff app (davan_pub/widget_flags); the per-phone switch is gone. Pairs with staff app v1683.
 VERSION : v10.78 (2026-10-02) -- Student widget w138 released (LATEST_STUDENT_WIDGET_APK 138): birthday wishes (7-day countdown, the wish, a late wish) at a different time each day between 8 am and 12 noon, with student wording; replaces the fixed 8 am wish. Pairs with staff app v1675.
