@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1681 · 03-Oct-2026 IST
+Staff widget w177 released (LATEST_APK 177). User: "when I click on staff app it opens PUC only". In w176 every tap followed the person shown (a PUC teacher viewed on page 2), so even "Open the staff app" opened faculty.html. Now only a widget linked to a PUC teacher opens the PUC Faculty app, and the settings button always opens the staff app. No data change. Widget: Widgets.staffAppIntent / staffAppOnly.
+
 ## v1680 · 03-Oct-2026 IST
 User: "Almas's name is still not on page 2". stwPublish returned early when the widget numbers had not changed, before stwPublishViewAs ran, so a new login never reached DB2 davan_pub/view_as. The list is now checked on every send (every 30 min while an admin has the app open, or Send numbers); it writes only when it changed (its own signature). Cost: the users list read (cached 5 min) per send. Function: stwPublish.
 
