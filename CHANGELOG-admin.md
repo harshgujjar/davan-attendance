@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1719 · 03-Oct-2026 IST
+User (copied report): staff Device report showed only Admin, as "no widget". It listed only staff who had opened the staff app after v1718 and left out the Super Admin's own widget code. Staff are now everyone in Firestore app_data/login_index plus every DB2 staff_widget_report linked in the last 7 days (Super Admin included), joined by name, phone details from dev_staff or the widget's model. A working widget wins over "not opened" (students too). One Firestore read per Staff tap. Function: dvrLoad.
+
 ## v1718 · 03-Oct-2026 IST
 User: a device report before deciding on a widget-required lock (no lock built), and Follow Davan showed nobody. Device report: this app writes DB2 davan_pub/dev_staff/<date>/<key> once a day per staff login (os, real Android version via client hints, model, RAM, cores, browser, home-screen app); students' come with the student app's usage write (portal v10.94, .dev). Admin Settings → 📱 Device report reads 7 days on a tap (students ~7 x 60 KB) and groups people (widget installed, Android no widget, slow phone, iPhone, old Android, laptop, not known, not opened) with name lists, version / RAM / browser lines, "if you lock now" and Copy. Follow: stwUsage counts taps (tig / tyt / tfb) besides yes. Staff widget w195 (LATEST_APK 195) shows tapped / yes per platform; student widget w150 → w151 (LATEST_STUDENT_WIDGET_APK_V 151) puts the strip on top of page 1 and asks right after the tap. Pairs with portal v10.94. Functions: dvDeviceInfo, dvStaffDevice, dvrLoad, dvrDay, dvrNk (new), stwUsage.
 
