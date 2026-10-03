@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1721 · 03-Oct-2026 IST
+User: why are all 414 students in the copied text? The top Copy put every group's full name list in. It now copies only the summary (groups, if you lock now, Android versions, RAM); each group has its own "📋 Copy names" button. No data change. Function: dvrLoad.
+
 ## v1720 · 03-Oct-2026 IST
 User's copied student report: 35 widgets installed (page 2 says 87), one phone shown as "en-gb". The report counted only widgets reporting in the last 7 days; now one widget per student (newest link) and a group "⚠ Widget linked but silent 7+ days"; the widget's own report (manufacturer, model, androidSdk) fills the phone for widget students. Phone model parsing skips language and filler tokens (also portal v10.95). No new reads. Functions: dvrLoad, dvDeviceInfo.
 
