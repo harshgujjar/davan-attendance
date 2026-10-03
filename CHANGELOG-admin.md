@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1692 · 03-Oct-2026 IST
+Staff widget w183 released (LATEST_APK 183). User: make "I am PUC faculty" stand out so staff and PUC teachers know which is theirs. The widget settings have a "🔗 Who are you? Link this widget" section with two tall coloured buttons: 👔 COLLEGE STAFF (gold, opens the staff app) and 🎓 PUC FACULTY (blue, opens the PUC Faculty app); the linked one shows ✅ LINKED. No data change. Widget: MainActivity.showLinks.
+
 ## v1691 · 03-Oct-2026 IST
 Staff widget w182 + student widget w140 released (LATEST_APK 182, LATEST_STUDENT_WIDGET_APK_V 140). User: every permission in one place, the widget opens only when they are given, Pages / Calendars lists hidden until tapped, and the same for permissions added later. Admin Settings → Widget switches gets a Must tick per permission (install, notifications, on-time alerts, battery, screen time; first four Must by default), saved in DB2 davan_pub/widget_flags.must (WF_PERMS). The widgets report the missing ones (perm); Apps & widgets lists "🔐 Setup not finished" staff and Faculty Alerts → Notification check shows them per person. No new reads. Pairs with portal v10.81. Functions: wfLoad, wfSave, stwUsage, faNotifCheck.
 
