@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1702 · 03-Oct-2026 IST
+Staff widget w190 + student widget w146 released (LATEST_APK 190, LATEST_STUDENT_WIDGET_APK_V 146). User: the tapped person's photo and details disappeared on page 2 (w188 / w145 showed only the check) - they show again ("Selected (not opened yet)" with photo, role / class, phone, Call, Copy); and the Pages list's Reset button is removed. No data change. Pairs with portal v10.87. Widget: ViewAsActivity.showNow, MainActivity.showPages.
+
 ## v1701 · 03-Oct-2026 IST
 Staff widget w189 released (LATEST_APK 189). User: page choices were lost after logging in as another account and back; remember them and the home page, and give a simple way to pick the default home page and come back to it. The widget keeps page ticks, calendars and the chosen home page per person on the phone, "Set home" on each page row, the ⌂ button opens it, and "Reset to default". No data change. Widget: Roles.pk / home, MainActivity.showPages.
 
