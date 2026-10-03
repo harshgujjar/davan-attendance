@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1727 · 03-Oct-2026 IST
+Staff widget w197 (LATEST_APK 197) and student widget w153 (LATEST_STUDENT_WIDGET_APK_V 153) released. User: the real person (e.g. Vijayalakshmi, each student) should see their own photo on their notifications too. Both widgets set the round photo they already saved for the header (or initials) as the notification picture; the student widget used the college logo, now the fallback. No data change, no downloads. Pairs with portal v10.98. Widgets: Alerts.post (staff), Alerts.builder (students).
+
 ## v1726 · 03-Oct-2026 IST
 Staff widget w196 released (LATEST_APK 196). User: show the person's photo, not only 👤, on the notifications sent while viewing someone (page 2 Open as). Each such notification carries the round photo the widget already saved for its header (no extra download), else initials; the test notification now comes after the refresh. No data change. Widget: Photo.forPerson, Alerts.post, ViewAsActivity.pick.
 
