@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1693 · 03-Oct-2026 IST
+Staff widget w184 + student widget w141 released (LATEST_APK 184, LATEST_STUDENT_WIDGET_APK_V 141). User: on page 2 mark who has installed the new widget, a students-only "widget installed" view, and for a picked person what is not granted, which version, why not updated and whether they can see the widget. stwPublishViewAs adds wk / wv / wx to each staff entry and k / w / x to each student entry (DB2 davan_pub/view_as), from the widget reports stwUsage already read (window._stwRep, else 3 reads); the list is still written only when it changes. The widgets read the picked person's own report (1 small read). Pairs with portal v10.82. Functions: stwUsage, stwPublishViewAs; widget WCheck, ViewAsActivity.
+
 ## v1692 · 03-Oct-2026 IST
 Staff widget w183 released (LATEST_APK 183). User: make "I am PUC faculty" stand out so staff and PUC teachers know which is theirs. The widget settings have a "🔗 Who are you? Link this widget" section with two tall coloured buttons: 👔 COLLEGE STAFF (gold, opens the staff app) and 🎓 PUC FACULTY (blue, opens the PUC Faculty app); the linked one shows ✅ LINKED. No data change. Widget: MainActivity.showLinks.
 
