@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1698 · 03-Oct-2026 IST
+User screenshot: Vijayalakshmi's old w131 widget showed "No classes today" instead of the closed message. The old widget lists only DB1 davan_pub/widget_pin ttSlots with today's day and a time; the closed line had neither. It is now one closed line per day at 11:59 PM (oldWidgetClosedSlots), written at login and by the Super Admin's daily sweep (re-run today). No new reads. Functions: oldWidgetClosedSlots, oldWidgetsClose, the widget sync payload.
+
 ## v1697 · 03-Oct-2026 IST
 Staff widget w187 + student widget w144 released (LATEST_APK 187, LATEST_STUDENT_WIDGET_APK_V 144). User: "class notification also, subject notification also" when picking someone on page 2. Once their data loads the phone gets a preview of their next class reminder and their subjects (staff: syllabus status or PUC subjects with last class present / absent; students: subject attendance), labelled "👤 name". No new reads. Pairs with portal v10.85. Widget: Preview.run, ViewAsActivity.pick.
 
