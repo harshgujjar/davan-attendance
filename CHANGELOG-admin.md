@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1676 · 03-Oct-2026 IST
+User: "created Almas Banu's account but can't locate it, not in staff or PUC; show her login in Staff Directory". Staff Directory now shows the Login under every name (from the accounts it already reads). A new login was skipped when its code matched another person's row; a row whose name belongs to a different account no longer counts as a match, so the login gets its own row. Widget page 2 (Open as) left out faculty who teach only PUC; the PUC app's Subject Map teachers and any login with a Title now appear. Data: one small read of puc_faculty_allocation/<AY> when not already loaded. Functions: sdAddMissingAccounts, _sdOtherAcct, _sdLoginFor, sdRenderSection, stwPublishViewAs.
+
 ## v1675 · 02-Oct-2026 IST
 Staff widget w175 + student widget w138 released (LATEST_APK 175, LATEST_STUDENT_WIDGET_APK_V 138). User: birthday wishes for all faculty, visiting faculty, Principal, staff (Director included) and students, as in the student app. A 7-day countdown, the wish on the day and one late wish, each at a different time between 8 am and 12 noon (notification + a card on top of every page until 12 noon, 🎂 by the name on the day); staff and students get different wording; an ON/OFF switch in each widget's settings. No new reads or writes: the DOB is already in each widget's data. Pairs with portal v10.78. Widget: Bday (new), Alarms.schedule, Rx, Pages.rows.
 
