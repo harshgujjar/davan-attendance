@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1701 · 03-Oct-2026 IST
+Staff widget w189 released (LATEST_APK 189). User: page choices were lost after logging in as another account and back; remember them and the home page, and give a simple way to pick the default home page and come back to it. The widget keeps page ticks, calendars and the chosen home page per person on the phone, "Set home" on each page row, the ⌂ button opens it, and "Reset to default". No data change. Widget: Roles.pk / home, MainActivity.showPages.
+
 ## v1700 · 03-Oct-2026 IST
 Staff widget w188 + student widget w145 released (LATEST_APK 188, LATEST_STUDENT_WIDGET_APK_V 145). User: on page 2 do not switch and refresh as soon as a name is tapped - show a button under the check, and make the permission line clear with Sl No. A tap now only shows the person's Widget check; "👁 Open <name>'s widget on this phone" switches, refreshes and sends the test notifications. Permissions are one per line (4.1 … 4.5, ✅ given / ❌ NOT given / ⚪ optional). No data change. Pairs with portal v10.86. Widget: ViewAsActivity.select / pick, WCheck.check.
 
