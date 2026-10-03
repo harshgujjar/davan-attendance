@@ -64,3 +64,11 @@ Every debug / timing / diagnostic text shown to the user gets a one-tap **📋 C
 ## Always commit, push and merge to main (standing instruction)
 
 After every change: bump versions, write the changelog entries, commit, push the session branch, then **merge it into `main` and push `main`** so the apps go live. Do this automatically, never ask. This holds in every session.
+
+## Building the widgets in a NEW session (user, 03-Oct-2026)
+
+Widget sources are not in git. The user uploads the newest zips (DavanWidget_w<nnn>.zip, DavanStudentWidget_w<nnn>.zip; each holds the
+source, build.sh and the keystore). Unzip them, then install the tools once: `apt-get install -y aapt dalvik-exchange zipalign apksigner
+default-jdk` and put Android API 34 `android.jar` at `$HOME/tc/android.jar` (Android SDK platforms;android-34). Build: in the widget folder
+`ANDROID_JAR=$HOME/tc/android.jar bash build.sh`. New version = copy the folder to the next number, bump AndroidManifest + BuildInfo,
+write W<nn>_CHANGES.md, build, then release as above. Send the user the new APK AND the new source zip every time.
