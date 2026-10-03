@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1687 · 03-Oct-2026 IST
+User: "where in the app can I see staff battery unrestricted". Admin → Faculty Alerts → Notification check lists every staff widget (version, notifications, last seen) and now its battery state from the w181 report: 🔋ok / 🔋limited. No new reads. Function: faNotifCheck.
+
 ## v1686 · 03-Oct-2026 IST
 Staff widget w181 released (LATEST_APK 181). User: make "Settings → Apps → Davan Staff → Battery → Unrestricted" easy. The widget asks Android itself (settings button "🔋 Keep the widget live", and a card on top of the widget while it is battery-limited). Its report carries bat; the usage summary sends the battery-limited names and the Staff widgets card lists them. No new reads. Function: stwUsage; widget MainActivity.battOk / askBatt.
 
