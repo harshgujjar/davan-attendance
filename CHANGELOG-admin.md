@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1716 · 03-Oct-2026 IST
+User: Vijayalakshmi's new Davan Staff widget (installed over the old one) did not show on the admin's Staff widgets card. The card counted only widgets linked to a login (staff_widget_report.linked); an installed but unlinked widget has no name and was dropped. Unlinked w140+ widgets that reported in the last 7 days are now listed first under 🔐 Setup not finished (phone model, version, code, time), which every w182+ widget already shows; the fix for one is: open the widget, tap 👔 College staff, log in. No new reads. Function: stwUsage.
+
 ## v1715 · 03-Oct-2026 IST
 Staff widget w194 (LATEST_APK 194) and student widget w150 (LATEST_STUDENT_WIDGET_APK_V 150) released. User: Saturday and Sunday are holidays for degree classes; full-time faculty come on Saturday till 1:30 PM with no classes and a faculty meeting (10:00 AM, time may change); visiting faculty are off; PUC unchanged; a Saturday is a working day only when the degree Academic Calendar has a Working day (or exam / internal / VACC for students) on it. New Admin Settings box 🗓 Saturday (DB2 davan_pub/widget_flags/sat: college till, meeting on / time / place, one-Saturday change or cancel with a note, Friday 6 PM / Sunday 6 PM / meeting-reminder switches); the widgets read it with the hourly widget_flags read (no new reads); wfSave keeps it. Pairs with portal v10.93. Functions: satFill, satSave, satClearOne, satNextSat (new), wfLoad, wfSave; widgets: Weekend (new) and the day-off / reminder code.
 
