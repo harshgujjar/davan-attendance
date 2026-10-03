@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1705 · 03-Oct-2026 IST
+Staff widget w192 (LATEST_APK 192) and student widget w148 (LATEST_STUDENT_WIDGET_APK_V 148) released. User: "still it says downloading 147 - old was 143". The widget footer's update line now shows both versions ("⬇ w148 → w149 45%"); a phone shows it from the update after this one, since the old version runs the old code. No data change. Pairs with portal v10.89. Widgets: Update.ft, Update.line.
+
 ## v1704 · 03-Oct-2026 IST
 Student widget w147 released (LATEST_STUDENT_WIDGET_APK_V 147). User: "Widget installed 87 - tell how many old and how many new". The admin's page 2 chip splits it (new = w108+, old = blocked below w108); the update line shows the installed version. No data change. Pairs with portal v10.88. Widget: ViewAsActivity.render, Update.progressText.
 

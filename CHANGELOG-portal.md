@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v10.89 (2026-10-03) -- Student widget w148 released (LATEST_STUDENT_WIDGET_APK 148): the widget's update line shows both versions (w148 → w149). Pairs with staff app v1705.
 VERSION : v10.88 (2026-10-03) -- Student widget w147 released (LATEST_STUDENT_WIDGET_APK 147): the admin's page 2 shows installed widgets split into new and old; the update line shows the version on the phone. Pairs with staff app v1704.
 VERSION : v10.87 (2026-10-03) -- Student widget w146 released (LATEST_STUDENT_WIDGET_APK 146): the admin's page 2 shows the tapped student's photo and details again above the Widget check. Pairs with staff app v1702.
 VERSION : v10.86 (2026-10-03) -- Student widget w145 released (LATEST_STUDENT_WIDGET_APK 145): on the admin's page 2 a tap only shows the student's Widget check; a button opens their widget; permissions are numbered, one per line. Pairs with staff app v1700.
