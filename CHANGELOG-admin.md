@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1707 · 03-Oct-2026 IST
+User: changed the student app's opening animation to C, phones still showed the old one. Both apps read davan_pub/app_loader only once per session, and an installed app kept in the background never starts a new one. Now read when 10 min have passed and each time the app comes back to the screen (one tiny DB2 read at most every 10 min). Pairs with portal v10.92. Functions: dvLoaderSync (staff), stuLoaderSync (portal).
+
 ## v1706 · 03-Oct-2026 IST
 Staff widget w193 (LATEST_APK 193) and student widget w149 (LATEST_STUDENT_WIDGET_APK_V 149) released. User: the widgets sit on many different versions though auto update is on. The automatic download was tried once per version and a downloaded update was announced once; now it is retried every hour (8 times at most) and the waiting Install is shown again every 3 hours; student widgets also check the GitHub version file every hour (no Firebase cost; the full refresh stays at 3 hours). Pairs with portal v10.91. Widgets: Update.onHealth, UpdJob (new, student).
 
