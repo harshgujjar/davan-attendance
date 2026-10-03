@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1720 · 03-Oct-2026 IST
+User's copied student report: 35 widgets installed (page 2 says 87), one phone shown as "en-gb". The report counted only widgets reporting in the last 7 days; now one widget per student (newest link) and a group "⚠ Widget linked but silent 7+ days"; the widget's own report (manufacturer, model, androidSdk) fills the phone for widget students. Phone model parsing skips language and filler tokens (also portal v10.95). No new reads. Functions: dvrLoad, dvDeviceInfo.
+
 ## v1719 · 03-Oct-2026 IST
 User (copied report): staff Device report showed only Admin, as "no widget". It listed only staff who had opened the staff app after v1718 and left out the Super Admin's own widget code. Staff are now everyone in Firestore app_data/login_index plus every DB2 staff_widget_report linked in the last 7 days (Super Admin included), joined by name, phone details from dev_staff or the widget's model. A working widget wins over "not opened" (students too). One Firestore read per Staff tap. Function: dvrLoad.
 
