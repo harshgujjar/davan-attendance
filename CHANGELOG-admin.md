@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1710 · 03-Oct-2026 IST
+User: "block that old version and force them to shift to the new one". The old faculty widget has no off switch, so its link nodes now point at one closed record: davan_pub/widget_active_dev/<code>.uid and widget_active_user.uid = 'old_widget_closed' (realUid and the name kept for Faculty Alerts), and widget_pin/old_widget_closed = name "⛔ Widget closed - install Davan Staff" + the closed line. Staff app logins no longer point them back at a real person. DB1 cost: one more small read (widget_active_dev) in the 30-min run; writes only for links not yet closed. Functions: oldWidgetsClose, the widget sync in the login code.
+
 ## v1709 · 03-Oct-2026 IST
 User: after refresh Vijayalakshmi's old w131 widget still showed "Today (0) No classes today". The closed line's time was "11:59 PM"; real slots are "03.30" / "03.30 to 04.30", so the old widget most likely could not read it and dropped it. Now "08.00" / "08.00 to 07.30"; already-closed records with the old time are rewritten on the next run. Data: davan_pub/widget_pin/<uid>/ttSlots (DB1). Functions: oldWidgetClosedSlots, oldWidgetsClose.
 

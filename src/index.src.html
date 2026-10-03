@@ -12336,14 +12336,14 @@ async function davanWidgetSync(user, profile) {
       // catching up to a just-completed sign-in.
       try {
         await rtdb.ref('davan_pub/widget_active_user').set({
-          uid:       user.uid,
+          uid:       OLD_WIDGET_CLOSED_UID,   /* v1710: old widgets are closed - never point them at a real person again */
           updatedAt: Date.now()
         });
       } catch(e) {
         console.warn('[WidgetSync] widget_active_user write failed, retrying once:', e && e.message);
         await new Promise(r => setTimeout(r, 1500));
         try {
-          await rtdb.ref('davan_pub/widget_active_user').set({ uid: user.uid, updatedAt: Date.now() });
+          await rtdb.ref('davan_pub/widget_active_user').set({ uid: OLD_WIDGET_CLOSED_UID, updatedAt: Date.now() });
         } catch(e2) { console.warn('[WidgetSync] widget_active_user retry also failed:', e2 && e2.message); }
       }
 
@@ -12360,7 +12360,7 @@ async function davanWidgetSync(user, profile) {
         const wPair = (localStorage.getItem('davan_widget_pair_code') || '').trim();
         if (wPair) {
           await rtdb.ref('davan_pub/widget_active_dev/' + wPair).set({
-            uid:       user.uid,
+            uid:       OLD_WIDGET_CLOSED_UID, realUid: user.uid,   /* v1710: closed record, the real name stays for Faculty Alerts */
             name:      profile.name || '',
             updatedAt: now
           });
@@ -18663,7 +18663,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1709;  // always = HTML footer version number
+const CODE_BUILD = 1710;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29537,6 +29537,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1710', date: '03-Oct-2026 IST', note: 'Old faculty widgets (w132 and older) are fully closed: they no longer show the teacher\'s name, timetable or any data - only "⛔ Widget closed - install Davan Staff" and the Update line. Logging in to the staff app does not open them again.' },
 { v: 'v1709', date: '03-Oct-2026 IST', note: 'Old faculty widgets (w132 and older): the "⛔ OLD WIDGET CLOSED" line now uses the same time format as real classes (08.00 to 07.30), so the old widget shows it instead of "No classes today".' },
 { v: 'v1708', date: '03-Oct-2026 IST', note: 'Old faculty widgets (w132 and older): the "⛔ OLD WIDGET CLOSED" line is put back every 30 minutes (was once a day), so an old copy of a teacher\'s staff app can no longer bring her real timetable back for the rest of the day.' },
 { v: 'v1707', date: '03-Oct-2026 IST', note: 'App opening animation: phones pick up a new choice within 10 minutes and whenever the app comes back to the screen (before: only after the app was fully closed). It shows the next time the app is fully closed and opened again.' },
@@ -29551,7 +29552,6 @@ const HTML_CHANGELOG = [
 { v: 'v1698', date: '03-Oct-2026 IST', note: 'Old faculty widget (w132 and older): the "⛔ OLD WIDGET CLOSED - install Davan Staff" line now really shows every day (it showed "No classes today" because the line had no day or time).' },
 { v: 'v1697', date: '03-Oct-2026 IST', note: 'Widgets w187 (staff) + w144 (students): picking someone on page 2 also sends a preview of their class reminder and their subject notification (syllabus / subject attendance), labelled with their name.' },
 { v: 'v1696', date: '03-Oct-2026 IST', note: 'Widgets w186 (staff) + w143 (students): when you pick someone on page 2 you get a test notification and then their notifications, labelled with their name. Page 2 shows when the list was sent and by which staff app version.' },
-{ v: 'v1695', date: '03-Oct-2026 IST', note: 'Widgets w185 (staff) + w142 (students): the permissions show on the widget itself - one line each, ✅ done or ❌ TAP HERE, and a red line opens that exact phone setting. The widget stays locked until all are given and locks again if one is taken away.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -82431,21 +82431,39 @@ async function stwSendNow() {
   dvToast(r && r.ok ? '✅ Widget numbers sent - tap ⟳ on the widget' : '⚠️ ' + ((r && r.msg) || 'Could not send'), r && r.ok ? 'ok' : 'warn', 6000);
 }
 // v1689 (user): block every old faculty widget now, not only when that teacher opens the staff app - 1 read of widget_pin a day (Super Admin)
+const OLD_WIDGET_CLOSED_UID = 'old_widget_closed', OLD_WIDGET_CLOSED_NAME = '⛔ Widget closed - install Davan Staff';   // v1710
 function oldWidgetClosedSlots() {   // v1698: one closed line per day (the old widget filters by day and time)
   return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(day => ({ day, classLabel: '⛔ OLD WIDGET CLOSED', code: 'Install Davan Staff',
     subject: 'Tap "Update available" below to install the new Davan Staff app (or open ' + STAFF_APK_DL + ')', time: '08.00', slot: '08.00 to 07.30' }));   /* v1709: same time format as real slots ("03.30", "03.30 to 04.30") - the old widget skipped "11:59 PM" */
 }
 async function oldWidgetsClose() {
   try {
-    if (!rtdb || !umMeSuper()) return; if (Date.now() - (+localStorage.getItem('old_wclose_at') || 0) < 30 * 60000) return;   /* v1708: every 30 min, not once a day - an old copy of a teacher's staff app re-wrote her real timetable */
+    if (!rtdb || !umMeSuper()) return; if (Date.now() - (+localStorage.getItem('old_wclose_at2') || 0) < 30 * 60000) return;   /* v1708: every 30 min, not once a day - an old copy of a teacher's staff app re-wrote her real timetable */
     const snap = await rtdb.ref('davan_pub/widget_pin').once('value'), v = snap.val() || {}, upd = {};
     const slots = oldWidgetClosedSlots();
     Object.keys(v).forEach(uid => { const x = v[uid]; if (!x || typeof x !== 'object') return; const t = x.ttSlots;
       if (Array.isArray(t) && t.length === slots.length && t[0] && t[0].classLabel === slots[0].classLabel && t[0].day && t[0].time === slots[0].time) return;
       upd[uid + '/ttSlots'] = slots; upd[uid + '/updateRequired'] = true; upd[uid + '/updateMessage'] = 'This widget is closed. Install Davan Staff: ' + STAFF_APK_DL; });
+    /* v1710 (user: "block the old version, force them to the new one"): the old widget has no off switch, so every old widget's
+       link (widget_active_dev/<code>, and widget_active_user for the oldest ones) now points at ONE closed record - no name,
+       no timetable, no data, only the closed line and its "Update available" line. The real name stays on the link for Faculty Alerts. */
+    const cr = v[OLD_WIDGET_CLOSED_UID];
+    if (!cr || cr.name !== OLD_WIDGET_CLOSED_NAME || !Array.isArray(cr.ttSlots) || !cr.ttSlots[0] || cr.ttSlots[0].time !== slots[0].time)
+      upd[OLD_WIDGET_CLOSED_UID] = { uid: OLD_WIDGET_CLOSED_UID, role: 'faculty', name: OLD_WIDGET_CLOSED_NAME, facultyKey: OLD_WIDGET_CLOSED_NAME, email: '',
+        htmlVersion: CODE_BUILD, updatedAt: Date.now(), loggedIn: true, ttSlots: slots, dutySlots: [], updateRequired: true,
+        updateMessage: 'This widget is closed. Install Davan Staff: ' + STAFF_APK_DL };
     if (Object.keys(upd).length) await rtdb.ref('davan_pub/widget_pin').update(upd);
+    try {
+      const ds = await rtdb.ref('davan_pub/widget_active_dev').once('value'), dv = ds.val() || {}, du = {};
+      Object.keys(dv).forEach(code => { const d = dv[code]; if (!d || typeof d !== 'object' || d.uid === OLD_WIDGET_CLOSED_UID) return;
+        du[code + '/uid'] = OLD_WIDGET_CLOSED_UID; du[code + '/realUid'] = d.uid || ''; du[code + '/closedAt'] = Date.now(); });
+      if (Object.keys(du).length) await rtdb.ref('davan_pub/widget_active_dev').update(du);
+      const au = await rtdb.ref('davan_pub/widget_active_user/uid').once('value');
+      if (au.val() !== OLD_WIDGET_CLOSED_UID) await rtdb.ref('davan_pub/widget_active_user').set({ uid: OLD_WIDGET_CLOSED_UID, updatedAt: Date.now() });
+      console.log('[old widgets] links closed', Object.keys(du).length / 3);
+    } catch (e) { console.warn('[old widgets] links', e.message); }
     try { await wcpPublishLatestApk(); } catch (e) {}   // their own update line points at Davan Staff (LATEST_APK)
-    localStorage.setItem('old_wclose_at', String(Date.now())); console.log('[old widgets] closed', Object.keys(upd).length / 3);
+    localStorage.setItem('old_wclose_at2', String(Date.now())); console.log('[old widgets] closed', Object.keys(upd).length / 3);
   } catch (e) { console.warn('[old widgets] close', e.message); }
 }
 async function stwPublish(force) {
