@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1699 · 03-Oct-2026 IST
+User: "Widget installed shows zero on the student widget's page 2". Two v1694 / v1696 edits had put a comment in the middle of a line in stwPublishViewAs: the student-to-widget match was cut off (so the function failed and DB2 davan_pub/view_as was not sent at all), and the "already sent" signature was never saved (it would re-send every time). Both fixed; the list is again sent once when it changes, with each person's widget code / version / setup. Function: stwPublishViewAs.
+
 ## v1698 · 03-Oct-2026 IST
 User screenshot: Vijayalakshmi's old w131 widget showed "No classes today" instead of the closed message. The old widget lists only DB1 davan_pub/widget_pin ttSlots with today's day and a time; the closed line had neither. It is now one closed line per day at 11:59 PM (oldWidgetClosedSlots), written at login and by the Super Admin's daily sweep (re-run today). No new reads. Functions: oldWidgetClosedSlots, oldWidgetsClose, the widget sync payload.
 
