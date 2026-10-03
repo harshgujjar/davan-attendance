@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1684 · 03-Oct-2026 IST
+User: "Almas is logged in from my phone, don't count that - logins on my phone are for testing only". The staff widget numbers (Apps & widgets page: count, versions, Live now) leave out the Director's own widget code (SUPER_WIDGET_CODES, S-7UP47U), whoever it shows. No new reads. Function: stwUsage.
+
 ## v1683 · 03-Oct-2026 IST
 Staff widget w179 + student widget w139 released (LATEST_APK 179, LATEST_STUDENT_WIDGET_APK_V 139). User: canteen breakfast / lunch notice for staff ("want to try? pay and eat"), and the menu and birthday switches global for the Super Admin, not per phone; breakfast 8:30, lunch 1 pm, never on holidays. Admin Settings gets "Widget switches (all phones)": birthday wishes, canteen menu, breakfast and lunch times, saved at DB2 davan_pub/widget_flags (widgets read it at most hourly; missing = on). The notice goes to staff who are not hostel staff, skips Sundays, holidays, closed days and days without a menu, and reads the canteen menu (DB4) only at notification time. Pairs with portal v10.79. Functions: wfLoad, wfSave; widget Canteen, Bday.off.
 
