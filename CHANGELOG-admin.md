@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1700 · 03-Oct-2026 IST
+Staff widget w188 + student widget w145 released (LATEST_APK 188, LATEST_STUDENT_WIDGET_APK_V 145). User: on page 2 do not switch and refresh as soon as a name is tapped - show a button under the check, and make the permission line clear with Sl No. A tap now only shows the person's Widget check; "👁 Open <name>'s widget on this phone" switches, refreshes and sends the test notifications. Permissions are one per line (4.1 … 4.5, ✅ given / ❌ NOT given / ⚪ optional). No data change. Pairs with portal v10.86. Widget: ViewAsActivity.select / pick, WCheck.check.
+
 ## v1699 · 03-Oct-2026 IST
 User: "Widget installed shows zero on the student widget's page 2". Two v1694 / v1696 edits had put a comment in the middle of a line in stwPublishViewAs: the student-to-widget match was cut off (so the function failed and DB2 davan_pub/view_as was not sent at all), and the "already sent" signature was never saved (it would re-send every time). Both fixed; the list is again sent once when it changes, with each person's widget code / version / setup. Function: stwPublishViewAs.
 
