@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1712 · 03-Oct-2026 IST
+User: after "Close old widgets now" the old w131 widget showed the new app version but still the time 09:53 (the link's time). The close also sets davan_pub/widget_active_dev/<code>/updatedAt (DB1, a few bytes per old widget); with the button it rewrites every link. Function: oldWidgetsClose.
+
 ## v1711 · 03-Oct-2026 IST
 User: no change on Vijayalakshmi's old w131 widget, it still shows 09:53 AM. Every old widget record (davan_pub/widget_pin/<uid>, DB1) now gets the whole closed record (name "⛔ Widget closed - install Davan Staff", realName, build, time, closed line), also on each staff app login (widget_identity keeps the real one). New Admin Settings button "⛔ Close old widgets now" runs it at once and lists every old widget with its last update (Copy). Same reads as before. Functions: oldWidgetsClose, oldWidgetClosedRecord, oldWidgetsCloseNow (new), the login widget sync.
 
