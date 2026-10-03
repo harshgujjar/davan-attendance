@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1680 · 03-Oct-2026 IST
+User: "Almas's name is still not on page 2". stwPublish returned early when the widget numbers had not changed, before stwPublishViewAs ran, so a new login never reached DB2 davan_pub/view_as. The list is now checked on every send (every 30 min while an admin has the app open, or Send numbers); it writes only when it changed (its own signature). Cost: the users list read (cached 5 min) per send. Function: stwPublish.
+
 ## v1679 · 03-Oct-2026 IST
 Staff widget w176 released (LATEST_APK 176) with PUC Faculty app fac-1.1.0. User: "build PUC faculty on the widget, only for faculty with subject allocations this year". PUC teachers tap "🔗 I am PUC faculty" on the widget, sign in to faculty.html with their usual password, and the widget links to them (only if they have subjects this year). Pages: Today, My subjects (last class present / absent out of the class, overall %), Remedial, Internal marks, Calendar (Commerce teachers: PUC Commerce, Science: PUC Science), News, Stars. Widget page 2 now lists PUC teachers with subjects this year (app_data/puc_faculty_login_index matched to puc_faculty_allocation/<AY>; no passwords). Data: faculty.html writes DB2 davan_pub/puc_fac/<id> each open; the widget reads it at most every 30 min. Function: stwPublishViewAs.
 
