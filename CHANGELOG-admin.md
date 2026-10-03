@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1717 · 03-Oct-2026 IST
+User: Vijayalakshmi installed Davan Staff but the card still counted 13 on the old faculty widget. The old count took every DB1 davan_pub/widget_apk_report entry below w140 from the last 30 days, so a teacher who upgraded stayed "old" for a month, and duplicate old codes of one person counted twice. Old reports are now matched to names (widget_active_dev/<code>.name) and dropped when that person has a Davan Staff widget; one per person. One more small DB1 read when the numbers are sent. Function: stwUsage.
+
 ## v1716 · 03-Oct-2026 IST
 User: Vijayalakshmi's new Davan Staff widget (installed over the old one) did not show on the admin's Staff widgets card. The card counted only widgets linked to a login (staff_widget_report.linked); an installed but unlinked widget has no name and was dropped. Unlinked w140+ widgets that reported in the last 7 days are now listed first under 🔐 Setup not finished (phone model, version, code, time), which every w182+ widget already shows; the fix for one is: open the widget, tap 👔 College staff, log in. No new reads. Function: stwUsage.
 
