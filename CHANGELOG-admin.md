@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1704 · 03-Oct-2026 IST
+Student widget w147 released (LATEST_STUDENT_WIDGET_APK_V 147). User: "Widget installed 87 - tell how many old and how many new". The admin's page 2 chip splits it (new = w108+, old = blocked below w108); the update line shows the installed version. No data change. Pairs with portal v10.88. Widget: ViewAsActivity.render, Update.progressText.
+
 ## v1703 · 03-Oct-2026 IST
 Staff widget w191 released (LATEST_APK 191). User: the go-to-widget button was missing on the staff widget's settings page (the student widget has one), and the download line should also show the version on the phone. New "🏠 Close and go to the widget" button; update lines read "Downloading w192 (you have w191)". No data change. Widget: MainActivity.goToWidget, Update.progressText.
 
