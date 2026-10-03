@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1696 · 03-Oct-2026 IST
+Staff widget w186 + student widget w143 released (LATEST_APK 186, LATEST_STUDENT_WIDGET_APK_V 143). User: when I pick someone on page 2, give me their notifications too, so I know it works; and why "Widget installed 0". Picking sends a test notification, and while viewing every notification is labelled "👤 name · …" (birthday and canteen included). The page 2 list now carries build (DB2 davan_pub/view_as/build) and page 2 shows "List sent <time> by staff app v<n>", warning when the list is older than v1693 (no widget marks yet). Pairs with portal v10.84. Function: stwPublishViewAs; widget Alerts.post, ViewAsActivity.
+
 ## v1695 · 03-Oct-2026 IST
 Staff widget w185 + student widget w142 released (LATEST_APK 185, LATEST_STUDENT_WIDGET_APK_V 142). User: show the permissions on the widget, not only in its settings, and a tap should open the place to turn each on. While locked the widget shows the Finish setup header and one line per permission (✅ / ❌ TAP HERE / ⚪ optional); a red line opens that phone setting directly; it re-locks if a permission is taken away. No data change. Pairs with portal v10.83. Widget: Perms.lockRows, Perms.fix, OpenActivity.
 
