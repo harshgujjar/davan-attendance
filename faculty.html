@@ -2,7 +2,7 @@
 <!--
   DAVAN PUC — FACULTY APP — DEV HANDOFF
   ─────────────────────────────────────
-  FILE_VERSION: fac-1.0.2   LAST_EDIT_IST: 2026-09-11 (see HTML_CHANGELOG below)
+  FILE_VERSION: fac-1.1.0   LAST_EDIT_IST: 2026-10-03 (see HTML_CHANGELOG below)
 
   F12 DIAGNOSTIC HARD RULE (applies to this file, and to every Davan app):
   Whenever something can't be verified by reading code alone, don't guess —
@@ -11,6 +11,10 @@
   on his clipboard. Re-check every snippet ends in copy(...) before sending.
 
   HTML_CHANGELOG (newest first — every entry note starts with a [file:line] tag):
+  - 2026-10-03 fac-1.1.0 [faculty.html:pfwRun()] PUC faculty on the Davan Staff widget (user). Opened from the widget
+    (#swdev=S-XXXXXX), a teacher with subjects this year links it (DB2 davan_pub/student_widget_active/<code>), and every
+    login refreshes her summary at DB2 davan_pub/puc_fac/<id>: timetable, last class present/absent (puc_daily), remedial,
+    internal marks. One DB2 write per open (+1 for the link). Pairs with staff widget w176 and staff app v1679.
   - 2026-09-11 [faculty.html:TT1PUC_FAC_SEC] Added ENG (23COMEN02, all
     sections) → Vidya V Hasbavi. TT1PUC_FAC_SEC had zero ENG keys, and
     resolveFac() never falls back to TT_FACULTY_DEFAULT for is1puc=true, so
@@ -7101,6 +7105,131 @@ _Davan Pre-University College, Davangere_`;
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
+</script>
+<script>
+// ── fac-1.1.0 (user, 03-Oct-2026): PUC faculty on the Davan Staff widget ─────────────────────────────
+// The widget opens this page with #swdev=S-XXXXXX ("I am PUC faculty"). After the usual password login, a teacher WITH
+// subjects this year (myClasses) gets: (1) her own summary at DB2 davan_pub/puc_fac/<id> (timetable, last class present /
+// absent, remedial, internal marks) - refreshed each time she opens this app; (2) the widget link
+// davan_pub/student_widget_active/<code> (only when she came from the widget, or the widget is already hers).
+const PFW_DB2 = 'https://davan-student-portal-default-rtdb.asia-southeast1.firebasedatabase.app';
+const PFW_CFG = { apiKey: 'AIzaSyBnWSfjilDwri7dBpONF2GwgXDJnc1W--w', databaseURL: PFW_DB2, projectId: 'davan-student-portal' };
+(function () { try { const m = /[#&?]swdev=(S-[A-Z2-9]{6})/.exec(location.hash + '&' + location.search); if (m) { localStorage.setItem('davan_staff_widget_code', m[1]); sessionStorage.setItem('pfw_link', '1'); } } catch (e) {} })();
+let _pfwTok = null;
+async function pfwToken() {
+  if (_pfwTok && _pfwTok.exp > Date.now()) return _pfwTok.t;
+  const app = firebase.apps.find(a => a.name === 'lp-portal') || firebase.initializeApp(PFW_CFG, 'lp-portal');
+  const au = app.auth(); let u = au.currentUser;
+  if (!u) u = await new Promise(res => { let done = false; const off = au.onAuthStateChanged(x => { if (!done) { done = true; off(); res(x); } }); setTimeout(() => { if (!done) { done = true; res(au.currentUser); } }, 3000); });
+  if (!u) u = (await au.signInAnonymously()).user;
+  const t = await u.getIdToken(); _pfwTok = { t, exp: Date.now() + 50 * 60e3 }; return t;
+}
+async function pfwPut(path, val) { const t = await pfwToken(); const r = await fetch(PFW_DB2 + '/' + path + '.json?auth=' + t, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(val) }); if (!r.ok) throw new Error('DB2 ' + r.status); }
+async function pfwGet(path) { const t = await pfwToken(); const r = await fetch(PFW_DB2 + '/' + path + '.json?auth=' + t); if (!r.ok) throw new Error('DB2 ' + r.status); return r.json(); }
+function pfwMin(t) { const m = /(\d{1,2})[:.](\d{2})\s*([AaPp][Mm])?/.exec(String(t || '')); if (!m) return -1; let h = +m[1]; const ap = (m[3] || '').toLowerCase();
+  if (ap === 'pm' && h < 12) h += 12; if (ap === 'am' && h === 12) h = 0; if (!ap && h < 7) h += 12; return h * 60 + (+m[2]); }
+function pfwYmd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function pfwDayKey(d) { return String(d.getDate()).padStart(2, '0') + '-' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + '-' + d.getFullYear(); }   // puc_daily key, e.g. 02-Oct-2026
+
+// her timetable, the widget's format: { Monday: [{s, e (minutes), c, sub, p: COM|SCI, lab?}] }
+async function pfwTimetable() {
+  const me = (ME.name || '').trim().toLowerCase(), tt = {};
+  await loadTtCom(); await loadTt1puc();
+  let sci = null;
+  try { const today = pfwYmd(new Date()); const snap = await db.collection('puc_timetables_sci').orderBy('validFrom', 'desc').get(); const h = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    sci = h.find(t => t.validFrom <= today && t.validTo >= today) || h[0] || null; } catch (e) {}
+  const walk = (data, term, strm, is1) => {
+    if (!data || !data.grid || !data.periods) return;
+    const slots = data.periods.filter(p => p.type === 'period');
+    (data.sections || Object.keys(data.grid)).forEach(sec => TT_DAYS.forEach(day => {
+      const row = (data.grid[sec] || {})[day] || [];
+      slots.forEach((p, i) => { const val = row[i]; if (!val) return;
+        if ((resolveFac(val, sec, is1) || '').trim().toLowerCase() !== me) return;
+        const sub = resolveSubjName(val), s = pfwMin(p.start), e = pfwMin(p.end); if (s < 0 || e < 0) return;
+        const o = { s, e, c: term + ' ' + strm + ' ' + sec, sub, p: strm }; if (/lab/i.test(val + ' ' + sub)) o.lab = 'lab';
+        (tt[day] = tt[day] || []).push(o); });
+    }));
+  };
+  walk(ttCom, '2PUC', 'COM', false); walk(tt1puc, '1PUC', 'COM', true); walk(sci, '2PUC', 'SCI', false);
+  Object.keys(tt).forEach(d => tt[d].sort((a, b) => a.s - b.s));
+  return tt;
+}
+// My Subjects: overall % from the roster, and the LAST class (puc_daily) - present / absent out of the class strength
+async function pfwSubjects() {
+  const out = [], cache = {};
+  const dayNode = async (dk, cls) => { const k = dk + '|' + cls; if (!(k in cache)) cache[k] = rtdb.ref('puc_daily/' + AY + '/' + dk + '/' + cls).once('value').then(s => s.val()).catch(() => null); return cache[k]; };
+  await Promise.all(myClasses.map(async c => {
+    const students = studentsByClass[c.classLabel] || [], C = String(c.code).toUpperCase();
+    let n = 0, sum = 0, below = 0; const bn = [];
+    students.forEach(s => { const sub = (s.subjects || []).find(x => (x.subject || '').toUpperCase() === C); if (!sub) return;
+      const ct = parseInt(sub.ct), ca = parseInt(sub.ca); const pct = (ct && !isNaN(ca)) ? ca / ct * 100 : (sub.pct != null && sub.pct !== '' ? Number(sub.pct) : NaN);
+      if (isNaN(pct)) return; n++; sum += pct; if (pct < 75) { below++; if (bn.length < 15) bn.push(s.name || s.usn || ''); } });
+    let last = null;
+    for (let k = 0; k < 8 && !last; k++) {
+      const d = new Date(Date.now() - k * 864e5), day = await dayNode(pfwDayKey(d), c.classLabel); if (!day || typeof day !== 'object') continue;
+      let p = 0, a = 0;
+      Object.values(day).forEach(st => { const co = st && st.courses && (st.courses[c.code] || st.courses[C]); if (!co) return; if (co.attended === 'P') p++; else a++; });
+      if (p + a) last = { d: pfwYmd(d), p, a, t: Math.max(students.length, p + a) };
+    }
+    out.push({ c: c.classLabel, sub: c.subjectName || c.code, code: c.code, ct: classesTaken(c.classLabel, c.code), n, avg: n ? Math.round(sum / n) : null, below, bn, last });
+  }));
+  return out.sort((x, y) => x.c.localeCompare(y.c));
+}
+async function pfwRemedial() {
+  const out = [];
+  try {
+    const all = (await rtdb.ref(REM_BASE() + '/assignments').once('value')).val() || {};
+    for (const [id, a] of Object.entries(all).filter(([, a]) => a && a.facultyId === MY_ID && a.status === 'active')) {
+      const h = (await rtdb.ref(REM_BASE() + '/attendance/' + id).once('value')).val() || {};
+      let p = 0, t = 0, last = '', lp = 0, la = 0;
+      Object.values(h).forEach(s => { const recs = Object.values((s && s.records) || {}); const pp = recs.filter(r => (r && r.status ? r.status : r) === 'P').length;
+        p += pp; t += recs.length; const at = (s && s.takenAt) || ''; if (at > last) { last = at; lp = pp; la = recs.length - pp; } });
+      out.push({ c: a.classLabel || '', sub: a.subjectName || '', days: Object.keys(h).length, pct: t ? Math.round(p / t * 100) : null, last: last.slice(0, 10), lp, la });
+    }
+  } catch (e) { console.warn('[pfw] remedial', e.message); }
+  return out;
+}
+async function pfwMarks() {
+  const out = [], cache = {}; let pass = {};
+  try { const d = await db.collection('app_data').doc('puc_ia_pass_marks').get(); if (d.exists) pass = d.data() || {}; } catch (e) {}
+  const get = (l, cls) => { const k = l + '|' + cls; if (!(k in cache)) cache[k] = fetch(`${FB_URL}/puc_marks/${AY}/${EXAM_KEYS[l]}/${encodeURIComponent(cls)}.json`).then(r => r.json()).catch(() => null); return cache[k]; };
+  for (const c of myClasses) {
+    const tests = [];
+    for (const l of Object.keys(EXAM_LABELS)) {
+      const d = await get(l, c.classLabel); if (!Array.isArray(d) || !d.length) continue;
+      const pm = (pass[l] === undefined || pass[l] === null || pass[l] === '') ? 20 : Number(pass[l]);
+      let sum = 0, n = 0, zero = 0, ab = 0, fail = 0, has = 0;
+      d.forEach(s => { const co = ((s && s.courses) || []).find(x => x.code === c.code); if (!co) return; has++;
+        const m = Object.values(co.marks || {})[0]; if (m === undefined || m === null || m === '' || m === 'AB') { ab++; return; }
+        const v = Number(m); if (isNaN(v)) { ab++; return; } n++; sum += v; if (v === 0) zero++; if (v < pm) fail++; });
+      if (has) tests.push({ t: EXAM_LABELS[l], avg: n ? Math.round(sum / n * 10) / 10 : null, n, ab, zero, fail, pass: n - fail, pm });
+    }
+    if (tests.length) out.push({ c: c.classLabel, sub: c.subjectName || c.code, tests: tests.slice(-3) });
+  }
+  return out;
+}
+async function pfwRun() {
+  const link = sessionStorage.getItem('pfw_link') === '1';
+  try {
+    if (!MY_ID || !ME) return;
+    if (!myClasses.length) { if (link) { sessionStorage.removeItem('pfw_link'); toast('Davan Staff widget is for teachers with subjects this year - none found for you.', 'warn'); } return; }
+    const st = new Set(myClasses.map(c => /SCI/i.test(c.classLabel) ? 'sci' : 'com'));
+    const calScope = st.size > 1 ? 'puc' : st.has('sci') ? 'pucs' : 'pucc';
+    const [tt, subj, rem, marks] = await Promise.all([pfwTimetable(), pfwSubjects(), pfwRemedial(), pfwMarks()]);
+    await pfwPut('davan_pub/puc_fac/' + MY_ID, { name: ME.name || '', at: Date.now(), tt, subj, rem, marks, calScope });
+    const code = localStorage.getItem('davan_staff_widget_code') || '';
+    if (!/^S-[A-Z2-9]{6}$/.test(code)) { if (link) toast('Open this from the Davan Staff widget (🔗 I am PUC faculty) to link it.', 'warn'); return; }
+    const urn = 'PF_' + String(MY_ID).toUpperCase().replace(/[^A-Z0-9_-]+/g, '_');
+    let cur = null; try { cur = await pfwGet('davan_pub/student_widget_active/' + code); } catch (e) {}
+    if (!link && !(cur && String(cur.urn || '').toUpperCase() === urn)) return;
+    const subs = [...new Set(myClasses.map(c => c.subjectName).filter(Boolean))].join(', ');
+    await pfwPut('davan_pub/student_widget_active/' + code, { urn, name: ME.name || '', class: 'PUC Faculty' + (subs ? ' · ' + subs : ''), updatedAt: Date.now(),
+      hostelOnly: true, hoKind: 'staff', hostelId: '', dob: ME.dob || '', hoRole: 'pucfac', staffUid: '', photo: ME.photo || '', phone: String(ME.phone || ME.mobile || '').replace(/\D/g, '').slice(-10),
+      login: '', facKeys: [ME.name || ''], dept: subs, sup: false, scope: 'puc', calScope, staffWidget: true, pucFac: true, pfId: MY_ID });
+    if (link) { sessionStorage.removeItem('pfw_link'); toast('✅ Your Davan Staff widget (' + code + ') is linked - tap ⟳ on it.', 'ok'); }
+  } catch (e) { console.warn('[pfw]', e); if (link) toast('⚠ Widget not linked: ' + e.message, 'err'); }
+}
+{ const _pfwOnLogin = onLogin; onLogin = async function (id) { await _pfwOnLogin(id); pfwRun(); }; }
 </script>
 </body>
 </html>

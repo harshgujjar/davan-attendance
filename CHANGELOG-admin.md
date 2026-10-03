@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1679 · 03-Oct-2026 IST
+Staff widget w176 released (LATEST_APK 176) with PUC Faculty app fac-1.1.0. User: "build PUC faculty on the widget, only for faculty with subject allocations this year". PUC teachers tap "🔗 I am PUC faculty" on the widget, sign in to faculty.html with their usual password, and the widget links to them (only if they have subjects this year). Pages: Today, My subjects (last class present / absent out of the class, overall %), Remedial, Internal marks, Calendar (Commerce teachers: PUC Commerce, Science: PUC Science), News, Stars. Widget page 2 now lists PUC teachers with subjects this year (app_data/puc_faculty_login_index matched to puc_faculty_allocation/<AY>; no passwords). Data: faculty.html writes DB2 davan_pub/puc_fac/<id> each open; the widget reads it at most every 30 min. Function: stwPublishViewAs.
+
 ## v1678 · 03-Oct-2026 IST
 User: "what is this account (wFVZ4g...) I never made, and was Almas's account created - how to find it". The nameless card is a users doc with no username or role (not a login), most likely written by facSaveProfileFields (DOB / birthday counters) for an old sign-in after an account was moved to a new uid; it now says so, lists the fields it holds, has a dashed amber border and sits at the bottom. A Find box filters the list by name, login or title and says when nothing matches. No new reads. Function: _umRenderList.
 
