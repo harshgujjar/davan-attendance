@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1713 · 03-Oct-2026 IST
+Fix (user's copied report): "Close old widgets now" failed with "values argument contains a path /old_widget_closed that is ancestor of another path": the loop also wrote the shared closed record field by field while it was written whole. The loop now skips it. No data change. Function: oldWidgetsClose.
+
 ## v1712 · 03-Oct-2026 IST
 User: after "Close old widgets now" the old w131 widget showed the new app version but still the time 09:53 (the link's time). The close also sets davan_pub/widget_active_dev/<code>/updatedAt (DB1, a few bytes per old widget); with the button it rewrites every link. Function: oldWidgetsClose.
 
