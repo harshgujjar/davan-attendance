@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1723 · 03-Oct-2026 IST
+User (standing rule): faculty with no subject allocated are not to be counted anywhere until they are allocated. The view_as filter (v1665 / v1676) became shared helpers facActiveSets / facIsActive (degree allocations this semester, PUC Subject Map, or a Title; non-faculty roles always count; nothing hidden while allocations are not loaded). The Device report's staff list now uses the staff users list and drops unallocated faculty (and disabled logins). Faculty Alerts already lists only allocated faculty. No new reads. Functions: facActiveSets, facIsActive (new), stwPublishViewAs, dvrLoad.
+
 ## v1722 · 03-Oct-2026 IST
 User: the student app still opens with the gold ring after choosing Orbit dots. Both apps are on the same website (shared localStorage) and v1707 / v10.92 gave both the same stamp 'dv_boot_synced_at', so each staff-app open stopped the student app from reading davan_pub/app_loader. Stamps are now per app ('dv_boot_synced_at_admin' / '_portal'); the student app also reads it before login. Pairs with portal v10.96. Function: dvLoaderSync.
 

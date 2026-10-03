@@ -18720,7 +18720,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1722;  // always = HTML footer version number
+const CODE_BUILD = 1723;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29594,6 +29594,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1723', date: '03-Oct-2026 IST', note: 'Rule: faculty with no subject allocated (e.g. Harish G) are left out of every list and report - the Device report and the widget\'s Open as list. They come in by themselves once you allocate them a subject.' },
 { v: 'v1722', date: '03-Oct-2026 IST', note: 'App opening animation: the student app now picks up your choice (it still showed the gold ring). The two apps share the phone\'s storage and used the same "checked" stamp, so using the staff app kept the student app from checking.' },
 { v: 'v1721', date: '03-Oct-2026 IST', note: 'Device report: the top 📋 Copy now copies only the summary (it copied all 414 names); each group has its own "📋 Copy names".' },
 { v: 'v1720', date: '03-Oct-2026 IST', note: 'Device report: students with a widget get their phone from the widget itself (model, Android version), a new group "⚠ Widget linked but silent 7+ days" explains 35 here vs 87 on page 2, and the phone model no longer shows a language like "en-gb".' },
@@ -29608,7 +29609,6 @@ const HTML_CHANGELOG = [
 { v: 'v1711', date: '03-Oct-2026 IST', note: 'Admin Settings → ⛔ Old faculty widgets: "Close old widgets now" closes every old faculty widget at once (whole record replaced with "⛔ Widget closed - install Davan Staff") and lists each one with its last update, with Copy.' },
 { v: 'v1710', date: '03-Oct-2026 IST', note: 'Old faculty widgets (w132 and older) are fully closed: they no longer show the teacher\'s name, timetable or any data - only "⛔ Widget closed - install Davan Staff" and the Update line. Logging in to the staff app does not open them again.' },
 { v: 'v1709', date: '03-Oct-2026 IST', note: 'Old faculty widgets (w132 and older): the "⛔ OLD WIDGET CLOSED" line now uses the same time format as real classes (08.00 to 07.30), so the old widget shows it instead of "No classes today".' },
-{ v: 'v1708', date: '03-Oct-2026 IST', note: 'Old faculty widgets (w132 and older): the "⛔ OLD WIDGET CLOSED" line is put back every 30 minutes (was once a day), so an old copy of a teacher\'s staff app can no longer bring her real timetable back for the rest of the day.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -82669,6 +82669,25 @@ async function stwPublish(force) {
     return stwStatus(true, Object.keys(fac).filter(k => fac[k].name).length + ' faculty · ' + Math.round(js.length / 1024) + ' KB');
   } catch (e) { console.warn('[stw] publish', step, e.message); window._stwBusy = 0; return stwStatus(false, step + ': ' + String(e.message || e).slice(0, 160)); }
 }
+/* v1723 (user, 03-Oct-2026 - STANDING RULE): a faculty member (full-time / visiting / VP) with NO subject allocated this semester is left
+   out of every list, count and report - they are not using the apps. They come in by themselves once a subject is allocated (degree
+   allocations of the current semester, the PUC app's Subject Map) or when their login has a Title. Principal, admins, managers, office
+   and hostel staff always count. Use facActiveSets() + facIsActive() in any new staff list. */
+async function facActiveSets() {
+  const cur = (typeof _fdbScopeAllocs === 'function') ? _fdbScopeAllocs(LM_ALLOCATIONS || []) : (LM_ALLOCATIONS || []);
+  const teach = new Set(); cur.forEach(a => { const f = String(a.faculty || '').trim(); if (f) { teach.add(f); if (FACULTY_NAME_ALIASES[f]) teach.add(FACULTY_NAME_ALIASES[f]); } });
+  Object.keys(FACULTY_NAME_ALIASES || {}).forEach(k => { if (teach.has(FACULTY_NAME_ALIASES[k])) teach.add(k); });
+  let pfa = window._lcbPucFacAlloc; if (!pfa) { try { pfa = (await rtdb.ref('puc_faculty_allocation/' + stwPucAy()).once('value')).val() || {}; window._lcbPucFacAlloc = pfa; } catch (e) { pfa = {}; } }
+  const pk = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, ''), pucT = new Set();
+  Object.values(pfa || {}).forEach(cl => { if (cl && typeof cl === 'object') Object.values(cl).forEach(n => { if (typeof n === 'string' && n.trim()) pucT.add(pk(n)); }); });
+  return { teach, pucT, pk, pfa, any: teach.size > 0 };
+}
+function facIsActive(u, S) {
+  if (!u) return false;
+  if (!['fulltime', 'visiting', 'vp'].includes(u.role)) return true;
+  if (!S || !S.any) return true;   /* allocations not loaded yet - never hide anyone by mistake */
+  return S.teach.has(u.facultyKey) || S.teach.has(u.name) || S.pucT.has(S.pk(u.name)) || S.pucT.has(S.pk(u.facultyKey)) || !!String(u.title || '').trim();
+}
 // v1662 (user, 02-Oct-2026): the list for page 2 "Open as" in the Super Admin's widgets - every staff account as the
 // staff widget's link payload, every current student as {n: name, c: class}. DB2 davan_pub/view_as (~35 KB), sent with the
 // widget numbers only when it changed; the widgets read it only when page 2 is opened.
@@ -82677,15 +82696,10 @@ async function stwPublishViewAs() {
   const staff = {};
   // v1665 (user): faculty only if they have a subject this semester (people who left keep their logins); Principal, admins,
   // managers and hostel staff always
-  const cur = (typeof _fdbScopeAllocs === 'function') ? _fdbScopeAllocs(LM_ALLOCATIONS || []) : (LM_ALLOCATIONS || []);
-  const teach = new Set(); cur.forEach(a => { const f = String(a.faculty || '').trim(); if (f) { teach.add(f); if (FACULTY_NAME_ALIASES[f]) teach.add(FACULTY_NAME_ALIASES[f]); } });
-  Object.keys(FACULTY_NAME_ALIASES || {}).forEach(k => { if (teach.has(FACULTY_NAME_ALIASES[k])) teach.add(k); });
   // v1676 (user): "Almas Banu not seen" - PUC-only teachers (the PUC app's Subject Map) and logins with a Title (e.g. PUC Commerce Principal) count too
-  let pfa = window._lcbPucFacAlloc; if (!pfa) { try { pfa = (await rtdb.ref('puc_faculty_allocation/' + stwPucAy()).once('value')).val() || {}; window._lcbPucFacAlloc = pfa; } catch (e) { pfa = {}; } }
-  const pk = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, ''), pucT = new Set();
-  Object.values(pfa || {}).forEach(cl => { if (cl && typeof cl === 'object') Object.values(cl).forEach(n => { if (typeof n === 'string' && n.trim()) pucT.add(pk(n)); }); });
+  const FS = await facActiveSets(), pfa = FS.pfa, pk = FS.pk, pucT = FS.pucT;   /* v1723: the shared rule (facActiveSets / facIsActive) */
   (users || []).forEach(u => { if (!u || !u.username || !u.name || !SW_ROLES.includes(u.role) || umIsSuper(u)) return;
-    if (['fulltime', 'visiting', 'vp'].includes(u.role) && !teach.has(u.facultyKey) && !teach.has(u.name) && !pucT.has(pk(u.name)) && !pucT.has(pk(u.facultyKey)) && !String(u.title || '').trim()) return;
+    if (!facIsActive(u, FS)) return;
     const un = String(u.username).toLowerCase(), key = u.role === 'resident' ? hcRsKey(un) : 'ST_' + un.toUpperCase().replace(/[^A-Z0-9_-]+/g, '_');
     const pl = hswPayload(u, key); pl.login = un; pl.staffWidget = true; ['sup', 'staffUid'].forEach(f => delete pl[f]); staff[stwSafe(key)] = pl; });   // v1669: phone kept for Call / Copy on page 2; v1673 (user): DOB kept so the horoscope shows on page 2
   // v1679 (user): PUC faculty WITH subjects this year (the PUC app's Subject Map) - they link from the PUC Faculty app (widget w176)
@@ -86838,16 +86852,19 @@ async function dvrLoad(kind, btn) {
       /* v1719 (user: "wrong data - staff with widgets show 0"): v1718 listed only staff who opened the staff app after the report started.
          Now: everyone in the staff login list + every staff widget that reported in the last 7 days (the Super Admin's own too), joined by name;
          the phone details fill in from the staff app (or the widget's own phone model). */
-      const [res, sr, li] = await Promise.all([Promise.all(days.map(d => hswGet('davan_pub/dev_staff/' + d))), hswGet('davan_pub/staff_widget_report'),
-        db.collection('app_data').doc('login_index').get().then(d => (d.exists && d.data().users) || []).catch(() => [])]);
+      const [res, sr, li, FS] = await Promise.all([Promise.all(days.map(d => hswGet('davan_pub/dev_staff/' + d))), hswGet('davan_pub/staff_widget_report'),
+        (typeof dvGetUsersCached === 'function' ? dvGetUsersCached(false) : Promise.resolve([])).catch(() => []), facActiveSets()]);
       const W = new Set();
+      /* v1723 (user, standing rule): faculty with no subject allocated are left out (they come in once allocated) */
+      const off = new Set((li || []).filter(u => u && u.name && !facIsActive(u, FS)).map(u => dvrNk(u.name)));
       res.forEach(r => { const v = (r.ok && r.v) || {}; Object.keys(v).forEach(k0 => { const x = v[k0]; if (!x) return; const k = dvrNk(x.name || k0), at = +x.at || 0; if (!k) return;
         if (!people[k] || !people[k].dev || at > people[k].at) people[k] = { name: x.name || k0, cls: x.role || '', dev: x, at: Math.max(at, people[k] ? people[k].at : 0) }; }); });
       const S = (sr.ok && sr.v) || {};
       Object.keys(S).forEach(c => { const x = S[c]; if (!x || x.linked === false || !x.name || now - (+x.at || 0) >= wk) return; const k = dvrNk(x.name); if (!k) return; W.add(k);
         if (!people[k]) people[k] = { name: x.name, cls: x.role || '', dev: null, at: +x.at || 0, old: x.model || '' };
         else { people[k].at = Math.max(people[k].at, +x.at || 0); if (!people[k].old) people[k].old = x.model || ''; } });
-      (li || []).forEach(u => { const k = dvrNk(u && u.name); if (!k || people[k]) return; people[k] = { name: u.name, cls: u.role || '', dev: null, at: 0, none: true }; });
+      (li || []).forEach(u => { const k = dvrNk(u && u.name); if (!k || people[k] || u.disabled === true || u.active === false) return; people[k] = { name: u.name, cls: u.role || '', dev: null, at: 0, none: true }; });
+      off.forEach(k => { delete people[k]; });
       hasW = k => W.has(k);
     }
     const G = [['w', '✅ Widget installed (reporting this week)', 'Opens'], ['ws', '⚠ Widget linked but silent 7+ days (removed, or the phone stops it)', 'Would be locked'], ['no', '🔒 Android, no widget (can install)', 'Would be locked'], ['slow', '🐢 Slow phone (2 GB RAM or less), no widget', 'You choose'],

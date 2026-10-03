@@ -72,3 +72,10 @@ source, build.sh and the keystore). Unzip them, then install the tools once: `ap
 default-jdk` and put Android API 34 `android.jar` at `$HOME/tc/android.jar` (Android SDK platforms;android-34). Build: in the widget folder
 `ANDROID_JAR=$HOME/tc/android.jar bash build.sh`. New version = copy the folder to the next number, bump AndroidManifest + BuildInfo,
 write W<nn>_CHANGES.md, build, then release as above. Send the user the new APK AND the new source zip every time.
+
+## Faculty without classes (user, 03-Oct-2026)
+
+A faculty member (full-time / visiting / VP) with **no subject allocated** this semester is left out of every list, count and report
+(device report, widget lists, alerts, numbers) - they are not using the apps. They come in by themselves once a subject is allocated
+(degree allocations of the current semester, the PUC app's Subject Map) or their login has a Title. Principal, admins, managers, office
+and hostel staff always count. In the staff app use `facActiveSets()` + `facIsActive(u, sets)` for any new staff list.
