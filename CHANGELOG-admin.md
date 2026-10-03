@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1678 · 03-Oct-2026 IST
+User: "what is this account (wFVZ4g...) I never made, and was Almas's account created - how to find it". The nameless card is a users doc with no username or role (not a login), most likely written by facSaveProfileFields (DOB / birthday counters) for an old sign-in after an account was moved to a new uid; it now says so, lists the fields it holds, has a dashed amber border and sits at the bottom. A Find box filters the list by name, login or title and says when nothing matches. No new reads. Function: _umRenderList.
+
 ## v1677 · 03-Oct-2026 IST
 User: "how is this table sorted" - User Management's All Accounts had no order (Firestore document id). Now the Super Admin is on top, then the newest account (by createdAt) with a NEW badge and gold border until a newer one is created, then A to Z by name. No new reads. Function: umRenderUsers list sort.
 
