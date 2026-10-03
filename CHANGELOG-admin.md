@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1708 · 03-Oct-2026 IST
+User screenshot: Vijayalakshmi's old w131 widget still showed "No classes today" with an Update line, not the closed line (its data came from a v1695 staff app at 09:53). oldWidgetsClose ran once a day per Super Admin device; it now runs every 30 min while the Super Admin's app sends widget data, so an old copy of a teacher's staff app cannot undo the closed line for long. Data: reads davan_pub/widget_pin (DB1) at most every 30 min, writes only records not yet closed. Function: oldWidgetsClose.
+
 ## v1707 · 03-Oct-2026 IST
 User: changed the student app's opening animation to C, phones still showed the old one. Both apps read davan_pub/app_loader only once per session, and an installed app kept in the background never starts a new one. Now read when 10 min have passed and each time the app comes back to the screen (one tiny DB2 read at most every 10 min). Pairs with portal v10.92. Functions: dvLoaderSync (staff), stuLoaderSync (portal).
 
