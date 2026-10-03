@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1683 · 03-Oct-2026 IST
+Staff widget w179 + student widget w139 released (LATEST_APK 179, LATEST_STUDENT_WIDGET_APK_V 139). User: canteen breakfast / lunch notice for staff ("want to try? pay and eat"), and the menu and birthday switches global for the Super Admin, not per phone; breakfast 8:30, lunch 1 pm, never on holidays. Admin Settings gets "Widget switches (all phones)": birthday wishes, canteen menu, breakfast and lunch times, saved at DB2 davan_pub/widget_flags (widgets read it at most hourly; missing = on). The notice goes to staff who are not hostel staff, skips Sundays, holidays, closed days and days without a menu, and reads the canteen menu (DB4) only at notification time. Pairs with portal v10.79. Functions: wfLoad, wfSave; widget Canteen, Bday.off.
+
 ## v1682 · 03-Oct-2026 IST
 Staff widget w178 released (LATEST_APK 178). User: "Almas is showing hostel and canteen data; only Sumitra is head". A Principal with "PUC" in the title gets Live class board, (Today), PUC at a glance, Calendar, News, Stars - no Hostel today, Meal ratings or hostel notifications, and no hostel reads. The Hostel Head (Sumithra K T) is unchanged. Widget: Roles.pucPrincipal, Ratings.role.
 
