@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1685 · 03-Oct-2026 IST
+Staff widget w180 released (LATEST_APK 180). User: "Kotrappa logged in yesterday, now not showing - the widget is always live". Live now counts only refreshes in the last hour, and Android lets a sleeping phone refresh only now and then. The usage summary now also sends today (refreshed earlier today, with the time) and older (not today, days ago); the widget's Staff widgets card shows them under Live now. No new reads (same staff_widget_report read). Function: stwUsage; widget StaffPages.apps.
+
 ## v1684 · 03-Oct-2026 IST
 User: "Almas is logged in from my phone, don't count that - logins on my phone are for testing only". The staff widget numbers (Apps & widgets page: count, versions, Live now) leave out the Director's own widget code (SUPER_WIDGET_CODES, S-7UP47U), whoever it shows. No new reads. Function: stwUsage.
 
