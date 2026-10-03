@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1688 · 03-Oct-2026 IST
+User: "this is stuck on old: admin widget says w130, Kotrappa too". Faculty Subscription Status joined only the old faculty widget's reports (davan_pub/widget_apk_report, w95-w132). It now also reads the Davan Staff widget's reports (DB2 davan_pub/staff_widget_report, 1 read on Refresh) and they win by name, so the version, notifications and Active time are current; the "Push Update to All Outdated" list follows. Function: facAlertRefreshSubs (the widget join).
+
 ## v1687 · 03-Oct-2026 IST
 User: "where in the app can I see staff battery unrestricted". Admin → Faculty Alerts → Notification check lists every staff widget (version, notifications, last seen) and now its battery state from the w181 report: 🔋ok / 🔋limited. No new reads. Function: faNotifCheck.
 
