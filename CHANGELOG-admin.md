@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1722 · 03-Oct-2026 IST
+User: the student app still opens with the gold ring after choosing Orbit dots. Both apps are on the same website (shared localStorage) and v1707 / v10.92 gave both the same stamp 'dv_boot_synced_at', so each staff-app open stopped the student app from reading davan_pub/app_loader. Stamps are now per app ('dv_boot_synced_at_admin' / '_portal'); the student app also reads it before login. Pairs with portal v10.96. Function: dvLoaderSync.
+
 ## v1721 · 03-Oct-2026 IST
 User: why are all 414 students in the copied text? The top Copy put every group's full name list in. It now copies only the summary (groups, if you lock now, Android versions, RAM); each group has its own "📋 Copy names" button. No data change. Function: dvrLoad.
 
