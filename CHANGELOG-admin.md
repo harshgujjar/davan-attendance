@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1703 · 03-Oct-2026 IST
+Staff widget w191 released (LATEST_APK 191). User: the go-to-widget button was missing on the staff widget's settings page (the student widget has one), and the download line should also show the version on the phone. New "🏠 Close and go to the widget" button; update lines read "Downloading w192 (you have w191)". No data change. Widget: MainActivity.goToWidget, Update.progressText.
+
 ## v1702 · 03-Oct-2026 IST
 Staff widget w190 + student widget w146 released (LATEST_APK 190, LATEST_STUDENT_WIDGET_APK_V 146). User: the tapped person's photo and details disappeared on page 2 (w188 / w145 showed only the check) - they show again ("Selected (not opened yet)" with photo, role / class, phone, Call, Copy); and the Pages list's Reset button is removed. No data change. Pairs with portal v10.87. Widget: ViewAsActivity.showNow, MainActivity.showPages.
 
