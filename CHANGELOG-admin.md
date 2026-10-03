@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1714 · 03-Oct-2026 IST
+User: the login sound was made to say the app is ready, but it played while the app was still loading. It was played at sign-in; now it waits until the student data has loaded (window._allStudentsConfirmedFresh) and plays 0.6 s later, at most 15 s after sign-in. No data change. Functions: playLoginSoundWhenReady (new), the login flow.
+
 ## v1713 · 03-Oct-2026 IST
 Fix (user's copied report): "Close old widgets now" failed with "values argument contains a path /old_widget_closed that is ancestor of another path": the loop also wrote the shared closed record field by field while it was written whole. The loop now skips it. No data change. Function: oldWidgetsClose.
 
