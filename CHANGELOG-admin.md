@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1706 · 03-Oct-2026 IST
+Staff widget w193 (LATEST_APK 193) and student widget w149 (LATEST_STUDENT_WIDGET_APK_V 149) released. User: the widgets sit on many different versions though auto update is on. The automatic download was tried once per version and a downloaded update was announced once; now it is retried every hour (8 times at most) and the waiting Install is shown again every 3 hours; student widgets also check the GitHub version file every hour (no Firebase cost; the full refresh stays at 3 hours). Pairs with portal v10.91. Widgets: Update.onHealth, UpdJob (new, student).
+
 ## v1705 · 03-Oct-2026 IST
 Staff widget w192 (LATEST_APK 192) and student widget w148 (LATEST_STUDENT_WIDGET_APK_V 148) released. User: "still it says downloading 147 - old was 143". The widget footer's update line now shows both versions ("⬇ w148 → w149 45%"); a phone shows it from the update after this one, since the old version runs the old code. No data change. Pairs with portal v10.89. Widgets: Update.ft, Update.line.
 
