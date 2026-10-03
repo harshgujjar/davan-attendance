@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1724 · 03-Oct-2026 IST
+User screenshot: Admin Settings ran off the right edge on a phone. The mobile rule `table { min-width: 500px }` (for data tables inside a sideways-scroll box) also hit the plain switch tables of Widget switches, Saturday and the others, so the page itself became 500 px wide. Admin Settings tables now have no minimum width (the device report's name lists keep 560 px inside their scroll box); text inputs are capped at 46% of the screen. CSS only.
+
 ## v1723 · 03-Oct-2026 IST
 User (standing rule): faculty with no subject allocated are not to be counted anywhere until they are allocated. The view_as filter (v1665 / v1676) became shared helpers facActiveSets / facIsActive (degree allocations this semester, PUC Subject Map, or a Title; non-faculty roles always count; nothing hidden while allocations are not loaded). The Device report's staff list now uses the staff users list and drops unallocated faculty (and disabled logins). Faculty Alerts already lists only allocated faculty. No new reads. Functions: facActiveSets, facIsActive (new), stwPublishViewAs, dvrLoad.
 
