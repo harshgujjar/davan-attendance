@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1682 · 03-Oct-2026 IST
+Staff widget w178 released (LATEST_APK 178). User: "Almas is showing hostel and canteen data; only Sumitra is head". A Principal with "PUC" in the title gets Live class board, (Today), PUC at a glance, Calendar, News, Stars - no Hostel today, Meal ratings or hostel notifications, and no hostel reads. The Hostel Head (Sumithra K T) is unchanged. Widget: Roles.pucPrincipal, Ratings.role.
+
 ## v1681 · 03-Oct-2026 IST
 Staff widget w177 released (LATEST_APK 177). User: "when I click on staff app it opens PUC only". In w176 every tap followed the person shown (a PUC teacher viewed on page 2), so even "Open the staff app" opened faculty.html. Now only a widget linked to a PUC teacher opens the PUC Faculty app, and the settings button always opens the staff app. No data change. Widget: Widgets.staffAppIntent / staffAppOnly.
 
