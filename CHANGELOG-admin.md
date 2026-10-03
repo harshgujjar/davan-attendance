@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1695 · 03-Oct-2026 IST
+Staff widget w185 + student widget w142 released (LATEST_APK 185, LATEST_STUDENT_WIDGET_APK_V 142). User: show the permissions on the widget, not only in its settings, and a tap should open the place to turn each on. While locked the widget shows the Finish setup header and one line per permission (✅ / ❌ TAP HERE / ⚪ optional); a red line opens that phone setting directly; it re-locks if a permission is taken away. No data change. Pairs with portal v10.83. Widget: Perms.lockRows, Perms.fix, OpenActivity.
+
 ## v1694 · 03-Oct-2026 IST
 User: "if it's my phone login, ignore it". The page 2 widget marks (and so the Widget check) skip the Director's own widget codes (MY_TEST_WIDGET_CODES: student EMTH7Q, staff S-7UP47U), so testing a student or staff login on his phone is never shown as that person's widget; the usage counts use the same list. No new reads. Function: stwPublishViewAs, stwUsage.
 
