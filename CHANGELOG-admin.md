@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1694 · 03-Oct-2026 IST
+User: "if it's my phone login, ignore it". The page 2 widget marks (and so the Widget check) skip the Director's own widget codes (MY_TEST_WIDGET_CODES: student EMTH7Q, staff S-7UP47U), so testing a student or staff login on his phone is never shown as that person's widget; the usage counts use the same list. No new reads. Function: stwPublishViewAs, stwUsage.
+
 ## v1693 · 03-Oct-2026 IST
 Staff widget w184 + student widget w141 released (LATEST_APK 184, LATEST_STUDENT_WIDGET_APK_V 141). User: on page 2 mark who has installed the new widget, a students-only "widget installed" view, and for a picked person what is not granted, which version, why not updated and whether they can see the widget. stwPublishViewAs adds wk / wv / wx to each staff entry and k / w / x to each student entry (DB2 davan_pub/view_as), from the widget reports stwUsage already read (window._stwRep, else 3 reads); the list is still written only when it changes. The widgets read the picked person's own report (1 small read). Pairs with portal v10.82. Functions: stwUsage, stwPublishViewAs; widget WCheck, ViewAsActivity.
 
