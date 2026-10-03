@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1686 · 03-Oct-2026 IST
+Staff widget w181 released (LATEST_APK 181). User: make "Settings → Apps → Davan Staff → Battery → Unrestricted" easy. The widget asks Android itself (settings button "🔋 Keep the widget live", and a card on top of the widget while it is battery-limited). Its report carries bat; the usage summary sends the battery-limited names and the Staff widgets card lists them. No new reads. Function: stwUsage; widget MainActivity.battOk / askBatt.
+
 ## v1685 · 03-Oct-2026 IST
 Staff widget w180 released (LATEST_APK 180). User: "Kotrappa logged in yesterday, now not showing - the widget is always live". Live now counts only refreshes in the last hour, and Android lets a sleeping phone refresh only now and then. The usage summary now also sends today (refreshed earlier today, with the time) and older (not today, days ago); the widget's Staff widgets card shows them under Live now. No new reads (same staff_widget_report read). Function: stwUsage; widget StaffPages.apps.
 
