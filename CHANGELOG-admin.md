@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1709 · 03-Oct-2026 IST
+User: after refresh Vijayalakshmi's old w131 widget still showed "Today (0) No classes today". The closed line's time was "11:59 PM"; real slots are "03.30" / "03.30 to 04.30", so the old widget most likely could not read it and dropped it. Now "08.00" / "08.00 to 07.30"; already-closed records with the old time are rewritten on the next run. Data: davan_pub/widget_pin/<uid>/ttSlots (DB1). Functions: oldWidgetClosedSlots, oldWidgetsClose.
+
 ## v1708 · 03-Oct-2026 IST
 User screenshot: Vijayalakshmi's old w131 widget still showed "No classes today" with an Update line, not the closed line (its data came from a v1695 staff app at 09:53). oldWidgetsClose ran once a day per Super Admin device; it now runs every 30 min while the Super Admin's app sends widget data, so an old copy of a teacher's staff app cannot undo the closed line for long. Data: reads davan_pub/widget_pin (DB1) at most every 30 min, writes only records not yet closed. Function: oldWidgetsClose.
 
