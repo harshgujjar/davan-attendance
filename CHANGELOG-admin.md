@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1689 · 03-Oct-2026 IST
+User: "block old widgets for faculty and students straight away, ask them to update, and show only the new ones in all logs". Old faculty widget (w132 and older): MIN_SUPPORTED_APK 95 -> 140 and its data (DB1 davan_pub/widget_pin, read only by the old widget) always carries one line "⛔ OLD WIDGET CLOSED - install Davan Staff"; the Super Admin's app closes every widget_pin once a day (1 read + 1 multi-path write; oldWidgetsClose) and re-publishes widget_latest so their update line installs Davan Staff. Old student widgets (below w108): minApkVersion 108 in DB2 davan_pub/student_widget_latest (hard block, enforced by stuWidgetLatestRaise; STU_WIDGET_MIN_V). Logs: Faculty Subscription Status shows old faculty widget reports as "⛔ old widget · closed", Apps & widgets counts only student widgets w108+. Pairs with portal v10.80.
+
 ## v1688 · 03-Oct-2026 IST
 User: "this is stuck on old: admin widget says w130, Kotrappa too". Faculty Subscription Status joined only the old faculty widget's reports (davan_pub/widget_apk_report, w95-w132). It now also reads the Davan Staff widget's reports (DB2 davan_pub/staff_widget_report, 1 read on Refresh) and they win by name, so the version, notifications and Active time are current; the "Push Update to All Outdated" list follows. Function: facAlertRefreshSubs (the widget join).
 
