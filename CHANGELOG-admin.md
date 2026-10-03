@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1711 · 03-Oct-2026 IST
+User: no change on Vijayalakshmi's old w131 widget, it still shows 09:53 AM. Every old widget record (davan_pub/widget_pin/<uid>, DB1) now gets the whole closed record (name "⛔ Widget closed - install Davan Staff", realName, build, time, closed line), also on each staff app login (widget_identity keeps the real one). New Admin Settings button "⛔ Close old widgets now" runs it at once and lists every old widget with its last update (Copy). Same reads as before. Functions: oldWidgetsClose, oldWidgetClosedRecord, oldWidgetsCloseNow (new), the login widget sync.
+
 ## v1710 · 03-Oct-2026 IST
 User: "block that old version and force them to shift to the new one". The old faculty widget has no off switch, so its link nodes now point at one closed record: davan_pub/widget_active_dev/<code>.uid and widget_active_user.uid = 'old_widget_closed' (realUid and the name kept for Faculty Alerts), and widget_pin/old_widget_closed = name "⛔ Widget closed - install Davan Staff" + the closed line. Staff app logins no longer point them back at a real person. DB1 cost: one more small read (widget_active_dev) in the 30-min run; writes only for links not yet closed. Functions: oldWidgetsClose, the widget sync in the login code.
 
