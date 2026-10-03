@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v10.90 (2026-10-03) -- User: show when an old widget last reported. The Widget tab's "⛔ old w101 · blocked, must update" adds "· last report 2 h 15 min ago"; every "ago" in the tab now shows hours and days in full ("3 days 4 h ago", not "3 d ago"). No data change. Functions: wcAgoLabel, the Widget tab list.
 VERSION : v10.89 (2026-10-03) -- Student widget w148 released (LATEST_STUDENT_WIDGET_APK 148): the widget's update line shows both versions (w148 → w149). Pairs with staff app v1705.
 VERSION : v10.88 (2026-10-03) -- Student widget w147 released (LATEST_STUDENT_WIDGET_APK 147): the admin's page 2 shows installed widgets split into new and old; the update line shows the version on the phone. Pairs with staff app v1704.
 VERSION : v10.87 (2026-10-03) -- Student widget w146 released (LATEST_STUDENT_WIDGET_APK 146): the admin's page 2 shows the tapped student's photo and details again above the Widget check. Pairs with staff app v1702.
