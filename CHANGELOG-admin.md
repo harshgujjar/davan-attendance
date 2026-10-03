@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1726 · 03-Oct-2026 IST
+Staff widget w196 released (LATEST_APK 196). User: show the person's photo, not only 👤, on the notifications sent while viewing someone (page 2 Open as). Each such notification carries the round photo the widget already saved for its header (no extra download), else initials; the test notification now comes after the refresh. No data change. Widget: Photo.forPerson, Alerts.post, ViewAsActivity.pick.
+
 ## v1725 · 03-Oct-2026 IST
 User: DB2 usage 49.9 MB today - cut the three big avoidable reads; also v1724 fixed Admin Settings running off a phone screen (mobile `table{min-width:500px}` hit the switch tables; CSS only). (1) Student widget w152 (LATEST_STUDENT_WIDGET_APK_V 152) reads ia_live_status/IA1/status/<URN> + /locked instead of the whole IA node (23 KB x 261 = ~6 MB/day). (2) stwWidgetLists (new): student_widget_active, student_widget_report (~151 KB), staff_widget_report read once and shared 10 min by stwUsage, the view_as list and the Device report (was 29 reads, 4.3 MB). (3) Portal v10.97 reads the widget link history with limitToLast (see its log). Pairs with portal v10.97. Functions: stwWidgetLists (new), stwUsage, stwPublishViewAs, dvrLoad.
 
