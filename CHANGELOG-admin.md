@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1729 · 04-Oct-2026 IST
+Staff widget w199 released (LATEST_APK 199). User chose "© Built by Davan" for the staff widget footer. A separate w198 ("Built by Harsha") had been pushed to main, so this build is w199 to replace it on every phone. No data change. Widget: version only (footer from w198 of this source).
+
 ## v1728 · 04-Oct-2026 IST
 Staff widget w198 (LATEST_APK 198) and student widget w154 (LATEST_STUDENT_WIDGET_APK_V 154) released. User screenshot: the student weekend card's MONDAY table printed "<br><small>" (the student table shows plain text) - now subject | time | teacher. User: "Built by Davan ©" at the bottom - both widget footers get "© Built by Davan". No data change. Pairs with portal v10.99. Widgets: Pages.today (student), Widgets footer, widget_main.xml.
 
