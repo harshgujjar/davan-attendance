@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1730 · 04-Oct-2026 IST
+Student widget w155 released (LATEST_STUDENT_WIDGET_APK_V 155). User: faculty photos beside the subjects on the weekend card's Monday list. Monday is one row per class with the teacher's photo like Today; Monday's teachers join the widget's photo downloads (small thumbnails, max 8 new per refresh; davan_pub/faculty_photos is already cached). Pairs with portal v11.00. Widget: Pages.today, FacPhotos.refresh.
+
 ## v1729 · 04-Oct-2026 IST
 Staff widget w199 released (LATEST_APK 199). User chose "© Built by Davan" for the staff widget footer. A separate w198 ("Built by Harsha") had been pushed to main, so this build is w199 to replace it on every phone. No data change. Widget: version only (footer from w198 of this source).
 
