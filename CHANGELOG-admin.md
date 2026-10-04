@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1737 · 04-Oct-2026 IST
+Student widget w162 released (LATEST_STUDENT_WIDGET_APK_V 162). User: root fix for another student's notifications in a student's list. Cause: the widget saved each notification copy without its owner and, at upload, filed all waiting copies under whoever the widget showed then (after Open as / Back to me, or a phone re-linked to another student). Now each copy is stamped with its student's URN, name and class when sent and uploaded only to that student (davan_pub/student_notif_log/{urn}); nothing is saved while opened "as" someone; older 👤 copies are dropped. No new reads or writes. Pairs with portal v11.07. Widget: Alerts.queue, Sync.uploadLog.
+
 ## v1736 · 04-Oct-2026 IST
 Student widget w161 released (LATEST_STUDENT_WIDGET_APK_V 161). User: ABHISHEK's "preview" notifications showed in V NEESHA's list - the widget on that phone was opened "as" ABHISHEK and its previews were saved to the linked student's log. Now "Open as" / preview / test notifications stay on the phone only. No new reads or writes. Pairs with portal v11.06 (removes the old ones, teacher photos). Widget: Alerts.send.
 

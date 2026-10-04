@@ -71,7 +71,8 @@ Widget sources are not in git. The user uploads the newest zips (DavanWidget_w<n
 source, build.sh and the keystore). Unzip them, then install the tools once: `apt-get install -y aapt dalvik-exchange zipalign apksigner
 default-jdk` and put Android API 34 `android.jar` at `$HOME/tc/android.jar` (Android SDK platforms;android-34). Build: in the widget folder
 `ANDROID_JAR=$HOME/tc/android.jar bash build.sh`. New version = copy the folder to the next number, bump AndroidManifest + BuildInfo,
-write W<nn>_CHANGES.md, build, then release as above. Send the user the new APK AND the new source zip every time.
+write W<nn>_CHANGES.md, build, then release as above. Send the user the new APK. Send the source zip ONLY when the user asks for it
+(user, 04-Oct-2026: it wastes tokens otherwise) - and always before a session is about to end so the next session can build.
 
 ## Faculty without classes (user, 03-Oct-2026)
 
