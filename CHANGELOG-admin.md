@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1734 · 04-Oct-2026 IST
+Student widget w159 released (LATEST_STUDENT_WIDGET_APK_V 159). User: no 8 pm "your tomorrow" notification. That Sunday it had come at 6 pm by design (w150); now a missed 8 pm one (an update installing, battery saver) is caught up by an 8:40 pm alarm or any refresh until 9 pm, still once a day. No new reads. Pairs with portal v11.04 (teacher photos in the notification list). Widget: Rx.digest / digestCatchUp, Alarms RC_DIGEST2.
+
 ## v1733 · 04-Oct-2026 IST
 Student widget w158 + staff widget w202 released (LATEST_STUDENT_WIDGET_APK_V 158, LATEST_APK 202). User: Thai baht and a currency picker with flags, rates in the admin login, one page listing every notification for students and staff by time with ON/OFF (new ones ON), the new notifications (morning brief 7:30, horoscope 7:45, news 10:35 / 1:00 / 7:30, gold ▲/▼ 12:50, staff: currencies 3:20, Nifty 5:35, gold closing 5:40, big gold move, weekly rates Mon 7:40, week review Sat 6 pm) and Instagram follow names. New Admin pages: 🔔 Notifications (NOTIF_REGISTRY; switches DB2 davan_pub/notif_off/{stu|stf}/{key}, read hourly by the widgets, also for the older notifications), 💱 Rates & Currencies (DB3 widgetConfig/news, fxCatalog read; widgetConfig/fxList written on Save), 👥 Follow Us (one read of davan_pub/follow). Class feedback reminders switch moved to notif_off/stu/cfb_remind. Pairs with portal v11.03 and fetch_news.js v1.6.1 (fx list, rateHistory, ratesChg, ratesWeekChg, goldBigMove). Functions: ntfInit, ntfSet, ratesInit, ratesList, ratesSave, flwInit, flwShow, cfbCfgLoad, cfbCfgSet. Widgets: Gen (new), Alerts.regKey, Pages.ratesRow / chgBadge, ClassFb (switch), Bday / Canteen ids (staff, were clashing).
 
