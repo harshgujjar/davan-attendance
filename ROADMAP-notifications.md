@@ -25,8 +25,9 @@ In a new session the user uploads the newest widget zips and says "do the next s
 - Kept per semester for the faculty semester scorecard.
 
 ## Steps
-- ☐ 0. This roadmap + CLAUDE.md rule
-- ☐ 1. Weekly class feedback (before Sat 10-Oct-2026)
+- ☑ 0. This roadmap + CLAUDE.md rule (04-Oct-2026)
+- ☑ 1. Weekly class feedback (before Sat 10-Oct-2026) - done 04-Oct-2026: portal v11.02, admin v1732, student widget w157, staff widget w201.
+       Subjects = the student's attendance subjects with classes (ct > 0), same filters as the Attendance tab. Data paths in CHANGELOG-admin v1732.
 - ☐ 2. Thai baht + currency picker (flags) · rates card in staff app admin · rate history · 🔔 Notifications page (all existing +
        new) · morning brief 7:30 · horoscope 7:45 · news 10:35 / 1:00 / 7:30 · gold ▲/▼ 12:50 · staff: currencies 3:20,
        Nifty 5:35, gold closing 5:40 · big gold move (>=1%) · weekly rates Mon 7:40 · weekend review Sat 6 pm · Instagram names
