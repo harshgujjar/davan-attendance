@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1735 · 04-Oct-2026 IST
+Student widget w160 released (LATEST_STUDENT_WIDGET_APK_V 160). User: "why 6 pm, make it 8 pm all days" - tomorrow's classes come every evening at 8 pm, Sunday's Monday list too; Friday / Saturday night (tomorrow a weekend day off) the 8 pm note says so and when Monday starts. The 6 pm alarm is gone. 🔔 page entries updated (digest, weekend note). No new reads. Pairs with portal v11.05. Functions: NOTIF_REGISTRY; widget Rx.digest, Weekend.night.
+
 ## v1734 · 04-Oct-2026 IST
 Student widget w159 released (LATEST_STUDENT_WIDGET_APK_V 159). User: no 8 pm "your tomorrow" notification. That Sunday it had come at 6 pm by design (w150); now a missed 8 pm one (an update installing, battery saver) is caught up by an 8:40 pm alarm or any refresh until 9 pm, still once a day. No new reads. Pairs with portal v11.04 (teacher photos in the notification list). Widget: Rx.digest / digestCatchUp, Alarms RC_DIGEST2.
 
