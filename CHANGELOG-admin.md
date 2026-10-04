@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1738 · 04-Oct-2026 IST
+Staff widget w203 released (LATEST_APK 203). User: the Today page's "TOMORROW" line was a summary, not the per-subject view faculty need to prepare. From 5:30 pm and on a weekend off the top card is the next class day (Monday from Fri / Sat) per class: time, class · subject · lab · room, ➡️ next lesson-plan #Sl No + topic, duty, holiday. The evening notification (Faculty Alerts time) carries the same list every evening incl. Sunday (no Sunday 6 pm), with a 9 pm catch-up. Lesson plans of the next class day are also kept on the phone (a tiny read when they change). 🔔 page entries updated. Functions: NOTIF_REGISTRY; widget StaffPages.nextOff / dayPlan / nextDayCard, StaffAlerts.digest, StaffData.lessonPlans.
+
 ## v1737 · 04-Oct-2026 IST
 Student widget w162 released (LATEST_STUDENT_WIDGET_APK_V 162). User: root fix for another student's notifications in a student's list. Cause: the widget saved each notification copy without its owner and, at upload, filed all waiting copies under whoever the widget showed then (after Open as / Back to me, or a phone re-linked to another student). Now each copy is stamped with its student's URN, name and class when sent and uploaded only to that student (davan_pub/student_notif_log/{urn}); nothing is saved while opened "as" someone; older 👤 copies are dropped. No new reads or writes. Pairs with portal v11.07. Widget: Alerts.queue, Sync.uploadLog.
 
