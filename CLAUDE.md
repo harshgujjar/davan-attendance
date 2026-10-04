@@ -79,3 +79,9 @@ A faculty member (full-time / visiting / VP) with **no subject allocated** this 
 (device report, widget lists, alerts, numbers) - they are not using the apps. They come in by themselves once a subject is allocated
 (degree allocations of the current semester, the PUC app's Subject Map) or their login has a Title. Principal, admins, managers, office
 and hostel staff always count. In the staff app use `facActiveSets()` + `facIsActive(u, sets)` for any new staff list.
+
+## Notifications / feedback roadmap (user, 04-Oct-2026)
+
+Before any work on notifications, weekly feedback, rates, fees or submissions read `ROADMAP-notifications.md` and follow its
+standing decisions (new notifications ON by default, every notification in the one registry shown on the 🔔 page, 7 am - 9 pm
+outside class periods, photos where possible, PUC left out). After a step is done tick it there with the versions.
