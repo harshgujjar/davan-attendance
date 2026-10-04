@@ -5,8 +5,9 @@ In a new session the user uploads the newest widget zips and says "do the next s
 
 ## Standing decisions
 - New notifications are **ON by default**; the admin switches them off on the 🔔 Notifications page.
-- Every notification (existing and new) is listed in ONE registry (`NOTIF_REGISTRY` in src/index.src.html, published to
-  davan_pub/notif_registry). Anything not in the registry must not be sent. Add new ones there in the same commit.
+- Every notification (existing and new) is listed in ONE registry: `NOTIF_REGISTRY` in src/index.src.html (the 🔔 Notifications page).
+  Its switches are DB2 davan_pub/notif_off/{stu|stf}/{key} = true; the widgets map their notification ids to keys in
+  Alerts.regKey (and Gen for the general ones). A new notification = a registry entry + a regKey mapping, in the same commit.
 - Only 7:00 am - 9:00 pm, never inside a class period (breaks: 10:30-10:45, 12:45-1:15, 3:15-3:30, after 5:30).
 - Faculty photos and student photos wherever possible.
 - College notifications run only between the semester start / end dates already in the app (SESSION_CONFIG.startDate / endDate).
@@ -28,7 +29,7 @@ In a new session the user uploads the newest widget zips and says "do the next s
 - ☑ 0. This roadmap + CLAUDE.md rule (04-Oct-2026)
 - ☑ 1. Weekly class feedback (before Sat 10-Oct-2026) - done 04-Oct-2026: portal v11.02, admin v1732, student widget w157, staff widget w201.
        Subjects = the student's attendance subjects with classes (ct > 0), same filters as the Attendance tab. Data paths in CHANGELOG-admin v1732.
-- ☐ 2. Thai baht + currency picker (flags) · rates card in staff app admin · rate history · 🔔 Notifications page (all existing +
+- ☑ 2. (done 04-Oct-2026: admin v1733, portal v11.03, student widget w158, staff widget w202, fetch_news v1.6.1) Thai baht + currency picker (flags) · rates card in staff app admin · rate history · 🔔 Notifications page (all existing +
        new) · morning brief 7:30 · horoscope 7:45 · news 10:35 / 1:00 / 7:30 · gold ▲/▼ 12:50 · staff: currencies 3:20,
        Nifty 5:35, gold closing 5:40 · big gold move (>=1%) · weekly rates Mon 7:40 · weekend review Sat 6 pm · Instagram names
 - ☐ 3. Shortage + study: under 50% -> meet Principal ("I'll meet" list), 50-75% shortage, good subjects, miss-2-more, backlog
