@@ -3,8 +3,17 @@
 <head>
 <!--
   GROCERY TRACKER — grocery.html
-  v3.19 — 2026-10-04
+  v3.20 — 2026-10-04
   CHANGELOG:
+  v3.20 — Bill "Add Item" box: title, search, tap a result -> Qty + Add (the
+          dropdown is gone). Newly added rows get their Sl No.; numbers stay
+          in order after removing a row. New "↩️ Move back to Draft" on
+          ordered / delivered orders (undo an accidental Mark Delivered).
+          Order modal now has an editable WhatsApp message box with Copy /
+          Reset / Send. Writes only on Move back to Draft (1 update).
+          Functions: pickBillAddResult, clearBillAddPick, addItemRowToBill,
+          renumberBillRows, removeBillRow, moveBackToDraft, refreshOrderWa,
+          copyOrderWa, sendOrderWa, buildWaMessageFor(monthArg).
   v3.19 — WhatsApp order message is now an editable box (add any text before
           sending; ↺ Reset rebuilds it). Items are numbered 1, 2, 3... with a
           "Total order items: N" line below (split orders too). Bill "Add
@@ -385,6 +394,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .bill-add-row select{flex:2}
 .bill-add-row input{flex:1;width:52px}
 .bill-add-row button{flex-shrink:0}
+.bill-add-box{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px}
+.bill-add-box .bill-add-row{margin-top:6px;padding-top:0;border-top:0}
 .bill-add-results{display:flex;flex-direction:column;gap:4px;margin-bottom:6px;max-height:220px;overflow-y:auto}
 .bill-add-result{padding:10px 12px;background:var(--card2);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer}
 .bill-add-result:active{opacity:.7}
@@ -829,7 +840,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.19';   // 3.16 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
+const APP_VERSION = '3.20';   // 3.16 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -1895,7 +1906,7 @@ async function renderOrderDetailView(orderId, order, editMode) {
         lastRateHint = `<div id="last-rate-${i}" style="font-size:9px;margin-top:2px;line-height:1.6">${parts.join('<br>')}</div>`;
       }
       html += `<tr id="bill-row-${i}">
-        <td style="font-size:11px;color:var(--muted)">${i+1}</td>
+        <td class="bill-sl" style="font-size:11px;color:var(--muted)">${i+1}</td>
         <td style="font-size:11px">${dispName}<br><span style="font-size:9px;color:var(--muted)">${it.nameKn||''}</span></td>
         <td><input type="number" class="bill-qty-input" id="qty-${i}" value="${it.qty}" ${qtyAttrs(it.unit)}
           oninput="recalcBillRow(${i})"></td>
@@ -1911,17 +1922,24 @@ async function renderOrderDetailView(orderId, order, editMode) {
     });
     html += `</table>
 
-    <!-- Add item from master -->
-    <button class="btn btn-outline btn-sm" style="margin-bottom:8px" onclick="openAddItemModal()">✨ New Item</button>
-    <input type="text" id="bill-add-search" placeholder="🔍 Search item, tap to add..." style="width:100%;margin-bottom:6px" oninput="filterBillAddSelect(this.value)">
-    <div id="bill-add-results" class="bill-add-results"></div>
-    <div class="bill-add-row">
-      <select id="bill-add-select" onchange="onBillAddSelectChange()">
-        <option value="">➕ Add item...</option>
+    <!-- Add item from master: search -> tap -> qty -> Add -->
+    <div class="bill-add-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="card-title" style="margin:0">➕ Add Item</div>
+        <button class="btn btn-outline btn-sm" onclick="openAddItemModal()">✨ New Item</button>
+      </div>
+      <input type="text" id="bill-add-search" placeholder="🔍 Search item..." style="width:100%;margin-bottom:6px" oninput="filterBillAddSelect(this.value)">
+      <div id="bill-add-results" class="bill-add-results"></div>
+      <select id="bill-add-select" style="display:none">
+        <option value=""></option>
         ${addableOpts}
       </select>
-      <input type="number" id="bill-add-qty" placeholder="Qty" min="0.1" step="0.5" value="1">
-      <button class="btn btn-outline btn-sm" onclick="addItemToBill()">Add</button>
+      <div class="bill-add-row" id="bill-add-picked" style="display:none">
+        <div id="bill-add-picked-name" style="flex:2;align-self:center;font-size:13px;font-weight:600"></div>
+        <input type="number" id="bill-add-qty" placeholder="Qty" min="0.1" step="0.5" value="1">
+        <button class="btn btn-green btn-sm" onclick="addItemToBill()">Add</button>
+        <button class="btn btn-outline btn-sm" onclick="clearBillAddPick()">✕</button>
+      </div>
     </div>
 
     <div style="margin-top:12px;font-size:13px;font-weight:700">
@@ -1951,7 +1969,8 @@ async function renderOrderDetailView(orderId, order, editMode) {
     } else {
       html += `<button class="btn btn-green btn-full" style="margin-top:14px" onclick="saveBill('${orderId}')">
         ✅ Save Bill & Mark Delivered
-      </button>`;
+      </button>
+      <button class="btn btn-outline btn-full" style="margin-top:8px" onclick="moveBackToDraft('${orderId}')">↩️ Move back to Draft</button>`;
     }
 
     // Edit shop/month + Delete — available for draft/ordered orders too (not just delivered/snapshot)
@@ -2029,6 +2048,7 @@ async function renderOrderDetailView(orderId, order, editMode) {
       <button class="btn btn-outline" style="flex:1" onclick="editDeliveredBill('${orderId}')">✏️ ${isSnapshot?'Edit Rates':'Edit Bill'}</button>
       <button class="btn btn-red" style="flex:1" onclick="confirmDeleteOrder('${orderId}')">🗑️ Delete</button>
     </div>
+    ${isSnapshot?'':`<button class="btn btn-outline btn-full" style="margin-top:8px" onclick="moveBackToDraft('${orderId}')">↩️ Move back to Draft</button>`}
     <div id="delete-confirm-panel" style="display:none;margin-top:10px;padding:12px;background:var(--red-soft);border-radius:10px">
       <div style="font-size:12px;color:var(--red-text);font-weight:600;margin-bottom:10px">
         ⚠️ Delete this order permanently? This cannot be undone.
@@ -2040,8 +2060,86 @@ async function renderOrderDetailView(orderId, order, editMode) {
     </div>`;
   }
 
+  if (!isSnapshot) {
+    html += `<div class="card-title" style="margin-top:16px">📲 WhatsApp Message</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Edit freely, then Copy or Send.</div>
+    <textarea id="order-wa-msg" oninput="_orderWaEdited=true" style="width:100%;box-sizing:border-box;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;line-height:1.45;color:var(--text);min-height:200px;resize:vertical;font-family:inherit"></textarea>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button class="btn btn-outline" style="flex:1" onclick="copyOrderWa(this)">📋 Copy</button>
+      <button class="btn btn-outline" style="flex:1" onclick="_orderWaEdited=false;refreshOrderWa()">↺ Reset</button>
+      <button class="btn btn-green" style="flex:1" onclick="sendOrderWa()">📲 Send</button>
+    </div>`;
+  }
+
   document.getElementById('modal-order-body').innerHTML = html;
   if (showEditableTable) updateBillTotal();
+  _orderWaEdited = false;
+  refreshOrderWa();
+}
+
+// ─── WhatsApp box inside the order modal ────────────────────────────────────
+// Built from the order's items (live qty from the bill table when it's open,
+// removed rows skipped). Typed edits are kept until ↺ Reset.
+let _orderWaEdited = false;
+function orderWaItems() {
+  const order = window._currentBillOrder;
+  if (!order) return [];
+  const removed = window._billRemovedRows || new Set();
+  return (order.items||[]).map((it,i)=>{
+    if (removed.has(i)) return null;
+    const q = parseFloat(document.getElementById('qty-'+i)?.value);
+    return { ...it, qty: isNaN(q) ? it.qty : q };
+  }).filter(Boolean);
+}
+function refreshOrderWa() {
+  const ta = document.getElementById('order-wa-msg');
+  const order = window._currentBillOrder;
+  if (!ta || !order || _orderWaEdited) return;
+  const shop = allShops[order.shopId] || { name: order.shopName||'' };
+  ta.value = buildWaMessageFor(shop, orderWaItems(), order.month);
+}
+function copyOrderWa(btn) {
+  const text = document.getElementById('order-wa-msg')?.value || '';
+  const done = ()=>{ showToast('Message copied ✓','success'); if (btn) { const t=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent=t,1500); } };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text, done));
+  else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done) {
+  const ta = document.getElementById('order-wa-msg');
+  ta.select(); try { document.execCommand('copy'); done(); } catch(e) { showToast('Select the text and copy it','warn'); }
+}
+function sendOrderWa() {
+  const order = window._currentBillOrder;
+  const shop = order && allShops[order.shopId];
+  const text = document.getElementById('order-wa-msg')?.value || '';
+  const base = shop?.phone ? `https://wa.me/${shop.phone}` : 'https://wa.me/';
+  window.open(`${base}?text=${encodeURIComponent(text)}`, '_blank');
+}
+
+// Undo for an accidental "Ordered" / "Mark Delivered": puts the order back to
+// draft, keeping its items, quantities and any rates already typed.
+async function moveBackToDraft(orderId) {
+  if (!confirm('Move this order back to Draft?')) return;
+  await authReady;
+  try {
+    await db.collection(COL.orders).doc(orderId).update({
+      status: 'draft',
+      deliveredAt: null,
+      deliveryRating: null,
+      draftSavedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    showToast('Moved back to draft ✓','success');
+    const doc = await db.collection(COL.orders).doc(orderId).get();
+    const order = { id: doc.id, ...doc.data() };
+    window._currentBillOrder = order;
+    window._selectedRating = null;
+    window._billRemovedRows = new Set();
+    renderOrderDetailView(orderId, order, false);
+    loadHistory();
+  } catch(e) {
+    console.error('moveBackToDraft failed:', e);
+    showToast('Could not move to draft','error');
+  }
 }
 
 function editDeliveredBill(orderId) {
@@ -2142,6 +2240,7 @@ function calcRate(i, qty) {
 }
 
 function recalcBillRow(i) {
+  refreshOrderWa();
   // When qty changes, recalc amt from rate if rate is filled
   const rate = parseFloat(document.getElementById('rate-'+i)?.value);
   const q = parseFloat(document.getElementById('qty-'+i)?.value)||1;
@@ -2157,6 +2256,8 @@ async function removeBillRow(i) {
   if (!window._billRemovedRows) window._billRemovedRows = new Set();
   window._billRemovedRows.add(i);
   updateBillTotal();
+  renumberBillRows();
+  refreshOrderWa();
 
   // Auto-save the removal right away so it's never lost if the person closes
   // the modal without tapping "Save Changes" — qty/rate/amount edits still
@@ -2222,19 +2323,33 @@ function filterBillAddSelect(query) {
     : `<div class="bill-add-result" style="color:var(--muted)" onclick="openAddItemModal()">No match — ✨ create new item</div>`;
 }
 
+// Tapping a search result picks the item and shows its Qty box + Add button.
 function pickBillAddResult(itemId) {
-  const sel = document.getElementById('bill-add-select');
-  sel.value = itemId;
-  addItemToBill();
+  const item = allItems[itemId];
+  if (!item) return;
+  document.getElementById('bill-add-select').value = itemId;
   const search = document.getElementById('bill-add-search');
   if (search) { search.value = ''; filterBillAddSelect(''); }
+  document.getElementById('bill-add-picked-name').textContent =
+    item.name + (item.variant?` (${item.variant})`:'') + ' · ' + item.unit;
+  const qtyEl = document.getElementById('bill-add-qty');
+  qtyEl.value = '1';
+  document.getElementById('bill-add-picked').style.display = 'flex';
+  qtyEl.focus(); qtyEl.select();
+}
+
+function clearBillAddPick() {
+  const sel = document.getElementById('bill-add-select');
+  if (sel) sel.value = '';
+  const box = document.getElementById('bill-add-picked');
+  if (box) box.style.display = 'none';
 }
 
 function addItemToBill() {
   const sel = document.getElementById('bill-add-select');
   const qtyEl = document.getElementById('bill-add-qty');
   const itemId = sel.value;
-  if (!itemId) { showToast('Select an item first','warn'); return; }
+  if (!itemId) { showToast('Search and tap an item first','warn'); return; }
   const item = allItems[itemId];
   if (!item) return;
   const qty = clampQty(qtyEl.value, item.unit);
@@ -2244,6 +2359,8 @@ function addItemToBill() {
   sel.querySelector(`option[value="${itemId}"]`)?.remove();
   sel.value = '';
   qtyEl.value = '1';
+  clearBillAddPick();
+  updateBillTotal();
   showToast(`${item.name} added ✓`,'success');
 }
 
@@ -2266,6 +2383,7 @@ function addItemRowToBill(item, qty) {
   const tr = document.createElement('tr');
   tr.id = 'bill-row-'+newIdx;
   tr.innerHTML = `
+    <td class="bill-sl" style="font-size:11px;color:var(--muted)"></td>
     <td style="font-size:11px">${dispName}<br><span style="font-size:9px;color:var(--muted)">${item.nameKn||''}</span></td>
     <td><input type="number" class="bill-qty-input" id="qty-${newIdx}" value="${qty}" ${qtyAttrs(item.unit)}
       oninput="recalcBillRow(${newIdx})"></td>
@@ -2275,6 +2393,18 @@ function addItemRowToBill(item, qty) {
       oninput="calcRate(${newIdx}, ${qty})" style="width:64px"></td>
     <td><span style="cursor:pointer;color:var(--red);font-size:14px" onclick="removeBillRow(${newIdx})">✕</span></td>`;
   table.appendChild(tr);
+  renumberBillRows();
+  refreshOrderWa();
+}
+
+// Sl No. = position among the rows still shown (removed rows are skipped).
+function renumberBillRows() {
+  let n = 0;
+  document.querySelectorAll('#bill-items-table tr[id^="bill-row-"]').forEach(tr=>{
+    if (tr.style.display === 'none') return;
+    const cell = tr.querySelector('td');
+    if (cell) cell.textContent = ++n;
+  });
 }
 
 
@@ -3500,8 +3630,8 @@ async function evaluateSplitOrder() {
   } catch(e) { console.error('evaluateSplitOrder failed:', e); }
 }
 
-function buildWaMessageFor(shop, items) {
-  const month = currentOrder.month;
+function buildWaMessageFor(shop, items, monthArg) {
+  const month = monthArg || currentOrder.month;
   const custNameEl = document.getElementById('order-cust-name');
   const custPhoneEl = document.getElementById('order-cust-phone');
   const custName = custNameEl ? custNameEl.value.trim() : '';
