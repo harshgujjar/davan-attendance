@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1736 · 04-Oct-2026 IST
+Student widget w161 released (LATEST_STUDENT_WIDGET_APK_V 161). User: ABHISHEK's "preview" notifications showed in V NEESHA's list - the widget on that phone was opened "as" ABHISHEK and its previews were saved to the linked student's log. Now "Open as" / preview / test notifications stay on the phone only. No new reads or writes. Pairs with portal v11.06 (removes the old ones, teacher photos). Widget: Alerts.send.
+
 ## v1735 · 04-Oct-2026 IST
 Student widget w160 released (LATEST_STUDENT_WIDGET_APK_V 160). User: "why 6 pm, make it 8 pm all days" - tomorrow's classes come every evening at 8 pm, Sunday's Monday list too; Friday / Saturday night (tomorrow a weekend day off) the 8 pm note says so and when Monday starts. The 6 pm alarm is gone. 🔔 page entries updated (digest, weekend note). No new reads. Pairs with portal v11.05. Functions: NOTIF_REGISTRY; widget Rx.digest, Weekend.night.
 
