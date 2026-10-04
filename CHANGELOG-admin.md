@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1728 · 04-Oct-2026 IST
+Staff widget w198 (LATEST_APK 198) and student widget w154 (LATEST_STUDENT_WIDGET_APK_V 154) released. User screenshot: the student weekend card's MONDAY table printed "<br><small>" (the student table shows plain text) - now subject | time | teacher. User: "Built by Davan ©" at the bottom - both widget footers get "© Built by Davan". No data change. Pairs with portal v10.99. Widgets: Pages.today (student), Widgets footer, widget_main.xml.
+
 ## v1727 · 03-Oct-2026 IST
 Staff widget w197 (LATEST_APK 197) and student widget w153 (LATEST_STUDENT_WIDGET_APK_V 153) released. User: the real person (e.g. Vijayalakshmi, each student) should see their own photo on their notifications too. Both widgets set the round photo they already saved for the header (or initials) as the notification picture; the student widget used the college logo, now the fallback. No data change, no downloads. Pairs with portal v10.98. Widgets: Alerts.post (staff), Alerts.builder (students).
 
