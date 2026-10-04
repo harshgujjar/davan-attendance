@@ -3,8 +3,14 @@
 <head>
 <!--
   GROCERY TRACKER — grocery.html
-  v3.17 — 2026-08-12
+  v3.19 — 2026-10-04
   CHANGELOG:
+  v3.19 — WhatsApp order message is now an editable box (add any text before
+          sending; ↺ Reset rebuilds it). Items are numbered 1, 2, 3... with a
+          "Total order items: N" line below (split orders too). Bill "Add
+          item" search now lists matches right under the box - tap to add.
+          Functions: buildWaMessage, buildWaMessageFor, updateWaPreview,
+          resetWaMessage, sendWhatsApp, filterBillAddSelect, pickBillAddResult.
   v3.18 — Fixed "Fix Capitalization" reporting "Nothing to fix" when the shop
           master was already correctly cased but old order docs still had
           stale shopName/item-name snapshots from before v3.16's cascade
@@ -379,6 +385,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .bill-add-row select{flex:2}
 .bill-add-row input{flex:1;width:52px}
 .bill-add-row button{flex-shrink:0}
+.bill-add-results{display:flex;flex-direction:column;gap:4px;margin-bottom:6px;max-height:220px;overflow-y:auto}
+.bill-add-result{padding:10px 12px;background:var(--card2);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer}
+.bill-add-result:active{opacity:.7}
 
 /* SEASONAL BANNER */
 .seasonal-banner{background:linear-gradient(90deg,#f5a62322,#f5a62308);border:1px solid #f5a62366;border-radius:10px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:flex-start;gap:8px}
@@ -574,7 +583,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <div class="lang-btn active" id="lang-en" onclick="setLang('en')">English</div>
         <div class="lang-btn" id="lang-kn" onclick="setLang('kn')">ಕನ್ನಡ</div>
       </div>
-      <div id="wa-preview" style="background:var(--card2);border-radius:8px;padding:10px;font-size:11px;white-space:pre-wrap;color:var(--text);margin-bottom:10px;max-height:180px;overflow-y:auto"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);margin-bottom:4px">
+        <span id="wa-edit-hint">✏️ Tap the message to edit or add any text</span>
+        <button class="btn btn-outline btn-sm" id="wa-reset-btn" style="display:none" onclick="resetWaMessage()">↺ Reset</button>
+      </div>
+      <textarea id="wa-preview" oninput="_waEdited=true;document.getElementById('wa-reset-btn').style.display='';document.getElementById('wa-edit-hint').textContent='✏️ Edited — your text will be sent'" style="width:100%;box-sizing:border-box;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;line-height:1.45;color:var(--text);margin-bottom:10px;min-height:220px;resize:vertical;font-family:inherit"></textarea>
       <button class="btn btn-green btn-full" onclick="sendWhatsApp()">📲 Send Order</button>
     </div>
   </div>
@@ -816,7 +829,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.16';   // 3.16 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
+const APP_VERSION = '3.19';   // 3.16 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -1572,6 +1585,7 @@ function backToShopSelect() {
   const fab = document.getElementById('floating-save-draft');
   if (fab) fab.style.display = 'none';
   _sameMonthPrefillCandidate = null;
+  if (_waEdited) resetWaMessage();
 }
 
 // ─── BUDGET BAR ──────────────────────────────────────────────────────────────
@@ -1592,61 +1606,33 @@ function updateBudgetBar() {
 
 // ─── WHATSAPP ────────────────────────────────────────────────────────────────
 function setLang(l) {
+  if (_waEdited && l!==orderLang && !confirm('Switch language? Your edits to the message will be replaced.')) return;
   orderLang = l;
   document.getElementById('lang-en').classList.toggle('active', l==='en');
   document.getElementById('lang-kn').classList.toggle('active', l==='kn');
-  updateWaPreview();
+  resetWaMessage();
 }
 
+// The preview is an editable textarea: once the person types in it, their
+// text is kept (checklist changes no longer overwrite it) until ↺ Reset.
+let _waEdited = false;
 function updateWaPreview() {
-  document.getElementById('wa-preview').textContent = buildWaMessage();
+  if (_waEdited) return;
+  document.getElementById('wa-preview').value = buildWaMessage();
+}
+function resetWaMessage() {
+  _waEdited = false;
+  document.getElementById('wa-reset-btn').style.display = 'none';
+  document.getElementById('wa-edit-hint').textContent = '✏️ Tap the message to edit or add any text';
+  updateWaPreview();
 }
 
 function buildWaMessage() {
   const shop = allShops[currentOrder.shopId];
   if (!shop) return '';
-  const month = currentOrder.month;
   const selected = checklistItems.filter(i=>i.checked);
   if (selected.length===0) return orderLang==='kn'?'ಯಾವ ಐಟಂ ಆಯ್ಕೆ ಮಾಡಿಲ್ಲ':'No items selected';
-
-  const custNameEl = document.getElementById('order-cust-name');
-  const custPhoneEl = document.getElementById('order-cust-phone');
-  const custName = custNameEl ? custNameEl.value.trim() : '';
-  const custPhone = custPhoneEl ? custPhoneEl.value.trim() : '';
-  const todayStr = formatTodayDateDay(orderLang);
-
-  if (orderLang==='kn') {
-    const [yr,mo] = month.split('-');
-    const monthKn = KN_MONTHS[parseInt(mo)] + ' ' + yr;
-    const shopName = shop.nameKn || shop.name;
-    let msg = `ನಮಸ್ಕಾರ ${shopName}!\n${todayStr}\n${monthKn} ಆರ್ಡರ್:\n\nಸಾಮಾನು:\n`;
-    selected.forEach(it=>{
-      const n = it.nameKn || it.name;
-      const v = it.variant ? ` (${it.variant})` : '';
-      const u = KN_UNIT[it.unit]||it.unit;
-      msg += `- ${n}${v} - ${it.qty} ${u}\n`;
-    });
-    msg += `\nದಯವಿಟ್ಟು ದೃಢೀಕರಿಸಿ ಮತ್ತು ತಲುಪಿಸಿ. ಧನ್ಯವಾದಗಳು!\n`;
-    if (custName || custPhone) {
-      msg += `\nಗ್ರಾಹಕ: ${custName || '—'}`;
-      if (custPhone) msg += ` (${custPhone})`;
-    }
-    if (shop.phone) msg += `\nಅಂಗಡಿ ಸಂಪರ್ಕ: ${shop.phone}`;
-    return msg;
-  } else {
-    let msg = `Hello ${shop.name}!\n${todayStr}\nOrder for ${formatMonth(month)}:\n\nItems:\n`;
-    selected.forEach(it=>{
-      const v = it.variant ? ` (${it.variant})` : '';
-      msg += `- ${it.name}${v} - ${it.qty} ${it.unit}\n`;
-    });
-    msg += `\nPlease confirm and deliver. Thank you!\n`;
-    if (custName || custPhone) {
-      msg += `\nCustomer: ${custName || '—'}`;
-      if (custPhone) msg += ` (${custPhone})`;
-    }
-    if (shop.phone) msg += `\nShop contact: ${shop.phone}`;
-    return msg;
-  }
+  return buildWaMessageFor(shop, selected);
 }
 
 // Saves the current checklist (checked items + quantities + notes) to
@@ -1747,7 +1733,7 @@ async function sendWhatsApp() {
     await db.collection(COL.orders).doc(orderId).set(orderData);
   } catch(e) { console.error(e); }
 
-  const msg = buildWaMessage();
+  const msg = (_waEdited && document.getElementById('wa-preview').value.trim()) || buildWaMessage();
   const url = `https://wa.me/${shop.phone}?text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank');
 
@@ -1927,7 +1913,8 @@ async function renderOrderDetailView(orderId, order, editMode) {
 
     <!-- Add item from master -->
     <button class="btn btn-outline btn-sm" style="margin-bottom:8px" onclick="openAddItemModal()">✨ New Item</button>
-    <input type="text" id="bill-add-search" placeholder="🔍 Search to filter the list below..." style="width:100%;margin-bottom:6px" oninput="filterBillAddSelect(this.value)">
+    <input type="text" id="bill-add-search" placeholder="🔍 Search item, tap to add..." style="width:100%;margin-bottom:6px" oninput="filterBillAddSelect(this.value)">
+    <div id="bill-add-results" class="bill-add-results"></div>
     <div class="bill-add-row">
       <select id="bill-add-select" onchange="onBillAddSelectChange()">
         <option value="">➕ Add item...</option>
@@ -2214,14 +2201,33 @@ function onBillAddSelectChange() {
 // Filters the native <select>'s options live as the person types — hides
 // (rather than removes) non-matching options so nothing is lost if they
 // clear the search.
+// Also lists the matches right under the search box, so the person sees
+// and taps them directly (the native dropdown on phones ignores 'hidden').
 function filterBillAddSelect(query) {
   const q = query.trim().toLowerCase();
   const sel = document.getElementById('bill-add-select');
+  const box = document.getElementById('bill-add-results');
   if (!sel) return;
+  const matches = [];
   Array.from(sel.options).forEach(opt=>{
     if (opt.value === '' || opt.value === '__new__') return; // always show these
-    opt.hidden = q && !opt.textContent.toLowerCase().includes(q);
+    const hit = !q || opt.textContent.toLowerCase().includes(q);
+    opt.hidden = !hit;
+    if (q && hit) matches.push(opt);
   });
+  if (!box) return;
+  if (!q) { box.innerHTML = ''; return; }
+  box.innerHTML = matches.length
+    ? matches.map(o=>`<div class="bill-add-result" onclick="pickBillAddResult('${o.value}')">➕ ${o.textContent}</div>`).join('')
+    : `<div class="bill-add-result" style="color:var(--muted)" onclick="openAddItemModal()">No match — ✨ create new item</div>`;
+}
+
+function pickBillAddResult(itemId) {
+  const sel = document.getElementById('bill-add-select');
+  sel.value = itemId;
+  addItemToBill();
+  const search = document.getElementById('bill-add-search');
+  if (search) { search.value = ''; filterBillAddSelect(''); }
 }
 
 function addItemToBill() {
@@ -3507,12 +3513,13 @@ function buildWaMessageFor(shop, items) {
     const monthKn = KN_MONTHS[parseInt(mo)] + ' ' + yr;
     const shopName = shop.nameKn || shop.name;
     let msg = `ನಮಸ್ಕಾರ ${shopName}!\n${todayStr}\n${monthKn} ಆರ್ಡರ್:\n\nಸಾಮಾನು:\n`;
-    items.forEach(it=>{
+    items.forEach((it,idx)=>{
       const n = it.nameKn || it.name;
       const v = it.variant ? ` (${it.variant})` : '';
       const u = KN_UNIT[it.unit]||it.unit;
-      msg += `- ${n}${v} - ${it.qty} ${u}\n`;
+      msg += `${idx+1}. ${n}${v} - ${it.qty} ${u}\n`;
     });
+    msg += `\nಒಟ್ಟು ಐಟಂಗಳು: ${items.length}\n`;
     msg += `\nದಯವಿಟ್ಟು ದೃಢೀಕರಿಸಿ ಮತ್ತು ತಲುಪಿಸಿ. ಧನ್ಯವಾದಗಳು!\n`;
     if (custName || custPhone) {
       msg += `\nಗ್ರಾಹಕ: ${custName || '—'}`;
@@ -3522,10 +3529,11 @@ function buildWaMessageFor(shop, items) {
     return msg;
   } else {
     let msg = `Hello ${shop.name}!\n${todayStr}\nOrder for ${formatMonth(month)}:\n\nItems:\n`;
-    items.forEach(it=>{
+    items.forEach((it,idx)=>{
       const v = it.variant ? ` (${it.variant})` : '';
-      msg += `- ${it.name}${v} - ${it.qty} ${it.unit}\n`;
+      msg += `${idx+1}. ${it.name}${v} - ${it.qty} ${it.unit}\n`;
     });
+    msg += `\nTotal order items: ${items.length}\n`;
     msg += `\nPlease confirm and deliver. Thank you!\n`;
     if (custName || custPhone) {
       msg += `\nCustomer: ${custName || '—'}`;
