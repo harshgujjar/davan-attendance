@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1731 · 04-Oct-2026 IST
+Staff widget w200 + student widget w156 released (LATEST_APK 200, LATEST_STUDENT_WIDGET_APK_V 156). User: the widget's gold rate (Rs 1,27,985 / 10 g) was far below the Indian rate (the world spot price in rupees, without duty, GST or premium); wanted one proper price column, the Dubai currency, and the day the rates are from on Sat/Sun. The news job (fetch_news.js v1.5.0) now uses India's IBJA rates (before 3% GST and making), adds 18K and AED/INR, and writes the "as of" day and a market-closed note. The rates card is a two-column table with the day on top. Data: widgetConfig/news new fields gold18Rate, aedInrRate, ratesSource, goldSilverSession, ratesAsOfText, ratesNote, fxAsOfText; no new reads. Pairs with portal v11.01. Widgets: Pages.ratesRow, Rates.KEYS.
+
 ## v1730 · 04-Oct-2026 IST
 Student widget w155 released (LATEST_STUDENT_WIDGET_APK_V 155). User: faculty photos beside the subjects on the weekend card's Monday list. Monday is one row per class with the teacher's photo like Today; Monday's teachers join the widget's photo downloads (small thumbnails, max 8 new per refresh; davan_pub/faculty_photos is already cached). Pairs with portal v11.00. Widget: Pages.today, FacPhotos.refresh.
 
