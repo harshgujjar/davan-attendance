@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1749 · 05-Oct-2026 IST
+Staff widget w213 released (LATEST_APK 213). User: Vijayalakshmi (test list, w212) still sees no voice box. Added a "🔊 Voice check" line (📋 Copy) at the bottom of the widget settings: the mode the phone read from davan_pub/tts_cfg and when (or why the read failed), the phone owner's name / login / code, in the test list or not, box hidden by the admin or not, and the staff names + logins in the list - so the cause is visible on her phone. No new reads. Widget functions: Speak.why / check / refresh, MainActivity.show.
+
 ## v1748 · 05-Oct-2026 IST
 Widgets w212 / w169 released (LATEST_APK 212, LATEST_STUDENT_WIDGET_APK_V 169). User (Vijayalakshmi's screenshot): in the spoken-alerts test list but no 🔊 box. The 🎛 page saves a staff member by login, and widget links made before the login was sent have none, so the match failed; the widget now also matches the name. The switches (davan_pub/tts_cfg) are read when the widget settings open (at most every 2 min, 1 tiny read) and on refresh, not only hourly. Pairs with portal v11.15. Widget functions: Speak.member / nm, MainActivity / StudentPermissionActivity.onResume.
 
