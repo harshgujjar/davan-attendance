@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1759 · 05-Oct-2026 IST
+User (Staff Directory screenshot): every faculty has a contact number but the staff widget header showed none - the widget link took the phone only from the login profile, which most logins lack. The link and the page 2 list now fall back to the Staff Directory's Contact (by name, or login = its password column), and when the page 2 list is sent the missing phone is added to existing staff widget links once (davan_pub/student_widget_active/{S-code}/phone - one tiny write per link, once). No widget update needed. Functions: sdPhone, hswPayload, stwPublishViewAs.
+
 ## v1758 · 05-Oct-2026 IST
 Widgets w220 / w174 released (LATEST_APK 220, LATEST_STUDENT_WIDGET_APK_V 174). User: staff were annoyed by an update message every half hour; the staff widget header showed the login (a password for some staff); wanted 🔊 on test-list people. Updates now download quietly and install silently where Android allows; otherwise one "update ready - tap to install" per version and day (no "new widget", "installing" or "updated" notifications). Staff header: "📞 phone · S-code 🔊"; student header: 🔊 after the URN (davan_pub/tts_cfg/test, already on the phone). Pairs with portal v11.20. Widget functions: Update.onHealth / notice / cleanup, Widgets header.
 
