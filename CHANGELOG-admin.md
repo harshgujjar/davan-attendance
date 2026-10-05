@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1765 · 05-Oct-2026 IST
+User: "old widget = the app before the new one, not 176 - open it immediately, don't block". STU_WIDGET_BLOCK_V back to 108 and stuWidgetLatestRaise now sets davan_pub/student_widget_latest.minApkVersion to exactly that (it lowers the 176 written by v1764), so w108-w175 widgets work again at their next refresh. Pairs with portal v11.29. Functions: stuWidgetLatestRaise.
+
 ## v1764 · 05-Oct-2026 IST
 User: "add a Moved to the new widget count" and "all students with the old app - block it". An update keeps the widget code, so it is not a new install: new register DB2 davan_pub/stu_widget_ver/{code} = {v, d, f} (version, the day it went up, from) - movedToday / movedNames / newDays[].m in the usage numbers, counting from tonight. Old student widgets: STU_WIDGET_BLOCK_V = 176 raises davan_pub/student_widget_latest.minApkVersion, so widgets below w176 show only "update needed" and update themselves; LATEST_STUDENT_WIDGET_APK_V = 176 (the public version). Cost: 1 small read per usage count, writes only for changed versions. Widgets on the next channel: student w177 / staff w225 (no notifications, voice or reminders while a must permission is missing; staff widget shows the moved count). Pairs with portal v11.28. Functions: stwNewJoins, stuWidgetLatestRaise, stwUsage.
 
