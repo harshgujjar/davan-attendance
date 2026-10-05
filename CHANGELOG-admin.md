@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1754 · 05-Oct-2026 IST
+Widgets w217 / w172 released (LATEST_APK 217, LATEST_STUDENT_WIDGET_APK_V 172). User: an update installed and returned to the widget only while the settings screen stayed open; "Close and go to the widget" left it waiting (Android blocks the Update box from the background) and normally landed on the launcher's main page. Now Close first starts a downloading / ready update (Close again leaves at once), and when the screen was opened from the widget it just closes, so the home page with the widget shows. No data changes. Pairs with portal v11.18. Widget functions: goToWidget / fromLauncher.
+
 ## v1753 · 05-Oct-2026 IST
 User: the Principal could not see the Faculty tab on the Dashboard - the 👤 Faculty Report tab was hidden for VP and Principal. It now shows for the Principal (still hidden for the VP, who has My Subjects). No data changes. Function: the dashboard tab setup after login.
 
