@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1746 · 05-Oct-2026 IST
+Staff widget w210 released (LATEST_APK 210). User: picked Anitha on page 2, went to page 3, the live test said "no class today". Cause: page 2's "⬅ Page 1" goes back to the Super Admin himself (w173), so page 3 used his own data. Page 2 now has "🎛 Page 3 · 🧪 live test as <name>" while someone is open, and the "no class" messages say whose data was used. No database changes. Widget functions: ViewAsActivity.showNow, Speak.preview.
+
 ## v1745 · 05-Oct-2026 IST
 User: the 🧪 live test only for test-list people; when spoken alerts go to Everyone, people get ON/OFF, English / ಕನ್ನಡ, ▶ Test my voice and 🗣 Change voice (opens the phone's text-to-speech settings); the Super Admin can hide ON/OFF. New davan_pub/tts_cfg/allowOff (default true; off = no ON/OFF buttons, the voice stays on, test-list people keep theirs) - tick on 🎛 Global Switches and on widget page 3. Student widget w167, staff widget w209 released. No new reads. Pairs with portal v11.13. Functions: gswShow; widget Speak.allowOff / on / fill / voiceSettings.
 
