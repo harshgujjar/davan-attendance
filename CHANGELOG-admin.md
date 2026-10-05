@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1756 · 05-Oct-2026 IST
+User: a spoken nudge 5 min before a class starts and 5 min before it ends, and a mark on the people being tested. Staff widget w219: faculty whom spoken alerts allow hear "Dear <name>, your class, ..., starts in 5 minutes, room S5" and "... ends in 5 minutes" (voice only, not counted in the 5 a day). 🔊 next to test-list people in User Management (1 tiny read of davan_pub/tts_cfg when the list opens) and on page 2 of both widgets (student widget w173). Pairs with portal v11.19. Functions: gswTestList, gswIsTest, _umRenderList; widget StaffAlerts.nudge, Speak.sayNudge / inList.
+
 ## v1755 · 05-Oct-2026 IST
 Staff widget w218 released (LATEST_APK 218). User (screenshot): the Super Admin's period class list said "👤 Vijayalakshmi P S · Dear Vijayalakshmi" because she was open on page 2 - it went to his phone only, but with her name. The list is for the phone's owner: his own name, no 👤 label or her photo, in the notification and the voice. Subjects drop the board's student counts ("(s38 · ct37)"). No data changes. Widget functions: Periods.fire / sub, Alerts.OWNER / firstOf.
 

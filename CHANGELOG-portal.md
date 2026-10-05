@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v11.19 (2026-10-05) -- Student widget w173 released (LATEST_STUDENT_WIDGET_APK 173): page 2 shows 🔊 next to students in the spoken-alerts test list. Pairs with admin v1756, staff widget w219.
 VERSION : v11.18 (2026-10-05) -- Student widget w172 released (LATEST_STUDENT_WIDGET_APK 172): Close in the widget settings finishes a downloading update first and returns to the home page with the widget. Pairs with admin v1754, staff widget w217.
 VERSION : v11.17 (2026-10-05) -- Student widget w171 released (LATEST_STUDENT_WIDGET_APK 171, apkUrl now raw.githubusercontent.com/...?v=171): an update right after a release could download GitHub's cached old APK and reinstall the same version; the link carries the version and the widget checks the file before installing. Pairs with admin v1751, staff widget w215.
 VERSION : v11.16 (2026-10-05) -- Student widget w170 released (LATEST_STUDENT_WIDGET_APK 170): test-list students always see the 🔊 box and live test (davan_pub/tts_cfg/showStu only applies in Everyone mode). Pairs with admin v1750, staff widget w214.
