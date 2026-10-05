@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v11.15 (2026-10-05) -- Student widget w169 released (LATEST_STUDENT_WIDGET_APK 169): the spoken-alert switches (davan_pub/tts_cfg) are read when the widget settings open (at most every 2 min) and on refresh. Pairs with admin v1748, staff widget w212.
 VERSION : v11.14 (2026-10-05) -- Student widget w168 released (LATEST_STUDENT_WIDGET_APK 168): spoken reminders could never start on Android 11+ (the text-to-speech engine was not declared in the manifest) - fixed; live test plays on vibrate too and says when the voice fails. Pairs with admin v1747, staff widget w211.
 VERSION : v11.13 (2026-10-05) -- Student widget w167 released (LATEST_STUDENT_WIDGET_APK 167): 🧪 live test only for test-list students; others get ON/OFF (davan_pub/tts_cfg/allowOff), language, Test my voice, Change voice. No new reads. Pairs with admin v1745, staff widget w209.
 VERSION : v11.12 (2026-10-05) -- Student widget w166 released (LATEST_STUDENT_WIDGET_APK 166): the 🔊 box shows only when the admin's switch (davan_pub/tts_cfg/showStu, default on) allows it; live test buttons speak the real next class / morning / tomorrow now. No new reads. Pairs with admin v1743, staff widget w207.

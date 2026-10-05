@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1748 · 05-Oct-2026 IST
+Widgets w212 / w169 released (LATEST_APK 212, LATEST_STUDENT_WIDGET_APK_V 169). User (Vijayalakshmi's screenshot): in the spoken-alerts test list but no 🔊 box. The 🎛 page saves a staff member by login, and widget links made before the login was sent have none, so the match failed; the widget now also matches the name. The switches (davan_pub/tts_cfg) are read when the widget settings open (at most every 2 min, 1 tiny read) and on refresh, not only hourly. Pairs with portal v11.15. Widget functions: Speak.member / nm, MainActivity / StudentPermissionActivity.onResume.
+
 ## v1747 · 05-Oct-2026 IST
 Widgets w211 / w168 released (LATEST_APK 211, LATEST_STUDENT_WIDGET_APK_V 168). User: the live test still did nothing, spoken reminders should start with the name like the notifications, and an opened person on page 2 jumped back to Admin. Root cause of the silence: on Android 11+ an app reaches the text-to-speech engine only when its manifest declares it (queries TTS_SERVICE) - added to both widgets. Staff speech now starts "Dear <first name>," / "ಪ್ರಿಯ <name>,". Page 2's "⬅ Page 1" keeps the opened person (only "↩ Back to me" returns). Live test plays on vibrate, shows the sentence, reports a failed voice and waits for the opened person's timetable. No database changes. Pairs with portal v11.14. Widget functions: Speak.dear / say / preview / test, Gen.morningLine, ViewAsActivity.
 
