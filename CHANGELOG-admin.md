@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1744 · 05-Oct-2026 IST
+Staff widget w208 released (LATEST_APK 208). User: the 🧪 live test buttons for every student and staff member switched on, not only the Super Admin's page 3. Staff now see ▶ Next class / Morning / Next day and 🔔 Test notification + voice under "Speak my reminders" when spoken alerts allow them and the box is shown (tts_cfg.showStf); students already have them (student widget w166). No database changes. Widget function: Speak.fill.
+
 ## v1743 · 05-Oct-2026 IST
 User (widget screenshot): the Super Admin's 🔊 Speak my reminders and 🎛 Global switches moved to a page 3 on the staff widget (w207, GlobalActivity); a switch decides whether staff / students see the 🔊 box (ON / OFF + language) on their widget settings - davan_pub/tts_cfg/showStf, showStu, default shown (hidden = it still speaks in the default language); live test buttons (▶ Next class / Morning / Next day, 🔔 test notification + voice) say the real sentence now, also for the person open on page 2. Turning the voice off never stops the notification or its sound. 🎛 page: the two "see it" ticks. Student widget w166, staff widget w207 released. No new reads. Pairs with portal v11.12. Functions: gswShow, gswShowBox.
 
