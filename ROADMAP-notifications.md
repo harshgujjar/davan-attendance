@@ -34,6 +34,8 @@ In a new session the user uploads the newest widget zips and says "do the next s
        Nifty 5:35, gold closing 5:40 · big gold move (>=1%) · weekly rates Mon 7:40 · weekend review Sat 6 pm · Instagram names
 - ☑ 2b. (done 05-Oct-2026: admin v1740, portal v11.09, student widget w163, staff widget w204) 🔊 Spoken alerts (English / Kannada, 7 am - 9 pm, max 5 a day)
        + 🎛 Global Switches page; test list (V NEESHA + admin) on davan_pub/tts_cfg, the admin adds more people / groups or sets 'all'.
+- ☑ 2c. (done 05-Oct-2026: admin v1741, student widget w164, staff widget w205) Notifications at least 20 min apart (phones wait), new
+       default times, ✎ times movable on the 🔔 page (notif_off/{aud}/_t), ✅ clash check there. Keep any new fixed time 20 min from the others.
 - ☐ 3. Shortage + study: under 50% -> meet Principal ("I'll meet" list), 50-75% shortage, good subjects, miss-2-more, backlog
 - ☐ 4. Fee window + "I have paid" + Manager bulk page (class/section, Mark all, NEW in yellow, Save) + faculty submissions + Thu summary
 - ☐ 5. Event feedback forms (stars / 1-5 marks / yes-no / few words) + anonymous box + 📖 "How Davan works" guide page

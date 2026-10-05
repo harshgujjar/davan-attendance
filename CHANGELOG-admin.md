@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1741 · 05-Oct-2026 IST
+User (screenshot): the 🔮 horoscope and 📊 weekly rates came at the same moment (the widgets sent every slot within ±5 min). Widgets w164 / w205 now send a general notification from its time up to 60 min late, one at a time, and only 20 min after the phone's last notification of any kind. New default times 20 min apart (horoscope 7:50, weekly rates 8:10, gold 12:45, lunch news 1:05, staff Nifty 5:50, gold closing 6:30, Friday weekend notice 6:10, class feedback Mon 8:30, students' below-50% Sun 12:25). 🔔 page: the ✎ times can be moved (DB2 davan_pub/notif_off/{stu|stf}/_t/{key}, read with the switches, no extra read) and a ✅ clash check lists any two within 20 min on the same day. Pairs with portal v11.10. Functions: ntfInit, ntfTime, ntfClash, ntfMin, NOTIF_REGISTRY.
+
 ## v1740 · 05-Oct-2026 IST
 New 🎛 Global Switches page (Admin; user: spoken alerts, test with Neesha and the admin first). 🔊 Spoken alerts: mode off / test / all, default language English / Kannada, and a test list of people (student URN, staff login) or groups (hostel students, a class, all faculty, all staff, all students); first open seeds V NEESHA and the Super Admin's own login. The widgets check the phone's real owner, so the admin hears anyone opened on widget page 2. Also the class feedback switches. Data: DB2 davan_pub/tts_cfg (widgets read it once an hour), davan_pub/class_fb_cfg. Student widget w163 and staff widget w204 released (LATEST_STUDENT_WIDGET_APK_V 163, LATEST_APK 204); 🔔 page lists 🔊 Spoken reminders. Pairs with portal v11.09. Functions: gswInit, gswShow, gswSave, gswMode, gswLang, gswAdd, gswRemove, gswSearch, gswFb, NOTIF_REGISTRY.
 
