@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1750 · 05-Oct-2026 IST
+Widgets w214 / w170 released (LATEST_APK 214, LATEST_STUDENT_WIDGET_APK_V 170). User (Voice check from Vijayalakshmi's phone: in the test list, "box for staff: HIDDEN by admin"): davan_pub/tts_cfg/showStf was off and also hid the box from test-list people. Now test-list people always see the 🔊 box and the 🧪 live test; showStf / showStu only apply to people who get the voice through Everyone. 🎛 page note updated. No database changes. Pairs with portal v11.16. Functions: gswShow; widget Speak.fill / why.
+
 ## v1749 · 05-Oct-2026 IST
 Staff widget w213 released (LATEST_APK 213). User: Vijayalakshmi (test list, w212) still sees no voice box. Added a "🔊 Voice check" line (📋 Copy) at the bottom of the widget settings: the mode the phone read from davan_pub/tts_cfg and when (or why the read failed), the phone owner's name / login / code, in the test list or not, box hidden by the admin or not, and the staff names + logins in the list - so the cause is visible on her phone. No new reads. Widget functions: Speak.why / check / refresh, MainActivity.show.
 
