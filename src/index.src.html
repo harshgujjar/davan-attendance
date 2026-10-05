@@ -18786,7 +18786,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1761;  // always = HTML footer version number
+const CODE_BUILD = 1762;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29660,6 +29660,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1762', date: '05-Oct-2026 IST', note: 'Staff widget w223 (Apps & widgets page): how many students joined the student widget today, plus the last 7 days by date and today\'s names.' },
 { v: 'v1761', date: '05-Oct-2026 IST', note: 'Faculty photos now reach the student app and widgets (a new photo, e.g. Rekha M R, stayed in the staff database only). Widgets w176 / w222: Timetable is page 2 on the student widget; the canteen breakfast / lunch notice now also goes to admins, principal, managers and office staff.' },
 { v: 'v1760', date: '05-Oct-2026 IST', note: 'Timetable changes now reach the students\' copy at once (widgets showed an old class time). New widgets w175 / w221 go to you and the test list first; everyone else gets them at 9:30 pm, one update a day. Student widget: only the student\'s own second language, a Timetable page, class-change fix.' },
 { v: 'v1759', date: '05-Oct-2026 IST', note: 'Staff widgets show each person\'s phone number from the Staff Directory (most logins had none) - in the widget header and on page 2. It appears after the next refresh.' },
@@ -29674,7 +29675,6 @@ const HTML_CHANGELOG = [
 { v: 'v1750', date: '05-Oct-2026 IST', note: 'Spoken alerts (widgets w214 / w170): people in the test list always see their 🔊 box and live test. "Staff see it" / "Students see it" now only apply in Everyone mode.' },
 { v: 'v1749', date: '05-Oct-2026 IST', note: 'Staff widget w213: a "🔊 Voice check" line at the bottom of the widget settings shows what the phone sees for spoken alerts (mode, in the test list or not, box hidden or not) - tap it to copy and send it.' },
 { v: 'v1748', date: '05-Oct-2026 IST', note: 'Spoken alerts (widgets w212 / w169): staff in the test list are found by name too (older widget links had no login), and the widget settings read your switches fresh when opened instead of within the hour.' },
-{ v: 'v1747', date: '05-Oct-2026 IST', note: 'Spoken alerts fixed (widgets w211 / w168): the phones could not reach their voice engine (Android 11+ needs it declared), so nothing was spoken. Staff reminders now start "Dear <name>,". Page 2 keeps the opened person when you go to Page 1.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -83422,6 +83422,25 @@ async function stwWidgetLists(force) {
   })();
   return window._stwRepP;
 }
+/* v1762 (user): "how many students newly joined the widget today - and the same tomorrow, by date". Nothing on the widget keeps its
+   install date, so the admin's staff app keeps a register DB2 davan_pub/stu_widget_first/{URN} = 'YYYY-MM-DD' (the day that student's
+   widget was first counted). Started once from the pair log (earliest link per student; students not in it = 'old'). Cost: 1 small
+   read per usage count (admin only), a write only when someone new appears. Returns newToday, newNames, newDays [{d, n}] (last 7 days). */
+async function stwNewJoins(pairs) {
+  const ist = ms => new Date(+ms + 330 * 60000).toISOString().slice(0, 10), today = ist(Date.now());
+  const r = await hswGet('davan_pub/stu_widget_first'); if (!r.ok) return {};
+  const F = r.v || {}, add = {};
+  if (!Object.keys(F).length) {   // first time: the pair log says when each student linked first
+    const lg = await hswGet('davan_pub/student_widget_pair_log'); const first = {};
+    Object.values((lg.ok && lg.v) || {}).forEach(x => { const u = String((x && x.newUrn) || '').toUpperCase(); if (!u || x.blocked || !x.at) return; if (!first[u] || x.at < first[u]) first[u] = x.at; });
+    pairs.forEach(([u]) => { if (u) add[u] = first[u] ? ist(first[u]) : 'old'; });
+  } else pairs.forEach(([u, at]) => { if (u && !F[u] && !add[u]) add[u] = ist(Math.min(at, Date.now())); });
+  if (Object.keys(add).length) { await lpDb2Patch('davan_pub/stu_widget_first', add).catch(() => {}); Object.assign(F, add); }
+  const nm = {}; (allStudents || []).forEach(x => { const u = String(x.urn || x.usn || '').toUpperCase(); if (u) nm[u] = x.name || u; });
+  const days = []; for (let i = 0; i < 7; i++) { const d = ist(Date.now() - i * 864e5); days.push({ d, n: Object.keys(F).filter(u => F[u] === d).length }); }
+  const tn = Object.keys(F).filter(u => F[u] === today);
+  return { newToday: tn.length, newNames: tn.map(u => nm[u] || u).sort().slice(0, 40), newDays: days };
+}
 async function stwUsage() {
   const out = {};
   try {
@@ -83441,6 +83460,7 @@ async function stwUsage() {
     const vers = {}; stu.forEach(c => { const v = +(R[c] || {}).apkVersion || 0; const b = v >= LATEST_STUDENT_WIDGET_APK_V ? 'latest' : 'mid'; vers[b] = (vers[b] || 0) + 1; });
     out.stu = { linked: stu.length, live: stu.filter(c => now - t(c) < 3600000).length, week: stu.filter(c => now - (+A[c].updatedAt || 0) < 7 * 864e5).length,
       notifOff: stu.filter(c => R[c] && R[c].notifOn === false).length, stale: stu.filter(c => t(c) && now - t(c) > 3 * 864e5).length, vers, latest: LATEST_STUDENT_WIDGET_APK_V };
+    try { Object.assign(out.stu, await stwNewJoins(stu.map(c => [String(A[c].urn || '').toUpperCase(), +A[c].updatedAt || now]))); } catch (e) { console.warn('[stw] new joins', e.message); }
     const S = (srep.ok && srep.v) || {};
     window._stwRep = { A, R, S, at: Date.now() };   // v1693: reused by the page 2 list (widget status per person) - no second read
     // v1684 (user): the Director's own phone is for testing (he logs in / views others like Almas Banu T on it) - never counted

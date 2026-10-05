@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1762 · 05-Oct-2026 IST
+User: "how many students newly joined the widget today, and the same tomorrow by date". The widget keeps no install date, so the admin's staff app now keeps DB2 davan_pub/stu_widget_first/{URN} = first-link date (started once from the pair log; students not in it are 'old') and sends newToday / newNames / newDays (7 days) with the widget usage numbers. Cost: 1 small read per usage count, a write only for new students; the pair log is read once. Shown by staff widget w223 (next channel). Functions: stwNewJoins, stwUsage.
+
 ## v1761 · 05-Oct-2026 IST
 User: Rekha M R's new photo never showed in the student app / widget - the staff app saved photos only to its own database (DB1 davan_pub/faculty_photos + Firestore), while the student app and widgets read DB2 davan_pub/faculty_photos. Uploads now also write DB2 and bump pub_ver/faculty_photos; an admin / principal / manager login copies missing or changed photos to DB2 once per session (1 read, only changed names written). Keys match the portal's spFacKey. Widgets on the next channel: student w176 (Timetable is page 2, photo stamp) and staff w222 (canteen notice for all non-hostel staff incl. admins, with a reason line in the 🔊 check). Pairs with portal v11.22. Functions: _facDb2Key, facPhotosToDb2, facPhotosSyncDb2, facPreloadPhotos, the photo upload.
 
