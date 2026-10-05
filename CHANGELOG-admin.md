@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1763 · 05-Oct-2026 IST
+User: the "New student widgets by date" card said 0 today, but Neeha moved from the old widget to the new one and installed it for another student. It counted a student's first-ever link (from the pair log), so movers from the old widget never counted and links missing from the log became 'old'. Now counted per widget install: register DB2 davan_pub/stu_widget_first_code/{code} = the day the code first appeared with the new widget (started from the pair log by code, fresh installs by their small run count; the old stu_widget_first is no longer used). Same cost: 1 small read per usage count, writes only for new codes. Functions: stwNewJoins, stwUsage.
+
 ## v1762 · 05-Oct-2026 IST
 User: "how many students newly joined the widget today, and the same tomorrow by date". The widget keeps no install date, so the admin's staff app now keeps DB2 davan_pub/stu_widget_first/{URN} = first-link date (started once from the pair log; students not in it are 'old') and sends newToday / newNames / newDays (7 days) with the widget usage numbers. Cost: 1 small read per usage count, a write only for new students; the pair log is read once. Shown by staff widget w223 (next channel). Functions: stwNewJoins, stwUsage.
 
