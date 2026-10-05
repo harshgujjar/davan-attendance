@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1739 · 05-Oct-2026 IST
+Fix (user report): 💱 Rates & Currencies gave error 401. The news database (DB3) allows only its existing widgetConfig children, and v1733 used new ones (fxCatalog, fxList). They now live under widgetConfig/newsSourceConfig (fxCatalog, fxList); the news job reads / writes there (fetch_news v1.6.2) and the student app's news-source save merges so it keeps them (portal v11.08). No new reads. Functions: ratesInit, ratesSave.
+
 ## v1738 · 04-Oct-2026 IST
 Staff widget w203 released (LATEST_APK 203). User: the Today page's "TOMORROW" line was a summary, not the per-subject view faculty need to prepare. From 5:30 pm and on a weekend off the top card is the next class day (Monday from Fri / Sat) per class: time, class · subject · lab · room, ➡️ next lesson-plan #Sl No + topic, duty, holiday. The evening notification (Faculty Alerts time) carries the same list every evening incl. Sunday (no Sunday 6 pm), with a 9 pm catch-up. Lesson plans of the next class day are also kept on the phone (a tiny read when they change). 🔔 page entries updated. Functions: NOTIF_REGISTRY; widget StaffPages.nextOff / dayPlan / nextDayCard, StaffAlerts.digest, StaffData.lessonPlans.
 
