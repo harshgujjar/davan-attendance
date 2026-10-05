@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1764 · 05-Oct-2026 IST
+User: "add a Moved to the new widget count" and "all students with the old app - block it". An update keeps the widget code, so it is not a new install: new register DB2 davan_pub/stu_widget_ver/{code} = {v, d, f} (version, the day it went up, from) - movedToday / movedNames / newDays[].m in the usage numbers, counting from tonight. Old student widgets: STU_WIDGET_BLOCK_V = 176 raises davan_pub/student_widget_latest.minApkVersion, so widgets below w176 show only "update needed" and update themselves; LATEST_STUDENT_WIDGET_APK_V = 176 (the public version). Cost: 1 small read per usage count, writes only for changed versions. Widgets on the next channel: student w177 / staff w225 (no notifications, voice or reminders while a must permission is missing; staff widget shows the moved count). Pairs with portal v11.28. Functions: stwNewJoins, stuWidgetLatestRaise, stwUsage.
+
 ## v1763 · 05-Oct-2026 IST
 User: the "New student widgets by date" card said 0 today, but Neeha moved from the old widget to the new one and installed it for another student. It counted a student's first-ever link (from the pair log), so movers from the old widget never counted and links missing from the log became 'old'. Now counted per widget install: register DB2 davan_pub/stu_widget_first_code/{code} = the day the code first appeared with the new widget (started from the pair log by code, fresh installs by their small run count; the old stu_widget_first is no longer used). Same cost: 1 small read per usage count, writes only for new codes. Functions: stwNewJoins, stwUsage.
 

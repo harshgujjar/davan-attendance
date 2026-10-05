@@ -18786,7 +18786,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1763;  // always = HTML footer version number
+const CODE_BUILD = 1764;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29660,6 +29660,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1764', date: '05-Oct-2026 IST', note: 'Student widgets older than w176 are blocked until they update (they update themselves). New count: students who moved to the new widget (updated) each day, shown on the staff widget w225 with new installs.' },
 { v: 'v1763', date: '05-Oct-2026 IST', note: 'New student widgets by date: now counts every new widget install (also a student moving from the old widget to the new one), not only students who never linked before.' },
 { v: 'v1762', date: '05-Oct-2026 IST', note: 'Staff widget w223 (Apps & widgets page): how many students joined the student widget today, plus the last 7 days by date and today\'s names.' },
 { v: 'v1761', date: '05-Oct-2026 IST', note: 'Faculty photos now reach the student app and widgets (a new photo, e.g. Rekha M R, stayed in the staff database only). Widgets w176 / w222: Timetable is page 2 on the student widget; the canteen breakfast / lunch notice now also goes to admins, principal, managers and office staff.' },
@@ -29674,7 +29675,6 @@ const HTML_CHANGELOG = [
 { v: 'v1752', date: '05-Oct-2026 IST', note: 'Staff widget w216: admins and the Principal get a 📋 period class list at the start of every period (who teaches what, class, room), spoken too. List / Voice ON-OFF in the widget settings (page 3 for the Super Admin). More notifications are spoken: daily report, meeting, canteen, hostel meals and complaints, message from the college.' },
 { v: 'v1751', date: '05-Oct-2026 IST', note: 'Widget updates fixed (w215 / w171): right after a release GitHub could hand out the old file, so "Install" put back the same version. The update link now carries the version number, and the widget checks the file before installing.' },
 { v: 'v1750', date: '05-Oct-2026 IST', note: 'Spoken alerts (widgets w214 / w170): people in the test list always see their 🔊 box and live test. "Staff see it" / "Students see it" now only apply in Everyone mode.' },
-{ v: 'v1749', date: '05-Oct-2026 IST', note: 'Staff widget w213: a "🔊 Voice check" line at the bottom of the widget settings shows what the phone sees for spoken alerts (mode, in the test list or not, box hidden or not) - tap it to copy and send it.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -83400,7 +83400,7 @@ async function stwPublishViewAs() {
   const stu = {};
   (allStudents || []).forEach(x => { if (x && x.urn && x.name) { const o = { n: x.name, c: x.class || '' }; const ph = String(x.phone || x.mobile || x.contact || '').replace(/\D/g, '').slice(-10); if (ph.length === 10) o.p = ph;   // v1665: phone for call / copy on page 2
     const wc = sBest[String(x.urn).toUpperCase()]; if (wc) { const rr = (rc.R || {})[wc] || {}; o.k = wc; o.w = +rr.apkVersion || 0;
-      if (Array.isArray(rr.perm) && rr.perm.length) o.x = 'L'; else if (o.w && o.w < STU_WIDGET_MIN_V) o.x = 'O'; }   // v1693
+      if (Array.isArray(rr.perm) && rr.perm.length) o.x = 'L'; else if (o.w && o.w < STU_WIDGET_BLOCK_V) o.x = 'O'; }   // v1693
     stu[String(x.urn).toUpperCase().replace(/[.#$\[\]\/]/g, '_')] = o; } });
   const body = { staff, stu };
   const js = JSON.stringify(body); let h = 0; for (let i = 0; i < js.length; i += 3) h = (h * 31 + js.charCodeAt(i)) | 0;
@@ -83442,7 +83442,24 @@ async function stwNewJoins(pairs) {
   const byDay = d => [...new Set(pairs.filter(p => F[p.code] === d).map(p => p.urn))];
   const days = []; for (let i = 0; i < 7; i++) { const d = ist(Date.now() - i * 864e5); days.push({ d, n: byDay(d).length }); }
   const tn = byDay(today);
-  return { newToday: tn.length, newNames: tn.map(u => nm[u] || u).sort().slice(0, 40), newDays: days };
+  const out = { newToday: tn.length, newNames: tn.map(u => nm[u] || u).sort().slice(0, 40), newDays: days };
+  /* v1764 (user): "add a Moved to the new widget count" - an update keeps the widget code, so it is not a new install. Register
+     DB2 davan_pub/stu_widget_ver/{code} = {v, d, f}: the version last reported, the day it went up and the version it came from.
+     Starts from tonight (the first read only records versions). Cost: 1 small read per usage count, writes only for changed versions. */
+  try {
+    const rv = await hswGet('davan_pub/stu_widget_ver');
+    if (rv.ok) { const V = rv.v || {}, chg = {}, first = !Object.keys(V).length;
+      pairs.forEach(p => { if (!p.code || !p.v) return; const o = V[p.code];
+        if (!o) chg[p.code] = { v: p.v, d: first || F[p.code] === today ? '' : today, f: 0 };
+        else if (p.v > +o.v) chg[p.code] = { v: p.v, d: today, f: +o.v }; });
+      if (Object.keys(chg).length) { await lpDb2Patch('davan_pub/stu_widget_ver', chg).catch(() => {}); Object.assign(V, chg); }
+      const movedOn = d => [...new Set(pairs.filter(p => V[p.code] && V[p.code].d === d && !(F[p.code] === d)).map(p => p.urn))];
+      days.forEach(x => { x.m = movedOn(x.d).length; });
+      const mt = movedOn(today); out.movedToday = mt.length; out.movedNames = mt.map(u => nm[u] || u).sort().slice(0, 40);
+      out.movedOld = pairs.filter(p => V[p.code] && V[p.code].d === today && V[p.code].f && V[p.code].f < STU_WIDGET_MIN_V).length;
+    }
+  } catch (e) { console.warn('[stw] moved', e.message); }
+  return out;
 }
 async function stwUsage() {
   const out = {};
@@ -83463,7 +83480,7 @@ async function stwUsage() {
     const vers = {}; stu.forEach(c => { const v = +(R[c] || {}).apkVersion || 0; const b = v >= LATEST_STUDENT_WIDGET_APK_V ? 'latest' : 'mid'; vers[b] = (vers[b] || 0) + 1; });
     out.stu = { linked: stu.length, live: stu.filter(c => now - t(c) < 3600000).length, week: stu.filter(c => now - (+A[c].updatedAt || 0) < 7 * 864e5).length,
       notifOff: stu.filter(c => R[c] && R[c].notifOn === false).length, stale: stu.filter(c => t(c) && now - t(c) > 3 * 864e5).length, vers, latest: LATEST_STUDENT_WIDGET_APK_V };
-    try { Object.assign(out.stu, await stwNewJoins(stu.map(c => ({ code: c, urn: String(A[c].urn || '').toUpperCase(), at: +A[c].updatedAt || now, runs: +(R[c] || {}).workerRunCount || 0 })))); } catch (e) { console.warn('[stw] new joins', e.message); }
+    try { Object.assign(out.stu, await stwNewJoins(stu.map(c => ({ code: c, urn: String(A[c].urn || '').toUpperCase(), at: +A[c].updatedAt || now, runs: +(R[c] || {}).workerRunCount || 0, v: +(R[c] || {}).apkVersion || 0 })))); } catch (e) { console.warn('[stw] new joins', e.message); }
     const S = (srep.ok && srep.v) || {};
     window._stwRep = { A, R, S, at: Date.now() };   // v1693: reused by the page 2 list (widget status per person) - no second read
     // v1684 (user): the Director's own phone is for testing (he logs in / views others like Almas Banu T on it) - never counted
@@ -83505,7 +83522,8 @@ async function stwUsage() {
   } catch (e) { console.warn('[stw] usage', e.message); }
   return out;
 }
-const LATEST_STUDENT_WIDGET_APK_V = 174;
+const LATEST_STUDENT_WIDGET_APK_V = 176;
+const STU_WIDGET_BLOCK_V = 176;   // v1764 (user, 05-Oct-2026: "all students with the old app - block it"): widgets below w176 show only "update needed" (they still update themselves); raise only when told
 const STU_WIDGET_MIN_V = 108;   // v1689 (user): the new student widget starts at w108 - anything older is blocked and must update   // the released student widget (Davan.Student.apk); raise with each student widget release
 // v1583: a release reached the students' widgets only after some student opened the NEW student app (it writes
 // davan_pub/student_widget_latest). The admin's staff app now raises it too (never lowers it): 1 small read, a write only when behind.
@@ -83513,9 +83531,9 @@ async function stuWidgetLatestRaise() {
   try {
     if (window._stuLatestDone || !STW_ADMIN_ROLES.includes(hcRole())) return; window._stuLatestDone = 1;
     const r = await hswGet('davan_pub/student_widget_latest');
-    if (!r.ok || (r.v && +r.v.apkVersion >= LATEST_STUDENT_WIDGET_APK_V && +r.v.minApkVersion >= STU_WIDGET_MIN_V)) return;
+    if (!r.ok || (r.v && +r.v.apkVersion >= LATEST_STUDENT_WIDGET_APK_V && +r.v.minApkVersion >= STU_WIDGET_BLOCK_V)) return;
     await lpDb2Set('davan_pub/student_widget_latest', Object.assign({ minApkVersion: 55 }, r.v || {}, {
-      minApkVersion: Math.max(STU_WIDGET_MIN_V, +((r.v || {}).minApkVersion) || 0),   // v1689 (user): old student widgets (below w108) blocked
+      minApkVersion: Math.max(STU_WIDGET_BLOCK_V, +((r.v || {}).minApkVersion) || 0),   // v1689 (user): old student widgets (below w108) blocked
       apkVersion: Math.max(LATEST_STUDENT_WIDGET_APK_V, +((r.v || {}).apkVersion) || 0), apkUrl: 'https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/Davan.Student.apk?v=' + Math.max(LATEST_STUDENT_WIDGET_APK_V, +((r.v || {}).apkVersion) || 0), raisedBy: 'staff app v' + CODE_BUILD, at: Date.now() }));
     console.log('[student widget] latest raised to w' + LATEST_STUDENT_WIDGET_APK_V);
   } catch (e) { console.warn('[student widget] latest', e.message); }
