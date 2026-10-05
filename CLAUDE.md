@@ -51,6 +51,18 @@ copy the APK to `DavanWidget.apk` on main, and bump `apkVersion` AND the `?v=<n>
 in index.html (old w132 phones). Its data comes from DB2 davan_pub/staff_pub, published by index.html's stwPublish. Its codes are always `S-XXXXXX`; the student
 app must never link them. The old Davan Hostel Staff app (com.davan.hostelstaff, staff.jks, DavanHostelStaff.apk, staff-widget-version.json) is retired.
 
+## Widget release channels (user, 05-Oct-2026) - read before releasing any widget
+
+A new widget build NEVER goes straight to everyone. Copy it to the "next" files: `Davan.Student-next.apk` + `student-widget-next.json`
+and `DavanWidget-next.apk` + `davan-widget-next.json` (apkVersion + apkUrl `raw.githubusercontent.com/.../<file>-next.apk?v=<n>`; `codes` =
+widget codes that always get it at once, e.g. the Super Admin's S-7UP47U). From w175 / w221 the Super Admin, the spoken-alerts test list
+(davan_pub/tts_cfg/test) and those codes update from "next" within minutes. Every day at 9:30 pm IST `.github/workflows/release-widgets.yml`
+copies a newer "next" build to the public APK and json (`Davan.Student.apk` / `-test.apk` / `DavanWidget.apk`, version files) - one update a day
+for everyone else, silent where Android allows. Do NOT edit the public version files or APKs, and keep `LATEST_APK` / `LATEST_STUDENT_WIDGET_APK_V`
+(and the portal's `LATEST_STUDENT_WIDGET_APK`) at the PUBLIC version, or the staff app pushes the build to everyone early.
+Urgent fix for everyone: run the workflow by hand (Actions -> Release widgets -> Run workflow). The widget rules above about copying to
+`Davan.Student.apk` / bumping the public jsons are replaced by this.
+
 ## PWA rule (every installable page)
 
 Each page links its OWN `manifest-<app>.json` with a unique `id` and `scope` = that one page (never "./" or the folder), and registers its

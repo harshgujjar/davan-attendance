@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1760 · 05-Oct-2026 IST
+User: two students of II BCA (A) saw Java at 4:40 - the students read davan_pub/timetable_portal, a copy refreshed only when an admin opened the student app's Timetable tab. Every push of the live timetable (auto and the direct button) now also writes timetable_portal and bumps pub_ver (ttPortalCopy). New release rule: widget builds go to the "next" files (Davan.Student-next.apk / DavanWidget-next.apk, student-widget-next.json / davan-widget-next.json) - the Super Admin, test list and listed codes update at once - and the GitHub job release-widgets.yml makes them public every day at 9:30 pm IST; LATEST_APK / LATEST_STUDENT_WIDGET_APK_V stay at the public version. Student widget w175 / staff widget w221 on "next" today. Pairs with portal v11.21. Functions: ttPortalCopy, _autoPushTimetableToPortal, the direct push.
+
 ## v1759 · 05-Oct-2026 IST
 User (Staff Directory screenshot): every faculty has a contact number but the staff widget header showed none - the widget link took the phone only from the login profile, which most logins lack. The link and the page 2 list now fall back to the Staff Directory's Contact (by name, or login = its password column), and when the page 2 list is sent the missing phone is added to existing staff widget links once (davan_pub/student_widget_active/{S-code}/phone - one tiny write per link, once). No widget update needed. Functions: sdPhone, hswPayload, stwPublishViewAs.
 
