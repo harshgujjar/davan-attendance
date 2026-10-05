@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1745 · 05-Oct-2026 IST
+User: the 🧪 live test only for test-list people; when spoken alerts go to Everyone, people get ON/OFF, English / ಕನ್ನಡ, ▶ Test my voice and 🗣 Change voice (opens the phone's text-to-speech settings); the Super Admin can hide ON/OFF. New davan_pub/tts_cfg/allowOff (default true; off = no ON/OFF buttons, the voice stays on, test-list people keep theirs) - tick on 🎛 Global Switches and on widget page 3. Student widget w167, staff widget w209 released. No new reads. Pairs with portal v11.13. Functions: gswShow; widget Speak.allowOff / on / fill / voiceSettings.
+
 ## v1744 · 05-Oct-2026 IST
 Staff widget w208 released (LATEST_APK 208). User: the 🧪 live test buttons for every student and staff member switched on, not only the Super Admin's page 3. Staff now see ▶ Next class / Morning / Next day and 🔔 Test notification + voice under "Speak my reminders" when spoken alerts allow them and the box is shown (tts_cfg.showStf); students already have them (student widget w166). No database changes. Widget function: Speak.fill.
 
