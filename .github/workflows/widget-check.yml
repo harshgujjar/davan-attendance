@@ -1,0 +1,50 @@
+# Read-only student widget check (05-Oct-2026): the coding sessions cannot reach Firebase, GitHub's runner can.
+# Prints COUNTS only (no names / URNs - Actions logs of this repo are public). Run by hand: Actions -> Widget check -> Run workflow.
+name: Widget check (read-only)
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: 'Block window start (ISO time, UTC)'
+        required: false
+        default: '2026-10-05T17:09:00Z'
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Count widgets
+        env:
+          SINCE: ${{ github.event.inputs.since }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, datetime
+          KEY = 'AIzaSyBnWSfjilDwri7dBpONF2GwgXDJnc1W--w'
+          URL = 'https://davan-student-portal-default-rtdb.asia-southeast1.firebasedatabase.app'
+          req = urllib.request.Request('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + KEY, data=b'{"returnSecureToken":true}', headers={'Content-Type': 'application/json'})
+          tok = json.load(urllib.request.urlopen(req))['idToken']
+          get = lambda p: json.load(urllib.request.urlopen(URL + '/' + p + '.json?auth=' + tok)) or {}
+          ms = lambda t: int(datetime.datetime.fromisoformat(t.replace('Z', '+00:00')).timestamp() * 1000)
+          ist = lambda x: (datetime.datetime.utcfromtimestamp(x / 1000) + datetime.timedelta(hours=5, minutes=30)).strftime('%d-%b %I:%M %p IST') if x else '-'
+          L = get('davan_pub/student_widget_latest')
+          print('student_widget_latest: apkVersion', L.get('apkVersion'), '| minApkVersion', L.get('minApkVersion'), '| written', ist(L.get('at') or 0), 'by', L.get('raisedBy', '?'))
+          A = get('davan_pub/student_widget_active'); R = get('davan_pub/student_widget_report')
+          since = ms(os.environ.get('SINCE') or '2026-10-05T17:09:00Z'); fix = int(L.get('at') or 0) if int(L.get('minApkVersion') or 0) <= 108 else 0
+          linked = [c for c in A if not c.upper().startswith('S-') and isinstance(A[c], dict) and A[c].get('urn') and not A[c].get('hostelOnly')]
+          vers = {}; risk = 0; still = 0; cleared = 0; old = 0
+          for c in linked:
+              r = R.get(c) or {}; v = int(r.get('apkVersion') or 0); t = max(int(r.get('ts') or 0), int(r.get('workerLastRunAt') or 0))
+              vers[v] = vers.get(v, 0) + 1
+              if v and v < 108: old += 1
+              if 108 <= v < 176 and t >= since:
+                  risk += 1
+                  if fix and t >= fix: cleared += 1
+                  else: still += 1
+          print('linked student widgets:', len(linked))
+          print('by version:', ', '.join('w%d: %d' % (k, vers[k]) for k in sorted(vers, reverse=True)))
+          print('older than w108 (always blocked):', old)
+          print('w108-w175 that refreshed since', ist(since), '(could have read the 176 block):', risk)
+          print('  of these, refreshed again after the fix (unblocked):', cleared)
+          print('  still showing "update needed" until their next refresh:', still if fix else str(still) + ' (minApkVersion is not back to 108 yet!)')
+          PY
