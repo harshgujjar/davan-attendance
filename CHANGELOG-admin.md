@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1742 · 05-Oct-2026 IST
+Widgets w165 / w206 released (LATEST_STUDENT_WIDGET_APK_V 165, LATEST_APK 206). User: ⟳ found a new version but did not download it (the automatic download runs once an hour) and wanted updates as soon as they are on GitHub. Now ⟳ marks "update now": the refresh's version check downloads at once and installs a downloaded update straight away (silent on Android 12+ once the app installed itself, else one tap); the student widget reads the GitHub version file every 15 min (no Firebase cost; the staff widget already did on each sync); the widget settings say why an update cannot install by itself. No database changes. Pairs with portal v11.11. Widget functions: Update.now / forced / selfInstalled / blocker / onHealth, UpdJob.
+
 ## v1741 · 05-Oct-2026 IST
 User (screenshot): the 🔮 horoscope and 📊 weekly rates came at the same moment (the widgets sent every slot within ±5 min). Widgets w164 / w205 now send a general notification from its time up to 60 min late, one at a time, and only 20 min after the phone's last notification of any kind. New default times 20 min apart (horoscope 7:50, weekly rates 8:10, gold 12:45, lunch news 1:05, staff Nifty 5:50, gold closing 6:30, Friday weekend notice 6:10, class feedback Mon 8:30, students' below-50% Sun 12:25). 🔔 page: the ✎ times can be moved (DB2 davan_pub/notif_off/{stu|stf}/_t/{key}, read with the switches, no extra read) and a ✅ clash check lists any two within 20 min on the same day. Pairs with portal v11.10. Functions: ntfInit, ntfTime, ntfClash, ntfMin, NOTIF_REGISTRY.
 
