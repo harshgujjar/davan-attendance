@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1755 · 05-Oct-2026 IST
+Staff widget w218 released (LATEST_APK 218). User (screenshot): the Super Admin's period class list said "👤 Vijayalakshmi P S · Dear Vijayalakshmi" because she was open on page 2 - it went to his phone only, but with her name. The list is for the phone's owner: his own name, no 👤 label or her photo, in the notification and the voice. Subjects drop the board's student counts ("(s38 · ct37)"). No data changes. Widget functions: Periods.fire / sub, Alerts.OWNER / firstOf.
+
 ## v1754 · 05-Oct-2026 IST
 Widgets w217 / w172 released (LATEST_APK 217, LATEST_STUDENT_WIDGET_APK_V 172). User: an update installed and returned to the widget only while the settings screen stayed open; "Close and go to the widget" left it waiting (Android blocks the Update box from the background) and normally landed on the launcher's main page. Now Close first starts a downloading / ready update (Close again leaves at once), and when the screen was opened from the widget it just closes, so the home page with the widget shows. No data changes. Pairs with portal v11.18. Widget functions: goToWidget / fromLauncher.
 
