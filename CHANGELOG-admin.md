@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1757 · 05-Oct-2026 IST
+User: a spoken nudge 5 min before a class starts and 5 min before it ends, and a mark on the people being tested. Staff widget w219: faculty whom spoken alerts allow hear "Dear <name>, your class, ..., starts in 5 minutes, room S5" and "... ends in 5 minutes" (voice only, not counted in the 5 a day). 🔊 next to test-list people in User Management (1 tiny read of davan_pub/tts_cfg when the list opens) and on page 2 of both widgets (student widget w173). Pairs with portal v11.19. Functions: gswTestList, gswIsTest, _umRenderList; widget StaffAlerts.nudge, Speak.sayNudge / inList.
+
 ## v1756 · 05-Oct-2026 IST
 User (screenshot of Cleaning staff): wanted to rename a cleaner and add their photo so they see it in their app. Each row now has ✏️ Rename and 📷 Photo (and the Add form takes an optional photo); the photo is resized and uploaded to Cloudinary, and its URL saved in hostel/cleaning_staff/{id}/photo, name in .../name (one small write each, no new reads). Pairs with cleaning.html v1.6, which shows the photo next to "Hi <name>". Functions: hcClStaffHtml, hcClAddStaff, hcClRename, hcClPhoto, hcClUploadPhoto, hcClFace.
 
