@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1756 · 05-Oct-2026 IST
+User (screenshot of Cleaning staff): wanted to rename a cleaner and add their photo so they see it in their app. Each row now has ✏️ Rename and 📷 Photo (and the Add form takes an optional photo); the photo is resized and uploaded to Cloudinary, and its URL saved in hostel/cleaning_staff/{id}/photo, name in .../name (one small write each, no new reads). Pairs with cleaning.html v1.6, which shows the photo next to "Hi <name>". Functions: hcClStaffHtml, hcClAddStaff, hcClRename, hcClPhoto, hcClUploadPhoto, hcClFace.
+
 ## v1755 · 05-Oct-2026 IST
 Staff widget w218 released (LATEST_APK 218). User (screenshot): the Super Admin's period class list said "👤 Vijayalakshmi P S · Dear Vijayalakshmi" because she was open on page 2 - it went to his phone only, but with her name. The list is for the phone's owner: his own name, no 👤 label or her photo, in the notification and the voice. Subjects drop the board's student counts ("(s38 · ct37)"). No data changes. Widget functions: Periods.fire / sub, Alerts.OWNER / firstOf.
 
