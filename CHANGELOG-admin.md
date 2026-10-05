@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1751 · 05-Oct-2026 IST
+Widgets w215 / w171 released (LATEST_APK 215, LATEST_STUDENT_WIDGET_APK_V 171). User (screenshot): "Install w214" kept coming back to w213. GitHub's file server caches the APK ~5 min after a push; the phone read the new version number, downloaded the old file, kept it as "ready" and reinstalled w213 on every tap. The update link is now versioned (raw.githubusercontent.com/<file>?v=N - in davan-widget-version.json, student-widget-*.json, LATEST_APK, the portal's LATEST_STUDENT_WIDGET_APK and davan_pub/student_widget_latest), so even old widgets get the new file; w215 / w171 also check the downloaded APK's version before installing and download again if it is old. Releasing a new version also resets a phone stuck with an old "ready" file. Pairs with portal v11.17. Functions: student_widget_latest raise; widget Update.withV / fresh.
+
 ## v1750 · 05-Oct-2026 IST
 Widgets w214 / w170 released (LATEST_APK 214, LATEST_STUDENT_WIDGET_APK_V 170). User (Voice check from Vijayalakshmi's phone: in the test list, "box for staff: HIDDEN by admin"): davan_pub/tts_cfg/showStf was off and also hid the box from test-list people. Now test-list people always see the 🔊 box and the 🧪 live test; showStf / showStu only apply to people who get the voice through Everyone. 🎛 page note updated. No database changes. Pairs with portal v11.16. Functions: gswShow; widget Speak.fill / why.
 

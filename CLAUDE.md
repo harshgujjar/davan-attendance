@@ -47,7 +47,7 @@ From w140 the staff widget for faculty, admin and hostel staff is ONE app: app i
 (alias davanwidget, password davan2026 - the old DavanWidget w132 key, keep it), so it installs over w132. Source stays out of git (folder `DavanWidget_w<nnn>`,
 built with its `build.sh`, which renames the manifest package to com.davan.widget; keep the receiver name com.davan.widget.DavanWidgetProvider).
 Every new APK gets a NEW version (> 140): bump `versionCode` / `versionName` in AndroidManifest.xml and `BuildInfo.CODE` / `NAME`, write `W<nnn>_CHANGES.md`,
-copy the APK to `DavanWidget.apk` on main, and bump `apkVersion` in `davan-widget-version.json` (the widgets update themselves from it) AND `LATEST_APK.apkVersion`
+copy the APK to `DavanWidget.apk` on main, and bump `apkVersion` AND the `?v=<n>` at the end of `apkUrl` in `davan-widget-version.json` (from w215 the link is versioned so GitHub's cache never serves the old APK; same for `student-widget-version.json` / `student-widget-test.json`) (the widgets update themselves from it) AND `LATEST_APK.apkVersion`
 in index.html (old w132 phones). Its data comes from DB2 davan_pub/staff_pub, published by index.html's stwPublish. Its codes are always `S-XXXXXX`; the student
 app must never link them. The old Davan Hostel Staff app (com.davan.hostelstaff, staff.jks, DavanHostelStaff.apk, staff-widget-version.json) is retired.
 

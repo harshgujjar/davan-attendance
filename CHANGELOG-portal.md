@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v11.17 (2026-10-05) -- Student widget w171 released (LATEST_STUDENT_WIDGET_APK 171, apkUrl now raw.githubusercontent.com/...?v=171): an update right after a release could download GitHub's cached old APK and reinstall the same version; the link carries the version and the widget checks the file before installing. Pairs with admin v1751, staff widget w215.
 VERSION : v11.16 (2026-10-05) -- Student widget w170 released (LATEST_STUDENT_WIDGET_APK 170): test-list students always see the 🔊 box and live test (davan_pub/tts_cfg/showStu only applies in Everyone mode). Pairs with admin v1750, staff widget w214.
 VERSION : v11.15 (2026-10-05) -- Student widget w169 released (LATEST_STUDENT_WIDGET_APK 169): the spoken-alert switches (davan_pub/tts_cfg) are read when the widget settings open (at most every 2 min) and on refresh. Pairs with admin v1748, staff widget w212.
 VERSION : v11.14 (2026-10-05) -- Student widget w168 released (LATEST_STUDENT_WIDGET_APK 168): spoken reminders could never start on Android 11+ (the text-to-speech engine was not declared in the manifest) - fixed; live test plays on vibrate too and says when the voice fails. Pairs with admin v1747, staff widget w211.
