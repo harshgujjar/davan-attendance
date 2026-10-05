@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1747 · 05-Oct-2026 IST
+Widgets w211 / w168 released (LATEST_APK 211, LATEST_STUDENT_WIDGET_APK_V 168). User: the live test still did nothing, spoken reminders should start with the name like the notifications, and an opened person on page 2 jumped back to Admin. Root cause of the silence: on Android 11+ an app reaches the text-to-speech engine only when its manifest declares it (queries TTS_SERVICE) - added to both widgets. Staff speech now starts "Dear <first name>," / "ಪ್ರಿಯ <name>,". Page 2's "⬅ Page 1" keeps the opened person (only "↩ Back to me" returns). Live test plays on vibrate, shows the sentence, reports a failed voice and waits for the opened person's timetable. No database changes. Pairs with portal v11.14. Widget functions: Speak.dear / say / preview / test, Gen.morningLine, ViewAsActivity.
+
 ## v1746 · 05-Oct-2026 IST
 Staff widget w210 released (LATEST_APK 210). User: picked Anitha on page 2, went to page 3, the live test said "no class today". Cause: page 2's "⬅ Page 1" goes back to the Super Admin himself (w173), so page 3 used his own data. Page 2 now has "🎛 Page 3 · 🧪 live test as <name>" while someone is open, and the "no class" messages say whose data was used. No database changes. Widget functions: ViewAsActivity.showNow, Speak.preview.
 
