@@ -36,6 +36,8 @@ In a new session the user uploads the newest widget zips and says "do the next s
        + 🎛 Global Switches page; test list (V NEESHA + admin) on davan_pub/tts_cfg, the admin adds more people / groups or sets 'all'.
 - ☑ 2c. (done 05-Oct-2026: admin v1741, student widget w164, staff widget w205) Notifications at least 20 min apart (phones wait), new
        default times, ✎ times movable on the 🔔 page (notif_off/{aud}/_t), ✅ clash check there. Keep any new fixed time 20 min from the others.
+- ☑ 2d. (done 05-Oct-2026: admin v1752, staff widget w216) 📋 Period class list for admins / Principal at every period start (List / Voice ON-OFF,
+       default ON) and spoken alerts for the other roles (daily report, meeting, canteen, hostel, message from the college; never SOS).
 - ☐ 3. Shortage + study: under 50% -> meet Principal ("I'll meet" list), 50-75% shortage, good subjects, miss-2-more, backlog
 - ☐ 4. Fee window + "I have paid" + Manager bulk page (class/section, Mark all, NEW in yellow, Save) + faculty submissions + Thu summary
 - ☐ 5. Event feedback forms (stars / 1-5 marks / yes-no / few words) + anonymous box + 📖 "How Davan works" guide page

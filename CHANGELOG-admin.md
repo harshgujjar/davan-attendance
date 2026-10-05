@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1752 · 05-Oct-2026 IST
+Staff widget w216 released (LATEST_APK 216). User: admins / Principal get a notification at the exact start of every period - "Dear <name>, 8 classes at 9:30 am" with faculty · subject · class · room per class (labs once), spoken (first 3 + "and N more"); List and Voice ON/OFF per person (page 3 for the Super Admin, the settings page for others), both ON by default; 🔔 page key "periods". Voice also for the admin daily report, faculty meeting, Monday class feedback summary, canteen notice, hostel meal ready / complaint / night summary and the message from the college (no SOS). Data: the day's board already kept for the Live class board (davan_pub/staff_pub/board/<day>) - no new reads. Functions: NOTIF_REGISTRY; widget Periods, Speak.sayAlways / spokenClass.
+
 ## v1751 · 05-Oct-2026 IST
 Widgets w215 / w171 released (LATEST_APK 215, LATEST_STUDENT_WIDGET_APK_V 171). User (screenshot): "Install w214" kept coming back to w213. GitHub's file server caches the APK ~5 min after a push; the phone read the new version number, downloaded the old file, kept it as "ready" and reinstalled w213 on every tap. The update link is now versioned (raw.githubusercontent.com/<file>?v=N - in davan-widget-version.json, student-widget-*.json, LATEST_APK, the portal's LATEST_STUDENT_WIDGET_APK and davan_pub/student_widget_latest), so even old widgets get the new file; w215 / w171 also check the downloaded APK's version before installing and download again if it is old. Releasing a new version also resets a phone stuck with an old "ready" file. Pairs with portal v11.17. Functions: student_widget_latest raise; widget Update.withV / fresh.
 
