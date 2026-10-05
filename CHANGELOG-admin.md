@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1743 · 05-Oct-2026 IST
+User (widget screenshot): the Super Admin's 🔊 Speak my reminders and 🎛 Global switches moved to a page 3 on the staff widget (w207, GlobalActivity); a switch decides whether staff / students see the 🔊 box (ON / OFF + language) on their widget settings - davan_pub/tts_cfg/showStf, showStu, default shown (hidden = it still speaks in the default language); live test buttons (▶ Next class / Morning / Next day, 🔔 test notification + voice) say the real sentence now, also for the person open on page 2. Turning the voice off never stops the notification or its sound. 🎛 page: the two "see it" ticks. Student widget w166, staff widget w207 released. No new reads. Pairs with portal v11.12. Functions: gswShow, gswShowBox.
+
 ## v1742 · 05-Oct-2026 IST
 Widgets w165 / w206 released (LATEST_STUDENT_WIDGET_APK_V 165, LATEST_APK 206). User: ⟳ found a new version but did not download it (the automatic download runs once an hour) and wanted updates as soon as they are on GitHub. Now ⟳ marks "update now": the refresh's version check downloads at once and installs a downloaded update straight away (silent on Android 12+ once the app installed itself, else one tap); the student widget reads the GitHub version file every 15 min (no Firebase cost; the staff widget already did on each sync); the widget settings say why an update cannot install by itself. No database changes. Pairs with portal v11.11. Widget functions: Update.now / forced / selfInstalled / blocker / onHealth, UpdJob.
 

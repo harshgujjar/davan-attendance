@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v11.12 (2026-10-05) -- Student widget w166 released (LATEST_STUDENT_WIDGET_APK 166): the 🔊 box shows only when the admin's switch (davan_pub/tts_cfg/showStu, default on) allows it; live test buttons speak the real next class / morning / tomorrow now. No new reads. Pairs with admin v1743, staff widget w207.
 VERSION : v11.11 (2026-10-05) -- Student widget w165 released (LATEST_STUDENT_WIDGET_APK 165): ⟳ refresh downloads and installs a new version at once, GitHub version check every 15 min (GitHub only, no Firebase cost), settings show why an update is stuck. Pairs with admin v1742, staff widget w206.
 VERSION : v11.10 (2026-10-05) -- Student widget w164 released (LATEST_STUDENT_WIDGET_APK 164): notifications 20 min apart (the horoscope came with the weekly rates), new default times, times the admin moves on the 🔔 page. No new reads. Pairs with admin v1741, staff widget w205.
 VERSION : v11.09 (2026-10-05) -- Student widget w163 released (LATEST_STUDENT_WIDGET_APK 163): 🔊 spoken alerts (next class, tomorrow's first class, meal ready) for the test list on the staff app's 🎛 Global Switches page (DB2 davan_pub/tts_cfg, one tiny read per phone per hour). Pairs with admin v1740, staff widget w204.
