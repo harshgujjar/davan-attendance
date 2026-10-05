@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1761 · 05-Oct-2026 IST
+User: Rekha M R's new photo never showed in the student app / widget - the staff app saved photos only to its own database (DB1 davan_pub/faculty_photos + Firestore), while the student app and widgets read DB2 davan_pub/faculty_photos. Uploads now also write DB2 and bump pub_ver/faculty_photos; an admin / principal / manager login copies missing or changed photos to DB2 once per session (1 read, only changed names written). Keys match the portal's spFacKey. Widgets on the next channel: student w176 (Timetable is page 2, photo stamp) and staff w222 (canteen notice for all non-hostel staff incl. admins, with a reason line in the 🔊 check). Pairs with portal v11.22. Functions: _facDb2Key, facPhotosToDb2, facPhotosSyncDb2, facPreloadPhotos, the photo upload.
+
 ## v1760 · 05-Oct-2026 IST
 User: two students of II BCA (A) saw Java at 4:40 - the students read davan_pub/timetable_portal, a copy refreshed only when an admin opened the student app's Timetable tab. Every push of the live timetable (auto and the direct button) now also writes timetable_portal and bumps pub_ver (ttPortalCopy). New release rule: widget builds go to the "next" files (Davan.Student-next.apk / DavanWidget-next.apk, student-widget-next.json / davan-widget-next.json) - the Super Admin, test list and listed codes update at once - and the GitHub job release-widgets.yml makes them public every day at 9:30 pm IST; LATEST_APK / LATEST_STUDENT_WIDGET_APK_V stay at the public version. Student widget w175 / staff widget w221 on "next" today. Pairs with portal v11.21. Functions: ttPortalCopy, _autoPushTimetableToPortal, the direct push.
 
