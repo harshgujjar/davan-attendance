@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v11.20 (2026-10-05) -- Student widget w174 released (LATEST_STUDENT_WIDGET_APK 174): quiet updates (no new / installing / updated notifications; one tap-to-install a day only when Android needs it) and 🔊 after the URN for test-list students. Pairs with admin v1758, staff widget w220.
 VERSION : v11.19 (2026-10-05) -- Student widget w173 released (LATEST_STUDENT_WIDGET_APK 173): page 2 shows 🔊 next to students in the spoken-alerts test list. Pairs with admin v1757, staff widget w219.
 VERSION : v11.18 (2026-10-05) -- Student widget w172 released (LATEST_STUDENT_WIDGET_APK 172): Close in the widget settings finishes a downloading update first and returns to the home page with the widget. Pairs with admin v1754, staff widget w217.
 VERSION : v11.17 (2026-10-05) -- Student widget w171 released (LATEST_STUDENT_WIDGET_APK 171, apkUrl now raw.githubusercontent.com/...?v=171): an update right after a release could download GitHub's cached old APK and reinstall the same version; the link carries the version and the widget checks the file before installing. Pairs with admin v1751, staff widget w215.

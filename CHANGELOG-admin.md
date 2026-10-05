@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1758 · 05-Oct-2026 IST
+Widgets w220 / w174 released (LATEST_APK 220, LATEST_STUDENT_WIDGET_APK_V 174). User: staff were annoyed by an update message every half hour; the staff widget header showed the login (a password for some staff); wanted 🔊 on test-list people. Updates now download quietly and install silently where Android allows; otherwise one "update ready - tap to install" per version and day (no "new widget", "installing" or "updated" notifications). Staff header: "📞 phone · S-code 🔊"; student header: 🔊 after the URN (davan_pub/tts_cfg/test, already on the phone). Pairs with portal v11.20. Widget functions: Update.onHealth / notice / cleanup, Widgets header.
+
 ## v1757 · 05-Oct-2026 IST
 User: a spoken nudge 5 min before a class starts and 5 min before it ends, and a mark on the people being tested. Staff widget w219: faculty whom spoken alerts allow hear "Dear <name>, your class, ..., starts in 5 minutes, room S5" and "... ends in 5 minutes" (voice only, not counted in the 5 a day). 🔊 next to test-list people in User Management (1 tiny read of davan_pub/tts_cfg when the list opens) and on page 2 of both widgets (student widget w173). Pairs with portal v11.19. Functions: gswTestList, gswIsTest, _umRenderList; widget StaffAlerts.nudge, Speak.sayNudge / inList.
 
