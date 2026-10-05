@@ -32,6 +32,8 @@ In a new session the user uploads the newest widget zips and says "do the next s
 - ☑ 2. (done 04-Oct-2026: admin v1733, portal v11.03, student widget w158, staff widget w202, fetch_news v1.6.1) Thai baht + currency picker (flags) · rates card in staff app admin · rate history · 🔔 Notifications page (all existing +
        new) · morning brief 7:30 · horoscope 7:45 · news 10:35 / 1:00 / 7:30 · gold ▲/▼ 12:50 · staff: currencies 3:20,
        Nifty 5:35, gold closing 5:40 · big gold move (>=1%) · weekly rates Mon 7:40 · weekend review Sat 6 pm · Instagram names
+- ☑ 2b. (done 05-Oct-2026: admin v1740, portal v11.09, student widget w163, staff widget w204) 🔊 Spoken alerts (English / Kannada, 7 am - 9 pm, max 5 a day)
+       + 🎛 Global Switches page; test list (V NEESHA + admin) on davan_pub/tts_cfg, the admin adds more people / groups or sets 'all'.
 - ☐ 3. Shortage + study: under 50% -> meet Principal ("I'll meet" list), 50-75% shortage, good subjects, miss-2-more, backlog
 - ☐ 4. Fee window + "I have paid" + Manager bulk page (class/section, Mark all, NEW in yellow, Save) + faculty submissions + Thu summary
 - ☐ 5. Event feedback forms (stars / 1-5 marks / yes-no / few words) + anonymous box + 📖 "How Davan works" guide page

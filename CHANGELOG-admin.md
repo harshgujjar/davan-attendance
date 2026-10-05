@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1740 · 05-Oct-2026 IST
+New 🎛 Global Switches page (Admin; user: spoken alerts, test with Neesha and the admin first). 🔊 Spoken alerts: mode off / test / all, default language English / Kannada, and a test list of people (student URN, staff login) or groups (hostel students, a class, all faculty, all staff, all students); first open seeds V NEESHA and the Super Admin's own login. The widgets check the phone's real owner, so the admin hears anyone opened on widget page 2. Also the class feedback switches. Data: DB2 davan_pub/tts_cfg (widgets read it once an hour), davan_pub/class_fb_cfg. Student widget w163 and staff widget w204 released (LATEST_STUDENT_WIDGET_APK_V 163, LATEST_APK 204); 🔔 page lists 🔊 Spoken reminders. Pairs with portal v11.09. Functions: gswInit, gswShow, gswSave, gswMode, gswLang, gswAdd, gswRemove, gswSearch, gswFb, NOTIF_REGISTRY.
+
 ## v1739 · 05-Oct-2026 IST
 Fix (user report): 💱 Rates & Currencies gave error 401. The news database (DB3) allows only its existing widgetConfig children, and v1733 used new ones (fxCatalog, fxList). They now live under widgetConfig/newsSourceConfig (fxCatalog, fxList); the news job reads / writes there (fetch_news v1.6.2) and the student app's news-source save merges so it keeps them (portal v11.08). No new reads. Functions: ratesInit, ratesSave.
 
