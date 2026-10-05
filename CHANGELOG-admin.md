@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1753 · 05-Oct-2026 IST
+User: the Principal could not see the Faculty tab on the Dashboard - the 👤 Faculty Report tab was hidden for VP and Principal. It now shows for the Principal (still hidden for the VP, who has My Subjects). No data changes. Function: the dashboard tab setup after login.
+
 ## v1752 · 05-Oct-2026 IST
 Staff widget w216 released (LATEST_APK 216). User: admins / Principal get a notification at the exact start of every period - "Dear <name>, 8 classes at 9:30 am" with faculty · subject · class · room per class (labs once), spoken (first 3 + "and N more"); List and Voice ON/OFF per person (page 3 for the Super Admin, the settings page for others), both ON by default; 🔔 page key "periods". Voice also for the admin daily report, faculty meeting, Monday class feedback summary, canteen notice, hostel meal ready / complaint / night summary and the message from the college (no SOS). Data: the day's board already kept for the Live class board (davan_pub/staff_pub/board/<day>) - no new reads. Functions: NOTIF_REGISTRY; widget Periods, Speak.sayAlways / spokenClass.
 
