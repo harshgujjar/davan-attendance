@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1780 · 06-Oct-2026 IST
+User: "Faculty Class Alerts - where is it in the side panel, search does not find it". The menu item (Admin section) is renamed "Faculty Class Alerts & Staff Widgets" and has data-keys (subscription, widgets, logs, push...); Find a page now matches every typed word anywhere in the name, its keys or its section, in any order. No data change. Functions: nsBuildIndex, nsRenderDropdown.
+
 ## v1779 · 06-Oct-2026 IST
 User: "the portal says Up to date (w182) = 0 - nobody on 182?". w182 is a test build (public is w177 until tonight), but DB2 davan_pub/student_widget_latest said 182, and the admin apps only ever raised it. stuWidgetLatestRaise now sets it to the public student-widget-version.json version (raise or lower; 1 small file + 1 read per admin login, a write only when different) and keeps prevApk / prevBy / prevAt. release-widgets.yml: GitHub started no timed run today, so the nightly release now counts from 9 pm until 6 am IST, once a night. Pairs with portal v11.35. Functions: stuWidgetLatestRaise.
 
