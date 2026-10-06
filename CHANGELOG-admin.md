@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1778 · 06-Oct-2026 IST
+User: "show the widget's page 5 summary in the app in detail with names and photos; Global settings, Cloudflare Worker and background scheduler show / hide, hidden by default; page 5 names of the new-widget and battery-limited staff". Faculty Class Alerts: 📱 Staff widgets summary on top (tiles new / old widget, live, earlier today, not today, battery, setup; chips with photo, title, phone, version, last seen; 📋 Copy; tap a tile for one group), setup cards under ⚙ Setup (▼ Show, remembered per phone). No new reads: the shared staff_widget_report copy + users cache. The published usage gets staff.newW / oldW / nNew / nOld / pubLabel for widget w240. Functions: facSumRender, facSetupApply, facSetupToggle, stwUsage, facAlertInit.
+
 ## v1777 · 06-Oct-2026 IST
 User: "every night at 9 pm it releases to all staff and students by itself; an option in the admin settings to stop for today, else it keeps rolling; the app must work without Claude" and "one jump per release". Global Switches → ⬆ Widget updates: Stop tonight / Stop until resume / Resume / Release now, written to DB2 davan_pub/release_ctl (1 read on open, 1 write per tap), read by the nightly GitHub job (release-widgets.yml now runs every half hour; release-state.json records the last release). Display numbers: dvVer shows w226 / w226.1 from the public jsons' display + names. A #go=<panel> link opens that page after login (the staff widget's page 5 card opens Faculty Subscription Status). Pairs with staff widget w238, student widget w181, portal v11.34. Functions: gswRelShow, gswRel, dvVer, dvVerLoad, dvGoNow, facPhonesHtml, facSubsCopyText.
 
