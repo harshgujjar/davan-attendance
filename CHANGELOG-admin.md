@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1779 · 06-Oct-2026 IST
+User: "the portal says Up to date (w182) = 0 - nobody on 182?". w182 is a test build (public is w177 until tonight), but DB2 davan_pub/student_widget_latest said 182, and the admin apps only ever raised it. stuWidgetLatestRaise now sets it to the public student-widget-version.json version (raise or lower; 1 small file + 1 read per admin login, a write only when different) and keeps prevApk / prevBy / prevAt. release-widgets.yml: GitHub started no timed run today, so the nightly release now counts from 9 pm until 6 am IST, once a night. Pairs with portal v11.35. Functions: stuWidgetLatestRaise.
+
 ## v1778 · 06-Oct-2026 IST
 User: "show the widget's page 5 summary in the app in detail with names and photos; Global settings, Cloudflare Worker and background scheduler show / hide, hidden by default; page 5 names of the new-widget and battery-limited staff". Faculty Class Alerts: 📱 Staff widgets summary on top (tiles new / old widget, live, earlier today, not today, battery, setup; chips with photo, title, phone, version, last seen; 📋 Copy; tap a tile for one group), setup cards under ⚙ Setup (▼ Show, remembered per phone). No new reads: the shared staff_widget_report copy + users cache. The published usage gets staff.newW / oldW / nNew / nOld / pubLabel for widget w240. Functions: facSumRender, facSetupApply, facSetupToggle, stwUsage, facAlertInit.
 
