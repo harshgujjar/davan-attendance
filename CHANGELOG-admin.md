@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1771 · 06-Oct-2026 IST
+User: "get a person's widget log from the portal; say clearly when their widget is too old". Faculty Subscription Status: 🧾 Log next to every staff widget phone (facPhonesHtml). It opens that phone's one-day log (notifications, voice spoken or why not, refresh errors, updates) with 📋 Copy and 📥 Get a fresh log, which sets logReq on DB2 davan_pub/student_widget_active/{S-code}; the widget (w233+, held on the next channel) uploads once to davan_pub/widget_logs/{S-code} at its next refresh. A phone below w233 is told at once that it is too old. Cost: 2 small reads per open, 1 write per ask. Pairs with portal v11.32, widgets w180 / w233. Functions: facLogOpen (new), facPhonesHtml.
+
 ## v1770 · 06-Oct-2026 IST
 User: "after the update the faculty widget shows initials, not the photo" (Vijayalakshmi P S) and "show the faculty name below each green hours chip, in view and edit". A staff widget link saved with an empty photo (photos not loaded yet at link time) is filled by the admin's app from the faculty photo list (DB2 davan_pub/student_widget_active/{S-code}.photo, 1 small write per link, once); new links look the photo up alias-aware. Hours-check chips (Edit Timetable, Time grids and the read-only viewer) show the subject's teacher(s) under the count; no new reads. Functions: hswPayload, stwPublishViewAs, _ttComputeHours, _ttChipFac (new), _ttHoursSummaryHtml, _ttViewerHoursChipsHtml.
 
