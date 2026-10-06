@@ -3,8 +3,15 @@
 <head>
 <!--
   GROCERY TRACKER — grocery.html
-  v3.22 — 2026-10-06
+  v3.23 — 2026-10-06
   CHANGELOG:
+  v3.23 — New "🌐 Kannada" button translates the WhatsApp message inside the
+          app in one tap (Google Translate, free, no login). ChatGPT is now
+          asked to reply in one code block (one-tap Copy there). "📥 Paste"
+          now opens a paste box when the phone blocks reading the clipboard:
+          tap Paste (or the keyboard's clipboard chip) and it fills the
+          message. No database reads or writes. Functions: translateKn,
+          askChatGptKn, pasteGptReply, openPasteSheet, cleanGptText.
   v3.22 — Both WhatsApp boxes get "🤖 Kannada (ChatGPT)": copies the message
           with a "translate to simple Kannada" request and opens ChatGPT with
           it; copy ChatGPT's answer, come back, tap "📥 Paste reply" and it
@@ -609,8 +616,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       </div>
       <textarea id="wa-preview" oninput="_waEdited=true;document.getElementById('wa-reset-btn').style.display='';document.getElementById('wa-edit-hint').textContent='✏️ Edited — your text will be sent'" style="width:100%;box-sizing:border-box;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;line-height:1.45;color:var(--text);margin-bottom:10px;min-height:220px;resize:vertical;font-family:inherit"></textarea>
       <div style="display:flex;gap:8px;margin-bottom:8px">
-        <button class="btn btn-outline" style="flex:1" onclick="askChatGptKn('wa-preview')">🤖 Kannada (ChatGPT)</button>
-        <button class="btn btn-outline" style="flex:1" onclick="pasteGptReply('wa-preview')">📥 Paste reply</button>
+        <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="translateKn('wa-preview',this)">🌐 Kannada</button>
+        <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="askChatGptKn('wa-preview')">🤖 ChatGPT</button>
+        <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="pasteGptReply('wa-preview')">📥 Paste</button>
       </div>
       <button class="btn btn-green btn-full" onclick="sendWhatsApp()">📲 Send Order</button>
     </div>
@@ -853,7 +861,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.22';   // 3.16 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
+const APP_VERSION = '3.23';   // 3.16 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -2083,8 +2091,9 @@ async function renderOrderDetailView(orderId, order, editMode) {
       <button class="btn btn-green" style="flex:1" onclick="sendOrderWa()">📲 Send</button>
     </div>
     <div style="display:flex;gap:8px;margin-top:6px">
-      <button class="btn btn-outline" style="flex:1" onclick="askChatGptKn('order-wa-msg')">🤖 Kannada (ChatGPT)</button>
-      <button class="btn btn-outline" style="flex:1" onclick="pasteGptReply('order-wa-msg')">📥 Paste reply</button>
+      <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="translateKn('order-wa-msg',this)">🌐 Kannada</button>
+        <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="askChatGptKn('order-wa-msg')">🤖 ChatGPT</button>
+      <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="pasteGptReply('order-wa-msg')">📥 Paste</button>
     </div>`;
   }
 
@@ -2133,34 +2142,98 @@ function sendOrderWa() {
   window.open(`${base}?text=${encodeURIComponent(text)}`, '_blank');
 }
 
-// ─── ChatGPT translation (shop staff read Kannada) ─────────────────────────
-// Opens ChatGPT with the message + a translate request (also copied, in case
-// the app opens without it). The answer is pasted back with 📥 Paste reply.
+// ─── Kannada translation (shop staff read Kannada) ─────────────────────────
+// 🌐 Kannada: Google Translate's free endpoint, in the app, one tap.
+// 🤖 ChatGPT: opens ChatGPT with the message + a translate request (also
+// copied); its answer comes back with 📥 Paste.
+let _knOriginal = {};
+async function translateKn(taId, btn) {
+  const ta = document.getElementById(taId);
+  const text = (ta?.value || '').trim();
+  if (!text) { showToast('Message is empty','warn'); return; }
+  if (/[ಀ-೿]/.test(text) && !/[A-Za-z]{4}/.test(text.replace(/\+?\d[\d\s]*/g,''))) { showToast('Already in Kannada','warn'); return; }
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ ...'; }
+  try {
+    // send in chunks of whole lines so long orders stay under the URL limit
+    const lines = text.split('\n'), chunks = [];
+    let cur = '';
+    lines.forEach(l=>{ if (cur && (cur.length + l.length) > 1500) { chunks.push(cur); cur = ''; } cur += (cur ? '\n' : '') + l; });
+    if (cur) chunks.push(cur);
+    const out = [];
+    for (const c of chunks) {
+      const r = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=kn&dt=t&q=' + encodeURIComponent(c));
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      out.push((j[0] || []).map(x=>x[0] || '').join(''));
+    }
+    _knOriginal[taId] = ta.value;
+    ta.value = out.join('\n');
+    ta.dispatchEvent(new Event('input'));
+    showToast('Translated to Kannada ✓ - check it, then Send','success');
+  } catch(e) {
+    console.error('translateKn failed:', e);
+    showToast('Translate failed (no internet?) - try 🤖 ChatGPT','error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
 function askChatGptKn(taId) {
   const text = (document.getElementById(taId)?.value || '').trim();
   if (!text) { showToast('Message is empty','warn'); return; }
   const prompt = 'Translate this grocery order WhatsApp message into simple spoken Kannada (Kannada script) '
     + 'for a shopkeeper in Davangere. Keep the numbering, quantities, units, phone numbers and line breaks. '
-    + 'Keep brand names as they are. Reply with ONLY the translated message, nothing else.\n\n' + text;
+    + 'Keep brand names as they are. Put the whole translated message inside ONE code block so I can copy it '
+    + 'with one tap. Reply with ONLY that code block, nothing else.\n\n' + text;
   const open = ()=>window.open('https://chatgpt.com/?q=' + encodeURIComponent(prompt), '_blank');
-  const hint = ()=>showToast('In ChatGPT: copy the answer, come back, tap 📥 Paste reply', 'success');
+  const hint = ()=>showToast('In ChatGPT tap "Copy" on the answer, come back, tap 📥 Paste', 'success');
   if (navigator.clipboard?.writeText) navigator.clipboard.writeText(prompt).catch(()=>{}).finally(()=>{ open(); hint(); });
   else { open(); hint(); }
 }
-async function pasteGptReply(taId) {
+function cleanGptText(t) {
+  return (t || '').replace(/^\s*```[a-z]*\s*\n?/i, '').replace(/\n?\s*```\s*$/, '').trim();
+}
+function applyGptText(taId, t) {
   const ta = document.getElementById(taId);
-  if (!ta) return;
-  let t = '';
-  try { t = (await navigator.clipboard.readText()) || ''; } catch(e) {}
-  t = t.trim();
-  if (!t || /^Translate this grocery order/.test(t)) {
-    ta.focus();
-    showToast('Copy ChatGPT\'s answer first (or long-press the box and Paste)','warn');
-    return;
-  }
+  t = cleanGptText(t);
+  if (!ta || !t) return false;
+  if (/^Translate this grocery order/.test(t)) { showToast('That is the question - copy ChatGPT\'s ANSWER','warn'); return false; }
+  _knOriginal[taId] = ta.value;
   ta.value = t;
   ta.dispatchEvent(new Event('input'));
   showToast('Kannada message pasted ✓ - check and Send','success');
+  return true;
+}
+async function pasteGptReply(taId) {
+  // Many phones (and installed apps) block reading the clipboard: then a
+  // paste box opens and the person pastes with a long-press.
+  let t = '';
+  try { t = await navigator.clipboard.readText(); } catch(e) {}
+  if (t && t.trim() && applyGptText(taId, t)) return;
+  openPasteSheet(taId);
+}
+function openPasteSheet(taId) {
+  document.getElementById('gpt-paste-sheet')?.remove();
+  const d = document.createElement('div');
+  d.id = 'gpt-paste-sheet';
+  d.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center';
+  d.innerHTML = `<div style="background:var(--card);border-top:1px solid var(--border);border-radius:14px 14px 0 0;padding:14px 16px 18px;width:100%;max-width:520px;box-sizing:border-box">
+    <div style="font-weight:700;margin-bottom:4px">📥 Paste ChatGPT's answer</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Long-press inside the box below → <b>Paste</b> (or tap the copied text shown on your keyboard).</div>
+    <textarea id="gpt-paste-box" placeholder="Long-press here → Paste" style="width:100%;box-sizing:border-box;min-height:140px;background:var(--card2);border:2px dashed var(--accent,#2bb98a);border-radius:8px;padding:10px;font-size:13px;color:var(--text);font-family:inherit"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn btn-outline" style="flex:1" id="gpt-paste-cancel">Cancel</button>
+      <button class="btn btn-green" style="flex:1" id="gpt-paste-use">✓ Use this</button>
+    </div></div>`;
+  document.body.appendChild(d);
+  const box = d.querySelector('#gpt-paste-box');
+  const close = ()=>d.remove();
+  const use = ()=>{ if (applyGptText(taId, box.value)) close(); else if (!box.value.trim()) showToast('Paste the answer first','warn'); };
+  d.querySelector('#gpt-paste-cancel').onclick = close;
+  d.querySelector('#gpt-paste-use').onclick = use;
+  d.onclick = e=>{ if (e.target === d) close(); };
+  box.addEventListener('paste', ()=>setTimeout(use, 50));
+  setTimeout(()=>box.focus(), 50);
 }
 
 // Undo for an accidental "Ordered" / "Mark Delivered": puts the order back to
