@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1770 · 06-Oct-2026 IST
+User: "after the update the faculty widget shows initials, not the photo" (Vijayalakshmi P S) and "show the faculty name below each green hours chip, in view and edit". A staff widget link saved with an empty photo (photos not loaded yet at link time) is filled by the admin's app from the faculty photo list (DB2 davan_pub/student_widget_active/{S-code}.photo, 1 small write per link, once); new links look the photo up alias-aware. Hours-check chips (Edit Timetable, Time grids and the read-only viewer) show the subject's teacher(s) under the count; no new reads. Functions: hswPayload, stwPublishViewAs, _ttComputeHours, _ttChipFac (new), _ttHoursSummaryHtml, _ttViewerHoursChipsHtml.
+
 ## v1769 · 06-Oct-2026 IST
 User: "many have the PWA but no widget - show a big toast to download it; if downloaded but not installed say so; iPhone / slow / old Android are exceptions; a copy button for the table; a download option in the side panel after login". After login, a staff member on Android (7+, more than 1 GB) whose login has no Davan Staff widget reporting in the last 7 days sees one card a day: Download, or "downloaded on <date> but not installed - open Downloads → Install". Download taps are kept in DB2 davan_pub/staff_widget_dl/{login} = {n, at, first, name} (1 read + 1 write per tap); the Faculty Subscription Status table shows "⬇ downloaded, not installed" and has 📋 Copy table. Side panel: 📲 Download Davan Staff widget (not on iPhone). Reads: the nudge uses the shared 10-min widget lists; the table reads staff_widget_dl once per refresh. Functions: stfPhoneKind, stfDlKey, stfDlTap, stfWidgetNudge, facDlHtml, facSubsCopyText (new), onLoginSuccess, facAlertRefreshSubs, facAlertRenderSubs, facOtherStaffRows.
 
