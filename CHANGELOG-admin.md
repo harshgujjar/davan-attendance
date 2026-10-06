@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1766 · 06-Oct-2026 IST
+User: the Faculty Subscription Status page said LATEST_APK w220 and Admin w198 although the phone runs w225, and the principal, the new admin (Veeresh), hostel head, warden and manager were missing. The latest staff widget is now read from the public davan-widget-version.json (facLatestStaffApkV / facLiveStaffApkLoad; the daily release raises it without a staff app change); a login with several staff widgets shows the phone seen in the last day with the highest version (an old phone of the same login won before); every non-faculty login from the users list gets a row (facOtherStaffRows). LATEST_APK = w225, LATEST_STUDENT_WIDGET_APK_V = w177 (the public versions). Release window: release-widgets.yml now runs 9:00 - 10:00 pm IST only. Cost: one small file fetch per page open (10 min cache); the users list comes from the shared 5-min cache. Pairs with portal v11.31. Functions: facLatestStaffApkV, facLiveStaffApkLoad, facOtherStaffRows (new), facAlertInit, facAlertRefreshSubs, facAlertRenderSubs, facAlertBuildAdminRow, facAlertWASummary.
+
 ## v1765 · 05-Oct-2026 IST
 User: "old widget = the app before the new one, not 176 - open it immediately, don't block". STU_WIDGET_BLOCK_V back to 108 and stuWidgetLatestRaise now sets davan_pub/student_widget_latest.minApkVersion to exactly that (it lowers the 176 written by v1764), so w108-w175 widgets work again at their next refresh. Pairs with portal v11.29. Functions: stuWidgetLatestRaise.
 
