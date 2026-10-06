@@ -60,6 +60,7 @@ widget codes that always get it at once, e.g. the Super Admin's S-7UP47U). From 
 copies a newer "next" build to the public APK and json (`Davan.Student.apk` / `-test.apk` / `DavanWidget.apk`, version files) - one update a day
 for everyone else, silent where Android allows. Do NOT edit the public version files or APKs, and keep `LATEST_APK` / `LATEST_STUDENT_WIDGET_APK_V`
 (and the portal's `LATEST_STUDENT_WIDGET_APK`) at the PUBLIC version, or the staff app pushes the build to everyone early.
+A next json with `"hold": true` is never made public (user, 06-Oct: build for testing, no public release) - remove it when the user says release.
 Urgent fix for everyone: run the workflow by hand (Actions -> Release widgets -> Run workflow). The widget rules above about copying to
 `Davan.Student.apk` / bumping the public jsons are replaced by this.
 

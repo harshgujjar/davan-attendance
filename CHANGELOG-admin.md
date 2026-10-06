@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1768 · 06-Oct-2026 IST
+User: "w198 on which mobile? make this table proper". Faculty Subscription Status: the Widget column lists every staff widget phone of the person (model, version with ✓ latest / ⬆ update, last seen; phones not seen for 30 days left out), so an old phone of the same login is named; the table scrolls sideways on a phone with the header kept on top, cells top-aligned, the admin's push devices folded. No new reads (staff_widget_report was already read). Widgets w178 / w226 on the next channel with "hold": 3 ⟳ taps within 10 min take the newest build at once; the release job skips a held next json. Functions: facPhonesHtml (new), facAlertRefreshSubs, facAlertRenderSubs, facAlertBuildAdminRow, facOtherStaffRows.
+
 ## v1767 · 06-Oct-2026 IST
 User: "add photo of the staff here also". Faculty Subscription Status shows each person's photo (initials until it loads, tap to zoom) on the faculty rows and the principal / admins / hostel / office rows; a login whose photo is only in its profile uses that. No new reads (faculty photos are already loaded; the users list is cached). Functions: facAlertRenderSubs, facOtherStaffRows, facAlertRefreshSubs.
 
