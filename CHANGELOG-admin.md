@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1774 · 06-Oct-2026 IST
+User: "no release - but a new download must be the latest". STAFF_APK_DL and the login-screen / side-panel links point to DavanWidget-next.apk (the newest build, also while held); stfApkName names the file with the newest number from davan-widget-next.json (1 small file read per open). Installed widgets still update only from the public release (davan-widget-version.json, LATEST_APK unchanged); a newer install never goes back. Pairs with portal v11.33. Functions: STAFF_APK_DL, stfApkName, the download links.
+
 ## v1773 · 06-Oct-2026 IST
 User: "boys and girls have 9 rooms each - show which are occupied; empty rooms are cleaned only every few days; how is it 12?" (12 = occupied rooms of both hostels together). Cleaning → Rooms: occupied / empty counts, done counts for occupied rooms, and "empty rooms cleaned every N days" (admin / manager / warden setup; DB4 hostel/config/cleaning/emptyEvery, default 3); marking also writes DB4 hostel/cleaning_last/{hid}~{room} (1 small extra write). Pairs with cleaning.html v1.7 and staff widget w236 (held). Functions: hcRenderCleaning, hcClMark.
 
