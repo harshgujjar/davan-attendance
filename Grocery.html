@@ -3,8 +3,14 @@
 <head>
 <!--
   GROCERY TRACKER — grocery.html
-  v3.23 — 2026-10-06
+  v3.24 — 2026-10-06
   CHANGELOG:
+  v3.24 — WhatsApp boxes get "🔤 English / 🌐 ಕನ್ನಡ / 📄 Both" switches: go
+          back to English, send Kannada + English together, or back to
+          Kannada again without translating twice (both versions are kept in
+          memory per box; a ChatGPT paste counts as the Kannada one). No
+          database reads or writes. Functions: waShowLang, translateKn,
+          applyGptText.
   v3.23 — New "🌐 Kannada" button translates the WhatsApp message inside the
           app in one tap (Google Translate, free, no login). ChatGPT is now
           asked to reply in one code block (one-tap Copy there). "📥 Paste"
@@ -616,7 +622,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       </div>
       <textarea id="wa-preview" oninput="_waEdited=true;document.getElementById('wa-reset-btn').style.display='';document.getElementById('wa-edit-hint').textContent='✏️ Edited — your text will be sent'" style="width:100%;box-sizing:border-box;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;line-height:1.45;color:var(--text);margin-bottom:10px;min-height:220px;resize:vertical;font-family:inherit"></textarea>
       <div style="display:flex;gap:8px;margin-bottom:8px">
-        <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="translateKn('wa-preview',this)">🌐 Kannada</button>
+        <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="waShowLang('wa-preview','en',this)">🔤 English</button>
+        <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="waShowLang('wa-preview','kn',this)">🌐 ಕನ್ನಡ</button>
+        <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="waShowLang('wa-preview','both',this)">📄 Both</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
         <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="askChatGptKn('wa-preview')">🤖 ChatGPT</button>
         <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="pasteGptReply('wa-preview')">📥 Paste</button>
       </div>
@@ -861,7 +871,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 // service worker cache name, so they can never silently drift out of sync
 // with each other the way they did before (header stuck at v2.3 while the
 // cache had moved on to v3.2).
-const APP_VERSION = '3.23';   // 3.16 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
+const APP_VERSION = '3.24';   // 3.16 (30-Sep-2026): own PWA manifest file + page-only worker - installs separately from the other Davan apps
 document.getElementById('app-ver').textContent = `v${APP_VERSION} — Davangere`;
 
 const firebaseConfig = {
@@ -2091,8 +2101,12 @@ async function renderOrderDetailView(orderId, order, editMode) {
       <button class="btn btn-green" style="flex:1" onclick="sendOrderWa()">📲 Send</button>
     </div>
     <div style="display:flex;gap:8px;margin-top:6px">
-      <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="translateKn('order-wa-msg',this)">🌐 Kannada</button>
-        <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="askChatGptKn('order-wa-msg')">🤖 ChatGPT</button>
+      <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="waShowLang('order-wa-msg','en',this)">🔤 English</button>
+      <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="waShowLang('order-wa-msg','kn',this)">🌐 ಕನ್ನಡ</button>
+      <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="waShowLang('order-wa-msg','both',this)">📄 Both</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="askChatGptKn('order-wa-msg')">🤖 ChatGPT</button>
       <button class="btn btn-outline" style="flex:1;padding-left:4px;padding-right:4px" onclick="pasteGptReply('order-wa-msg')">📥 Paste</button>
     </div>`;
   }
@@ -2146,12 +2160,44 @@ function sendOrderWa() {
 // 🌐 Kannada: Google Translate's free endpoint, in the app, one tap.
 // 🤖 ChatGPT: opens ChatGPT with the message + a translate request (also
 // copied); its answer comes back with 📥 Paste.
-let _knOriginal = {};
-async function translateKn(taId, btn) {
+// Both versions of each box are kept (_waVer[taId] = {en, kn}) so English /
+// ಕನ್ನಡ / Both switch instantly. A typed edit makes the box's text the new
+// source: English text is translated again, Kannada text becomes the kn one.
+const _waVer = {};
+const hasKn = t=>/[ಀ-೿]/.test(t || '');
+const WA_BOTH_SEP = '\n\n──────── English ────────\n\n';
+function waSetBox(taId, text) {
   const ta = document.getElementById(taId);
-  const text = (ta?.value || '').trim();
-  if (!text) { showToast('Message is empty','warn'); return; }
-  if (/[ಀ-೿]/.test(text) && !/[A-Za-z]{4}/.test(text.replace(/\+?\d[\d\s]*/g,''))) { showToast('Already in Kannada','warn'); return; }
+  ta.value = text;
+  ta.dispatchEvent(new Event('input'));
+}
+// Reads what is in the box now and updates the stored versions from it.
+function waSyncFromBox(taId) {
+  const t = (document.getElementById(taId)?.value || '').trim();
+  const v = _waVer[taId] || (_waVer[taId] = { en:'', kn:'' });
+  if (!t || t === v.en || t === v.kn || t === (v.kn + WA_BOTH_SEP + v.en).trim()) return v;
+  if (t.includes(WA_BOTH_SEP.trim())) {           // edited "Both" text
+    const [k, e] = t.split(WA_BOTH_SEP.trim());
+    v.kn = k.trim(); v.en = (e || '').trim();
+  } else if (hasKn(t)) v.kn = t;
+  else { v.en = t; v.kn = ''; }                    // new English: old Kannada is stale
+  return v;
+}
+async function waShowLang(taId, mode, btn) {
+  const v = waSyncFromBox(taId);
+  if (mode === 'en') {
+    if (!v.en) { showToast('No English version for this message','warn'); return; }
+    waSetBox(taId, v.en); return;
+  }
+  if (!v.kn && !(await translateKn(taId, btn))) return;
+  waSetBox(taId, mode === 'kn' ? v.kn : (v.en ? v.kn + WA_BOTH_SEP + v.en : v.kn));
+  if (mode === 'both') showToast('Kannada + English ✓','success');
+}
+// Fills _waVer[taId].kn from .en via Google Translate; true when done.
+async function translateKn(taId, btn) {
+  const v = waSyncFromBox(taId);
+  const text = v.en;
+  if (!text) { showToast('Message is empty','warn'); return false; }
   const label = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '⏳ ...'; }
   try {
@@ -2167,19 +2213,19 @@ async function translateKn(taId, btn) {
       const j = await r.json();
       out.push((j[0] || []).map(x=>x[0] || '').join(''));
     }
-    _knOriginal[taId] = ta.value;
-    ta.value = out.join('\n');
-    ta.dispatchEvent(new Event('input'));
+    v.kn = out.join('\n').trim();
     showToast('Translated to Kannada ✓ - check it, then Send','success');
+    return true;
   } catch(e) {
     console.error('translateKn failed:', e);
     showToast('Translate failed (no internet?) - try 🤖 ChatGPT','error');
+    return false;
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = label; }
   }
 }
 function askChatGptKn(taId) {
-  const text = (document.getElementById(taId)?.value || '').trim();
+  const text = waSyncFromBox(taId).en || (document.getElementById(taId)?.value || '').trim();
   if (!text) { showToast('Message is empty','warn'); return; }
   const prompt = 'Translate this grocery order WhatsApp message into simple spoken Kannada (Kannada script) '
     + 'for a shopkeeper in Davangere. Keep the numbering, quantities, units, phone numbers and line breaks. '
@@ -2198,9 +2244,9 @@ function applyGptText(taId, t) {
   t = cleanGptText(t);
   if (!ta || !t) return false;
   if (/^Translate this grocery order/.test(t)) { showToast('That is the question - copy ChatGPT\'s ANSWER','warn'); return false; }
-  _knOriginal[taId] = ta.value;
-  ta.value = t;
-  ta.dispatchEvent(new Event('input'));
+  const v = waSyncFromBox(taId);
+  if (hasKn(t)) v.kn = t;
+  waSetBox(taId, t);
   showToast('Kannada message pasted ✓ - check and Send','success');
   return true;
 }
