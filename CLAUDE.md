@@ -56,7 +56,7 @@ app must never link them. The old Davan Hostel Staff app (com.davan.hostelstaff,
 A new widget build NEVER goes straight to everyone. Copy it to the "next" files: `Davan.Student-next.apk` + `student-widget-next.json`
 and `DavanWidget-next.apk` + `davan-widget-next.json` (apkVersion + apkUrl `raw.githubusercontent.com/.../<file>-next.apk?v=<n>`; `codes` =
 widget codes that always get it at once, e.g. the Super Admin's S-7UP47U). From w175 / w221 the Super Admin, the spoken-alerts test list
-(davan_pub/tts_cfg/test) and those codes update from "next" within minutes. Every day between 9 and 10 pm IST (user, 06-Oct; a scheduled run outside that hour releases nothing) `.github/workflows/release-widgets.yml`
+(davan_pub/tts_cfg/test) and those codes update from "next" within minutes. Every night from 9 pm IST (user, 06-Oct; GitHub starts timed runs late, so a run until 6 am still releases - once a night, release-state.json "night") `.github/workflows/release-widgets.yml`
 copies a newer "next" build to the public APK and json (`Davan.Student.apk` / `-test.apk` / `DavanWidget.apk`, version files) - one update a day
 for everyone else, silent where Android allows. Do NOT edit the public version files or APKs, and keep `LATEST_APK` / `LATEST_STUDENT_WIDGET_APK_V`
 (and the portal's `LATEST_STUDENT_WIDGET_APK`) at the PUBLIC version, or the staff app pushes the build to everyone early.
