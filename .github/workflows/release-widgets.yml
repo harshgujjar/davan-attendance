@@ -45,13 +45,37 @@ jobs:
         env:
           MODE: ${{ github.event.inputs.mode }}
           WHY: ${{ github.event.inputs.why }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 - <<'PY'
           import json, os, shutil, datetime, urllib.request, time
           OUT = os.environ['GITHUB_OUTPUT']
-          def done(changed, msg): open(OUT, 'a').write('changed=%s\nmsg=%s\n' % (changed, msg)); raise SystemExit(0)
           ist = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30); today = ist.strftime('%Y-%m-%d')
           ev = os.environ.get('GITHUB_EVENT_NAME')
+          # 07-Oct-2026 (user: "at 9:15 when it triggers show me the time and date ... keep one week, delete Sunday 11:49 pm and start
+          # fresh"): release-log.json = every start by the Cloudflare worker or by hand, and every release, with its result. The staff
+          # app (Faculty Class Alerts -> Nightly release log) shows it. Entries before the last Sunday 11:49 pm IST are dropped.
+          LOG = 'release-log.json'; W = os.environ.get('WHY') or ''
+          if ev == 'workflow_dispatch' and os.environ.get('MODE') == 'auto':
+              src = 'Cloudflare 9:15 pm' if '45 15' in W else 'Cloudflare 9:45 pm backup' if '15 16' in W else 'Release now button (Cloudflare)' if 'Release now' in W else (W or 'Cloudflare')
+          elif ev == 'workflow_dispatch': src = 'hand run (GitHub)'
+          else: src = 'GitHub timer'
+          def ms(t): return int((t - datetime.datetime(1970, 1, 1) - datetime.timedelta(hours=5, minutes=30)).total_seconds() * 1000)
+          wk = ist - datetime.timedelta(days=(ist.weekday() + 1) % 7); wk = wk.replace(hour=23, minute=49, second=0, microsecond=0)
+          if wk > ist: wk -= datetime.timedelta(days=7)
+          log = json.load(open(LOG)) if os.path.exists(LOG) else {}
+          runs = [r for r in (log.get('runs') or []) if int(r.get('ms') or 0) >= ms(wk)]
+          pruned = len(runs) != len(log.get('runs') or []) or log.get('week') != wk.strftime('%d-%b-%Y %H:%M IST')
+          def done(changed, msg, res=None, rel=None, keep=False):
+              global runs
+              if res is not None and (src != 'GitHub timer' or rel or keep):
+                  e = {'ms': ms(ist), 'at': ist.strftime('%a %d-%b-%Y %I:%M %p IST'), 'by': src, 'res': res, 'run': os.environ.get('RUN_URL', '')}
+                  if rel: e.update(rel)
+                  runs = runs + [e]; changed = '1'; msg = msg or ('log - ' + src + ': ' + res)
+              if changed or pruned:
+                  open(LOG, 'w').write(json.dumps({'week': wk.strftime('%d-%b-%Y %H:%M IST'), 'runs': runs}, indent=1, ensure_ascii=False) + '\n')
+                  changed = '1'; msg = msg or 'log - week from ' + wk.strftime('%d-%b %H:%M')
+              open(OUT, 'a').write('changed=%s\nmsg=%s\n' % (changed, msg)); raise SystemExit(0)
           # 06-Oct-2026 (user): the Cloudflare worker "davan-release" starts this job at 9:15 pm IST in "auto" mode (GitHub's own timer
           # started it hours late or not at all) - auto = exactly like a timed run: stop switch, once a night, Release now
           if ev == 'workflow_dispatch' and os.environ.get('MODE') == 'auto': ev = 'schedule'; print('started by', os.environ.get('WHY') or 'auto')
@@ -77,15 +101,15 @@ jobs:
               # 06-Oct-2026: GitHub started the timed runs hours late (or not at all), so the nightly release counts from 9 pm until
               # 6 am - ONCE per night (release-state.json "night" = the evening's date); the stop switch is for that evening
               night = today if ist.hour >= 21 else (ist - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-              if state.get('night') == night: print('already released tonight (' + night + ')'); done('', '')
-              if ctl is None: print('could not read the stop switch - not releasing in this run (the next run tries again)'); done('', '')
-              if ctl.get('stopAll'): print('stopped until resume (staff app switch)'); done('', '')
-              if ctl.get('stopDate') == night: print('stopped for tonight (staff app switch)'); done('', '')
+              if state.get('night') == night: print('already released tonight (' + night + ')'); done('', '', 'already released tonight - nothing to do')
+              if ctl is None: print('could not read the stop switch - not releasing in this run (the next run tries again)'); done('', '', '⚠ could not read the stop switch - not released, the next run tries again')
+              if ctl.get('stopAll'): print('stopped until resume (staff app switch)'); done('', '', '⛔ stopped until resume (your switch)')
+              if ctl.get('stopDate') == night: print('stopped for tonight (staff app switch)'); done('', '', '⏸ stopped for tonight (your switch)')
               why = 'nightly 9 pm'; state['night'] = night
           else:
-              print('nothing to do at ' + ist.strftime('%H:%M') + ' IST'); done('', '')
+              print('nothing to do at ' + ist.strftime('%H:%M') + ' IST'); done('', '', 'nothing to do at this hour (no Release now pressed)')
           RAW = 'https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/'
-          out = []
+          out = []; rel = {}
           def save(f, p): open(f, 'w').write(json.dumps(p, indent=2, ensure_ascii=False) + '\n')
           def bump(f, apk, v, release=False):
               p = json.load(open(f)); old = int(p.get('apkVersion') or 0)
@@ -100,7 +124,7 @@ jobs:
               if not (os.path.exists(nxt) and os.path.exists(apk_next)): continue
               n = json.load(open(nxt)).get('apkVersion', 0); p = json.load(open(pub)).get('apkVersion', 0)
               if n <= p: continue
-              shutil.copyfile(apk_next, apk_pub); d = bump(pub, apk_pub, n, True); out.append('%s w%d as %s' % (apk_pub, n, d))
+              shutil.copyfile(apk_next, apk_pub); d = bump(pub, apk_pub, n, True); out.append('%s w%d as %s' % (apk_pub, n, d)); rel['staff' if test is None else 'stu'] = [n, d]
               if test:
                   t = json.load(open(test[0])).get('apkVersion', 0)
                   if n > t: shutil.copyfile(apk_next, test[1]); bump(test[0], test[1], n)
@@ -108,7 +132,7 @@ jobs:
           if now_new: state['nowDone'] = now_req
           if out: state['last'] = {'at': ist.strftime('%d-%b-%Y %H:%M IST'), 'why': why, 'what': out}
           save(ST, state)
-          done('1' if (out or now_new or why == 'nightly 9 pm') else '', (why + ': ' + ', '.join(out or ['nothing new'])))
+          done('1' if (out or now_new or why == 'nightly 9 pm') else '', (why + ': ' + ', '.join(out or ['nothing new'])), ('✅ released: ' + ', '.join(out)) if out else (why + ': nothing new to release'), rel or None, why != 'hand run')
           PY
       - name: Commit and push
         if: steps.rel.outputs.changed == '1'

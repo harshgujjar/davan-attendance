@@ -46,3 +46,11 @@ Staff app → Global Switches → ⬆ Widget updates: the line under the buttons
 - Otherwise it makes the newest test build public (one whole number up, e.g. w226 → w227) and writes `release-state.json`.
   A second start the same night (9:45 pm backup, GitHub's late timer) does nothing.
 - 🚀 Release now in the staff app saves the request and calls the worker; the job releases only when that button was pressed.
+
+## Weekly log and "connected" check (07-Oct-2026)
+
+- Staff app → **Faculty Class Alerts** → **☁ Nightly release**: shows ✅ *Cloudflare worker connected*, when the 9:15 pm timer started
+  the job each night (on time / minutes late), the result, and who got each release. The job writes `release-log.json` on every start
+  by the worker or by hand and on every release; entries before the last **Sunday 11:49 pm IST** are dropped (one week, then fresh).
+- To also test the GitHub key from the card, paste the current worker code once more (📋 Copy worker code → Edit code → Deploy).
+  Opening `https://davan-release.harshgujjar.workers.dev/` then shows `"gh":true,"ghMsg":"GitHub key works"`.

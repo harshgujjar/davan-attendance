@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1782 · 07-Oct-2026 IST
+User: "Faculty Class Alerts - show whether my new Cloudflare worker is connected; at 9:15 every night show the time and date it triggered and who all got it on time; keep one week, delete Sunday 11:49 pm and start fresh". New ☁ Nightly release card under the staff widgets summary: worker health (worker v2's GET / also tests the GitHub key), tonight's start (on time / minutes late / ⚠ none logged), and this week's runs from release-log.json, which release-widgets.yml now writes on every worker or hand start and every release, dropping entries before the last Sunday 11:49 pm IST. Per release: staff who have it (name, first time seen, ✅ within 2 h) and who not yet; students as a count. Data: DB2 davan_pub/release_got/<build>/<code> (1 small read per open, 1 write per newly seen person, old weeks deleted); staff/student widget reports from the shared copy (no new read); 1 worker request. Functions: facRelRender, facStaffPeople (from facSumRender), _relWeekStart, gswRelWorker, facAlertInit.
+
 ## v1781 · 06-Oct-2026 IST
 User: "set up the Cloudflare worker for the 9:15 pm release" - GitHub's timer started no release on 6-Oct (it was started by hand at 9:47 pm). New worker davan-release (tools/cloudflare-release-worker.js, steps in RELEASE-WORKER.md) starts release-widgets.yml in "auto" mode at 9:15 pm IST (+ 9:45 backup); auto obeys the stop switch and once-a-night. Release now also calls the worker. The Widget updates card shows whether the timer is on, with setup steps and 📋 Copy worker code (1 tiny worker request when the card opens). Functions: gswRelWorker, gswRelCopyWorker, gswRel, gswRelShow.
 
