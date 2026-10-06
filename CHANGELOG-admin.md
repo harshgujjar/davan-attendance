@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1769 · 06-Oct-2026 IST
+User: "many have the PWA but no widget - show a big toast to download it; if downloaded but not installed say so; iPhone / slow / old Android are exceptions; a copy button for the table; a download option in the side panel after login". After login, a staff member on Android (7+, more than 1 GB) whose login has no Davan Staff widget reporting in the last 7 days sees one card a day: Download, or "downloaded on <date> but not installed - open Downloads → Install". Download taps are kept in DB2 davan_pub/staff_widget_dl/{login} = {n, at, first, name} (1 read + 1 write per tap); the Faculty Subscription Status table shows "⬇ downloaded, not installed" and has 📋 Copy table. Side panel: 📲 Download Davan Staff widget (not on iPhone). Reads: the nudge uses the shared 10-min widget lists; the table reads staff_widget_dl once per refresh. Functions: stfPhoneKind, stfDlKey, stfDlTap, stfWidgetNudge, facDlHtml, facSubsCopyText (new), onLoginSuccess, facAlertRefreshSubs, facAlertRenderSubs, facOtherStaffRows.
+
 ## v1768 · 06-Oct-2026 IST
 User: "w198 on which mobile? make this table proper". Faculty Subscription Status: the Widget column lists every staff widget phone of the person (model, version with ✓ latest / ⬆ update, last seen; phones not seen for 30 days left out), so an old phone of the same login is named; the table scrolls sideways on a phone with the header kept on top, cells top-aligned, the admin's push devices folded. No new reads (staff_widget_report was already read). Widgets w178 / w226 on the next channel with "hold": 3 ⟳ taps within 10 min take the newest build at once; the release job skips a held next json. Functions: facPhonesHtml (new), facAlertRefreshSubs, facAlertRenderSubs, facAlertBuildAdminRow, facOtherStaffRows.
 
