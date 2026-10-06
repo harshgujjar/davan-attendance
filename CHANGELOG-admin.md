@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1775 · 06-Oct-2026 IST
+User: "I add the DOB in the Staff Directory (Non teaching / Manager) and it is deleted on refresh". Edits were kept only until 💾 Save was pressed; now every change (DOB, contact, password, role, photo tick ...) saves itself 1.5 s later (sdAutoSave, one Firestore write per burst, the same app_data staff directory document the Save button writes). Functions: sdOnChange, sdOnPhotoPermChange, sdAutoSave (new).
+
 ## v1774 · 06-Oct-2026 IST
 User: "no release - but a new download must be the latest". STAFF_APK_DL and the login-screen / side-panel links point to DavanWidget-next.apk (the newest build, also while held); stfApkName names the file with the newest number from davan-widget-next.json (1 small file read per open). Installed widgets still update only from the public release (davan-widget-version.json, LATEST_APK unchanged); a newer install never goes back. Pairs with portal v11.33. Functions: STAFF_APK_DL, stfApkName, the download links.
 
