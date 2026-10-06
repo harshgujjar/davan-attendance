@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1776 · 06-Oct-2026 IST
+User: "Veeresh is the Secretary, not Director - show that in all places" and "with Veeresh open on page 2 show all his pages for testing". staffTitle (new): the login's Title (User Management) when set, else the role (admin = Admin; only the Super Admin is Director) - used for the staff widget link (hswPayload.class, so the widget header and page 2), the Faculty Subscription Status rows and the 📄 Pages window. staffTitleFixOnce sets Veeresh Patil's Title to Secretary once (one Firestore users write by an admin's app). Saving 📄 Pages republishes the page 2 list at once. Pairs with staff widget w237 (held): all role pages while testing someone. Functions: staffTitle, staffTitleFixOnce (new), hswPayload, facOtherStaffRows, facPagesOpen.
+
 ## v1775 · 06-Oct-2026 IST
 User: "I add the DOB in the Staff Directory (Non teaching / Manager) and it is deleted on refresh". Edits were kept only until 💾 Save was pressed; now every change (DOB, contact, password, role, photo tick ...) saves itself 1.5 s later (sdAutoSave, one Firestore write per burst, the same app_data staff directory document the Save button writes). Functions: sdOnChange, sdOnPhotoPermChange, sdAutoSave (new).
 
