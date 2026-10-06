@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1777 · 06-Oct-2026 IST
+User: "every night at 9 pm it releases to all staff and students by itself; an option in the admin settings to stop for today, else it keeps rolling; the app must work without Claude" and "one jump per release". Global Switches → ⬆ Widget updates: Stop tonight / Stop until resume / Resume / Release now, written to DB2 davan_pub/release_ctl (1 read on open, 1 write per tap), read by the nightly GitHub job (release-widgets.yml now runs every half hour; release-state.json records the last release). Display numbers: dvVer shows w226 / w226.1 from the public jsons' display + names. A #go=<panel> link opens that page after login (the staff widget's page 5 card opens Faculty Subscription Status). Pairs with staff widget w238, student widget w181, portal v11.34. Functions: gswRelShow, gswRel, dvVer, dvVerLoad, dvGoNow, facPhonesHtml, facSubsCopyText.
+
 ## v1776 · 06-Oct-2026 IST
 User: "Veeresh is the Secretary, not Director - show that in all places" and "with Veeresh open on page 2 show all his pages for testing". staffTitle (new): the login's Title (User Management) when set, else the role (admin = Admin; only the Super Admin is Director) - used for the staff widget link (hswPayload.class, so the widget header and page 2), the Faculty Subscription Status rows and the 📄 Pages window. staffTitleFixOnce sets Veeresh Patil's Title to Secretary once (one Firestore users write by an admin's app). Saving 📄 Pages republishes the page 2 list at once. Pairs with staff widget w237 (held): all role pages while testing someone. Functions: staffTitle, staffTitleFixOnce (new), hswPayload, facOtherStaffRows, facPagesOpen.
 

@@ -1,14 +1,20 @@
-# Daily widget release (user, 05-Oct-2026): new widget builds go first to the "next" files (the Super Admin's phone, the codes in
-# davan-widget-next.json and the spoken-alerts test list update from them at once); every evening at 9:30 pm IST this job makes the
-# newest "next" build the public one, so all other staff and students get ONE update a day. Run it by hand (Actions -> Run workflow)
-# for an urgent fix.
-name: Release widgets (9 - 10 pm IST)
+# Nightly widget release (user, 06-Oct-2026): new widget builds go first to the "next" files (the Super Admin, the codes in the next
+# jsons, the spoken-alerts test list and 3-tap phones update from them at once). EVERY night between 9 and 10 pm IST this job makes the
+# newest "next" build the public one by itself - nobody has to ask - so all other staff and students get ONE update a day.
+# The Super Admin controls it from the staff app (Global Switches -> Widget updates), stored in DB2 davan_pub/release_ctl:
+#   stopDate = 'YYYY-MM-DD' (IST)  -> no release that night ("Stop tonight")
+#   stopAll  = true                -> no release until Resume ("Stop until resume")
+#   nowReq   = ms time             -> release at the next run of this job, any hour ("Release now"; handled once, see release-state.json)
+# Display numbers: each release raises the public json's "display" by ONE (225 -> 226), whatever the build number was, and keeps
+# names[build] = display. Testers see display.N for the builds after it (226.1, 226.2 ...), everyone else whole numbers.
+# A hand run (Actions -> Release widgets -> Run workflow) releases at once, stop switch or not.
+name: Release widgets (nightly 9 pm IST)
 on:
   schedule:
-    - cron: '30 15 * * *'  # 15:30 UTC = 9:00 pm IST (user, 06-Oct: one window, 9 - 10 pm)
-    - cron: '45 15 * * *'  # backups - GitHub starts scheduled runs late or not at all; a run with nothing new does nothing
-    - cron: '5 16 * * *'
-    - cron: '20 16 * * *'
+    - cron: '7,37 * * * *'  # every half hour: "Release now" from the staff app; in the 9 pm IST hour (15:30 - 16:29 UTC) the nightly release
+    - cron: '30 15 * * *'   # 9:00 pm IST - GitHub starts scheduled runs late or not at all; a run with nothing new does nothing
+    - cron: '50 15 * * *'
+    - cron: '15 16 * * *'
   workflow_dispatch:
 permissions:
   contents: write
@@ -25,31 +31,61 @@ jobs:
         id: rel
         run: |
           python3 - <<'PY'
-          import json, os, shutil, datetime
-          # 06-Oct-2026: GitHub started a backup run 5 hours late (3:51 am IST) and released early - a SCHEDULED run releases
-          # only between 9:00 and 10:00 pm IST (user); a hand run (workflow_dispatch) any time
-          ist = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30)
-          if os.environ.get('GITHUB_EVENT_NAME') == 'schedule' and ist.hour != 21:
-              print('scheduled run outside 9 - 10 pm IST (' + ist.strftime('%H:%M') + '): nothing released')
-              open(os.environ['GITHUB_OUTPUT'], 'a').write('changed=\nmsg=\n'); raise SystemExit(0)
+          import json, os, shutil, datetime, urllib.request, time
+          OUT = os.environ['GITHUB_OUTPUT']
+          def done(changed, msg): open(OUT, 'a').write('changed=%s\nmsg=%s\n' % (changed, msg)); raise SystemExit(0)
+          ist = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30); today = ist.strftime('%Y-%m-%d')
+          ev = os.environ.get('GITHUB_EVENT_NAME')
+          ST = 'release-state.json'
+          state = json.load(open(ST)) if os.path.exists(ST) else {}
+          # the Super Admin's switch (DB2 davan_pub/release_ctl, anonymous sign-in like the apps)
+          ctl = None
+          for i in range(3):
+              try:
+                  KEY = 'AIzaSyBnWSfjilDwri7dBpONF2GwgXDJnc1W--w'
+                  URL = 'https://davan-student-portal-default-rtdb.asia-southeast1.firebasedatabase.app'
+                  req = urllib.request.Request('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + KEY, data=b'{"returnSecureToken":true}', headers={'Content-Type': 'application/json'})
+                  tok = json.load(urllib.request.urlopen(req, timeout=20))['idToken']
+                  ctl = json.load(urllib.request.urlopen(URL + '/davan_pub/release_ctl.json?auth=' + tok, timeout=20)) or {}
+                  break
+              except Exception as e:
+                  print('switch read failed:', e); time.sleep(5)
+          now_req = int((ctl or {}).get('nowReq') or 0); now_new = now_req > int(state.get('nowDone') or 0)
+          why = ''
+          if ev == 'workflow_dispatch': why = 'hand run'
+          elif now_new: why = 'Release now (staff app)'
+          elif ist.hour == 21:
+              if ctl is None: print('could not read the stop switch - not releasing in this run (the next run in this hour tries again)'); done('', '')
+              if ctl.get('stopAll'): print('stopped until resume (staff app switch)'); done('', '')
+              if ctl.get('stopDate') == today: print('stopped for tonight (staff app switch)'); done('', '')
+              why = 'nightly 9 pm'
+          else:
+              print('nothing to do at ' + ist.strftime('%H:%M') + ' IST'); done('', '')
           RAW = 'https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/'
           out = []
-          def bump(pub, apk, v):
-              p = json.load(open(pub)); p['apkVersion'] = v; p['apkUrl'] = RAW + apk + '?v=%d' % v
-              open(pub, 'w').write(json.dumps(p, indent=2, ensure_ascii=False) + '\n')
+          def save(f, p): open(f, 'w').write(json.dumps(p, indent=2, ensure_ascii=False) + '\n')
+          def bump(f, apk, v, release=False):
+              p = json.load(open(f)); old = int(p.get('apkVersion') or 0)
+              if release:
+                  d = int(p.get('display') or old); names = p.get('names') or {}
+                  names.setdefault(str(old), d); d += 1; names[str(v)] = d
+                  p['display'] = d; p['names'] = names; p['releasedAt'] = ist.strftime('%d-%b-%Y %H:%M IST')
+              p['apkVersion'] = v; p['apkUrl'] = RAW + apk + '?v=%d' % v; save(f, p); return p.get('display')
           for nxt, pub, apk_next, apk_pub, test in [
               ('student-widget-next.json', 'student-widget-version.json', 'Davan.Student-next.apk', 'Davan.Student.apk', ('student-widget-test.json', 'Davan.Student-test.apk')),
               ('davan-widget-next.json', 'davan-widget-version.json', 'DavanWidget-next.apk', 'DavanWidget.apk', None)]:
               if not (os.path.exists(nxt) and os.path.exists(apk_next)): continue
-              if json.load(open(nxt)).get('hold'): print(nxt, 'is on hold - not released'); continue   # 06-Oct (user): test builds stay off the public channel
               n = json.load(open(nxt)).get('apkVersion', 0); p = json.load(open(pub)).get('apkVersion', 0)
               if n <= p: continue
-              shutil.copyfile(apk_next, apk_pub); bump(pub, apk_pub, n); out.append('%s w%d' % (apk_pub, n))
+              shutil.copyfile(apk_next, apk_pub); d = bump(pub, apk_pub, n, True); out.append('%s w%d as %s' % (apk_pub, n, d))
               if test:
                   t = json.load(open(test[0])).get('apkVersion', 0)
                   if n > t: shutil.copyfile(apk_next, test[1]); bump(test[0], test[1], n)
-          print('released:', out or 'nothing new')
-          open(os.environ['GITHUB_OUTPUT'], 'a').write('changed=%s\nmsg=%s\n' % ('1' if out else '', ', '.join(out)))
+          print('released (' + why + '):', out or 'nothing new')
+          if now_new: state['nowDone'] = now_req
+          if out: state['last'] = {'at': ist.strftime('%d-%b-%Y %H:%M IST'), 'why': why, 'what': out}
+          save(ST, state)
+          done('1' if (out or now_new) else '', (why + ': ' + ', '.join(out or ['nothing new'])))
           PY
       - name: Commit and push
         if: steps.rel.outputs.changed == '1'
@@ -57,7 +93,7 @@ jobs:
           git config user.name "davan-release-bot"
           git config user.email "davan-release-bot@users.noreply.github.com"
           git add -A
-          git commit -m "Daily 9 pm widget release: ${{ steps.rel.outputs.msg }}"
+          git commit -m "Widget release - ${{ steps.rel.outputs.msg }}"
           git push origin HEAD:main
       - name: Rebuild GitHub Pages (the widgets read the version files there)
         if: steps.rel.outputs.changed == '1'

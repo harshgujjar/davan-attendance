@@ -61,8 +61,13 @@ copies a newer "next" build to the public APK and json (`Davan.Student.apk` / `-
 for everyone else, silent where Android allows. Do NOT edit the public version files or APKs, and keep `LATEST_APK` / `LATEST_STUDENT_WIDGET_APK_V`
 (and the portal's `LATEST_STUDENT_WIDGET_APK`) at the PUBLIC version, or the staff app pushes the build to everyone early.
 Download buttons (both apps, from v1774 / portal v11.33) give the "-next" APK, so a NEW install is always the newest build, held or not.
-A next json with `"hold": true` is never made public (user, 06-Oct: build for testing, no public release) - remove it when the user says release.
-Urgent fix for everyone: run the workflow by hand (Actions -> Release widgets -> Run workflow). The widget rules above about copying to
+AUTOMATIC every night (user, 06-Oct: "fully independent, without Claude"): the job releases by itself, nobody asks. Holds are gone - never add
+`"hold"`. The only stop is the Super Admin's switch in the staff app (Global Switches -> Widget updates: Stop tonight / Stop until resume /
+Resume / Release now = DB2 `davan_pub/release_ctl` {stopDate, stopAll, nowReq}); if the user tells Claude to stop, set that switch the same way
+(tell the user to press it - Claude cannot reach Firebase). The job runs every half hour for "Release now"; `release-state.json` remembers it.
+Display numbers: each release raises `display` in the public json by ONE and records `names[build]`; the apps and widgets (w238 / w181+) show
+w<display>, testers w<display>.<build - public build>. Never edit `display` / `names` by hand.
+Urgent fix for everyone: run the workflow by hand (Actions -> Release widgets -> Run workflow) or press Release now. The widget rules above about copying to
 `Davan.Student.apk` / bumping the public jsons are replaced by this.
 
 ## PWA rule (every installable page)
