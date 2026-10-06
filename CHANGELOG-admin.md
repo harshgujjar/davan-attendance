@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1781 · 06-Oct-2026 IST
+User: "set up the Cloudflare worker for the 9:15 pm release" - GitHub's timer started no release on 6-Oct (it was started by hand at 9:47 pm). New worker davan-release (tools/cloudflare-release-worker.js, steps in RELEASE-WORKER.md) starts release-widgets.yml in "auto" mode at 9:15 pm IST (+ 9:45 backup); auto obeys the stop switch and once-a-night. Release now also calls the worker. The Widget updates card shows whether the timer is on, with setup steps and 📋 Copy worker code (1 tiny worker request when the card opens). Functions: gswRelWorker, gswRelCopyWorker, gswRel, gswRelShow.
+
 ## v1780 · 06-Oct-2026 IST
 User: "Faculty Class Alerts - where is it in the side panel, search does not find it". The menu item (Admin section) is renamed "Faculty Class Alerts & Staff Widgets" and has data-keys (subscription, widgets, logs, push...); Find a page now matches every typed word anywhere in the name, its keys or its section, in any order. No data change. Functions: nsBuildIndex, nsRenderDropdown.
 

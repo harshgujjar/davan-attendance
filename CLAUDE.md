@@ -67,6 +67,7 @@ Resume / Release now = DB2 `davan_pub/release_ctl` {stopDate, stopAll, nowReq});
 (tell the user to press it - Claude cannot reach Firebase). The job runs every half hour for "Release now"; `release-state.json` remembers it.
 Display numbers: each release raises `display` in the public json by ONE and records `names[build]`; the apps and widgets (w238 / w181+) show
 w<display>, testers w<display>.<build - public build>. Never edit `display` / `names` by hand.
+The release is STARTED by the Cloudflare Worker davan-release at 9:15 pm IST (+ 9:45 backup) in "auto" mode - GitHub's own timer is unreliable (code `tools/cloudflare-release-worker.js`, setup `RELEASE-WORKER.md`, secret GH_TOKEN); Release now calls it too.
 Urgent fix for everyone: run the workflow by hand (Actions -> Release widgets -> Run workflow) or press Release now. The widget rules above about copying to
 `Davan.Student.apk` / bumping the public jsons are replaced by this.
 
