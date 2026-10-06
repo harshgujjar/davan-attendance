@@ -10,6 +10,11 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>Hostel Cleaning · Davan &amp; Nutana</title>
 <!--
+  cleaning.html  v1.7 (06-Oct-2026) - user: "boys and girls are 9 rooms each; show which rooms are occupied; empty rooms are cleaned only
+                 every few days". Occupied rooms (a bed with someone in it, hostel/rooms/{hid}/{room}/beds) are cleaned daily; an EMPTY room
+                 is due only every N days (hostel/config/cleaning/emptyEvery, default 3, set in the staff app) - otherwise its tile is grey
+                 "empty · next in X days" and it is left out of the count and of "All cleaned". Every mark also writes the date to
+                 hostel/cleaning_last/{hid}~{room} = {room, wash} (a second small write).
   cleaning.html  v1.6 (05-Oct-2026) - the cleaner's own photo (hostel/cleaning_staff/{id}/photo, set in the staff app v1756) next to their name.
   cleaning.html  v1.5 (05-Oct-2026) - one big "All cleaned" button per hostel (boys 👦 blue, girls 👧 pink - pictures + colours because
                  staff can't read): marks every room/washroom of that hostel in ONE write; then tap a missed room -> big red "Not done".
@@ -78,6 +83,8 @@
   .room{background:var(--card);border:2px solid var(--line);border-radius:20px;padding:14px;text-align:left;min-height:124px;display:flex;flex-direction:column;justify-content:space-between}
   .room .no{font-size:34px;font-weight:700;letter-spacing:.5px}
   .room.all{background:var(--done-bg);border-color:var(--done)}
+  .room.rest{opacity:.45;border-style:dashed}
+  .room .tag{display:block;font-size:12px;font-weight:700;color:var(--ink-2);margin-top:2px}
   .st{display:flex;flex-direction:column;gap:5px;font-size:14px}
   .st span{display:flex;align-items:center;gap:6px}
   .st .ok{color:var(--done);font-weight:700}
@@ -126,7 +133,7 @@
   <div class="dots" id="pin-dots"><i></i><i></i><i></i><i></i></div>
   <div class="pad" id="pad"></div>
   <p class="msg" id="login-msg"></p>
-  <p class="ver">Cleaning app v1.6</p>
+  <p class="ver">Cleaning app v1.7</p>
 </div>
 
 <div id="board" class="wrap" hidden>
@@ -142,7 +149,7 @@
   <div class="chips" id="hostel-chips"></div>
   <div class="chips" id="floor-chips"></div>
   <div class="grid" id="grid"></div>
-  <p class="ver">Cleaning app v1.6</p>
+  <p class="ver">Cleaning app v1.7</p>
 </div>
 
 <div id="sheet" role="dialog" aria-modal="true" aria-labelledby="sh-title" onclick="if(event.target===this)closeSheet()">
@@ -180,6 +187,7 @@ const TX = {
   floor: ['Floor ', 'ಮಹಡಿ '],
   noHostel: ['No hostel is assigned to you. Ask the warden.', 'ನಿಮಗೆ ಯಾವುದೇ ಹಾಸ್ಟೆಲ್ ನೀಡಿಲ್ಲ. ವಾರ್ಡನ್ ಅವರನ್ನು ಕೇಳಿ.'],
   noRooms: ['No rooms added yet.', 'ಇನ್ನೂ ಕೊಠಡಿಗಳನ್ನು ಸೇರಿಸಿಲ್ಲ.'],
+  emptyRest: ['empty · next in ', 'ಖಾಲಿ · ಮುಂದಿನದು '], days: [' d', ' ದಿನ'], emptyDue: ['empty · due today', 'ಖಾಲಿ · ಇಂದು'],
   room: ['Room', 'ಕೊಠಡಿ'],
   wash: ['Washroom', 'ಶೌಚಾಲಯ'],
   common: ['Common washroom', 'ಸಾಮಾನ್ಯ ಶೌಚಾಲಯ'],
@@ -297,8 +305,9 @@ async function load(quiet) {
   try {
     // v1.4: rooms + hostel names only once per open and every 30 min (they rarely change); today's cleaning every time
     const fresh = !S.roomsAt || Date.now() - S.roomsAt > 30 * 60000;
-    const [rooms, clean, cfg] = await Promise.all([fresh ? dbGet('hostel/rooms') : null, dbGet('hostel/cleaning/' + today()), fresh ? dbGet('hostel/config/hostels') : null]);
-    if (fresh) { S.rooms = rooms || {}; S.cfg = cfg || {}; S.roomsAt = Date.now(); }
+    const [rooms, clean, cfg, last, ccfg] = await Promise.all([fresh ? dbGet('hostel/rooms') : null, dbGet('hostel/cleaning/' + today()), fresh ? dbGet('hostel/config/hostels') : null,
+      fresh ? dbGet('hostel/cleaning_last') : null, fresh ? dbGet('hostel/config/cleaning') : null]);   // v1.7: empty rooms every N days
+    if (fresh) { S.rooms = rooms || {}; S.cfg = cfg || {}; S.last = last || {}; S.every = Math.max(1, +((ccfg || {}).emptyEvery) || 3); S.roomsAt = Date.now(); }
     S.clean = clean || {};
     const mine = myHostels();
     if (!S.hid || !mine.includes(S.hid)) S.hid = mine[0] || null;
@@ -310,8 +319,17 @@ function roomList(hid = S.hid) {
   return Object.entries(S.rooms[hid] || {}).filter(([id, r]) => r && typeof r === 'object').map(([id, r]) => Object.assign({ id }, r))
     .sort((a, b) => (+a.floor || 0) - (+b.floor || 0) || String(a.block || '').localeCompare(String(b.block || '')) || String(a.number).localeCompare(String(b.number), undefined, { numeric: true }));
 }
-// every tile of a hostel this staff member cleans (common washroom first, washroom staff only)
-function hostelTiles(hid) { const l = roomList(hid); if (canWash()) l.unshift({ id: '_common' }); return l; }
+// v1.7: occupied = a bed with someone in it; an empty room is due every S.every days (from its last cleaning date)
+const occupied = r => Object.values(r.beds || {}).some(o => o && typeof o === 'object');
+function daysSince(d) { if (!d) return 9999; return Math.round((new Date(today() + 'T00:00:00') - new Date(d + 'T00:00:00')) / 864e5); }
+function emptyLeft(r, hid = S.hid) {   // 0 = due today, n = days until due; -1 = occupied (always due)
+  if (r.id === '_common' || occupied(r)) return -1;
+  const l = (S.last || {})[hid + '~' + r.id] || {}, kinds = [canRoom() ? l.room : null, canWash() ? l.wash : null].filter(x => x !== null);
+  const since = Math.min(...(kinds.length ? kinds : [l.room]).map(daysSince)); return Math.max(0, (S.every || 3) - since);
+}
+const isRest = (r, hid = S.hid) => emptyLeft(r, hid) > 0 && !Object.keys(rec(r, hid)).length;
+// every tile of a hostel this staff member cleans today (common washroom first, washroom staff only); resting empty rooms left out
+function hostelTiles(hid) { const l = roomList(hid).filter(r => !isRest(r, hid)); if (canWash()) l.unshift({ id: '_common' }); return l; }
 const hname = h => (LANG === 'en' && S.cfg[h] && S.cfg[h].name) || T(h);
 const label = r => r.id === '_common' ? T('common') : (r.number != null && r.number !== '' ? (r.block ? r.block + '-' : '') + r.number : r.id);
 const rec = (r, hid = S.hid) => S.clean[hid + '~' + r.id] || {};
@@ -333,18 +351,21 @@ function render() {
   const list = all.filter(r => S.floor === 'all' || String(r.floor) === S.floor);
   // one common washroom per hostel, always first, only for washroom staff
   if (canWash() && S.floor === 'all') list.unshift({ id: '_common' });
-  const done = list.filter(r => isDone(r)).length;
-  document.getElementById('done-n').textContent = done + ' / ' + list.length;
+  const todo = list.filter(r => !isRest(r));   // v1.7: resting empty rooms do not count
+  const done = todo.filter(r => isDone(r)).length;
+  document.getElementById('done-n').textContent = done + ' / ' + todo.length;
   document.getElementById('done-of').textContent = (S.hid ? HFACE[S.hid] + ' ' : '') + T('roomsDone');
-  document.getElementById('bar').style.width = (list.length ? done * 100 / list.length : 0) + '%';
+  document.getElementById('bar').style.width = (todo.length ? done * 100 / todo.length : 0) + '%';
   const grid = document.getElementById('grid');
   if (!S.hid) { grid.innerHTML = '<div class="empty">' + esc(T('noHostel')) + '</div>'; return; }
   if (!list.length) { grid.innerHTML = '<div class="empty">' + esc(T('noRooms')) + '</div>'; return; }
   grid.innerHTML = list.map(r => {
     const c = rec(r);
     const line = (ok, at, txt, icon) => `<span class="${ok ? 'ok' : 'no-yet'}"><svg class="ico"><use href="#${ok ? 'i-check' : icon}"/></svg>${esc(txt)}${ok ? ' ' + esc(tfmt(at)) : ''}</span>`;
-    return `<button class="room ${isDone(r) ? 'all' : ''}" onclick="openRoom('${esc(r.id)}')" aria-label="${esc(label(r))}">
+    const left = emptyLeft(r), rest = isRest(r);
+    return `<button class="room ${isDone(r) ? 'all' : ''} ${rest ? 'rest' : ''}" onclick="openRoom('${esc(r.id)}')" aria-label="${esc(label(r))}">
       <span class="no" style="${r.id === '_common' ? 'font-size:22px;' : ''}">${r.id === '_common' ? '\u{1F6BF} ' : ''}${esc(label(r))}</span>
+      ${left >= 0 ? `<span class="tag">\u{1F6CF}\uFE0F ${esc(left > 0 ? T('emptyRest') + left + T('days') : T('emptyDue'))}</span>` : ''}
       <span class="st">${canRoom() && r.id !== '_common' ? line(c.room, c.room && c.room.at, T('room'), 'i-bed') : ''}${canWash() ? line(c.wash, c.wash && c.wash.at, r.id === '_common' ? T('cleaned') : T('wash'), 'i-drop') : ''}</span></button>`;
   }).join('');
 }
@@ -371,9 +392,12 @@ async function markAll(h) {
   });
   closeSheet();
   if (!Object.keys(upd).length) { toast(T('already')); return; }
+  const last = {}; Object.keys(upd).forEach(p => { last[p] = today(); });   // v1.7: + the last-cleaned date (its own small write, never blocks the mark)
   try {
     await dbPatch('hostel/cleaning/' + today(), upd);
-    Object.keys(upd).forEach(p => { const [k, kind] = p.split('/'); S.clean[k] = Object.assign({}, S.clean[k] || {}, { [kind]: val }); });
+    dbPatch('hostel/cleaning_last', last).catch(() => {});
+    Object.keys(upd).forEach(p => { const [k, kind] = p.split('/'); S.clean[k] = Object.assign({}, S.clean[k] || {}, { [kind]: val });
+      S.last = S.last || {}; S.last[k] = Object.assign({}, S.last[k] || {}, { [kind]: today() }); });
     toast('✅ ' + T('allMarked'));
     render();
   } catch (e) { toast(e.message + T('net')); }
@@ -408,6 +432,8 @@ async function mark(kind, on) {
   const val = on ? { at: Date.now(), by: S.staff.name, byId: S.staff.id, via: 'cleaner' } : null;
   try {
     await dbPatch('hostel/cleaning/' + today() + '/' + key, { [kind]: val });
+    if (on) dbPatch('hostel/cleaning_last/' + key, { [kind]: today() }).catch(() => {});   // v1.7: last-cleaned date
+    if (on) { S.last = S.last || {}; S.last[key] = Object.assign({}, S.last[key] || {}, { [kind]: today() }); }
     S.clean[key] = Object.assign({}, S.clean[key] || {}, { [kind]: val || undefined });
     if (!on) delete S.clean[key][kind];
     toast(on ? (r.id === '_common' ? T('common') : (kind === 'room' ? T('room') + ' ' : T('wash') + ' ') + label(r)) + T('marked') : '❌ ' + T('unmarked'));

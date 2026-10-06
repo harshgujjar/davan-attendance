@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1773 · 06-Oct-2026 IST
+User: "boys and girls have 9 rooms each - show which are occupied; empty rooms are cleaned only every few days; how is it 12?" (12 = occupied rooms of both hostels together). Cleaning → Rooms: occupied / empty counts, done counts for occupied rooms, and "empty rooms cleaned every N days" (admin / manager / warden setup; DB4 hostel/config/cleaning/emptyEvery, default 3); marking also writes DB4 hostel/cleaning_last/{hid}~{room} (1 small extra write). Pairs with cleaning.html v1.7 and staff widget w236 (held). Functions: hcRenderCleaning, hcClMark.
+
 ## v1772 · 06-Oct-2026 IST
 User: "choose which widget pages each person sees - the Degree Principal does not need PUC at a glance; no 'off by admin', it just must not show". Faculty Subscription Status: 📄 Pages on every faculty and staff row opens the pages of that person's role with ticks; Save writes DB2 davan_pub/page_off/{login} = {k, at, by, name} and pagesOff on each of their staff widget links (davan_pub/student_widget_active/{S-code}); stwPublishViewAs adds pagesOff to the page 2 list and keeps relinked phones in step (1 small read per publish). Staff widget w235 (held) drops those pages everywhere. Functions: facPagesOpen, facPagesFor (new), facAlertRenderSubs, facOtherStaffRows, stwPublishViewAs.
 
