@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1767 · 06-Oct-2026 IST
+User: "add photo of the staff here also". Faculty Subscription Status shows each person's photo (initials until it loads, tap to zoom) on the faculty rows and the principal / admins / hostel / office rows; a login whose photo is only in its profile uses that. No new reads (faculty photos are already loaded; the users list is cached). Functions: facAlertRenderSubs, facOtherStaffRows, facAlertRefreshSubs.
+
 ## v1766 · 06-Oct-2026 IST
 User: the Faculty Subscription Status page said LATEST_APK w220 and Admin w198 although the phone runs w225, and the principal, the new admin (Veeresh), hostel head, warden and manager were missing. The latest staff widget is now read from the public davan-widget-version.json (facLatestStaffApkV / facLiveStaffApkLoad; the daily release raises it without a staff app change); a login with several staff widgets shows the phone seen in the last day with the highest version (an old phone of the same login won before); every non-faculty login from the users list gets a row (facOtherStaffRows). LATEST_APK = w225, LATEST_STUDENT_WIDGET_APK_V = w177 (the public versions). Release window: release-widgets.yml now runs 9:00 - 10:00 pm IST only. Cost: one small file fetch per page open (10 min cache); the users list comes from the shared 5-min cache. Pairs with portal v11.31. Functions: facLatestStaffApkV, facLiveStaffApkLoad, facOtherStaffRows (new), facAlertInit, facAlertRefreshSubs, facAlertRenderSubs, facAlertBuildAdminRow, facAlertWASummary.
 
