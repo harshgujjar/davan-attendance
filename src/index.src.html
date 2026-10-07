@@ -10836,6 +10836,20 @@ async function ttPortalCopy(rows, classes, breaks, from) {
   catch (e) { console.warn('[TT] portal copy', e && e.message); }
 }
 function pubVerBump(key) { try { lpDb2Patch('davan_pub/pub_ver', { [key]: Date.now() }).catch(() => {}); } catch (e) {} }
+/* v1785 (user, 07-Oct-2026 "cut DB2 downloads"): internals_current and allocation_each were written to DB1 only and copied to DB2 by
+   the sync script, so students' phones could not tell when the copy changed and re-downloaded them after every scraper run (davan_meta).
+   Now: DB1 as before, PLUS the same value straight to DB2 and a pub_ver stamp - only when the content differs from this phone's last
+   push (a hash in localStorage), so phones re-download only real changes. Writes only (no reads). */
+function _pubHash(t) { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return h + ':' + t.length; }
+function pubDualSet(key, path, val) {
+  const r = rtdb.ref(path).set(val);
+  r.then(async () => { try {
+    const js = JSON.stringify(val), h = _pubHash(js), lk = 'pubh_' + key; let old = null; try { old = localStorage.getItem(lk); } catch (e) {}
+    if (old === h) return;
+    await lpDb2Set(path, JSON.parse(js)); pubVerBump(key); try { localStorage.setItem(lk, h); } catch (e) {}
+  } catch (e) { console.warn('[pub] DB2 copy of ' + key, e && e.message); } }).catch(() => {});
+  return r;
+}
 async function lpDb2Patch(path, value) {
   const token = await _lpGetPortalToken();
   const auth  = token ? ('?auth=' + token) : '';
@@ -13534,7 +13548,7 @@ async function onLoginSuccess() {
         const allocEach = {};
         allocQuerySnap.forEach(doc => { allocEach[doc.id] = doc.data(); });
         if (Object.keys(allocEach).length) {
-          await rtdb.ref('davan_pub/allocation_each').set(allocEach);
+          await pubDualSet('allocation_each', 'davan_pub/allocation_each', allocEach);   // v1785: + DB2 copy and stamp when changed
         }
       } catch(e) { console.warn('[Admin auto-sync] Per-batch allocations failed:', e.message); }
 
@@ -18812,7 +18826,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1784;  // always = HTML footer version number
+const CODE_BUILD = 1785;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29691,6 +29705,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1785', date: '07-Oct-2026 IST', note: 'Fewer database downloads: lesson plans are checked at most once an hour (⟳ still checks now), widget lists are kept 30 minutes, and internals / class allocations / IA status reach students only when they really change.' },
 { v: 'v1784', date: '07-Oct-2026 IST', note: 'Old app copies can no longer change the student widget settings: an old student portal (v8.74) kept on a phone was putting back an old download link. New apps sign these writes; the database refuses unsigned ones, and this app repairs the setting if an old copy got in.' },
 { v: 'v1783', date: '07-Oct-2026 IST', note: 'Old student widgets: every build up to w108 (the old black widget) is now blocked - it shows "Update needed" with the download. Before, the student app published "below w106", so 5 students on w106 were still using it.' },
 { v: 'v1782', date: '07-Oct-2026 IST', note: 'Faculty Class Alerts: ☁ Nightly release card - shows whether the Cloudflare worker is connected, when the 9:15 pm timer started the release each night (on time or late), the result, and who got each release (staff by name and time, students by count). Keeps one week; cleared every Sunday 11:49 pm. 📋 Copy.' },
@@ -29705,7 +29720,6 @@ const HTML_CHANGELOG = [
 { v: 'v1773', date: '06-Oct-2026 IST', note: 'Hostel cleaning: counts are the occupied rooms (12 was boys + girls together); empty rooms are cleaned every N days (set it in Cleaning → Rooms, default 3). Cleaning app v1.7 greys empty rooms until due; staff widget w236 shows boys and girls separately with room numbers.' },
 { v: 'v1772', date: '06-Oct-2026 IST', note: 'Faculty Subscription Status: 📄 Pages for every staff member - untick a widget page (e.g. PUC at a glance for the Degree Principal) and it is gone from their widget and their own page list. Needs staff widget w235.' },
 { v: 'v1771', date: '06-Oct-2026 IST', note: 'Faculty Subscription Status: 🧾 Log next to each staff widget phone - get that phone\'s one-day log (notifications, voice spoken or not, errors, updates) with 📋 Copy. Phones on an older widget are told at once.' },
-{ v: 'v1770', date: '06-Oct-2026 IST', note: 'Timetable hours chips show the teacher under each subject (ADA 4/4 · Anitha N) in View, Edit and Time grids. Staff widgets that lost their photo get it back after an admin opens the app.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -47201,8 +47215,12 @@ async function iaePublishLiveStatus(examTag) {
 
   const payload = { examTag, cutoffDate: win.cutoffDate, locked: win.locked, updatedAt: new Date().toISOString(), status: statusMap };
   try {
+    // v1785 (DB2 downloads): every publish bumped the stamp, so every student re-read the 23 KB list - skip when nothing changed
+    const _iaH = _pubHash(JSON.stringify([win.cutoffDate, win.locked, statusMap])), _iaK = 'pubh_ia_' + examTag;
+    let _iaOld = null; try { _iaOld = localStorage.getItem(_iaK); } catch (e) {}
+    if (_iaOld === _iaH) { _iaePublishLastAt[examTag] = now; return; }
     const ok = await db2Set('davan_pub/ia_live_status/' + examTag, payload);
-    if (ok) pubVerBump('ia_' + examTag);
+    if (ok) { pubVerBump('ia_' + examTag); try { localStorage.setItem(_iaK, _iaH); } catch (e) {} }
     if (ok) _iaePublishLastAt[examTag] = now;
     else console.warn('[IAE] publish live status to DB2 failed (db2Set returned false)');
   } catch(e) { console.warn('[IAE] publish live status failed', e); }
@@ -59479,10 +59497,10 @@ async function intSyncFromCalendar(internalNumber, newDates, calEventName) {
       const intMeta = await fsGet('app_data','internals_meta');
       const isCurrent = !intMeta?.current || intMeta.current === docId;
       if (rtdb && isCurrent) {
-        try { await (pubVerBump('internals_current'), rtdb.ref('davan_pub/internals_current')).set({ ...payload, duty_auto: _dutyAutoToRtdbSafe(data.duty_auto) }); } catch(e) {}
+        try { await pubDualSet('internals_current', 'davan_pub/internals_current', { ...payload, duty_auto: _dutyAutoToRtdbSafe(data.duty_auto) }); } catch(e) {}
       }
     } catch(_e) {
-      if (rtdb) { try { await (pubVerBump('internals_current'), rtdb.ref('davan_pub/internals_current')).set({ ...payload, duty_auto: _dutyAutoToRtdbSafe(data.duty_auto) }); } catch(e) {} }
+      if (rtdb) { try { await pubDualSet('internals_current', 'davan_pub/internals_current', { ...payload, duty_auto: _dutyAutoToRtdbSafe(data.duty_auto) }); } catch(e) {} }
     }
 
     if (typeof dvToast === 'function') dvToast(logMsg, added||dropped ? 'warn' : 'ok', 6000);
@@ -59745,7 +59763,7 @@ async function intLoadList() {
     // only a read; this mirror write stays exactly as strict as before.
     if (_isAdminRole && rtdb && INT_CURRENT && INT_DATA[INT_CURRENT] && viewedKey === intActiveSemKey()) {
       const d = INT_DATA[INT_CURRENT];
-      (pubVerBump('internals_current'), rtdb.ref('davan_pub/internals_current')).set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto: _dutyAutoToRtdbSafe(d.duty_auto), batch_overrides: d.batch_overrides||{} }).catch(()=>{});
+      pubDualSet('internals_current', 'davan_pub/internals_current', { meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto: _dutyAutoToRtdbSafe(d.duty_auto), batch_overrides: d.batch_overrides||{} }).catch(()=>{});
     }
   } catch(e) {
     console.error('intLoadList', e);
@@ -59973,7 +59991,7 @@ async function intViewSaveSubject(date, timeLabel, batchName, newSubject, selEl)
       const intMeta = await fsGet('app_data','internals_meta');
       const isCurrent = !intMeta?.current || intMeta.current === docId;
       if (rtdb && isCurrent) {
-        try { await (pubVerBump('internals_current'), rtdb.ref('davan_pub/internals_current')).set({ meta: data.meta||{}, batches: data.batches||[], slots, duties: data.duties||[], duty_auto: _dutyAutoToRtdbSafe(data.duty_auto), batch_overrides: data.batch_overrides||{} }); } catch(e) {}
+        try { await pubDualSet('internals_current', 'davan_pub/internals_current', { meta: data.meta||{}, batches: data.batches||[], slots, duties: data.duties||[], duty_auto: _dutyAutoToRtdbSafe(data.duty_auto), batch_overrides: data.batch_overrides||{} }); } catch(e) {}
       }
     } catch(_e) {}
     dvToast('✅ Subject updated', 'ok', 1800);
@@ -62801,11 +62819,11 @@ async function intSave(docId, isNew, opts) {
       const intMeta = await fsGet('app_data','internals_meta');
       const isCurrent = !intMeta?.current || intMeta.current === docId;
       if (rtdb && isCurrent) {
-        try { await (pubVerBump('internals_current'), rtdb.ref('davan_pub/internals_current')).set({ meta, batches, slots, duties, duty_auto: _dutyAutoToRtdbSafe(INT_DATA[docId]?.duty_auto), batch_overrides }); } catch(e) {}
+        try { await pubDualSet('internals_current', 'davan_pub/internals_current', { meta, batches, slots, duties, duty_auto: _dutyAutoToRtdbSafe(INT_DATA[docId]?.duty_auto), batch_overrides }); } catch(e) {}
       }
     } catch(_e) {
       // If we can't check, mirror anyway (safe default for new internals)
-      if (rtdb) { try { await (pubVerBump('internals_current'), rtdb.ref('davan_pub/internals_current')).set({ meta, batches, slots, duties, duty_auto: _dutyAutoToRtdbSafe(INT_DATA[docId]?.duty_auto), batch_overrides }); } catch(e) {} }
+      if (rtdb) { try { await pubDualSet('internals_current', 'davan_pub/internals_current', { meta, batches, slots, duties, duty_auto: _dutyAutoToRtdbSafe(INT_DATA[docId]?.duty_auto), batch_overrides }); } catch(e) {} }
     }
     dvToast('✅ Internal saved successfully', 'ok');
     if (msg) { msg.style.color = 'var(--ok)'; msg.textContent = '✅ Saved'; setTimeout(() => { if (msg.textContent === '✅ Saved') msg.textContent = ''; }, 3000); }
@@ -62815,7 +62833,7 @@ async function intSave(docId, isNew, opts) {
       try {
         await db.collection('app_data').doc('internals_meta').set({ current: docId }, { merge: true });
         if (rtdb) {
-          try { await (pubVerBump('internals_current'), rtdb.ref('davan_pub/internals_current')).set({ meta, batches, slots, duties, duty_auto: _dutyAutoToRtdbSafe(INT_DATA[docId]?.duty_auto), batch_overrides }); } catch(_e) {}
+          try { await pubDualSet('internals_current', 'davan_pub/internals_current', { meta, batches, slots, duties, duty_auto: _dutyAutoToRtdbSafe(INT_DATA[docId]?.duty_auto), batch_overrides }); } catch(_e) {}
         }
       } catch(_e) {}
     }
@@ -62868,7 +62886,7 @@ async function intSetCurrent(docId) {
       } catch(e) {}
     }
     if (rtdb && data) {
-      try { await (pubVerBump('internals_current'), rtdb.ref('davan_pub/internals_current')).set({ meta: data.meta||{}, batches: data.batches||[], slots: data.slots||[], duties: data.duties||[], duty_auto: _dutyAutoToRtdbSafe(data.duty_auto), batch_overrides: data.batch_overrides||{} }); }
+      try { await pubDualSet('internals_current', 'davan_pub/internals_current', { meta: data.meta||{}, batches: data.batches||[], slots: data.slots||[], duties: data.duties||[], duty_auto: _dutyAutoToRtdbSafe(data.duty_auto), batch_overrides: data.batch_overrides||{} }); }
       catch(e) {
         // v1186: surface the REAL error instead of a generic message —
         // "mirror write failed" with no detail is exactly the kind of
@@ -68418,7 +68436,7 @@ async function dutyAllocateForInternal(docId, intNum) {
         mirrorSkippedNotCurrent = true;
       } else if (rtdb) {
         const d = INT_DATA[docId];
-        await (pubVerBump('internals_current'), rtdb.ref('davan_pub/internals_current')).set({ meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto: _dutyAutoToRtdbSafe(duty_auto), batch_overrides: d.batch_overrides||{} });
+        await pubDualSet('internals_current', 'davan_pub/internals_current', { meta: d.meta||{}, batches: d.batches||[], slots: d.slots||[], duties: d.duties||[], duty_auto: _dutyAutoToRtdbSafe(duty_auto), batch_overrides: d.batch_overrides||{} });
       }
     } catch(_e) {
       // v1186: surface the real error instead of a bare flag -- see the
@@ -80246,10 +80264,13 @@ async function _lpDb2Q(path, q) {   // like lpDb2Get but with a query (shallow) 
     if (typeof dbmNote === 'function') dbmNote(path.replace(/^(davan_pub\/lessonPlan)\/[^/]+/, '$1/<KEY>') + (q ? '?' + q.split('=')[0] : ''), txt.length);
     return txt ? JSON.parse(txt) : null; } catch (e) { return undefined; }
 }
-async function _lpFetchCurrent() {
-  const full = async () => { const d = await lpDb2Get('davan_pub/lessonPlan'); if (d && typeof d === 'object') _lpcPut({ data: d, at: Date.now() }); window._lpCacheInfo = 'full read'; return d; };
+async function _lpFetchCurrent(force) {
+  const full = async () => { const d = await lpDb2Get('davan_pub/lessonPlan'); if (d && typeof d === 'object') _lpcPut({ data: d, at: Date.now(), chk: Date.now() }); window._lpCacheInfo = 'full read'; return d; };
   const c = await _lpcGet();
   if (!c || !c.data || Date.now() - (c.at || 0) > 3 * 864e5) return full();
+  // v1785 (user, 07-Oct-2026 "cut DB2 downloads"): checked within the last hour -> the phone copy as it is (was ~72 tiny requests on
+  // every open, 3,871 a day); ⟳ / force still checks at once
+  if (!force && Date.now() - (c.chk || 0) < 36e5) { window._lpCacheInfo = 'phone copy (checked ' + Math.round((Date.now() - c.chk) / 60e3) + ' min ago)'; return c.data; }
   const keys = await _lpDb2Q('davan_pub/lessonPlan', 'shallow=true');
   if (!keys || typeof keys !== 'object') return keys === null ? {} : (keys === undefined ? c.data : full());
   const list = Object.keys(keys), enc = k => encodeURIComponent(k);
@@ -80259,7 +80280,7 @@ async function _lpFetchCurrent() {
   const fresh = await Promise.all(changed.map(k => _lpDb2Q('davan_pub/lessonPlan/' + enc(k))));
   const data = {}; list.forEach(k => { if (c.data[k]) data[k] = c.data[k]; });
   changed.forEach((k, i) => { if (fresh[i] && typeof fresh[i] === 'object') data[k] = fresh[i]; });
-  _lpcPut({ data, at: c.at });
+  _lpcPut({ data, at: c.at, chk: Date.now() });
   window._lpCacheInfo = 'cache: ' + (list.length - changed.length) + ' kept, ' + changed.length + ' downloaded';
   return data;
 }
@@ -80274,7 +80295,7 @@ async function _lpFetch(force) {
   try {
     const _wantArch = _lpViewingArchive();
     const [current, archived] = await Promise.all([
-      _lpFetchCurrent(),   // v1650: phone copy + only the changed subjects
+      _lpFetchCurrent(force),   // v1650: phone copy + only the changed subjects (v1785: checked at most hourly unless forced)
       _wantArch ? _lpFetchArchiveFromDb4() : Promise.resolve(null),   // v1535: only for an archive sem
     ]);
     _lpHasArchive = _wantArch;
@@ -83865,14 +83886,19 @@ async function stwPublishViewAs() {
 // who uses the widgets / student app (from the reports the widgets already send)
 /* v1725 (user: cut DB2 reads): the three widget lists (student_widget_active ~24 KB, student_widget_report ~151 KB, staff_widget_report)
    were read fresh by the widget numbers (every send), page 2's list and the Device report - 29 times a day (4.3 MB). One shared copy, 10 min. */
+/* v1785 (user, 07-Oct-2026 "cut DB2 downloads"): the 185 KB of widget lists were read 54 times a day - kept 30 min (was 10) and
+   across page reloads (localStorage); ⟳ (force) still reads at once. */
 async function stwWidgetLists(force) {
-  const rc = window._stwRep;
-  if (!force && rc && rc.at && Date.now() - rc.at < 10 * 60e3) return rc;
+  let rc = window._stwRep;
+  if (!force && !rc) { try { const x = JSON.parse(localStorage.getItem('stw_rep') || 'null'); if (x && x.at && Date.now() - x.at < 30 * 60e3) rc = window._stwRep = x; } catch (e) {} }
+  if (!force && rc && rc.at && Date.now() - rc.at < 30 * 60e3) return rc;
   if (window._stwRepP) return window._stwRepP;
   window._stwRepP = (async () => {
     try { const [a, r, s2] = await Promise.all(['davan_pub/student_widget_active', 'davan_pub/student_widget_report', 'davan_pub/staff_widget_report'].map(q => hswGet(q)));
       if (!a.ok || !r.ok) return { A: (a.ok && a.v) || {}, R: (r.ok && r.v) || {}, S: (s2.ok && s2.v) || {}, at: 0 };   /* a failed read is not kept */
-      return (window._stwRep = { A: a.v || {}, R: r.v || {}, S: (s2.ok && s2.v) || {}, at: Date.now() });
+      window._stwRep = { A: a.v || {}, R: r.v || {}, S: (s2.ok && s2.v) || {}, at: Date.now() };
+      try { localStorage.setItem('stw_rep', JSON.stringify(window._stwRep)); } catch (e) {}   // v1785
+      return window._stwRep;
     } catch (e) { return { A: {}, R: {}, S: {}, at: 0 }; } finally { window._stwRepP = null; }
   })();
   return window._stwRepP;

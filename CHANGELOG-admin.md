@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1785 · 07-Oct-2026 IST
+User: "do step 2 fixes to cut downloads". Lesson plans: the phone copy is used as is when checked within the last hour (was ~72 tiny requests per open, 3,871/day); ⟳ still checks. Widget lists (185 KB) kept 30 min and across reloads (was 10 min, 54 reads/day). internals_current and allocation_each are also written straight to DB2 with a pub_ver stamp, only when the content changed; the IA eligibility list is not republished when unchanged. Writes only, no new reads. Pairs with portal v11.38. Functions: pubDualSet, _pubHash, _lpFetchCurrent, stwWidgetLists, the IA live-status publish.
+
 ## v1784 · 07-Oct-2026 IST
 User: "make the apps ignore old version writes" (an old student portal v8.74 kept putting an old download link into DB2 davan_pub/student_widget_latest). This app now writes it with a _w mark (time) and repairs it when the mark or the download link is wrong (no extra reads: the same read as before). The DB2 rules refuse writes to that node without a newer _w. Pairs with portal v11.37. Functions: stuWidgetLatestRaise.
 
