@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1803 · 07-Oct-2026 IST
+Bug (user: the widget showed Everyone / ಕನ्नಡ, the staff app Test only): at 10:08 pm opening Global Switches wrote the first-time defaults (test mode, English, V NEESHA + Admin) over DB2 davan_pub/tts_cfg, because lpDb2Get answers null for a failed read too. gswInit now reads tts_cfg with gswReadRaw (ok / not ok) and seeds only when the database answers null; a failed read shows "could not read - nothing was changed". Functions: gswInit, gswReadRaw (new).
+
 ## v1802 · 07-Oct-2026 IST
 User: "spoken alerts are live - how can I see they are using it or not". Global Switches → Spoken alerts: "📊 Is the voice used? · today" for students and staff (phones reporting today, voice allowed, speaking, turned off, Kannada, times spoken, blocked by silent / DND, phones that cannot speak) and the lists "turned it off", "cannot speak - needs help", "on silent every time" with photo, name and 📋 Copy. Data: tts in student_widget_report/{code} (widget w191) and staff_widget_report/{code} (w247), from the shared stwWidgetLists copy - no new reads. Functions: gswTtsUse, gswShow (wraps _gswShow0).
 
