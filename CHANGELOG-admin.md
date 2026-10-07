@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1801 · 07-Oct-2026 IST
+User: "newer phones show Unsubscribe under our notifications - can't we make them turn it back on". 🔔 Notifications page: "🔕 Turned off on students' phones" - each student whose widget (w190+) reports a switched-off notification type (student_widget_report/{code}/chOff) or all notifications off, with photo, class, phone model and 📋 Copy; red when class reminders / starts soon / all are off. No new reads (shared stwWidgetLists copy). Pairs with student widget w190 (ChanCheck). Function: ntfChOff.
+
 ## v1800 · 07-Oct-2026 IST
 User: Phase 1 of day attendance (students). The 🔔 Notifications page (NOTIF_REGISTRY) lists the two new student items: "🔒 Lock-screen card" (key lock, 7 am - 9 pm) and "📅 Yesterday's missed classes" (key gen_dayatt, 3:15 pm Mon-Sat, time movable); both ON by default, switched off here (DB2 davan_pub/notif_off/stu/{key}). No new reads. Pairs with student widget w188 (DayAtt, Lock), portal v11.44 (renderMyDays), app.py v092+.
 
