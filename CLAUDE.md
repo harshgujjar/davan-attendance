@@ -106,3 +106,10 @@ and hostel staff always count. In the staff app use `facActiveSets()` + `facIsAc
 Before any work on notifications, weekly feedback, rates, fees or submissions read `ROADMAP-notifications.md` and follow its
 standing decisions (new notifications ON by default, every notification in the one registry shown on the 🔔 page, 7 am - 9 pm
 outside class periods, photos where possible, PUC left out). After a step is done tick it there with the versions.
+
+## DB2 widget settings are guarded (user, 07-Oct-2026)
+
+DB2 rules (project davan-student-portal) refuse any write to `davan_pub/student_widget_latest`, `student_widget_kill_floor` and
+`student_widget_manual_version` unless it carries `_w` = a time newer than the stored `_w` (and not more than 10 min ahead). Every new
+write to these nodes (any app, any script) must send `_w: Date.now()`, or Firebase answers 401. This keeps old cached app copies
+(e.g. a student's portal v8.74) from putting old values back. Old student widgets up to w108 are blocked (minApkVersion 109).
