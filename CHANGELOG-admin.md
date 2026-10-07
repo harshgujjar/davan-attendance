@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1787 · 07-Oct-2026 IST
+User: "make student widget report exact update time too". Student widget w183 adds vAt (exact install time) to DB2 davan_pub/student_widget_report/<code>; the ☁ Nightly release card counts students on the released build who installed it within 2 hours. No new reads. Pairs with student widget w183 (and staff widget w242). Functions: facRelRender.
+
 ## v1786 · 07-Oct-2026 IST
 User: "make staff widget report exact update time". Staff widget w242 adds vAt (the exact install time from Android) to DB2 davan_pub/staff_widget_report/<code>; the ☁ Nightly release card shows "updated <time>" from it (and saves it in davan_pub/release_got), "had it before (test)" for phones that got the build from the next channel before the release, and "by <first seen>" for older widgets. No new reads. Pairs with staff widget w242. Functions: facStaffPeople, facRelRender.
 
