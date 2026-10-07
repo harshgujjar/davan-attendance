@@ -13,6 +13,15 @@ User, 07-Oct-2026: "we'll stop this setup here - keep what is built, keep all fi
 - Days before 06-Oct-2026 are empty (only 06-Oct was saved by hand with the test link). From now on each college day fills in by itself
   while app.py v089 runs.
 
+## app.py v093 - faculty summary (07-Oct-2026)
+With every day collect: `davan_pub/att_fac/<date>/<class>/<subject> = {f: faculty, h: held, p: present count, a: [absent URNs],
+m: [MC URNs]}` (~10-15 KB a day) + `pub_ver/att_fac`. The faculty name comes from the portal's own column heading
+("Java Programming Pooja C ( 44 )"), matched against the allocation subject names first, so "C Programming MadhuMalathi B" gives
+"MadhuMalathi B" (_faculty_from_heading). att_fac days follow att_day (deleted with it). Functions: scrape_day_attendance, push_day_attendance_to_db2, sync_att_stu.
+Mockup of every screen (student portal / widget / lock screen / notification, faculty card / widget / notification, class in-charge,
+principal) was made with the real 6-Oct-2026 data and sent to the user as a file (not kept in git: real student names).
+Agreed so far: faculty notification 6:00 pm, student 3:15 pm break, lock screen counts only.
+
 ## app.py v092 - each student's own days (07-Oct-2026)
 For the student app / widget / lock screen / notification (planned, not built yet): after every day collect the scraper also keeps
 `davan_pub/att_stu/<URN>/<YYYY-MM-DD> = {subject: [held, attended, mc]}` - the last 30 college days still in att_day (~2 KB per
