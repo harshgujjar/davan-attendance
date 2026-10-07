@@ -13,6 +13,16 @@ User, 07-Oct-2026: "we'll stop this setup here - keep what is built, keep all fi
 - Days before 06-Oct-2026 are empty (only 06-Oct was saved by hand with the test link). From now on each college day fills in by itself
   while app.py v089 runs.
 
+## app.py v092 - each student's own days (07-Oct-2026)
+For the student app / widget / lock screen / notification (planned, not built yet): after every day collect the scraper also keeps
+`davan_pub/att_stu/<URN>/<YYYY-MM-DD> = {subject: [held, attended, mc]}` - the last 30 college days still in att_day (~2 KB per
+student). `davan_pub/att_stu_meta = {days, at}`; `davan_pub/pub_ver/att_stu` (ms) moves only when it changed, so a phone reads
+ONLY its own `att_stu/<URN>` and only when that stamp moved (about 1 MB a day for 400 students). Days the admin deletes from
+att_day drop out at the next run. `/api/sync_att_stu` rebuilds it now. Function: sync_att_stu.
+Planned display (agreed outline): portal "📅 My days" card (yesterday's subjects ✅/❌/MC, 2-week dots, streak, "attend the next N
+classes"), widget line + dots, lock screen counts only (no subject names), notification at the 3:15 pm break only when a class was
+missed (registry entry on the 🔔 page, ON by default) + a Saturday "full week" note.
+
 ## app.py v091 + scraper_panel.html v091 (07-Oct-2026)
 User: "collecting twice a day will slow davandvg.com - only once, at 1 pm, for yesterday".
 - The per-day pass runs ONCE a day (first scheduled run, 1:00 pm) for YESTERDAY (Monday -> Saturday, Sundays skipped) and also fills
