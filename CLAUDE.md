@@ -88,12 +88,11 @@ After every change: bump versions, write the changelog entries, commit, push the
 ## Building the widgets in a NEW session (user, 03-Oct-2026)
 
 Widget sources are not in git. The user uploads the newest zips (DavanWidget_w<nnn>.zip, DavanStudentWidget_w<nnn>.zip; each holds the
-source, build.sh and the keystore). Unzip them, then install the tools once: `apt-get install -y aapt dalvik-exchange zipalign apksigner
-default-jdk` and put Android API 34 `android.jar` at `$HOME/tc/android.jar` (Android SDK platforms;android-34). Build: in the widget folder
-`ANDROID_JAR=$HOME/tc/android.jar bash build.sh`. If dl.google.com is blocked (cloud sessions, 07-Oct-2026), make android.jar from Maven Central instead: download
-`org/robolectric/android-all/14-robolectric-10818077/android-all-14-robolectric-10818077.jar` (has resources.arsc), `apt-get update && apt-get install -y
-openjdk-8-jdk-headless`, then zip it together with every entry of `/usr/lib/jvm/java-8-openjdk-amd64/jre/lib/rt.jar` it lacks into `$HOME/tc/android.jar`.
-Checked: w182 rebuilt this way was byte-size identical to the released APK, same signing key. New version = copy the folder to the next number, bump AndroidManifest + BuildInfo,
+source, build.sh and the keystore). Unzip them, then run `bash tools/widget-toolchain.sh` once (installs aapt, dalvik-exchange,
+zipalign, apksigner and a JDK from Ubuntu, and puts Android API 34 `android.jar` at `$HOME/tc/android.jar` from this repo's
+`build-tools` branch - dl.google.com is blocked in cloud sessions; the jar is a slim 77 MB copy, checked 07-Oct-2026: w182 / w241
+rebuilt with it are identical to the released APKs). Never put android.jar on main. Build: in the widget folder
+`ANDROID_JAR=$HOME/tc/android.jar bash build.sh`. New version = copy the folder to the next number, bump AndroidManifest + BuildInfo,
 write W<nn>_CHANGES.md, build, then release as above. Send the user the new APK. Send the source zip ONLY when the user asks for it
 (user, 04-Oct-2026: it wastes tokens otherwise) - and always before a session is about to end so the next session can build.
 
