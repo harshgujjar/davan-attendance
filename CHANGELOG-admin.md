@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1796 · 07-Oct-2026 IST
+User: "day by day attendance per student - present / absent / MC". New 📅 Day Attendance page under Analysis (admin, manager, VP, principal, full-time faculty): pick a day (◀ ▶), see each class with who was absent all day, who missed some subjects (which ones) and who was on MC; filter by class and "absent / MC only / everyone / absent all day". Photos tap to zoom, 🏨 marks.
+Data: reads DB2 `davan_pub/att_day/<YYYY-MM-DD>` (written by the scraper app.py v089, 1:00 pm / 5:30 pm) - 1 read of about 40 KB per day opened, cached for the session. Functions: dayAttInit, dayAttLoad, dayAttRender, _daStatus.
+
 ## v1795 · 07-Oct-2026 IST
 User: "make sure my managers, staff and principal don't get this kind of notification - only the Super Admin". Admin pushes ("X just logged in", class-alert copies) already went only to subscriptions under the Admin account; now each new subscription records which login made it (by), and only those made by the admin login (or the two older ones kept on 07-Oct, both his) receive them. The admin subscriptions were cleaned from 12 to 2 (his phone and PC; backup in app_data/push_subscriptions_backup_admin_20261007). No new reads. Functions: facRegisterSW, facAlertNotifyAdmin.
 
