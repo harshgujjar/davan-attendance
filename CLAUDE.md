@@ -115,3 +115,12 @@ DB2 rules (project davan-student-portal) refuse any write to `davan_pub/student_
 `student_widget_manual_version` unless it carries `_w` = a time newer than the stored `_w` (and not more than 10 min ahead). Every new
 write to these nodes (any app, any script) must send `_w: Date.now()`, or Firebase answers 401. This keeps old cached app copies
 (e.g. a student's portal v8.74) from putting old values back. Old student widgets up to w108 are blocked (minApkVersion 109).
+
+## Every list of people: photo, tap to zoom, 🏨 (user, 07-Oct-2026 - default rule)
+
+Any NEW list, card, chip or table that shows students or staff by name (both apps, every page) must show:
+1. Their **photo** - student portal `davanAvatarHTML(urn, name, {size})`, staff app `_facAvatar(name, size, true)` for staff (call
+   `_facAvatarInject()` after drawing so late photos fill in); students in the staff app use its existing student-photo helper.
+2. **Tap the photo to zoom** (`rcZoomPhoto`) - pass zoom = true; never draw a photo without it.
+3. The **🏨 hostel mark** - both apps add it automatically to text that is EXACTLY a hostel resident's name, so put the name in its
+   OWN element (`<span>NAME</span>` / `<b>NAME</b>`): never glue an emoji, number or comma into the same text as the name.
