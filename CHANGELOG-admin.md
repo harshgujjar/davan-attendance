@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1802 · 07-Oct-2026 IST
+User: "spoken alerts are live - how can I see they are using it or not". Global Switches → Spoken alerts: "📊 Is the voice used? · today" for students and staff (phones reporting today, voice allowed, speaking, turned off, Kannada, times spoken, blocked by silent / DND, phones that cannot speak) and the lists "turned it off", "cannot speak - needs help", "on silent every time" with photo, name and 📋 Copy. Data: tts in student_widget_report/{code} (widget w191) and staff_widget_report/{code} (w247), from the shared stwWidgetLists copy - no new reads. Functions: gswTtsUse, gswShow (wraps _gswShow0).
+
 ## v1801 · 07-Oct-2026 IST
 User: "newer phones show Unsubscribe under our notifications - can't we make them turn it back on". 🔔 Notifications page: "🔕 Turned off on students' phones" - each student whose widget (w190+) reports a switched-off notification type (student_widget_report/{code}/chOff) or all notifications off, with photo, class, phone model and 📋 Copy; red when class reminders / starts soon / all are off. No new reads (shared stwWidgetLists copy). Pairs with student widget w190 (ChanCheck). Function: ntfChOff.
 
