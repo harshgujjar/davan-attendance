@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1805 · 07-Oct-2026 IST
+User: roadmap step 3 "Shortage + study". New ✋ Meet the Principal page (Analysis; admin, manager, VP, principal): students under 50% in any subject - ✋ said they will come (from the portal's "I'll meet the Principal" button, with Met ✓), ⏳ under 50% and not answered yet (from the students list), ✅ met (who marked it, when); photos, tap to zoom, 🏨. Admin: 🗑 Clear the met list.
+Data: DB2 `davan_pub/meet_req` - 1 small read per page open, 1 small PATCH per Met ✓. Pairs with portal v11.46, student widget w194. Functions: mpInit, mpRender, _mpLow, mpMet, mpClearMet.
+
 ## v1804 · 07-Oct-2026 IST
 User: Day Attendance Phase 2 (faculty). Faculty dashboard card "📅 Yesterday in your classes": present / absent / MC per class the person taught on the last college day, absent and MC students with photo (tap to zoom) and name (🏨). A class in-charge (login's classIncharge text) also gets "📌 Your class": who was absent all day or missed classes, and the Day Attendance page opens on that class. 🔔 page: staff "🔒 Lock-screen card (faculty)" (key lock) and "📅 Absent in your classes" 6 pm (key gen_dayatt), both ON.
 Data: DB2 `davan_pub/att_fac` shallow (dates) + `att_fac/<day>` (~15 KB) once per session; in-charge only: `att_day/<day>` (~40 KB, shared cache). Pairs with staff widget w250, app.py v093. Functions: fdbYdayRender, _fydLoad, _fydInchargeKey, _fydSameName, dayAttRender, NOTIF_REGISTRY.
