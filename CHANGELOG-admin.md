@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1784 · 07-Oct-2026 IST
+User: "make the apps ignore old version writes" (an old student portal v8.74 kept putting an old download link into DB2 davan_pub/student_widget_latest). This app now writes it with a _w mark (time) and repairs it when the mark or the download link is wrong (no extra reads: the same read as before). The DB2 rules refuse writes to that node without a newer _w. Pairs with portal v11.37. Functions: stuWidgetLatestRaise.
+
 ## v1783 · 07-Oct-2026 IST
 User: "block 108 and below" (25 old black student widgets w57-w106 were still running; the student app had published "below w106" over this app's "below w108", so 5 students on w106 were not blocked). STU_WIDGET_BLOCK_V is now 109: DB2 davan_pub/student_widget_latest.minApkVersion = 109, every old widget shows "Update needed" with the download. Nobody is on w108. Pairs with portal v11.36. Functions: stuWidgetLatestRaise.
 
