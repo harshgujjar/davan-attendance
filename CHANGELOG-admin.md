@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1792 · 07-Oct-2026 IST
+User: "a refresh only for the widget to upload its log immediately when asked". 📥 Get log (Faculty Subscription Status) also calls the Cloudflare worker davan-release (?log=<code>), which starts .github/workflows/log-request.yml to put the code in log-req.json on GitHub; student widget w185 reads that file in its 15-minute update check (no Firebase cost) and uploads its log at once. Staff widgets already refresh every 15 minutes. No new reads. Pairs with portal v11.42, student widget w185; the worker code needs pasting once (worker v3). Functions: the fa-log-ask handler.
+
 ## v1791 · 07-Oct-2026 IST
 User (screenshot of a silent "English starts soon" alert): "this doesn't speak - the notification should speak, and the class wrapping up too" and "why limit to 5 - remove the limit". Student widget w184 speaks the session-start and last-class wrapping-up alerts; both widgets (w184 / staff w243) have no daily limit on spoken alerts. The Global Switches and notification-registry texts no longer say "max 5 a day". No data change. Pairs with student widget w184, staff widget w243. Functions: notification registry texts, gswShow.
 

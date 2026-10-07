@@ -54,3 +54,9 @@ Staff app → Global Switches → ⬆ Widget updates: the line under the buttons
   by the worker or by hand and on every release; entries before the last **Sunday 11:49 pm IST** are dropped (one week, then fresh).
 - To also test the GitHub key from the card, paste the current worker code once more (📋 Copy worker code → Edit code → Deploy).
   Opening `https://davan-release.harshgujjar.workers.dev/` then shows `"gh":true,"ghMsg":"GitHub key works"`.
+
+## Widget log requests (07-Oct-2026, worker v3)
+
+`GET /?log=<widget code>` starts `.github/workflows/log-request.yml`, which writes the code into `log-req.json` on main. Student widget
+w185+ reads that file every 15 minutes and uploads its log at once. The apps' 📥 Get log buttons call it. Paste the current worker code
+once (📋 Copy worker code → Edit code → Deploy); `https://davan-release.harshgujjar.workers.dev/` then shows `"ver":3`.
