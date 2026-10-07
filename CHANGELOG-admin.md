@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1798 · 07-Oct-2026 IST
+User: "collecting twice a day will slow davandvg.com - collect once, at 1 pm, for yesterday". Day Attendance now opens on the last college day before today (Saturday on Monday) and its texts say each day is saved the next day at 1 pm. No new reads or writes. Pairs with app.py v091. Function: dayAttInit, dayAttRender.
+
 ## v1797 · 07-Oct-2026 IST
 User: "don't delete after 35 days - keep one delete button, and when we move to the next sem ask to delete or keep, then the new sem is all new". Day Attendance: 🗑 Delete saved days (admin only, with confirm); when a new semester is set active (Session config save / Activate) the admin is asked to delete or keep the old semester's days (dates before the new start date).
 Data: DB2 `davan_pub/att_day` - shallow read of the dates (a few bytes) + one PATCH of nulls when deleting. Pairs with app.py v090 (no auto-delete). Functions: _daDays, _daDelete, dayAttDeleteAll, dayAttSemCheck.
