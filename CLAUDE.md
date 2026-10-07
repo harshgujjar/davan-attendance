@@ -124,3 +124,8 @@ Any NEW list, card, chip or table that shows students or staff by name (both app
 2. **Tap the photo to zoom** (`rcZoomPhoto`) - pass zoom = true; never draw a photo without it.
 3. The **🏨 hostel mark** - both apps add it automatically to text that is EXACTLY a hostel resident's name, so put the name in its
    OWN element (`<span>NAME</span>` / `<b>NAME</b>`): never glue an emoji, number or comma into the same text as the name.
+
+## Every page loads by itself after a refresh (user, 07-Oct-2026)
+
+A refresh reopens the last page and runs its side-menu onclick after `switchPanel(...)` (`_navRunExtra`, v1806). So a new page's
+loader goes in its menu item (`switchPanel('x');xInit()`) and must work when called on its own - never only from a tap.
