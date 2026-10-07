@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1795 · 07-Oct-2026 IST
+User: "make sure my managers, staff and principal don't get this kind of notification - only the Super Admin". Admin pushes ("X just logged in", class-alert copies) already went only to subscriptions under the Admin account; now each new subscription records which login made it (by), and only those made by the admin login (or the two older ones kept on 07-Oct, both his) receive them. The admin subscriptions were cleaned from 12 to 2 (his phone and PC; backup in app_data/push_subscriptions_backup_admin_20261007). No new reads. Functions: facRegisterSW, facAlertNotifyAdmin.
+
 ## v1794 · 07-Oct-2026 IST
 User: "Nagaraj logged in as manager but I didn't get the notification". The shared log (Firestore app_data/admin_login_notif_log) showed both of his logins (9:38 and 10:08 am) were sent; but every push used the phone's one "davan-alert" tag, so the next alert (Roopa C C's login a minute later, class-alert copies) silently replaced it. Login alerts now get their own tag, sw.js sets renotify so a replacing push still sounds, and the log records the worker's answer (delivered / failed of N devices). No new reads. Functions: facAlertNotifyAdmin, the login alert in the post-login setup; sw.js push handler (cache davan-v8).
 
