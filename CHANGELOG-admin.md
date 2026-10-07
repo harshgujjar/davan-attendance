@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1806 · 07-Oct-2026 IST
+Bug (user, screenshot: Global Switches blank after a refresh - "never make such pages, it should load by default"): a refresh reopens the last page with switchPanel only, so pages whose menu item also runs a loader (gswInit, ntfInit, dayAttInit, mpInit, cfbInit, ratesInit, ... about 35 pages) stayed empty. _navRestoreState now runs the rest of that menu item's onclick by itself (_navRunExtra); pages with their own restore steps or loaded inside switchPanel are left as they were. No data change. Functions: _navRunExtra, _navRestoreState.
+
 ## v1805 · 07-Oct-2026 IST
 User: roadmap step 3 "Shortage + study". New ✋ Meet the Principal page (Analysis; admin, manager, VP, principal): students under 50% in any subject - ✋ said they will come (from the portal's "I'll meet the Principal" button, with Met ✓), ⏳ under 50% and not answered yet (from the students list), ✅ met (who marked it, when); photos, tap to zoom, 🏨. Admin: 🗑 Clear the met list.
 Data: DB2 `davan_pub/meet_req` - 1 small read per page open, 1 small PATCH per Met ✓. Pairs with portal v11.46, student widget w194. Functions: mpInit, mpRender, _mpLow, mpMet, mpClearMet.
