@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1793 · 07-Oct-2026 IST
+User: "the '1 3 6 sem 2026-27' page tells me class, subject and allocation - I want the same format from the app, with Excel and PDF". Subject–Faculty Allocation → 📋 Course structure: letterhead, BCA | BBA | B.Com columns, one block per class (sem, section, students) with #, Sl, Subject, Faculty (photo, tap to zoom), Hrs and hours per week, then the faculty workload (subjects, hours, classes). 📊 Excel (same columns, side by side, styled) and 📄 PDF (A4 landscape: the structure on page 1 - a long column's last class moves to the shortest one like the sheet - workload on page 2). Data: the Timetable allocation, the student list and the semester dates already in the app - no new reads. The allocation table's photos now zoom on tap. Functions: csxData, csxRender, csxToggle, csxExcel, csxPdf, allocRenderViewer.
+
 ## v1792 · 07-Oct-2026 IST
 User: "a refresh only for the widget to upload its log immediately when asked". 📥 Get log (Faculty Subscription Status) also calls the Cloudflare worker davan-release (?log=<code>), which starts .github/workflows/log-request.yml to put the code in log-req.json on GitHub; student widget w185 reads that file in its 15-minute update check (no Firebase cost) and uploads its log at once. Staff widgets already refresh every 15 minutes. No new reads. Pairs with portal v11.42, student widget w185; the worker code needs pasting once (worker v3). Functions: the fa-log-ask handler.
 
