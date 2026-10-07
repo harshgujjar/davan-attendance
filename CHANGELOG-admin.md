@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1783 · 07-Oct-2026 IST
+User: "block 108 and below" (25 old black student widgets w57-w106 were still running; the student app had published "below w106" over this app's "below w108", so 5 students on w106 were not blocked). STU_WIDGET_BLOCK_V is now 109: DB2 davan_pub/student_widget_latest.minApkVersion = 109, every old widget shows "Update needed" with the download. Nobody is on w108. Pairs with portal v11.36. Functions: stuWidgetLatestRaise.
+
 ## v1782 · 07-Oct-2026 IST
 User: "Faculty Class Alerts - show whether my new Cloudflare worker is connected; at 9:15 every night show the time and date it triggered and who all got it on time; keep one week, delete Sunday 11:49 pm and start fresh". New ☁ Nightly release card under the staff widgets summary: worker health (worker v2's GET / also tests the GitHub key), tonight's start (on time / minutes late / ⚠ none logged), and this week's runs from release-log.json, which release-widgets.yml now writes on every worker or hand start and every release, dropping entries before the last Sunday 11:49 pm IST. Per release: staff who have it (name, first time seen, ✅ within 2 h) and who not yet; students as a count. Data: DB2 davan_pub/release_got/<build>/<code> (1 small read per open, 1 write per newly seen person, old weeks deleted); staff/student widget reports from the shared copy (no new read); 1 worker request. Functions: facRelRender, facStaffPeople (from facSumRender), _relWeekStart, gswRelWorker, facAlertInit.
 
