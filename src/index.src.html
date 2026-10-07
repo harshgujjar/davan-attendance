@@ -5409,6 +5409,7 @@
           <option value="miss">Absent / MC only</option><option value="all">Everyone</option><option value="full">Absent all day</option>
         </select>
         <button class="btn" onclick="dayAttLoad(true)" style="font-size:13px;">⟳</button>
+        <button class="btn" id="da-del-btn" onclick="dayAttDeleteAll()" style="display:none;font-size:13px;margin-left:auto;background:rgba(239,68,68,.15);color:#F87171;border:1px solid rgba(239,68,68,.4);">🗑 Delete saved days</button>
       </div>
       <div id="da-out"><div class="empty">Pick a day.</div></div>
     </div>
@@ -18853,7 +18854,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1796;  // always = HTML footer version number
+const CODE_BUILD = 1797;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29732,6 +29733,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1797', date: '07-Oct-2026 IST', note: 'Day Attendance: saved days are no longer deleted after 35 days. The admin has a 🗑 Delete saved days button, and when a new semester is set active the app asks whether to delete or keep the old semester\'s days.' },
 { v: 'v1796', date: '07-Oct-2026 IST', note: 'New 📅 Day Attendance page (Analysis): pick a day and see, class by class, who was absent all day, who missed some classes (which subjects) and who was on MC - from the scraper\'s per-day pull of the college portal.' },
 { v: 'v1795', date: '07-Oct-2026 IST', note: 'Login alerts and class-alert copies go only to devices the Super Admin (admin login) subscribed himself - never to managers, the principal or staff, even if someone else uses the admin login on their phone.' },
 { v: 'v1794', date: '07-Oct-2026 IST', note: 'Login alerts ("X just logged in"): each one is now its own notification with sound - before, the next alert silently replaced it, so a login a minute later hid the earlier one. The log keeps whether each was delivered.' },
@@ -29746,7 +29748,6 @@ const HTML_CHANGELOG = [
 { v: 'v1785', date: '07-Oct-2026 IST', note: 'Fewer database downloads: lesson plans are checked at most once an hour (⟳ still checks now), widget lists are kept 30 minutes, and internals / class allocations / IA status reach students only when they really change.' },
 { v: 'v1784', date: '07-Oct-2026 IST', note: 'Old app copies can no longer change the student widget settings: an old student portal (v8.74) kept on a phone was putting back an old download link. New apps sign these writes; the database refuses unsigned ones, and this app repairs the setting if an old copy got in.' },
 { v: 'v1783', date: '07-Oct-2026 IST', note: 'Old student widgets: every build up to w108 (the old black widget) is now blocked - it shows "Update needed" with the download. Before, the student app published "below w106", so 5 students on w106 were still using it.' },
-{ v: 'v1782', date: '07-Oct-2026 IST', note: 'Faculty Class Alerts: ☁ Nightly release card - shows whether the Cloudflare worker is connected, when the 9:15 pm timer started the release each night (on time or late), the result, and who got each release (staff by name and time, students by count). Keeps one week; cleared every Sunday 11:49 pm. 📋 Copy.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -34985,8 +34986,10 @@ async function _scfgDoActivate(semKey, sem) {
     if (setActive && cfg) {
       await db.collection('app_data').doc('session_config').set(cfg);
       if (rtdb) await rtdb.ref('davan_pub/session_config').set(cfg);
+      const _daPrev = Object.assign({}, SESSION_CONFIG);
       SESSION_CONFIG = Object.assign({}, SESSION_CONFIG, cfg);
       _applySessionConfig(SESSION_CONFIG);
+      dayAttSemCheck(_daPrev, cfg);
     }
 
     // 7. Update memory + caches
@@ -35090,8 +35093,10 @@ async function scfgSave() {
     if (setActive) {
       await db.collection('app_data').doc('session_config').set(cfg);
       if (rtdb) await rtdb.ref('davan_pub/session_config').set(cfg);
+      const _daPrev = Object.assign({}, SESSION_CONFIG);
       SESSION_CONFIG = cfg;
       _applySessionConfig(cfg);
+      dayAttSemCheck(_daPrev, cfg);
     }
     // 3. Refresh switcher dropdown with config-only entries
     scfgUpdateSwitcherFromConfigs();
@@ -47870,6 +47875,7 @@ const _daCache = {};
 function _daYmd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function dayAttInit() {
   const inp = document.getElementById('da-date'); if (!inp) return;
+  const del = document.getElementById('da-del-btn'); if (del) del.style.display = (currentProfile && currentProfile.role === 'admin') ? '' : 'none';
   if (!inp.value) inp.value = _daYmd(new Date());
   dayAttLoad();
 }
@@ -47897,7 +47903,7 @@ function dayAttRender() {
   const data = _daCache[day];
   const dd = new Date(day + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
   if (!data || !Object.keys(data).length) {
-    out.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>No day attendance saved for ' + hcEsc(dd) + '.<br><span style="font-size:12px;color:var(--muted);">The scraper saves it at 1:00 pm and 5:30 pm on college days (needs app.py v089 or newer).</span></div>';
+    out.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>No day attendance saved for ' + hcEsc(dd) + '.<br><span style="font-size:12px;color:var(--muted);">The scraper saves it at 1:00 pm and 5:30 pm on college days (needs app.py v089 or newer). Days before 6 Oct 2026 were not collected.</span></div>';
     return;
   }
   const byUrn = {}; (allStudents || []).forEach(s => { const u = String(s.urn || s.seat_no || '').toUpperCase(); if (u) byUrn[u] = s; });
@@ -47946,6 +47952,47 @@ function dayAttRender() {
     + (cards || '<div class="empty">No students for this class.</div>');
   _stuAvatarInject();
   if (typeof window.hcTagVisible === 'function') setTimeout(window.hcTagVisible, 50);
+}
+
+/* v1797 (user: "don't delete after 35 days - keep one delete button, and at the next semester ask delete or keep"): the scraper keeps
+   every day now (app.py v090 has no auto-delete). Days are removed only here: 🗑 Delete saved days (admin), or the question asked when
+   a NEW semester is set active (Session config). Listing the days is a shallow read (dates only, a few bytes). */
+async function _daDays() {
+  const token = await _lpGetPortalToken();
+  const res = await fetch(LP_PORTAL_URL + '/davan_pub/att_day.json?shallow=true' + (token ? '&auth=' + token : ''));
+  if (!res.ok) throw new Error('DB2 ' + res.status);
+  return Object.keys((await res.json()) || {}).sort();
+}
+async function _daDelete(days) {
+  if (!days.length) return 0;
+  const patch = {}; days.forEach(d => { patch[d] = null; });
+  await lpDb2Patch('davan_pub/att_day', patch);
+  days.forEach(d => { delete _daCache[d]; });
+  return days.length;
+}
+async function dayAttDeleteAll() {
+  if (!(currentProfile && currentProfile.role === 'admin')) return;
+  let days; try { days = await _daDays(); } catch (e) { dvToast('❌ ' + e.message, 'error', 4000); return; }
+  if (!days.length) { dvToast('No saved days to delete', 'info', 3000); return; }
+  dvConfirm('Delete day attendance?', 'This deletes all ' + days.length + ' saved days (' + days[0] + ' to ' + days[days.length - 1] + ') for every class. It cannot be undone. Term attendance %, marks and shortage are NOT touched.', async () => {
+    try { const n = await _daDelete(days); dvToast('🗑 Deleted ' + n + ' days', 'ok', 3000); dayAttRender(); }
+    catch (e) { dvToast('❌ Delete failed: ' + e.message, 'error', 5000); }
+  }, { okLabel: 'Delete all days', icon: '🗑' });
+}
+// Called after a semester is set active. Asks only the admin, only when the semester really changed, only if old days exist.
+async function dayAttSemCheck(prev, cfg) {
+  try {
+    if (!(currentProfile && currentProfile.role === 'admin') || !cfg) return;
+    const k = c => String((c && c.academicYear) || '') + '|' + String((c && c.semType) || '').toLowerCase();
+    if (!prev || k(prev) === k(cfg)) return;
+    const start = String(cfg.startDate || '').slice(0, 10);
+    const old = (await _daDays()).filter(d => !start || d < start);
+    if (!old.length) return;
+    dvConfirm('New semester - old day attendance', 'There are ' + old.length + ' saved days from the last semester (' + old[0] + ' to ' + old[old.length - 1] + '). Delete them so the new semester starts fresh? Cancel keeps them.', async () => {
+      try { const n = await _daDelete(old); dvToast('🗑 Deleted ' + n + ' old days', 'ok', 3000); }
+      catch (e) { dvToast('❌ Delete failed: ' + e.message, 'error', 5000); }
+    }, { okLabel: 'Delete old days', icon: '📅' });
+  } catch (e) { console.warn('[day-att] sem check', e && e.message); }
 }
 
 function carRender() {

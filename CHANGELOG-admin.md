@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1797 · 07-Oct-2026 IST
+User: "don't delete after 35 days - keep one delete button, and when we move to the next sem ask to delete or keep, then the new sem is all new". Day Attendance: 🗑 Delete saved days (admin only, with confirm); when a new semester is set active (Session config save / Activate) the admin is asked to delete or keep the old semester's days (dates before the new start date).
+Data: DB2 `davan_pub/att_day` - shallow read of the dates (a few bytes) + one PATCH of nulls when deleting. Pairs with app.py v090 (no auto-delete). Functions: _daDays, _daDelete, dayAttDeleteAll, dayAttSemCheck.
+
 ## v1796 · 07-Oct-2026 IST
 User: "day by day attendance per student - present / absent / MC". New 📅 Day Attendance page under Analysis (admin, manager, VP, principal, full-time faculty): pick a day (◀ ▶), see each class with who was absent all day, who missed some subjects (which ones) and who was on MC; filter by class and "absent / MC only / everyone / absent all day". Photos tap to zoom, 🏨 marks.
 Data: reads DB2 `davan_pub/att_day/<YYYY-MM-DD>` (written by the scraper app.py v089, 1:00 pm / 5:30 pm) - 1 read of about 40 KB per day opened, cached for the session. Functions: dayAttInit, dayAttLoad, dayAttRender, _daStatus.
