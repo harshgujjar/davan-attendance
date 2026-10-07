@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1791 · 07-Oct-2026 IST
+User (screenshot of a silent "English starts soon" alert): "this doesn't speak - the notification should speak, and the class wrapping up too" and "why limit to 5 - remove the limit". Student widget w184 speaks the session-start and last-class wrapping-up alerts; both widgets (w184 / staff w243) have no daily limit on spoken alerts. The Global Switches and notification-registry texts no longer say "max 5 a day". No data change. Pairs with student widget w184, staff widget w243. Functions: notification registry texts, gswShow.
+
 ## v1790 · 07-Oct-2026 IST
 User: "Kotrappa K shows two photos - make it one in all places; the degree photo is correct, don't use the PUC photo, change it at the core". New core rule facPhotoOne(name, fallback): the degree photo wins wherever a photo comes from a PUC record (the PUC lesson board, the PUC-faculty entries sent to the staff widgets). An admin login also writes the degree photo into RTDB puc_faculty/<id>/photo for teachers in both whose PUC photo differs (old one kept in photoPuc) - Kotrappa K was the only one and is fixed. No new reads. Pairs with PUC app v5.230. Functions: facPhotoOne, facPreloadPhotos (puc_faculty sync), the PUC board avatar, stwPublish PUC faculty.
 

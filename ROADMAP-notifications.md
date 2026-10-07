@@ -32,7 +32,7 @@ In a new session the user uploads the newest widget zips and says "do the next s
 - ☑ 2. (done 04-Oct-2026: admin v1733, portal v11.03, student widget w158, staff widget w202, fetch_news v1.6.1) Thai baht + currency picker (flags) · rates card in staff app admin · rate history · 🔔 Notifications page (all existing +
        new) · morning brief 7:30 · horoscope 7:45 · news 10:35 / 1:00 / 7:30 · gold ▲/▼ 12:50 · staff: currencies 3:20,
        Nifty 5:35, gold closing 5:40 · big gold move (>=1%) · weekly rates Mon 7:40 · weekend review Sat 6 pm · Instagram names
-- ☑ 2b. (done 05-Oct-2026: admin v1740, portal v11.09, student widget w163, staff widget w204) 🔊 Spoken alerts (English / Kannada, 7 am - 9 pm, max 5 a day)
+- ☑ 2b. (done 05-Oct-2026: admin v1740, portal v11.09, student widget w163, staff widget w204) 🔊 Spoken alerts (English / Kannada, 7 am - 9 pm, max 5 a day; 07-Oct-2026 admin v1791, student widget w184, staff widget w243: NO daily limit, and the class-start / last-class wrapping-up alerts speak too)
        + 🎛 Global Switches page; test list (V NEESHA + admin) on davan_pub/tts_cfg, the admin adds more people / groups or sets 'all'.
 - ☑ 2c. (done 05-Oct-2026: admin v1741, student widget w164, staff widget w205) Notifications at least 20 min apart (phones wait), new
        default times, ✎ times movable on the 🔔 page (notif_off/{aud}/_t), ✅ clash check there. Keep any new fixed time 20 min from the others.
