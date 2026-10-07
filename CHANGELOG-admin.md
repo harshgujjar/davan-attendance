@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1794 · 07-Oct-2026 IST
+User: "Nagaraj logged in as manager but I didn't get the notification". The shared log (Firestore app_data/admin_login_notif_log) showed both of his logins (9:38 and 10:08 am) were sent; but every push used the phone's one "davan-alert" tag, so the next alert (Roopa C C's login a minute later, class-alert copies) silently replaced it. Login alerts now get their own tag, sw.js sets renotify so a replacing push still sounds, and the log records the worker's answer (delivered / failed of N devices). No new reads. Functions: facAlertNotifyAdmin, the login alert in the post-login setup; sw.js push handler (cache davan-v8).
+
 ## v1793 · 07-Oct-2026 IST
 User: "the '1 3 6 sem 2026-27' page tells me class, subject and allocation - I want the same format from the app, with Excel and PDF". Subject–Faculty Allocation → 📋 Course structure: letterhead, BCA | BBA | B.Com columns, one block per class (sem, section, students) with #, Sl, Subject, Faculty (photo, tap to zoom), Hrs and hours per week, then the faculty workload (subjects, hours, classes). 📊 Excel (same columns, side by side, styled) and 📄 PDF (A4 landscape: the structure on page 1 - a long column's last class moves to the shortest one like the sheet - workload on page 2). Data: the Timetable allocation, the student list and the semester dates already in the app - no new reads. The allocation table's photos now zoom on tap. Functions: csxData, csxRender, csxToggle, csxExcel, csxPdf, allocRenderViewer.
 

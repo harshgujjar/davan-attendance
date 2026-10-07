@@ -1,5 +1,5 @@
 // sw.js — Davan Attendance System v6
-const CACHE_VERSION = 'davan-v7';
+const CACHE_VERSION = 'davan-v8';   // 07-Oct-2026: renotify (admin v1794)
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
 const ICON_URL = 'https://harshgujjar.github.io/davan-attendance/icon-192.png';
 
@@ -94,6 +94,9 @@ self.addEventListener('push', e => {
     image:   data.image   || undefined,
     vibrate: [200, 100, 200],
     tag:     data.tag     || 'davan-alert',
+    // 07-Oct-2026 (admin v1794): a push that replaces an earlier one with the same tag still sounds and pops up (was silent, so
+    // "X just logged in" alerts went unnoticed when another alert came a minute later)
+    renotify: true,
     data:    data.data    || {},
     actions: data.actions || [],
   };

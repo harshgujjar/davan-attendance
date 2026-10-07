@@ -13775,8 +13775,11 @@ async function onLoginSuccess() {
         } catch(e) { logEntry.subsDocError = e.message; logEntry.adminSubsCount = 0; }
         // Attempt push
         try {
-          await facAlertNotifyAdmin(title, body);
-          logEntry.result = 'facAlertNotifyAdmin resolved OK';
+          // v1794 (user: "Nagaraj logged in as manager but I got no notification"): the log showed it was sent, but every push shared
+          // the phone's one "davan-alert" slot, so the next alert (another login a minute later, a class-alert copy) silently replaced it.
+          // Each login alert now gets its own tag, and the worker's answer (delivered / failed) is kept in this shared log.
+          const rr = await facAlertNotifyAdmin(title, body, 'login-' + String(p.username || p.name || '').replace(/[^a-zA-Z0-9]/g, '') + '-' + Date.now());
+          logEntry.result = rr ? ('worker ' + rr.status + ' · delivered ' + rr.sent + ' of ' + rr.subs + (rr.failed ? ' · failed ' + rr.failed : '')) : 'not sent (no admin device subscribed, or no worker address)';
         } catch(e) {
           logEntry.result = 'ERROR: ' + e.message;
         }
@@ -18829,7 +18832,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1793;  // always = HTML footer version number
+const CODE_BUILD = 1794;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29708,6 +29711,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1794', date: '07-Oct-2026 IST', note: 'Login alerts ("X just logged in"): each one is now its own notification with sound - before, the next alert silently replaced it, so a login a minute later hid the earlier one. The log keeps whether each was delivered.' },
 { v: 'v1793', date: '07-Oct-2026 IST', note: 'Subject–Faculty Allocation: 📋 Course structure - the "1 3 6 sem" sheet format (BCA | BBA | B.Com, class blocks with subject, faculty, hours, students; faculty workload) from the app\'s own allocation, with 📊 Excel and 📄 PDF downloads.' },
 { v: 'v1792', date: '07-Oct-2026 IST', note: '📥 Get log: the widget sends its log within about 15 minutes instead of at its next refresh (up to 3 hours for student widgets) - student widget w185.' },
 { v: 'v1791', date: '07-Oct-2026 IST', note: 'Spoken reminders: no daily limit any more (was 5), and students also hear the "class starts in five minutes" and "last class wrapping up" alerts (student widget w184, staff widget w243).' },
@@ -29722,7 +29726,6 @@ const HTML_CHANGELOG = [
 { v: 'v1782', date: '07-Oct-2026 IST', note: 'Faculty Class Alerts: ☁ Nightly release card - shows whether the Cloudflare worker is connected, when the 9:15 pm timer started the release each night (on time or late), the result, and who got each release (staff by name and time, students by count). Keeps one week; cleared every Sunday 11:49 pm. 📋 Copy.' },
 { v: 'v1781', date: '06-Oct-2026 IST', note: 'Widget updates: a Cloudflare timer now starts the nightly release at 9:15 pm (GitHub\'s own timer was late or missing); Release now goes out within minutes. The card shows whether the timer is set up, with setup steps and 📋 Copy worker code.' },
 { v: 'v1780', date: '06-Oct-2026 IST', note: 'Side panel: Faculty Alerts is now "Faculty Class Alerts & Staff Widgets" (Admin section), and Find a page matches each word anywhere - e.g. "class alerts", "widget logs", "subscription".' },
-{ v: 'v1779', date: '06-Oct-2026 IST', note: 'Student widget version fix: the published student widget version follows the public release again (it was stuck on test build w182, so the portal showed Up to date (w182) = 0).' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -57770,7 +57773,7 @@ async function facAlertSendTest(faculty) {
 }
 
 // Send confirmation push to admin via Worker (same path as faculty notifications)
-async function facAlertNotifyAdmin(title, body) {
+async function facAlertNotifyAdmin(title, body, tag) {   // v1794: tag = own notification on the phone (login alerts), result returned
   // Append send timestamp to all admin confirmation pushes
   const bodyWithTs = body + '\n\nSent: ' + faDtStamp();
   // Get admin's own push subscription from Firestore
@@ -57795,7 +57798,7 @@ async function facAlertNotifyAdmin(title, body) {
         const res = await fetch(faWorkerUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, body: bodyWithTs, subscriptions: adminSubs }),
+          body: JSON.stringify({ title, body: bodyWithTs, subscriptions: adminSubs, tag: tag || '' }),
         });
         const resText = await res.text();
         console.log('[AdminNotif] Worker response status=' + res.status + ' body=' + resText);
@@ -57828,7 +57831,7 @@ async function facAlertNotifyAdmin(title, body) {
             facAlertLogEntry('⚠️ [LOGIN-PUSH] Delivered 0 — admin subs may be expired, re-subscribe this device');
           }
         }
-        return;
+        return { status: res.status, sent, failed, subs: adminSubs.length };
       } else {
         console.warn('[AdminNotif] No admin subs or no faWorkerUrl — adminSubs.length=' + adminSubs.length + ' faWorkerUrl=' + faWorkerUrl);
         if (typeof facAlertLogEntry === 'function') {
