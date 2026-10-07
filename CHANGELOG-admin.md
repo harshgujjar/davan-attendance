@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1790 · 07-Oct-2026 IST
+User: "Kotrappa K shows two photos - make it one in all places; the degree photo is correct, don't use the PUC photo, change it at the core". New core rule facPhotoOne(name, fallback): the degree photo wins wherever a photo comes from a PUC record (the PUC lesson board, the PUC-faculty entries sent to the staff widgets). An admin login also writes the degree photo into RTDB puc_faculty/<id>/photo for teachers in both whose PUC photo differs (old one kept in photoPuc) - Kotrappa K was the only one and is fixed. No new reads. Pairs with PUC app v5.230. Functions: facPhotoOne, facPreloadPhotos (puc_faculty sync), the PUC board avatar, stwPublish PUC faculty.
+
 ## v1789 · 07-Oct-2026 IST
 User: "Anitha's widget says 228 but the release is 227 - show old widget build numbers as old in the list, for students and staff". dvVer marks any widget older than the public build: "w226 (old)" for an earlier release, "old build 228" for widgets from before display numbers (build 228 showed "w228", which looked newer than w227). Faculty Subscription Status and the admin widget lines use it too. No data change. Pairs with portal v11.41. Functions: dvVer, facAlertRenderSubs.
 
