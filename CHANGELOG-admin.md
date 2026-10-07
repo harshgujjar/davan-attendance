@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1789 · 07-Oct-2026 IST
+User: "Anitha's widget says 228 but the release is 227 - show old widget build numbers as old in the list, for students and staff". dvVer marks any widget older than the public build: "w226 (old)" for an earlier release, "old build 228" for widgets from before display numbers (build 228 showed "w228", which looked newer than w227). Faculty Subscription Status and the admin widget lines use it too. No data change. Pairs with portal v11.41. Functions: dvVer, facAlertRenderSubs.
+
 ## v1788 · 07-Oct-2026 IST
 User: "hostel emoji, photo and tap to zoom are missing - make it the default rule". Faculty Class Alerts: the staff widgets summary photos now zoom on tap, and the ☁ Nightly release card shows a photo (tap to zoom) for every staff name, with each name in its own element so the 🏨 mark applies; late photos are filled in after drawing. Rule added to CLAUDE.md for every new list. No new reads. Pairs with portal v11.40. Functions: facSumRender, facRelRender.
 
