@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1786 · 07-Oct-2026 IST
+User: "make staff widget report exact update time". Staff widget w242 adds vAt (the exact install time from Android) to DB2 davan_pub/staff_widget_report/<code>; the ☁ Nightly release card shows "updated <time>" from it (and saves it in davan_pub/release_got), "had it before (test)" for phones that got the build from the next channel before the release, and "by <first seen>" for older widgets. No new reads. Pairs with staff widget w242. Functions: facStaffPeople, facRelRender.
+
 ## v1785 · 07-Oct-2026 IST
 User: "do step 2 fixes to cut downloads". Lesson plans: the phone copy is used as is when checked within the last hour (was ~72 tiny requests per open, 3,871/day); ⟳ still checks. Widget lists (185 KB) kept 30 min and across reloads (was 10 min, 54 reads/day). internals_current and allocation_each are also written straight to DB2 with a pub_ver stamp, only when the content changed; the IA eligibility list is not republished when unchanged. Writes only, no new reads. Pairs with portal v11.38. Functions: pubDualSet, _pubHash, _lpFetchCurrent, stwWidgetLists, the IA live-status publish.
 
