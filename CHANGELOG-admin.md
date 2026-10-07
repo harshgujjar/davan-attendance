@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1800 · 07-Oct-2026 IST
+User: Phase 1 of day attendance (students). The 🔔 Notifications page (NOTIF_REGISTRY) lists the two new student items: "🔒 Lock-screen card" (key lock, 7 am - 9 pm) and "📅 Yesterday's missed classes" (key gen_dayatt, 3:15 pm Mon-Sat, time movable); both ON by default, switched off here (DB2 davan_pub/notif_off/stu/{key}). No new reads. Pairs with student widget w188 (DayAtt, Lock), portal v11.44 (renderMyDays), app.py v092+.
+
 ## v1799 · 07-Oct-2026 IST
 User: "Internal Marks and Class View: when I scroll down, the subject / faculty heading goes off - at the 60th student I don't know which subject is which". Both tables now sit in their own scroll box (.dv-sticky-wrap, height of the screen) and every heading row (subject + faculty, I Int / II Int, W/P/F/A summary; Class View subject + CT/CA rows) stays on top while the students scroll; see-through heading cells get a solid backing. No data reads or writes. Functions: dvStickyHead (new), imRender, the Class View detail renderer.
 
