@@ -60,3 +60,17 @@ Staff app → Global Switches → ⬆ Widget updates: the line under the buttons
 `GET /?log=<widget code>` starts `.github/workflows/log-request.yml`, which writes the code into `log-req.json` on main. Student widget
 w185+ reads that file every 15 minutes and uploads its log at once. The apps' 📥 Get log buttons call it. Paste the current worker code
 once (📋 Copy worker code → Edit code → Deploy); `https://davan-release.harshgujjar.workers.dev/` then shows `"ver":3`.
+
+## Automatic deploy from GitHub (07-Oct-2026)
+
+Claude cannot reach Cloudflare from its sessions, so GitHub deploys the worker: `.github/workflows/deploy-worker.yml` runs whenever
+`tools/cloudflare-release-worker.js` changes on main (or by hand: Actions -> Deploy Cloudflare worker -> Run workflow). Settings
+(name, the two timers) are in `tools/cloudflare/davan-release.wrangler.toml`. The GH_TOKEN secret stays in Cloudflare.
+
+One-time setup (phone works):
+1. **Cloudflare**: dash.cloudflare.com -> top-right profile -> **My Profile** -> **API Tokens** -> **Create Token** -> template
+   **Edit Cloudflare Workers** -> Account Resources: your account -> Zone Resources: All zones (or leave) -> **Continue** ->
+   **Create Token** -> copy it (shown once). Never paste it in a chat.
+2. **GitHub**: github.com/harshgujjar/davan-attendance -> **Settings** -> **Secrets and variables** -> **Actions** ->
+   **New repository secret** -> Name `CLOUDFLARE_API_TOKEN`, Secret = the key -> **Add secret**.
+3. Actions -> **Deploy Cloudflare worker** -> **Run workflow**. The last step must say "worker v3 is live".
