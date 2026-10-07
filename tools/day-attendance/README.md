@@ -13,6 +13,19 @@ User, 07-Oct-2026: "we'll stop this setup here - keep what is built, keep all fi
 - Days before 06-Oct-2026 are empty (only 06-Oct was saved by hand with the test link). From now on each college day fills in by itself
   while app.py v089 runs.
 
+## BUILD PLAN - phases, agreed with the user 07-Oct-2026 (lock screen is part of each phase)
+Decisions: "starts in 5 min" and "wrapping up" 5 min before; a 2-period lab wraps up only at the end of the whole lab; lock screen
+shows counts only (never a student's name); student notification 3:15 pm (only when a class was missed), staff 6:00 pm; 9 pm-7 am hidden.
+- Phase 1 Students: portal "📅 My days" card, student widget line + dots, student LOCK SCREEN card (morning first class, starts in
+  5 min, now + minutes left, wrapping up, break/lunch + hostel meal, yesterday's attendance from 1:15 pm, pulled-down day view with
+  ticks / attendance % / next IA / yesterday's topics, after classes tomorrow's first class, holiday), 3:15 pm notification + 🔔 registry entry.
+- Phase 2 Faculty: staff app "Yesterday in your classes" (photos, absent lists), Day Attendance opens on own classes, class in-charge card,
+  staff widget line, faculty LOCK SCREEN (first class, starts in 5 min, now, wrapping up, free period, covering a class, yesterday
+  127/216-style line, pulled-down day / lesson plan behind / IA marks due), 6:00 pm notification.
+- Phase 3 Principal / Admin / Super Admin / Manager / Hostel head: their LOCK SCREENS, any day on the admin / principal widget (◀ ▶),
+  absent names in att_fac (app.py v094), hostel "absent all day" line, Super Admin system line (scraper run, release, DB2), 6 pm college summary.
+- Phase 4 later (needs days of data): streaks, "absent 3 in a row", Saturday full-week note, optional DB5 for the history.
+
 ## app.py v093 - faculty summary (07-Oct-2026)
 With every day collect: `davan_pub/att_fac/<date>/<class>/<subject> = {f: faculty, h: held, p: present count, a: [absent URNs],
 m: [MC URNs]}` (~10-15 KB a day) + `pub_ver/att_fac`. The faculty name comes from the portal's own column heading
