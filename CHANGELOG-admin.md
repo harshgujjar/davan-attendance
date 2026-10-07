@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1799 · 07-Oct-2026 IST
+User: "Internal Marks and Class View: when I scroll down, the subject / faculty heading goes off - at the 60th student I don't know which subject is which". Both tables now sit in their own scroll box (.dv-sticky-wrap, height of the screen) and every heading row (subject + faculty, I Int / II Int, W/P/F/A summary; Class View subject + CT/CA rows) stays on top while the students scroll; see-through heading cells get a solid backing. No data reads or writes. Functions: dvStickyHead (new), imRender, the Class View detail renderer.
+
 ## v1798 · 07-Oct-2026 IST
 User: "collecting twice a day will slow davandvg.com - collect once, at 1 pm, for yesterday". Day Attendance now opens on the last college day before today (Saturday on Monday) and its texts say each day is saved the next day at 1 pm. No new reads or writes. Pairs with app.py v091. Function: dayAttInit, dayAttRender.
 
