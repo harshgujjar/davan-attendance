@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1804 · 07-Oct-2026 IST
+User: Day Attendance Phase 2 (faculty). Faculty dashboard card "📅 Yesterday in your classes": present / absent / MC per class the person taught on the last college day, absent and MC students with photo (tap to zoom) and name (🏨). A class in-charge (login's classIncharge text) also gets "📌 Your class": who was absent all day or missed classes, and the Day Attendance page opens on that class. 🔔 page: staff "🔒 Lock-screen card (faculty)" (key lock) and "📅 Absent in your classes" 6 pm (key gen_dayatt), both ON.
+Data: DB2 `davan_pub/att_fac` shallow (dates) + `att_fac/<day>` (~15 KB) once per session; in-charge only: `att_day/<day>` (~40 KB, shared cache). Pairs with staff widget w250, app.py v093. Functions: fdbYdayRender, _fydLoad, _fydInchargeKey, _fydSameName, dayAttRender, NOTIF_REGISTRY.
+
 ## v1803 · 07-Oct-2026 IST
 Bug (user: the widget showed Everyone / ಕನ्नಡ, the staff app Test only): at 10:08 pm opening Global Switches wrote the first-time defaults (test mode, English, V NEESHA + Admin) over DB2 davan_pub/tts_cfg, because lpDb2Get answers null for a failed read too. gswInit now reads tts_cfg with gswReadRaw (ok / not ok) and seeds only when the database answers null; a failed read shows "could not read - nothing was changed". Functions: gswInit, gswReadRaw (new).
 

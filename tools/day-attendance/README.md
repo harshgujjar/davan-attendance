@@ -19,7 +19,7 @@ shows counts only (never a student's name); student notification 3:15 pm (only w
 - ☑ Phase 1 Students (DONE 07-Oct-2026: student widget w188 / w189 (card also in the admin's "Open as") on the next channel, portal v11.44, staff app v1800): portal "📅 My days" card, student widget line + dots, student LOCK SCREEN card (morning first class, starts in
   5 min, now + minutes left, wrapping up, break/lunch + hostel meal, yesterday's attendance from 1:15 pm, pulled-down day view with
   ticks / attendance % / next IA / yesterday's topics, after classes tomorrow's first class, holiday), 3:15 pm notification + 🔔 registry entry.
-- Phase 2 Faculty: staff app "Yesterday in your classes" (photos, absent lists), Day Attendance opens on own classes, class in-charge card,
+- ☑ Phase 2 Faculty (DONE 07-Oct-2026: staff widget w250 on the next channel, staff app v1804; covering a class and lesson plan / IA lines on the lock card left out - no substitution data): staff app "Yesterday in your classes" (photos, absent lists), Day Attendance opens on own classes, class in-charge card,
   staff widget line, faculty LOCK SCREEN (first class, starts in 5 min, now, wrapping up, free period, covering a class, yesterday
   127/216-style line, pulled-down day / lesson plan behind / IA marks due), 6:00 pm notification.
 - Phase 3 Principal / Admin / Super Admin / Manager / Hostel head: their LOCK SCREENS, any day on the admin / principal widget (◀ ▶),

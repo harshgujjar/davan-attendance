@@ -39,6 +39,7 @@ In a new session the user uploads the newest widget zips and says "do the next s
 - ☑ 2d. (done 05-Oct-2026: admin v1752, staff widget w216) 📋 Period class list for admins / Principal at every period start (List / Voice ON-OFF,
        default ON) and spoken alerts for the other roles (daily report, meeting, canteen, hostel, message from the college; never SOS).
 - ☑ Day attendance Phase 1 (07-Oct-2026: student widget w188, portal v11.44, admin v1800, app.py v092+): lock-screen card (key lock) and the 3:15 pm "yesterday's missed classes" note (gen_dayatt). Plan: tools/day-attendance/README.md
+- ☑ Day attendance Phase 2 - faculty (07-Oct-2026: staff widget w250, admin v1804): "Yesterday in your classes" card + widget row, class in-charge card, faculty lock-screen card (stf lock), 6 pm "absent in your classes" (stf gen_dayatt). Covering a class: not done (no substitution data).
 - ☐ 3. Shortage + study: under 50% -> meet Principal ("I'll meet" list), 50-75% shortage, good subjects, miss-2-more, backlog
 - ☐ 4. Fee window + "I have paid" + Manager bulk page (class/section, Mark all, NEW in yellow, Save) + faculty submissions + Thu summary
 - ☐ 5. Event feedback forms (stars / 1-5 marks / yes-no / few words) + anonymous box + 📖 "How Davan works" guide page

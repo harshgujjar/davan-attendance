@@ -3217,6 +3217,7 @@
       <div id="fdb-notif-banner" style="display:none;margin-bottom:16px;"></div>
 
       <div id="fdb-today-lp"></div>   <!-- v1610: My classes today (lesson plan) -->
+      <div id="fdb-yday"></div>   <!-- v1804: Yesterday in your classes + class in-charge (Day Attendance Phase 2) -->
       <!-- ── Faculty Widgets ── -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
         <span style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;">At a Glance</span>
@@ -18862,7 +18863,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1803;  // always = HTML footer version number
+const CODE_BUILD = 1804;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -20479,6 +20480,7 @@ function wgtRenderFaculty() {
     }
     wgtFillWidgetVersion();          // v1119
     fdbTodayLpRender();              // v1610
+    if (typeof fdbYdayRender === 'function') fdbYdayRender();   // v1804
   }, 60);
 }
 
@@ -20553,6 +20555,102 @@ function fdbTodayLpRender() {
       (later.length ? '<div style="font-size:12px;color:var(--muted);margin-top:8px;">Later today: ' + later.map(r => '<b style="color:var(--text)">' + fdbTlFmt(r.s) + '</b> ' + esc(r.sub) + ' (' + esc(r.c) + ')' + (r._today ? ' #' + r._today.sl : '')).join(' · ') + '</div>' : '') +
       (unticked ? '<div style="font-size:12px;color:var(--warn);margin-top:6px;">⚠️ ' + unticked + ' earlier class' + (unticked > 1 ? 'es' : '') + ' today not ticked in the lesson plan yet</div>' : '') + '</div>';
   } catch (e) { console.warn('[fdbTodayLp]', e); el.innerHTML = ''; }
+}
+
+/* v1804 DAY ATTENDANCE PHASE 2 - FACULTY (user, 07-Oct-2026: "Yesterday in your classes" card, class in-charge card).
+   The scraper (app.py v093) saves, once a day after 1 pm for the last college day, DB2 davan_pub/att_fac/<date>/<class key>/<subject>
+   = {f faculty, h held, p present, a [absent URNs], m [MC URNs]}. This card: 1 shallow read (the dates) + 1 read of the newest day
+   (~15 KB) per session; the in-charge card reads davan_pub/att_day/<date> (~40 KB, shared with the Day Attendance page cache).
+   A row is this person's when its faculty name matches theirs, else (no row with their name) their timetable class + subject that day.
+   Students show with photo (tap to zoom) and the name in its own <b> so the 🏨 mark is added. */
+function _fydNz(s) { return String(s || '').toLowerCase().replace(/^(dr|prof|mr|mrs|ms|smt|sri)\.?\s+/, '').replace(/[^a-z0-9]/g, ''); }
+function _fydSameName(a, b) {
+  const x = _fydNz(a), y = _fydNz(b); if (x.length < 3 || y.length < 3) return false; if (x === y) return true;
+  if (x.length >= 6 && y.length >= 6 && (x.startsWith(y) || y.startsWith(x))) return true;
+  return x.length >= 6 && x.length === y.length && x.split('').sort().join('') === y.split('').sort().join('');   // "B Madhu Malathi" = "MadhuMalathi B"
+}
+function _fydSameSub(t, a) { const x = _fydNz(t), y = _fydNz(a); return x.length >= 4 && y.length >= 4 && (x === y || x.includes(y) || y.includes(x)); }
+function _fydShort(k) { return String(k || '').split('-').filter(p => p !== 'Davan').map(p => p.replace(/^sem/i, 'Sem ').replace(/^sec/i, '')).join(' '); }
+async function _fydLoad() {
+  if (window._fydData !== undefined) return window._fydData;
+  try {
+    const token = await _lpGetPortalToken();
+    const res = await fetch(LP_PORTAL_URL + '/davan_pub/att_fac.json?shallow=true' + (token ? '&auth=' + token : ''));
+    if (!res.ok) throw new Error('DB2 ' + res.status);
+    const today = _daYmd(new Date()), days = Object.keys((await res.json()) || {}).filter(d => d < today).sort();
+    if (!days.length) return (window._fydData = null);
+    const d = days[days.length - 1];
+    window._fydData = { d, data: (await lpDb2Get('davan_pub/att_fac/' + d)) || {} };
+  } catch (e) { console.warn('[fyd]', e && e.message); return null; }
+  return window._fydData;
+}
+// The class in-charge's student class key from the free text on the login ("III BCA B", "BCA 5th sem (B)", "Davan-BCA-Sem5-SecB")
+function _fydInchargeKey() {
+  const t = String((currentProfile && currentProfile.classIncharge) || '').trim(); if (!t) return '';
+  if (/^Davan-/i.test(t)) return t;
+  const course = /BCA/i.test(t) ? 'BCA' : /B\.?\s*Com/i.test(t) ? 'BCom' : /BBA/i.test(t) ? 'BBA' : ''; if (!course) return '';
+  let sem = 0; const m = t.match(/sem(?:ester)?\s*[-:]?\s*(\d)|(\d)\s*(?:st|nd|rd|th)?\s*sem/i);
+  if (m) sem = +(m[1] || m[2]);
+  else { const y = /\bIII\b|3rd\s*year|\b3\s*year/i.test(t) ? 3 : /\bII\b|2nd\s*year|\b2\s*year/i.test(t) ? 2 : /\bI\b|1st\s*year|\b1\s*year/i.test(t) ? 1 : 0;
+    if (y) { const odd = String((typeof SESSION_CONFIG !== 'undefined' && SESSION_CONFIG && SESSION_CONFIG.semType) || '').toLowerCase() !== 'even'; sem = odd ? y * 2 - 1 : y * 2; } }
+  if (!sem) return '';
+  const sm = t.match(/\(([A-Z])\)|sec(?:tion)?\s*[-:]?\s*([A-Z])\b|\b([A-Z])\s*$/i); const sec = sm ? (sm[1] || sm[2] || sm[3]).toUpperCase() : 'A';
+  return 'Davan-' + course + '-Sem' + sem + '-Sec' + sec;
+}
+async function fdbYdayRender() {
+  const el = document.getElementById('fdb-yday'); if (!el || !currentProfile) return;
+  try {
+    const y = await _fydLoad(); if (!y) { el.innerHTML = ''; return; }
+    const esc = hcEsc, keys = new Set(getMyFacultyKeys()); Object.keys(FACULTY_NAME_ALIASES || {}).forEach(k => { if (keys.has(FACULTY_NAME_ALIASES[k])) keys.add(k); });
+    const meName = n => [...keys].some(k => _fydSameName(k, n));
+    const dObj = new Date(y.d + 'T12:00:00'), dayName = FA_DAYS[dObj.getDay()];
+    let tt = []; try { const { ctMap, scMap } = lcbBuildCtMaps(); tt = stwDegDay(dayName, ctMap, scMap).filter(r => (r.fs || [r.f]).some(f => keys.has(f))); } catch (e) {}
+    const byName = [], byTt = [];
+    Object.keys(y.data || {}).forEach(k => Object.keys(y.data[k] || {}).forEach(sub => {
+      const x = y.data[k][sub] || {}, t = tt.find(r => lcbTtClassToStudentClass(r.c) === k && _fydSameSub(r.sub, sub));
+      const row = { k, c: t ? t.c : _fydShort(k), sub, p: +x.p || 0, a: x.a || [], m: x.m || [] };
+      if (meName(x.f) || (t && !x.f)) byName.push(row); else if (t) byTt.push(row);
+    }));
+    const mine = byName.length ? byName : byTt;
+    const byUrn = {}; (allStudents || []).forEach(s => { const u = String(s.urn || s.seat_no || '').toUpperCase(); if (u) byUrn[u] = s; });
+    const person = (u, tag) => { const s = byUrn[String(u).toUpperCase()] || {}, nm = s.name || u;
+      return '<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px 3px 3px;border:1px solid var(--border);border-radius:999px;margin:3px 6px 3px 0;font-size:12px;">' + _stuAvatar(u, nm, 26) + '<b>' + esc(nm) + '</b>' + (tag ? '<span style="font-size:10px;color:#60A5FA;">' + tag + '</span>' : '') + '</span>'; };
+    const dd = dObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    const yWord = (() => { const t = new Date(); t.setHours(12, 0, 0, 0); return Math.round((t - dObj) / 86400000) === 1 ? 'Yesterday' : dayName; })();
+    const head = (t, r) => '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;"><span style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase;">' + t + '</span>' + (r ? '<span style="font-size:11px;color:var(--muted);">' + r + '</span>' : '') + '</div>';
+    let html = '';
+    if (mine.length) {
+      let P = 0, T = 0, A = 0, M = 0; mine.forEach(r => { P += r.p; A += r.a.length; M += r.m.length; T += r.p + r.a.length + r.m.length; });
+      html += '<div style="margin-bottom:18px;">' + head('📅 ' + yWord + ' in your classes · ' + esc(dd), P + '/' + T + ' present' + (A ? ' · <span style="color:#F87171;">' + A + ' absent</span>' : '') + (M ? ' · ' + M + ' MC' : ''))
+        + '<div class="card" style="padding:4px 14px;">' + mine.map(r => {
+          const t = r.p + r.a.length + r.m.length;
+          return '<div style="padding:9px 0;border-top:1px solid var(--border);"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;"><b>' + esc(r.c) + '</b><span style="color:var(--muted);font-size:12px;">' + esc(r.sub) + '</span>'
+            + '<span style="margin-left:auto;font-size:12px;">' + r.p + '/' + t + ' present' + (r.a.length ? ' · <span style="color:#F87171;">' + r.a.length + ' absent</span>' : ' ✅') + (r.m.length ? ' · <span style="color:#60A5FA;">' + r.m.length + ' MC</span>' : '') + '</span></div>'
+            + (r.a.length || r.m.length ? '<div style="margin-top:5px;">' + r.a.map(u => person(u, '')).join('') + r.m.map(u => person(u, 'MC')).join('') + '</div>' : '') + '</div>';
+        }).join('') + '<div style="font-size:11px;color:var(--muted);padding:6px 0 8px;">As the college portal had it the next day at 1 pm. Tap a photo to zoom.</div></div></div>';
+    }
+    // class in-charge: who missed classes in their own class (from the per-student day record)
+    const ik = _fydInchargeKey();
+    if (ik && (allStudents || []).some(s => s.class === ik)) {
+      if (!(y.d in _daCache)) _daCache[y.d] = (await lpDb2Get('davan_pub/att_day/' + y.d)) || null;
+      const day = _daCache[y.d] || {}, rows = [];
+      Object.keys(day).forEach(u => { const s = byUrn[u.toUpperCase()]; if (!s || s.class !== ik) return;
+        const subs = (day[u] || {}).s || {}, list = Object.keys(subs).map(k => ({ sub: k, st: _daStatus(subs[k] || []) })); if (!list.length) return;
+        const a = list.filter(x => x.st === 'A'), m = list.filter(x => x.st === 'MC'); if (!a.length && !m.length) return;
+        rows.push({ u, nm: s.name || u, full: a.length === list.length, a, m }); });
+      rows.sort((p, q) => (q.full - p.full) || q.a.length - p.a.length || p.nm.localeCompare(q.nm));
+      const full = rows.filter(r => r.full).length;
+      html += '<div style="margin-bottom:18px;">' + head('📌 Your class ' + esc(_fydShort(ik)) + ' · ' + esc(dd), full + ' absent all day · ' + (rows.length - full) + ' missed some')
+        + '<div class="card" style="padding:4px 14px;">' + (rows.length ? rows.map(r => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border);">' + _stuAvatar(r.u, r.nm, 32)
+          + '<div style="min-width:0;flex:1;"><b>' + esc(r.nm) + '</b>' + (r.full ? ' <span style="font-size:11px;color:#F87171;font-weight:700;">absent all day</span>' : '')
+          + '<div style="font-size:11.5px;color:var(--muted);margin-top:2px;">' + (r.full ? '' : r.a.map(x => '✗ ' + esc(x.sub)).join(' · ')) + (r.m.length ? (r.full || !r.a.length ? '' : ' · ') + r.m.map(x => 'MC ' + esc(x.sub)).join(' · ') : '') + '</div></div></div>').join('')
+          : '<div style="padding:10px 0;font-size:13px;">Everyone attended every class. 🎉</div>')
+        + '<div style="padding:6px 0 8px;"><button class="btn" style="font-size:12px;" onclick="switchPanel(\'day-attendance\');dayAttInit()">📅 Open Day Attendance</button></div></div></div>';
+    }
+    el.innerHTML = html;
+    _stuAvatarInject();
+    if (typeof window.hcTagVisible === 'function') setTimeout(window.hcTagVisible, 50);
+  } catch (e) { console.warn('[fyd]', e); el.innerHTML = ''; }
 }
 
 // Individual refresh (with spin animation on button)
@@ -29743,6 +29841,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1804', date: '07-Oct-2026 IST', note: 'Faculty dashboard: "📅 Yesterday in your classes" - present / absent / MC per class you taught on the last college day, absent students with photos; a class in-charge also sees who in their class was absent all day or missed classes, and Day Attendance opens on their class. 🔔 page: faculty lock-screen card and the 6 pm "absent in your classes" note (staff widget w250).' },
 { v: 'v1803', date: '07-Oct-2026 IST', note: 'Global Switches: a failed read no longer resets the spoken-alert settings and test list to the first-time defaults (it happened at 10:08 pm) - the page now says it could not read and changes nothing.' },
 { v: 'v1802', date: '07-Oct-2026 IST', note: 'Global Switches → Spoken alerts: "📊 Is the voice used? · today" - for students and staff: phones reporting, speaking, turned off, Kannada, times spoken, blocked by silent mode, phones that cannot speak, with the lists (photo, name) and 📋 Copy. Needs student widget w191 / staff widget w247.' },
 { v: 'v1801', date: '07-Oct-2026 IST', note: '🔔 Notifications page: a new list "🔕 Turned off on students\' phones" - who switched off class reminders or other notifications (newer phones show an Unsubscribe button), with photo, class and phone. Student widget w190 reminds them and locks to today\'s classes until class reminders are back on.' },
@@ -29757,7 +29856,6 @@ const HTML_CHANGELOG = [
 { v: 'v1792', date: '07-Oct-2026 IST', note: '📥 Get log: the widget sends its log within about 15 minutes instead of at its next refresh (up to 3 hours for student widgets) - student widget w185.' },
 { v: 'v1791', date: '07-Oct-2026 IST', note: 'Spoken reminders: no daily limit any more (was 5), and students also hear the "class starts in five minutes" and "last class wrapping up" alerts (student widget w184, staff widget w243).' },
 { v: 'v1790', date: '07-Oct-2026 IST', note: 'One photo per person: a teacher in both Degree and PUC (e.g. Kotrappa K) shows the degree photo everywhere - the PUC staff list, the PUC board and the widgets now use it too.' },
-{ v: 'v1789', date: '07-Oct-2026 IST', note: 'Widget versions in every list: a widget older than the public one now says "old build 228" (or "w226 (old)") instead of a bare number that could look newer than the current w227.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -47929,7 +48027,8 @@ function dayAttRender() {
     const c = st.class || 'Other';
     (cls[c] = cls[c] || []).push({ urn, name: st.name || urn, list, nA, nM, kind });
   });
-  const sel = document.getElementById('da-class'), keep = sel ? sel.value : '';
+  const sel = document.getElementById('da-class'); let keep = sel ? sel.value : '';
+  if (!window._daDefDone) { window._daDefDone = true; const ik = typeof _fydInchargeKey === 'function' ? _fydInchargeKey() : ''; if (ik && data && Object.keys(data).some(u => ((byUrn[u.toUpperCase()] || {}).class) === ik)) keep = ik; }   // v1804: a class in-charge opens on their class
   const names = Object.keys(cls).sort();
   if (sel) { sel.innerHTML = '<option value="">All classes</option>' + names.map(n => '<option' + (n === keep ? ' selected' : '') + '>' + hcEsc(n) + '</option>').join(''); }
   const show = (document.getElementById('da-show') || {}).value || 'miss';
@@ -83815,10 +83914,12 @@ const NOTIF_REGISTRY = [
   { a: 'stf', k: 'gen_gold', m: 765, t: '12:45 pm (lunch)', d: 'Mon–Fri', n: '🥇 Gold & silver ▲/▼', w: 'IBJA opening rate with the change (only on a new rate day)', s: 'new', dw: '23456', e: 1 },
   { a: 'stf', k: 'gen_news2', m: 785, t: '1:05 pm (lunch)', d: 'Mon–Sat', n: '📰 Lunch-time news', w: 'World, Bollywood and Sandalwood headline', s: 'new', dw: '234567', e: 1 },
   { a: 'stf', k: 'gen_bigmove', m: 781, t: 'Next slot after it happens', d: 'When gold moves 1%+', n: '🚨 Big gold move', w: '24K gold up or down 1% or more', s: 'new' },
+  { a: 'stf', k: 'lock', m: 420, t: '7 am – 9 pm', d: 'Daily', n: '🔒 Lock-screen card (faculty)', w: 'Silent card for people who teach: first class, starts in 5 min (room, topic), now + minutes left, wrapping up (a lab at its end), free till, next class day; from 1:15 pm yesterday\'s classes as counts. Widget w250', s: 'new' },
   { a: 'stf', k: 'gen_fx', m: 920, t: '3:20 pm (tea break)', d: 'Mon–Fri', n: '💱 Currency rates', w: 'The currencies picked on the 💱 Rates page, ▲/▼', s: 'new', dw: '23456', e: 1 },
   { a: 'stf', k: 'daily', m: 1050, t: '5:30 pm', d: 'Mon–Sat', n: '📊 Daily report', w: 'Admin: the day in numbers', s: 'running', dw: '234567' },
   { a: 'stf', k: 'gen_nifty', m: 1070, t: '5:50 pm', d: 'Mon–Fri', n: '📈 Market close', w: 'Nifty 50 and Bank Nifty', s: 'new', dw: '23456', e: 1 },
   { a: 'stf', k: 'gen_goldclose', m: 1110, t: '6:30 pm', d: 'Mon–Fri', n: '🥇 Gold closing rate', w: 'IBJA closing (PM) rate', s: 'new', dw: '23456', e: 1 },
+  { a: 'stf', k: 'gen_dayatt', m: 1080, t: '6:00 pm', d: 'Mon–Sat', n: '📅 Absent in your classes', w: 'Faculty: absent / MC per class on the last college day (Monday: Saturday), only when someone was absent; names and photos on the staff app dashboard. Widget w250', s: 'new', dw: '234567', e: 1 },
   { a: 'stf', k: 'gen_review', m: 1080, t: 'Sat 6:00 pm', d: 'Sat', n: '🗓 Week review', w: 'Rates over the week and the top news', s: 'new', dw: '7', e: 1 },
   { a: 'stf', k: 'syl', m: 1081, t: 'Sun 6:00 pm', d: 'Sun', n: '📖 Syllabus behind', w: 'Only when a subject is 🟡 / 🔴', s: 'running', dw: '1' },
   { a: 'stf', k: 'wknd', m: 1090, t: 'Fri 6:10 pm', d: 'Fri', n: '🗓 Weekend notice', w: 'Degree faculty: Saturday off / working, the Saturday meeting', s: 'running', dw: '6' },
