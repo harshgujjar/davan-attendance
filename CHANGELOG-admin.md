@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1809 · 08-Oct-2026 IST
+User: "she had a class on the 6th - visiting faculty should see it". 📅 Day Attendance is open to visiting faculty, limited to the classes on their own timetable (any day, ◀ ▶). Same reads as before (1 read of att_day/<day> per day opened). Pairs with staff widget w252 (last 3 college days on the "In your classes" card). Functions: _daMyClasses, dayAttRender, applySidebarForRole access map.
+
 ## v1808 · 08-Oct-2026 IST
 User: "Meet the Principal shows students who are under exemption - they are all seen". The page now leaves out students on the Exemptions list (isExempted) and says how many were left out. The exempted URNs are also published to DB2 `davan_pub/exempt_urns` = {URN: true} (when the list is saved, and when an admin opens the page if it changed) so the portal (v11.49) and the student widget (w195) stop shortage / meet-the-Principal notes for them. Functions: exPublishUrns, saveExemptions, mpRender, mpInit.
 
