@@ -1,5 +1,8 @@
 # Davan attendance — working rules
 
+**New session? Read `HANDOFF.md` first** (current versions, open items, how the user works) - then work without asking the user to
+repeat anything. Update HANDOFF.md at the end of every session, in the same commit.
+
 ## index.html is BUILT (from v1581) - edit src/index.src.html
 
 Never edit `index.html` or `js/admin-*.js` by hand. Edit `src/index.src.html` (the whole staff app, as before), then run
