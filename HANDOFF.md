@@ -46,9 +46,11 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes).
 ## Open items / next steps
 1. **Check the new Today page on a real phone** (built without device testing): DAVAN colours, countdown badge, small photos per line,
    Results faculty names, lock-card header. Fix whatever the user reports.
-2. **DB2 daily usage check**: Claude cannot read DB2 from the cloud (an anonymous-token sign-up was blocked by the permission
-   classifier on 08-Oct). Ask the user for a screenshot of the staff app meter page (DB2 usage, pick the date), or for permission.
-   Watch: w201 makes each student re-read their results once (+~15 KB allocation_each_c) - a one-day bump on 09-Oct is expected.
+2. **DB2 daily usage check**: run the private davan-scraper workflow **"DB2 usage"** (Actions -> DB2 usage -> Run workflow, or the
+   GitHub MCP actions_run_trigger with workflow_id db2-usage.yml) and read the job log - same numbers as the staff app meter page,
+   read only, uses the SA_DB2 secret. Do NOT sign up anonymous tokens (blocked). 08-Oct at 9:50 pm: 70.0 MiB (24% of 300 MB);
+   7-Oct 109.5, 6-Oct 96.2, 5-Oct 106.7 MiB. Biggest: portal allocation_each (old full node, 4.9 MiB / 113 reads - old cached
+   portals), lessonPlan (staff app 4.6 MiB), timetable_portal 4.0 MiB. Expect a small bump on 09-Oct (w201 re-reads results once).
 3. Cloud scraper: login / keys / reachability tests pass in GitHub Actions (davan-scraper). Offered, not approved yet: a full cloud
    test scrape, then move the 1 pm / 5:30 pm runs to the cloud and switch off the laptop scheduler.
 4. Student 3:15 pm note: add present/absent counts + topics missed (offered, not built).
