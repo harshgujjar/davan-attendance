@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1812 · 08-Oct-2026 IST
+User: "Notifications page - has it been updated with the new notifications". NOTIF_REGISTRY: new student entry chanoff "🔕 Turn your notifications back on" (the daily reminder of student widget w190, always sent - not switchable), and updated texts for stu low, stu gen_dayatt (miss-N-more, meet the Principal, exempted students), stu / stf tts ("Professor …" in the voice, w197 / w254). No data change. Function: NOTIF_REGISTRY.
+
 ## v1811 · 08-Oct-2026 IST
 User: "full-time faculty get the choice, but default always their own only - keeps the database traffic low". Stays on their own name on every day they step to (a day without their class says so) until they pick another name. Each time a full-time or visiting faculty member opens Day Attendance it starts on 👩‍🏫 By faculty & subject with their own name picked (DB2 `att_fac/<day>` ~15 KB instead of `att_day/<day>` ~40 KB); full-time can still pick All faculty or 👤 By student. Functions: dayAttInit, dayAttRenderFac.
 
