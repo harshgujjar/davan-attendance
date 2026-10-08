@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1808 · 08-Oct-2026 IST
+User: "Meet the Principal shows students who are under exemption - they are all seen". The page now leaves out students on the Exemptions list (isExempted) and says how many were left out. The exempted URNs are also published to DB2 `davan_pub/exempt_urns` = {URN: true} (when the list is saved, and when an admin opens the page if it changed) so the portal (v11.49) and the student widget (w195) stop shortage / meet-the-Principal notes for them. Functions: exPublishUrns, saveExemptions, mpRender, mpInit.
+
 ## v1807 · 08-Oct-2026 IST
 User: "a staff phone re-published at 11:06 pm - why; lower the DB2 downloads". The "changed?" check for allocation_each, internals_current and IA1/IA2 status remembered only what that phone sent, so the first open on any phone re-stamped identical data and every student re-downloaded it. Now the fingerprint is kept in DB2 (`davan_pub/pub_hash/{key}`, a few bytes, read once per publish) - same data, nothing written or stamped. Each real change also writes the students' small copies `davan_pub/allocation_each_c/{course}` and `davan_pub/internals_stu` (no staff duties). One-time cleanup: 75 old debug texts (scheduleDebug from blocked widgets up to build 93) removed from `student_widget_report` (152 KB -> 64 KB per read). Pairs with portal v11.48, app.py v094. Functions: pubDualSet, pubSameAsDb2, pubMarkSent, _pubCanon, _pubDerived, iaePublishLiveStatus.
 

@@ -18915,7 +18915,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1807;  // always = HTML footer version number
+const CODE_BUILD = 1808;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -28817,6 +28817,7 @@ function getExemptions() {
 function saveExemptions(list) {
   try { localStorage.setItem('davan_exemptions', JSON.stringify(list)); } catch(e) {}
   // Save to Firebase so it persists across logins and devices
+  exPublishUrns(list);   // v1808: DB2 copy (URN -> true) for the portal and the student widget
   fsSet('app_data', 'exempt_students', { list }).then(ok => {
     if (ok) {
       if (rtdb) rtdb.ref('davan_pub/exempt_students').set({ list }).catch(()=>{});
@@ -28827,6 +28828,14 @@ function saveExemptions(list) {
 // Courses excluded globally from all shortage/dashboard panels
 const EXEMPT_COURSES = ['puc', 'bsc'];
 
+/* v1808 (user, 08-Oct-2026: "Meet the Principal shows students who are under exemption"): the exempted URNs also go to DB2
+   davan_pub/exempt_urns = {URN: true} (a few bytes each) so the portal and the student widget leave those students out of
+   shortage / meet-the-Principal notes. Written when the list is saved and when the Meet the Principal page opens (only if it differs). */
+function exPublishUrns(list) {
+  try { const m = {}; (list || []).forEach(e => { const u = String(e && e.urn || '').toUpperCase().replace(/[.#$\[\]\/]/g, '_'); if (u) m[u] = true; });
+    const h = _pubHash(_pubCanon(m)); if (window._exPubH === h) return; window._exPubH = h;
+    lpDb2Set('davan_pub/exempt_urns', Object.keys(m).length ? m : null).catch(() => {}); } catch (e) {}
+}
 function isExempted(s) {
   const list = getExemptions();
   if (list.some(e => e.urn === (s.urn || s.seat_no))) return true;
@@ -29893,6 +29902,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1808', date: '08-Oct-2026 IST', note: 'Meet the Principal leaves out students the college exempted (Exemptions page) and says how many; exempted students also stop getting shortage / meet-the-Principal notes in the portal (v11.49) and the student widget (w195).' },
 { v: 'v1807', date: '08-Oct-2026 IST', note: 'Fewer DB2 downloads: opening the staff app (any phone, any time) no longer makes every student download allocations, internal timetable and IA status again unless something really changed, and students now get small copies of their own part (portal v11.48, scraper app.py v094).' },
 { v: 'v1806', date: '07-Oct-2026 IST', note: 'A refresh now loads the page you were on (Global Switches stayed blank, and other pages could too) - the app runs that page\'s loader by itself, the same as tapping it in the menu.' },
 { v: 'v1805', date: '07-Oct-2026 IST', note: 'New ✋ Meet the Principal page (Analysis): students under 50% in a subject - who pressed "I\'ll meet the Principal" in the student portal (tap Met ✓ when they come), who has not answered yet, and who has met, with photos. Pairs with portal v11.46 ("🎯 Your attendance plan") and student widget w194.' },
@@ -29907,7 +29917,6 @@ const HTML_CHANGELOG = [
 { v: 'v1796', date: '07-Oct-2026 IST', note: 'New 📅 Day Attendance page (Analysis): pick a day and see, class by class, who was absent all day, who missed some classes (which subjects) and who was on MC - from the scraper\'s per-day pull of the college portal.' },
 { v: 'v1795', date: '07-Oct-2026 IST', note: 'Login alerts and class-alert copies go only to devices the Super Admin (admin login) subscribed himself - never to managers, the principal or staff, even if someone else uses the admin login on their phone.' },
 { v: 'v1794', date: '07-Oct-2026 IST', note: 'Login alerts ("X just logged in"): each one is now its own notification with sound - before, the next alert silently replaced it, so a login a minute later hid the earlier one. The log keeps whether each was delivered.' },
-{ v: 'v1793', date: '07-Oct-2026 IST', note: 'Subject–Faculty Allocation: 📋 Course structure - the "1 3 6 sem" sheet format (BCA | BBA | B.Com, class blocks with subject, faculty, hours, students; faculty workload) from the app\'s own allocation, with 📊 Excel and 📄 PDF downloads.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -48131,6 +48140,7 @@ async function mpInit(force) {
   const out = document.getElementById('mp-out'); if (!out) return;
   const cb = document.getElementById('mp-clear-btn'); if (cb) cb.style.display = (currentProfile && currentProfile.role === 'admin') ? '' : 'none';
   if (force || !_mpReq) { out.innerHTML = '<div class="empty">Loading…</div>'; _mpReq = (await lpDb2Get('davan_pub/meet_req')) || {}; }
+  if (currentProfile && currentProfile.role === 'admin') exPublishUrns(getExemptions());   // v1808: keep the DB2 copy in step
   mpRender();
 }
 function mpRender() {
@@ -48138,10 +48148,12 @@ function mpRender() {
   const esc = hcEsc, req = _mpReq || {}, byUrn = {};
   (allStudents || []).forEach(s => { const u = String(s.urn || s.seat_no || '').toUpperCase(); if (u) byUrn[u.replace(/[.#$\[\]\/]/g, '_')] = s; });
   const will = [], met = [], open = [];
+  let exN = 0;
   Object.keys(req).forEach(u => { const r = req[u] || {}; if (!r.at) return; const st = byUrn[u] || {};
+    if (byUrn[u] && isExempted(byUrn[u])) { exN++; return; }   // v1808: exempted by the college
     const x = { u, nm: st.name || r.n || u, c: st.class || r.c || '', subs: Object.keys(r.s || {}).map(k => ({ n: k, p: r.s[k] })), r };
     (r.met ? met : will).push(x); });
-  Object.keys(byUrn).forEach(u => { if (req[u] && req[u].at) return; const low = _mpLow(byUrn[u]); if (low.length) open.push({ u, nm: byUrn[u].name || u, c: byUrn[u].class || '', subs: low }); });
+  Object.keys(byUrn).forEach(u => { if (req[u] && req[u].at) return; if (isExempted(byUrn[u])) { const l0 = _mpLow(byUrn[u]); if (l0.length) exN++; return; } const low = _mpLow(byUrn[u]); if (low.length) open.push({ u, nm: byUrn[u].name || u, c: byUrn[u].class || '', subs: low }); });
   const by = (a, b) => String(a.c).localeCompare(String(b.c)) || a.nm.localeCompare(b.nm);
   will.sort((a, b) => a.r.at - b.r.at); met.sort((a, b) => (b.r.metAt || 0) - (a.r.metAt || 0)); open.sort(by);
   const d = t => t ? new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
@@ -48152,6 +48164,7 @@ function mpRender() {
   out.innerHTML = sec('✋ Said they will come', will.length, will.length ? will.map(x => row(x, '<div style="text-align:right;font-size:11px;color:var(--muted);">' + d(x.r.at) + '<br><button class="btn" style="font-size:12px;margin-top:4px;" onclick="mpMet(\'' + esc(x.u) + '\', this)">Met ✓</button></div>')).join('') : '<div style="padding:10px 12px;font-size:13px;color:var(--muted);">Nobody waiting.</div>', '#FBBF24')
     + sec('⏳ Under 50%, not answered yet', open.length, open.length ? open.map(x => row(x, '')).join('') : '<div style="padding:10px 12px;font-size:13px;color:var(--muted);">Nobody. 🎉</div>', '#F87171')
     + sec('✅ Met', met.length, met.length ? met.map(x => row(x, '<div style="text-align:right;font-size:11px;color:var(--muted);">' + d(x.r.metAt) + (x.r.metBy ? '<br>' + esc(x.r.metBy) : '') + '</div>')).join('') : '<div style="padding:10px 12px;font-size:13px;color:var(--muted);">None yet.</div>', '#34D399')
+    + (exN ? '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">✅ ' + exN + ' exempted student' + (exN === 1 ? '' : 's') + ' under 50% left out (Exemptions page).</div>' : '')
     + '<div style="font-size:11px;color:var(--muted);">Under 50% = attended / held in any subject (as on the students list). Students see "✋ I\'ll meet the Principal" on the portal\'s Attendance page (v11.46+).</div>';
   _stuAvatarInject();
   if (typeof window.hcTagVisible === 'function') setTimeout(window.hcTagVisible, 50);
