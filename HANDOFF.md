@@ -25,12 +25,14 @@ session (same commit as the work), keep it short, newest state only.
 | Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 256 |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v100 | laptop runs v100 |
 
-## Widget sources (NOT in git)
-The newest sources are DavanStudentWidget_w201 and DavanWidget_w256 (zips sent to the user 08-Oct). At the start of a widget task
-ask the user to upload those two zips (or newer), unzip, run `bash tools/widget-toolchain.sh`, build with
-`ANDROID_JAR=$HOME/tc/android.jar bash build.sh`. New from w199 / w256: `layout-master/` holds the card + main layouts and
-`gen_sizes.py` (run by build.sh) writes res/layout/*.xml, *_m.xml (92%), *_s.xml (85%) - **edit layout-master/, never res/layout/**.
-dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes).
+## Widget sources (private repo, not this one)
+Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 201) and `widgets/staff` (build 256) - add_repo +
+clone it, read widgets/README.md. Keystores: the user uploads `widgets/student/davan-student-widget.keystore` and
+`widgets/staff/davan-widget-release.keystore` there (Claude never copies key files - blocked as credential leakage on 08-Oct); if they
+are missing, ask the user to upload them (or the zips). Then `bash tools/widget-toolchain.sh`, build with
+`ANDROID_JAR=$HOME/tc/android.jar bash build.sh`. From w199 / w256: `layout-master/` holds the card + main layouts and `gen_sizes.py`
+(run by build.sh) writes res/layout/*.xml, *_m.xml (92%), *_s.xml (85%) - **edit layout-master/, never res/layout/**.
+dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a build: copy the source back to davan-scraper/widgets, push.
 
 ## What was built this session (all live)
 - Student widget w199-w201: new Today page look (badges, live countdown on NOW, "TEACHING NOW" topic, "Prof." names, "Your last
@@ -55,8 +57,7 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes).
    test scrape, then move the 1 pm / 5:30 pm runs to the cloud and switch off the laptop scheduler.
 4. Student 3:15 pm note: add present/absent counts + topics missed (offered, not built).
 5. Swaroop (student) needed a one-time manual install of the widget (Files -> Downloads -> APK) because of the old "Open with" bug.
-6. Optional idea offered: keep widget sources + keystores in the private davan-scraper repo so a new session can build without the
-   user uploading zips - **only if the user agrees** (its CLAUDE.md forbids committing keys).
+6. Widget keystores: ask the user whether they uploaded them to davan-scraper/widgets (see above) before the first widget build.
 
 ## Useful facts
 - Release log: `release-log.json` ("by": "Cloudflare 9:15 pm" = the timer worked). Display numbers: `display` in the public jsons.

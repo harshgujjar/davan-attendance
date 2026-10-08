@@ -90,8 +90,10 @@ After every change: bump versions, write the changelog entries, commit, push the
 
 ## Building the widgets in a NEW session (user, 03-Oct-2026)
 
-Widget sources are not in git. The user uploads the newest zips (DavanWidget_w<nnn>.zip, DavanStudentWidget_w<nnn>.zip; each holds the
-source, build.sh and the keystore). Unzip them, then run `bash tools/widget-toolchain.sh` once (installs aapt, dalvik-exchange,
+From 08-Oct-2026 the newest widget sources live in the PRIVATE repo harshgujjar/davan-scraper, folder `widgets/` (student/, staff/;
+see its widgets/README.md) - attach it with add_repo and clone it, no zips needed. The signing keystores there are uploaded by the user;
+if one is missing, ask for it. After every widget build copy the new source back to davan-scraper/widgets and push (never into this
+public repo). Older way, still fine: the user uploads the zips (DavanWidget_w<nnn>.zip, DavanStudentWidget_w<nnn>.zip). Then run `bash tools/widget-toolchain.sh` once (installs aapt, dalvik-exchange,
 zipalign, apksigner and a JDK from Ubuntu, and puts Android API 34 `android.jar` at `$HOME/tc/android.jar` from this repo's
 `build-tools` branch - dl.google.com is blocked in cloud sessions; the jar is a slim 77 MB copy, checked 07-Oct-2026: w182 / w241
 rebuilt with it are identical to the released APKs). Never put android.jar on main. Build: in the widget folder
