@@ -60,6 +60,11 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
 6. Widget keystores: uploaded by the user to davan-scraper/widgets on 08-Oct and checked - a test build from the repo signs with the
    same certificate as the released APKs (student 9ed273b8…, staff d5a018f5…). New sessions can build straight from there.
 
+## Side project: Status Date (user's own phone app)
+Day / date / month on the status bar (Motorola Edge 50 Pro). Source: private davan-scraper `apps/statusdate` (README there). v1 built
+08-Oct-2026 (21 KB APK sent to the user). Its key `statusdate.keystore` is in the zip sent to the user - ask them to upload it to
+apps/statusdate before the next build. Not part of the Davan apps, no release channel - send the APK directly.
+
 ## Useful facts
 - Release log: `release-log.json` ("by": "Cloudflare 9:15 pm" = the timer worked). Display numbers: `display` in the public jsons.
 - Day attendance data: DB2 davan_pub/att_day, att_fac, att_stu/<URN>/<date>; scraper saves after 1 pm for the last college day.
