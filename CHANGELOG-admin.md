@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1810 · 08-Oct-2026 IST
+User: "Day Attendance is student-centric - how do I see per faculty, per subject, who was absent". New view switch 👤 By student / 👩‍🏫 By faculty & subject: one card per faculty (photo), each class + subject with present / absent / MC counts and the absent students (photo, tap to zoom, 🏨); faculty and class filters; "Absent all day" filter shows counts only. Visiting faculty see only their own rows.
+Data: DB2 `davan_pub/att_fac/<day>` (~15 KB, 1 read per day opened, kept for the session); days before 5 Oct have no faculty summary. Functions: dayAttRenderFac, dayAttRender.
+
 ## v1809 · 08-Oct-2026 IST
 User: "she had a class on the 6th - visiting faculty should see it". 📅 Day Attendance is open to visiting faculty, limited to the classes on their own timetable (any day, ◀ ▶). Same reads as before (1 read of att_day/<day> per day opened). Pairs with staff widget w252 (last 3 college days on the "In your classes" card). Functions: _daMyClasses, dayAttRender, applySidebarForRole access map.
 

@@ -5427,6 +5427,10 @@
         <button class="btn" onclick="dayAttShift(-1)" style="font-size:13px;">◀</button>
         <input type="date" id="da-date" onchange="dayAttLoad()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 10px;font-size:13px;">
         <button class="btn" onclick="dayAttShift(1)" style="font-size:13px;">▶</button>
+        <select id="da-view" onchange="dayAttRender()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;">
+          <option value="stu">👤 By student</option><option value="fac">👩‍🏫 By faculty &amp; subject</option>
+        </select>
+        <select id="da-fac" onchange="dayAttRender()" style="display:none;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;"><option value="">All faculty</option></select>
         <select id="da-class" onchange="dayAttRender()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;"><option value="">All classes</option></select>
         <select id="da-show" onchange="dayAttRender()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;">
           <option value="miss">Absent / MC only</option><option value="all">Everyone</option><option value="full">Absent all day</option>
@@ -18915,7 +18919,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1809;  // always = HTML footer version number
+const CODE_BUILD = 1810;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29902,6 +29906,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1810', date: '08-Oct-2026 IST', note: 'Day Attendance: new view "👩‍🏫 By faculty & subject" - for each faculty member and each class + subject they taught that day: present / absent / MC and the absent students with photos; filter by faculty or class. Visiting faculty see only their own.' },
 { v: 'v1809', date: '08-Oct-2026 IST', note: 'Visiting faculty can open 📅 Day Attendance too - only the classes they teach, any day with ◀ ▶. Staff widget w252 shows the last 3 college days in "In your classes".' },
 { v: 'v1808', date: '08-Oct-2026 IST', note: 'Meet the Principal leaves out students the college exempted (Exemptions page) and says how many; exempted students also stop getting shortage / meet-the-Principal notes in the portal (v11.49) and the student widget (w195).' },
 { v: 'v1807', date: '08-Oct-2026 IST', note: 'Fewer DB2 downloads: opening the staff app (any phone, any time) no longer makes every student download allocations, internal timetable and IA status again unless something really changed, and students now get small copies of their own part (portal v11.48, scraper app.py v094).' },
@@ -29916,7 +29921,6 @@ const HTML_CHANGELOG = [
 { v: 'v1798', date: '07-Oct-2026 IST', note: 'Day Attendance opens on the last college day (yesterday; Saturday on Monday) - the scraper now saves each day once, the next day at 1 pm, when every class is marked.' },
 { v: 'v1797', date: '07-Oct-2026 IST', note: 'Day Attendance: saved days are no longer deleted after 35 days. The admin has a 🗑 Delete saved days button, and when a new semester is set active the app asks whether to delete or keep the old semester\'s days.' },
 { v: 'v1796', date: '07-Oct-2026 IST', note: 'New 📅 Day Attendance page (Analysis): pick a day and see, class by class, who was absent all day, who missed some classes (which subjects) and who was on MC - from the scraper\'s per-day pull of the college portal.' },
-{ v: 'v1795', date: '07-Oct-2026 IST', note: 'Login alerts and class-alert copies go only to devices the Super Admin (admin login) subscribed himself - never to managers, the principal or staff, even if someone else uses the admin login on their phone.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -48063,6 +48067,58 @@ async function dayAttLoad(force) {
   }
   if ((document.getElementById('da-date') || {}).value === day) dayAttRender();
 }
+
+/* v1810 (user, 08-Oct-2026: "Day Attendance is student-centric - I want per faculty, per subject, who was absent"). 👩‍🏫 By faculty &
+   subject: DB2 davan_pub/att_fac/<day> (written by app.py v093+ with every day collect: per class and subject the faculty from the
+   portal's own heading, present count, absent and MC URNs). One card per faculty (photo), one block per class + subject with the
+   absent / MC students (photo, tap to zoom, 🏨). 1 read of ~15 KB per day opened, kept for the session. Visiting faculty: only their own. */
+const _dafCache = {};
+async function dayAttRenderFac(day) {
+  const out = document.getElementById('da-out'); if (!out) return;
+  if (!(day in _dafCache)) { out.innerHTML = '<div class="empty">Loading ' + hcEsc(day) + '…</div>'; _dafCache[day] = (await lpDb2Get('davan_pub/att_fac/' + day)) || null;
+    if ((document.getElementById('da-date') || {}).value !== day) return; }
+  const data = _dafCache[day], esc = hcEsc;
+  const dd = new Date(day + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+  if (!data || !Object.keys(data).length) {
+    out.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>No faculty summary saved for ' + esc(dd) + '.<br><span style="font-size:12px;color:var(--muted);">It is saved with each day by the scraper (app.py v093+, from 5 Oct 2026). Use 👤 By student for older days.</span></div>';
+    return;
+  }
+  const byUrn = {}; (allStudents || []).forEach(s => { const u = String(s.urn || s.seat_no || '').toUpperCase(); if (u) byUrn[u] = s; });
+  const vis = currentProfile && currentProfile.role === 'visiting';
+  const myKeys = vis ? (() => { const k = new Set(getMyFacultyKeys()); Object.keys(FACULTY_NAME_ALIASES || {}).forEach(a => { if (k.has(FACULTY_NAME_ALIASES[a])) k.add(a); }); return [...k]; })() : null;
+  const fac = {};
+  Object.keys(data).forEach(k => Object.keys(data[k] || {}).forEach(sub => {
+    const x = data[k][sub] || {}, f = String(x.f || '').trim() || '(faculty not named)';
+    if (myKeys && !myKeys.some(m => _fydSameName(m, f))) return;
+    (fac[f] = fac[f] || []).push({ k, sub, p: +x.p || 0, a: x.a || [], m: x.m || [] });
+  }));
+  const fsel = document.getElementById('da-fac'), fkeep = fsel ? fsel.value : '', names = Object.keys(fac).sort((a, b) => a.localeCompare(b));
+  if (fsel) fsel.innerHTML = '<option value="">All faculty</option>' + names.map(n => '<option' + (n === fkeep ? ' selected' : '') + '>' + esc(n) + '</option>').join('');
+  const csel = document.getElementById('da-class'), ckeep = csel ? csel.value : '', ckeys = [...new Set(Object.values(fac).flat().map(r => r.k))].sort();
+  if (csel) csel.innerHTML = '<option value="">All classes</option>' + ckeys.map(n => '<option value="' + esc(n) + '"' + (n === ckeep ? ' selected' : '') + '>' + esc(_fydShort(n)) + '</option>').join('');
+  const show = (document.getElementById('da-show') || {}).value || 'miss';
+  const person = (u, tag) => { const st = byUrn[String(u).toUpperCase()] || {}, nm = st.name || u;
+    return '<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px 3px 3px;border:1px solid var(--border);border-radius:999px;margin:3px 6px 3px 0;font-size:12px;">' + _stuAvatar(u, nm, 26) + '<b>' + esc(nm) + '</b>' + (tag ? '<span style="font-size:10px;color:#60A5FA;">' + tag + '</span>' : '') + '</span>'; };
+  let T = { p: 0, a: 0, m: 0 };
+  const cards = names.filter(n => !fkeep || n === fkeep).map(n => {
+    const rows = fac[n].filter(r => !ckeep || r.k === ckeep).sort((x, y) => x.k.localeCompare(y.k) || x.sub.localeCompare(y.sub));
+    if (!rows.length) return '';
+    let P = 0, A = 0, M = 0; rows.forEach(r => { P += r.p; A += r.a.length; M += r.m.length; }); T.p += P; T.a += A; T.m += M;
+    return '<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px;">'
+      + '<div style="background:var(--surface2);padding:8px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">' + (typeof _facAvatar === 'function' ? _facAvatar(n, 34, true) : '')
+      + '<b>' + esc(n) + '</b><span style="margin-left:auto;font-size:12px;">' + P + '/' + (P + A + M) + ' present · <span style="color:#F87171;">' + A + ' absent</span>' + (M ? ' · <span style="color:#60A5FA;">' + M + ' MC</span>' : '') + '</span></div>'
+      + rows.map(r => { const t = r.p + r.a.length + r.m.length;
+        return '<div style="padding:8px 12px;border-top:1px solid var(--border);"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;"><b>' + esc(_fydShort(r.k)) + '</b><span style="font-size:12px;color:var(--muted);">' + esc(r.sub) + '</span>'
+          + '<span style="margin-left:auto;font-size:12px;">' + r.p + '/' + t + ' present' + (r.a.length ? ' · <span style="color:#F87171;">' + r.a.length + ' absent</span>' : ' ✅') + (r.m.length ? ' · <span style="color:#60A5FA;">' + r.m.length + ' MC</span>' : '') + '</span></div>'
+          + (show !== 'full' && (r.a.length || r.m.length) ? '<div style="margin-top:5px;">' + r.a.map(u => person(u, '')).join('') + r.m.map(u => person(u, 'MC')).join('') + '</div>' : '') + '</div>'; }).join('')
+      + '</div>';
+  }).join('');
+  out.innerHTML = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;margin-bottom:12px;"><b>' + esc(dd) + '</b><span style="font-size:12px;color:var(--muted);">' + names.length + ' faculty · ' + T.p + '/' + (T.p + T.a + T.m) + ' present · <span style="color:#F87171;">' + T.a + ' absent</span>' + (T.m ? ' · ' + T.m + ' MC' : '') + '</span></div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">Per class period as the college portal marked it (faculty name from the portal\'s own column). Counts are per period: a student absent in 3 periods counts 3 times.</div>'
+    + (cards || '<div class="empty">Nothing for this filter.</div>');
+  _stuAvatarInject(); if (typeof _facAvatarInject === 'function') _facAvatarInject();
+  if (typeof window.hcTagVisible === 'function') setTimeout(window.hcTagVisible, 50);
+}
 function _daMyClasses() {
   const out = new Set();
   try { const keys = new Set(getMyFacultyKeys()); Object.keys(FACULTY_NAME_ALIASES || {}).forEach(k => { if (keys.has(FACULTY_NAME_ALIASES[k])) keys.add(k); });
@@ -48077,6 +48133,8 @@ function _daStatus(v) {
 }
 function dayAttRender() {
   const out = document.getElementById('da-out'), day = (document.getElementById('da-date') || {}).value; if (!out || !day) return;
+  const _fv = (document.getElementById('da-view') || {}).value === 'fac', _fs = document.getElementById('da-fac'); if (_fs) _fs.style.display = _fv ? '' : 'none';
+  if (_fv) { dayAttRenderFac(day); return; }   // v1810
   const data = _daCache[day];
   const dd = new Date(day + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
   if (!data || !Object.keys(data).length) {
