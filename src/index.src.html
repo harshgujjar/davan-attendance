@@ -10888,12 +10888,38 @@ function pubVerBump(key) { try { lpDb2Patch('davan_pub/pub_ver', { [key]: Date.n
    Now: DB1 as before, PLUS the same value straight to DB2 and a pub_ver stamp - only when the content differs from this phone's last
    push (a hash in localStorage), so phones re-download only real changes. Writes only (no reads). */
 function _pubHash(t) { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return h + ':' + t.length; }
+/* v1807 (user, 08-Oct-2026: "a staff phone re-published at 11:06 pm - why"): the "changed?" check remembered only what THIS phone
+   sent last, so the first open on any phone (or after clearing the browser) re-stamped identical data and every student downloaded it
+   again. Now the fingerprint of what is IN DB2 is kept at davan_pub/pub_hash/{key} (a few bytes): same -> nothing is written or
+   stamped, whichever phone opens the app. The fingerprint uses sorted keys so the same data always gives the same one.
+   Also writes the small copies students read instead of the whole node (_pubDerived): allocation_each_c/{course}, internals_stu. */
+function _pubCanon(v) { return JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)) ? Object.keys(x).sort().reduce((o, kk) => { o[kk] = x[kk]; return o; }, {}) : x); }
+async function pubSameAsDb2(key, h) {
+  const remote = typeof _lpDb2Q === 'function' ? await _lpDb2Q('davan_pub/pub_hash/' + key) : await lpDb2Get('davan_pub/pub_hash/' + key);
+  return remote === h;   // always the database's own fingerprint (a phone's memory could miss a change made from another phone)
+}
+async function pubMarkSent(key, h) { try { await lpDb2Patch('davan_pub/pub_hash', { [key]: h }); } catch (e) {} }
+function _pubDerived(key, val) {
+  try {
+    if (key === 'allocation_each') {   // per course (BCA / BBA / BCom): a student needs only their own course's batches (~15 KB, not 50)
+      const by = {}; Object.keys(val || {}).forEach(k => { const c = (String(k).match(/^allocation_([A-Za-z]+)_/) || [])[1]; if (c) (by[c] = by[c] || {})[k] = val[k]; });
+      return Object.keys(by).length ? [['davan_pub/allocation_each_c', by]] : [];
+    }
+    if (key === 'internals_current') {   // students: everything but the staff duty lists (~16 KB, not 25)
+      const o = Object.assign({}, val || {}); delete o.duty_auto; delete o.duties; return [['davan_pub/internals_stu', o]];
+    }
+  } catch (e) { console.warn('[pub] derived ' + key, e); }
+  return [];
+}
 function pubDualSet(key, path, val) {
   const r = rtdb.ref(path).set(val);
   r.then(async () => { try {
-    const js = JSON.stringify(val), h = _pubHash(js), lk = 'pubh_' + key; let old = null; try { old = localStorage.getItem(lk); } catch (e) {}
-    if (old === h) return;
-    await lpDb2Set(path, JSON.parse(js)); pubVerBump(key); try { localStorage.setItem(lk, h); } catch (e) {}
+    const js = JSON.stringify(val), h = _pubHash(_pubCanon(val));
+    if (await pubSameAsDb2(key, h)) return;
+    const v2 = JSON.parse(js);
+    await lpDb2Set(path, v2);
+    for (const [p, d] of _pubDerived(key, v2)) await lpDb2Set(p, d);
+    pubVerBump(key); await pubMarkSent(key, h);
   } catch (e) { console.warn('[pub] DB2 copy of ' + key, e && e.message); } }).catch(() => {});
   return r;
 }
@@ -18889,7 +18915,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1806;  // always = HTML footer version number
+const CODE_BUILD = 1807;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29867,6 +29893,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1807', date: '08-Oct-2026 IST', note: 'Fewer DB2 downloads: opening the staff app (any phone, any time) no longer makes every student download allocations, internal timetable and IA status again unless something really changed, and students now get small copies of their own part (portal v11.48, scraper app.py v094).' },
 { v: 'v1806', date: '07-Oct-2026 IST', note: 'A refresh now loads the page you were on (Global Switches stayed blank, and other pages could too) - the app runs that page\'s loader by itself, the same as tapping it in the menu.' },
 { v: 'v1805', date: '07-Oct-2026 IST', note: 'New ✋ Meet the Principal page (Analysis): students under 50% in a subject - who pressed "I\'ll meet the Principal" in the student portal (tap Met ✓ when they come), who has not answered yet, and who has met, with photos. Pairs with portal v11.46 ("🎯 Your attendance plan") and student widget w194.' },
 { v: 'v1804', date: '07-Oct-2026 IST', note: 'Faculty dashboard: "📅 Yesterday in your classes" - present / absent / MC per class you taught on the last college day, absent students with photos; a class in-charge also sees who in their class was absent all day or missed classes, and Day Attendance opens on their class. 🔔 page: faculty lock-screen card and the 6 pm "absent in your classes" note (staff widget w250).' },
@@ -29881,7 +29908,6 @@ const HTML_CHANGELOG = [
 { v: 'v1795', date: '07-Oct-2026 IST', note: 'Login alerts and class-alert copies go only to devices the Super Admin (admin login) subscribed himself - never to managers, the principal or staff, even if someone else uses the admin login on their phone.' },
 { v: 'v1794', date: '07-Oct-2026 IST', note: 'Login alerts ("X just logged in"): each one is now its own notification with sound - before, the next alert silently replaced it, so a login a minute later hid the earlier one. The log keeps whether each was delivered.' },
 { v: 'v1793', date: '07-Oct-2026 IST', note: 'Subject–Faculty Allocation: 📋 Course structure - the "1 3 6 sem" sheet format (BCA | BBA | B.Com, class blocks with subject, faculty, hours, students; faculty workload) from the app\'s own allocation, with 📊 Excel and 📄 PDF downloads.' },
-{ v: 'v1792', date: '07-Oct-2026 IST', note: '📥 Get log: the widget sends its log within about 15 minutes instead of at its next refresh (up to 3 hours for student widgets) - student widget w185.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -47503,11 +47529,10 @@ async function iaePublishLiveStatus(examTag) {
   const payload = { examTag, cutoffDate: win.cutoffDate, locked: win.locked, updatedAt: new Date().toISOString(), status: statusMap };
   try {
     // v1785 (DB2 downloads): every publish bumped the stamp, so every student re-read the 23 KB list - skip when nothing changed
-    const _iaH = _pubHash(JSON.stringify([win.cutoffDate, win.locked, statusMap])), _iaK = 'pubh_ia_' + examTag;
-    let _iaOld = null; try { _iaOld = localStorage.getItem(_iaK); } catch (e) {}
-    if (_iaOld === _iaH) { _iaePublishLastAt[examTag] = now; return; }
+    const _iaH = _pubHash(_pubCanon([win.cutoffDate, win.locked, statusMap]));
+    if (await pubSameAsDb2('ia_' + examTag, _iaH)) { _iaePublishLastAt[examTag] = now; return; }   // v1807: compared with DB2, not this phone
     const ok = await db2Set('davan_pub/ia_live_status/' + examTag, payload);
-    if (ok) { pubVerBump('ia_' + examTag); try { localStorage.setItem(_iaK, _iaH); } catch (e) {} }
+    if (ok) { pubVerBump('ia_' + examTag); await pubMarkSent('ia_' + examTag, _iaH); }
     if (ok) _iaePublishLastAt[examTag] = now;
     else console.warn('[IAE] publish live status to DB2 failed (db2Set returned false)');
   } catch(e) { console.warn('[IAE] publish live status failed', e); }

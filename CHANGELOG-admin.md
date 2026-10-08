@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1807 · 08-Oct-2026 IST
+User: "a staff phone re-published at 11:06 pm - why; lower the DB2 downloads". The "changed?" check for allocation_each, internals_current and IA1/IA2 status remembered only what that phone sent, so the first open on any phone re-stamped identical data and every student re-downloaded it. Now the fingerprint is kept in DB2 (`davan_pub/pub_hash/{key}`, a few bytes, read once per publish) - same data, nothing written or stamped. Each real change also writes the students' small copies `davan_pub/allocation_each_c/{course}` and `davan_pub/internals_stu` (no staff duties). One-time cleanup: 75 old debug texts (scheduleDebug from blocked widgets up to build 93) removed from `student_widget_report` (152 KB -> 64 KB per read). Pairs with portal v11.48, app.py v094. Functions: pubDualSet, pubSameAsDb2, pubMarkSent, _pubCanon, _pubDerived, iaePublishLiveStatus.
+
 ## v1806 · 07-Oct-2026 IST
 Bug (user, screenshot: Global Switches blank after a refresh - "never make such pages, it should load by default"): a refresh reopens the last page with switchPanel only, so pages whose menu item also runs a loader (gswInit, ntfInit, dayAttInit, mpInit, cfbInit, ratesInit, ... about 35 pages) stayed empty. _navRestoreState now runs the rest of that menu item's onclick by itself (_navRunExtra); pages with their own restore steps or loaded inside switchPanel are left as they were. No data change. Functions: _navRunExtra, _navRestoreState.
 
