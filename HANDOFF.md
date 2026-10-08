@@ -57,7 +57,8 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
    test scrape, then move the 1 pm / 5:30 pm runs to the cloud and switch off the laptop scheduler.
 4. Student 3:15 pm note: add present/absent counts + topics missed (offered, not built).
 5. Swaroop (student) needed a one-time manual install of the widget (Files -> Downloads -> APK) because of the old "Open with" bug.
-6. Widget keystores: ask the user whether they uploaded them to davan-scraper/widgets (see above) before the first widget build.
+6. Widget keystores: uploaded by the user to davan-scraper/widgets on 08-Oct and checked - a test build from the repo signs with the
+   same certificate as the released APKs (student 9ed273b8…, staff d5a018f5…). New sessions can build straight from there.
 
 ## Useful facts
 - Release log: `release-log.json` ("by": "Cloudflare 9:15 pm" = the timer worked). Display numbers: `display` in the public jsons.
