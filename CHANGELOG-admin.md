@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1811 · 08-Oct-2026 IST
+User: "full-time faculty get the choice, but default always their own only - keeps the database traffic low". Each time a full-time or visiting faculty member opens Day Attendance it starts on 👩‍🏫 By faculty & subject with their own name picked (DB2 `att_fac/<day>` ~15 KB instead of `att_day/<day>` ~40 KB); full-time can still pick All faculty or 👤 By student. Functions: dayAttInit, dayAttRenderFac.
+
 ## v1810 · 08-Oct-2026 IST
 User: "Day Attendance is student-centric - how do I see per faculty, per subject, who was absent". New view switch 👤 By student / 👩‍🏫 By faculty & subject: one card per faculty (photo), each class + subject with present / absent / MC counts and the absent students (photo, tap to zoom, 🏨); faculty and class filters; "Absent all day" filter shows counts only. Visiting faculty see only their own rows.
 Data: DB2 `davan_pub/att_fac/<day>` (~15 KB, 1 read per day opened, kept for the session); days before 5 Oct have no faculty summary. Functions: dayAttRenderFac, dayAttRender.
