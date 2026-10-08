@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1813 · 08-Oct-2026 IST
+User: "after the classes end the students should get a wrap-up - today you had these many classes - 30 min after, never clashing with other notifications". NOTIF_REGISTRY: new stu daywrap "🏁 Classes over for today" (student widget w198; switch davan_pub/notif_off/stu/daywrap). Pairs with student widget w198 / staff widget w255 (hotfix: updates go to the phone's own installer, no "Open with" list). Function: NOTIF_REGISTRY.
+
 ## v1812 · 08-Oct-2026 IST
 User: "Notifications page - has it been updated with the new notifications". NOTIF_REGISTRY: new student entry chanoff "🔕 Turn your notifications back on" (the daily reminder of student widget w190, always sent - not switchable), and updated texts for stu low, stu gen_dayatt (miss-N-more, meet the Principal, exempted students), stu / stf tts ("Professor …" in the voice, w197 / w254). No data change. Function: NOTIF_REGISTRY.
 
