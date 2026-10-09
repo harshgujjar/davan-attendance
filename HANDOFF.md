@@ -65,6 +65,13 @@ Day / date / month on the status bar (user's own app). Do not work on it unless 
 davan-scraper `apps/statusdate/PLAN.md` (state v8, future plan: free Google Play version, fallbacks, market check) and README.md.
 Its key `statusdate.keystore` is not uploaded yet - the user will add it to apps/statusdate later.
 
+## Who is on an old student widget
+Run the private davan-scraper workflow **"Widget versions"** (GitHub MCP actions_run_trigger, workflow_id widget-versions.yml); it saves
+`reports/widget-versions.csv` + `widget-versions-summary.txt` in davan-scraper (git pull them). One row per student (latest widget code;
+older codes = earlier installs). Reasons: A build < 133 cannot self-update (install once by hand), B update downloaded but not installed
+(needs a tap / "Install unknown apps"), C not checked in for 3+ days. 09-Oct 07:45: 104 students, 21 on w183, A 31, B 25, C 27.
+From w203 the report has `upd` (step, error, canInst, installer) - check it to see exactly why B is stuck.
+
 ## Useful facts
 - Release log: `release-log.json` ("by": "Cloudflare 9:15 pm" = the timer worked). Display numbers: `display` in the public jsons.
 - Day attendance data: DB2 davan_pub/att_day, att_fac, att_stu/<URN>/<date>; scraper saves after 1 pm for the last college day.
