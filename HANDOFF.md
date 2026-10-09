@@ -72,6 +72,11 @@ older codes = earlier installs). Reasons: A build < 133 cannot self-update (inst
 (needs a tap / "Install unknown apps"), C not checked in for 3+ days. 09-Oct 07:45: 104 students, 21 on w183, A 31, B 25, C 27.
 From w203 the report has `upd` (step, error, canInst, installer) - check it to see exactly why B is stuck.
 
+## Student widget minimum (block)
+Since 09-Oct-2026 widgets below build **133** are blocked (they cannot update themselves): staff app STU_WIDGET_BLOCK_V = portal
+STU_MIN_WIDGET_FLOOR = 133, DB2 davan_pub/student_widget_latest.minApkVersion = 133 (set at once by the davan-scraper workflow
+"Set widget minimum", input min). Keep all three equal or the apps rewrite each other.
+
 ## Useful facts
 - Release log: `release-log.json` ("by": "Cloudflare 9:15 pm" = the timer worked). Display numbers: `display` in the public jsons.
 - Day attendance data: DB2 davan_pub/att_day, att_fac, att_stu/<URN>/<date>; scraper saves after 1 pm for the last college day.
