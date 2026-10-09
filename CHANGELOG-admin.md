@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1818 · 09-Oct-2026 IST
+User: "Actions opens the GitHub app - I can't scrape from there". The GitHub app cannot start a workflow (only re-run old runs, with old code). The 🕷 Scraper ▶ Run now links open github.com in Chrome on Android (intent:// with package com.android.chrome, normal link as fallback); the note says Sign in once, then Run workflow, never Re-run. No data change. Function: scrInit.
+
 ## v1817 · 09-Oct-2026 IST
 User: "I ran it manually today, it is not showing". The 5:29 pm cloud scrape ran on app.py v100 (before runs were saved), so it was added to DB2 davan_pub/scraper/runs once from its GitHub log (davan-scraper tools/backfill_run.py). scrSlots now shows a slot's full / light run instead of a later small "collect days" run. Function: scrSlots.
 
