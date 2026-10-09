@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1816 · 09-Oct-2026 IST
+User: "in my admin login I should know if the scraper ran or not, the summary, why not; the panel's checkboxes and log are only on the laptop". New page 🕷 Scraper (side menu, Super Admin): today's and yesterday's 1:00 pm / 5:30 pm runs (✅ / ⏭ skipped and why / ❌ problems / ❗ did not run / ⚠ ran twice), last run, next run, ▶ Run now links (GitHub Run workflow until the Cloudflare key is set), settings (runs on/off, light run on holidays / off Saturdays, internal marks, optional sync groups, exam seating), day-wise attendance days and the run history with 📋 Copy, and the laptop panel link. Data: DB2 davan_pub/scraper/{runs, status, cfg, att_state} (written by app.py v102); read only when the page opens (~60 small runs), cfg written on a change. Functions: scrInit, scrSlots, scrSave, scrSet, scrGroup (new).
+
 ## v1815 · 09-Oct-2026 IST
 User: "collect who opted off / kept the lock-screen card". 🔔 page: new box "📌 Who keeps the lock-screen card" - counts (on / hidden / off) and the list of who turned it off or hid it, students and teaching staff, with photos and 📋 Copy. Reads lock {off, hide, at} from student_widget_report / staff_widget_report via the shared 10-min copy (stwWidgetLists) - no new reads. Pairs with student widget build 205+ and staff widget build 258 (new settings screen with the 📌 / 🙈 switches). Functions: ntfLock (new), ntfInit.
 
