@@ -21,14 +21,14 @@ session (same commit as the work), keep it short, newest state only.
 ## Current versions (08-Oct-2026)
 | App | Build | Notes |
 |---|---|---|
-| Staff app (index.html from src/index.src.html) | CODE_BUILD 1815 | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card" |
+| Staff app (index.html from src/index.src.html) | CODE_BUILD 1816 | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
 | Student portal (student_portal.html) | v11.54 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) + "📌 Who keeps the lock-screen card" |
 | Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 208 (📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205-206 = new settings screen (chips for My pages / Speak), 207 = update progress "connecting" + % bar, 208 = any calendar event (Davan Carnival) on Today / evening note / lock card, with 📌 / 🙈 switches, reports lock {off, hide, at}) |
-| Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 258 (📌 lock card, 🔔 alert labels; 258 = new settings screen like the student widget, 📌 / 🙈 switches, lock in staff_widget_report) |
-| College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v101 | runs in the CLOUD by itself (GitHub "Scrape (run once)" 1:00 pm + 5:30 pm IST Mon-Sat, backups 1:45 / 6:15) - no laptop needed |
+| Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 259 (259 = 🕷 scraper line + alert for the Super Admin; 📌 lock card, 🔔 alert labels; 258 = new settings screen like the student widget, 📌 / 🙈 switches, lock in staff_widget_report) |
+| College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v102 | runs in the CLOUD by itself (GitHub "Scrape (run once)" 1:00 pm + 5:30 pm IST Mon-Sat, backups 1:45 / 6:15) - no laptop needed |
 
 ## Widget sources (private repo, not this one)
-Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 208) and `widgets/staff` (build 258) - add_repo +
+Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 208) and `widgets/staff` (build 259) - add_repo +
 clone it, read widgets/README.md. Keystores: the user uploads `widgets/student/davan-student-widget.keystore` and
 `widgets/staff/davan-widget-release.keystore` there (Claude never copies key files - blocked as credential leakage on 08-Oct); if they
 are missing, ask the user to upload them (or the zips). Then `bash tools/widget-toolchain.sh`, build with
@@ -59,7 +59,11 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
    read only, uses the SA_DB2 secret. Do NOT sign up anonymous tokens (blocked). 08-Oct at 9:50 pm: 70.0 MiB (24% of 300 MB);
    7-Oct 109.5, 6-Oct 96.2, 5-Oct 106.7 MiB. Biggest: portal allocation_each (old full node, 4.9 MiB / 113 reads - old cached
    portals), lessonPlan (staff app 4.6 MiB), timetable_portal 4.0 MiB. Expect a small bump on 09-Oct (w201 re-reads results once).
-3. Scraper is fully automatic in the cloud since 09-Oct (user: "I built this so I don't need the laptop"). Check any time with the
+3. Scraper (app.py v102): every run / skipped slot -> DB2 davan_pub/scraper/{runs, status}; settings from the staff app's 🕷 Scraper page
+   (scraper/cfg: s1, s2, marks, groups, sitting, holidaySkip); holiday / off Saturday = 1 pm light run (day attendance only), 5:30 skipped;
+   day-attendance notes in scraper/att_state. NOT built yet: in-app "Run now" (needs the Cloudflare worker's GitHub key to reach the
+   private davan-scraper repo - the page links to GitHub "Run workflow" until then).
+   Scraper is fully automatic in the cloud since 09-Oct (user: "I built this so I don't need the laptop"). Check any time with the
    davan-scraper workflow "Scrape status" (read only: last DB1 scrape, att_day dates, lock). The laptop copy may still run; the slot guard
    (SLOT_GUARD_MIN 120) + DB2 scraper_lock stop double scrapes. If a run fails, run "Scrape (run once)" by hand.
 4. Student 3:15 pm note: add present/absent counts + topics missed (offered, not built).
