@@ -9,6 +9,8 @@ session (same commit as the work), keep it short, newest state only.
 - Always give the widget **build number AND display number** (e.g. "build 201 = w183 for everyone, w182.7 on test phones").
 - Answer in chat. Mockups only when asked; when asked: a private HTML file sent with SendUserFile (real student data never published).
   Show NOW vs NEW side by side and list what changed. Keep the existing layout unless told otherwise.
+- **Default for every mockup (user, 09-Oct):** NOW and NEW side by side + "what changed" under each pair. For a redesign, first list
+  every item on the current screen (incl. Super Admin-only parts and sub-pages like the widget's page 2 "Open as") - nothing may go missing.
 - After every change: versions + changelogs, commit, push the session branch, merge to main, push main - never ask (CLAUDE.md).
 - Widget builds go to the "-next" channel only; the nightly Cloudflare timer (9:15 pm IST) releases them. Don't start a release
   unless asked. Super Admin can stop it (Global Switches -> Widget updates).
