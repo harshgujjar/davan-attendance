@@ -48,6 +48,7 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   duplicate-notification fix, "Professor" in spoken names, faculty Day Attendance by subject, DB2 pub_hash, app.py v095-v100.
 
 ## Open items / next steps
+- 09-Oct: user applied for Claude for Open Source (free Max); README.md rewritten to current state (keep it current - reviewers may look).
 - **In-app voice calls (students <-> faculty)**: user asked 09-Oct ONLY as an enquiry (mockup shown) - NOT to be built unless the user asks again.
 - Student widget build 208 adds college calendar events (any type) to Today / evening note / lock card; the staff widget does not have it yet (offered).
 - Staff widget settings redesign: BUILT 09-Oct as staff build 258 (next) - check it on a phone.
