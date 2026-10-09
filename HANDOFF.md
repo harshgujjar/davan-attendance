@@ -1,6 +1,6 @@
 # Session handoff - read this first (plug and play)
 
-Last updated: 08-Oct-2026 night (session ended after the w201 / w256 release). A new Claude session reads CLAUDE.md (rules) and
+Last updated: 09-Oct-2026 (student widget build 205 = new settings screen, on "next"). A new Claude session reads CLAUDE.md (rules) and
 then this file (where things stand). The user should not have to repeat anything below. Update this file at the end of every
 session (same commit as the work), keep it short, newest state only.
 
@@ -22,13 +22,13 @@ session (same commit as the work), keep it short, newest state only.
 | App | Build | Notes |
 |---|---|---|
 | Staff app (index.html from src/index.src.html) | CODE_BUILD 1814 | student widgets below build 133 blocked |
-| Student portal (student_portal.html) | v11.53 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) |
-| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 204 (📌 lock card, 🔔 labels, update state, no repeated lesson plan) |
+| Student portal (student_portal.html) | v11.54 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) + "📌 Who keeps the lock-screen card" |
+| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 205 (📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205 = new settings screen with 📌 / 🙈 switches, reports lock {off, hide, at}) |
 | Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 257 (📌 lock card, 🔔 alert labels) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v100 | laptop runs v100 |
 
 ## Widget sources (private repo, not this one)
-Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 202) and `widgets/staff` (build 257) - add_repo +
+Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 205) and `widgets/staff` (build 257) - add_repo +
 clone it, read widgets/README.md. Keystores: the user uploads `widgets/student/davan-student-widget.keystore` and
 `widgets/staff/davan-widget-release.keystore` there (Claude never copies key files - blocked as credential leakage on 08-Oct); if they
 are missing, ask the user to upload them (or the zips). Then `bash tools/widget-toolchain.sh`, build with
@@ -48,6 +48,10 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   duplicate-notification fix, "Professor" in spoken names, faculty Day Attendance by subject, DB2 pub_hash, app.py v095-v100.
 
 ## Open items / next steps
+0. **Staff widget settings redesign** (user asked, 09-Oct): same look as student build 205 (profile tags, admin tools box, permissions
+   folded, 🔔 Notifications with 📌 lock-card switch, tiles, Close). First show a NOW vs NEW mockup listing EVERY item of the staff widget's
+   settings (incl. page 3 global switches), then build; staff opt-outs to a staff-app view. Photo ring on the widget header: user may pick
+   a % badge or a full ring (offered, not answered).
 1. **Check the new Today page on a real phone** (built without device testing): DAVAN colours, countdown badge, small photos per line,
    Results faculty names, lock-card header. Fix whatever the user reports.
 2. **DB2 daily usage check**: run the private davan-scraper workflow **"DB2 usage"** (Actions -> DB2 usage -> Run workflow, or the
