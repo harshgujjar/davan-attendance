@@ -1,6 +1,6 @@
 # Session handoff - read this first (plug and play)
 
-Last updated: 09-Oct-2026 (student widget build 205 = new settings screen, on "next"). A new Claude session reads CLAUDE.md (rules) and
+Last updated: 09-Oct-2026 (student widget build 206 = new settings screen, on "next"). A new Claude session reads CLAUDE.md (rules) and
 then this file (where things stand). The user should not have to repeat anything below. Update this file at the end of every
 session (same commit as the work), keep it short, newest state only.
 
@@ -23,12 +23,12 @@ session (same commit as the work), keep it short, newest state only.
 |---|---|---|
 | Staff app (index.html from src/index.src.html) | CODE_BUILD 1814 | student widgets below build 133 blocked |
 | Student portal (student_portal.html) | v11.54 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) + "📌 Who keeps the lock-screen card" |
-| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 205 (📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205 = new settings screen with 📌 / 🙈 switches, reports lock {off, hide, at}) |
+| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 206 (📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205-206 = new settings screen (chips for My pages / Speak) with 📌 / 🙈 switches, reports lock {off, hide, at}) |
 | Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 257 (📌 lock card, 🔔 alert labels) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v100 | laptop runs v100 |
 
 ## Widget sources (private repo, not this one)
-Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 205) and `widgets/staff` (build 257) - add_repo +
+Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 206) and `widgets/staff` (build 257) - add_repo +
 clone it, read widgets/README.md. Keystores: the user uploads `widgets/student/davan-student-widget.keystore` and
 `widgets/staff/davan-widget-release.keystore` there (Claude never copies key files - blocked as credential leakage on 08-Oct); if they
 are missing, ask the user to upload them (or the zips). Then `bash tools/widget-toolchain.sh`, build with
