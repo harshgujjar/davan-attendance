@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1817 · 09-Oct-2026 IST
+User: "I ran it manually today, it is not showing". The 5:29 pm cloud scrape ran on app.py v100 (before runs were saved), so it was added to DB2 davan_pub/scraper/runs once from its GitHub log (davan-scraper tools/backfill_run.py). scrSlots now shows a slot's full / light run instead of a later small "collect days" run. Function: scrSlots.
+
 ## v1816 · 09-Oct-2026 IST
 User: "in my admin login I should know if the scraper ran or not, the summary, why not; the panel's checkboxes and log are only on the laptop". New page 🕷 Scraper (side menu, Super Admin): today's and yesterday's 1:00 pm / 5:30 pm runs (✅ / ⏭ skipped and why / ❌ problems / ❗ did not run / ⚠ ran twice), last run, next run, ▶ Run now links (GitHub Run workflow until the Cloudflare key is set), settings (runs on/off, light run on holidays / off Saturdays, internal marks, optional sync groups, exam seating), day-wise attendance days and the run history with 📋 Copy, and the laptop panel link. Data: DB2 davan_pub/scraper/{runs, status, cfg, att_state} (written by app.py v102); read only when the page opens (~60 small runs), cfg written on a change. Functions: scrInit, scrSlots, scrSave, scrSet, scrGroup (new). NOTIF_REGISTRY: new stf "scraper" (🕷 Scraper did not run / had problems - Super Admin only, staff widget w259). Pairs with staff widget build 259 (scraper line on the Live class board).
 
