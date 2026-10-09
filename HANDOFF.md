@@ -21,14 +21,14 @@ session (same commit as the work), keep it short, newest state only.
 ## Current versions (08-Oct-2026)
 | App | Build | Notes |
 |---|---|---|
-| Staff app (index.html from src/index.src.html) | CODE_BUILD 1814 | student widgets below build 133 blocked |
+| Staff app (index.html from src/index.src.html) | CODE_BUILD 1815 | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card" |
 | Student portal (student_portal.html) | v11.54 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) + "📌 Who keeps the lock-screen card" |
 | Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 208 (📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205-206 = new settings screen (chips for My pages / Speak), 207 = update progress "connecting" + % bar, 208 = any calendar event (Davan Carnival) on Today / evening note / lock card, with 📌 / 🙈 switches, reports lock {off, hide, at}) |
-| Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 257 (📌 lock card, 🔔 alert labels) |
+| Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 258 (📌 lock card, 🔔 alert labels; 258 = new settings screen like the student widget, 📌 / 🙈 switches, lock in staff_widget_report) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v100 | laptop runs v100 |
 
 ## Widget sources (private repo, not this one)
-Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 208) and `widgets/staff` (build 257) - add_repo +
+Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 208) and `widgets/staff` (build 258) - add_repo +
 clone it, read widgets/README.md. Keystores: the user uploads `widgets/student/davan-student-widget.keystore` and
 `widgets/staff/davan-widget-release.keystore` there (Claude never copies key files - blocked as credential leakage on 08-Oct); if they
 are missing, ask the user to upload them (or the zips). Then `bash tools/widget-toolchain.sh`, build with
@@ -50,11 +50,8 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
 ## Open items / next steps
 - **In-app voice calls (students <-> faculty)**: user asked 09-Oct ONLY as an enquiry (mockup shown) - NOT to be built unless the user asks again.
 - Student widget build 208 adds college calendar events (any type) to Today / evening note / lock card; the staff widget does not have it yet (offered).
-- Staff widget settings redesign: mockup sent 09-Oct (scratchpad staff-settings-mockup.html), waiting for "build it".
-0. **Staff widget settings redesign** (user asked, 09-Oct): same look as student build 205 (profile tags, admin tools box, permissions
-   folded, 🔔 Notifications with 📌 lock-card switch, tiles, Close). First show a NOW vs NEW mockup listing EVERY item of the staff widget's
-   settings (incl. page 3 global switches), then build; staff opt-outs to a staff-app view. Photo ring on the widget header: user may pick
-   a % badge or a full ring (offered, not answered).
+- Staff widget settings redesign: BUILT 09-Oct as staff build 258 (next) - check it on a phone.
+0. Photo ring on the student widget header: user may pick a % badge or a full ring (offered, not answered).
 1. **Check the new Today page on a real phone** (built without device testing): DAVAN colours, countdown badge, small photos per line,
    Results faculty names, lock-card header. Fix whatever the user reports.
 2. **DB2 daily usage check**: run the private davan-scraper workflow **"DB2 usage"** (Actions -> DB2 usage -> Run workflow, or the

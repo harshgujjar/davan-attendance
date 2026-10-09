@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1815 · 09-Oct-2026 IST
+User: "collect who opted off / kept the lock-screen card". 🔔 page: new box "📌 Who keeps the lock-screen card" - counts (on / hidden / off) and the list of who turned it off or hid it, students and teaching staff, with photos and 📋 Copy. Reads lock {off, hide, at} from student_widget_report / staff_widget_report via the shared 10-min copy (stwWidgetLists) - no new reads. Pairs with student widget build 205+ and staff widget build 258 (new settings screen with the 📌 / 🙈 switches). Functions: ntfLock (new), ntfInit.
+
 ## v1814 · 09-Oct-2026 IST
 User: "block everything below 133 - they must update at once, no data on the widget, not even notifications". STU_WIDGET_BLOCK_V 109 -> 133: stuWidgetLatestRaise writes minApkVersion 133 to DB2 davan_pub/student_widget_latest (one write when it differs, _w as the rules need). Widgets below build 133 cannot update themselves; they now stop all data reads and show only "UPDATE NEEDED - tap to install" until the student installs the public widget once. Pairs with portal v11.53 (same floor). Functions: stuWidgetLatestRaise.
 
