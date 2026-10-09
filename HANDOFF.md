@@ -19,8 +19,8 @@ session (same commit as the work), keep it short, newest state only.
 ## Current versions (08-Oct-2026)
 | App | Build | Notes |
 |---|---|---|
-| Staff app (index.html from src/index.src.html) | CODE_BUILD 1813 | |
-| Student portal (student_portal.html) | v11.52 | admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) |
+| Staff app (index.html from src/index.src.html) | CODE_BUILD 1814 | student widgets below build 133 blocked |
+| Student portal (student_portal.html) | v11.53 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) |
 | Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 204 (📌 lock card, 🔔 labels, update state, no repeated lesson plan) |
 | Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 257 (📌 lock card, 🔔 alert labels) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v100 | laptop runs v100 |

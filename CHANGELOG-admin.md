@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1814 · 09-Oct-2026 IST
+User: "block everything below 133 - they must update at once, no data on the widget, not even notifications". STU_WIDGET_BLOCK_V 109 -> 133: stuWidgetLatestRaise writes minApkVersion 133 to DB2 davan_pub/student_widget_latest (one write when it differs, _w as the rules need). Widgets below build 133 cannot update themselves; they now stop all data reads and show only "UPDATE NEEDED - tap to install" until the student installs the public widget once. Pairs with portal v11.53 (same floor). Functions: stuWidgetLatestRaise.
+
 ## v1813 · 08-Oct-2026 IST
 User: "after the classes end the students should get a wrap-up - today you had these many classes - 30 min after, never clashing with other notifications". NOTIF_REGISTRY: new stu daywrap "🏁 Classes over for today" (student widget w198; switch davan_pub/notif_off/stu/daywrap). Pairs with student widget w198 / staff widget w255 (hotfix: updates go to the phone's own installer, no "Open with" list). Function: NOTIF_REGISTRY.
 
