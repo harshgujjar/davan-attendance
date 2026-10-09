@@ -60,10 +60,10 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
 6. Widget keystores: uploaded by the user to davan-scraper/widgets on 08-Oct and checked - a test build from the repo signs with the
    same certificate as the released APKs (student 9ed273b8…, staff d5a018f5…). New sessions can build straight from there.
 
-## Side project: Status Date (user's own phone app)
-Day / date / month on the status bar (Motorola Edge 50 Pro). Source: private davan-scraper `apps/statusdate` (README there). v1 built
-08-Oct-2026 (21 KB APK sent to the user). Its key `statusdate.keystore` is in the zip sent to the user - ask them to upload it to
-apps/statusdate before the next build. Not part of the Davan apps, no release channel - send the APK directly.
+## Side project: Status Date (PARKED by the user, 09-Oct-2026)
+Day / date / month on the status bar (user's own app). Do not work on it unless the user asks. When asked, show the private
+davan-scraper `apps/statusdate/PLAN.md` (state v8, future plan: free Google Play version, fallbacks, market check) and README.md.
+Its key `statusdate.keystore` is not uploaded yet - the user will add it to apps/statusdate later.
 
 ## Useful facts
 - Release log: `release-log.json` ("by": "Cloudflare 9:15 pm" = the timer worked). Display numbers: `display` in the public jsons.
