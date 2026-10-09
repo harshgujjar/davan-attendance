@@ -21,7 +21,7 @@ session (same commit as the work), keep it short, newest state only.
 |---|---|---|
 | Staff app (index.html from src/index.src.html) | CODE_BUILD 1813 | |
 | Student portal (student_portal.html) | v11.50 | day wrap-up card on the dashboard |
-| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 202 (📌 lock card, 🔔 alert labels) |
+| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 203 (📌 lock card, 🔔 alert labels, update state in the report) |
 | Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 257 (📌 lock card, 🔔 alert labels) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v100 | laptop runs v100 |
 
