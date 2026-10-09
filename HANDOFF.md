@@ -21,12 +21,12 @@ session (same commit as the work), keep it short, newest state only.
 |---|---|---|
 | Staff app (index.html from src/index.src.html) | CODE_BUILD 1813 | |
 | Student portal (student_portal.html) | v11.50 | day wrap-up card on the dashboard |
-| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 201 |
-| Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 256 |
+| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 202 (📌 lock card, 🔔 alert labels) |
+| Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 257 (📌 lock card, 🔔 alert labels) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v100 | laptop runs v100 |
 
 ## Widget sources (private repo, not this one)
-Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 201) and `widgets/staff` (build 256) - add_repo +
+Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 202) and `widgets/staff` (build 257) - add_repo +
 clone it, read widgets/README.md. Keystores: the user uploads `widgets/student/davan-student-widget.keystore` and
 `widgets/staff/davan-widget-release.keystore` there (Claude never copies key files - blocked as credential leakage on 08-Oct); if they
 are missing, ask the user to upload them (or the zips). Then `bash tools/widget-toolchain.sh`, build with
