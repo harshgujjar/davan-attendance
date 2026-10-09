@@ -48,6 +48,9 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   duplicate-notification fix, "Professor" in spoken names, faculty Day Attendance by subject, DB2 pub_hash, app.py v095-v100.
 
 ## Open items / next steps
+- **In-app voice calls (students <-> faculty)**: user asked 09-Oct ONLY as an enquiry (mockup shown) - NOT to be built unless the user asks again.
+- Student widget build 208 adds college calendar events (any type) to Today / evening note / lock card; the staff widget does not have it yet (offered).
+- Staff widget settings redesign: mockup sent 09-Oct (scratchpad staff-settings-mockup.html), waiting for "build it".
 0. **Staff widget settings redesign** (user asked, 09-Oct): same look as student build 205 (profile tags, admin tools box, permissions
    folded, 🔔 Notifications with 📌 lock-card switch, tiles, Close). First show a NOW vs NEW mockup listing EVERY item of the staff widget's
    settings (incl. page 3 global switches), then build; staff opt-outs to a staff-app view. Photo ring on the widget header: user may pick
