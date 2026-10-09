@@ -25,7 +25,7 @@ session (same commit as the work), keep it short, newest state only.
 | Student portal (student_portal.html) | v11.54 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) + "📌 Who keeps the lock-screen card" |
 | Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 208 (📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205-206 = new settings screen (chips for My pages / Speak), 207 = update progress "connecting" + % bar, 208 = any calendar event (Davan Carnival) on Today / evening note / lock card, with 📌 / 🙈 switches, reports lock {off, hide, at}) |
 | Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 258 (📌 lock card, 🔔 alert labels; 258 = new settings screen like the student widget, 📌 / 🙈 switches, lock in staff_widget_report) |
-| College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v100 | laptop runs v100 |
+| College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v101 | runs in the CLOUD by itself (GitHub "Scrape (run once)" 1:00 pm + 5:30 pm IST Mon-Sat, backups 1:45 / 6:15) - no laptop needed |
 
 ## Widget sources (private repo, not this one)
 Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 208) and `widgets/staff` (build 258) - add_repo +
@@ -59,8 +59,9 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
    read only, uses the SA_DB2 secret. Do NOT sign up anonymous tokens (blocked). 08-Oct at 9:50 pm: 70.0 MiB (24% of 300 MB);
    7-Oct 109.5, 6-Oct 96.2, 5-Oct 106.7 MiB. Biggest: portal allocation_each (old full node, 4.9 MiB / 113 reads - old cached
    portals), lessonPlan (staff app 4.6 MiB), timetable_portal 4.0 MiB. Expect a small bump on 09-Oct (w201 re-reads results once).
-3. Cloud scraper: login / keys / reachability tests pass in GitHub Actions (davan-scraper). Offered, not approved yet: a full cloud
-   test scrape, then move the 1 pm / 5:30 pm runs to the cloud and switch off the laptop scheduler.
+3. Scraper is fully automatic in the cloud since 09-Oct (user: "I built this so I don't need the laptop"). Check any time with the
+   davan-scraper workflow "Scrape status" (read only: last DB1 scrape, att_day dates, lock). The laptop copy may still run; the slot guard
+   (SLOT_GUARD_MIN 120) + DB2 scraper_lock stop double scrapes. If a run fails, run "Scrape (run once)" by hand.
 4. Student 3:15 pm note: add present/absent counts + topics missed (offered, not built).
 5. Swaroop (student) needed a one-time manual install of the widget (Files -> Downloads -> APK) because of the old "Open with" bug.
 6. Widget keystores: uploaded by the user to davan-scraper/widgets on 08-Oct and checked - a test build from the repo signs with the
