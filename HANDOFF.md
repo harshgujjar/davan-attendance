@@ -24,11 +24,11 @@ session (same commit as the work), keep it short, newest state only.
 | Staff app (index.html from src/index.src.html) | CODE_BUILD 1816 | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
 | Student portal (student_portal.html) | v11.54 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) + "📌 Who keeps the lock-screen card" |
 | Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 208 (📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205-206 = new settings screen (chips for My pages / Speak), 207 = update progress "connecting" + % bar, 208 = any calendar event (Davan Carnival) on Today / evening note / lock card, with 📌 / 🙈 switches, reports lock {off, hide, at}) |
-| Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 259 (259 = 🕷 scraper line + alert for the Super Admin; 📌 lock card, 🔔 alert labels; 258 = new settings screen like the student widget, 📌 / 🙈 switches, lock in staff_widget_report) |
+| Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 260 (260 = slot shows the full run; 259 = 🕷 scraper line + alert for the Super Admin; 📌 lock card, 🔔 alert labels; 258 = new settings screen like the student widget, 📌 / 🙈 switches, lock in staff_widget_report) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v102 | runs in the CLOUD by itself (GitHub "Scrape (run once)" 1:00 pm + 5:30 pm IST Mon-Sat, backups 1:45 / 6:15) - no laptop needed |
 
 ## Widget sources (private repo, not this one)
-Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 208) and `widgets/staff` (build 259) - add_repo +
+Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 208) and `widgets/staff` (build 260) - add_repo +
 clone it, read widgets/README.md. Keystores: the user uploads `widgets/student/davan-student-widget.keystore` and
 `widgets/staff/davan-widget-release.keystore` there (Claude never copies key files - blocked as credential leakage on 08-Oct); if they
 are missing, ask the user to upload them (or the zips). Then `bash tools/widget-toolchain.sh`, build with
