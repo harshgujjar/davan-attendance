@@ -20,7 +20,7 @@ session (same commit as the work), keep it short, newest state only.
 | App | Build | Notes |
 |---|---|---|
 | Staff app (index.html from src/index.src.html) | CODE_BUILD 1813 | |
-| Student portal (student_portal.html) | v11.51 | admin Widget tab: live "Not on w<N> yet" list (A / B / C) |
+| Student portal (student_portal.html) | v11.52 | admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) |
 | Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 203 (📌 lock card, 🔔 alert labels, update state in the report) |
 | Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 257 (📌 lock card, 🔔 alert labels) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v100 | laptop runs v100 |
