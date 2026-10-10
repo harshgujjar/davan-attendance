@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1819 · 10-Oct-2026 IST
+User: "fix all 6" (DB2 downloads). The lesson plan copy on the phone is checked with one tiny read of DB2 davan_pub/pub_ver/lessonPlan (stamped by app.py v103 when a plan really changes); while it is unchanged nothing else is read. When it moved, only the changed plans are downloaded - no full 673 KB re-read when more than half changed, and the full refresh is every 14 days instead of 3 (4 full reads on 09-Oct). Fewer reads only. Pairs with student portal v11.55, app.py v103 / sync v2.11.0, student widget build 209. Function: _lpFetchCurrent.
+
 ## v1818 · 09-Oct-2026 IST
 User: "Actions opens the GitHub app - I can't scrape from there". The GitHub app cannot start a workflow (only re-run old runs, with old code). The 🕷 Scraper ▶ Run now links open github.com in Chrome on Android (intent:// with package com.android.chrome, normal link as fallback); the note says Sign in once, then Run workflow, never Re-run. No data change. Function: scrInit.
 
