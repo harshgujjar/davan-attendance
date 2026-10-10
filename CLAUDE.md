@@ -44,6 +44,12 @@ no test round, unless the user asks for testing; also copy it to `Davan.Student-
 TEST builds: copy to `Davan.Student-test.apk` and bump `apkVersion` in `student-widget-test.json` (phones in its `testUrns` update to it).
 Never put a test build in `Davan.Student.apk`. The published version is never raised from phone self-reports.
 
+## "What's new" in the student widget (user, 10-Oct-2026)
+
+From w212 the student widget's settings screen shows "🆕 What's new in w…" above ✓ Close, from `BuildInfo.NEWS` (plain words for
+students, newest first, everything users can see that changed since the LAST PUBLIC version - drop items once they have been public
+for a release) and "🌙 Next update: tonight / tomorrow at 9:15 pm". Update `BuildInfo.NEWS` with EVERY new student widget build.
+
 ## Staff widget (Davan Staff = DavanWidget, Java, no Gradle)
 
 From w140 the staff widget for faculty, admin and hostel staff is ONE app: app id `com.davan.widget`, signed with `davan-widget-release.keystore`
