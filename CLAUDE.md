@@ -48,7 +48,7 @@ Never put a test build in `Davan.Student.apk`. The published version is never ra
 
 From w212 the student widget's settings screen shows "🆕 What's new in w…" above ✓ Close, from `BuildInfo.NEWS` (plain words for
 students, newest first, everything users can see that changed since the LAST PUBLIC version - drop items once they have been public
-for a release) and "🌙 Next update: tonight / tomorrow at 9:15 pm". Update `BuildInfo.NEWS` with EVERY new student widget build.
+for a release) and "🌙 Next update: tonight / tomorrow at 9:15 pm". Update `BuildInfo.NEWS` with EVERY new student widget build. The staff widget has the same box from w262 (its own `BuildInfo.NEWS` - update it with every staff build too).
 
 ## Staff widget (Davan Staff = DavanWidget, Java, no Gradle)
 
