@@ -84,6 +84,7 @@ davan-scraper `apps/statusdate/PLAN.md` (state v8, future plan: free Google Play
 Its key `statusdate.keystore` is not uploaded yet - the user will add it to apps/statusdate later.
 
 ## Who is on an old student widget
+Portal v11.57 (10-Oct): the "Not on w<N> yet" box has a "📲 Send reminder" button per group (DB2 davan_pub/widget_reminder/<URN> -> a card on the student's dashboard; B / C also get the widget's "message from college").
 Run the private davan-scraper workflow **"Widget versions"** (GitHub MCP actions_run_trigger, workflow_id widget-versions.yml); it saves
 `reports/widget-versions.csv` + `widget-versions-summary.txt` in davan-scraper (git pull them). One row per student (latest widget code;
 older codes = earlier installs). Reasons: A build < 133 cannot self-update (install once by hand), B update downloaded but not installed
