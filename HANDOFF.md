@@ -21,11 +21,11 @@ session (same commit as the work), keep it short, newest state only.
 ## Current versions (08-Oct-2026)
 | App | Build | Notes |
 |---|---|---|
-| Staff app (index.html from src/index.src.html) | CODE_BUILD 1816 | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
-| Student portal (student_portal.html) | v11.54 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) + "📌 Who keeps the lock-screen card" |
-| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 208 (📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205-206 = new settings screen (chips for My pages / Speak), 207 = update progress "connecting" + % bar, 208 = any calendar event (Davan Carnival) on Today / evening note / lock card, with 📌 / 🙈 switches, reports lock {off, hide, at}) |
+| Staff app (index.html from src/index.src.html) | CODE_BUILD 1819 | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
+| Student portal (student_portal.html) | v11.55 | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) + "📌 Who keeps the lock-screen card" |
+| Student widget | build 201 = **w183** public (released 08-Oct 9:16 pm) | next = 209 (209 = fewer DB2 downloads: lesson plan / internals / timed copies follow pub_ver; 📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205-206 = new settings screen (chips for My pages / Speak), 207 = update progress "connecting" + % bar, 208 = any calendar event (Davan Carnival) on Today / evening note / lock card, with 📌 / 🙈 switches, reports lock {off, hide, at}) |
 | Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 260 (260 = slot shows the full run; 259 = 🕷 scraper line + alert for the Super Admin; 📌 lock card, 🔔 alert labels; 258 = new settings screen like the student widget, 📌 / 🙈 switches, lock in staff_widget_report) |
-| College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v102 | runs in the CLOUD by itself (GitHub "Scrape (run once)" 1:00 pm + 5:30 pm IST Mon-Sat, backups 1:45 / 6:15) - no laptop needed |
+| College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v103 (sync v2.11.0) | runs in the CLOUD by itself (GitHub "Scrape (run once)" 1:00 pm + 5:30 pm IST Mon-Sat, backups 1:45 / 6:15) - no laptop needed |
 
 ## Widget sources (private repo, not this one)
 Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 208) and `widgets/staff` (build 260) - add_repo +
@@ -48,6 +48,12 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   duplicate-notification fix, "Professor" in spoken names, faculty Day Attendance by subject, DB2 pub_hash, app.py v095-v100.
 
 ## Open items / next steps
+- 10-Oct: DB2 "fix all 6" done (portal v11.55, staff v1819, widget build 209 on next, app.py v103 / sync v2.11.0): every writer stamps
+  davan_pub/pub_ver/<key> on a REAL change (scraper: lessonPlan; sync: students, allocations, allocation_each, internals_current,
+  faculty_photos, + writes allocation_each_c / internals_stu); phones keep copies up to 72 h. CHECK on 11-Oct with the DB2 usage
+  workflow (inputs day=2026-10-10, sizes=1): row diag~allocEachFull~... = current portals still reading the whole allocation_each
+  (if it is 0 but davan_pub~allocation_each still has reads, those are old app copies). portal_students (admin, 278 KB) left as is
+  (changes on every login). DB3 widgetConfig/news is DB3, not DB2.
 - 09-Oct: user applied for Claude for Open Source (free Max); README.md rewritten to current state (keep it current - reviewers may look).
 - **In-app voice calls (students <-> faculty)**: user asked 09-Oct ONLY as an enquiry (mockup shown) - NOT to be built unless the user asks again.
 - Student widget build 208 adds college calendar events (any type) to Today / evening note / lock card; the staff widget does not have it yet (offered).
