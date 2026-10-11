@@ -1,6 +1,6 @@
 # Session handoff - read this first (plug and play)
 
-Last updated: 11-Oct-2026 (scraper started on time by the Cloudflare worker v4 + app.py v104 late-start catch-up; staff app v1820). A new Claude session reads CLAUDE.md (rules) and
+Last updated: 11-Oct-2026 (scraper Cloudflare timer + app.py v104; news source tags: fetch_news v1.7.0, portal v11.59, student 213 / staff 263 on next). A new Claude session reads CLAUDE.md (rules) and
 then this file (where things stand). The user should not have to repeat anything below. Update this file at the end of every
 session (same commit as the work), keep it short, newest state only.
 
@@ -22,9 +22,9 @@ session (same commit as the work), keep it short, newest state only.
 | App | Build | Notes |
 |---|---|---|
 | Staff app (index.html from src/index.src.html) | CODE_BUILD 1820 (🕷 Scraper shows the Cloudflare scraper timer) | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
-| Student portal (student_portal.html) | v11.58 (v11.56 admin tab 📶 Who uses the app; v11.57 📲 Send reminder; v11.58 weekly feedback reads the lesson plan's "DD/MM hh:mm" dates) | widget floor 133; admin Widget tab (admin Moto test phone left out): live "Not on w<N> yet" list (A / B / C) + "📌 Who keeps the lock-screen card" |
-| Student widget | build 209 = **w185** public (10-Oct) | next = 212 (212 = 🆕 What's new box in settings (BuildInfo.NEWS - update it every build) + bigger logo 48 dp; 211 = slimmer top + footer (two-line time card with the quote, 3 thin footer lines, logo kept); 210 = markets scroll with the Horoscope page; 209 = fewer DB2 downloads: lesson plan / internals / timed copies follow pub_ver; 📌 lock card, 🔔 labels, update state, no repeated lesson plan; 205-206 = new settings screen (chips for My pages / Speak), 207 = update progress "connecting" + % bar, 208 = any calendar event (Davan Carnival) on Today / evening note / lock card, with 📌 / 🙈 switches, reports lock {off, hide, at}) |
-| Staff widget (Davan Staff) | build 256 = **w231** public (released 08-Oct 9:16 pm) | next = 262 (262 = 🆕 What's new box in settings (BuildInfo.NEWS); 261 = clearer Weekly class feedback switches ✅ ON | OFF; 260 = slot shows the full run; 259 = 🕷 scraper line + alert for the Super Admin; 📌 lock card, 🔔 alert labels; 258 = new settings screen like the student widget, 📌 / 🙈 switches, lock in staff_widget_report) |
+| Student portal (student_portal.html) | v11.59 (Widget Control -> News: numbered headlines with source tags + per-source counts) | widget floor 133; admin Widget tab: "Not on w<N> yet" list + "📌 Who keeps the lock-screen card" |
+| Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 213 (news: number + source tag per headline, notifications "(TOI)"); BuildInfo.NEWS = changes since the last public build |
+| Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 263 (news: number + source tag per headline, notifications "(TOI)") |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v104 (sync v2.11.0) | runs in the CLOUD by itself: Cloudflare worker davan-release v4 starts "Scrape (run once)" (timed=yes) 1:00 / 1:45 / 5:30 / 6:15 pm IST Mon-Sat; GitHub's own timer stays as a late backup - no laptop needed |
 
 ## Widget sources (private repo, not this one)
@@ -56,9 +56,10 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   11-Oct: user says both steps DONE (key has davan-scraper, worker code pasted + cron added). Verify Mon 12-Oct: scrape.yml run
   with event workflow_dispatch at ~07:30 UTC (1 pm IST).
   Friday 09-Oct day attendance: the Monday 1 pm run's catch-up (ATT_DAY_CATCHUP 3) fills it, or run "Collect missing days".
-- 11-Oct: news source tags (NOW vs NEW mockup sent): fetch_news.js (repo davan-student-news) keeps no source per headline and fills
-  "Max shown" from the first ticked source before the next (NDTV may never show). Offered: store sources + round-robin, widget
-  number + source tag, portal numbered list. NOT built - waiting for the user.
+- 11-Oct: news source tags BUILT: fetch_news v1.7.0 (repo davan-student-news, public) takes turns between ticked sources and writes
+  indiaSrc / worldSrc / bollywoodSrc / sandalwoodSrc (source key per headline, same order); portal v11.59 Widget Control -> News
+  numbered list + tags + per-source counts; student build 213 / staff build 263 on "next" (number + coloured tag, title lists sources,
+  notifications end "(TOI)"). Source key -> tag/colour tables: portal WC_NEWS_SRC, widgets Pages.NEWS_SRC - keep in step with NEWS_SOURCES.
 - 10-Oct: DB2 "fix all 6" done (portal v11.55, staff v1819, widget build 209 on next, app.py v103 / sync v2.11.0): every writer stamps
   davan_pub/pub_ver/<key> on a REAL change (scraper: lessonPlan; sync: students, allocations, allocation_each, internals_current,
   faculty_photos, + writes allocation_each_c / internals_stu); phones keep copies up to 72 h. CHECK on 11-Oct with the DB2 usage
