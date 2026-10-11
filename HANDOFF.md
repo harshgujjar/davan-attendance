@@ -92,7 +92,7 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
 ## Side project: Status Date (PARKED by the user, 09-Oct-2026)
 Day / date / month on the status bar (user's own app). Do not work on it unless the user asks. When asked, show the private
 davan-scraper `apps/statusdate/PLAN.md` (state v8, future plan: free Google Play version, fallbacks, market check) and README.md.
-Its key `statusdate.keystore` is not uploaded yet - the user will add it to apps/statusdate later.
+Its key `statusdate.keystore` was uploaded by the user to davan-scraper apps/statusdate on 11-Oct-2026 (checked: same certificate c44f8cfa… as StatusDate v8 on the phone).
 
 ## Who is on an old student widget
 Portal v11.57 (10-Oct): the "Not on w<N> yet" box has a "📲 Send reminder" button per group (DB2 davan_pub/widget_reminder/<URN> -> a card on the student's dashboard; B / C also get the widget's "message from college").
