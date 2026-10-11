@@ -9,6 +9,12 @@
  *  - The staff app's "Release now" button calls this worker's address; it starts the same job in "auto" mode, which releases
  *    only if Release now was really pressed (davan_pub/release_ctl nowReq). Nobody else can force a release through it.
  *
+ *  - v4 (user, 11-Oct-2026: "scraper did not run on time - build both fixes, use the same key"): GitHub's timer also started the
+ *    college scraper hours late (Sat 10-Oct: the 1 pm run never started). The worker now also starts the PRIVATE repo's job
+ *    harshgujjar/davan-scraper .github/workflows/scrape.yml (input timed=yes) at 1:00 pm, 1:45 pm (backup), 5:30 pm and 6:15 pm
+ *    (backup) IST, Monday-Saturday. app.py decides the rest (holiday / off Saturday = light run, a slot that already ran is skipped).
+ *    The same GH_TOKEN is used: on GitHub its repository access must include davan-scraper too (Actions: read and write).
+ *
  * One-time setup (Cloudflare dashboard, works on the phone) - see RELEASE-WORKER.md in the repo for the steps with pictures-free detail:
  *  1. Workers & Pages -> Create -> Worker -> name it  davan-release  -> Deploy -> Edit code -> paste this file -> Deploy.
  *  2. Settings -> Variables and Secrets -> Add -> type Secret, name GH_TOKEN, value = the GitHub key (Actions: read and write,
@@ -18,6 +24,19 @@
  */
 const REPO = 'harshgujjar/davan-attendance';
 const WORKFLOW = 'release-widgets.yml';
+const SCR_REPO = 'harshgujjar/davan-scraper';
+const SCR_WORKFLOW = 'scrape.yml';
+const SCR_TIMES = ['07:30', '08:15', '12:00', '12:45'];   // UTC = 1:00 pm, 1:45 pm, 5:30 pm, 6:15 pm IST (the cron fires every 15 min 07-12 UTC)
+const GH_HDR = env => ({ 'Authorization': 'Bearer ' + env.GH_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'davan-release-worker',
+  'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' });
+
+async function startScrape(env, why) {
+  if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
+  const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW + '/dispatches', {
+    method: 'POST', headers: GH_HDR(env), body: JSON.stringify({ ref: 'main', inputs: { timed: 'yes' } }),
+  });
+  return { ok: r.status === 204, msg: r.status === 204 ? 'scrape job started (' + why + ')' : 'GitHub said ' + r.status + (r.status === 404 ? ' (the key cannot see davan-scraper)' : '') };
+}
 
 async function startRelease(env, why) {
   if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
@@ -47,8 +66,12 @@ async function logRequest(env, code) {
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
 
 export default {
-  // the timer: 9:15 pm IST + 9:45 pm backup
-  async scheduled(event, env, ctx) { ctx.waitUntil(startRelease(env, 'Cloudflare timer ' + event.cron)); },
+  // the timers: 9:15 pm IST + 9:45 pm backup (release); v4: "0,15,30,45 7,8,12 * * MON-SAT" -> the scraper at SCR_TIMES only
+  async scheduled(event, env, ctx) {
+    if (event.cron.indexOf('MON-SAT') < 0) { ctx.waitUntil(startRelease(env, 'Cloudflare timer ' + event.cron)); return; }
+    const d = new Date(event.scheduledTime), hm = String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+    if (d.getUTCDay() !== 0 && SCR_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startScrape(env, 'Cloudflare timer ' + hm + ' UTC'));
+  },
   // GET /            -> health check (no release)
   // GET /?now=1      -> "Release now" from the staff app: the job releases only if the Super Admin pressed it
   // GET /?log=CODE   -> a widget log request (log-request.yml -> log-req.json)
@@ -58,12 +81,15 @@ export default {
     if (u.searchParams.get('now') === '1') return new Response(JSON.stringify(await startRelease(env, 'Release now button')), { headers: CORS });
     // 07-Oct-2026 (user: "show whether my new Cloudflare worker is connected"): gh = the GitHub key really opens the release job
     // (one read-only GitHub call); the staff app's Faculty Class Alerts page and Widget updates card show it. crons = its timers.
-    let gh = null, ghMsg = '';
+    let gh = null, ghMsg = '', scr = null, scrMsg = '';
     if (env.GH_TOKEN) try {
       const r = await fetch('https://api.github.com/repos/' + REPO + '/actions/workflows/' + WORKFLOW, { headers: { 'Authorization': 'Bearer ' + env.GH_TOKEN,
         'Accept': 'application/vnd.github+json', 'User-Agent': 'davan-release-worker', 'X-GitHub-Api-Version': '2022-11-28' } });
       gh = r.status === 200; ghMsg = gh ? 'GitHub key works' : 'GitHub said ' + r.status + (r.status === 401 ? ' (key wrong or expired)' : '');
+      // v4: can the same key see the scraper job? (scr false = add davan-scraper to the key's repositories on GitHub)
+      const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
+      scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, ver: 3, now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 4, now: Date.now() }), { headers: CORS });
   },
 };

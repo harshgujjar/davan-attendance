@@ -74,3 +74,19 @@ One-time setup (phone works):
 2. **GitHub**: github.com/harshgujjar/davan-attendance -> **Settings** -> **Secrets and variables** -> **Actions** ->
    **New repository secret** -> Name `CLOUDFLARE_API_TOKEN`, Secret = the key -> **Add secret**.
 3. Actions -> **Deploy Cloudflare worker** -> **Run workflow**. The last step must say "worker v3 is live".
+
+## College scraper timer (11-Oct-2026, worker v4)
+
+GitHub's own timer started the scraper hours late (Sat 10-Oct: the 1 pm run never started). The worker now also starts
+`harshgujjar/davan-scraper` → `scrape.yml` (input `timed=yes`) at **1:00 pm, 1:45 pm, 5:30 pm and 6:15 pm IST, Monday-Saturday**.
+app.py (v104) decides the rest: a slot that already ran is skipped, a holiday / off Saturday only saves the day attendance once.
+
+One-time steps (phone works):
+1. **Same GitHub key, one more repository**: github.com → photo → Settings → Developer settings → Personal access tokens →
+   Fine-grained tokens → **davan-release** → Repository access → also tick **davan-scraper** → Actions stays *Read and write* → **Update**.
+   (No new key: the GH_TOKEN in Cloudflare stays as it is.)
+2. **New code + one more timer** (only if the automatic deploy is not set up): Cloudflare → davan-release → Edit code → paste
+   `tools/cloudflare-release-worker.js` → Deploy; Settings → Trigger events → Add Cron Trigger `0,15,30,45 7,8,12 * * MON-SAT`.
+   (It fires every 15 min 12:30-6:45 pm IST; the worker starts the scraper only at the four times above.)
+3. Check: `https://davan-release.harshgujjar.workers.dev/` shows `"ver":4,"scr":true`; the staff app's 🕷 Scraper page says
+   ✅ Cloudflare timer on.
