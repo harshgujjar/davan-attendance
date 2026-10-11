@@ -90,3 +90,19 @@ One-time steps (phone works):
    (It fires every 15 min 12:30-6:45 pm IST; the worker starts the scraper only at the four times above.)
 3. Check: `https://davan-release.harshgujjar.workers.dev/` shows `"ver":4,"scr":true`; the staff app's 🕷 Scraper page says
    ✅ Cloudflare timer on.
+
+## v5 (11-Oct-2026): the PUC attendance scrape too
+
+puc.html's Scraper used to run only while a browser tab was open. Now `harshgujjar/davan-scraper` → `puc-scrape.yml`
+(`puc_scrape.py`, input `timed=yes`) is started by this worker at the PUC slots **10:34 am, 1:00, 3:18, 5:34 pm IST** and again
+30 min later (backup), Monday-Saturday. The job skips a slot that was already scraped and PUC holidays / exams / Sundays; an open
+puc.html tab (v5.231) leaves the timed scrapes to the cloud while the cloud works (puc_sp_config/cloud_last).
+
+One-time steps (phone works):
+1. **PUC portal login as GitHub secrets**: github.com/harshgujjar/davan-scraper → Settings → Secrets and variables → Actions →
+   New repository secret: `PUC_PORTAL_USER` = the email used on the PUC app's Scraper login, `PUC_PORTAL_PASS` = its password.
+2. **New code + one more timer** (only if the automatic deploy is not set up): Cloudflare → davan-release → Edit code → paste
+   `tools/cloudflare-release-worker.js` → Deploy; Settings → Trigger events → Add Cron Trigger
+   `0,4,18,30,34,48 5,7,8,9,10,12 * * MON-SAT` (type it EXACTLY like this - the worker recognises the PUC timer by this text).
+3. Check: the worker URL shows `"ver":5`; then davan-scraper → Actions → **PUC scrape** → Run workflow (timed empty) once - it must
+   end green with "N classes, N students".

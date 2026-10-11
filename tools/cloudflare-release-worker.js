@@ -14,6 +14,10 @@
  *    harshgujjar/davan-scraper .github/workflows/scrape.yml (input timed=yes) at 1:00 pm, 1:45 pm (backup), 5:30 pm and 6:15 pm
  *    (backup) IST, Monday-Saturday. app.py decides the rest (holiday / off Saturday = light run, a slot that already ran is skipped).
  *    The same GH_TOKEN is used: on GitHub its repository access must include davan-scraper too (Actions: read and write).
+ *  - v5 (user, 11-Oct-2026: "puc html also runs a scraper - handle that in auto mode"): the PUC attendance scrape no longer needs
+ *    an open puc.html tab. The worker starts davan-scraper .github/workflows/puc-scrape.yml (timed=yes) at the PUC slots
+ *    10:34 am, 1:00, 3:18 and 5:34 pm IST and again 30 min later (backup), Monday-Saturday (own cron, PUC_CRON). puc_scrape.py
+ *    decides the rest (PUC holiday / exam / Sunday = nothing, a slot that was already scraped is skipped).
  *
  * One-time setup (Cloudflare dashboard, works on the phone) - see RELEASE-WORKER.md in the repo for the steps with pictures-free detail:
  *  1. Workers & Pages -> Create -> Worker -> name it  davan-release  -> Deploy -> Edit code -> paste this file -> Deploy.
@@ -27,15 +31,20 @@ const WORKFLOW = 'release-widgets.yml';
 const SCR_REPO = 'harshgujjar/davan-scraper';
 const SCR_WORKFLOW = 'scrape.yml';
 const SCR_TIMES = ['07:30', '08:15', '12:00', '12:45'];   // UTC = 1:00 pm, 1:45 pm, 5:30 pm, 6:15 pm IST (the cron fires every 15 min 07-12 UTC)
+const SCR_CRON = '0,15,30,45 7,8,12 * * MON-SAT';
+// v5: PUC slots 10:34 / 13:00 / 15:18 / 17:34 IST + 30 min backups, in UTC
+const PUC_WORKFLOW = 'puc-scrape.yml';
+const PUC_TIMES = ['05:04', '05:34', '07:30', '08:00', '09:48', '10:18', '12:04', '12:34'];
+const PUC_CRON = '0,4,18,30,34,48 5,7,8,9,10,12 * * MON-SAT';
 const GH_HDR = env => ({ 'Authorization': 'Bearer ' + env.GH_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'davan-release-worker',
   'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' });
 
-async function startScrape(env, why) {
+async function startScrape(env, why, wf) {
   if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
-  const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW + '/dispatches', {
+  const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + (wf || SCR_WORKFLOW) + '/dispatches', {
     method: 'POST', headers: GH_HDR(env), body: JSON.stringify({ ref: 'main', inputs: { timed: 'yes' } }),
   });
-  return { ok: r.status === 204, msg: r.status === 204 ? 'scrape job started (' + why + ')' : 'GitHub said ' + r.status + (r.status === 404 ? ' (the key cannot see davan-scraper)' : '') };
+  return { ok: r.status === 204, msg: r.status === 204 ? (wf || SCR_WORKFLOW) + ' started (' + why + ')' : 'GitHub said ' + r.status + (r.status === 404 ? ' (the key cannot see davan-scraper)' : '') };
 }
 
 async function startRelease(env, why) {
@@ -66,11 +75,13 @@ async function logRequest(env, code) {
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
 
 export default {
-  // the timers: 9:15 pm IST + 9:45 pm backup (release); v4: "0,15,30,45 7,8,12 * * MON-SAT" -> the scraper at SCR_TIMES only
+  // the timers: 9:15 pm IST + 9:45 pm backup (release); v4: SCR_CRON -> the college scraper at SCR_TIMES only; v5: PUC_CRON -> PUC at PUC_TIMES
   async scheduled(event, env, ctx) {
     if (event.cron.indexOf('MON-SAT') < 0) { ctx.waitUntil(startRelease(env, 'Cloudflare timer ' + event.cron)); return; }
     const d = new Date(event.scheduledTime), hm = String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
-    if (d.getUTCDay() !== 0 && SCR_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startScrape(env, 'Cloudflare timer ' + hm + ' UTC'));
+    if (d.getUTCDay() === 0) return;
+    if (event.cron === PUC_CRON) { if (PUC_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startScrape(env, 'Cloudflare timer ' + hm + ' UTC', PUC_WORKFLOW)); return; }
+    if (SCR_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startScrape(env, 'Cloudflare timer ' + hm + ' UTC'));
   },
   // GET /            -> health check (no release)
   // GET /?now=1      -> "Release now" from the staff app: the job releases only if the Super Admin pressed it
@@ -90,6 +101,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 4, now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 5, now: Date.now() }), { headers: CORS });
   },
 };

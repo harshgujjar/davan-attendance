@@ -1,6 +1,6 @@
 # Session handoff - read this first (plug and play)
 
-Last updated: 11-Oct-2026 (scraper Cloudflare timer + app.py v104; news source tags: fetch_news v1.7.0, portal v11.59, student 213 / staff 263 on next). A new Claude session reads CLAUDE.md (rules) and
+Last updated: 11-Oct-2026 (PUC scrape in the cloud: puc_scrape.py + worker v5 + puc.html v5.231; scraper Cloudflare timer + app.py v104; news source tags: fetch_news v1.7.0, portal v11.59, student 213 / staff 263 on next). A new Claude session reads CLAUDE.md (rules) and
 then this file (where things stand). The user should not have to repeat anything below. Update this file at the end of every
 session (same commit as the work), keep it short, newest state only.
 
@@ -25,7 +25,7 @@ session (same commit as the work), keep it short, newest state only.
 | Student portal (student_portal.html) | v11.59 (Widget Control -> News: numbered headlines with source tags + per-source counts) | widget floor 133; admin Widget tab: "Not on w<N> yet" list + "📌 Who keeps the lock-screen card" |
 | Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 213 (news: number + source tag per headline, notifications "(TOI)"); BuildInfo.NEWS = changes since the last public build |
 | Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 263 (news: number + source tag per headline, notifications "(TOI)") |
-| College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v104 (sync v2.11.0) | runs in the CLOUD by itself: Cloudflare worker davan-release v4 starts "Scrape (run once)" (timed=yes) 1:00 / 1:45 / 5:30 / 6:15 pm IST Mon-Sat; GitHub's own timer stays as a late backup - no laptop needed |
+| College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v104 (sync v2.11.0); PUC: puc_scrape.py p1 (worker v5) | runs in the CLOUD by itself: Cloudflare worker davan-release v4 starts "Scrape (run once)" (timed=yes) 1:00 / 1:45 / 5:30 / 6:15 pm IST Mon-Sat; GitHub's own timer stays as a late backup - no laptop needed |
 
 ## Widget sources (private repo, not this one)
 Newest sources: harshgujjar/davan-scraper (PRIVATE) folder `widgets/student` (build 208) and `widgets/staff` (build 262) - add_repo +
@@ -48,6 +48,14 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   duplicate-notification fix, "Professor" in spoken names, faculty Day Attendance by subject, DB2 pub_hash, app.py v095-v100.
 
 ## Open items / next steps
+- 11-Oct night: PUC scrape moved to the CLOUD (user: "puc html also runs a scraper - handle that in auto mode"). davan-scraper
+  `puc_scrape.py` (p1, port of puc.html spDoScrape/spPushFB: same writes puc_daily / puc_students / puc_meta, calendar off-day rule)
+  + `puc-scrape.yml`; worker v5 starts it (timed=yes) 10:34 / 13:00 / 15:18 / 17:34 IST + 30 min backups Mon-Sat (cron
+  `0,4,18,30,34,48 5,7,8,9,10,12 * * MON-SAT` = PUC_CRON). Status: PUC RTDB puc_sp_config/cloud_last. puc.html v5.231: an open tab
+  skips its auto / catch-up scrape while cloud_last is ok within 4 days. NOT done by Claude: pucSessAutoSetOnScrape (segment start
+  date, only on a semester's first scrape - do one manual scrape in the tab at a new semester's start). USER STEPS (RELEASE-WORKER.md
+  "v5"): add secrets PUC_PORTAL_USER / PUC_PORTAL_PASS to davan-scraper; paste worker v5 + add the new cron (auto deploy key not set);
+  run "PUC scrape" by hand once. Verify Mon 12-Oct: puc-scrape.yml runs ~05:05 UTC (10:34 IST).
 - 11-Oct: scraper timer. Sat 10-Oct GitHub never started the 1 pm run (late starts 7:23-10:58 pm all skipped -> Friday's day attendance
   missed). Built: worker v4 (also starts davan-scraper scrape.yml, cron `0,15,30,45 7,8,12 * * MON-SAT`, filters to 07:30/08:15/12:00/12:45 UTC)
   + app.py v104 (off day: any timed start does the light run until att_state.last_run = today; college day: a slot that already ran
