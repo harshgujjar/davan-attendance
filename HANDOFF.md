@@ -53,6 +53,8 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   + app.py v104 (off day: any timed start does the light run until att_state.last_run = today; college day: a slot that already ran
   today is never re-scraped by a late start). USER STEPS: add davan-scraper to the davan-release fine-grained key; paste worker code +
   add the cron if the auto deploy (CLOUDFLARE_API_TOKEN) is not set. Check: worker URL "scr":true / 🕷 page "✅ Cloudflare timer on".
+  11-Oct: user says both steps DONE (key has davan-scraper, worker code pasted + cron added). Verify Mon 12-Oct: scrape.yml run
+  with event workflow_dispatch at ~07:30 UTC (1 pm IST).
   Friday 09-Oct day attendance: the Monday 1 pm run's catch-up (ATT_DAY_CATCHUP 3) fills it, or run "Collect missing days".
 - 11-Oct: news source tags (NOW vs NEW mockup sent): fetch_news.js (repo davan-student-news) keeps no source per headline and fills
   "Max shown" from the first ticked source before the next (NDTV may never show). Offered: store sources + round-robin, widget
