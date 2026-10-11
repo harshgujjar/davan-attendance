@@ -78,6 +78,19 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
    read only, uses the SA_DB2 secret. Do NOT sign up anonymous tokens (blocked). 09-Oct at 11:03 pm: 43.7 MiB (15% of 300 MB); 08-Oct full day 71.5 MiB;
    7-Oct 109.5, 6-Oct 96.2, 5-Oct 106.7 MiB. Biggest: portal allocation_each (old full node, 4.9 MiB / 113 reads - old cached
    portals), lessonPlan (staff app 4.6 MiB), timetable_portal 4.0 MiB. Expect a small bump on 09-Oct (w201 re-reads results once).
+   **OFFICIAL Firebase numbers (user's console screenshots, 11-Oct-2026) - the ones that count.** DB2 is on the FREE Spark plan:
+   downloads 10 GB / month (over = database OFF until the 1st of next month), storage 1 GB, 100 connections. October so far
+   (1-10 Oct): downloads **2.96 GB**, storage 41.5 MB, peak connections 18, load 3%, rules 487K allows / 255 denies (rule checks
+   fell from ~70K to ~22K a day after the 09/10-Oct "fewer downloads" work). Downloads per day (approx., Firebase days run
+   ~12:30 pm - 12:30 pm IST, Pacific time): 1 Oct ~770 MB (month start, everything fresh), 2-4 Oct 140-270, 5-6 Oct 360-430,
+   7-8 Oct ~260-270, 9 Oct ~200, 10 Oct (Sat) ~130 MB. Safe line for the rest of October: **~330 MB / day** (7 GB left / 21 days);
+   weekdays at 200-250 MB end the month near 7.5-8 GB. The apps' own meter (DB2 usage workflow) shows only ~1/6 of Firebase's
+   number (no connection / listener overhead, no scraper syncs) - use it to compare days, trust the console for totals.
+   Claude cannot read the console itself: no Firebase connector, and Cloud Monitoring needs billing (Blaze) - checked 10-Oct with
+   the davan-scraper workflow "Firebase console usage" (403 / "requires billing"; the user added Monitoring Viewer in
+   davan-attendance-2026 only). Do NOT suggest turning on billing just for this. Ask the user for the console screenshot
+   (Realtime Database -> Usage -> tap "Downloads" for the per-day graph). TODO: check a full weekday (Mon 12-Oct onwards); if any
+   day goes above ~330 MB, find the reader and cut it.
 3. Scraper (app.py v102): every run / skipped slot -> DB2 davan_pub/scraper/{runs, status}; settings from the staff app's 🕷 Scraper page
    (scraper/cfg: s1, s2, marks, groups, sitting, holidaySkip); holiday / off Saturday = 1 pm light run (day attendance only), 5:30 skipped;
    day-attendance notes in scraper/att_state. NOT built yet: in-app "Run now" (needs the Cloudflare worker's GitHub key to reach the
