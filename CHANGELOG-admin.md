@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1836 · 12-Oct-2026 IST
+User: "in the PUC app her name, designation and photo are missing - it does not look like her page". The localStorage note davan_staff_scope (staffScopeNote) now carries name, title ("PUC Principal" for a PUC-only Principal, else the login's Title / role) and the same photo as her widget (hswPayload photo); puc.html v5.234 shows them in its "Signed in as" box and the top bar. No database reads or writes. Pairs with puc.html v5.234. Functions: staffScopeNote, applySidebarForRole, the PUC hand-over on login.
+
 ## v1835 · 12-Oct-2026 IST
 User screenshot: Almas Banu T's staff app side menu was empty (v1832 hid every degree page and showed the PUC app inside). Now a PUC-only login (staffPucOnly) is handed over like resident staff: the staff widget on the phone is linked first (swLink), the davan_staff_scope note is written, then the window goes to puc.html - the PUC app full screen with her own menu (puc.html v5.233, Commerce only), signed in with the same account. Widget taps open the PUC app directly (staff widget w279+). No extra reads. Function: the login landing after applySidebarForRole.
 
