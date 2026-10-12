@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1843 · 12-Oct-2026 IST
+User screenshot: View Allocation (Subject-Faculty Allocation) offered II / IV / VI in the odd session 2026-27. The list was written into the page; allocRenderViewer now fills it with the semesters of the current session (getSemsForType of SESSION_CONFIG.semType) that have allocation rows, in order (I, III, V now; II, IV, VI next semester by itself), and clears a choice that is no longer in the list. No data or read changes. Also: the user swapped Software Engineering Sem V in Edit Allocation (A = Vijayalakshmi P S, B = Karthik J S); the 🧭 Teacher check will show the college portal still has them the other way. Function: allocRenderViewer.
+
 ## v1842 · 12-Oct-2026 IST
 User: "fix this kind of error from the core - now and next semester" (a teacher shown on the wrong section). Root: several copies of "who teaches which section" (the live allocation, the older per-batch allocation_each, the student's scraped subject record with a per-course DI / NU column, the portal heading). Now ONE source: the live allocation (Edit Allocation) decides in the staff app (allocFacFor), the student app (portal v11.62 corrects every current subject's teacher at load from the allocation row of the student's own course + sem + section) and the scraper (app.py v105-107). New 🧭 Teacher check card on Edit Allocation (tcCheck, tcRender): every class + subject of the last 6 college days where the college portal (att_fac fp, or f on older days) names a different teacher than Edit Allocation, with photos and 📋 Copy, plus the subjects with no single teacher in the allocation; the Super Admin gets a reminder at login once a day (tcLoginNudge). Reads: the att_fac day list + up to 6 days (~15 KB each), once per session, only on that page / for the Super Admin. Pairs with portal v11.62, app.py v107.
 
