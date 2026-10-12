@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1840 · 12-Oct-2026 IST
+User: "B section still seen in Vijayalakshmi's login" after v1839. The saved summaries were only rebuilt when older than 30 min / 6 h and nobody had refreshed, and cfbPublish only patched the teachers in the new list, so Karthik / Vijayalakshmi kept their old rows. Now every summary carries fx (the rule version); one made before v1840 is rebuilt at the next staff app login (cfbAutoSum, any admin / Principal / faculty), and every class_fb_fac entry of that week that is not in the new list is emptied. fx stays 0 when the allocation was not loaded yet, so it is rebuilt again later. DB2 class_fb_sum/<wk>/fx (new), one extra tiny read. Functions: cfbEnsureSum, cfbPublish.
+
 ## v1839 · 12-Oct-2026 IST
 User: "Vijayalakshmi takes Software Engineering section A - why does her widget show B? This small mistake was fixed many times and comes back with builds". The college portal's heading and the student's subject record (DI / NU column, per course) name the wrong teacher for some sections; the admin's allocation has SE Sem 5 A = Vijayalakshmi P S, B = Prasada M R. New allocFacFor(class, subject) (LM_ALLOCATIONS of this semester, course + sem + section + subject, one teacher only) now decides in the class feedback summaries (cfbCompute - also counts each answer under the student's class today, so an old "Sem4" label no longer makes its own row), the "Yesterday in your classes" card (fdbYdayRender) and the Day Attendance faculty page (dayAttRenderFac). The summaries (davan_pub/class_fb_sum, class_fb_fac) are corrected the next time they are rebuilt (📘 Class Feedback → refresh). No new reads. Pairs with portal v11.61, app.py v105, staff widget w285.
 

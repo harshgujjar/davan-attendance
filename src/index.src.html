@@ -18947,7 +18947,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1839;  // always = HTML footer version number
+const CODE_BUILD = 1840;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -29955,6 +29955,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1840', date: '12-Oct-2026 IST', note: 'Class feedback: the summaries made before the section fix are rebuilt by themselves at the next staff app login, and a teacher no longer keeps rows that now belong to another teacher.' },
 { v: 'v1839', date: '12-Oct-2026 IST', note: 'Class feedback and "yesterday in your classes" now go by the admin\'s allocation: each section\'s answers count for the teacher allocated to THAT section (Software Engineering Sem 5: A = Vijayalakshmi P S, B = Prasada M R).' },
 { v: 'v1838', date: '12-Oct-2026 IST', note: 'PUC Principal login made simple: the staff app no longer jumps to the PUC app - it shows her card with Open the PUC app and Log out. She signs in to the PUC app itself with her password, and the widget has a 3rd option 🏛 PUC Principal.' },
 { v: 'v1837', date: '12-Oct-2026 IST', note: 'Switching from the PUC Principal to an admin login on the same phone: Sign Out in the PUC app now ends her view, and its login page has a "Staff app login" link.' },
@@ -29969,7 +29970,6 @@ const HTML_CHANGELOG = [
 { v: 'v1828', date: '12-Oct-2026 IST', note: 'PUC timetable on the staff widget: a Science class no longer takes its teacher from the Commerce list (Sumithra showed 2PUC COM A and SCI A Kannada at the same time).' },
 { v: 'v1827', date: '12-Oct-2026 IST', note: 'Kannada / Hindi: a teacher\'s widget now shows their own language\'s lesson plan (Kotrappa\'s Kannada class showed the Hindi plan). Open the staff app once so the widgets get it.' },
 { v: 'v1826', date: '12-Oct-2026 IST', note: 'Kannada / Hindi periods: each teacher now gets only their own language on the staff widget, in the voice and in My classes today (Kotrappa Kannada, Rekha Hindi; PUC the same). Widgets: Fast voice by default and a chime after an update.' },
-{ v: 'v1825', date: '12-Oct-2026 IST', note: '🔔 Notifications: ticking a switch no longer jumps the page to the top, and jump buttons on top go straight to Students, Staff, Super Admin, Admin & Principal, Turned off and Lock-screen card. Widgets: Your day in Kannada and a ▶ day button beside the phone number (student 218, staff 269).' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -84014,7 +84014,7 @@ function cfbCompute(wk, raw) {
 // Writes the small summaries (comments only where 5+ answered, so a teacher can never guess who wrote what).
 async function cfbPublish(wk, sum) {
   const A = (typeof FACULTY_NAME_ALIASES !== 'undefined' && FACULTY_NAME_ALIASES) || {};
-  const pub = { at: sum.at, wk, n: sum.n, students: sum.students, rows: {} };
+  const pub = { at: sum.at, wk, n: sum.n, students: sum.students, rows: {}, fx: (LM_ALLOCATIONS || []).length ? CFB_FX : 0 };   // no allocation loaded yet: rebuilt next time
   Object.keys(sum.rows).forEach(k => { const r = sum.rows[k]; pub.rows[k] = Object.assign({}, r, { cm: r.cnt >= 5 ? r.cm.slice(0, 40) : [] }); });
   await lpDb2Set('davan_pub/class_fb_sum/' + wk, pub);
   const last = await lpDb2Get('davan_pub/class_fb_sum_last');
@@ -84028,6 +84028,11 @@ async function cfbPublish(wk, sum) {
       fac[sk + '/name'] = f; fac[sk + '/wk'] = wk; fac[sk + '/at'] = pub.at; fac[sk + '/rows'] = rs;
       fac[sk + '/hist/' + wk] = { cnt, avg: cnt ? Math.round(rr * 10 / cnt) / 10 : 0, u: cfbPct(yy, cnt) }; });
   });
+  // v1840 (user: "B section still seen in Vijayalakshmi's login"): a teacher whose rows of this week moved to another teacher (the
+  // allocation decides now) keeps no old rows - every class_fb_fac entry of this week that is not in the new list is emptied
+  try { const old = (await lpDb2Get('davan_pub/class_fb_fac')) || {};
+    Object.keys(old).forEach(sk => { const o = old[sk] || {}; if (o.wk === wk && !((sk + '/rows') in fac)) { fac[sk + '/rows'] = []; fac[sk + '/hist/' + wk] = null; } });
+  } catch (e) { console.warn('[cfb] old rows', e.message); }
   if (Object.keys(fac).length) await lpDb2Patch('davan_pub/class_fb_fac', fac);
   const list = Object.values(pub.rows).filter(r => r.cnt >= 5).map(r => ({ f: r.f, n: r.n, c: r.c, cnt: r.cnt, avg: Math.round(cfbAvg(r) * 10) / 10, u: cfbPct(r.y, r.cnt) }));
   list.sort((a, b) => a.avg - b.avg);
@@ -84037,8 +84042,11 @@ async function cfbPublish(wk, sum) {
   await lpDb2Set('davan_pub/class_fb_sum_last', wk);
 }
 // Reads a week's answers and refreshes its summaries when they are older than maxAge. Returns the raw answers when it read them.
+const CFB_FX = 1840;   // v1840: summaries carry the rule version they were made with
 async function cfbEnsureSum(wk, maxAge, force) {
-  if (!force) { const at = await lpDb2Get('davan_pub/class_fb_sum/' + wk + '/at'); if (at && Date.now() - at < maxAge) return null; }
+  // v1840: a summary made before the allocation rule (fx < CFB_FX) is rebuilt at once, whatever its age
+  if (!force) { const at = await lpDb2Get('davan_pub/class_fb_sum/' + wk + '/at'), fx = at ? await lpDb2Get('davan_pub/class_fb_sum/' + wk + '/fx') : 0;
+    if (at && Date.now() - at < maxAge && (+fx || 0) >= CFB_FX) return null; }
   const raw = (await lpDb2Get('davan_pub/class_fb/' + wk)) || {};
   if (!Object.keys(raw).length) return { raw, sum: cfbCompute(wk, raw) };
   const sum = cfbCompute(wk, raw);
