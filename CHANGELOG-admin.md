@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1844 · 12-Oct-2026 IST
+User: "I swapped Vijayalakshmi (A) and Karthik (B) in Edit Allocation - the student app and widget still show Karthik for A". A save in Edit Allocation wrote Firestore app_data/allocations and DB1 davan_pub/allocations only; the student app and the student widget read DB2 davan_pub/allocations (the widget reloads it when davan_pub/pub_ver/allocations moves), which was refreshed only by a timetable push. New allocPortalPush writes DB2 too and bumps pub_ver/allocations on every allocation save (edit, delete, faculty rename, fsSaveAllocations) and when a new semester is activated; allocPortalHeal compares the students' copy with the live allocation 45 s after an admin / Principal login and re-sends it when different (fixes the save already made). Cost: one ~30 KB write per save, one ~30 KB read per admin session. Functions: allocPortalPush, allocPortalHeal (new), aleSave, the allocation delete, the faculty rename, fsSaveAllocations, semester activation.
+
 ## v1843 · 12-Oct-2026 IST
 User screenshot: View Allocation (Subject-Faculty Allocation) offered II / IV / VI in the odd session 2026-27. The list was written into the page; allocRenderViewer now fills it with the semesters of the current session (getSemsForType of SESSION_CONFIG.semType) that have allocation rows, in order (I, III, V now; II, IV, VI next semester by itself), and clears a choice that is no longer in the list. No data or read changes. Also: the user swapped Software Engineering Sem V in Edit Allocation (A = Vijayalakshmi P S, B = Karthik J S); the 🧭 Teacher check will show the college portal still has them the other way. Function: allocRenderViewer.
 

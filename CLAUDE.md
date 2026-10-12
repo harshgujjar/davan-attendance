@@ -158,3 +158,5 @@ letter in brackets). Staff app: `allocFacFor(classKey, subject)`; student app: t
 scraper: `_alloc_faculty_for`. Never decide it from the DI / NU column (per course, not per section), the old per-batch `allocation_each`
 copy, or the portal's column heading - those are fallbacks only when the allocation has no single teacher. Any NEW feature that shows or
 counts "my classes" must go through these. The 🧭 Teacher check (Edit Allocation page) lists classes where the portal disagrees.
+Any code that saves the allocation must call `allocPortalPush(why)` (staff app, v1844): the student app and student widget read DB2
+`davan_pub/allocations` and reload it only when `davan_pub/pub_ver/allocations` moves.
