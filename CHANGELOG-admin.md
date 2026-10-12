@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1828 · 12-Oct-2026 IST
+User screenshot: SUMITHRA K T's widget day had 2PUC COM A Kannada and 2PUC SCI A Kannada both at 3:15. Sections A / B / C exist in both PUC streams and stwPucDay (both streams for the widget) resolved every teacher with the Commerce list (the page's mode), so SCI A's Kannada went to COM A's teacher. lcbPucResolveFaculty takes the row's own stream; the built-in section list (Commerce) is used for Commerce only; Science falls back to the PUC app Subject Map, then the subject default. Data: DB2 davan_pub/staff_pub (board, fac pages) at the next publish. Functions: lcbPucResolveFaculty, stwPucDay.
+
 ## v1827 · 12-Oct-2026 IST
 User screenshot: Kotrappa's widget still showed "Kannada / Hindi" (published by v1824, before v1826 reached the staff app) and his Kannada class carried Rekha's HINDI lesson plan (last class / teach today in Hindi). The shared Kannada / Hindi period's timetable code fits both plans and the first (Hindi) won. stwPublish now matches the lesson plan of a teacher's own page by their own language name (code left out) once the period is narrowed to it. Data: DB2 davan_pub/staff_pub fac/<name>/tt (lk, lp); no extra reads. Functions: stwPublish.
 
