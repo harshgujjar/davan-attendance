@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1834 · 12-Oct-2026 IST
+User: "PUC at a glance still shows PUC Science data". stwPucGlance (DB2 davan_pub/staff_pub glance.puc) now counts Commerce only: Science classes are skipped, today's periods / faculty are Commerce, and the Science Subjects / Science Strength / Science student cards are gone; the totals (students, average, shortage, critical) are Commerce totals. Matches v1831 (no PUC Science on the staff widgets). No extra reads. Function: stwPucGlance.
+
 ## v1833 · 12-Oct-2026 IST
 User (PUC app menu screenshots): "show her all of the PUC Dashboard and the tools that matter to Commerce - remedial classes attendance, calendar (Commerce only) - same on the widget; scraping and the rest are the Super Admin's". On every login the staff app writes localStorage davan_staff_scope {pucOnly, sup, name} (same site as the PUC app it opens); puc.html v5.232 hides Scrape Data, Upload Photos, Verify Data, SCI Timetable, Science Calendar, Admin Settings and Degree App and does not arm its auto-scrape for a PUC-only non-Super-Admin login. No database reads or writes. Pairs with puc.html v5.232. Function: applySidebarForRole.
 
