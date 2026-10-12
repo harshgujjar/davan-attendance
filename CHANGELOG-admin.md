@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1830 · 12-Oct-2026 IST
+User: "Sumithra has class at 10:45 in 1st PUC A and 11:45 in 1st PUC C; 2:15-2:30 is a break, she has class at 2:30 - Kannada, Science and Commerce together". The widget's PUC timetable came from an old copy built into this app (2nd PUC only, old periods). stwPucLoadLive now reads the timetables saved in the PUC app (Firestore puc_timetables_com / puc_timetables_sci, RTDB davan_tt_1puc_com - the one valid today) once per publish (3 reads, cached 30 min); stwPucDay uses their own periods (breaks, 2:30 ...), adds 1st PUC Commerce (stwPuc1Fac = the PUC app's Subject Map 1COM, then its 1st PUC teacher list), and falls back to the old copy only for a stream with nothing saved. Times are read as saved (stwPucMin: "08:30" is morning - the old reader made it 8:30 pm). A teacher's same subject at the same time in two classes is one class ("2PUC COM A + SCI A"). Data: DB2 davan_pub/staff_pub at the next publish. Functions: stwPucLoadLive, stwPucMin, stwPuc1Fac, stwPucDay, stwPublish.
+
 ## v1829 · 12-Oct-2026 IST
 User: "Sumithra has no class at 2:15". The staff app's PUC Commerce timetable had 7 periods (11:30-12:00, 12:30-1:15 ...) while the PUC app (puc.html TT_COM_SEED) has 6 (9:30, 10:30, 11:30-12:30, lunch 12:30-1:15, 1:15, 2:15, 3:15) and keeps only the first 6 of each 7-entry grid row. So every afternoon Commerce class was one period early on the Live class board and the staff widgets, and the repeated last entry became a class at 2:15 that does not exist (COM A Monday: KAN/HIN 3:15 only). LCB_PUC_COM_SEED.periods and LCB_PUC_COM_SLOTS now match the PUC app; Science already matched. Data: DB2 davan_pub/staff_pub (board, faculty pages) at the next publish. Functions: LCB_PUC_COM_SEED, LCB_PUC_COM_SLOTS (used by stwPucDay, lcbPucBuildPanel).
 
