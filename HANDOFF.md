@@ -23,8 +23,8 @@ session (same commit as the work), keep it short, newest state only.
 |---|---|---|
 | Staff app (index.html from src/index.src.html) | CODE_BUILD 1823 (v1823 Short / Full day / Stop text; 🔔 page 👑 Admin column with 🔔 + 🔊 switches; v1821 "📅 Your day today" 9:15 rows) | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
 | Student portal (student_portal.html) | v11.59 (Widget Control -> News: numbered headlines with source tags + per-source counts) | widget floor 133; admin Widget tab: "Not on w<N> yet" list + "📌 Who keeps the lock-screen card" |
-| Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 216 (Tell me my day: 🔊 Short / 🔊 Full day / ⏹ Stop, one at a time; 215 = update no longer stuck at "connecting…"; 214 = 9:15 "Your day today" + 🔊 Tell me my day; 213 = news source tags); BuildInfo.NEWS = changes since the last public build |
-| Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 266 (Short / Full day / ⏹ Stop; 265 = update fix + Admin voice switches notif_off/stf/_v; 264 = 9:15 "Your day today"; 263 = news source tags) |
+| Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 217 ("server gave the old file": waits 6 min for GitHub's cache; 216 = Tell me my day: 🔊 Short / 🔊 Full day / ⏹ Stop, one at a time; 215 = update no longer stuck at "connecting…"; 214 = 9:15 "Your day today" + 🔊 Tell me my day; 213 = news source tags); BuildInfo.NEWS = changes since the last public build |
+| Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 267 (old-file wait; 266 = Short / Full day / ⏹ Stop; 265 = update fix + Admin voice switches notif_off/stf/_v; 264 = 9:15 "Your day today"; 263 = news source tags) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v104 (sync v2.11.0); PUC: puc_scrape.py p1 (worker v5) | runs in the CLOUD by itself: Cloudflare worker davan-release v4 starts "Scrape (run once)" (timed=yes) 1:00 / 1:45 / 5:30 / 6:15 pm IST Mon-Sat; GitHub's own timer stays as a late backup - no laptop needed |
 
 ## Widget sources (private repo, not this one)
@@ -48,6 +48,11 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   duplicate-notification fix, "Professor" in spoken names, faculty Day Attendance by subject, DB2 pub_hash, app.py v095-v100.
 
 ## Open items / next steps
+- 12-Oct: "download failed - the server gave the old file" = raw.githubusercontent.com caches the APK up to 5 min (max-age=300)
+  after a push, while github.io already shows the new version. Builds 217 / 267 wait 6 min (Update.staleWait) instead of 3 quick
+  retries. RELEASE HABIT: push the "-next" APK first, bump the "-next" json in a later push (5+ min later) - done so for 217 / 267.
+  Checked 12-Oct: the CDN IGNORES the ?v= query (a new ?v=267 link got the cached 266 file) - ?v= does not bust it. The nightly
+  workflow now pushes the APKs, sleeps 330 s, then pushes the version files.
 - 12-Oct: update "connecting…" fix (student 215 / staff 265): the background refresh started the APK download on a side thread and
   ended, Android froze / killed it -> 0 bytes until the next hourly try. Now the download runs on the refresh's own thread, a 0-byte try
   is dead after 45 s, one more direct try before DownloadManager, and the open settings screen starts it (Update.kick). Not phone-tested.

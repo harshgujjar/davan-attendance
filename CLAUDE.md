@@ -69,6 +69,7 @@ widget codes that always get it at once, e.g. the Super Admin's S-7UP47U). From 
 copies a newer "next" build to the public APK and json (`Davan.Student.apk` / `-test.apk` / `DavanWidget.apk`, version files) - one update a day
 for everyone else, silent where Android allows. Do NOT edit the public version files or APKs, and keep `LATEST_APK` / `LATEST_STUDENT_WIDGET_APK_V`
 (and the portal's `LATEST_STUDENT_WIDGET_APK`) at the PUBLIC version, or the staff app pushes the build to everyone early.
+GitHub's raw file cache keeps an APK up to 5 min after a push (user saw "the server gave the old file", 12-Oct): push the "-next" APK FIRST and bump the "-next" json in a later push 5+ min after (the nightly workflow does the same).
 Download buttons (both apps, from v1774 / portal v11.33) give the "-next" APK, so a NEW install is always the newest build, held or not.
 AUTOMATIC every night (user, 06-Oct: "fully independent, without Claude"): the job releases by itself, nobody asks. Holds are gone - never add
 `"hold"`. The only stop is the Super Admin's switch in the staff app (Global Switches -> Widget updates: Stop tonight / Stop until resume /
