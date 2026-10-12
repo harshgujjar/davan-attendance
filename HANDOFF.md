@@ -51,8 +51,10 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
 - 12-Oct: update "connecting…" fix (student 215 / staff 265): the background refresh started the APK download on a side thread and
   ended, Android froze / killed it -> 0 bytes until the next hourly try. Now the download runs on the refresh's own thread, a 0-byte try
   is dead after 45 s, one more direct try before DownloadManager, and the open settings screen starts it (Update.kick). Not phone-tested.
-- 12-Oct: 🔔 page 👑 Admin column (v1822): rows with adm: 1 (v: 1 = has a voice) - 🔊 switch = notif_off/stf/_v/{key}; widget
-  Gen.voiceOff checks daily, cfb_adm, periods. Add new admin-only notifications there.
+- 12-Oct: 🔔 page admin sections (v1822 -> v1823 user: "make it Super Admin + one section for admin, principal and others"):
+  👑 Super Admin = his phone only (notif_off/stf/_sa/{key}, voice _sav/{key}); 🏛 Admin, Principal & others = {key}, voice _v/{key}.
+  Rows adm: 1 (both sections), sa: 1 (Super Admin only: scraper), v: 1 (has a voice). Staff widget 266: Gen.off / voiceOff / SA_KEYS
+  (cfb_adm, periods, daily, week, scraper) - add a new admin-only notification to SA_KEYS and the registry together.
 - 12-Oct: 📅 "Your day today" BUILT (user mockup 12-Oct, then "9:15, keep the 20-min rule out only for this time, keep 7:30, new quote,
   every low subject"): Gen gen_day 9:15 Mon-Sat, both widgets (student 214, staff 264, "next"), Gen.dayBrief / Speak.tellDay.
   Speaks in English only (no Kannada version yet - offer it). Not phone-tested: check the 9:15 note + voice and the settings button.
