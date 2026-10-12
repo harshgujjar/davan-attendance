@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1827 · 12-Oct-2026 IST
+User screenshot: Kotrappa's widget still showed "Kannada / Hindi" (published by v1824, before v1826 reached the staff app) and his Kannada class carried Rekha's HINDI lesson plan (last class / teach today in Hindi). The shared Kannada / Hindi period's timetable code fits both plans and the first (Hindi) won. stwPublish now matches the lesson plan of a teacher's own page by their own language name (code left out) once the period is narrowed to it. Data: DB2 davan_pub/staff_pub fac/<name>/tt (lk, lp); no extra reads. Functions: stwPublish.
+
 ## v1826 · 12-Oct-2026 IST
 User: "Kotrappa is the Kannada professor, Rekha Hindi (degree), Sumitra / Dr. Sumakirthi PUC Hindi; Kotrappa gets both Kannada and Hindi - each should get only their own language, voice too; a new Kannada or Hindi teacher only theirs". A Kannada / Hindi period was ONE row with both teachers, copied whole to each teacher's own page. stwDegDay now notes which teacher has which language (row.lg); stwPublish keeps only the teacher's own language on their faculty page (DB2 davan_pub/staff_pub fac/<name>/tt) and drops lg from the shared board; PUC KAN/HIN rows keep the language at the teacher's position. My classes today in the staff app does the same. Widgets follow at the next publish (no extra reads). Pairs with student widget build 223 / staff widget build 275 (Fast voice default, update chime). Functions: stwDegDay, stwPublish, the My classes today card.
 
