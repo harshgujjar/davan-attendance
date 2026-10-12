@@ -14,6 +14,7 @@
  *    harshgujjar/davan-scraper .github/workflows/scrape.yml (input timed=yes) at 1:00 pm, 1:45 pm (backup), 5:30 pm and 6:15 pm
  *    (backup) IST, Monday-Saturday. app.py decides the rest (holiday / off Saturday = light run, a slot that already ran is skipped).
  *    The same GH_TOKEN is used: on GitHub its repository access must include davan-scraper too (Actions: read and write).
+ *  - v7 (13-Oct-2026): GET /?marks=<exam>&cls=<classes> starts the PUC marks scrape in the cloud (puc-marks.yml) - the PUC app's button.
  *  - v6 (12-Oct-2026, the user's Cloudflare log showed only the two release timers ran): timers are recognised by their minute list,
  *    not by the text "MON-SAT" (the dashboard may store the days as 2-7). Paste this code AND add the two scraper timers (RELEASE-WORKER.md).
  *  - v5 (user, 11-Oct-2026: "puc html also runs a scraper - handle that in auto mode"): the PUC attendance scrape no longer needs
@@ -47,6 +48,21 @@ async function startScrape(env, why, wf) {
     method: 'POST', headers: GH_HDR(env), body: JSON.stringify({ ref: 'main', inputs: { timed: 'yes' } }),
   });
   return { ok: r.status === 204, msg: r.status === 204 ? (wf || SCR_WORKFLOW) + ' started (' + why + ')' : 'GitHub said ' + r.status + (r.status === 404 ? ' (the key cannot see davan-scraper)' : '') };
+}
+
+// v7 (user, 13-Oct-2026: "PUC marks: not daily - by hand when I want, from the app"): GET /?marks=IA%20-%201&cls=2PUC-COM-A,1PUC-COM-B
+// starts davan-scraper puc-marks.yml (puc_marks_scrape.py). Only the 6 exam names and the 8 class labels are accepted; the job saves
+// to the PUC database and writes its progress to puc_marks_cloud/<AY>/<exam>, which the PUC app shows.
+const MARKS_EXAMS = ['IA - 1', 'IA - 2', 'IA - 3', 'IA - 4', 'IA - 5', 'ALL'];
+const MARKS_CLASSES = ['2PUC-SCI-A', '2PUC-COM-A', '2PUC-COM-B', '2PUC-COM-C', '1PUC-SCI-A', '1PUC-COM-A', '1PUC-COM-B', '1PUC-COM-C'];
+async function startMarks(env, exam, cls) {
+  if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
+  if (MARKS_EXAMS.indexOf(exam) < 0) return { ok: false, msg: 'unknown exam' };
+  const list = String(cls || '').split(',').map(x => x.trim()).filter(x => MARKS_CLASSES.indexOf(x) >= 0);
+  const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/puc-marks.yml/dispatches', {
+    method: 'POST', headers: GH_HDR(env), body: JSON.stringify({ ref: 'main', inputs: { exam, classes: list.join(',') } }),
+  });
+  return { ok: r.status === 204, msg: r.status === 204 ? 'cloud marks scrape started: ' + exam + ' · ' + (list.length ? list.join(', ') : 'all classes') : 'GitHub said ' + r.status };
 }
 
 async function startRelease(env, why) {
@@ -94,6 +110,7 @@ export default {
   // GET /?log=CODE   -> a widget log request (log-request.yml -> log-req.json)
   async fetch(request, env) {
     const u = new URL(request.url);
+    if (u.searchParams.get('marks')) return new Response(JSON.stringify(await startMarks(env, String(u.searchParams.get('marks')).trim(), u.searchParams.get('cls') || '')), { headers: CORS });
     if (u.searchParams.get('log')) return new Response(JSON.stringify(await logRequest(env, String(u.searchParams.get('log')).trim().toUpperCase())), { headers: CORS });
     if (u.searchParams.get('now') === '1') return new Response(JSON.stringify(await startRelease(env, 'Release now button')), { headers: CORS });
     // 07-Oct-2026 (user: "show whether my new Cloudflare worker is connected"): gh = the GitHub key really opens the release job
@@ -107,6 +124,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 6, now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 7, now: Date.now() }), { headers: CORS });
   },
 };
