@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1822 · 12-Oct-2026 IST
+User: "add a separate admin section as you have for student and staff where I can switch voice and notification on or off". The 🔔 page has a third column, 👑 Admin (rows marked adm: college class feedback, period class list, daily report, widgets this week, scraper alerts; still saved under davan_pub/notif_off/stf), with 🔔 ON/OFF and, for the ones that speak, 🔊 Voice ON/OFF = DB2 davan_pub/notif_off/stf/_v/{key} (notification still comes). No extra reads (the widgets read the switches hourly as before). Pairs with staff widget build 265 (Gen.voiceOff) and the update fix in student build 215 / staff build 265 ("connecting…" for a long time). Functions: ntfInit, ntfVoice, NOTIF_REGISTRY.
+
 ## v1821 · 12-Oct-2026 IST
 User: a daily "today's classes" message at 9:15 am for staff and students, spoken, with "no classes today" when there are none, its own quote, a live button in the widget settings, and the details on the staff page. Two new rows on the 🔔 page (stu / stf gen_day, ON, ✎ time, nogap: left out of the 20-min clash check, user: "keep the rule out only for this time"). No Firebase cost (the widgets use data already on the phone). Pairs with student widget build 214 and staff widget build 264 (on "next"; they also fix the 🔔 switches never reaching the widgets - the widgets asked for "stu_gen_morning" while the page saves "gen_morning"). Functions: NOTIF_REGISTRY, ntfClash.
 

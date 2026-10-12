@@ -21,10 +21,10 @@ session (same commit as the work), keep it short, newest state only.
 ## Current versions (08-Oct-2026)
 | App | Build | Notes |
 |---|---|---|
-| Staff app (index.html from src/index.src.html) | CODE_BUILD 1821 (🔔 "📅 Your day today" 9:15 rows, nogap) | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
+| Staff app (index.html from src/index.src.html) | CODE_BUILD 1822 (🔔 page 👑 Admin column with 🔔 + 🔊 switches; v1821 "📅 Your day today" 9:15 rows) | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
 | Student portal (student_portal.html) | v11.59 (Widget Control -> News: numbered headlines with source tags + per-source counts) | widget floor 133; admin Widget tab: "Not on w<N> yet" list + "📌 Who keeps the lock-screen card" |
-| Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 214 (9:15 "Your day today" + 🔊 Tell me my day; 213 = news source tags); BuildInfo.NEWS = changes since the last public build |
-| Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 264 (9:15 "Your day today" + 🔊 Tell me my day; 263 = news source tags) |
+| Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 215 (update no longer stuck at "connecting…"; 214 = 9:15 "Your day today" + 🔊 Tell me my day; 213 = news source tags); BuildInfo.NEWS = changes since the last public build |
+| Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 265 (update fix + Admin voice switches notif_off/stf/_v; 264 = 9:15 "Your day today"; 263 = news source tags) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v104 (sync v2.11.0); PUC: puc_scrape.py p1 (worker v5) | runs in the CLOUD by itself: Cloudflare worker davan-release v4 starts "Scrape (run once)" (timed=yes) 1:00 / 1:45 / 5:30 / 6:15 pm IST Mon-Sat; GitHub's own timer stays as a late backup - no laptop needed |
 
 ## Widget sources (private repo, not this one)
@@ -48,6 +48,11 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   duplicate-notification fix, "Professor" in spoken names, faculty Day Attendance by subject, DB2 pub_hash, app.py v095-v100.
 
 ## Open items / next steps
+- 12-Oct: update "connecting…" fix (student 215 / staff 265): the background refresh started the APK download on a side thread and
+  ended, Android froze / killed it -> 0 bytes until the next hourly try. Now the download runs on the refresh's own thread, a 0-byte try
+  is dead after 45 s, one more direct try before DownloadManager, and the open settings screen starts it (Update.kick). Not phone-tested.
+- 12-Oct: 🔔 page 👑 Admin column (v1822): rows with adm: 1 (v: 1 = has a voice) - 🔊 switch = notif_off/stf/_v/{key}; widget
+  Gen.voiceOff checks daily, cfb_adm, periods. Add new admin-only notifications there.
 - 12-Oct: 📅 "Your day today" BUILT (user mockup 12-Oct, then "9:15, keep the 20-min rule out only for this time, keep 7:30, new quote,
   every low subject"): Gen gen_day 9:15 Mon-Sat, both widgets (student 214, staff 264, "next"), Gen.dayBrief / Speak.tellDay.
   Speaks in English only (no Kannada version yet - offer it). Not phone-tested: check the 9:15 note + voice and the settings button.
