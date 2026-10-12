@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1832 · 12-Oct-2026 IST
+User: "Almas Banu T is the Principal of PUC - why is she shown degree data; she should see only PUC Commerce, in the app and the widget". PUC-only was decided only by "PUC" in the login's Title, so her plain Principal login got the full degree app and widget. staffPucOnly = PUC in the Title / dept OR a name in STAFF_PUC_ONLY_NAMES (Almas Banu T). App (applySidebarForRole): a PUC-only login sees only the PUC Attendance page (the PUC app) and opens on it. Widget (hswPayload, DB2 davan_pub/staff_pub): scope 'puc' and calScope 'pucc' for a PUC-only Principal (PUC Commerce calendar only). Pairs with staff widget build 278. Functions: staffPucOnly, staffNm, hswPayload, applySidebarForRole.
+
 ## v1831 · 12-Oct-2026 IST
 User: "3:15 - 3:30 is a break, Science has no class then - don't add Science, leave it (1st and 2nd PUC)". stwPucDay no longer adds PUC Science rows (neither the saved 2nd PUC Science timetable nor the built-in copy) and stwPucLoadLive no longer reads puc_timetables_sci - one Firestore read less per publish. Staff widgets show PUC Commerce (1st + 2nd) only. Functions: stwPucDay, stwPucLoadLive.
 
