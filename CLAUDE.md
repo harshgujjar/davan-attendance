@@ -141,3 +141,11 @@ Any NEW list, card, chip or table that shows students or staff by name (both app
 
 A refresh reopens the last page and runs its side-menu onclick after `switchPanel(...)` (`_navRunExtra`, v1806). So a new page's
 loader goes in its menu item (`switchPanel('x');xInit()`) and must work when called on its own - never only from a tap.
+
+## Page 2 "Open as" shows the person's REAL widget and settings (user, 12-Oct-2026 - rule)
+
+When the Super Admin opens someone on page 2 of the staff widget, the widget AND its settings screen must show exactly what that
+person sees - every feature built for their role (faculty, admin, Principal, hostel ...), so he can test it on her real role. In the
+staff widget every role check for what is SHOWN uses `Roles.who(c)` (the person opened, else the owner) / `Store.pair`, never
+`pair_raw`; `pair_raw` is only for the owner's own things (test-list place, his Super Admin switches, his own alarms, his app links).
+Any new feature: check it once on page 2 with a faculty member and an admin.
