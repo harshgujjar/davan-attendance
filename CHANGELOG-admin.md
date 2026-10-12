@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1829 · 12-Oct-2026 IST
+User: "Sumithra has no class at 2:15". The staff app's PUC Commerce timetable had 7 periods (11:30-12:00, 12:30-1:15 ...) while the PUC app (puc.html TT_COM_SEED) has 6 (9:30, 10:30, 11:30-12:30, lunch 12:30-1:15, 1:15, 2:15, 3:15) and keeps only the first 6 of each 7-entry grid row. So every afternoon Commerce class was one period early on the Live class board and the staff widgets, and the repeated last entry became a class at 2:15 that does not exist (COM A Monday: KAN/HIN 3:15 only). LCB_PUC_COM_SEED.periods and LCB_PUC_COM_SLOTS now match the PUC app; Science already matched. Data: DB2 davan_pub/staff_pub (board, faculty pages) at the next publish. Functions: LCB_PUC_COM_SEED, LCB_PUC_COM_SLOTS (used by stwPucDay, lcbPucBuildPanel).
+
 ## v1828 · 12-Oct-2026 IST
 User screenshot: SUMITHRA K T's widget day had 2PUC COM A Kannada and 2PUC SCI A Kannada both at 3:15. Sections A / B / C exist in both PUC streams and stwPucDay (both streams for the widget) resolved every teacher with the Commerce list (the page's mode), so SCI A's Kannada went to COM A's teacher. lcbPucResolveFaculty takes the row's own stream; the built-in section list (Commerce) is used for Commerce only; Science falls back to the PUC app Subject Map, then the subject default. Data: DB2 davan_pub/staff_pub (board, fac pages) at the next publish. Functions: lcbPucResolveFaculty, stwPucDay.
 
