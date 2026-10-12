@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1837 · 12-Oct-2026 IST
+User: after signing in as Almas Banu T (PUC Principal) on his phone, the staff app and the widget's staff login kept opening the PUC app, and an admin login there still showed her page. The staff app's PUC-only note (localStorage davan_staff_scope) now carries the account uid, and puc.html v5.235 ignores a note of another account, clears it on Sign Out and shows a "Staff app login" link on its login page. To switch: PUC app → Sign Out → Staff app login. No data or read changes. Functions: staffScopeNote; puc.html pucStaffScope, pucSignOut.
+
 ## v1836 · 12-Oct-2026 IST
 User: "in the PUC app her name, designation and photo are missing - it does not look like her page". The localStorage note davan_staff_scope (staffScopeNote) now carries name, title ("PUC Principal" for a PUC-only Principal, else the login's Title / role) and the same photo as her widget (hswPayload photo); puc.html v5.234 shows them in its "Signed in as" box and the top bar. No database reads or writes. Pairs with puc.html v5.234. Functions: staffScopeNote, applySidebarForRole, the PUC hand-over on login.
 
