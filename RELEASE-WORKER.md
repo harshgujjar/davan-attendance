@@ -106,3 +106,14 @@ One-time steps (phone works):
    `0,4,18,30,34,48 5,7,8,9,10,12 * * MON-SAT` (type it EXACTLY like this - the worker recognises the PUC timer by this text).
 3. Check: the worker URL shows `"ver":5`; then davan-scraper → Actions → **PUC scrape** → Run workflow (timed empty) once - it must
    end green with "N classes, N students".
+
+## v6 (12-Oct-2026): the scraper timers were never added
+
+The user's Cloudflare "Cron events" log (12-Oct) showed only `45 15 * * *` and `15 16 * * *` (the nightly release) - the college
+and PUC scraper timers were missing, so nothing started the 1 pm scrape. v6 recognises its timers by their minute list (not by the
+text MON-SAT), so the days can be typed or stored either way. Steps (phone works):
+1. Cloudflare → Workers & Pages → davan-release → Edit code → select all → paste `tools/cloudflare-release-worker.js` → Deploy.
+2. Settings → Trigger events → **Add** → Cron Trigger: `0,15,30,45 7,8,12 * * MON-SAT` → Add (college: 1:00 / 1:45 / 5:30 / 6:15 pm IST).
+3. **Add** again → Cron Trigger: `0,4,18,30,34,48 5,7,8,9,10,12 * * MON-SAT` → Add (PUC: 10:34 am, 1:00, 3:18, 5:34 pm + backups).
+4. Settings → Trigger events must list 4 timers. The worker URL shows `"ver":6`. Next college day the Cron events log shows the
+   `0,15,30,45 ...` timer at 07:30 UTC and davan-scraper → Actions shows "Scrape (run once)" started at 1:00 pm.

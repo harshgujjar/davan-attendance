@@ -14,6 +14,8 @@
  *    harshgujjar/davan-scraper .github/workflows/scrape.yml (input timed=yes) at 1:00 pm, 1:45 pm (backup), 5:30 pm and 6:15 pm
  *    (backup) IST, Monday-Saturday. app.py decides the rest (holiday / off Saturday = light run, a slot that already ran is skipped).
  *    The same GH_TOKEN is used: on GitHub its repository access must include davan-scraper too (Actions: read and write).
+ *  - v6 (12-Oct-2026, the user's Cloudflare log showed only the two release timers ran): timers are recognised by their minute list,
+ *    not by the text "MON-SAT" (the dashboard may store the days as 2-7). Paste this code AND add the two scraper timers (RELEASE-WORKER.md).
  *  - v5 (user, 11-Oct-2026: "puc html also runs a scraper - handle that in auto mode"): the PUC attendance scrape no longer needs
  *    an open puc.html tab. The worker starts davan-scraper .github/workflows/puc-scrape.yml (timed=yes) at the PUC slots
  *    10:34 am, 1:00, 3:18 and 5:34 pm IST and again 30 min later (backup), Monday-Saturday (own cron, PUC_CRON). puc_scrape.py
@@ -77,10 +79,14 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/
 export default {
   // the timers: 9:15 pm IST + 9:45 pm backup (release); v4: SCR_CRON -> the college scraper at SCR_TIMES only; v5: PUC_CRON -> PUC at PUC_TIMES
   async scheduled(event, env, ctx) {
-    if (event.cron.indexOf('MON-SAT') < 0) { ctx.waitUntil(startRelease(env, 'Cloudflare timer ' + event.cron)); return; }
+    // v6 (12-Oct-2026: the dashboard can store a timer as "... * * 2-7" instead of "MON-SAT"): the two release timers are recognised by
+    // their exact time (minute + hour); every other timer is a scraper timer, and the minute decides which scraper (if any) runs
+    const c = String(event.cron || '').trim().replace(/\s+/g, ' ');
+    if (/^(45 15|15 16) \* \* \*$/.test(c)) { ctx.waitUntil(startRelease(env, 'Cloudflare timer ' + c)); return; }
     const d = new Date(event.scheduledTime), hm = String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
     if (d.getUTCDay() === 0) return;
-    if (event.cron === PUC_CRON) { if (PUC_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startScrape(env, 'Cloudflare timer ' + hm + ' UTC', PUC_WORKFLOW)); return; }
+    const puc = c.split(' ')[0].split(',').indexOf('4') >= 0;   // the PUC timer's minutes are 0,4,18,30,34,48; the college one's 0,15,30,45
+    if (puc) { if (PUC_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startScrape(env, 'Cloudflare timer ' + hm + ' UTC', PUC_WORKFLOW)); return; }
     if (SCR_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startScrape(env, 'Cloudflare timer ' + hm + ' UTC'));
   },
   // GET /            -> health check (no release)
@@ -101,6 +107,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 5, now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 6, now: Date.now() }), { headers: CORS });
   },
 };
