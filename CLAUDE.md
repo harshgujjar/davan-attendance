@@ -149,3 +149,12 @@ person sees - every feature built for their role (faculty, admin, Principal, hos
 staff widget every role check for what is SHOWN uses `Roles.who(c)` (the person opened, else the owner) / `Store.pair`, never
 `pair_raw`; `pair_raw` is only for the owner's own things (test-list place, his Super Admin switches, his own alarms, his app links).
 Any new feature: check it once on page 2 with a faculty member and an admin.
+
+## Who teaches a section = the LIVE allocation only (user, 12-Oct-2026 - rule)
+
+"Fix this kind of error from the core - now and next semester": the teacher of a class + section + subject comes ONLY from the live
+allocation (Edit Allocation -> app_data/allocations / davan_pub/allocations; sections are written "MORNING (B)" / "AFTERNOON (A)" - use the
+letter in brackets). Staff app: `allocFacFor(classKey, subject)`; student app: the subject normalisation at load (v11.62) / `cfbFaculty`;
+scraper: `_alloc_faculty_for`. Never decide it from the DI / NU column (per course, not per section), the old per-batch `allocation_each`
+copy, or the portal's column heading - those are fallbacks only when the allocation has no single teacher. Any NEW feature that shows or
+counts "my classes" must go through these. The 🧭 Teacher check (Edit Allocation page) lists classes where the portal disagrees.

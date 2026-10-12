@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1842 · 12-Oct-2026 IST
+User: "fix this kind of error from the core - now and next semester" (a teacher shown on the wrong section). Root: several copies of "who teaches which section" (the live allocation, the older per-batch allocation_each, the student's scraped subject record with a per-course DI / NU column, the portal heading). Now ONE source: the live allocation (Edit Allocation) decides in the staff app (allocFacFor), the student app (portal v11.62 corrects every current subject's teacher at load from the allocation row of the student's own course + sem + section) and the scraper (app.py v105-107). New 🧭 Teacher check card on Edit Allocation (tcCheck, tcRender): every class + subject of the last 6 college days where the college portal (att_fac fp, or f on older days) names a different teacher than Edit Allocation, with photos and 📋 Copy, plus the subjects with no single teacher in the allocation; the Super Admin gets a reminder at login once a day (tcLoginNudge). Reads: the att_fac day list + up to 6 days (~15 KB each), once per session, only on that page / for the Super Admin. Pairs with portal v11.62, app.py v107.
+
 ## v1841 · 12-Oct-2026 IST
 Checked the live allocation (app_data/allocations): Software Engineering Sem 5 is AFTERNOON (A) = Karthik J S and MORNING (B) = Vijayalakshmi P S - the same as the college portal. (v1839's note quoted an old saved copy, A = Vijayalakshmi, B = Prasada.) allocFacFor now reads section names like "MORNING (B)", so feedback and day attendance follow exactly what Edit Allocation says; if a teacher's section is wrong, fix it there. No new reads. Pairs with app.py v106. Function: allocFacFor.
 

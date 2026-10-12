@@ -2471,7 +2471,7 @@
       <div class="sidebar-item" data-panel="tt-editor" onclick="switchPanel('tt-editor')" id="nav-tt-editor" style="display:none;">
         <span class="icon">✏️</span> Edit Timetable
       </div>
-      <div class="sidebar-item" data-panel="alloc-editor" onclick="switchPanel('alloc-editor');allocRenderEditor()" id="nav-alloc-editor" style="display:none;">
+      <div class="sidebar-item" data-panel="alloc-editor" onclick="switchPanel('alloc-editor');allocRenderEditor();tcRender()" id="nav-alloc-editor" style="display:none;">
         <span class="icon">🔧</span> Edit Allocation
       </div>
       <div class="sidebar-item" data-panel="class-settings" onclick="switchPanel('class-settings');classSettingsRender()" id="nav-class-settings" style="display:none;">
@@ -5319,6 +5319,7 @@
     <div class="panel" id="panel-alloc-editor">
       <div class="page-title">🔧 Edit Allocation <span style="font-size:12px;color:var(--accent);font-family:var(--mono);">ADMIN</span></div>
       <div class="page-sub">Edit subject–faculty assignments. Changes are live immediately after save.</div>
+      <div id="tc-box" style="margin-bottom:14px;"></div>   <!-- v1842: 🧭 Teacher check -->
 
       <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
         <select id="ale-filter-course" onchange="allocRenderEditor()" style="background:#111;color:#ccc;border:1px solid #2a2a2a;border-radius:8px;padding:9px 12px;font-size:13px;">
@@ -15585,6 +15586,7 @@ function applySidebarForRole(role) {
   // CODE_BUILD=1485 §CMT: shared student comments — live for every logged-in role
   if (typeof cmtStart === 'function') { if (role) cmtStart(); else cmtStop(); }
   if (role && typeof cfbAutoSum === 'function') setTimeout(cfbAutoSum, 30000);   // v1732: class feedback summaries (once per session)
+  if (role && typeof tcLoginNudge === 'function') setTimeout(tcLoginNudge, 40000);   // v1842: 🧭 Teacher check reminder (Super Admin, once a day)
 }
 
 // 2026-09-13 — JS FALLBACK for the "stacked lines below Login" bug class
@@ -18947,7 +18949,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1841;  // always = HTML footer version number
+const CODE_BUILD = 1842;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -20666,6 +20668,62 @@ function allocFacFor(cls, subj) {
   const hits = rows.filter(same), sec = hits.filter(a => secOf(a) === m[3]), use = sec.length ? sec : hits.filter(a => !String(a.section || '').trim());
   const names = [...new Set(use.map(a => String(a.faculty).trim()))];
   return names.length === 1 ? names[0] : '';
+}
+/* v1842 (user, 12-Oct-2026: "fix this kind of error from the core - now and next semester"): 🧭 TEACHER CHECK. The allocation decides
+   the teacher everywhere (allocFacFor here, portal v11.62, app.py v105+); this check shows the admin every class + subject of the last
+   college days where the college portal (who marked the attendance: att_fac fp, or f on days saved before app.py v107) names a
+   different teacher than Edit Allocation - a wrong allocation or a wrong portal entry is seen at once, also in a new semester.
+   Reads: the att_fac day list (shallow) + up to 6 days (~15 KB each), once per session. The Super Admin gets a reminder at login. */
+let _tcCache = null;
+async function tcCheck(force) {
+  if (_tcCache && !force) return _tcCache;
+  const token = await _lpGetPortalToken();
+  const r = await fetch(LP_PORTAL_URL + '/davan_pub/att_fac.json?shallow=true' + (token ? '&auth=' + token : ''));
+  const days = Object.keys((r.ok && await r.json()) || {}).sort().slice(-6);
+  const bad = {}, none = {};
+  for (const d of days) {
+    const data = (await lpDb2Get('davan_pub/att_fac/' + d)) || {};
+    Object.keys(data).forEach(k => Object.keys(data[k] || {}).forEach(sub => {
+      const x = data[k][sub] || {}, portal = String(x.fp || x.f || '').trim(), alloc = allocFacFor(k, sub), key = k + '|' + sub;
+      if (!alloc) { (none[key] = none[key] || { k, sub, portal, days: [] }).days.push(d); return; }
+      if (portal && !_fydSameName(alloc, portal)) (bad[key] = bad[key] || { k, sub, alloc, portal, days: [] }).days.push(d);
+    }));
+  }
+  return (_tcCache = { days, bad: Object.values(bad), none: Object.values(none), at: Date.now() });
+}
+async function tcRender(force) {
+  const el = document.getElementById('tc-box'); if (!el) return;
+  if (!(LM_ALLOCATIONS || []).length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="card" style="padding:10px 14px;font-size:13px;color:var(--muted);">🧭 Teacher check: comparing Edit Allocation with the college portal…</div>';
+  try {
+    const t = await tcCheck(force), esc = hcEsc, dd = d => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const txt = 'Teacher check (' + t.days.map(dd).join(', ') + ')\n' + t.bad.map(b => _fydShort(b.k) + ' · ' + b.sub + ': Edit Allocation = ' + b.alloc + ', college portal = ' + b.portal).join('\n');
+    window._tcText = txt;
+    el.innerHTML = '<div class="card" style="padding:12px 14px;border:1.5px solid ' + (t.bad.length ? '#F59E0B' : 'var(--border)') + ';">'
+      + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>🧭 Teacher check</b><span style="font-size:12px;color:var(--muted);">Edit Allocation vs the college portal (who marked the attendance) · ' + esc(t.days.map(dd).join(', ')) + '</span>'
+      + '<span style="margin-left:auto;display:flex;gap:6px;"><button class="btn" onclick="tcRender(true)">⟳</button>' + (t.bad.length ? '<button class="btn" onclick="dvCopyText(window._tcText, this)">📋 Copy</button>' : '') + '</span></div>'
+      + (t.bad.length
+        ? '<div style="font-size:13px;margin:8px 0 6px;">⚠ <b>' + t.bad.length + '</b> class' + (t.bad.length > 1 ? 'es name' : ' names') + ' a different teacher. The apps follow <b>Edit Allocation</b> - if the allocation is wrong, correct it below; if the portal is wrong, tell the portal admin.</div>'
+          + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;"><tr style="color:var(--muted);font-size:11px;text-align:left;"><th style="padding:4px 6px;">Class · subject</th><th style="padding:4px 6px;">Edit Allocation</th><th style="padding:4px 6px;">College portal</th></tr>'
+          + t.bad.map(b => '<tr style="border-top:1px solid var(--border);"><td style="padding:6px;"><b>' + esc(_fydShort(b.k)) + '</b><br><span style="color:var(--muted);">' + esc(b.sub) + '</span></td>'
+            + '<td style="padding:6px;white-space:nowrap;">' + _facAvatar(b.alloc, 22, true) + ' <span>' + esc(b.alloc) + '</span></td>'
+            + '<td style="padding:6px;white-space:nowrap;">' + _facAvatar(b.portal, 22, true) + ' <span>' + esc(b.portal) + '</span></td></tr>').join('') + '</table></div>'
+        : '<div style="font-size:13px;margin-top:6px;color:#16a34a;">✅ Every class marked on these days has the same teacher in Edit Allocation and the college portal.</div>')
+      + (t.none.length ? '<details style="margin-top:8px;font-size:12px;"><summary style="cursor:pointer;color:var(--muted);">' + t.none.length + ' subject' + (t.none.length > 1 ? 's' : '') + ' marked in the portal with no single teacher in Edit Allocation (languages, labs split by batch …)</summary>'
+          + t.none.map(b => '<div style="padding:2px 0;">' + esc(_fydShort(b.k)) + ' · ' + esc(b.sub) + (b.portal ? ' - portal: <span>' + esc(b.portal) + '</span>' : '') + '</div>').join('') + '</details>' : '')
+      + '</div>';
+    if (typeof _facAvatarInject === 'function') _facAvatarInject();
+  } catch (e) { el.innerHTML = '<div class="card" style="padding:10px 14px;font-size:13px;">🧭 Teacher check could not load: ' + hcEsc(e.message) + '</div>'; }
+}
+// Super Admin: once a day, 40 s after login, a reminder when the check finds a difference
+async function tcLoginNudge() {
+  try {
+    if (!(typeof umMeSuper === 'function' && umMeSuper())) return;
+    const day = new Date().toISOString().slice(0, 10); if (localStorage.getItem('tc_nudge') === day) return;
+    if (!(LM_ALLOCATIONS || []).length) return;
+    const t = await tcCheck(); localStorage.setItem('tc_nudge', day);
+    if (t.bad.length) dvToast('🧭 Teacher check: ' + t.bad.length + ' class' + (t.bad.length > 1 ? 'es' : '') + ' where Edit Allocation and the college portal name different teachers - open Edit Allocation', 'warn', 9000);
+  } catch (e) { console.warn('[tc]', e.message); }
 }
 function _fydSameName(a, b) {
   const x = _fydNz(a), y = _fydNz(b); if (x.length < 3 || y.length < 3) return false; if (x === y) return true;
@@ -29957,6 +30015,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1842', date: '12-Oct-2026 IST', note: '🧭 Teacher check on Edit Allocation: every class where Edit Allocation and the college portal name different teachers, so a wrong section is seen at once (also next semester). Everything follows Edit Allocation.' },
 { v: 'v1841', date: '12-Oct-2026 IST', note: 'Teacher of a section: the allocation\'s section names "MORNING (B)" / "AFTERNOON (A)" are now read, so feedback and day attendance follow exactly what Edit Allocation says.' },
 { v: 'v1840', date: '12-Oct-2026 IST', note: 'Class feedback: the summaries made before the section fix are rebuilt by themselves at the next staff app login, and a teacher no longer keeps rows that now belong to another teacher.' },
 { v: 'v1839', date: '12-Oct-2026 IST', note: 'Class feedback and "yesterday in your classes" now go by the admin\'s allocation: each section\'s answers count for the teacher allocated to THAT section (Software Engineering Sem 5: A = Vijayalakshmi P S, B = Prasada M R).' },
@@ -29971,7 +30030,6 @@ const HTML_CHANGELOG = [
 { v: 'v1830', date: '12-Oct-2026 IST', note: 'PUC classes on the staff widget now come from the timetables saved in the PUC app (1st PUC Commerce too, the real breaks and times like 2:30); Kannada for Science and Commerce together shows as one class.' },
 { v: 'v1829', date: '12-Oct-2026 IST', note: 'PUC Commerce times fixed: the same 6 periods as the PUC app (9:30, 10:30, 11:30, lunch, 1:15, 2:15, 3:15). Afternoon classes were one period early and a repeated last class showed at 2:15 (Sumithra).' },
 { v: 'v1828', date: '12-Oct-2026 IST', note: 'PUC timetable on the staff widget: a Science class no longer takes its teacher from the Commerce list (Sumithra showed 2PUC COM A and SCI A Kannada at the same time).' },
-{ v: 'v1827', date: '12-Oct-2026 IST', note: 'Kannada / Hindi: a teacher\'s widget now shows their own language\'s lesson plan (Kotrappa\'s Kannada class showed the Hindi plan). Open the staff app once so the widgets get it.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
