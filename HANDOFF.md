@@ -72,6 +72,7 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   date, only on a semester's first scrape - do one manual scrape in the tab at a new semester's start). USER STEPS (RELEASE-WORKER.md
   "v5"): add secrets PUC_PORTAL_USER / PUC_PORTAL_PASS to davan-scraper; paste worker v5 + add the new cron (auto deploy key not set);
   run "PUC scrape" by hand once. Verify Mon 12-Oct: puc-scrape.yml runs ~05:05 UTC (10:34 IST).
+- 12-Oct: CHECKED - the Cloudflare worker davan-release still runs v4 code (no PUC v5) and has NEVER started a davan-scraper run: no scrape.yml / puc-scrape.yml workflow_dispatch at 07:30 / 08:15 UTC on Mon 12-Oct (only the user's manual run 08:23 UTC); GitHub's own schedule did not fire at all. Release dispatches DO work (11-Oct 15:46 / 16:16 UTC) -> the scraper cron `0,15,30,45 7,8,12 * * MON-SAT` is missing in Cloudflare Triggers or the key lacks davan-scraper. User to check (staff app 🕷 Scraper page shows the worker's scr status) and paste worker v5. Read-only tool added: davan-scraper Actions -> Class feedback status (tools/cfb_status.py).
 - 11-Oct: scraper timer. Sat 10-Oct GitHub never started the 1 pm run (late starts 7:23-10:58 pm all skipped -> Friday's day attendance
   missed). Built: worker v4 (also starts davan-scraper scrape.yml, cron `0,15,30,45 7,8,12 * * MON-SAT`, filters to 07:30/08:15/12:00/12:45 UTC)
   + app.py v104 (off day: any timed start does the light run until att_state.last_run = today; college day: a slot that already ran
