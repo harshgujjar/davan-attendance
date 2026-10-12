@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1824 · 12-Oct-2026 IST
+User (screenshot): "for admin it's not showing my day - only for staff". The 🔔 page text of the staff "📅 Your day today" row now says admins / Principal / Super Admin with no classes hear the college's day. No data change. Pairs with staff widget build 268 (Gen.collegeDay) and the "server gave the old file" fix (student 217 / staff 267+, nightly workflow pushes APKs 5.5 min before the version files). Function: NOTIF_REGISTRY.
+
 ## v1823 · 12-Oct-2026 IST
 User: "the admin section - make that Super Admin, and one section for admin, principal and others"; "add a stop button to Tell me my day" / "it says it 2 times" / "add a short one". The 🔔 page has 👑 Super Admin (switches for his phone only: DB2 davan_pub/notif_off/stf/_sa/{key} notification, _sav/{key} voice; the scraper alert is only here) and 🏛 Admin, Principal & others (notif_off/stf/{key}, voice _v/{key}). "📅 Your day today" text names 🔊 Short / Full day / ⏹ Stop. No extra reads. Pairs with staff widget build 266 (Gen.off / voiceOff use _sa / _sav on the Super Admin's phone) and student widget build 216. Functions: ntfInit, ntfSub (was ntfVoice), NOTIF_REGISTRY.
 
