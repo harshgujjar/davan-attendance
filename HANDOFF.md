@@ -21,10 +21,10 @@ session (same commit as the work), keep it short, newest state only.
 ## Current versions (08-Oct-2026)
 | App | Build | Notes |
 |---|---|---|
-| Staff app (index.html from src/index.src.html) | CODE_BUILD 1822 (🔔 page 👑 Admin column with 🔔 + 🔊 switches; v1821 "📅 Your day today" 9:15 rows) | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
+| Staff app (index.html from src/index.src.html) | CODE_BUILD 1823 (v1823 Short / Full day / Stop text; 🔔 page 👑 Admin column with 🔔 + 🔊 switches; v1821 "📅 Your day today" 9:15 rows) | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
 | Student portal (student_portal.html) | v11.59 (Widget Control -> News: numbered headlines with source tags + per-source counts) | widget floor 133; admin Widget tab: "Not on w<N> yet" list + "📌 Who keeps the lock-screen card" |
-| Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 215 (update no longer stuck at "connecting…"; 214 = 9:15 "Your day today" + 🔊 Tell me my day; 213 = news source tags); BuildInfo.NEWS = changes since the last public build |
-| Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 265 (update fix + Admin voice switches notif_off/stf/_v; 264 = 9:15 "Your day today"; 263 = news source tags) |
+| Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 216 (Tell me my day: 🔊 Short / 🔊 Full day / ⏹ Stop, one at a time; 215 = update no longer stuck at "connecting…"; 214 = 9:15 "Your day today" + 🔊 Tell me my day; 213 = news source tags); BuildInfo.NEWS = changes since the last public build |
+| Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 266 (Short / Full day / ⏹ Stop; 265 = update fix + Admin voice switches notif_off/stf/_v; 264 = 9:15 "Your day today"; 263 = news source tags) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v104 (sync v2.11.0); PUC: puc_scrape.py p1 (worker v5) | runs in the CLOUD by itself: Cloudflare worker davan-release v4 starts "Scrape (run once)" (timed=yes) 1:00 / 1:45 / 5:30 / 6:15 pm IST Mon-Sat; GitHub's own timer stays as a late backup - no laptop needed |
 
 ## Widget sources (private repo, not this one)

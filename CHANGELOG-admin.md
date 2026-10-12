@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1823 · 12-Oct-2026 IST
+User: "add a stop button to Tell me my day, it's so long" / "it does not start at once, I press again and it says it 2 times" / "add a short one; the 9:15 one stays long". Only the 🔔 page text of "📅 Your day today" (students and staff) changed: it now names 🔊 Short / 🔊 Full day / ⏹ Stop. No data change. Pairs with student widget build 216 and staff widget build 266. Function: NOTIF_REGISTRY.
+
 ## v1822 · 12-Oct-2026 IST
 User: "add a separate admin section as you have for student and staff where I can switch voice and notification on or off". The 🔔 page has a third column, 👑 Admin (rows marked adm: college class feedback, period class list, daily report, widgets this week, scraper alerts; still saved under davan_pub/notif_off/stf), with 🔔 ON/OFF and, for the ones that speak, 🔊 Voice ON/OFF = DB2 davan_pub/notif_off/stf/_v/{key} (notification still comes). No extra reads (the widgets read the switches hourly as before). Pairs with staff widget build 265 (Gen.voiceOff) and the update fix in student build 215 / staff build 265 ("connecting…" for a long time). Functions: ntfInit, ntfVoice, NOTIF_REGISTRY.
 
