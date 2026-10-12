@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1835 · 12-Oct-2026 IST
+User screenshot: Almas Banu T's staff app side menu was empty (v1832 hid every degree page and showed the PUC app inside). Now a PUC-only login (staffPucOnly) is handed over like resident staff: the staff widget on the phone is linked first (swLink), the davan_staff_scope note is written, then the window goes to puc.html - the PUC app full screen with her own menu (puc.html v5.233, Commerce only), signed in with the same account. Widget taps open the PUC app directly (staff widget w279+). No extra reads. Function: the login landing after applySidebarForRole.
+
 ## v1834 · 12-Oct-2026 IST
 User: "PUC at a glance still shows PUC Science data". stwPucGlance (DB2 davan_pub/staff_pub glance.puc) now counts Commerce only: Science classes are skipped, today's periods / faculty are Commerce, and the Science Subjects / Science Strength / Science student cards are gone; the totals (students, average, shortage, critical) are Commerce totals. Matches v1831 (no PUC Science on the staff widgets). No extra reads. Function: stwPucGlance.
 
