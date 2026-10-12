@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1838 · 12-Oct-2026 IST
+User: "logged out but it keeps going to the PUC app, in the browser not the installed app; big confusion with Almas Banu T's login - give a 3rd option to log her in through puc.html". The staff app no longer sends a PUC-only login to puc.html: it shows her card (photo, name, PUC Principal) with 🏛 Open the PUC app and 🚪 Log out, so the phone can switch to admin. She signs in to the PUC app itself (puc.html v5.236: password-only box; the view comes from the account signed in there, users/{uid}, not from a note in the phone's storage), and the PUC app links her Davan Staff widget (DB2 davan_pub/student_widget_active/<code>, one read + one write, only when opened from the widget) - widget w283 has a 3rd "Linked as" option 🏛 PUC Principal. Functions: staffPucCard (new), staffPucOut (new); puc.html pucStaffScope, pucMeLoad, pucWidgetLink, pucPwOnlyLogin, onPucLoginSuccess.
+
 ## v1837 · 12-Oct-2026 IST
 User: after signing in as Almas Banu T (PUC Principal) on his phone, the staff app and the widget's staff login kept opening the PUC app, and an admin login there still showed her page. The staff app's PUC-only note (localStorage davan_staff_scope) now carries the account uid, and puc.html v5.235 ignores a note of another account, clears it on Sign Out and shows a "Staff app login" link on its login page. To switch: PUC app → Sign Out → Staff app login. No data or read changes. Functions: staffScopeNote; puc.html pucStaffScope, pucSignOut.
 
