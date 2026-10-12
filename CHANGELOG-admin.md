@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1825 · 12-Oct-2026 IST
+User: "when I press any check box it moves to the top again"; "give options on top - students, staff, admin - clicking one goes to that section"; "Kannada voice for my day"; "a my-day play button on the widget beside the phone number". The 🔔 page loads the switches once (ntfInit) and a switch redraws only the columns from memory (ntfRender / ntfCols), so the page stays where it was; a row of jump buttons (🎓 Students, 👔 Staff, 👑 Super Admin, 🏛 Admin & Principal, 🔕 Turned off, 📌 Lock-screen card) scrolls to each section. "📅 Your day today" text names ▶ Mon and ಕನ್ನಡ. No data change, no extra reads (before: every switch re-read davan_pub/notif_off). Pairs with student widget build 218 and staff widget build 269. Functions: ntfInit, ntfCols, ntfRender, ntfSet, ntfSub, ntfTime.
+
 ## v1824 · 12-Oct-2026 IST
 User (screenshot): "for admin it's not showing my day - only for staff". The 🔔 page text of the staff "📅 Your day today" row now says admins / Principal / Super Admin with no classes hear the college's day. No data change. Pairs with staff widget build 268 (Gen.collegeDay) and the "server gave the old file" fix (student 217 / staff 267+, nightly workflow pushes APKs 5.5 min before the version files). Function: NOTIF_REGISTRY.
 
