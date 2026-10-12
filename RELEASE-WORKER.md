@@ -73,7 +73,7 @@ One-time setup (phone works):
    **Create Token** -> copy it (shown once). Never paste it in a chat.
 2. **GitHub**: github.com/harshgujjar/davan-attendance -> **Settings** -> **Secrets and variables** -> **Actions** ->
    **New repository secret** -> Name `CLOUDFLARE_API_TOKEN`, Secret = the key -> **Add secret**.
-3. Actions -> **Deploy Cloudflare worker** -> **Run workflow**. The last step must say "worker v3 is live".
+3. Actions -> **Deploy Cloudflare worker** -> **Run workflow**. The last step must say "worker v6 is live (4 timers)" - the deploy also adds the scraper timers from the toml (no code pasting).
 
 ## College scraper timer (11-Oct-2026, worker v4)
 
