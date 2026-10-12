@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1831 · 12-Oct-2026 IST
+User: "3:15 - 3:30 is a break, Science has no class then - don't add Science, leave it (1st and 2nd PUC)". stwPucDay no longer adds PUC Science rows (neither the saved 2nd PUC Science timetable nor the built-in copy) and stwPucLoadLive no longer reads puc_timetables_sci - one Firestore read less per publish. Staff widgets show PUC Commerce (1st + 2nd) only. Functions: stwPucDay, stwPucLoadLive.
+
 ## v1830 · 12-Oct-2026 IST
 User: "Sumithra has class at 10:45 in 1st PUC A and 11:45 in 1st PUC C; 2:15-2:30 is a break, she has class at 2:30 - Kannada, Science and Commerce together". The widget's PUC timetable came from an old copy built into this app (2nd PUC only, old periods). stwPucLoadLive now reads the timetables saved in the PUC app (Firestore puc_timetables_com / puc_timetables_sci, RTDB davan_tt_1puc_com - the one valid today) once per publish (3 reads, cached 30 min); stwPucDay uses their own periods (breaks, 2:30 ...), adds 1st PUC Commerce (stwPuc1Fac = the PUC app's Subject Map 1COM, then its 1st PUC teacher list), and falls back to the old copy only for a stream with nothing saved. Times are read as saved (stwPucMin: "08:30" is morning - the old reader made it 8:30 pm). A teacher's same subject at the same time in two classes is one class ("2PUC COM A + SCI A"). Data: DB2 davan_pub/staff_pub at the next publish. Functions: stwPucLoadLive, stwPucMin, stwPuc1Fac, stwPucDay, stwPublish.
 
