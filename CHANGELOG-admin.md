@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1833 · 12-Oct-2026 IST
+User (PUC app menu screenshots): "show her all of the PUC Dashboard and the tools that matter to Commerce - remedial classes attendance, calendar (Commerce only) - same on the widget; scraping and the rest are the Super Admin's". On every login the staff app writes localStorage davan_staff_scope {pucOnly, sup, name} (same site as the PUC app it opens); puc.html v5.232 hides Scrape Data, Upload Photos, Verify Data, SCI Timetable, Science Calendar, Admin Settings and Degree App and does not arm its auto-scrape for a PUC-only non-Super-Admin login. No database reads or writes. Pairs with puc.html v5.232. Function: applySidebarForRole.
+
 ## v1832 · 12-Oct-2026 IST
 User: "Almas Banu T is the Principal of PUC - why is she shown degree data; she should see only PUC Commerce, in the app and the widget". PUC-only was decided only by "PUC" in the login's Title, so her plain Principal login got the full degree app and widget. staffPucOnly = PUC in the Title / dept OR a name in STAFF_PUC_ONLY_NAMES (Almas Banu T). App (applySidebarForRole): a PUC-only login sees only the PUC Attendance page (the PUC app) and opens on it. Widget (hswPayload, DB2 davan_pub/staff_pub): scope 'puc' and calScope 'pucc' for a PUC-only Principal (PUC Commerce calendar only). Pairs with staff widget build 278. Functions: staffPucOnly, staffNm, hswPayload, applySidebarForRole.
 
