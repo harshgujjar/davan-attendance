@@ -1,6 +1,6 @@
 # Session handoff - read this first (plug and play)
 
-Last updated: 11-Oct-2026 (PUC scrape in the cloud: puc_scrape.py + worker v5 + puc.html v5.231; scraper Cloudflare timer + app.py v104; news source tags: fetch_news v1.7.0, portal v11.59, student 213 / staff 263 on next). A new Claude session reads CLAUDE.md (rules) and
+Last updated: 12-Oct-2026 (9:15 "Your day today" + 🔊 Tell me my day: staff app v1821, student build 214 / staff build 264 on next; earlier 11-Oct: PUC scrape in the cloud: puc_scrape.py + worker v5 + puc.html v5.231; scraper Cloudflare timer + app.py v104; news source tags: fetch_news v1.7.0, portal v11.59, student 213 / staff 263 on next). A new Claude session reads CLAUDE.md (rules) and
 then this file (where things stand). The user should not have to repeat anything below. Update this file at the end of every
 session (same commit as the work), keep it short, newest state only.
 
@@ -21,10 +21,10 @@ session (same commit as the work), keep it short, newest state only.
 ## Current versions (08-Oct-2026)
 | App | Build | Notes |
 |---|---|---|
-| Staff app (index.html from src/index.src.html) | CODE_BUILD 1820 (🕷 Scraper shows the Cloudflare scraper timer) | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
+| Staff app (index.html from src/index.src.html) | CODE_BUILD 1821 (🔔 "📅 Your day today" 9:15 rows, nogap) | student widgets below build 133 blocked; 🔔 page "📌 Who keeps the lock-screen card"; 🕷 Scraper page (runs, settings, history) |
 | Student portal (student_portal.html) | v11.59 (Widget Control -> News: numbered headlines with source tags + per-source counts) | widget floor 133; admin Widget tab: "Not on w<N> yet" list + "📌 Who keeps the lock-screen card" |
-| Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 213 (news: number + source tag per headline, notifications "(TOI)"); BuildInfo.NEWS = changes since the last public build |
-| Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 263 (news: number + source tag per headline, notifications "(TOI)") |
+| Student widget | build 212 = **w186** public (10-Oct 9:16 pm) | next = 214 (9:15 "Your day today" + 🔊 Tell me my day; 213 = news source tags); BuildInfo.NEWS = changes since the last public build |
+| Staff widget (Davan Staff) | build 262 = **w233** public (10-Oct 9:16 pm) | next = 264 (9:15 "Your day today" + 🔊 Tell me my day; 263 = news source tags) |
 | College scraper app.py (PRIVATE repo harshgujjar/davan-scraper) | v104 (sync v2.11.0); PUC: puc_scrape.py p1 (worker v5) | runs in the CLOUD by itself: Cloudflare worker davan-release v4 starts "Scrape (run once)" (timed=yes) 1:00 / 1:45 / 5:30 / 6:15 pm IST Mon-Sat; GitHub's own timer stays as a late backup - no laptop needed |
 
 ## Widget sources (private repo, not this one)
@@ -48,6 +48,10 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   duplicate-notification fix, "Professor" in spoken names, faculty Day Attendance by subject, DB2 pub_hash, app.py v095-v100.
 
 ## Open items / next steps
+- 12-Oct: 📅 "Your day today" BUILT (user mockup 12-Oct, then "9:15, keep the 20-min rule out only for this time, keep 7:30, new quote,
+  every low subject"): Gen gen_day 9:15 Mon-Sat, both widgets (student 214, staff 264, "next"), Gen.dayBrief / Speak.tellDay.
+  Speaks in English only (no Kannada version yet - offer it). Not phone-tested: check the 9:15 note + voice and the settings button.
+  Also fixed: the widgets read notif_off "stu_gen_x" but the 🔔 page saves "gen_x" - switches turned OFF earlier now take effect.
 - 11-Oct night: PUC scrape moved to the CLOUD (user: "puc html also runs a scraper - handle that in auto mode"). davan-scraper
   `puc_scrape.py` (p1, port of puc.html spDoScrape/spPushFB: same writes puc_daily / puc_students / puc_meta, calendar off-day rule)
   + `puc-scrape.yml`; worker v5 starts it (timed=yes) 10:34 / 13:00 / 15:18 / 17:34 IST + 30 min backups Mon-Sat (cron

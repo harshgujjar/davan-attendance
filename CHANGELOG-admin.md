@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1821 · 12-Oct-2026 IST
+User: a daily "today's classes" message at 9:15 am for staff and students, spoken, with "no classes today" when there are none, its own quote, a live button in the widget settings, and the details on the staff page. Two new rows on the 🔔 page (stu / stf gen_day, ON, ✎ time, nogap: left out of the 20-min clash check, user: "keep the rule out only for this time"). No Firebase cost (the widgets use data already on the phone). Pairs with student widget build 214 and staff widget build 264 (on "next"; they also fix the 🔔 switches never reaching the widgets - the widgets asked for "stu_gen_morning" while the page saves "gen_morning"). Functions: NOTIF_REGISTRY, ntfClash.
+
 ## v1820 · 11-Oct-2026 IST
 User: "yesterday my scraper did not run on time - why" / "build both fixes, use the same key". On Sat 10-Oct GitHub never started the 1 pm scrape and started the 5:30 pm ones at 7:23-10:58 pm. The Cloudflare worker davan-release (v4, tools/cloudflare-release-worker.js) now also starts davan-scraper's scrape.yml at 1:00 / 1:45 / 5:30 / 6:15 pm IST Mon-Sat with the same GH_TOKEN; its health check reports `scr`. The 🕷 Scraper page shows whether that timer is on (scrInit). No Firebase cost. Pairs with app.py v104.
 
