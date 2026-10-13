@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1846 · 13-Oct-2026 IST
+User screenshot: Internal Timetable → Create / Edit on a phone - the subject boxes ran over each other ("mixed one inside other"). A select is as wide as its longest option ("Management Principles and Applications — Shankar B C") unless it may shrink; the subject select now has flex-basis 0 / min-width 0 / width 100% inside a min-width 0 row, the cell clips, and the chosen subject is written in full in small wrapping text under the box. No data changes. Function: the per-cell renderer of the Create / Edit grid (intBuildSlotCell area).
+
 ## v1845 · 13-Oct-2026 IST
 User: "Internal Timetable → Create / Edit, starting Internal 2: the dates should come from the calendar - it gives 27, 28, 28 but the calendar has 28, 29, 30". intMatchCalendarExam made each day at local midnight and wrote it with toISOString(), which is UTC - the previous day in India - so every date was one day early. New dvLocalISO (the date the phone shows) is used there, for the IA-2 eligibility start (day after the IA-1 cutoff; it gave the cutoff day itself) and the leave-week start in the AI context. No data or read changes. Functions: dvLocalISO (new), intMatchCalendarExam, the IA-2 window start, the leave context.
 
