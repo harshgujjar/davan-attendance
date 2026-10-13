@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1845 · 13-Oct-2026 IST
+User: "Internal Timetable → Create / Edit, starting Internal 2: the dates should come from the calendar - it gives 27, 28, 28 but the calendar has 28, 29, 30". intMatchCalendarExam made each day at local midnight and wrote it with toISOString(), which is UTC - the previous day in India - so every date was one day early. New dvLocalISO (the date the phone shows) is used there, for the IA-2 eligibility start (day after the IA-1 cutoff; it gave the cutoff day itself) and the leave-week start in the AI context. No data or read changes. Functions: dvLocalISO (new), intMatchCalendarExam, the IA-2 window start, the leave context.
+
 ## v1844 · 12-Oct-2026 IST
 User: "I swapped Vijayalakshmi (A) and Karthik (B) in Edit Allocation - the student app and widget still show Karthik for A". A save in Edit Allocation wrote Firestore app_data/allocations and DB1 davan_pub/allocations only; the student app and the student widget read DB2 davan_pub/allocations (the widget reloads it when davan_pub/pub_ver/allocations moves), which was refreshed only by a timetable push. New allocPortalPush writes DB2 too and bumps pub_ver/allocations on every allocation save (edit, delete, faculty rename, fsSaveAllocations) and when a new semester is activated; allocPortalHeal compares the students' copy with the live allocation 45 s after an admin / Principal login and re-sends it when different (fixes the save already made). Cost: one ~30 KB write per save, one ~30 KB read per admin session. Functions: allocPortalPush, allocPortalHeal (new), aleSave, the allocation delete, the faculty rename, fsSaveAllocations, semester activation.
 
