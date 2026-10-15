@@ -41,8 +41,8 @@ User's own side project (Chrome + Firefox). SOURCE: private harshgujjar/davan-sc
   v2.5 (15-Oct, APK sent): weekly pace advice on the widget + notifications (Pace.kt; 7-day week, no day off; orange/red once a week,
   7 am budget). NEW key (alias claudepulse, cert 2e90756d...cfc9) sent to the user to upload as davan-scraper/claude-pulse/claude-pulse.keystore
   (password told to the user in chat; ask if needed). User uninstalls v2.4.1 once. Not phone-tested.
-  Asked (answer only, not built): a floating bar over the Claude Android app = overlay ("display over other apps") + usage access to see
-  when Claude is open - offered as v2.6.
+  v2.6 (15-Oct, APK sent, installs over 2.5): floating bar over the Claude app (BarService, overlay + usage access), widget text +3sp,
+  app screen shows each limit + reset, pace, % per day, when it ran out, tips. Not phone-tested. Source + DAVAN-NOTES in davan-scraper.
 - Later: publish LISTED on addons.mozilla.org / Chrome Web Store; name idea "Usage Meter for Claude - by Davan".
 
 ## Xiaomi battery Fix (15-Oct-2026)
