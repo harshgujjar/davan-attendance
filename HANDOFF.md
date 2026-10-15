@@ -37,8 +37,12 @@ User's own side project (Chrome + Firefox). SOURCE: private harshgujjar/davan-sc
 - Staff app v1852: Super Admin page 🧮 Claude Meter (cmtrInit, reads DB4 claude_meter/users via lpDb4Get): active today / 7 days /
   all / new this week + table name, browser · OS, version, last seen, session %, weekly %, since; 📋 Copy.
 - Claude Pulse (Android usage widget, upstream G-biggy/claude-pulse-android): v2.4.1 SOURCE saved 15-Oct in private davan-scraper
-  `claude-pulse/` (upstream + the user's 5 changed files; DAVAN-NOTES.md = build without Gradle). Its signing key was lost - next build
-  needs a new key + one uninstall on the user's phone.
+  `claude-pulse/` (upstream + the user's 5 changed files; DAVAN-NOTES.md = build without Gradle, build.sh).
+  v2.5 (15-Oct, APK sent): weekly pace advice on the widget + notifications (Pace.kt; 7-day week, no day off; orange/red once a week,
+  7 am budget). NEW key (alias claudepulse, cert 2e90756d...cfc9) sent to the user to upload as davan-scraper/claude-pulse/claude-pulse.keystore
+  (password told to the user in chat; ask if needed). User uninstalls v2.4.1 once. Not phone-tested.
+  Asked (answer only, not built): a floating bar over the Claude Android app = overlay ("display over other apps") + usage access to see
+  when Claude is open - offered as v2.6.
 - Later: publish LISTED on addons.mozilla.org / Chrome Web Store; name idea "Usage Meter for Claude - by Davan".
 
 ## Xiaomi battery Fix (15-Oct-2026)
