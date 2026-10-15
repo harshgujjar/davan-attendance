@@ -36,6 +36,9 @@ User's own side project (Chrome + Firefox). SOURCE: private harshgujjar/davan-sc
   and -chrome (service_worker only, no browser_specific_settings). addons-linter@latest: 0 errors, 0 warnings. SUBMITTED to AMO 15-Oct (Listed, slug usage-meter-for-claude, licence All Rights Reserved, privacy policy filled) - waiting for the approval e-mail.
 - Staff app v1852: Super Admin page 🧮 Claude Meter (cmtrInit, reads DB4 claude_meter/users via lpDb4Get): active today / 7 days /
   all / new this week + table name, browser · OS, version, last seen, session %, weekly %, since; 📋 Copy.
+- Claude Pulse (Android usage widget, upstream G-biggy/claude-pulse-android): v2.4.1 SOURCE saved 15-Oct in private davan-scraper
+  `claude-pulse/` (upstream + the user's 5 changed files; DAVAN-NOTES.md = build without Gradle). Its signing key was lost - next build
+  needs a new key + one uninstall on the user's phone.
 - Later: publish LISTED on addons.mozilla.org / Chrome Web Store; name idea "Usage Meter for Claude - by Davan".
 
 ## Xiaomi battery Fix (15-Oct-2026)
