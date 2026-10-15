@@ -160,3 +160,9 @@ copy, or the portal's column heading - those are fallbacks only when the allocat
 counts "my classes" must go through these. The 🧭 Teacher check (Edit Allocation page) lists classes where the portal disagrees.
 Any code that saves the allocation must call `allocPortalPush(why)` (staff app, v1844): the student app and student widget read DB2
 `davan_pub/allocations` and reload it only when `davan_pub/pub_ver/allocations` moves.
+
+## Widget errors: read them yourself first (user, 17-Oct-2026)
+Before asking the user for a screenshot of a widget problem, read the phone's own report with the davan-scraper Action "DB2 peek"
+(db 2): `davan_pub/student_widget_report/<code>` (field `crashSummary` = last error; from w226 an "Open as" failure is saved as
+"open as <URN>: ...") and `davan_pub/widget_logs/<code>` (full log, when the Super Admin asked for it). Staff widget: its own report node.
+Find a phone's code with filter = the person's name. Keep token use low: peek with narrow paths + filter, small maxc.
