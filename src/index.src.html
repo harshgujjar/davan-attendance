@@ -2570,6 +2570,9 @@
       <div class="sidebar-item" data-panel="scraper" onclick="switchPanel('scraper');scrInit()" id="nav-scraper" data-keys="scraper app.py scrape cloud run history attendance portal sync" style="display:none;">
         <span class="icon">🕷</span> Scraper
       </div>
+      <div class="sidebar-item" data-panel="sa-alerts" onclick="switchPanel('sa-alerts');saInit()" id="nav-sa-alerts" data-keys="cloud alerts super admin notifications laptop push login release scrape failed" style="display:none;">
+        <span class="icon">☁️</span> Cloud alerts
+      </div>
       <div class="sidebar-item" data-panel="global-switches" onclick="switchPanel('global-switches');gswInit()" id="nav-global-switches" style="display:none;">
         <span class="icon">🎛</span> Global Switches
       </div>
@@ -6362,6 +6365,13 @@
       <div class="page-title">🕷 Scraper</div>
       <div class="page-sub">The college-portal scraper (app.py) runs by itself in the cloud at 1:00 pm and 5:30 pm, Monday - Saturday. What it did, why a run was skipped, its settings and history.</div>
       <div id="scr-root" style="max-width:1000px;"></div>
+    </div>
+
+    <!-- v1853 (user, 15-Oct-2026): Super Admin alerts - logins, releases, cloud jobs done / FAILED, usage (laptop + Davan Staff app) -->
+    <div class="panel" id="panel-sa-alerts">
+      <div class="page-title">☁️ Cloud alerts</div>
+      <div class="page-sub">Only for you (Super Admin): staff logins, the 9:15 pm widget release, scrapes and syncs done, any cloud job that FAILED, widget check problems and the 9:30 pm DB2 usage. Laptop: from Cloudflare. Phone: from the Davan Staff app (its own ☁️ channel and sound).</div>
+      <div id="sa-root" style="max-width:900px;"></div>
     </div>
 
     <!-- v1733 (user, 04-Oct-2026): every notification with ON/OFF, rates + currency picker, Instagram follow names -->
@@ -13904,6 +13914,7 @@ async function onLoginSuccess() {
   let _loginNotifOk = !!window._dvLoginWasManual;
   if (!_loginNotifOk) { try { _loginNotifOk = Date.now() - (+localStorage.getItem(_loginNotifKey) || 0) > 8 * 3600000; } catch (e) { _loginNotifOk = false; } }
   if (_loginNotifOk) { try { localStorage.setItem(_loginNotifKey, String(Date.now())); } catch (e) {} }
+  const _loginHow = window._dvLoginWasManual ? 'typed password' : 'app reopened';   // v1853: shown on the Super Admin alert
   window._dvLoginWasManual = false;
   if (_loginNotifOk && ['fulltime','visiting','vp','principal','manager','warden','hostel_head'].includes(p.role)) {
     // Delay 2s so facAlertBootstrap() finishes loading faWorkerUrl from Firestore first
@@ -13942,8 +13953,11 @@ async function onLoginSuccess() {
           // v1794 (user: "Nagaraj logged in as manager but I got no notification"): the log showed it was sent, but every push shared
           // the phone's one "davan-alert" slot, so the next alert (another login a minute later, a class-alert copy) silently replaced it.
           // Each login alert now gets its own tag, and the worker's answer (delivered / failed) is kept in this shared log.
-          const rr = await facAlertNotifyAdmin(title, body, 'login-' + String(p.username || p.name || '').replace(/[^a-zA-Z0-9]/g, '') + '-' + Date.now());
-          logEntry.result = rr ? ('worker ' + rr.status + ' · delivered ' + rr.sent + ' of ' + rr.subs + (rr.failed ? ' · failed ' + rr.failed : '')) : 'not sent (no admin device subscribed, or no worker address)';
+          // v1853 (user, 15-Oct-2026: "logins only to the Super Admin - laptop from Cloudflare, mobile from the app"): one event to the
+          // Cloudflare worker davan-release (POST /sa) - it saves it for his Davan Staff app and pushes it to his laptops (☁️ Cloud alerts).
+          // The old push to every admin-subscribed browser (phones included) is no longer sent for logins.
+          const rr = await saPost({ kind: 'login', name: p.name || p.username || '?', role: p.role, how: _loginHow });
+          logEntry.result = rr && rr.ok ? ('Cloudflare · laptops ' + rr.sent + ' of ' + rr.subs + (rr.failed ? ' · failed ' + rr.failed : '') + ' · saved for the phone app') : 'not sent: ' + ((rr && rr.msg) || '?');
         } catch(e) {
           logEntry.result = 'ERROR: ' + e.message;
         }
@@ -15596,6 +15610,7 @@ function applySidebarForRole(role) {
     'nav-notifications':    ['admin'],   // v1733
     'nav-global-switches':  ['admin'],   // v1740
     'nav-scraper':          ['admin'],   // v1816
+    'nav-sa-alerts':        ['admin'],   // v1853
     'nav-rates':            ['admin'],   // v1733
     'nav-follow-list':      ['admin'],   // v1733
     'nav-staff-directory':  ['admin'],
@@ -17721,7 +17736,7 @@ async function umAddToStaffDirectory(u) {
   } catch (e) { console.warn('[UM] add to Staff Directory failed', e.message); }
 }
 // v1523: lower-case, spaces -> ".", only a-z 0-9 . _ - (valid in an email address)
-const SUPER_ONLY_PANELS = ['user-management', 'login-activity', 'tt-audit', 'faculty-alerts', 'admin-settings', 'ai-usage', 'claude-meter', 'staff-directory', 'fac-dob', 'fees-structure', 'perfect-attendance', 'widget-version'];   // v1646: the Admin section
+const SUPER_ONLY_PANELS = ['user-management', 'login-activity', 'tt-audit', 'faculty-alerts', 'admin-settings', 'ai-usage', 'claude-meter', 'staff-directory', 'fac-dob', 'fees-structure', 'perfect-attendance', 'widget-version', 'sa-alerts'];   // v1646: the Admin section
 // v1645 SUPER ADMIN (user, 02-Oct-2026): more people can have the Admin role (full access, everything the admin sees).
 // The Director's own login (username "admin", or superAdmin:true on the account) is the Super Admin: only he can
 // create / promote / delete admins, and other admins cannot see, edit, reset or delete his account.
@@ -19025,7 +19040,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1852;  // always = HTML footer version number
+const CODE_BUILD = 1853;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -30091,6 +30106,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1853', date: '15-Oct-2026 IST', note: '☁️ New Super Admin page Cloud alerts: staff logins, the 9:15 pm widget release, scrapes / syncs done, any cloud job that FAILED, widget check problems and the 9:30 pm DB2 usage come only to you - on the laptop from Cloudflare (your photo, a coloured strip, red stays on screen) and on the phone from the Davan Staff app. Logins no longer go to other admin-subscribed browsers.' },
 { v: 'v1852', date: '17-Oct-2026 IST', note: '💰 Fees: a student marked ✗ Not received keeps seeing it in the student app and widget even after the fee window is closed, until marked ✓ Paid.' },
 { v: 'v1852', date: '17-Oct-2026 IST', note: '🧮 New Super Admin page Claude Meter (next to 🤖 AI Usage): who uses the Claude Usage Meter browser extension - active today / 7 days, name, browser, version, last seen, session % and weekly %.' },
 { v: 'v1851', date: '17-Oct-2026 IST', note: '💰 Fees: a ✅ Paid student can be set back to ✗ Not received any time (then Save) - the student app and widget show "fee not received" again.' },
@@ -30105,7 +30121,6 @@ const HTML_CHANGELOG = [
 { v: 'v1842', date: '12-Oct-2026 IST', note: '🧭 Teacher check on Edit Allocation: every class where Edit Allocation and the college portal name different teachers, so a wrong section is seen at once (also next semester). Everything follows Edit Allocation.' },
 { v: 'v1841', date: '12-Oct-2026 IST', note: 'Teacher of a section: the allocation\'s section names "MORNING (B)" / "AFTERNOON (A)" are now read, so feedback and day attendance follow exactly what Edit Allocation says.' },
 { v: 'v1840', date: '12-Oct-2026 IST', note: 'Class feedback: the summaries made before the section fix are rebuilt by themselves at the next staff app login, and a teacher no longer keeps rows that now belong to another teacher.' },
-{ v: 'v1839', date: '12-Oct-2026 IST', note: 'Class feedback and "yesterday in your classes" now go by the admin\'s allocation: each section\'s answers count for the teacher allocated to THAT section (Software Engineering Sem 5: A = Vijayalakshmi P S, B = Prasada M R).' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -84915,6 +84930,101 @@ async function scrSave(patch, el) {
   catch (e) { alert('Could not save: ' + e.message); if (el) el.checked = !el.checked; }
 }
 function scrSet(k, on, el) { scrSave({ [k]: !!on }, el); }
+// ── v1853 (user, 15-Oct-2026: "push notifications only to the Super Admin - laptop from Cloudflare, mobile from the app, my photo, a different
+// colour"): ☁️ Cloud alerts. Every event goes through the Cloudflare worker davan-release (POST /sa): it saves it to DB2 davan_pub/sa_ev
+// (the Super Admin's Davan Staff app reads it) and pushes it to the laptops in davan_pub/sa_push (added here with "This laptop").
+const SA_COL = { green: '#16a34a', red: '#dc2626', blue: '#2563eb', purple: '#7c3aed', amber: '#d97706' };
+const SA_COL_NAME = { green: 'done', red: 'FAILED', blue: 'login', purple: 'release', amber: 'warning' };
+async function saPost(b) {
+  try { const r = await fetch(REL_WORKER + '/sa', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(b) }); return await r.json(); }
+  catch (e) { return { ok: false, msg: e.message }; }
+}
+function saOpen() { try { switchPanel('sa-alerts'); saInit(); } catch (e) {} }
+function saWhen(ms) { return new Date(ms).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }); }
+async function saReg() {
+  const swPath = location.pathname.includes('/davan-attendance/') ? '/davan-attendance/sw.js' : '/sw.js';
+  return (await navigator.serviceWorker.getRegistration(swPath.replace('sw.js', ''))) || navigator.serviceWorker.register(swPath);
+}
+function saKeyOf(ep) { let h = 0; for (let i = 0; i < ep.length; i++) h = (h * 31 + ep.charCodeAt(i)) | 0; return 'L' + (h >>> 0).toString(36); }
+/** The Super Admin's photo (small data URL) for the laptop notification icon - kept in the service worker's own cache. */
+async function saSavePhoto() {
+  try {
+    const url = _facPhotoUrl(_facKey((currentProfile && currentProfile.name) || '')); if (!url || !('caches' in window)) return false;
+    const blob = await (await fetch(url)).blob();
+    const big = await new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(blob); });
+    const img = new Image(); img.crossOrigin = 'anonymous'; img.src = big; await img.decode();
+    const cv = document.createElement('canvas'); cv.width = cv.height = 192; const k = Math.max(192 / img.width, 192 / img.height);
+    cv.getContext('2d').drawImage(img, (192 - img.width * k) / 2, (192 - img.height * k) / 2, img.width * k, img.height * k);
+    const c = await caches.open('davan-sa'); await c.put(location.origin + '/davan-attendance/__sa_photo', new Response(cv.toDataURL('image/jpeg', 0.85)));
+    return true;
+  } catch (e) { return false; }
+}
+async function saThisLaptop(on) {
+  const out = document.getElementById('sa-lap-msg'); const say = t => { if (out) out.innerHTML = t; };
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return say('❌ This browser cannot receive push alerts.');
+    if (Notification.permission === 'denied') return say('🔕 The browser blocks notifications for this site - allow them in its site settings, then try again.');
+    const reg = await saReg(); await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!on) { if (sub) await lpDb2Set('davan_pub/sa_push/' + saKeyOf(sub.endpoint), null); say('✅ This laptop gets no more Super Admin alerts.'); return saInit(); }
+    if ((await Notification.requestPermission()) !== 'granted') return say('🔕 Notifications were not allowed.');
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(FA_VAPID_PUBLIC) });
+    const j = JSON.parse(JSON.stringify(sub)), ua = navigator.userAgent || '';
+    const dev = (/Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Android/.test(ua) ? 'Android' : /Linux/.test(ua) ? 'Linux' : 'Computer')
+      + ' · ' + (/Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'browser');
+    await lpDb2Set('davan_pub/sa_push/' + saKeyOf(sub.endpoint), { endpoint: j.endpoint, keys: j.keys, dev, at: Date.now() });
+    const ph = await saSavePhoto();
+    say('✅ This laptop is added' + (ph ? ' (with your photo)' : ' (no photo found for your login - the Davan logo is used)') + '. Press a test button to see it.');
+    saInit();
+  } catch (e) { say('❌ ' + hcEsc(e.message)); }
+}
+async function saTest(color) {
+  const out = document.getElementById('sa-lap-msg'); if (out) out.textContent = 'Sending…';
+  const r = await saPost({ kind: 'test', color });
+  if (out) out.textContent = r.ok ? '✅ Sent: laptops ' + r.sent + ' of ' + r.subs + (r.failed ? ' (failed ' + r.failed + ')' : '') + ' · your phone shows it within about 5 minutes (Davan Staff app).' : '❌ ' + (r.msg || 'not sent');
+  setTimeout(saInit, 1500);
+}
+async function saInit() {
+  const root = document.getElementById('sa-root'); if (!root) return;
+  if (!currentProfile || !(typeof umMeSuper === 'function' && umMeSuper())) { root.innerHTML = '<div style="color:var(--muted);">Only the Super Admin sees this page.</div>'; return; }
+  root.innerHTML = '<div style="color:var(--muted);">Loading…</div>';
+  const [er, pr] = await Promise.all([hswGet('davan_pub/sa_ev', 'orderBy=%22%24key%22&limitToLast=80'), hswGet('davan_pub/sa_push')]);
+  const evs = Object.values((er.ok && er.v) || {}).filter(e => e && e.at).sort((a, b) => b.at - a.at);
+  const laps = Object.entries((pr.ok && pr.v) || {}).filter(([, v]) => v && v.endpoint);
+  let mine = null; try { const reg = await saReg(); const sub = reg && await reg.pushManager.getSubscription(); if (sub) mine = saKeyOf(sub.endpoint); } catch (e) {}
+  saSavePhoto();   // keep the notification photo fresh
+  const here = laps.some(([k]) => k === mine), me = (currentProfile && currentProfile.name) || 'Admin';
+  const card = (t, b) => '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:12px;"><div style="font-weight:700;margin-bottom:6px;">' + t + '</div>' + b + '</div>';
+  const tb = c => '<button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;border-left:5px solid ' + SA_COL[c] + ';" onclick="saTest(\'' + c + '\')">🧪 ' + SA_COL_NAME[c] + '</button>';
+  const row = e => { const col = SA_COL[e.color] || SA_COL.green;
+    return '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border-left:6px solid ' + col + ';background:var(--surface2);border-radius:8px;margin-bottom:7px;">'
+      + _facAvatar(e.kind === 'login' && e.who ? e.who : me, 36, true)
+      + '<div style="flex:1;min-width:0;"><div style="font-weight:700;color:' + col + ';">' + hcEsc(e.title) + '</div>'
+      + (e.body ? '<div style="font-size:12.5px;white-space:pre-wrap;">' + hcEsc(e.body) + '</div>' : '')
+      + '<div style="font-size:11.5px;color:var(--muted);">' + saWhen(e.at) + (e.by ? ' · ' + hcEsc(e.by) : '') + (e.link ? ' · <a href="' + hcEsc(e.link) + '" target="_blank" rel="noopener">open the run</a>' : '') + '</div></div></div>'; };
+  window._saTxt = evs.map(e => saWhen(e.at) + ' · ' + e.title + (e.body ? ' · ' + e.body.replace(/\n/g, ' / ') : '') + (e.by ? ' · ' + e.by : '')).join('\n');
+  root.innerHTML =
+    card('💻 Laptop alerts (from Cloudflare)',
+      '<div style="font-size:13px;margin-bottom:8px;">This browser: ' + (here ? '<b style="color:#16a34a;">✅ gets the alerts</b>' : '<b>not added</b>') + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">' + (here ? '<button class="btn btn-secondary" onclick="saThisLaptop(false)">Remove this laptop</button>' : '<button class="btn btn-primary" onclick="saThisLaptop(true)">🔔 Get alerts on this laptop</button>') + '</div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + Object.keys(SA_COL).map(tb).join('') + '</div>'
+      + '<div id="sa-lap-msg" style="font-size:12.5px;margin-top:8px;color:var(--muted);"></div>'
+      + (laps.length ? '<div style="font-size:12px;color:var(--muted);margin-top:8px;">Added: ' + laps.map(([k, v]) => hcEsc(v.dev || 'laptop') + ' (' + saWhen(v.at || 0) + ')' + (k === mine ? ' ← this one' : '')).join(' · ') + '</div>' : '')
+      + '<div style="font-size:12px;color:var(--muted);margin-top:6px;">The browser sets the sound on a laptop; a red (FAILED) alert stays on screen until you click it. Phones get them from the Davan Staff app (w293+), not from here.</div>')
+    + card('📜 Last alerts <button class="btn btn-secondary" style="padding:3px 9px;font-size:11.5px;margin-left:8px;" onclick="dvCopyText(window._saTxt||\'\', this)">📋 Copy</button>',
+      evs.length ? evs.map(row).join('') : '<div style="color:var(--muted);">None yet - they start with the next login, release or cloud job.</div>');
+  if (typeof _facAvatarInject === 'function') _facAvatarInject();
+}
+(function saBoot() {
+  try {
+    if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'SA_OPEN') saOpen(); });
+    const q = new URLSearchParams(location.search); if (q.get('sa') !== '1') return;
+    q.delete('sa'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q.toString() : '') + location.hash);
+    let n = 0; const t = setInterval(() => { if (++n > 120) clearInterval(t);
+      if (typeof currentProfile !== 'undefined' && currentProfile && typeof umMeSuper === 'function' && umMeSuper()) { clearInterval(t); saOpen(); } }, 500);
+  } catch (e) {}
+})();
+
 function scrGroup(g, on, el) { const cur = new Set((window._scrCfg && window._scrCfg.groups) || []); on ? cur.add(g) : cur.delete(g); scrSave({ groups: [...cur] }, el); }
 async function ntfSet(a, k, on, el) {
   try { await lpDb2Patch('davan_pub/notif_off/' + a, { [k]: on ? null : true }); NTF.off[a][k] = !on; ntfRender(); }

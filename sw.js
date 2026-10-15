@@ -1,5 +1,6 @@
 // sw.js — Davan Attendance System v6
-const CACHE_VERSION = 'davan-v8';   // 07-Oct-2026: renotify (admin v1794)
+const CACHE_VERSION = 'davan-v9';   // 07-Oct-2026: renotify (admin v1794); 15-Oct-2026: Super Admin alerts (admin v1853)
+const SA_CACHE = 'davan-sa';       // v1853: the Super Admin's photo for his alerts (kept across versions)
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
 const ICON_URL = 'https://harshgujjar.github.io/davan-attendance/icon-192.png';
 
@@ -22,7 +23,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => k !== CACHE_VERSION && k !== SA_CACHE).map(k => caches.delete(k)))
     ).then(() => clients.claim())
   );
 });
@@ -100,19 +101,37 @@ self.addEventListener('push', e => {
     data:    data.data    || {},
     actions: data.actions || [],
   };
+  // 15-Oct-2026 (admin v1853, user: "Super Admin only - my photo and a different colour"): tag sa-<colour>-<id> comes from the
+  // Cloudflare worker davan-release (POST /sa). His photo (saved by the staff app's ☁️ Cloud alerts page) is the icon, a coloured
+  // strip the picture (green done, red failed, blue login, purple release, amber warning); a red one stays until clicked.
+  const tg = String(options.tag || '');
+  if (tg.indexOf('sa-') === 0) {
+    const col = tg.split('-')[1] || 'green';
+    options.image = APP_URL + 'sa-' + col + '.png';
+    options.requireInteraction = col === 'red';
+    options.vibrate = col === 'red' ? [400, 150, 400, 150, 400] : [120, 80, 120, 80, 120];
+    options.data = Object.assign({}, options.data, { sa: 1 });
+    e.waitUntil(caches.open(SA_CACHE).then(c => c.match(APP_URL + '__sa_photo')).then(r => r ? r.text() : '').catch(() => '')
+      .then(ph => { if (ph) options.icon = ph; return self.registration.showNotification('☁️ ' + (data.title || 'Davan'), options); }));
+    return;
+  }
   e.waitUntil(self.registration.showNotification(data.title || 'Davan College', options));
 });
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
+  const sa = !!(e.notification.data && e.notification.data.sa);
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       // 2026-09-30: only the STAFF app's own window (index.html) - a student-portal or faculty window is a different app
       for (const client of list) {
         const p = new URL(client.url).pathname;
-        if ((p === '/davan-attendance/' || p === '/davan-attendance/index.html') && 'focus' in client) return client.focus();
+        if ((p === '/davan-attendance/' || p === '/davan-attendance/index.html') && 'focus' in client) {
+          if (sa) try { client.postMessage({ type: 'SA_OPEN' }); } catch (x) {}   // v1853: open ☁️ Cloud alerts
+          return client.focus();
+        }
       }
-      if (clients.openWindow) return clients.openWindow(APP_URL + 'index.html');
+      if (clients.openWindow) return clients.openWindow(APP_URL + 'index.html' + (sa ? '?sa=1' : ''));
     })
   );
 });

@@ -2,6 +2,17 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1853 · 15-Oct-2026 IST
+User: "push notifications when staff log in, when the cloud releases the APKs, when the degree / PUC scrapes and PUC marks are done, the
+9:30 pm usage, any job FAILED, syncs, widget check - only to the Super Admin, laptop from Cloudflare, mobile from the app, with my photo,
+a different colour, sound and text". New ☁️ Cloud alerts page (Super Admin only): last 80 alerts with colour + photo, 📋 Copy,
+"Get alerts on this laptop" and test buttons. Every alert goes through the Cloudflare worker davan-release v9 (POST /sa): it saves it to
+DB2 davan_pub/sa_ev (+ sa_ev_at) and pushes it (via fcm-push) to the laptops in davan_pub/sa_push; sw.js shows them with his photo, a
+coloured strip (sa-<colour>.png) and red ones stay on screen. Staff logins now go only this way (not to other admin-subscribed browsers).
+Cost: one small DB2 write per alert; his phone reads ~290 tiny nodes a day. Release / widget-check jobs and all davan-scraper jobs end
+with tools/sa_notify.py. Pairs with staff widget w293, davan-scraper v108. Functions: saInit, saPost, saThisLaptop, saTest, saSavePhoto,
+saBoot; login alert in the login handler; sw.js push / notificationclick.
+
 ## v1852 · 17-Oct-2026 IST
 New Super Admin page 🧮 Claude Meter (next to 🤖 AI Usage), asked for by the user: who uses the Claude Usage Meter browser extension -
 active today / 7 days / all / new this week, then name, browser + OS, version, last seen, session % and weekly %, with 📋 Copy.
