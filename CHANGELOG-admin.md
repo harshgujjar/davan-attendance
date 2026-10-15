@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1848 · 17-Oct-2026 IST
+Roadmap step 4 (user: fee "I have paid" only; Thursday summary only for the Principal, Super Admin and admin; faculty push "last day to submit SD books"). New 💰 Fees page (admin / manager edit, VP / Principal view): fee window, per-class list with photos, "I have paid" in yellow, a 2nd claim after ✗ in red, ✓ Paid / ✗ Not received / Mark all, then Save. New 📒 SD books page: faculty pick their own class + subject (live allocation), the item and the last day, and tick who submitted; admins see all. 📊 Thursday summary on the Fees page (📋 Copy) and once every Thursday after login for admin + Principal.
+Data: DB2 davan_pub/fee_cfg, fee_paid/<URN>, sd_sub/<id>, sd_done/<id>/<URN>, pub_ver/fee + pub_ver/sd - small reads per page open, one PATCH per Save / tick. Pairs with portal v11.63; widgets not yet. Functions: feeInit, feeWinSave, feeRender, feeSave, feeMarkAll, sdInit, sdPush, sdRender, sdTick, sdDel, thuSummaryText, thuSumNudge.
+
 ## v1847 · 17-Oct-2026 IST
 User: "in the app give an option to check who has given feedback with comments, and list who has not, per class". Class feedback (admin / Principal) has a new 🏫 Per class tab: each class shows answered X of N, every answering student with their 👍/🤔/👎, ⭐ and comment, then the students who have not answered, with a 📋 Copy button. No extra Firebase reads (uses the week's answers already loaded). New: cfbByClass; cfbInit tab list.
 
