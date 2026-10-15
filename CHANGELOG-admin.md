@@ -2,6 +2,12 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1852 · 17-Oct-2026 IST
+New Super Admin page 🧮 Claude Meter (next to 🤖 AI Usage), asked for by the user: who uses the Claude Usage Meter browser extension -
+active today / 7 days / all / new this week, then name, browser + OS, version, last seen, session % and weekly %, with 📋 Copy.
+Data: reads DB4 claude_meter/users once per open (small); written by the extension v1.6 heartbeat (one PUT per browser every 15 min).
+Pairs with Claude Usage Meter v1.6. Functions: cmtrInit; nav / SUPER_ONLY_PANELS / role map entries for claude-meter.
+
 ## v1851 · 17-Oct-2026 IST
 User: "manager marked a student paid, then came to know he has not paid - can we reverse it any time?". 💰 Fees: a ✅ Paid row now also has ✗ Not received (then Save); tapping a row's saved state again drops the unsaved change. The student app and widget then show "fee not received" + "I have paid" again.
 Data: DB2 davan_pub/fee_paid/<URN>/st (same PATCH as before, no new reads). Pairs with portal v11.64. feeRender, feeSet.

@@ -26,11 +26,13 @@ User's own side project (Chrome + Firefox, "Built by Davan"); source NOT in this
   generation id); gecko id `claude-usage-meter@davan`, data_collection_permissions required none.
 - v1.5 (15-Oct, zip sent): bar starts TOP centre, drag to move (pointer events, >5 px = drag, else click = refresh), place saved as a
   share of the window in storage `barPos` (all tabs follow), double-click = back to the top. Tested in headless Chromium, not in Firefox.
-- NOT built - needs the user's clear OK (auto mode blocked it as sending browser data out): anonymous Firebase sign-in
-  (identitytoolkit accounts:signUp, DB4 apiKey = LP_ARCHIVE_CFG) + 15-min heartbeat PUT DB4 `claude_meter/users/<uid>`
-  {v, br, os, name, first, last, ok, err, s, sr, w, wr}, optional "Your name" + a "share" switch in the popup; data_collection_permissions
-  must then say what is sent (e.g. websiteContent). DB4 rules for claude_meter/users/$uid already published by the user.
-  Then staff app Super Admin page "🧮 Claude Meter" next to 🤖 AI Usage (SUPER_ONLY_PANELS + nav role map, lpDb4Get).
+- v1.6 (15-Oct, user OK'd the heartbeat, zip sent): anonymous Firebase sign-in (identitytoolkit accounts:signUp with the DB4 apiKey,
+  refresh via securetoken, kept in storage `fb`) + heartbeat every 15 min (alarm "beat") PUT DB4 `claude_meter/users/<uid>`
+  {v, br, os, name, first, last, ok, err, s, sr, w, wr}; popup: "Count me in Davan's meter" switch (storage share) + "Your name" box,
+  last send / error shown under it; gecko data_collection_permissions required websiteContent. Live DB4 write NOT tested by Claude -
+  the user checks that his own browser appears on the staff app page.
+- Staff app v1852: Super Admin page 🧮 Claude Meter (cmtrInit, reads DB4 claude_meter/users via lpDb4Get): active today / 7 days /
+  all / new this week + table name, browser · OS, version, last seen, session %, weekly %, since; 📋 Copy.
 - Later: publish LISTED on addons.mozilla.org / Chrome Web Store; name idea "Usage Meter for Claude - by Davan".
 
 ## Xiaomi battery Fix (15-Oct-2026)
