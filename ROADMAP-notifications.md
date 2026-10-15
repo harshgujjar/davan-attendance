@@ -42,11 +42,10 @@ In a new session the user uploads the newest widget zips and says "do the next s
 - ☑ Day attendance Phase 2 - faculty (07-Oct-2026: staff widget w250, admin v1804): "Yesterday in your classes" card + widget row, class in-charge card, faculty lock-screen card (stf lock), 6 pm "absent in your classes" (stf gen_dayatt). Covering a class: not done (no substitution data).
 - ☑ 3. Shortage + study (07-Oct-2026: portal v11.46, staff app v1805, student widget w194): under 50% -> meet Principal ("✋ I'll meet" button, DB2 davan_pub/meet_req, staff "✋ Meet the Principal" page with Met ✓), 50-75% shortage (attend the next N), good subjects (can miss N), miss-2-more (🟡 careful, also in the 3:15 pm note), backlog (last result's failed subjects)
 - ☑ 3b. (12-Oct-2026: admin v1821, student widget build 214, staff widget build 264) 📅 "Your day today" 9:15 am (gen_day, stu + stf, spoken, own quote, no 20-min wait = nogap) + widget settings "🔊 Tell me my day"; 🔔 switches now reach the widgets (Gen.off reads the key without stu_ / stf_).
-- ◐ 4. (APPS done 17-Oct-2026: staff app v1848, portal v11.63) Fee window + "I have paid" + Manager bulk page (class/section, Mark all, NEW in yellow, Save) + faculty submissions + Thu summary
+- ☑ 4. (17-Oct-2026: staff app v1848 / v1849, portal v11.63, student widget build 227, staff widget build 287) Fee window + "I have paid" + Manager bulk page (class/section, Mark all, NEW in yellow, Save) + faculty submissions + Thu summary
        User 17-Oct: fee = only "I have paid" (no amounts, no receipt photo); dispute: ✗ Not received -> student told "bring your receipt", button back, 2nd claim RED "claimed 2 times", listed in the Thursday summary;
        faculty submissions = SD book (Skill Development assignment book, per subject) last day pushed by the faculty, faculty tick who submitted;
-       Thursday summary only for Principal + Super Admin + admin. TODO widgets: student widget card + notifications (fee reminder, SD day before + last day),
-       staff widget Thursday summary notification (SA_KEYS / registry) - add NOTIF_REGISTRY entries + regKey in the same commit.
+       Thursday summary only for Principal + Super Admin + admin. Widgets: student Today rows + 8:30 am gen_todo; staff Thu 7 pm gen_thu (from DB2 thu_sum).
 - ☐ 5. Event feedback forms (stars / 1-5 marks / yes-no / few words) + anonymous box + 📖 "How Davan works" guide page
 - ☐ 6. Faculty semester scorecard (feedback + syllabus + classes held + internal marks)
 - ☐ 7. Exam paper feedback lock (when internals come near)
