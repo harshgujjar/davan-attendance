@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1856 · 15-Oct-2026 IST
+User: Super Admin alert showed the round college logo (no photo found for the Super Admin login) and the default sound. ☁️ Cloud alerts page: "Alert picture" = 📷 my photo / 🏫 Davan logo / 🖼 choose a picture (kept on this browser, 192 px); sw.js tells an open staff app to play its own tone per colour (a browser push cannot carry a sound; phones use the staff widget's own sa_*.wav channels from w293). No database change. Functions: saPicSet, saPicFile, saBeep, saSavePhoto.
+
 ## v1855 · 15-Oct-2026 IST
 User: hostel fee not showing for hostel students; student widget page 2 filters. Hostel residents = every active hostel/residents key that is not RS_ (the "kind" check wrongly dropped them); page 2 list (davan_pub/view_as/stu) gets h:1 for hostel students. Pairs with portal v11.67, student widget build 235. Functions: hcResUrns, stwPublishViewAs.
 

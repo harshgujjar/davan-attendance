@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v11.69 (15-Oct-2026) -- "Last 14 college days" dots: the day number is inside each dot and the month (Oct, Nov) is written once above its dots. No database change. Function: renderMyDays.
 VERSION : v11.68 (15-Oct-2026) -- (1) Login no longer starts by itself when the phone fills the saved URN + password: it waits for the Sign In tap (or Enter / Go). (2) "Attendance & Classes" card has a Show / Hide button, hidden by default, choice remembered on the phone. No database change. Functions: stuLoginSubmit, stuP1Toggle (summary card).
 VERSION : v11.67 (15-Oct-2026) -- Fix: hostel residents were not recognised for the hostel fee question (now uses the same URN as the Hostel page and no longer needs a "kind" field). Function: stuTasksRender.
 VERSION : v11.66 (15-Oct-2026) -- Hostel residents now get a 2nd question in the To do card + pop-up: "🏨 Hostel fee" with its own "I have paid" button (the office opens a hostel-only window). Reads: hostel/residents/<URN> (tiny, only while a hostel window is open) + davan_pub/fee_paid/<URN>_H; window = fee_cfg/h. Pairs with staff app v1854. Functions: stuTasksRender, stuTodoToast, stuFeePaid(btn, kind).

@@ -1,5 +1,5 @@
 // sw.js — Davan Attendance System v6
-const CACHE_VERSION = 'davan-v9';   // 07-Oct-2026: renotify (admin v1794); 15-Oct-2026: Super Admin alerts (admin v1853)
+const CACHE_VERSION = 'davan-v10';   // 07-Oct-2026: renotify (admin v1794); 15-Oct-2026: Super Admin alerts (admin v1853)
 const SA_CACHE = 'davan-sa';       // v1853: the Super Admin's photo for his alerts (kept across versions)
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
 const ICON_URL = 'https://harshgujjar.github.io/davan-attendance/icon-192.png';
@@ -111,6 +111,7 @@ self.addEventListener('push', e => {
     options.requireInteraction = col === 'red';
     options.vibrate = col === 'red' ? [400, 150, 400, 150, 400] : [120, 80, 120, 80, 120];
     options.data = Object.assign({}, options.data, { sa: 1 });
+    e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(l => l.forEach(c => { try { c.postMessage({ type: 'SA_SOUND', col }); } catch (x) {} })).catch(() => {}));   // v1856: own tone while the app is open
     e.waitUntil(caches.open(SA_CACHE).then(c => c.match(APP_URL + '__sa_photo')).then(r => r ? r.text() : '').catch(() => '')
       .then(ph => { if (ph) options.icon = ph; return self.registration.showNotification('☁️ ' + (data.title || 'Davan'), options); }));
     return;
