@@ -1,6 +1,6 @@
 # Session handoff - read this first (short, current state only)
 
-Last updated: 15-Oct-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
+Last updated: 15-Oct-2026 (late). Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
 Keep THIS file short: replace old lines, do not append history (history goes in the changelogs / commit messages).
 
 ## How the user works
@@ -14,12 +14,12 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## Current versions
 | App | Now | Notes |
 |---|---|---|
-| Staff app (src/index.src.html -> index.html) | v1852 | details: CHANGELOG-admin.md |
+| Staff app (src/index.src.html -> index.html) | v1853 | details: CHANGELOG-admin.md |
 | Student portal (student_portal.html) | v11.65 | CHANGELOG-portal.md |
 | PUC app (puc.html) / parent_ptm | v5.239 / v4.7.0 | |
-| Student widget | public build 212 = w186; next 231 | source davan-scraper widgets/student |
-| Staff widget | public build 262 = w233; next 292 | source davan-scraper widgets/staff |
-| Scraper app.py (davan-scraper) | v104+ | runs in the cloud, Cloudflare worker davan-release v8 starts it |
+| Student widget | public build 231 = w191 (15-Oct) | source davan-scraper widgets/student |
+| Staff widget | public build 292 = w237 (15-Oct); next 293 (☁️ alerts) | source davan-scraper widgets/staff |
+| Scraper app.py (davan-scraper) | v108 | runs in the cloud, Cloudflare worker davan-release v9 starts it |
 
 ## Where things are
 - Widget sources + keystores: private **harshgujjar/davan-scraper** `widgets/` (README there). Toolchain: `bash tools/widget-toolchain.sh`,
@@ -28,6 +28,14 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   Widget versions, Scrape status, Class feedback status. Cloudflare worker code: tools/cloudflare-release-worker.js (auto-deployed).
 - Firebase DB2 = FREE Spark plan, 10 GB downloads / month: stay under ~330 MB / day (ask the user for the console screenshot to check).
 - Student widget floor: build 133 (STU_WIDGET_BLOCK_V = STU_MIN_WIDGET_FLOOR = DB2 minApkVersion - keep all three equal).
+
+## ☁️ Super Admin cloud alerts (v1853, 15-Oct)
+- Every alert = POST davan-release.harshgujjar.workers.dev/sa -> DB2 davan_pub/sa_ev (+ sa_ev_at) + push to laptops in davan_pub/sa_push
+  (via fcm-push; sw.js tag sa-<colour>-<id>). Phone = staff widget SaEv (w293+, Super Admin only, polls ~5 min). Jobs: last step
+  `tools/sa_notify.py "<name>" <kind>` (both repos), text from $RUNNER_TEMP/sa.json; a job alert must name its own running run (worker checks).
+- 9:30 pm usage alert = worker cron "0,15 16" (16:00 UTC); Cloudflare account has 5 timers in total - do not add a timer.
+- New job / feature that should tell the Super Admin: add the sa_notify step (or saPost in the staff app). Laptop: staff app ☁️ Cloud alerts -> "Get alerts on this laptop".
+- Not phone-tested: w293 channels / sounds; laptop photo + strip.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
