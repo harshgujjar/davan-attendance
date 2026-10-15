@@ -23,6 +23,8 @@ Shankar B C (S-Y6EGC2, Redmi 13C HyperOS / Android 15): "Battery: unrestricted" 
 on Xiaomi/Redmi/POCO Fix opens com.miui.powerkeeper Battery saver ("No restrictions"), fallback App info. S-Y6EGC2 added to
 davan-widget-next.json codes so he gets it at once (remove later if wanted). 289 still landed in App info (powerkeeper screen refused) ->
 build 290: each Fix tap tries the next of 6 ways (MI_WAY); report field battVia = last way tried. Check his report: bat true + battVia.
+His photo was missing: link student_widget_active/S-Y6EGC2 saved with photo "" (staff app linked before photos loaded) -> build 291:
+Photo.refresh falls back to staff_pub/ph by name / facKeys. Staff app hswPayload still writes "" in that case (widget covers it).
 Student widget still uses the plain Android dialog for battery (same fix needed if a student on Xiaomi reports it).
 
 ## V Sem BCA Software Engineering (15-Oct-2026, open)
