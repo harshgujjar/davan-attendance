@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1850 · 17-Oct-2026 IST
+User: "Vijayalakshmi and other faculty are shown all subjects - show only the ones they take". 📒 SD books: the class + subject list is only the person's own allocated subjects (live allocation, allocFacFor); VP now counts as faculty (it was in the "see everything" group). Admin / manager / Principal see their own subjects first, then "Other classes". The list is rebuilt on every open. No new reads. Functions: _sdAll, _sdMine, sdInit, _sdVisible.
+
 ## v1849 · 17-Oct-2026 IST
 Roadmap step 4, widget part. 🔔 page: new rows 💰 Fee / 📒 SD book reminder (students, 8:30 am Mon-Sat, gen_todo) and 📊 Thursday summary (admin / Principal / Super Admin, Thu 7 pm, gen_thu). The first admin / manager / VP / Principal login on a Thursday saves the summary to DB2 davan_pub/thu_sum {d, txt, at} (one small write a week) for the staff widget. Pairs with student widget build 227, staff widget build 287. Functions: thuSumNudge, NOTIF_REGISTRY.
 
