@@ -26,6 +26,7 @@ build 290: each Fix tap tries the next of 6 ways (MI_WAY); report field battVia 
 His photo was missing: link student_widget_active/S-Y6EGC2 saved with photo "" (staff app linked before photos loaded) -> build 291:
 Photo.refresh falls back to staff_pub/ph by name / facKeys. Staff app hswPayload still writes "" in that case (widget covers it).
 Student widget build 229 (-next) has the same Xiaomi battery Fix rotation (Perms.miuiBatt), report field battVia.
+Shankar fixed (bat true, battVia "battery optimization list") -> staff 292 / student 230: Xiaomi Fix STARTS with that list (key batt_try2, default 3).
 
 ## V Sem BCA Software Engineering (15-Oct-2026, open)
 Timetable (davan_pub/timetable_portal): III YEAR BCA (A) SOEN = afternoon (4:40 pm), (B) = morning (11:45 am); the allocation agrees
