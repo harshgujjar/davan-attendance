@@ -18,6 +18,11 @@ session (same commit as the work), keep it short, newest state only.
 - Never ask the user to paste tokens/keys into chat. Secrets live in GitHub Secrets (davan-scraper repo).
 - Login / admin push alerts go only to the Super Admin.
 
+## V Sem BCA Software Engineering (15-Oct-2026, open)
+Timetable (davan_pub/timetable_portal): III YEAR BCA (A) SOEN = afternoon (4:40 pm), (B) = morning (11:45 am); the allocation agrees
+("Afternoon (A)" / "Morning (B)" for every V BCA row). After the user's swap: Afternoon (A) = Vijayalakshmi P S, Morning (B) = Karthik J S.
+If she teaches the MORNING batch, she is section B and the swap must be undone in Edit Allocation (user to confirm which batch she teaches).
+
 ## Current versions (08-Oct-2026)
 | App | Build | Notes |
 |---|---|---|
