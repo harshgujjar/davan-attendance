@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1855 · 15-Oct-2026 IST
+User: hostel fee not showing for hostel students; student widget page 2 filters. Hostel residents = every active hostel/residents key that is not RS_ (the "kind" check wrongly dropped them); page 2 list (davan_pub/view_as/stu) gets h:1 for hostel students. Pairs with portal v11.67, student widget build 235. Functions: hcResUrns, stwPublishViewAs.
+
 ## v1854 · 15-Oct-2026 IST
 User: Fees page counts clickable; admin still saw "open the window" / summary said "No fee window open" after the manager opened it; show who
 opened the window and when; SD book bulk dates (whole college / one class, different date per subject, change later); hostel students get a
