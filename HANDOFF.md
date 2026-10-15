@@ -18,6 +18,21 @@ session (same commit as the work), keep it short, newest state only.
 - Never ask the user to paste tokens/keys into chat. Secrets live in GitHub Secrets (davan-scraper repo).
 - Login / admin push alerts go only to the Super Admin.
 
+## Claude Usage Meter - browser extension (OPEN - continue here)
+User's own side project (Chrome + Firefox, "Built by Davan"); source NOT in this repo - the user uploads the latest zip (claude-usage-meter-v<x>.zip).
+- v1.4: MV3, host claude.ai; background reads `claude.ai/api/organizations` -> org uuid -> `/api/organizations/<uuid>/usage`
+  (five_hour / seven_day / seven_day_<model> or new `limits[]` {kind, percent, resets_at, scope.model.display_name}); badge = session %;
+  popup bars + "Resets in" + "Allow on claude.ai" (Firefox "Only when clicked"); live bar on every claude.ai page (bar.js, popover="manual",
+  generation id); gecko id `claude-usage-meter@davan`, data_collection_permissions required none.
+- v1.5 (15-Oct, zip sent): bar starts TOP centre, drag to move (pointer events, >5 px = drag, else click = refresh), place saved as a
+  share of the window in storage `barPos` (all tabs follow), double-click = back to the top. Tested in headless Chromium, not in Firefox.
+- NOT built - needs the user's clear OK (auto mode blocked it as sending browser data out): anonymous Firebase sign-in
+  (identitytoolkit accounts:signUp, DB4 apiKey = LP_ARCHIVE_CFG) + 15-min heartbeat PUT DB4 `claude_meter/users/<uid>`
+  {v, br, os, name, first, last, ok, err, s, sr, w, wr}, optional "Your name" + a "share" switch in the popup; data_collection_permissions
+  must then say what is sent (e.g. websiteContent). DB4 rules for claude_meter/users/$uid already published by the user.
+  Then staff app Super Admin page "🧮 Claude Meter" next to 🤖 AI Usage (SUPER_ONLY_PANELS + nav role map, lpDb4Get).
+- Later: publish LISTED on addons.mozilla.org / Chrome Web Store; name idea "Usage Meter for Claude - by Davan".
+
 ## Xiaomi battery Fix (15-Oct-2026)
 Shankar B C (S-Y6EGC2, Redmi 13C HyperOS / Android 15): "Battery: unrestricted" red, Fix went to the wrong screen. Staff build 289 (-next):
 on Xiaomi/Redmi/POCO Fix opens com.miui.powerkeeper Battery saver ("No restrictions"), fallback App info. S-Y6EGC2 added to
