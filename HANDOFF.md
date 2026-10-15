@@ -23,6 +23,10 @@ Timetable (davan_pub/timetable_portal): III YEAR BCA (A) SOEN = afternoon (4:40 
 ("Afternoon (A)" / "Morning (B)" for every V BCA row). After the user's swap: Afternoon (A) = Vijayalakshmi P S, Morning (B) = Karthik J S.
 If she teaches the MORNING batch, she is section B and the swap must be undone in Edit Allocation (user to confirm which batch she teaches).
 
+## Sales brochure (15-Oct-2026)
+brochure/Smart-Campus-App-Brochure.pdf (6 pages, drawn phone screens with sample names, WhatsApp/Call buttons for 98445 42132 and 89702 25551),
+brochure/cover.jpg, editable source brochure/source.html (print with headless Chromium --print-to-pdf). Link: https://harshgujjar.github.io/davan-attendance/brochure/Smart-Campus-App-Brochure.pdf
+
 ## Current versions (08-Oct-2026)
 | App | Build | Notes |
 |---|---|---|
