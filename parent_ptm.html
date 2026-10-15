@@ -29,7 +29,7 @@
 <!--
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  DAVAN PUC — PARENT PROGRESS CARD (PTM)                                       ║
-║  FILE: parent_ptm.html   ·   v4.6.3  ·  BUILD 2026-09-18 09:50 UTC           ║
+║  FILE: parent_ptm.html   ·   v4.7.0  ·  BUILD 2026-10-15 06:00 UTC           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Two audiences, one file:                                                     ║
 ║   • PARENT  — logs in with mobile number only → picks child → sees frozen     ║
@@ -92,6 +92,11 @@
 ║                    page-2 saga below for what ignoring this costs.)        ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
+║  v4.7.0  2026-10-15 06:00 UTC — Mid-Term marks: "Mid Term" is a test source ║
+║                    (bucket mid_term, else the All Exams scrape); a class   ║
+║                    with Mid-Term marks gets a Mid Term test (80 / pass 28) ║
+║                    once. Portal task names read as one name per exam.      ║
+║                    Fn: ptmExamName, ptmAddMidTerm, adFetchClassData.       ║
 ║  v4.6.3  2026-09-18 09:50 UTC — Label above the two buttons (~line 1866)    ║
 ║                    reworded: "Tap to see the card" → "Choose a language to  ║
 ║                    view the card" — leftover wording from the old           ║
@@ -2399,8 +2404,8 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.6.4';   // v4.6.4 (30-Sep-2026): installable as its own PWA (manifest-parent_ptm.json + page-only worker)
-const BUILD_STAMP   = '2026-09-30 17:30 UTC';
+const APP_VERSION   = 'v4.7.0';   // v4.7.0 (15-Oct-2026): Mid-Term marks (+ "All Exams" scrape, portal task names read as one name per exam); v4.6.4 (30-Sep-2026): installable as its own PWA (manifest-parent_ptm.json + page-only worker)
+const BUILD_STAMP   = '2026-10-15 06:00 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
 // from and writes to. Change this ONE line to move the whole app onto the
@@ -2656,7 +2661,21 @@ const DEFAULT_TESTS = [
   {key:'t1',name:'I Test',max:30,pass:15,done:true,examKey:'IA - 1'},
   {key:'t2',name:'II Test',max:40,pass:20,done:true,examKey:'IA - 2'},
 ];
-const IA_KEYS = ['IA - 1','IA - 2','IA - 3','IA - 4','IA - 5'];
+const IA_KEYS = ['IA - 1','IA - 2','IA - 3','IA - 4','IA - 5','Mid Term'];   // v4.7.0: + Mid Term (bucket mid_term)
+// v4.7.0 (user, 15-Oct-2026: "midterm marks entered - show them under midterm"): teachers name the portal's tasks differently
+// ("IA - 2" / "Internal Assessement 2", "Mid Term Examination"). ONE name per exam - same rule as puc.html pucExamName.
+function ptmExamName(t){
+  const x=String(t||'').trim();
+  if(/mid[\s_-]*term/i.test(x)) return 'Mid Term';
+  const m=/^(?:ia|internal\s*assess?e?ments?|test)\s*[-_]?\s*([1-5])$/i.exec(x);
+  return m?'IA - '+m[1]:x;
+}
+// the marks of ONE exam from a course's marks object (exact name wins over a look-alike)
+function ptmExamMarks(marks, ek){
+  const out={};
+  Object.entries(marks||{}).forEach(([k,v])=>{ if(ptmExamName(k)!==ek) return; if(out[ek]===undefined||k===ek) out[ek]=v; });
+  return out;
+}
 
 // Students whose attendance-portal record has NO USN — admin gave them one
 // manually. Mirrors PUC_MANUAL_USN_MAP in puc.html (same source of truth,
@@ -3928,13 +3947,25 @@ function adAnnounceToggleSection(){
   }
 }
 
+// v4.7.0: once a class has Mid-Term marks, its scheme gets a "Mid Term" test by itself (max 80, pass 28 - set 70 / 24 for a
+// science class in the boxes). Added ONCE per class (puc_test_config/{ay}/{cls}/midAdded), so a removed one stays removed.
+async function ptmAddMidTerm(cls, tests, added){
+  if(added || tests.some(t=>t.examKey==='Mid Term')) return tests;
+  try{
+    const data=await adFetchClassData(cls);
+    if(!Object.keys(data.marksByExam['Mid Term']||{}).length) return tests;
+    tests.push({key:'mt',name:'Mid Term',max:80,pass:28,done:true,examKey:'Mid Term'});
+    await rtdb.ref('puc_test_config/'+AY+'/'+cls).update({tests, midAdded:true});
+  }catch(e){ console.warn('mid-term test not added:',e.message); }
+  return tests;
+}
 async function adGetClassConfig(cls){
   try{
     const snap=await rtdb.ref('puc_test_config/'+AY+'/'+cls).once('value');
     const v=snap.val();
-    if(v&&v.tests) return v.tests;
+    if(v&&v.tests) return await ptmAddMidTerm(cls, v.tests, v.midAdded);
   }catch(e){ console.warn('config read failed, using defaults:',e.message); }
-  return JSON.parse(JSON.stringify(DEFAULT_TESTS));
+  return await ptmAddMidTerm(cls, JSON.parse(JSON.stringify(DEFAULT_TESTS)), false);
 }
 
 async function adLoadClass(){
@@ -4011,6 +4042,7 @@ function examKeyVariants(ek){
 function markForExam(courseMarks, ek){
   if(!courseMarks) return null;
   if(ek in courseMarks) return parseMark(courseMarks[ek]);
+  for(const [k,v] of Object.entries(courseMarks)){ if(ptmExamName(k)===ek) return parseMark(v); }   // v4.7.0
   // try normalized-key forms
   const want=ek.toLowerCase().replace(/[^a-z0-9]/g,'');
   for(const [k,v] of Object.entries(courseMarks)){
@@ -4115,11 +4147,31 @@ async function adFetchClassData(cls){
   // 2) test marks ─ read all IA buckets in PARALLEL (resilient + fast)
   const marksByExam={};
   const marksRoster={}; // fallback identity source if puc_daily gave nothing
+  // v4.7.0: the "All Exams" scrape (puc_marks/{ay}/all/{class}) holds every exam under the portal's own task names (e.g. the
+  // Mid-Term marks of 14-Oct). An exam takes from it when its own bucket has no rows for this class, and fills a subject mark
+  // its own rows are missing (task named "Internal Assessement 2", so the IA - 2 scrape skipped it). Read only.
+  const allNode=await safeOnce('puc_marks/'+AY+'/all/'+cls);
+  const allRows=allNode?(Array.isArray(allNode)?allNode:Object.values(allNode)).filter(Boolean):[];
+  const allFor=ek=>allRows.map(r=>({...r,courses:(r.courses||[]).map(c=>{ const m=ptmExamMarks(c.marks,ek); const o={...c}; if(Object.keys(m).length) o.marks=m; else delete o.marks; return o; })}));
   await Promise.all(IA_KEYS.map(async ek=>{
     let rows=null;
     for(const kv of examKeyVariants(ek)){
       const bucket=await safeOnce('puc_marks/'+AY+'/'+kv+'/'+cls);
       if(bucket){ rows=Array.isArray(bucket)?bucket:Object.values(bucket); break; }
+    }
+    const fromAll=allFor(ek);
+    if(fromAll.some(r=>r.courses.some(c=>c.marks))){
+      if(!rows||!rows.length) rows=fromAll;
+      else {
+        const key=r=>((r.usn||'')+'|'+(r.usn?'':(r.name||''))).toLowerCase();
+        const byKey={}; fromAll.forEach(r=>{ byKey[key(r)]=r; });
+        rows=rows.map(r=>{
+          const a=r&&byKey[key(r)]; if(!a) return r;
+          const courses=(r.courses||[]).map(c=>{ if(c.marks&&Object.keys(c.marks).length) return c; const ac=a.courses.find(x=>x.code===c.code&&x.marks); return ac?{...c,marks:ac.marks}:c; });
+          a.courses.forEach(ac=>{ if(ac.marks&&!courses.some(c=>c.code===ac.code)) courses.push(ac); });
+          return {...r,courses};
+        });
+      }
     }
     if(rows){
       let n=0;
