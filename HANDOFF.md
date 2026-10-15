@@ -54,8 +54,9 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   duplicate-notification fix, "Professor" in spoken names, faculty Day Attendance by subject, DB2 pub_hash, app.py v095-v100.
 
 ## Open items / next steps
-- 17-Oct: ROADMAP step 4 in the APPS (staff v1848 💰 Fees + 📒 SD books pages + 📊 Thursday summary; portal v11.63 "📌 To do" card). NOT done: the widget
-  part (student card + notifications, staff Thursday note) - next. Not tested with real logins; DB2 rules must allow the new davan_pub nodes
+- 17-Oct: ROADMAP step 4 in the APPS (staff v1848 💰 Fees + 📒 SD books pages + 📊 Thursday summary; portal v11.63 "📌 To do" card). Widgets: student build 227
+  (Today 💰 / 📒 rows, 8:30 am gen_todo), staff build 287 (Thu 7 pm gen_thu from DB2 thu_sum, saved by staff app v1849 at a Thursday
+  admin login) - on "next". Not tested with real logins / phones; DB2 rules must allow the new davan_pub nodes
   fee_cfg / fee_paid / sd_sub / sd_done (assumed open like meet_req) - if a save says 401, add them.
 - 12-Oct: "download failed - the server gave the old file" = raw.githubusercontent.com caches the APK up to 5 min (max-age=300)
   after a push, while github.io already shows the new version. Builds 217 / 267 wait 6 min (Update.staleWait) instead of 3 quick
