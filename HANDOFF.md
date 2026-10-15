@@ -1,6 +1,6 @@
 # Session handoff - read this first (plug and play)
 
-Last updated: 12-Oct-2026 (9:15 "Your day today" + 🔊 Tell me my day: staff app v1821, student build 214 / staff build 264 on next; earlier 11-Oct: PUC scrape in the cloud: puc_scrape.py + worker v5 + puc.html v5.231; scraper Cloudflare timer + app.py v104; news source tags: fetch_news v1.7.0, portal v11.59, student 213 / staff 263 on next). A new Claude session reads CLAUDE.md (rules) and
+Last updated: 15-Oct-2026 (PUC Mid-Term marks: puc.html v5.239 Internals Mid-Term tab + scraper choice, parent_ptm v4.7.0, worker v8, davan-scraper puc_marks_scrape p2; earlier 12-Oct: 9:15 "Your day today" + 🔊 Tell me my day: staff app v1821, student build 214 / staff build 264 on next; earlier 11-Oct: PUC scrape in the cloud: puc_scrape.py + worker v5 + puc.html v5.231; scraper Cloudflare timer + app.py v104; news source tags: fetch_news v1.7.0, portal v11.59, student 213 / staff 263 on next). A new Claude session reads CLAUDE.md (rules) and
 then this file (where things stand). The user should not have to repeat anything below. Update this file at the end of every
 session (same commit as the work), keep it short, newest state only.
 
@@ -79,6 +79,14 @@ dx needs `--min-sdk 24`: **no Java lambdas** (use anonymous classes). After a bu
   "v5"): add secrets PUC_PORTAL_USER / PUC_PORTAL_PASS to davan-scraper; paste worker v5 + add the new cron (auto deploy key not set);
   run "PUC scrape" by hand once. Verify Mon 12-Oct: puc-scrape.yml runs ~05:05 UTC (10:34 IST).
 - 12-Oct: CHECKED - the Cloudflare worker davan-release still runs v4 code (no PUC v5) and has NEVER started a davan-scraper run: no scrape.yml / puc-scrape.yml workflow_dispatch at 07:30 / 08:15 UTC on Mon 12-Oct (only the user's manual run 08:23 UTC); GitHub's own schedule did not fire at all. Release dispatches DO work (11-Oct 15:46 / 16:16 UTC) -> the scraper cron `0,15,30,45 7,8,12 * * MON-SAT` is missing in Cloudflare Triggers or the key lacks davan-scraper. User to check (staff app 🕷 Scraper page shows the worker's scr status) and paste worker v5. Read-only tool added: davan-scraper Actions -> Class feedback status (tools/cfb_status.py).
+- 15-Oct: PUC MID-TERM marks (user: "marks entered, no option to show them in internals and PTM"). They WERE in the database: the
+  cloud "All Exams" scrape of 14-Oct 2:41 pm stores them at PUC RTDB puc_marks/2026-27/all/<class> under the portal task name
+  "Mid Term Examination" (1PUC COM A/B/C full, 2PUC COM-A + both SCI only Kannada, 2PUC COM-B / C none yet). Teachers name tasks
+  differently ("Internal Assessement 2" = IA - 2, so the IA - 2 scrape skipped those subjects). ONE rule now: pucExamName (puc.html) /
+  ptmExamName (parent_ptm.html) / canon (puc_marks_scrape.py p2) -> "IA - 1".."IA - 5", "Mid Term". puc.html v5.239: Internals
+  Mid-Term tab (default pass 28), every exam tab also fills from the all bucket (intMergeAllBucket, read only); scraper 02b has
+  Mid-Term (bucket mid_term, worker v8 MARKS_EXAMS). parent_ptm v4.7.0: source "Mid Term", a class with mid-term marks gets a
+  Mid Term test (80 / pass 28) once (puc_test_config/<AY>/<cls>/midAdded). Re-scrape Mid-Term when 2PUC COM-B / C marks are entered.
 - 11-Oct: scraper timer. Sat 10-Oct GitHub never started the 1 pm run (late starts 7:23-10:58 pm all skipped -> Friday's day attendance
   missed). Built: worker v4 (also starts davan-scraper scrape.yml, cron `0,15,30,45 7,8,12 * * MON-SAT`, filters to 07:30/08:15/12:00/12:45 UTC)
   + app.py v104 (off day: any timed start does the light run until att_state.last_run = today; college day: a slot that already ran
