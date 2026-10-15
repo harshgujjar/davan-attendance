@@ -17,7 +17,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 | Staff app (src/index.src.html -> index.html) | v1853 | details: CHANGELOG-admin.md |
 | Student portal (student_portal.html) | v11.65 | CHANGELOG-portal.md |
 | PUC app (puc.html) / parent_ptm | v5.239 / v4.7.0 | |
-| Student widget | public build 231 = w191 (15-Oct); next = 232 (exam page: no empty / "Regular Class" lines - goes public tonight 9:15 pm) | source davan-scraper widgets/student |
+| Student widget | public build 231 = w191 (15-Oct); next = 232 (exam page: no empty / "Regular Class" lines - goes public 16-Oct 9:15 pm) | source davan-scraper widgets/student |
 | Staff widget | public build 292 = w237 (15-Oct); next 293 (☁️ alerts) | source davan-scraper widgets/staff |
 | Scraper app.py (davan-scraper) | v108 | runs in the cloud, Cloudflare worker davan-release v9 starts it |
 
