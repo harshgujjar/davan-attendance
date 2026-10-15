@@ -31,6 +31,9 @@ User's own side project (Chrome + Firefox, "Built by Davan"); source NOT in this
   {v, br, os, name, first, last, ok, err, s, sr, w, wr}; popup: "Count me in Davan's meter" switch (storage share) + "Your name" box,
   last send / error shown under it; gecko data_collection_permissions required websiteContent. Live DB4 write NOT tested by Claude -
   the user checks that his own browser appears on the staff app page.
+- v1.6.1 (15-Oct): name "Usage Meter for Claude – by Davan" (store trademark rule), gecko strict_min_version 140.0 + gecko_android 142.0
+  (needed by data_collection_permissions). TWO zips from now on: -firefox (background.scripts only, no service_worker - AMO warned)
+  and -chrome (service_worker only, no browser_specific_settings). addons-linter@latest: 0 errors, 0 warnings. User is uploading to AMO (Listed).
 - Staff app v1852: Super Admin page 🧮 Claude Meter (cmtrInit, reads DB4 claude_meter/users via lpDb4Get): active today / 7 days /
   all / new this week + table name, browser · OS, version, last seen, session %, weekly %, since; 📋 Copy.
 - Later: publish LISTED on addons.mozilla.org / Chrome Web Store; name idea "Usage Meter for Claude - by Davan".
