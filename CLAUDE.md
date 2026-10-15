@@ -11,8 +11,9 @@ repeat anything. Update HANDOFF.md at the end of every session, in the same comm
 - Claude cannot run /compact or /clear itself and cannot see the exact token count. So: when a task is finished (committed, merged,
   HANDOFF updated) and the session has become long (about 3+ separate tasks, or big builds / big file reads), end the reply with ONE line:
   "💡 Good point to start a new session - HANDOFF is saved." (or "type /compact" if the user wants to continue the same topic).
-- Model: at the START of a task, if it is small / simple (a text change, a small fix, a question, a release step), say in one line
-  "💡 This is a small job - switch to Sonnet to save usage (model menu)". Big builds, new features, hard bugs: stay on Opus. Ask once per task.
+- Model: switching model in the MIDDLE of a session re-reads the whole conversation (cache lost) - it can cost more than it saves.
+  So suggest it only as the FIRST reply of a NEW session: small job (text change, small fix, question, release step) ->
+  "💡 Small job - Sonnet is enough (pick it before you start next time)". Never suggest switching mid-session.
 - One topic per session is cheapest: a new session starts small and reads CLAUDE.md + only the HANDOFF section it needs.
 
 ## index.html is BUILT (from v1581) - edit src/index.src.html
