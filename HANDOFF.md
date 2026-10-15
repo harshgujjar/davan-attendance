@@ -18,6 +18,12 @@ session (same commit as the work), keep it short, newest state only.
 - Never ask the user to paste tokens/keys into chat. Secrets live in GitHub Secrets (davan-scraper repo).
 - Login / admin push alerts go only to the Super Admin.
 
+## Xiaomi battery Fix (15-Oct-2026)
+Shankar B C (S-Y6EGC2, Redmi 13C HyperOS / Android 15): "Battery: unrestricted" red, Fix went to the wrong screen. Staff build 289 (-next):
+on Xiaomi/Redmi/POCO Fix opens com.miui.powerkeeper Battery saver ("No restrictions"), fallback App info. S-Y6EGC2 added to
+davan-widget-next.json codes so he gets it at once (remove later if wanted). Not tested on a Xiaomi phone - check his report "bat" turns true.
+Student widget still uses the plain Android dialog for battery (same fix needed if a student on Xiaomi reports it).
+
 ## V Sem BCA Software Engineering (15-Oct-2026, open)
 Timetable (davan_pub/timetable_portal): III YEAR BCA (A) SOEN = afternoon (4:40 pm), (B) = morning (11:45 am); the allocation agrees
 ("Afternoon (A)" / "Morning (B)" for every V BCA row). After the user's swap: Afternoon (A) = Vijayalakshmi P S, Morning (B) = Karthik J S.
