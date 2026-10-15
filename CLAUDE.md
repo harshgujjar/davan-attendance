@@ -3,6 +3,16 @@
 **New session? Read `HANDOFF.md` first** (current versions, open items, how the user works) - then work without asking the user to
 repeat anything. Update HANDOFF.md at the end of every session, in the same commit.
 
+## Save tokens (user, 15-Oct-2026 - every session)
+- HANDOFF.md / big files: read only the part needed (grep, `sed -n a,bp`), never a whole big file; never re-read a file just edited.
+  src/index.src.html is ~90k lines: always grep first, then read a small range.
+- Keep command output short (`| tail`, `| head`, `-q`); no subagents / workflows unless the user asks; no screenshots or mockups unless asked.
+- Short answers. Do the work, then say what changed - no long explanations, no repeating what the user said.
+- Claude cannot run /compact or /clear itself and cannot see the exact token count. So: when a task is finished (committed, merged,
+  HANDOFF updated) and the session has become long (about 3+ separate tasks, or big builds / big file reads), end the reply with ONE line:
+  "💡 Good point to start a new session - HANDOFF is saved." (or "type /compact" if the user wants to continue the same topic).
+- One topic per session is cheapest: a new session starts small and reads CLAUDE.md + only the HANDOFF section it needs.
+
 ## index.html is BUILT (from v1581) - edit src/index.src.html
 
 Never edit `index.html` or `js/admin-*.js` by hand. Edit `src/index.src.html` (the whole staff app, as before), then run
