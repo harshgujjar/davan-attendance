@@ -28,6 +28,11 @@ Photo.refresh falls back to staff_pub/ph by name / facKeys. Staff app hswPayload
 Student widget build 229 (-next) has the same Xiaomi battery Fix rotation (Perms.miuiBatt), report field battVia.
 Shankar fixed (bat true, battVia "battery optimization list") -> staff 292 / student 230: Xiaomi Fix STARTS with that list (key batt_try2, default 3).
 
+## Fees reverse + To do pop-up (17-Oct-2026)
+Staff app v1851: ✗ Not received also on a ✅ Paid row (reverse any time, Save). Portal v11.64: 📌 To do above At a Glance; on open a To do
+pop-up (welcome-toast reused, stuTodoToast) with "💰 I have paid" replaces the greeting when fee is unanswered / not received or an SD book is due in 0-3 days.
+Student widget already shows fee "no" as a red FEE NOT RECEIVED row (+ 8:30 note) at its next refresh.
+
 ## V Sem BCA Software Engineering (15-Oct-2026, open)
 Timetable (davan_pub/timetable_portal): III YEAR BCA (A) SOEN = afternoon (4:40 pm), (B) = morning (11:45 am); the allocation agrees
 ("Afternoon (A)" / "Morning (B)" for every V BCA row). After the user's swap: Afternoon (A) = Vijayalakshmi P S, Morning (B) = Karthik J S.

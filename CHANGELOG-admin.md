@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1851 · 17-Oct-2026 IST
+User: "manager marked a student paid, then came to know he has not paid - can we reverse it any time?". 💰 Fees: a ✅ Paid row now also has ✗ Not received (then Save); tapping a row's saved state again drops the unsaved change. The student app and widget then show "fee not received" + "I have paid" again.
+Data: DB2 davan_pub/fee_paid/<URN>/st (same PATCH as before, no new reads). Pairs with portal v11.64. feeRender, feeSet.
+
 ## v1850 · 17-Oct-2026 IST
 User: "Vijayalakshmi and other faculty are shown all subjects - show only the ones they take". 📒 SD books: the class + subject list is only the person's own allocated subjects (live allocation, allocFacFor); VP now counts as faculty (it was in the "see everything" group). Admin / manager / Principal see their own subjects first, then "Other classes". The list is rebuilt on every open. No new reads. Functions: _sdAll, _sdMine, sdInit, _sdVisible.
 
