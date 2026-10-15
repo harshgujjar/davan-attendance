@@ -19,7 +19,7 @@ session (same commit as the work), keep it short, newest state only.
 - Login / admin push alerts go only to the Super Admin.
 
 ## Claude Usage Meter - browser extension (OPEN - continue here)
-User's own side project (Chrome + Firefox, "Built by Davan"); source NOT in this repo - the user uploads the latest zip (claude-usage-meter-v<x>.zip).
+User's own side project (Chrome + Firefox). SOURCE: private harshgujjar/davan-scraper `extensions/usage-meter/` (src/ + build.sh -> Firefox / Chrome zips, README = update steps).
 - v1.4: MV3, host claude.ai; background reads `claude.ai/api/organizations` -> org uuid -> `/api/organizations/<uuid>/usage`
   (five_hour / seven_day / seven_day_<model> or new `limits[]` {kind, percent, resets_at, scope.model.display_name}); badge = session %;
   popup bars + "Resets in" + "Allow on claude.ai" (Firefox "Only when clicked"); live bar on every claude.ai page (bar.js, popover="manual",
