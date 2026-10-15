@@ -2,6 +2,15 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1854 · 15-Oct-2026 IST
+User: Fees page counts clickable; admin still saw "open the window" / summary said "No fee window open" after the manager opened it; show who
+opened the window and when; SD book bulk dates (whole college / one class, different date per subject, change later); hostel students get a
+2nd question and a hostel-only fee window. Fees: chips filter the list, fee_cfg is re-read on every open and in the weekly summary, window
+shows "opened by X at time" (fee_cfg ob/ot), new 🏨 Hostel fee window (fee_cfg/h, answers fee_paid/<URN>_H, list = active student residents
+from DB4 hostel/residents, cached 6 h). SD: 🗓 Bulk dates (admin / manager / Principal) = one write to davan_pub/sd_sub; every card has a date
+picker (faculty their own) with "changed by". Cost: +1 small fee_cfg read per Fees open, 1 DB4 residents read per 6 h. Pairs with portal v11.66.
+Staff widget does not show the window yet (needs a widget build). Functions: feeInit, feeRender, feeWinSave, thuSummaryText, sdBulkUI, sdbSend, sdSetDate, hcResUrns.
+
 ## v1853 · 15-Oct-2026 IST
 User: "push notifications when staff log in, when the cloud releases the APKs, when the degree / PUC scrapes and PUC marks are done, the
 9:30 pm usage, any job FAILED, syncs, widget check - only to the Super Admin, laptop from Cloudflare, mobile from the app, with my photo,

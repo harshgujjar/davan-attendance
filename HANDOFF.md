@@ -14,8 +14,8 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## Current versions
 | App | Now | Notes |
 |---|---|---|
-| Staff app (src/index.src.html -> index.html) | v1853 | details: CHANGELOG-admin.md |
-| Student portal (student_portal.html) | v11.65 | CHANGELOG-portal.md |
+| Staff app (src/index.src.html -> index.html) | v1854 | details: CHANGELOG-admin.md |
+| Student portal (student_portal.html) | v11.66 | CHANGELOG-portal.md |
 | PUC app (puc.html) / parent_ptm | v5.239 / v4.7.0 | |
 | Student widget | public build 231 = w191 (15-Oct); next = 234 (232: exam page no empty / "Regular Class" lines; 233: father name from results_by_urn / parent_overrides when portal_students has none; 234: ▶ day button on the name line, phone · F/o father plain below, main layout renamed widget_top) - public 16-Oct 9:15 pm. Test student V NEESHA (widget code KPGYNC) is in student-widget-next.json codes = gets every next build at once | source davan-scraper widgets/student |
 | Staff widget | public build 292 = w237 (15-Oct); next 293 (☁️ alerts) | source davan-scraper widgets/staff |
@@ -50,7 +50,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - V Sem BCA Software Engineering: user to confirm if Vijayalakshmi teaches the MORNING batch (then section B - undo the swap in Edit Allocation).
 - PUC: rovelabs login is typed into puc.html (public) - user to change the password; offered to remove the prefill.
 - PUC Mid-Term: re-scrape when 2PUC COM-B / C marks are entered.
-- Fees / SD books (v1848+): DB2 rules may need fee_cfg / fee_paid / sd_sub / sd_done if a save says 401.
+- Fees / SD books (v1848+): DB2 rules may need fee_cfg / fee_paid / sd_sub / sd_done if a save says 401. v1854: hostel fee = fee_cfg/h + fee_paid/<URN>_H; bulk SD dates; staff widget does NOT yet show the fee window / who opened it (needs a staff widget build - offered).
 - Not phone-tested yet: student 214-231 / staff 264-292 features (Your day, voice, Exams page, Xiaomi battery Fix, What's new by version).
 - Offered, not answered: Kannada "Your day", staff widget calendar events, 3:15 pm present/absent note, photo ring style, in-app "Run now" scraper.
 - In-app voice calls: enquiry only - do NOT build unless asked again.
