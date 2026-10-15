@@ -25,7 +25,7 @@ davan-widget-next.json codes so he gets it at once (remove later if wanted). 289
 build 290: each Fix tap tries the next of 6 ways (MI_WAY); report field battVia = last way tried. Check his report: bat true + battVia.
 His photo was missing: link student_widget_active/S-Y6EGC2 saved with photo "" (staff app linked before photos loaded) -> build 291:
 Photo.refresh falls back to staff_pub/ph by name / facKeys. Staff app hswPayload still writes "" in that case (widget covers it).
-Student widget still uses the plain Android dialog for battery (same fix needed if a student on Xiaomi reports it).
+Student widget build 229 (-next) has the same Xiaomi battery Fix rotation (Perms.miuiBatt), report field battVia.
 
 ## V Sem BCA Software Engineering (15-Oct-2026, open)
 Timetable (davan_pub/timetable_portal): III YEAR BCA (A) SOEN = afternoon (4:40 pm), (B) = morning (11:45 am); the allocation agrees
