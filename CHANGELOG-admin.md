@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1847 · 17-Oct-2026 IST
+User: "in the app give an option to check who has given feedback with comments, and list who has not, per class". Class feedback (admin / Principal) has a new 🏫 Per class tab: each class shows answered X of N, every answering student with their 👍/🤔/👎, ⭐ and comment, then the students who have not answered, with a 📋 Copy button. No extra Firebase reads (uses the week's answers already loaded). New: cfbByClass; cfbInit tab list.
+
 ## v1846 · 13-Oct-2026 IST
 User screenshot: Internal Timetable → Create / Edit on a phone - the subject boxes ran over each other ("mixed one inside other"). A select is as wide as its longest option ("Management Principles and Applications — Shankar B C") unless it may shrink; the subject select now has flex-basis 0 / min-width 0 / width 100% inside a min-width 0 row, the cell clips, and the chosen subject is written in full in small wrapping text under the box. No data changes. Function: the per-cell renderer of the Create / Edit grid (intBuildSlotCell area).
 
