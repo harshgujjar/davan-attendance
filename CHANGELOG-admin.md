@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1861 · 16-Oct-2026 IST
+User: "show per subject from 1st internal to 2nd internal %" to students. iaePublishLiveStatus() now adds w = {f: IA1 cutoff, t: IA2 cutoff, s: [[subject, held, attended, ok]]} to each student's IA2 row in davan_pub/ia_live_status (ok = after the +1/+2 rule; labs and exempted students left out). The IA2 node grows from ~23 KB to ~350 KB per publish (writes only; students still read just their own row, a few hundred bytes). Pairs with portal v11.73, student widget build 241.
+
 ## v1860 · 16-Oct-2026 IST
 User: a BCA 3 student above 75% in every subject was shown "not eligible for internals". The 2nd internal counts only classes after the 1st internal cutoff (5-Sep), and the +1/+2 class rule was applied only once someone opened Final Shortage (it saved TA entries then), so the published status (davan_pub/ia_live_status, read by the portal and widget) counted rule-cleared subjects as short (his IA2 showed 5 of 6 short; with the rule about 1-2). iarWindowedSubjects() now applies the rule live to any short subject that has no stored TA entry (labs excluded, manual entries untouched). No new reads or writes.
 
