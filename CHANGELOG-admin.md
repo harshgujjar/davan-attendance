@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1860 · 16-Oct-2026 IST
+User: a BCA 3 student above 75% in every subject was shown "not eligible for internals". The 2nd internal counts only classes after the 1st internal cutoff (5-Sep), and the +1/+2 class rule was applied only once someone opened Final Shortage (it saved TA entries then), so the published status (davan_pub/ia_live_status, read by the portal and widget) counted rule-cleared subjects as short (his IA2 showed 5 of 6 short; with the rule about 1-2). iarWindowedSubjects() now applies the rule live to any short subject that has no stored TA entry (labs excluded, manual entries untouched). No new reads or writes.
+
 ## v1859 · 16-Oct-2026 IST
 User: footer "Updated:" stuck at 29-Sep-2026 13:00. tools/build_index.js now rewrites BUILD_TIMESTAMP with the current IST time on every build (the source line is only a fallback). No data change.
 
