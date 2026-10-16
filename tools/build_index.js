@@ -9,7 +9,11 @@ const { minify } = require(path.join(__dirname, 'node_modules', 'terser'));
 const ROOT = path.join(__dirname, '..'), SRC = path.join(ROOT, 'src', 'index.src.html'), OUT = path.join(ROOT, 'index.html'), JS = path.join(ROOT, 'js');
 const MIN_BYTES = 20000;
 (async () => {
-  const src = fs.readFileSync(SRC, 'utf8');
+  let src = fs.readFileSync(SRC, 'utf8');
+  /* footer "Updated:" = the real build time (IST), stamped here so it can never go stale; the source line is only a fallback. */
+  { const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date()).reduce((o, x) => (o[x.type] = x.value, o), {});
+    const d = p.day + '-' + p.month + '-' + p.year, t = p.hour + ':' + p.minute;
+    src = src.replace(/const BUILD_TIMESTAMP = \{[^}]*\};/, "const BUILD_TIMESTAMP = { date: '" + d + "', time: '" + t + "', full: '" + d + ' ' + t + " IST' };"); }
   if (!fs.existsSync(JS)) fs.mkdirSync(JS);
   const re = /<script([^>]*)>([\s\S]*?)<\/script>/g;
   let out = '', last = 0, n = 0; const files = [];

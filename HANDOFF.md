@@ -14,7 +14,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## Current versions
 | App | Now | Notes |
 |---|---|---|
-| Staff app (src/index.src.html -> index.html) | v1858 | details: CHANGELOG-admin.md |
+| Staff app (src/index.src.html -> index.html) | v1859 | details: CHANGELOG-admin.md |
 | Student portal (student_portal.html) | v11.72 | CHANGELOG-portal.md |
 | PUC app (puc.html) / parent_ptm | v5.239 / v4.7.0 | |
 | Student widget | public build 231 = w191 (15-Oct); next = 238 (238: morning brief always spoken + "Dear name" on all voice) (237: What's new fold; 236: internal card from 60 days; 235: hostel fee on Today, page 2 filters All/Installed/New/Old/Hostel) (232: exam page no empty / "Regular Class" lines; 233: father name from results_by_urn / parent_overrides when portal_students has none; 234: ▶ day button on the name line, phone · F/o father plain below, main layout renamed widget_top) - public 16-Oct 9:15 pm. Test student V NEESHA (widget code KPGYNC) is in student-widget-next.json codes = gets every next build at once | source davan-scraper widgets/student |

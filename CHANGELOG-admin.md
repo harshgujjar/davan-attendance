@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1859 · 16-Oct-2026 IST
+User: footer "Updated:" stuck at 29-Sep-2026 13:00. tools/build_index.js now rewrites BUILD_TIMESTAMP with the current IST time on every build (the source line is only a fallback). No data change.
+
 ## v1858 · 16-Oct-2026 IST
 User: "add a 🔊 to the notifications that speak". 🔔 Notifications page: rows whose notification is read aloud (morning brief, your day, class, buzz, tomorrow, duty, daily report, class feedback, meeting, canteen, hostel, message) show 🔊 before the name (`tts: 1` in NOTIF_REGISTRY, ntfCols). No data change, no extra reads. Pairs with student widget w238 / staff widget w295.
 
