@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1863 · 16-Oct-2026 IST
+User: make the whole Subjects & Exam Dates section (Internal attendance sheet) show / hide, hidden by default. The #att-subj-wrap contents are now inside a closed <details>. No data change.
+
 ## v1862 · 16-Oct-2026 IST
 User: the student "For the 2nd internal" card showed 104% / 115% / 118% (Kannada 20 of 17). Attendance marked late or corrected for classes before the IA1 cutoff raised attended but not held in the IA2 window. iaeWindowedSubjects() now caps the window's attended at its held. No data change; the next publish corrects davan_pub/ia_live_status/IA2. Pairs with portal v11.74.
 
