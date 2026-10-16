@@ -19047,7 +19047,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1873;  // always = HTML footer version number
+const CODE_BUILD = 1874;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -30113,6 +30113,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1874', date: '16-Oct-2026 IST', note: '🪑 Seating: middle seat filled - with 2 papers each bench is BCA | BCom | BCA (48 per room, never the same paper beside or diagonal). Room counts now show section A and B separately.' },
 { v: 'v1873', date: '16-Oct-2026 IST', note: '🪑 Seating: strict anti-copy rule in every room - nobody with the same paper beside, in front, behind or diagonal. 2 papers = 32 per room (A _ B / B _ A), 3 papers = 40, 4 papers = 48.' },
 { v: 'v1872', date: '16-Oct-2026 IST', note: '🪑 Sitting: Import Excel, Save Room and Save All Rooms really hidden now.' },
 { v: 'v1871', date: '16-Oct-2026 IST', note: '🪑 Sitting opens on the latest Internal and loads its timetable and seating by itself; Save Room / Save All Rooms hidden (seating is automatic).' },
@@ -30127,7 +30128,6 @@ const HTML_CHANGELOG = [
 { v: 'v1862', date: '16-Oct-2026 IST', note: '📊 2nd-internal window: attended can no longer be more than held (no more 104% / 118%).' },
 { v: 'v1861', date: '16-Oct-2026 IST', note: '📊 Students now see, per subject, their attendance from the 1st internal to the 2nd internal (the classes that decide 2nd-internal eligibility). Pairs with portal v11.73 / student widget build 241.' },
 { v: 'v1860', date: '16-Oct-2026 IST', note: '🎓 Internal eligibility: the +1/+2 class rule now always counts, so students the rule clears no longer show "Not eligible" before Final Shortage is opened.' },
-{ v: 'v1859', date: '16-Oct-2026 IST', note: '🕒 Footer "Updated:" now shows the real build date and time (was stuck on 29-Sep); the build script stamps it.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -67491,6 +67491,16 @@ function sitUrnToCourse(urn) {
 // Year + course label for bench/row headers, e.g. "III BCA" — this is what
 // lets the admin see who is physically seated with whom.
 const SIT_ROMAN_YEAR = { 1:'I', 2:'II', 3:'III' };
+// v1874 (user: "you are not showing A section and B section"): "III BCA A" / "III BCA B" for room counts.
+let _sitStuMap = null, _sitStuMapN = -1;
+function sitUrnToYcSec(urn) {
+  const yc = sitUrnToYearCourse(urn) || '';
+  if (!yc) return '';
+  const list = (typeof allStudents !== 'undefined' && Array.isArray(allStudents)) ? allStudents : [];
+  if (!_sitStuMap || _sitStuMapN !== list.length) { _sitStuMap = {}; list.forEach(x => { const u = (x.urn || x.seat_no || '').toUpperCase(); if (u) _sitStuMap[u] = x; }); _sitStuMapN = list.length; }
+  const sec = sitSectionOf((_sitStuMap[String(urn || '').toUpperCase()] || {}).class);
+  return sec ? `${yc} ${sec}` : yc;
+}
 function sitUrnToYearCourse(urn) {
   if (!urn) return '';
   const s = allStudents.find(x => (x.urn||x.seat_no||'').toUpperCase() === urn.toUpperCase());
@@ -67827,7 +67837,7 @@ function sitSummaryHtmlFromInputs(inputs, isGrand) {
   inputs.forEach(inp => {
     const urn = (inp.value||'').trim().toUpperCase();
     if (!urn) return;
-    const yc = sitUrnToYearCourse(urn) || sitUrnToCourse(urn) || 'Unknown';
+    const yc = sitUrnToYcSec(urn) || sitUrnToCourse(urn) || 'Unknown';
     const course = sitUrnToCourse(urn) || 'Unknown';
     yearCourseCounts[yc] = (yearCourseCounts[yc] || 0) + 1;
     yearCourseToCourse[yc] = course;
@@ -67929,20 +67939,25 @@ function sitPlanSlotSeatingA(groups) {
   const cycle = [...SIT_PRIMARY_ROOMS, ...SIT_OVERFLOW_ROOMS];
   const queues = (groups || []).map(g => ({ name: g.name, key: g.conflictKey || g.name, items: [...(g.students || [])] })).filter(q => q.items.length);
   if (!queues.length) return { rooms: [], seats: {}, dias: 0, diasPerRoom: {}, real: 0 };
-  // v1873 (user: "bench 1 A B A, bench 2 B A B violates my anti-chit rule"): STRICT for every room - nobody
-  // with the same paper beside, in front, behind OR diagonal. Fewer papers = fewer seats (the most possible):
-  //   4+ papers: all 48 (4 roles);  3 papers: 40 (middle seat of "odd" benches empty);
-  //   2 papers: 32 (A _ B / B _ A, middle seats empty);  1 paper: 16 (seats 1 and 3 of every other bench).
-  const layouts = { 4: [[], [], [], []], 3: [[], [], []], 2: [[], []], 1: [[]] };
+  // v1873 (user: "bench 1 A B A, bench 2 B A B violates my anti-chit rule"): never the same paper beside or
+  // diagonal. v1874 (user: "put BCom in between 2 BCA, why leave the middle empty"): column-wise when fewer
+  // than 4 papers - the same paper may sit straight in front / behind (one column), never beside or diagonal:
+  //   4+ papers: 48 (4 roles, fully strict);  3 papers: 48 (seat 1 / middle / seat 3 = 3 papers per side);
+  //   2 papers: 48 (ends = one paper, middle = the other, chosen per side to use both up evenly);
+  //   1 paper: 32 (seats 1 and 3 of every bench).  Left and right sides (aisle between) are planned apart.
+  const mk = n => ({ seats: Array.from({ length: n }, () => []), conf: Array.from({ length: n }, () => []) });
+  const layouts = { 4: mk(4), 3: mk(6), 2: mk(4), 1: mk(2) };
   for (let n = 1; n <= per; n++) {
     const bench = Math.floor((n - 1) / 3), pos = (n - 1) % 3, side = bench >= 8 ? 1 : 0;
-    const par = ((bench % 8) + side) % 2, role = sitSeatRole(n);
-    layouts[4][role].push(n);
-    if (role < 3) layouts[3][role].push(n);
-    if (pos !== 1) layouts[2][(pos === 0 ? 0 : 1) ^ par].push(n);
-    if (pos !== 1 && par === 0) layouts[1][0].push(n);
+    layouts[4].seats[sitSeatRole(n)].push(n);
+    layouts[3].seats[side * 3 + pos].push(n);
+    layouts[2].seats[side * 2 + (pos === 1 ? 1 : 0)].push(n);
+    if (pos !== 1) layouts[1].seats[side].push(n);
   }
-  const cur = [null, null, null, null];
+  for (let r = 0; r < 4; r++) layouts[4].conf[r] = [0, 1, 2, 3].filter(i => i !== r);
+  for (let r = 0; r < 6; r++) layouts[3].conf[r] = [0, 1, 2].map(i => Math.floor(r / 3) * 3 + i).filter(i => i !== r);
+  for (let r = 0; r < 4; r++) layouts[2].conf[r] = [r ^ 1];
+  const cur = [];
   const roomSeatLists = [];
   const left = () => queues.some(q => q.items.length);
   while (left()) {
@@ -67950,19 +67965,19 @@ function sitPlanSlotSeatingA(groups) {
     const seatSt = new Array(per + 1).fill(null);
     // v1869: re-pick the classes for EVERY room, biggest remaining class first (user: last room S1 had only
     // III BCA, 18 of 48 seats) - classes then run out together and the last room still holds 4 classes.
-    cur.fill(null);
+    cur.length = 0;
     const keysLeft = new Set(queues.filter(q => q.items.length).map(q => q.key)).size;
     const nK = Math.min(4, keysLeft);
-    const roleSeats = layouts[nK];
-    const roleOrder = nK === 4 ? [0, 2, 1, 3] : nK === 3 ? [0, 2, 1] : nK === 2 ? [0, 1] : [0];
-    const keysByRole = [new Set(), new Set(), new Set(), new Set()];
-    const clash = (r, key) => keysByRole.some((ks, i) => i !== r && ks.has(key));
+    const L = layouts[nK], roleSeats = L.seats;
+    const roleOrder = nK === 4 ? [0, 2, 1, 3] : roleSeats.map((x, i) => i);
+    const keysByRole = roleSeats.map(() => new Set());
+    const clash = (r, key) => L.conf[r].some(i => keysByRole[i].has(key));
     for (const r of roleOrder) {
       for (const n of roleSeats[r]) {
         let q = cur[r];
         if (!q || !q.items.length || clash(r, q.key)) {
           const prevKey = q ? q.key : null;
-          const others = cur.filter((x, i) => i !== r && x && x.items.length);
+          const others = L.conf[r].map(i => cur[i]).filter(x => x && x.items.length);
           const heldKeys = new Set(others.map(x => x.key));
           const cands = queues.filter(x => x.items.length && !others.includes(x) && !heldKeys.has(x.key) && !clash(r, x.key));
           const keyLeft = k => queues.reduce((t, x) => t + (x.key === k ? x.items.length : 0), 0);
@@ -68925,7 +68940,7 @@ function sitBuildRosterPages(intNum, scopeSlotKeys) {
         .sort((a, b) => (a.seatNo || 0) - (b.seatNo || 0))
         .forEach(seat => {
           const student = allStudents.find(x => (x.urn || x.seat_no || '').toUpperCase() === (seat.urn || '').toUpperCase());
-          const batchLabel = (typeof sitUrnToYearCourse === 'function' ? sitUrnToYearCourse(seat.urn) : '') || 'Unmatched';
+          const batchLabel = sitUrnToYcSec(seat.urn) || 'Unmatched';
           if (!byBatch[batchLabel]) { byBatch[batchLabel] = []; batchOrder.push(batchLabel); }
           byBatch[batchLabel].push({
             urn: seat.urn,
@@ -69169,7 +69184,7 @@ function _sitYearCourseSortKey(yc, y2c) {
   const yearToken = (yc || '').split(' ')[0];
   const courseIdx = SIT_COURSE_ORDER_PRE.indexOf(course);
   const yearIdx = SIT_YEAR_ORDER[yearToken] || 99;
-  return (courseIdx===-1?99:courseIdx) * 10 + yearIdx;
+  return ((courseIdx===-1?99:courseIdx) * 10 + yearIdx) * 30 + (/ ([A-Z])$/.test(yc||'') ? yc.slice(-1).charCodeAt(0) - 64 : 0);
 }
 const SIT_COURSE_ORDER_PRE = ['BCA','BBA','BCom'];
 
@@ -71596,7 +71611,7 @@ function sitBuildPrintRows(room, rd, intLabel, liveDates, intNum, displayRoom, t
   const yearCourseToCourse = {};
   (rd.seats||[]).forEach(s => {
     if (!s.urn) return;
-    const yc = sitUrnToYearCourse(s.urn) || sitUrnToCourse(s.urn) || 'Unknown';
+    const yc = sitUrnToYcSec(s.urn) || sitUrnToCourse(s.urn) || 'Unknown';
     const course = sitUrnToCourse(s.urn) || 'Unknown';
     yearCourseCounts[yc] = (yearCourseCounts[yc]||0)+1;
     yearCourseToCourse[yc] = course;
@@ -71826,7 +71841,7 @@ function sitBuildPrintHtml(slotKeys) {
     const yearCourseToCourse = {};
     (rd.seats||[]).forEach(s => {
       if (!s.urn) return;
-      const yc = sitUrnToYearCourse(s.urn) || sitUrnToCourse(s.urn) || 'Unknown';
+      const yc = sitUrnToYcSec(s.urn) || sitUrnToCourse(s.urn) || 'Unknown';
       const course = sitUrnToCourse(s.urn) || 'Unknown';
       yearCourseCounts[yc] = (yearCourseCounts[yc]||0)+1;
       yearCourseToCourse[yc] = course;
@@ -72006,7 +72021,7 @@ async function sitDownloadPDF(wholeDay) {
     const yearCourseToCourse = {};
     (rd.seats||[]).forEach(s => {
       if (!s.urn) return;
-      const yc = sitUrnToYearCourse(s.urn) || sitUrnToCourse(s.urn) || 'Unknown';
+      const yc = sitUrnToYcSec(s.urn) || sitUrnToCourse(s.urn) || 'Unknown';
       const course = sitUrnToCourse(s.urn) || 'Unknown';
       yearCourseCounts[yc] = (yearCourseCounts[yc]||0)+1;
       yearCourseToCourse[yc] = course;

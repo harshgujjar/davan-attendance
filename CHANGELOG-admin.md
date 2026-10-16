@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1874 · 16-Oct-2026 IST
+User: "put BCom in between 2 BCA, why leave the middle empty" + "not showing A section and B section". sitPlanSlotSeatingA: under 4 papers it is column-wise - 2 papers = ends one paper, middle the other (picked per side so both run out together), 3 papers = one per column, 1 paper = seats 1 and 3; never the same paper beside or diagonal (front / behind in a column allowed); 4+ papers stay fully strict. New sitUrnToYcSec() gives "III BCA A" / "III BCA B" in room count lines (screen, print, PDF, Excel). No new reads or writes.
+
 ## v1873 · 16-Oct-2026 IST
 User: "bench 1 A B A, bench 2 B A B violates my anti-chit rule" - v1870's checkerboard put the same paper on diagonals. sitPlanSlotSeatingA is now strict in every room: 4+ papers = 48 (4 roles), 3 papers = 40 (middle of odd benches empty), 2 papers = 32 (A _ B / B _ A), 1 paper = 16 (ends of every other bench) - the most seats the rule allows. Slots with few papers use more rooms (and dias). Students see the new seats after the next sync. No new reads or writes.
 
