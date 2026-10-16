@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1873 · 16-Oct-2026 IST
+User: "bench 1 A B A, bench 2 B A B violates my anti-chit rule" - v1870's checkerboard put the same paper on diagonals. sitPlanSlotSeatingA is now strict in every room: 4+ papers = 48 (4 roles), 3 papers = 40 (middle of odd benches empty), 2 papers = 32 (A _ B / B _ A), 1 paper = 16 (ends of every other bench) - the most seats the rule allows. Slots with few papers use more rooms (and dias). Students see the new seats after the next sync. No new reads or writes.
+
 ## v1872 · 16-Oct-2026 IST
 User: the buttons were still shown - sitRecomputeReadOnly() set them visible again for admins. It now always hides Import Excel / Save Room / Save All Rooms (Refresh Seating still follows edit rights). No data change.
 
