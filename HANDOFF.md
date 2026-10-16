@@ -44,6 +44,8 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - **Claude Pulse** (Android usage widget, upstream G-biggy/claude-pulse-android): source davan-scraper `claude-pulse/` (DAVAN-NOTES.md,
   build.sh). v2.6 sent 15-Oct: pace advice + notifications, floating bar over the Claude app, bigger text, usage details. Key
   claude-pulse.keystore (alias claudepulse) - user to upload it to davan-scraper/claude-pulse/ (ask for it + its password). Not phone-tested.
+  v2.7 (15-Oct, source pushed, compiled, signed v2.9 LIVE via ClaudePulse.apk + claude-pulse-version.json, self-updating): fixes repeated alerts (week-key jitter), alerts only while Claude is open, notification
+  settings + weekly graph. Release: copy APK to ClaudePulse.apk + raise apkVersion in claude-pulse-version.json. Keystore password: ask the user.
 - Status Date app: PARKED (davan-scraper apps/statusdate/PLAN.md) - only when the user asks.
 
 ## Open items
