@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1862 · 16-Oct-2026 IST
+User: the student "For the 2nd internal" card showed 104% / 115% / 118% (Kannada 20 of 17). Attendance marked late or corrected for classes before the IA1 cutoff raised attended but not held in the IA2 window. iaeWindowedSubjects() now caps the window's attended at its held. No data change; the next publish corrects davan_pub/ia_live_status/IA2. Pairs with portal v11.74.
+
 ## v1861 · 16-Oct-2026 IST
 User: "show per subject from 1st internal to 2nd internal %" to students. iaePublishLiveStatus() now adds w = {f: IA1 cutoff, t: IA2 cutoff, s: [[subject, held, attended, ok]]} to each student's IA2 row in davan_pub/ia_live_status (ok = after the +1/+2 rule; labs and exempted students left out). The IA2 node grows from ~23 KB to ~350 KB per publish (writes only; students still read just their own row, a few hundred bytes). Pairs with portal v11.73, student widget build 241.
 
