@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1870 · 16-Oct-2026 IST
+User: S1 still had 18 of 48 (only III BCA + I BBA write at that time, strict rule then allows 32 / 16 per room). sitPlanSlotSeatingA now picks the layout per room from the classes left: 4+ classes = strict 4-role layout; 2-3 classes = checkerboard (48 per room, nobody beside / in front / behind from the same class, diagonals same); 1 class = seats 1 and 3 of every bench (32). No new reads or writes.
+
 ## v1869 · 16-Oct-2026 IST
 User: room S1 had only III BCA, 18 of 48 seats, centre and alternate benches empty. sitPlanSlotSeatingA kept each class in its seat role until it ran out, so one class was left alone for the last room (strict rule then allows only 16 seats). It now re-picks the 4 classes for every room, biggest remaining class first, so classes run out together and every room keeps 4+ classes. Seating regenerates when Sitting / Attendance opens. No new reads or writes.
 
