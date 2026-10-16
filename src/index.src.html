@@ -19047,7 +19047,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1874;  // always = HTML footer version number
+const CODE_BUILD = 1875;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -30113,6 +30113,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1875', date: '16-Oct-2026 IST', note: '🪑 Seating: every room now has only 2 classes - A B A on every bench (one class on seats 1 and 3, another in the middle). Section A / B shown only for classes that really have 2 sections.' },
 { v: 'v1874', date: '16-Oct-2026 IST', note: '🪑 Seating: middle seat filled - with 2 papers each bench is BCA | BCom | BCA (48 per room, never the same paper beside or diagonal). Room counts now show section A and B separately.' },
 { v: 'v1873', date: '16-Oct-2026 IST', note: '🪑 Seating: strict anti-copy rule in every room - nobody with the same paper beside, in front, behind or diagonal. 2 papers = 32 per room (A _ B / B _ A), 3 papers = 40, 4 papers = 48.' },
 { v: 'v1872', date: '16-Oct-2026 IST', note: '🪑 Sitting: Import Excel, Save Room and Save All Rooms really hidden now.' },
@@ -30127,7 +30128,6 @@ const HTML_CHANGELOG = [
 { v: 'v1863', date: '16-Oct-2026 IST', note: '📅 Attendance sheet: the Subjects & Exam Dates section now opens with a tap (hidden by default).' },
 { v: 'v1862', date: '16-Oct-2026 IST', note: '📊 2nd-internal window: attended can no longer be more than held (no more 104% / 118%).' },
 { v: 'v1861', date: '16-Oct-2026 IST', note: '📊 Students now see, per subject, their attendance from the 1st internal to the 2nd internal (the classes that decide 2nd-internal eligibility). Pairs with portal v11.73 / student widget build 241.' },
-{ v: 'v1860', date: '16-Oct-2026 IST', note: '🎓 Internal eligibility: the +1/+2 class rule now always counts, so students the rule clears no longer show "Not eligible" before Final Shortage is opened.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -67492,12 +67492,20 @@ function sitUrnToCourse(urn) {
 // lets the admin see who is physically seated with whom.
 const SIT_ROMAN_YEAR = { 1:'I', 2:'II', 3:'III' };
 // v1874 (user: "you are not showing A section and B section"): "III BCA A" / "III BCA B" for room counts.
-let _sitStuMap = null, _sitStuMapN = -1;
+// v1875: the letter shows only for a class that really has 2+ sections (user saw "II BCom A" on single-section classes).
+let _sitStuMap = null, _sitStuMapN = -1, _sitSecCount = {};
 function sitUrnToYcSec(urn) {
   const yc = sitUrnToYearCourse(urn) || '';
   if (!yc) return '';
   const list = (typeof allStudents !== 'undefined' && Array.isArray(allStudents)) ? allStudents : [];
-  if (!_sitStuMap || _sitStuMapN !== list.length) { _sitStuMap = {}; list.forEach(x => { const u = (x.urn || x.seat_no || '').toUpperCase(); if (u) _sitStuMap[u] = x; }); _sitStuMapN = list.length; }
+  if (!_sitStuMap || _sitStuMapN !== list.length) {
+    _sitStuMap = {}; const secs = {};
+    list.forEach(x => { const u = (x.urn || x.seat_no || '').toUpperCase(); if (!u) return; _sitStuMap[u] = x;
+      const c = sitUrnToYearCourse(u), sc = sitSectionOf(x.class); if (c && sc) (secs[c] = secs[c] || new Set()).add(sc); });
+    _sitSecCount = {}; Object.keys(secs).forEach(c => { _sitSecCount[c] = secs[c].size; });
+    _sitStuMapN = list.length;
+  }
+  if ((_sitSecCount[yc] || 0) < 2) return yc;
   const sec = sitSectionOf((_sitStuMap[String(urn || '').toUpperCase()] || {}).class);
   return sec ? `${yc} ${sec}` : yc;
 }
@@ -67939,59 +67947,64 @@ function sitPlanSlotSeatingA(groups) {
   const cycle = [...SIT_PRIMARY_ROOMS, ...SIT_OVERFLOW_ROOMS];
   const queues = (groups || []).map(g => ({ name: g.name, key: g.conflictKey || g.name, items: [...(g.students || [])] })).filter(q => q.items.length);
   if (!queues.length) return { rooms: [], seats: {}, dias: 0, diasPerRoom: {}, real: 0 };
-  // v1873 (user: "bench 1 A B A, bench 2 B A B violates my anti-chit rule"): never the same paper beside or
-  // diagonal. v1874 (user: "put BCom in between 2 BCA, why leave the middle empty"): column-wise when fewer
-  // than 4 papers - the same paper may sit straight in front / behind (one column), never beside or diagonal:
-  //   4+ papers: 48 (4 roles, fully strict);  3 papers: 48 (seat 1 / middle / seat 3 = 3 papers per side);
-  //   2 papers: 48 (ends = one paper, middle = the other, chosen per side to use both up evenly);
-  //   1 paper: 32 (seats 1 and 3 of every bench).  Left and right sides (aisle between) are planned apart.
-  const mk = n => ({ seats: Array.from({ length: n }, () => []), conf: Array.from({ length: n }, () => []) });
-  const layouts = { 4: mk(4), 3: mk(6), 2: mk(4), 1: mk(2) };
-  for (let n = 1; n <= per; n++) {
-    const bench = Math.floor((n - 1) / 3), pos = (n - 1) % 3, side = bench >= 8 ? 1 : 0;
-    layouts[4].seats[sitSeatRole(n)].push(n);
-    layouts[3].seats[side * 3 + pos].push(n);
-    layouts[2].seats[side * 2 + (pos === 1 ? 1 : 0)].push(n);
-    if (pos !== 1) layouts[1].seats[side].push(n);
-  }
-  for (let r = 0; r < 4; r++) layouts[4].conf[r] = [0, 1, 2, 3].filter(i => i !== r);
-  for (let r = 0; r < 6; r++) layouts[3].conf[r] = [0, 1, 2].map(i => Math.floor(r / 3) * 3 + i).filter(i => i !== r);
-  for (let r = 0; r < 4; r++) layouts[2].conf[r] = [r ^ 1];
-  const cur = [];
-  const roomSeatLists = [];
-  const left = () => queues.some(q => q.items.length);
-  while (left()) {
-    if (roomSeatLists.length >= cycle.length) return null;
-    const seatSt = new Array(per + 1).fill(null);
-    // v1869: re-pick the classes for EVERY room, biggest remaining class first (user: last room S1 had only
-    // III BCA, 18 of 48 seats) - classes then run out together and the last room still holds 4 classes.
-    cur.length = 0;
-    const keysLeft = new Set(queues.filter(q => q.items.length).map(q => q.key)).size;
-    const nK = Math.min(4, keysLeft);
-    const L = layouts[nK], roleSeats = L.seats;
-    const roleOrder = nK === 4 ? [0, 2, 1, 3] : roleSeats.map((x, i) => i);
-    const keysByRole = roleSeats.map(() => new Set());
-    const clash = (r, key) => L.conf[r].some(i => keysByRole[i].has(key));
-    for (const r of roleOrder) {
-      for (const n of roleSeats[r]) {
-        let q = cur[r];
-        if (!q || !q.items.length || clash(r, q.key)) {
-          const prevKey = q ? q.key : null;
-          const others = L.conf[r].map(i => cur[i]).filter(x => x && x.items.length);
-          const heldKeys = new Set(others.map(x => x.key));
-          const cands = queues.filter(x => x.items.length && !others.includes(x) && !heldKeys.has(x.key) && !clash(r, x.key));
-          const keyLeft = k => queues.reduce((t, x) => t + (x.key === k ? x.items.length : 0), 0);
-          cands.sort((a, b) => (keyLeft(b.key) - keyLeft(a.key)) || ((b.key === prevKey) - (a.key === prevKey)) || (b.items.length - a.items.length));
-          q = cands[0] || null;
-          cur[r] = q;
+  const endSeats = [], midSeats = [];
+  for (let n = 1; n <= per; n++) ((n - 1) % 3 === 1 ? midSeats : endSeats).push(n);
+  // v1875 (user: "why not only 2 batches per room - A B A on every bench"): every room = seats 1 and 3 of all
+  // benches (32) for one class, middle seats (16) for another - nobody has the same paper beside or diagonal.
+  // A class that runs out is followed by the next one that is not in the other column. Which two classes go
+  // in each room is searched (beam search over room-by-room choices) for the fewest rooms (dias counted),
+  // then the fewest classes per room. One class left = seats 1 and 3 only.
+  const keys = [...new Set(queues.map(q => q.key))];
+  const K = keys.length, nE = endSeats.length, nM = midSeats.length;
+  const pool = keys.map(k => queues.filter(q => q.key === k).flatMap(q => q.items));
+  const fillRoom = (cnt, e, m) => {
+    const c = cnt.slice(), ends = [], mids = [];
+    let room = nE;
+    const take = (i, max, out) => { const t = Math.min(c[i], max); if (t > 0) { c[i] -= t; out.push([i, t]); } return t; };
+    room -= take(e, room, ends);
+    const order = keys.map((x, i) => i).sort((x, y) => c[y] - c[x]);
+    for (const i of order) { if (room <= 0) break; if (i !== m) room -= take(i, room, ends); }
+    let mr = nM;
+    if (m >= 0) {
+      const endSet = new Set(ends.map(x => x[0]));
+      if (!endSet.has(m)) mr -= take(m, mr, mids);
+      for (const i of order) { if (mr <= 0) break; if (!endSet.has(i) && i !== m) mr -= take(i, mr, mids); }
+    }
+    return { c, ends, mids, mix: new Set([...ends, ...mids].map(x => x[0])).size };
+  };
+  let beam = [{ cnt: pool.map(p => p.length), rooms: [], mix: 0 }];
+  let best = null;
+  for (let depth = 0; depth <= cycle.length && beam.length && !best; depth++) {
+    for (const st of beam) {
+      const tot = st.cnt.reduce((a, b) => a + b, 0);
+      if (tot === 0 || (depth > 0 && tot <= 2 * depth)) { if (!best || st.mix < best.mix) best = st; }
+    }
+    if (best || depth === cycle.length) break;
+    const next = new Map();
+    for (const st of beam) {
+      const live = keys.map((x, i) => i).filter(i => st.cnt[i] > 0);
+      for (const e of live) {
+        const ms = live.filter(i => i !== e);
+        for (const m of (ms.length ? ms : [-1])) {
+          const r = fillRoom(st.cnt, e, m), sig = r.c.join(',');
+          const ns = { cnt: r.c, rooms: [...st.rooms, r], mix: st.mix + r.mix };
+          const old = next.get(sig);
+          if (!old || ns.mix < old.mix) next.set(sig, ns);
         }
-        if (!q) break;
-        seatSt[n] = q.items.shift();
-        keysByRole[r].add(q.key);
       }
     }
-    roomSeatLists.push(seatSt);
+    beam = [...next.values()].sort((x, y) => (x.cnt.reduce((a, b) => a + b, 0) - y.cnt.reduce((a, b) => a + b, 0)) || (x.mix - y.mix)).slice(0, 300);
   }
+  if (!best) return null;
+  const roomSeatLists = best.rooms.map(r => {
+    const seatSt = new Array(per + 1).fill(null);
+    let ei = 0, mi = 0;
+    r.ends.forEach(([i, t]) => { for (let j = 0; j < t; j++) seatSt[endSeats[ei++]] = pool[i].shift(); });
+    r.mids.forEach(([i, t]) => { for (let j = 0; j < t; j++) seatSt[midSeats[mi++]] = pool[i].shift(); });
+    return seatSt;
+  });
+  const leftOver = pool.flat();
+  if (leftOver.length) roomSeatLists.push(leftOver);
   const urnOf = st => st ? (st.urn || st.seat_no || '') : '';
   let diasStudents = [];
   if (roomSeatLists.length > 1) {
@@ -68776,7 +68789,7 @@ function attBuildRoomMasterSheet(intNum, roomId) {
           className: student?.class || '',
           student: student || null,
           // v1866: one block per section ("II BCA – Section A") so each section's answer books are counted on their own
-          batchLabel: (sitUrnToYearCourse(seat.urn) || 'Unmatched') + (sitSectionOf(student?.class) ? ` – Section ${sitSectionOf(student?.class)}` : ''),
+          batchLabel: (l => { const m = l.match(/^(.*) ([A-Z])$/); return m ? `${m[1]} – Section ${m[2]}` : (l || 'Unmatched'); })(sitUrnToYcSec(seat.urn)),
           paperLabel: sitUrnToYearCourse(seat.urn) || 'Unmatched',
           firstSeatNo: seat.seatNo,
         };

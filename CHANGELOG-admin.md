@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1875 · 16-Oct-2026 IST
+User: "why not only 2 batches per room - A B A on every bench" and section letters showed on every class. sitPlanSlotSeatingA: every room = one class on seats 1 and 3 of all benches (32), another class in the middle (16); a class that runs out is followed by the next one not in the other column; the pair per room is chosen by a small beam search for the fewest rooms (dias counted), then the fewest classes per room. sitUrnToYcSec adds the section letter only when that class has 2+ sections; the Room Master Sheet uses it too. No new reads or writes.
+
 ## v1874 · 16-Oct-2026 IST
 User: "put BCom in between 2 BCA, why leave the middle empty" + "not showing A section and B section". sitPlanSlotSeatingA: under 4 papers it is column-wise - 2 papers = ends one paper, middle the other (picked per side so both run out together), 3 papers = one per column, 1 paper = seats 1 and 3; never the same paper beside or diagonal (front / behind in a column allowed); 4+ papers stay fully strict. New sitUrnToYcSec() gives "III BCA A" / "III BCA B" in room count lines (screen, print, PDF, Excel). No new reads or writes.
 
