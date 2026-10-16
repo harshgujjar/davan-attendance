@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1871 · 16-Oct-2026 IST
+User: Sitting should not need the timetable opened first, should open on the latest Internal (2nd now, 3rd later) and load by itself; hide Save Room / Save All Rooms (Import was already hidden). New sitEnsureIntData() fetches internals/<doc> when not cached (1 Firestore read, same as the View tab); sitPopulateInternalSel defaults to the highest Internal until the user picks one; sitOnInternalChange loads data and regenerates seating; attInit uses the latest Internal too.
+
 ## v1870 · 16-Oct-2026 IST
 User: S1 still had 18 of 48 (only III BCA + I BBA write at that time, strict rule then allows 32 / 16 per room). sitPlanSlotSeatingA now picks the layout per room from the classes left: 4+ classes = strict 4-role layout; 2-3 classes = checkerboard (48 per room, nobody beside / in front / behind from the same class, diagonals same); 1 class = seats 1 and 3 of every bench (32). No new reads or writes.
 
