@@ -16,7 +16,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 |---|---|---|
 | Staff app (src/index.src.html -> index.html) | v1859 | details: CHANGELOG-admin.md |
 | Student portal (student_portal.html) | v11.72 | CHANGELOG-portal.md |
-| PUC app (puc.html) / parent_ptm | v5.240 / v4.7.0 | |
+| PUC app (puc.html) / parent_ptm | v5.241 / v4.7.0 | |
 | Student widget | public build 231 = w191 (15-Oct); next = 240 (240: morning brief says holiday on a holiday) (239: hostel students on approved leave get no class reminders / next / tomorrow / morning "no class" until the last leave day; leave from StuHostel snapshot) (238: morning brief always spoken + "Dear name" on all voice) (237: What's new fold; 236: internal card from 60 days; 235: hostel fee on Today, page 2 filters All/Installed/New/Old/Hostel) (232: exam page no empty / "Regular Class" lines; 233: father name from results_by_urn / parent_overrides when portal_students has none; 234: ▶ day button on the name line, phone · F/o father plain below, main layout renamed widget_top) - public 16-Oct 9:15 pm. Test student V NEESHA (widget code KPGYNC) is in student-widget-next.json codes = gets every next build at once | source davan-scraper widgets/student |
 | Staff widget | public build 292 = w237 (15-Oct); next 295 (295: morning brief always spoken) (293: ☁️ alerts; 294: What's new fold) | source davan-scraper widgets/staff |
 | Scraper app.py (davan-scraper) | v108 | runs in the cloud, Cloudflare worker davan-release v9 starts it |
