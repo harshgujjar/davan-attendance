@@ -39,6 +39,7 @@ VERSION BUMP CHECKLIST : APP_VERSION/BUILD_DATE (~line 6447) are the source of
   text shows through. At each version bump, update APP_VERSION/BUILD_DATE AND
   grep for the old version string in these HTML fallback spans so they never
   silently drift out of sync (this drifted for months before being caught).
+VERSION : v11.71 (16-Oct-2026) -- Login: the phone's "Use saved password?" sheet no longer logs in by itself. The form never submits; login starts only from a real tap on Sign In or the keyboard Enter / Go key on the password field (an autofill-made click is ignored). Function: login form handlers.
 VERSION : v11.70 (16-Oct-2026) -- The student app updates itself: a tiny HEAD check of the page every 10 min and when the app returns to the front; a new version reloads it (banner, 20 s, not while typing; once per 30 min). GitHub Pages bandwidth only, no database reads. Function: inline auto-update script at the end of the page.
 VERSION : v11.69 (15-Oct-2026) -- "Last 14 college days" dots: the day number is inside each dot and the month (Oct, Nov) is written once above its dots. No database change. Function: renderMyDays.
 VERSION : v11.68 (15-Oct-2026) -- (1) Login no longer starts by itself when the phone fills the saved URN + password: it waits for the Sign In tap (or Enter / Go). (2) "Attendance & Classes" card has a Show / Hide button, hidden by default, choice remembered on the phone. No database change. Functions: stuLoginSubmit, stuP1Toggle (summary card).
