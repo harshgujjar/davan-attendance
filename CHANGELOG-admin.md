@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1868 · 16-Oct-2026 IST
+User: Sitting PDF still not generating. The room PDF footer read pdf.lastAutoTable.finalY while the table was still drawing (undefined -> NaN -> "Invalid arguments passed to jsPDF.text"), so the PDF never saved; it now uses the table's own cursor and also lists the dias students. sitSaveCurrentRoomBeforeExport only re-reads rooms drawn on screen (an undrawn room was read as empty -> "no seated rooms") and keeps isDias. Tested in a headless browser: Sitting PDF / Excel / Print and Room Master PDF / Excel / Print all produce output. No data change.
+
 ## v1867 · 16-Oct-2026 IST
 User: Sitting Print / PDF / Excel did nothing. v1864's auto date pick on the Attendance tab cleared the shared time chip (SIT_TIME_CHIP_SEL), so "This slot" exports stopped at "pick a time chip"; also the Excel / PDF libraries only load 20 s after page load and the Excel "XLSX not loaded" check never started them. attInit now also picks the first time; sitExportSlotKeys falls back to the first real slot; intSwitchTab starts dvLibs.load(); the "XLSX not loaded" checks start loading and say "tap again". No data change.
 

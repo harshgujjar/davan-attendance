@@ -19047,7 +19047,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1867;  // always = HTML footer version number
+const CODE_BUILD = 1868;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -30113,6 +30113,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1868', date: '16-Oct-2026 IST', note: '🖨 Sitting PDF downloads again (it stopped at the footer); dias students now printed on it; exports no longer lose rooms not shown on screen.' },
 { v: 'v1867', date: '16-Oct-2026 IST', note: '🖨 Sitting Print / PDF / Excel work again: they use the first exam time when none is picked, and the export tools load as soon as Internal Timetable opens.' },
 { v: 'v1866', date: '16-Oct-2026 IST', note: '🪑 New exam seating: 4 classes per room, nobody has the same paper in front, behind, beside or diagonal; sections A / B continue in the same seats. Room sheet: totals per class + Grand Total + paper guide.' },
 { v: 'v1865', date: '16-Oct-2026 IST', note: '📝 Internal Attendance: the class sheet shows only after you pick a class.' },
@@ -30127,7 +30128,6 @@ const HTML_CHANGELOG = [
 { v: 'v1856', date: '15-Oct-2026 IST', note: '☁️ Cloud alerts: choose the alert picture (your photo / Davan logo / a picture you pick) and a own tone per colour while the app is open.' },
 { v: 'v1855', date: '15-Oct-2026 IST', note: '🏨 Hostel fee: hostel residents are now found correctly (student app + weekly count); the student widget list for page 2 gets a hostel mark for the filters.' },
 { v: 'v1854', date: '15-Oct-2026 IST', note: '💰 Fees: tap a count (paid / new / not received...) to list just those; everyone sees who opened the window and when (admin no longer sees a stale "closed"); weekly summary fixed; NEW 🏨 Hostel fee window + list for hostel students only (students get a 2nd question). 📒 SD books: bulk dates for the whole college or one class with a different date per subject, change a date later.' },
-{ v: 'v1853', date: '15-Oct-2026 IST', note: '☁️ New Super Admin page Cloud alerts: staff logins, the 9:15 pm widget release, scrapes / syncs done, any cloud job that FAILED, widget check problems and the 9:30 pm DB2 usage come only to you - on the laptop from Cloudflare (your photo, a coloured strip, red stays on screen) and on the phone from the Davan Staff app. Logins no longer go to other admin-subscribed browsers.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -71875,21 +71875,22 @@ function sitBuildPrintHtml(slotKeys) {
 // the only map the on-screen grid is ever showing. A no-op when no time
 // chip is selected (there is nothing on screen to save in that case).
 function sitSaveCurrentRoomBeforeExport() {
+  // v1868: only rooms actually drawn on screen are re-read (a room not on screen used to be read as EMPTY, so
+  // exports said "no seated rooms"), and seat flags (isDias) are kept.
   const mapKey = sitActiveMapKey();
   if (!mapKey) return;
   if (!SIT_DATA[SIT_INT]) SIT_DATA[SIT_INT] = {};
   if (!SIT_DATA[SIT_INT][mapKey]) SIT_DATA[SIT_INT][mapKey] = {};
-  if (SIT_ROOM && SIT_ROOM !== 'ALL') {
-    const existing = SIT_DATA[SIT_INT][mapKey][SIT_ROOM] || {};
-    const collected = sitCollectRoom(SIT_ROOM);
-    SIT_DATA[SIT_INT][mapKey][SIT_ROOM] = { ...existing, ...collected };
-  } else if (SIT_ROOM === 'ALL') {
-    sitRoomsWithSeats().forEach(roomId => {
-      const existing = SIT_DATA[SIT_INT][mapKey][roomId] || {};
-      const collected = sitCollectRoom(roomId);
-      SIT_DATA[SIT_INT][mapKey][roomId] = { dates: existing.dates||'', days: existing.days||'', seats: collected.seats };
-    });
-  }
+  const merge = roomId => {
+    const collected = sitCollectRoom(roomId);
+    if (!collected.seats.length) return;
+    const existing = SIT_DATA[SIT_INT][mapKey][roomId] || {};
+    const flags = {}; (existing.seats || []).forEach(x => { flags[x.seatNo] = x; });
+    const seats = collected.seats.map(x => ({ ...(flags[x.seatNo] || {}), seatNo: x.seatNo, urn: x.urn }));
+    SIT_DATA[SIT_INT][mapKey][roomId] = { ...existing, dates: existing.dates || '', days: existing.days || '', seats };
+  };
+  if (SIT_ROOM && SIT_ROOM !== 'ALL') merge(SIT_ROOM);
+  else if (SIT_ROOM === 'ALL') sitRoomsWithSeats().forEach(merge);
 }
 
 // ─── DOWNLOAD PDF (actual file, separate from Print) ──────────────────
@@ -72074,14 +72075,22 @@ async function sitDownloadPDF(wholeDay) {
       styles: { fontSize: 7, cellPadding: 0.5, valign: 'middle', halign: 'center', lineColor: [51,51,51], lineWidth: 0.1, textColor: [0,0,0], minCellHeight: 4.0 },
       headStyles: { fillColor: [230,230,230], textColor: [0,0,0], fontStyle: 'bold', fontSize: 8 },
       columnStyles: { 0:{cellWidth:colW}, 1:{cellWidth:colW}, 2:{cellWidth:colW}, 3:{cellWidth:colW*0.3}, 4:{cellWidth:colW}, 5:{cellWidth:colW}, 6:{cellWidth:colW} },
-      didDrawPage: () => {
+      didDrawPage: (data) => {
         // Only draw the summary+signature footer once, after the LAST
         // page autoTable produced for this room's table — not after every
         // page, so an internal page-break (if it ever still happens for
         // an edge case) never draws the footer mid-table.
         const isLastPage = pdf.internal.getCurrentPageInfo().pageNumber === pdf.internal.getNumberOfPages();
         if (!isLastPage) return;
-        const finalY = pdf.lastAutoTable.finalY + 6;
+        // v1868: lastAutoTable is not set yet while this table is drawing (NaN y -> "Invalid arguments passed to
+        // jsPDF.text", PDF never saved) - use this table's own cursor. Dias chairs listed above the counts.
+        let finalY = ((data && data.cursor && data.cursor.y) || y) + 6;
+        const diasList = (rd.seats || []).filter(x => x.urn && (x.isDias || x.seatNo > 48));
+        if (diasList.length) {
+          pdf.setFontSize(8); pdf.setFont('helvetica', 'bold');
+          pdf.text('Dias chairs: ' + diasList.map(x => `${x.urn} ${sitShortName(sitUrnToName(x.urn) || '')}`.trim()).join('   |   '), margin, finalY);
+          finalY += 5;
+        }
         pdf.setFontSize(9); pdf.setFont('helvetica', 'normal');
         let sx = margin;
         Object.keys(yearCourseCounts).sort((a,b)=>_sitYearCourseSortKey(a, yearCourseToCourse) - _sitYearCourseSortKey(b, yearCourseToCourse))
