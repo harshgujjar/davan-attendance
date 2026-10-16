@@ -1,5 +1,5 @@
 // sw.js — Davan Attendance System v6
-const CACHE_VERSION = 'davan-v10';   // 07-Oct-2026: renotify (admin v1794); 15-Oct-2026: Super Admin alerts (admin v1853)
+const CACHE_VERSION = 'davan-v11';   // 07-Oct-2026: renotify (admin v1794); 15-Oct-2026: Super Admin alerts (admin v1853)
 const SA_CACHE = 'davan-sa';       // v1853: the Super Admin's photo for his alerts (kept across versions)
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
 const ICON_URL = 'https://harshgujjar.github.io/davan-attendance/icon-192.png';
@@ -91,7 +91,7 @@ self.addEventListener('push', e => {
   const options = {
     body:    data.body    || '',
     icon:    data.icon    || ICON_URL,
-    badge:   data.badge   || ICON_URL,
+    badge:   data.badge   || (APP_URL + 'badge-sa.png'),   // 16-Oct-2026: a white-on-clear badge (the coloured logo showed as a plain letter in the phone's status bar)
     image:   data.image   || undefined,
     vibrate: [200, 100, 200],
     tag:     data.tag     || 'davan-alert',

@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1857 · 16-Oct-2026 IST
+User: "my app (PWA) and web must update by themselves - I have to refresh". Inline script at the end of index.html: a HEAD request of the page (headers only) every 10 min and when the app returns to the front; a changed ETag = new version -> reload (at once if the app is hidden; else a banner and reload after 20 s, not while typing; max once per 30 min). Also sw.js (davan-v11): push badge = new white badge-sa.png (the coloured logo showed as a plain letter "A" on the phone). No database cost. Pairs with portal v11.70.
+
 ## v1856 · 15-Oct-2026 IST
 User: Super Admin alert showed the round college logo (no photo found for the Super Admin login) and the default sound. ☁️ Cloud alerts page: "Alert picture" = 📷 my photo / 🏫 Davan logo / 🖼 choose a picture (kept on this browser, 192 px); sw.js tells an open staff app to play its own tone per colour (a browser push cannot carry a sound; phones use the staff widget's own sa_*.wav channels from w293). No database change. Functions: saPicSet, saPicFile, saBeep, saSavePhoto.
 
