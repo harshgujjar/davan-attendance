@@ -19047,7 +19047,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1865;  // always = HTML footer version number
+const CODE_BUILD = 1866;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -30113,6 +30113,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1866', date: '16-Oct-2026 IST', note: '🪑 New exam seating: 4 classes per room, nobody has the same paper in front, behind, beside or diagonal; sections A / B continue in the same seats. Room sheet: totals per class + Grand Total + paper guide.' },
 { v: 'v1865', date: '16-Oct-2026 IST', note: '📝 Internal Attendance: the class sheet shows only after you pick a class.' },
 { v: 'v1864', date: '16-Oct-2026 IST', note: '📝 Internal Attendance tab now loads everything by itself (Internal, seats, first class and date) - no need to open Sitting / Roster first.' },
 { v: 'v1863', date: '16-Oct-2026 IST', note: '📅 Attendance sheet: the Subjects & Exam Dates section now opens with a tap (hidden by default).' },
@@ -30127,7 +30128,6 @@ const HTML_CHANGELOG = [
 { v: 'v1854', date: '15-Oct-2026 IST', note: '💰 Fees: tap a count (paid / new / not received...) to list just those; everyone sees who opened the window and when (admin no longer sees a stale "closed"); weekly summary fixed; NEW 🏨 Hostel fee window + list for hostel students only (students get a 2nd question). 📒 SD books: bulk dates for the whole college or one class with a different date per subject, change a date later.' },
 { v: 'v1853', date: '15-Oct-2026 IST', note: '☁️ New Super Admin page Cloud alerts: staff logins, the 9:15 pm widget release, scrapes / syncs done, any cloud job that FAILED, widget check problems and the 9:30 pm DB2 usage come only to you - on the laptop from Cloudflare (your photo, a coloured strip, red stays on screen) and on the phone from the Davan Staff app. Logins no longer go to other admin-subscribed browsers.' },
 { v: 'v1852', date: '17-Oct-2026 IST', note: '💰 Fees: a student marked ✗ Not received keeps seeing it in the student app and widget even after the fee window is closed, until marked ✓ Paid.' },
-{ v: 'v1852', date: '17-Oct-2026 IST', note: '🧮 New Super Admin page Claude Meter (next to 🤖 AI Usage): who uses the Claude Usage Meter browser extension - active today / 7 days, name, browser, version, last seen, session % and weekly %.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -67873,6 +67873,96 @@ function sitResolveWantedBatches(sessionBatches) {
 // next to anyone. This key is used ONLY for the bench-weave adjacency
 // check — display labels, seat colours, and bench headers still show each
 // student's real batch name (e.g. "I BBA"), never the merged key.
+// v1866 (user, 16-Oct-2026): "Option A" seating. Section letter from a class string
+// ("Davan-BCA-Sem5-SecA" -> "A"), '' when none. Each class queue is sorted section
+// first, so section A sits first and section B carries on in the same seats.
+function sitSectionOf(cls) {
+  const m = String(cls || '').toUpperCase().match(/SEC(?:TION)?\s*[-_ ]?([A-Z])\b/);
+  return m ? m[1] : '';
+}
+// Room = 2 sides x 8 benches x 3 seats. Seats 1-24 = left side (benches A-H, A at
+// the front), 25-48 = right side (I-P). Every seat has one of 4 ROLES:
+//   0 = end seats (1 and 3) of "even" benches, 1 = their middle seat,
+//   2 = end seats of "odd" benches,           3 = their middle seat.
+// Benches alternate even/odd front to back, and the right side starts on the
+// other parity. Any 2x2 block of seats touches all 4 roles, so 4 different
+// classes (conflict groups) in the 4 roles = nobody has the same paper in front,
+// behind, beside or diagonal.
+function sitSeatRole(seatNo) {
+  const bench = Math.floor((seatNo - 1) / 3);
+  const pos = (seatNo - 1) % 3;
+  const side = bench >= 8 ? 1 : 0;
+  const par = ((bench % 8) + side) % 2;
+  return par * 2 + (pos === 1 ? 1 : 0);
+}
+// Plans one date+time slot: fills rooms one at a time (S3, S4, ...), each with at
+// most 4 conflict groups, one per role; a role whose class runs out takes the next
+// waiting class that does not clash with the room's other roles. When no such
+// class is left the seat stays EMPTY (strict - user, 16-Oct-2026). Last room with
+// <= 2 x (rooms before it) students -> no new room, 2 dias chairs per room instead.
+// Returns null when the slot needs more rooms than exist (caller falls back to the
+// old weave so nobody is ever left without a seat).
+function sitPlanSlotSeatingA(groups) {
+  const per = SIT_SEATS_PER_ROOM;
+  const cycle = [...SIT_PRIMARY_ROOMS, ...SIT_OVERFLOW_ROOMS];
+  const queues = (groups || []).map(g => ({ name: g.name, key: g.conflictKey || g.name, items: [...(g.students || [])] })).filter(q => q.items.length);
+  if (!queues.length) return { rooms: [], seats: {}, dias: 0, diasPerRoom: {}, real: 0 };
+  const roleSeats = [[], [], [], []];
+  for (let n = 1; n <= per; n++) roleSeats[sitSeatRole(n)].push(n);
+  const cur = [null, null, null, null];
+  const roomSeatLists = [];
+  const left = () => queues.some(q => q.items.length);
+  while (left()) {
+    if (roomSeatLists.length >= cycle.length) return null;
+    const seatSt = new Array(per + 1).fill(null);
+    const keysByRole = [new Set(), new Set(), new Set(), new Set()];
+    const clash = (r, key) => keysByRole.some((ks, i) => i !== r && ks.has(key));
+    for (const r of [0, 2, 1, 3]) {
+      for (const n of roleSeats[r]) {
+        let q = cur[r];
+        if (!q || !q.items.length || clash(r, q.key)) {
+          const prevKey = q ? q.key : null;
+          const others = cur.filter((x, i) => i !== r && x && x.items.length);
+          const heldKeys = new Set(others.map(x => x.key));
+          const cands = queues.filter(x => x.items.length && !others.includes(x) && !heldKeys.has(x.key) && !clash(r, x.key));
+          cands.sort((a, b) => ((b.key === prevKey) - (a.key === prevKey)) || (b.items.length - a.items.length));
+          q = cands[0] || null;
+          cur[r] = q;
+        }
+        if (!q) break;
+        seatSt[n] = q.items.shift();
+        keysByRole[r].add(q.key);
+      }
+    }
+    roomSeatLists.push(seatSt);
+  }
+  const urnOf = st => st ? (st.urn || st.seat_no || '') : '';
+  let diasStudents = [];
+  if (roomSeatLists.length > 1) {
+    const last = roomSeatLists[roomSeatLists.length - 1].filter(Boolean);
+    if (last.length <= (roomSeatLists.length - 1) * 2) { diasStudents = last; roomSeatLists.pop(); }
+  }
+  const rooms = cycle.slice(0, roomSeatLists.length);
+  const seats = {}, diasPerRoom = {};
+  let real = 0;
+  rooms.forEach((roomId, i) => {
+    seats[roomId] = [];
+    for (let n = 1; n <= per; n++) { const st = roomSeatLists[i][n]; if (st) real++; seats[roomId].push({ seatNo: n, urn: urnOf(st) }); }
+    diasPerRoom[roomId] = 0;
+  });
+  let di = 0;
+  for (let pass = 0; pass < 2 && di < diasStudents.length; pass++) {
+    for (let i = 0; i < rooms.length && di < diasStudents.length; i++) {
+      const roomId = rooms[i];
+      if (diasPerRoom[roomId] >= 2) continue;
+      diasPerRoom[roomId]++;
+      seats[roomId].push({ seatNo: per + diasPerRoom[roomId], urn: urnOf(diasStudents[di++]), isDias: true });
+      real++;
+    }
+  }
+  return { rooms, seats, dias: diasStudents.length, diasPerRoom, real };
+}
+
 function sitConflictKey(yearNum, course) {
   if (course === 'BBA' || course === 'BCom') return `${yearNum}__BBA-BCom`;
   return `${yearNum}__${course}`; // BCA (or any future course) stays its own key per year
@@ -67914,7 +68004,7 @@ function sitBuildClassGroups(sessionBatches) {
     const matches = students.filter(s => {
       const parsed = typeof _strParseClass === 'function' ? _strParseClass(s.class) : null;
       return parsed && parsed.yearNum === w.yearNum && parsed.course === w.course;
-    }).sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    }).sort((a,b) => sitSectionOf(a.class).localeCompare(sitSectionOf(b.class)) || (a.name||'').localeCompare(b.name||''));
     if (matches.length) groups.push({ name: w.name, conflictKey: sitConflictKey(w.yearNum, w.course), students: matches });
   });
 
@@ -68138,6 +68228,9 @@ function sitPlanRoomsForRoster(roster) {
 }
 
 function sitRoomsNeededForCount(realCount, groups) {
+  if (Array.isArray(groups) && groups.length) {
+    try { const pA = sitPlanSlotSeatingA(groups); if (pA) return { rooms: pA.rooms, stageSeats: 0, dias: pA.dias }; } catch (e) { /* fall through */ }
+  }
   if (Array.isArray(groups) && groups.length && typeof sitWeaveByBench === 'function') {
     try {
       const woven = sitWeaveByBench(groups.map(g => ({ name: g.name, conflictKey: g.conflictKey, students: [...g.students] })));
@@ -68626,7 +68719,9 @@ function attBuildRoomMasterSheet(intNum, roomId) {
           name: student ? (student.name || '') : '',
           className: student?.class || '',
           student: student || null,
-          batchLabel: sitUrnToYearCourse(seat.urn) || 'Unmatched',
+          // v1866: one block per section ("II BCA – Section A") so each section's answer books are counted on their own
+          batchLabel: (sitUrnToYearCourse(seat.urn) || 'Unmatched') + (sitSectionOf(student?.class) ? ` – Section ${sitSectionOf(student?.class)}` : ''),
+          paperLabel: sitUrnToYearCourse(seat.urn) || 'Unmatched',
           firstSeatNo: seat.seatNo,
         };
       });
@@ -68639,6 +68734,7 @@ function attBuildRoomMasterSheet(intNum, roomId) {
       byBatch[s.batchLabel].push(s);
     });
     batchOrder.forEach(b => byBatch[b].sort((a, b2) => (a.firstSeatNo || 0) - (b2.firstSeatNo || 0)));
+    batchOrder.sort((a, b) => a.localeCompare(b));
 
     const rows = [];
     batchOrder.forEach(batch => {
@@ -68698,7 +68794,42 @@ function attBuildRoomMasterSheet(intNum, roomId) {
       tb.shortageCount = presentInBlock.filter(r => r.shortageTag).length;
     });
 
-    return { roomId, groupLabel, columns: gCols, timeBlocks, batchOrder, rows, shortageList };
+    // v1866: paper distribution guide - which benches / seats get each class's paper.
+    const benchL = n => n > SIT_SEATS_PER_ROOM ? 'Dias' : String.fromCharCode(65 + Math.floor((n - 1) / 3));
+    const guideByText = {};
+    gCols.forEach(col => {
+      const roomData = ((SIT_DATA[intNum] || {})[col.mapKey] || {})[roomId];
+      const per = {};
+      (roomData?.seats || []).forEach(seat => {
+        if (!seat.urn) return;
+        const st = studentMap[seat.urn.toUpperCase()];
+        const paper = st ? st.paperLabel : (sitUrnToYearCourse(seat.urn) || 'Unmatched');
+        const g = per[paper] = per[paper] || { end: new Set(), mid: new Set(), dias: 0, nEnd: 0, nMid: 0 };
+        if (seat.isDias || seat.seatNo > SIT_SEATS_PER_ROOM) g.dias++;
+        else if ((seat.seatNo - 1) % 3 === 1) { g.mid.add(benchL(seat.seatNo)); g.nMid++; }
+        else { g.end.add(benchL(seat.seatNo)); g.nEnd++; }
+      });
+      const lines = Object.keys(per).sort().map(paper => {
+        const g = per[paper];
+        const subj = intData ? (_attSubjectForBatchAtSlot(intData, col.date, col.timeLabel, paper) || '') : '';
+        const parts = [];
+        if (g.nEnd) parts.push(`Bench ${[...g.end].sort().join(' ')} · seats 1 & 3 (${g.nEnd})`);
+        if (g.nMid) parts.push(`Bench ${[...g.mid].sort().join(' ')} · middle seat (${g.nMid})`);
+        if (g.dias) parts.push(`Dias chairs (${g.dias})`);
+        return { paper, subj, text: `${paper} → ${parts.join(' + ')} = ${g.nEnd + g.nMid + g.dias} papers` };
+      });
+      const key = lines.map(l => l.text).join('\n');
+      if (!guideByText[key]) guideByText[key] = { cols: [], lines };
+      guideByText[key].cols.push(col);
+    });
+    const guideList = Object.values(guideByText);
+    const guide = [];
+    guideList.forEach(gd => {
+      if (guideList.length > 1) guide.push(`${gd.cols.map(c => `${c.dateLabel} ${c.timeLabel}`).join(', ')}:`);
+      gd.lines.forEach((l, i) => guide.push(`  Paper ${i + 1}  ${l.text}`));
+    });
+
+    return { roomId, groupLabel, columns: gCols, timeBlocks, batchOrder, rows, shortageList, guide };
   });
 
   return sheets;
@@ -70930,6 +71061,24 @@ async function sitAutoFillForTimeSlot(dateTimeKey, quiet) {
   const { groups, total } = sitBuildClassGroups(slotBatches);
   if (!total) { dvToast('No current-AY students found for these batches', 'warn', 4000); return; }
 
+  // v1866: Option A seating (4 classes per room, strict diagonal) - see sitPlanSlotSeatingA.
+  // Falls through to the old weave below only when the slot needs more rooms than exist.
+  const planA = sitPlanSlotSeatingA(groups);
+  if (planA) {
+    const sKeyA = sitSlotKey(dateTimeKey);
+    if (!SIT_DATA[intNum]) SIT_DATA[intNum] = {};
+    SIT_DATA[intNum][sKeyA] = {};
+    SIT_DATA[intNum][sKeyA]._sig = 'v3|' + groups.map(g => g.name + ':' + g.students.length).sort().join('|');
+    planA.rooms.forEach(roomId => { SIT_DATA[intNum][sKeyA][roomId] = { dates: '', days: '', seats: planA.seats[roomId] }; });
+    await sitPushToFirebase();
+    sitRenderRoomChips();
+    sitRenderGrid();
+    const sumA = planA.rooms.map(r => { const d = planA.diasPerRoom[r] || 0; return `${r}:${planA.seats[r].filter(x => x.urn).length}${d ? ` (incl. ${d} dias)` : ''}`; }).join(', ');
+    if (!quiet) dvToast(`✅ Seated ${planA.real} students across ${planA.rooms.length} room(s): ${sumA}.`, 'ok', 7000);
+    return;
+  }
+  if (!quiet) dvToast('⚠ Not enough rooms for the 4-class rule at this time - used the older seating so everyone gets a seat.', 'warn', 6000);
+
   // Same weave the normal fill uses — blanks included, so room sizing
   // correctly accounts for forced blank middle seats.
   const roster = sitWeaveByBench(groups);
@@ -72601,6 +72750,23 @@ function attRoomSheetDownloadExcel(wholeDay) {
 // column header, signature cell per (student, subject) pair — '—' when
 // that student genuinely wasn't seated in this room for that slot.
 // ═══════════════════════════════════════════════════════════════════════
+// v1866 (user, 16-Oct-2026): Present / Absent / Shortage / Total for EACH class / section block,
+// plus a Grand Total for the room at the end (batch = null). Total = every student of that block
+// seated in that exam (Present + Absent + Shortage).
+function attRmFootRows(sheet, batch) {
+  const rows = batch ? sheet.rows.filter(r => r.batch === batch) : sheet.rows;
+  const cnt = (ci, f) => String(rows.filter(r => r.cells[ci]?.present && f(r)).length);
+  const blank = sheet.columns.map(() => '');
+  const out = [
+    { label: 'Present', cells: blank },
+    { label: 'Absent', cells: blank },
+    { label: 'Shortage', cells: sheet.columns.map((c, ci) => cnt(ci, r => !!r.shortageTag)) },
+    { label: 'Total', cells: sheet.columns.map((c, ci) => cnt(ci, () => true)) },
+  ];
+  if (!batch) out.push({ label: 'Invigilator Signature', cells: blank });
+  return out;
+}
+
 function attRoomMasterSheetHtml(sheet, intLabel, forScreen) {
   if (!sheet) return '';
   // Two-row header: time-of-day block spans its own real dates as merged
@@ -72617,6 +72783,10 @@ function attRoomMasterSheetHtml(sheet, intLabel, forScreen) {
   </th>`).join('');
 
   const fixedCols = forScreen ? 4 : 3;
+  const footHtml = (list) => list.map(f => `<tr>
+        <td colspan="${fixedCols}" style="border:1px solid #333;padding:3px 6px;font-weight:700;background:${forScreen?'var(--surface2)':'#f5f5f5'};">${f.label}</td>
+        ${f.cells.map(v => `<td style="border:1px solid #333;padding:${f.label === 'Invigilator Signature' ? '5px' : '3px'} 6px;text-align:center;">${v || '&nbsp;'}</td>`).join('')}
+      </tr>`).join('');
 
   const batchBlocks = sheet.batchOrder.map(batch => {
     const rows = sheet.rows.filter(r => r.batch === batch);
@@ -72646,8 +72816,12 @@ function attRoomMasterSheetHtml(sheet, intLabel, forScreen) {
       </tr>`;
     }).join('');
     const heading = `<tr><td colspan="${fixedCols+sheet.columns.length}" style="border:1px solid #333;padding:5px 8px;background:${forScreen?'var(--surface2)':'#f5f5f5'};color:${forScreen?'var(--accent)':'#000'};font-weight:700;font-size:${forScreen?'11px':'9.5px'};">${batch}: ${rows.length}</td></tr>`;
-    return heading + bodyRows;
+    return heading + bodyRows + footHtml(attRmFootRows(sheet, batch));
   }).join('');
+
+  const guideHtml = (sheet.guide && sheet.guide.length)
+    ? `<div style="margin-bottom:10px;padding:8px 10px;border:1px solid ${forScreen?'var(--border)':'#333'};border-radius:6px;font-family:monospace;font-size:${forScreen?'11px':'9px'};white-space:pre-wrap;color:${forScreen?'var(--text)':'#000'};"><strong>📦 Give papers like this (one bundle at a time):</strong>\n${sheet.guide.join('\n')}</div>`
+    : '';
 
   // v1369, point 3: top-of-table shortage summary — quick "who in this
   // room/group is ineligible" list, per explicit admin request, shown
@@ -72672,27 +72846,7 @@ function attRoomMasterSheetHtml(sheet, intLabel, forScreen) {
   // <tbody> appended after the batch rows) instead of a second table, so
   // there is only ONE column grid for the whole sheet and every column
   // boundary is shared by construction — this can no longer drift.
-  const footerRowsHtml = `
-      <tr>
-        <td colspan="${fixedCols}" style="border:1px solid #333;padding:3px 6px;font-weight:700;background:${forScreen?'var(--surface2)':'#f5f5f5'};">Present</td>
-        ${sheet.columns.map(() => `<td style="border:1px solid #333;padding:3px 6px;text-align:center;">&nbsp;</td>`).join('')}
-      </tr>
-      <tr>
-        <td colspan="${fixedCols}" style="border:1px solid #333;padding:3px 6px;font-weight:700;background:${forScreen?'var(--surface2)':'#f5f5f5'};">Absent</td>
-        ${sheet.columns.map(() => `<td style="border:1px solid #333;padding:3px 6px;text-align:center;">&nbsp;</td>`).join('')}
-      </tr>
-      <tr>
-        <td colspan="${fixedCols}" style="border:1px solid #333;padding:3px 6px;font-weight:700;background:${forScreen?'var(--surface2)':'#f5f5f5'};">Shortage</td>
-        ${sheet.timeBlocks.map(tb => tb.cols.map(() => `<td style="border:1px solid #333;padding:3px 6px;text-align:center;">${tb.shortageCount}</td>`).join('')).join('')}
-      </tr>
-      <tr>
-        <td colspan="${fixedCols}" style="border:1px solid #333;padding:3px 6px;font-weight:700;background:${forScreen?'var(--surface2)':'#f5f5f5'};">Total</td>
-        ${sheet.columns.map(() => `<td style="border:1px solid #333;padding:3px 6px;text-align:center;">&nbsp;</td>`).join('')}
-      </tr>
-      <tr>
-        <td colspan="${fixedCols}" style="border:1px solid #333;padding:3px 6px;font-weight:700;background:${forScreen?'var(--surface2)':'#f5f5f5'};">Invigilator Signature</td>
-        ${sheet.columns.map(() => `<td style="border:1px solid #333;padding:5px 6px;text-align:center;">&nbsp;</td>`).join('')}
-      </tr>`;
+  const footerRowsHtml = `<tr><td colspan="${fixedCols+sheet.columns.length}" style="border:1px solid #333;padding:5px 8px;background:${forScreen?'var(--surface2)':'#ddd'};color:${forScreen?'var(--accent)':'#000'};font-weight:700;">GRAND TOTAL — ROOM ${sheet.roomId}</td></tr>` + footHtml(attRmFootRows(sheet, null));
 
   // v1371 (admin screenshot correction): the footer table was landing
   // alone on page 2 in Print, split away from the main table above it —
@@ -72707,6 +72861,7 @@ function attRoomMasterSheetHtml(sheet, intLabel, forScreen) {
       <div style="font-size:${forScreen?'11px':'10px'};color:${forScreen?'var(--muted)':'#333'};">Davan - Nutana College | BBA / BCA / B.Com (Affiliated to Davangere University)</div>
       <div style="font-size:${forScreen?'12px':'11px'};font-weight:700;margin-top:4px;color:${forScreen?'var(--text)':'#000'};">${intLabel.toUpperCase()} — ROOM ${sheet.roomId}${sheet.groupLabel ? ` (${sheet.groupLabel})` : ''} — MASTER ATTENDANCE SHEET</div>
     </div>
+    ${guideHtml}
     ${shortageSummaryHtml}
     <table style="border-collapse:collapse;width:100%;min-width:${fixedCols * 90 + sheet.columns.length * 75}px;font-size:${forScreen?'12px':'10px'};color:${forScreen?'var(--text)':'#000'};">
       <thead>
@@ -72837,6 +72992,14 @@ async function attRoomMasterSheetDownloadPDF() {
     // admin request — wrapped manually to the page width since jsPDF text
     // doesn't auto-wrap.
     let tableStartY = 27;
+    if (sheet.guide && sheet.guide.length) {
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8);
+      pdf.text('Give papers like this (one bundle at a time):', margin, tableStartY);
+      pdf.setFont('helvetica', 'normal');
+      const gl = pdf.splitTextToSize(sheet.guide.join('\n').replace(/→/g, '->'), pageW - margin*2);
+      pdf.text(gl, margin, tableStartY + 4);
+      tableStartY += gl.length * 3.6 + 7;
+    }
     if (sheet.shortageList.length) {
       pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8); pdf.setTextColor(185, 28, 28);
       const summaryText = `⚠ Shortage — Not Eligible (${sheet.shortageList.length}): ` + sheet.shortageList.map(s => `${s.name || s.urn} (${s.tag})`).join('; ');
@@ -72879,6 +73042,7 @@ async function attRoomMasterSheetDownloadPDF() {
         const urnCell = r.langTag ? `${r.urn}\n[${r.langTag}]` : r.urn;
         body.push({ isHeading: false, isShortage: !!r.shortageTag, urn: r.urn, cells: [String(i+1), '', urnCell, r.name, ...rowCells] });
       });
+      attRmFootRows(sheet, batch).forEach(f => body.push({ isFooter: true, cells: [f.label, '', '', '', ...f.cells] }));
     });
 
     // v1374 (admin screenshot correction): footer rows (Present/Absent/
@@ -72895,14 +73059,9 @@ async function attRoomMasterSheetDownloadPDF() {
     // body array feeding the ONE pdf.autoTable() call below, so there is
     // only one column-width computation for the whole sheet and the
     // footer cannot drift from the header/data above it.
-    const footerRowLabels = ['Present', 'Absent', 'Shortage', 'Total', 'Invigilator Signature'];
-    const footerStartIdx = body.length;
-    footerRowLabels.forEach(label => {
-      const dateCells = sheet.timeBlocks.flatMap(tb => tb.cols.map(() =>
-        label === 'Shortage' ? String(tb.shortageCount) : ''
-      ));
-      body.push({ isFooter: true, cells: [label, '', '', '', ...dateCells] });
-    });
+    body.push({ isHeading: true, cells: [`GRAND TOTAL — ROOM ${roomId}`, '', '', '', ...sheet.columns.map(() => '')] });
+    const footerStartIdx = body.length - 1;
+    attRmFootRows(sheet, null).forEach(f => body.push({ isFooter: true, cells: [f.label, '', '', '', ...f.cells] }));
 
     pdf.autoTable({
       head,
@@ -73023,6 +73182,11 @@ function attRoomMasterSheetDownloadExcel() {
     // v1369, point 3: top-of-sheet shortage summary, per explicit admin
     // request — one row per flagged student, before the main table, so
     // it's visible without scrolling past the whole roster.
+    if (sheet.guide && sheet.guide.length) {
+      rows.push(['Give papers like this (one bundle at a time):']);
+      sheet.guide.forEach(g => rows.push([g]));
+      rows.push([]);
+    }
     if (sheet.shortageList.length) {
       rows.push([`⚠ Shortage — Not Eligible (${sheet.shortageList.length}):`]);
       sheet.shortageList.forEach(s => { rows.push([`  ${s.name || s.urn} (${s.tag})`]); });
@@ -73039,6 +73203,7 @@ function attRoomMasterSheetDownloadExcel() {
     const dateHeaderRow = ['Sl No','URN','Name', ...sheet.columns.map(c => `${c.dateLabel} | ${c.subject} | ${c.invigilator || ''}`)];
     rows.push(dateHeaderRow);
 
+    const footerRowIdxs = [];
     const bodyRowMeta = []; // 'heading' | 'data' | { kind:'shortage', span:N } — tracked for styling/merging below
     sheet.batchOrder.forEach(batch => {
       const batchRows = sheet.rows.filter(r => r.batch === batch);
@@ -73058,6 +73223,7 @@ function attRoomMasterSheetDownloadExcel() {
           bodyRowMeta.push('data');
         }
       });
+      attRmFootRows(sheet, batch).forEach(f => { footerRowIdxs.push(rows.length); rows.push([f.label, '', '', ...f.cells]); bodyRowMeta.push('foot'); });
     });
 
     // v1370 (admin screenshot correction): per-time-block footer rows —
@@ -73069,16 +73235,9 @@ function attRoomMasterSheetDownloadExcel() {
     // merged across all 3 fixed columns below, so a long label like
     // "Invigilator Signature" displays as one clean merged cell instead
     // of sitting oddly under the Name header only.
-    const footerRowIdxs = { present: null, absent: null, shortage: null, total: null, signature: null };
-    ['present','absent','shortage','total','signature'].forEach(key => {
-      const label = { present:'Present', absent:'Absent', shortage:'Shortage', total:'Total', signature:'Invigilator Signature' }[key];
-      footerRowIdxs[key] = rows.length;
-      const rowArr = [label, '', ''];
-      sheet.timeBlocks.forEach(tb => {
-        tb.cols.forEach(() => rowArr.push(key === 'shortage' ? tb.shortageCount : ''));
-      });
-      rows.push(rowArr);
-    });
+    rows.push([`GRAND TOTAL — ROOM ${roomId}`]);
+    bodyRowMeta.push('heading');
+    attRmFootRows(sheet, null).forEach(f => { footerRowIdxs.push(rows.length); rows.push([f.label, '', '', ...f.cells]); bodyRowMeta.push('foot'); });
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws['!cols'] = [{wch:6},{wch:16},{wch:24}, ...sheet.columns.map(()=>({wch:16}))];
@@ -73144,8 +73303,7 @@ function attRoomMasterSheetDownloadExcel() {
     });
     // Footer rows: bold label cell + centered value cells. v1374: label
     // is now in column 0 (merged across 0-2), not column 2.
-    ['present','absent','shortage','total','signature'].forEach(key => {
-      const r = footerRowIdxs[key];
+    footerRowIdxs.forEach(r => {
       for (let c = 0; c < totalCols; c++) {
         const addr = XLSX.utils.encode_cell({ r, c });
         if (!ws[addr]) continue;
