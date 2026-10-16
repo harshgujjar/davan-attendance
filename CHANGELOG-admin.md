@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1865 · 16-Oct-2026 IST
+User: hide the class attendance sheet until a class is selected. attInit() no longer auto-picks the first class (v1864 did); Internal, seats and signature-sheet date still load by themselves. No data change.
+
 ## v1864 · 16-Oct-2026 IST
 User: the Attendance tab (Internal Timetable) showed nothing until Sitting and Roster were opened first. attInit() now loads the Internal list, picks the Internal, runs sitAutoFillAllRooms() (as sitInit does), and auto-picks the first class and the first date of the signature sheet. Same reads as opening Sitting.
 
