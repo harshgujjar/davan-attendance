@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1864 · 16-Oct-2026 IST
+User: the Attendance tab (Internal Timetable) showed nothing until Sitting and Roster were opened first. attInit() now loads the Internal list, picks the Internal, runs sitAutoFillAllRooms() (as sitInit does), and auto-picks the first class and the first date of the signature sheet. Same reads as opening Sitting.
+
 ## v1863 · 16-Oct-2026 IST
 User: make the whole Subjects & Exam Dates section (Internal attendance sheet) show / hide, hidden by default. The #att-subj-wrap contents are now inside a closed <details>. No data change.
 
