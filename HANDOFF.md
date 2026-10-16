@@ -15,7 +15,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 | App | Now | Notes |
 |---|---|---|
 | Staff app (src/index.src.html -> index.html) | v1860 | details: CHANGELOG-admin.md |
-| Student portal (student_portal.html) | v11.72 | CHANGELOG-portal.md |
+| Student portal (student_portal.html) | v11.73 | CHANGELOG-portal.md |
 | PUC app (puc.html) / parent_ptm | v5.244 / v4.7.1 | parent_ptm v4.7.1: Mid Term in Active / Viewing round (view_logs/midterm) |
 | Student widget | public build 231 = w191 (15-Oct); next = 241 (241: "For the 2nd internal" per-subject window card on Attendance + Internals) (240 (240: morning brief says holiday on a holiday) (239: hostel students on approved leave get no class reminders / next / tomorrow / morning "no class" until the last leave day; leave from StuHostel snapshot) (238: morning brief always spoken + "Dear name" on all voice) (237: What's new fold; 236: internal card from 60 days; 235: hostel fee on Today, page 2 filters All/Installed/New/Old/Hostel) (232: exam page no empty / "Regular Class" lines; 233: father name from results_by_urn / parent_overrides when portal_students has none; 234: ▶ day button on the name line, phone · F/o father plain below, main layout renamed widget_top) - public 16-Oct 9:15 pm. Test student V NEESHA (widget code KPGYNC) is in student-widget-next.json codes = gets every next build at once | source davan-scraper widgets/student |
 | Staff widget | public build 292 = w237 (15-Oct); next 295 (295: morning brief always spoken) (293: ☁️ alerts; 294: What's new fold) | source davan-scraper widgets/staff |
@@ -49,7 +49,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - Status Date app: PARKED (davan-scraper apps/statusdate/PLAN.md) - only when the user asks.
 
 ## Open items
-- IA eligibility (v1860): 2nd internal = only classes after the IA1 cutoff (5-Sep) - students may look fine on the widget (whole semester) but be short in that window. +1/+2 rule now applied live. Offered: show the window % to students.
+- IA eligibility (v1860): 2nd internal = only classes after the IA1 cutoff (5-Sep) - students may look fine on the widget (whole semester) but be short in that window. +1/+2 rule now applied live. Window % now shown to students: portal v11.73 Attendance card, widget 241 (staff app v1861 publishes ia_live_status IA2 row .w). Not phone-tested.
 - V Sem BCA Software Engineering: user to confirm if Vijayalakshmi teaches the MORNING batch (then section B - undo the swap in Edit Allocation).
 - PUC: rovelabs login is typed into puc.html (public) - user to change the password; offered to remove the prefill.
 - PUC Mid-Term: re-scrape when 2PUC COM-B / C marks are entered.
