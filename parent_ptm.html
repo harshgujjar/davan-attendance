@@ -29,7 +29,7 @@
 <!--
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  DAVAN PUC — PARENT PROGRESS CARD (PTM)                                       ║
-║  FILE: parent_ptm.html   ·   v4.7.2  ·  BUILD 2026-10-16 09:00 UTC           ║
+║  FILE: parent_ptm.html   ·   v4.7.3  ·  BUILD 2026-10-16 10:00 UTC           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Two audiences, one file:                                                     ║
 ║   • PARENT  — logs in with mobile number only → picks child → sees frozen     ║
@@ -92,6 +92,10 @@
 ║                    page-2 saga below for what ignoring this costs.)        ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
+║  v4.7.3  2026-10-16 — Test scheme: "Apply max / pass to published cards"  ║
+║                    fixes a pass mark on already-published cards without    ║
+║                    republishing (writes only tests/max,pass,name). Fn:     ║
+║                    adApplySchemeToPublished.                               ║
 ║  v4.7.2  2026-10-16 — A student missing from an exam's own bucket (e.g.  ║
 ║                    Mid Term) gets marks from All Exams. Fn: adFetchClassData.║
 ║  v4.7.1  2026-10-16 — "Mid Term" added to Active / Viewing round (section 8),║
@@ -2147,6 +2151,7 @@
       <div id="ad-tests"></div>
       <div class="row" style="margin-top:8px;align-items:center">
         <button class="btn" onclick="adAddTest()">＋ Add test</button>
+        <button class="btn" onclick="adApplySchemeToPublished()" title="Changes only max / pass / name on cards already published for this class - marks, summary and everything else stay as published">🔁 Apply max / pass to published cards</button>
         <span class="up-status" id="ad-tests-status"></span>
       </div>
     </div>
@@ -2409,8 +2414,8 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.7.2';   // v4.7.2: student missing from an exam bucket filled from All Exams; v4.7.1 (16-Oct-2026): Mid Term round in Active / Viewing round; v4.7.0 (15-Oct-2026): Mid-Term marks (+ "All Exams" scrape, portal task names read as one name per exam); v4.6.4 (30-Sep-2026): installable as its own PWA (manifest-parent_ptm.json + page-only worker)
-const BUILD_STAMP   = '2026-10-15 06:00 UTC';
+const APP_VERSION   = 'v4.7.3';   // v4.7.3: Apply max / pass to published cards; v4.7.2: student missing from an exam bucket filled from All Exams; v4.7.1 (16-Oct-2026): Mid Term round in Active / Viewing round; v4.7.0 (15-Oct-2026): Mid-Term marks (+ "All Exams" scrape, portal task names read as one name per exam); v4.6.4 (30-Sep-2026): installable as its own PWA (manifest-parent_ptm.json + page-only worker)
+const BUILD_STAMP   = '2026-10-16 10:00 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
 // from and writes to. Change this ONE line to move the whole app onto the
@@ -4509,6 +4514,42 @@ async function adLoadNoteForStudent(cls, usn){
 // other. Debounced slightly so fast edits (e.g. typing a max score) don't
 // fire a write per keystroke.
 let _adTestSaveTimer=null;
+// v4.7.3: fix a pass / max mark on cards ALREADY published, without republishing.
+// For each student of this class in published_index, reads only the frozen card's
+// tests list and writes back max / pass / name for the tests whose key matches the
+// current scheme. Marks, summary, visibility and everything else stay as published.
+async function adApplySchemeToPublished(){
+  const cls=document.getElementById('ad-class')?.value, st=document.getElementById('ad-tests-status');
+  const T=window._adTests||[];
+  if(!cls||!T.length){ alert('Pick a class first.'); return; }
+  if(!confirm('Apply this scheme\'s max / pass marks to every card already published for '+cls+'?\n\nOnly the max / pass / test names change. Marks, summary and visibility stay as they are.')) return;
+  const say=(t,c)=>{ if(st){ st.textContent=t; st.style.color=c||''; } };
+  say('Updating published cards…');
+  try{
+    const all=(await rtdb.ref('published_index').once('value')).val()||{};
+    const idx=Object.fromEntries(Object.entries(all).filter(([u,i])=>i&&i.cls===cls));
+    const byKey={}; T.forEach(t=>byKey[t.key]=t);
+    let ok=0, same=0, fail=0;
+    for(const [usn,info] of Object.entries(idx)){
+      try{
+        const ev=info.eventId || (await rtdb.ref('published_cards/'+usn+'/_latest').once('value')).val();
+        if(!ev){ fail++; continue; }
+        const ref=rtdb.ref('published_cards/'+usn+'/'+ev+'/tests');
+        const tests=(await ref.once('value')).val();
+        if(!tests){ fail++; continue; }
+        const upd={};
+        Object.entries(tests).forEach(([i,t])=>{
+          const n=t&&byKey[t.key]; if(!n) return;
+          ['max','pass','name'].forEach(k=>{ if(n[k]!=null && n[k]!==t[k]) upd[i+'/'+k]=n[k]; });
+        });
+        if(Object.keys(upd).length){ await ref.update(upd); ok++; } else same++;
+      }catch(e){ fail++; }
+      say('Updating… '+(ok+same+fail)+' / '+Object.keys(idx).length);
+    }
+    say('✓ '+ok+' card(s) updated'+(same?', '+same+' already correct':'')+(fail?', '+fail+' failed':''), fail?'var(--warn)':'var(--ok)');
+  }catch(e){ say('Failed: '+e.message,'var(--bad)'); }
+}
+
 function adSaveTestConfig(){
   const statusEl=document.getElementById('ad-tests-status');
   if(statusEl){ statusEl.textContent='Saving…'; statusEl.style.color='var(--mut)'; }
