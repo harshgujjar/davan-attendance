@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1872 · 16-Oct-2026 IST
+User: the buttons were still shown - sitRecomputeReadOnly() set them visible again for admins. It now always hides Import Excel / Save Room / Save All Rooms (Refresh Seating still follows edit rights). No data change.
+
 ## v1871 · 16-Oct-2026 IST
 User: Sitting should not need the timetable opened first, should open on the latest Internal (2nd now, 3rd later) and load by itself; hide Save Room / Save All Rooms (Import was already hidden). New sitEnsureIntData() fetches internals/<doc> when not cached (1 Firestore read, same as the View tab); sitPopulateInternalSel defaults to the highest Internal until the user picks one; sitOnInternalChange loads data and regenerates seating; attInit uses the latest Internal too.
 
