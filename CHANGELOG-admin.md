@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1867 · 16-Oct-2026 IST
+User: Sitting Print / PDF / Excel did nothing. v1864's auto date pick on the Attendance tab cleared the shared time chip (SIT_TIME_CHIP_SEL), so "This slot" exports stopped at "pick a time chip"; also the Excel / PDF libraries only load 20 s after page load and the Excel "XLSX not loaded" check never started them. attInit now also picks the first time; sitExportSlotKeys falls back to the first real slot; intSwitchTab starts dvLibs.load(); the "XLSX not loaded" checks start loading and say "tap again". No data change.
+
 ## v1866 · 16-Oct-2026 IST
 User: strict exam seating (Option A) - a room is 2 sides x 8 benches x 3 seats; 4 classes per room in 4 seat roles so no one has the same paper in front, behind, beside or diagonal; rooms fill one at a time; a class's section A sits first and section B continues in the same seats; empty seat when no 4th class is left; last few students (<= 2 per open room) go on 2 dias chairs instead of a new room; more rooms than exist -> old weave. Room Master Sheet: one block per class / section with its own Present / Absent / Shortage / Total, a Grand Total, and a "give papers like this" bench guide (screen, Print, PDF, Excel). Writes internals/sittingAllocation as before (students get the new seats through davan_pub/sitting_by_urn). New sitPlanSlotSeatingA, sitSeatRole, sitSectionOf, attRmFootRows; changed sitAutoFillForTimeSlot, sitRoomsNeededForCount, sitBuildClassGroups, attBuildRoomMasterSheet and the room master renderers.
 
