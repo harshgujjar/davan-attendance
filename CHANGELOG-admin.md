@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1858 · 16-Oct-2026 IST
+User: "add a 🔊 to the notifications that speak". 🔔 Notifications page: rows whose notification is read aloud (morning brief, your day, class, buzz, tomorrow, duty, daily report, class feedback, meeting, canteen, hostel, message) show 🔊 before the name (`tts: 1` in NOTIF_REGISTRY, ntfCols). No data change, no extra reads. Pairs with student widget w238 / staff widget w295.
+
 ## v1857 · 16-Oct-2026 IST
 User: "my app (PWA) and web must update by themselves - I have to refresh". Inline script at the end of index.html: a HEAD request of the page (headers only) every 10 min and when the app returns to the front; a changed ETag = new version -> reload (at once if the app is hidden; else a banner and reload after 20 s, not while typing; max once per 30 min). Also sw.js (davan-v11): push badge = new white badge-sa.png (the coloured logo showed as a plain letter "A" on the phone). No database cost. Pairs with portal v11.70.
 
