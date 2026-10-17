@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1884 · 17-Oct-2026 IST
+User: "do the same page numbers for the Roster PDF". Roster PDF (this slot / whole day): every page's footer = room · exam time · page x of y (restarts per room) and "Print only this room: PDF pages a-b (PDF page p of T)"; page 1 top lists each room's pages (with the start time on a whole-day PDF). No data change. Function: sitRosterDownloadPDF.
+
 ## v1883 · 17-Oct-2026 IST
 User: "in the PDF say it's Group A, show the page numbers so I can print only that; each sheet starts at page 1". Room Master Sheet PDF: every page's footer = ROOM · Sheet n of N · page x of y (restarts per sheet) and, on the right, "To print only this sheet: PDF pages a-b (PDF page p of T)"; page 1 top line lists every sheet's pages. No data change. Function: attRoomMasterSheetDownloadPDF.
 
