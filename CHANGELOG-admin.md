@@ -2,8 +2,29 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
-## v1894 · 17-Oct-2026 IST
+## v1901 · 17-Oct-2026 IST
 User: "III BCA A and B section in all places". Sitting bench lines (grid, print, PDF, Excel) now name the section ("Bench A - I BCom + III BCA A") and the Room Master paper guide has one line per section ("Subject (III BCA - Section A): 10 papers - ..."), subject still looked up by the class. Checked: the planner already seats each class section by section (A, then B - sitBuildClassGroups sorts by section then name), so no seating change. The exam timetable keeps "III BCA" as one batch (both sections write the same paper). Functions: bench label helpers in sitRecolorBench / sitBuildPrintHtml / sitDownloadPDF / sitDownloadExcel, attBuildRoomMasterSheet.
+
+## v1900 · 17-Oct-2026 IST
+User's 2nd ⏱ load report (v1899): Firestore REST reads 0.3-2 s, but loadFirestoreData started only at ~14 s because it first awaited facLoadRenames (RTDB davan_pub/faculty_renames 7.6 s - the DB1 RTDB SDK took ~7 s to connect; every once('value') 6-8 s). Now facLoadRenames runs in parallel with the document reads (awaited before use), and a plain ref.once('value') on the staff app's RTDB goes over the RTDB REST API with the user's ID token (same rules, same snapshot shape), SDK fallback on failure. Same number of reads. Functions: loadFirestoreData, Firebase wrapper script (restOnce, rsnap, rkeys).
+
+## v1899 · 17-Oct-2026 IST
+User's ⏱ load report: start-up itself was fast (scripts from the SW cache, signed in 2.9 s, opening screen 4.7 s), but ~20 Firestore SDK reads all waited 6-7 s and ended together at ~17 s, and the DOMContentLoaded handler awaited a first-run "seed admin" check (fetchSignInMethodsForEmail admin@davan.local = createAuthUri 5.9 s + a failing signUp) before the remembered-login auto sign-in. Now: the seed check is removed; one-time DocumentReference.get / unfiltered CollectionReference.get on the default app go over the Firestore REST API with the user's ID token (same rules, same snapshot shape), SDK fallback on any failure; /api/status and /api/version (404 on GitHub Pages, 5.5 s) are skipped there. Same number of Firestore reads. Functions: Firebase wrapper script after the SDK (restDoc, restCol, mk, val), DOMContentLoaded auto-reconnect handler.
+
+## v1898 · 17-Oct-2026 IST
+User: "still loads very slow, I don't find any improvement". Instead of guessing: a load report. A tiny recorder at the top of the page (window.DVP) times every fetch, every Firestore DocumentReference/Query get and RTDB once, page switches, sign-in, the opening screen closing and freezes >= 200 ms (PerformanceObserver longtask); the Super Admin's ⏱ button (bottom-left) shows it with script download sizes (0 KB = phone's copy) and a 📋 Copy button. Memory only, no reads or writes. Functions: DVP (head), dvLoadBtn, dvLoadReport, dvLoadReportText, switchPanel, onLoginSuccess, dvBootDone.
+
+## v1897 · 17-Oct-2026 IST
+User: "other pages have the same 800 px limit - make all proper and mobile friendly". Page wrappers capped at 600-1000 px now use the full width (panel-branding, admin-settings, class-settings cs-rows, cfb/scr/sa/ntf/rates/flw/gsw roots, fac-dob, academic-calendar); small form boxes keep their size. New CSS: .url-bar wraps; on phones (<=768 px) fields / images / cards never exceed the screen; <=480 px the Shortage Summary sticky header fits and 2-column inline grids stack. Checked headless at 390 px: no page's static part is wider than the screen (pages drawn from data not checked). No data change.
+
+## v1896 · 17-Oct-2026 IST
+User: "the cloud notifications to Super Admin come to mobile correctly but not to my laptop". DB2 davan_pub/sa_push was empty: the browser had renewed its push address, the worker dropped the dead one (404 / 410) and nothing re-added it. New saAutoKeep (run from saBoot once the Super Admin is signed in, computers only, notifications allowed, not removed with "Remove this laptop") reads its own davan_pub/sa_push/<key> (1 tiny read per open) and writes it again when missing or changed. saThisLaptop remembers add / remove in localStorage sa_lap.
+
+## v1895 · 17-Oct-2026 IST
+User (screenshot): "this page is small, I have so much space". The Faculty Class Alerts & Staff Widgets page (panel-faculty-alerts) was wrapped in max-width 800px; it now uses the full width, so the Faculty Subscription Status table no longer scrolls sideways. No data change.
+
+## v1894 · 17-Oct-2026 IST
+User: "no, it still takes the same time to open". The real wait was the opening screen (dvBoot): it stayed until the fresh app_data/students (~550 KB) had downloaded (dvBootStep 2), although the dashboard was already drawn from localStorage; and a session restore first waited for the profile read (users/<uid>, a cold Firestore connection). Now the screen closes right after the cached draw, and the profile saved on the phone (davan_profile_<uid>) is used at once; the fresh profile is read in the background and the page reloads once if role / name / title etc. changed. No extra reads. Functions: auth.onAuthStateChanged handler, onLoginSuccess.
 
 ## v1893 · 17-Oct-2026 IST
 User: Final Shortage "still won't open after refresh" (2nd Internal selected, the area blank). iafRender waited on iaeEnsureFresh (lock checks, snapshot, permissions) and on iarAutoApplyBatch's cloud save before drawing. Now it shows "⏳ Working out the final shortage…" and waits at most 12 s / 6 s for those (iarSaveTA already stores the result in localStorage first, so the list is right; the cloud save finishes in the background). Function: iafRender.
