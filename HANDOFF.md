@@ -61,7 +61,9 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - Offered, not answered: Kannada "Your day", staff widget calendar events, 3:15 pm present/absent note, photo ring style, in-app "Run now" scraper.
 - In-app voice calls: enquiry only - do NOT build unless asked again.
 
-## Widget cards plan (user, 17-Oct-2026: "a data change must never need a new widget build - only a new look")
+## 📚 Learn (English / Aptitude / Technical) - PLAN ONLY, read ROADMAP-learn.md; build only when the user says (17-Oct)
+
+## Widget cards plan - ON HOLD (user, 17-Oct-2026: v2 = shared all/class cards, notify, link tap, dismiss, order; Learn needs it). (user, 17-Oct-2026: "a data change must never need a new widget build - only a new look")
 - Idea: the app / cloud sync sends READY cards, the widget only draws them. Student widget w242 has `Cards.java` (fields documented
   at its top): DB2 `davan_pub/cards_by_urn/<URN>/<cardId>` = {hide, internal, needs, eligOnly, rows:[{page, pos top|bottom|at:<place>,
   title, body (b/br/small HTML), bg, color, from, until, hl, tap}]}. Any page shows top / bottom rows with no build; "at:" places so far:
