@@ -13365,7 +13365,23 @@ auth.onAuthStateChanged(async user => {
     return;
   }
   if (user) {
-    const profile = await _fetchProfile(user.uid);
+    // v1892 (user: "still takes the same time to open"): a session restore no longer waits for the profile download (a cold
+    // Firestore read, often 1-3 s on a phone) - the profile saved on this phone at the last open is used at once and the fresh
+    // one is checked in the background; if anything that changes the app differs (role, name, title, incharge ...) the page
+    // reloads once with the new one, else it is merged in silently.
+    let _cachedP = null; try { _cachedP = JSON.parse(localStorage.getItem('davan_profile_' + user.uid) || 'null'); } catch (e) {}
+    const _fastP = (!_isManualLogin && _cachedP && _cachedP.role) ? _cachedP : null;
+    const profile = _fastP || await _fetchProfile(user.uid);
+    if (_fastP) setTimeout(() => _fetchProfile(user.uid).then(fp => {
+      if (!fp || !fp.role) return;
+      try { localStorage.setItem('davan_profile_' + user.uid, JSON.stringify(fp)); } catch (e) {}
+      const sig = x => JSON.stringify(Object.keys(x || {}).sort().filter(k => !/^last|At$|_at$|seen|time|count|device|ver|token|ping/i.test(k)).map(k => [k, x[k]]));
+      if (sig(fp) !== sig(_fastP)) {
+        let again = false; try { again = Date.now() - (+sessionStorage.getItem('dv_prof_reload') || 0) < 120000; sessionStorage.setItem('dv_prof_reload', String(Date.now())); } catch (e) {}
+        if (!again && currentUser && currentUser.uid === user.uid) { console.log('[Auth] profile changed on the server - reloading once'); location.reload(); return; }
+      }
+      if (currentProfile && currentUser && currentUser.uid === user.uid) Object.assign(currentProfile, fp);
+    }).catch(() => {}), 1500);
     if (profile) {
       console.log('[AuthDebug] fire #' + _authStateFireCount, 'PROCEEDING to apply profile:', profile.name, profile.role, '(this will overwrite any current session)');
       try { localStorage.setItem('davan_profile_' + user.uid, JSON.stringify(profile)); } catch(e) {}
@@ -13546,6 +13562,9 @@ async function onLoginSuccess() {
     if (cachedCfgs && typeof cachedCfgs === 'object') ALL_SEM_CONFIGS = cachedCfgs;
   } catch(e) {}
   if (typeof lmLoadData === 'function') lmLoadData(); if (typeof renderAll === 'function') renderAll();
+  // v1892: the dashboard is drawn from this phone's saved copy - close the opening screen now (it waited for the fresh
+  // 550 KB student list from the server, up to 6 s more); the fresh data redraws the page by itself when it arrives.
+  if (Array.isArray(allStudents) && allStudents.length) { try { window.dvBootStep && window.dvBootStep(2); } catch (e) {} }
   // Fetch Firestore in background — always re-render after load
   loadFirestoreData().then(() => {
     if (typeof lmLoadData === 'function') lmLoadData(); if (typeof renderAll === 'function') renderAll();
@@ -19084,7 +19103,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1893;  // always = HTML footer version number
+const CODE_BUILD = 1894;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -30150,6 +30169,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1894', date: '17-Oct-2026 IST', note: '⚡ Opens much faster: the opening screen closes as soon as the dashboard is drawn from the phone\'s saved copy (it waited for the whole student list to download again, up to 6 s), and your saved profile is used at once instead of waiting for it from the server - fresh data still arrives a moment later by itself.' },
 { v: 'v1893', date: '17-Oct-2026 IST', note: '📊 Final Shortage no longer stays blank: it shows "Working out…" and draws within seconds; slow cloud checks and saves finish in the background.' },
 { v: 'v1892', date: '17-Oct-2026 IST', note: '⚡ Faster opening: the app\'s script files now come from the phone\'s own copy (no 3.5 MB download each time), staff and student photos show at once from the saved copy, and the admin\'s background copy of all data runs once in 6 hours, 20 s after opening (was every open, 4 s in).' },
 { v: 'v1891', date: '17-Oct-2026 IST', note: '📊 Final Shortage and IA Raw open on the 2nd Internal by themselves (once its cutoff is set) and wait for the students after a refresh instead of saying "no data".' },
@@ -30164,7 +30184,6 @@ const HTML_CHANGELOG = [
 { v: 'v1882', date: '17-Oct-2026 IST', note: '🧾 Roster: Bench · Seat column, 🗣 Hindi / Sanskrit / Urdu / Kannada counts on top, "How this works" help. Room Master Sheet: paper guide per exam (EXAM 1 · date · time · invigilator, numbered lines, total, language split, gap between exams).' },
 { v: 'v1881', date: '17-Oct-2026 IST', note: '🔔 The bell now also keeps the other pop-ups: info/warning dialogs (title + text) and the small "Saved" lines on the Widget settings page, not only the top toasts.' },
 { v: 'v1880', date: '17-Oct-2026 IST', note: '🔔 Every pop-up message (toast) - e.g. hostel complaints 48 h+, faculty auto-loaded in Internals, staff alerts - is now also kept in the 🔔 bell on the top bar, so a message you missed can be read later (newest 60 kept, same message within 10 min not repeated).' },
-{ v: 'v1879', date: '17-Oct-2026 IST', note: '🪑 Exam seats reach the student widget as ready cards (one row per exam: date, time, subject, room, bench, seat) - later seating changes need no widget update.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {

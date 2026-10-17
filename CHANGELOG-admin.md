@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1894 · 17-Oct-2026 IST
+User: "no, it still takes the same time to open". The real wait was the opening screen (dvBoot): it stayed until the fresh app_data/students (~550 KB) had downloaded (dvBootStep 2), although the dashboard was already drawn from localStorage; and a session restore first waited for the profile read (users/<uid>, a cold Firestore connection). Now the screen closes right after the cached draw, and the profile saved on the phone (davan_profile_<uid>) is used at once; the fresh profile is read in the background and the page reloads once if role / name / title etc. changed. No extra reads. Functions: auth.onAuthStateChanged handler, onLoginSuccess.
+
 ## v1893 · 17-Oct-2026 IST
 User: Final Shortage "still won't open after refresh" (2nd Internal selected, the area blank). iafRender waited on iaeEnsureFresh (lock checks, snapshot, permissions) and on iarAutoApplyBatch's cloud save before drawing. Now it shows "⏳ Working out the final shortage…" and waits at most 12 s / 6 s for those (iarSaveTA already stores the result in localStorage first, so the list is right; the cloud save finishes in the background). Function: iafRender.
 
