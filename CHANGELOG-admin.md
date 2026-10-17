@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1885 · 17-Oct-2026 IST
+User: Roster said "No seated rooms yet - open the Sitting tab first" - "why, it should show by itself". Roster now loads by itself: sitEnsureReady (new, once per session) loads the Internal list, the latest Internal, its timetable and DB1 internals/sittingAllocation, and makes the seating if missing (same as opening Sitting: one read + the usual seating save); Roster's Print / PDF call it too. Functions: sitEnsureReady, sitRosterOpen (new), intSwitchTab, sitInit, sitRosterPrint, sitRosterDownloadPDF.
+
 ## v1884 · 17-Oct-2026 IST
 User: "do the same page numbers for the Roster PDF". Roster PDF (this slot / whole day): every page's footer = room · exam time · page x of y (restarts per room) and "Print only this room: PDF pages a-b (PDF page p of T)"; page 1 top lists each room's pages (with the start time on a whole-day PDF). No data change. Function: sitRosterDownloadPDF.
 
