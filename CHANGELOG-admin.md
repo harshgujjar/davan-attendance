@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1880 · 17-Oct-2026 IST
+User: "toasts like hostel 48 hours passed, auto faculty loaded in Internals, staff alerts - after they show they should be in the 🔔 bell so I can see later". Every dvToast (and the substitution save toast) is now also saved to the 🔔 inbox (localStorage davan_notif_inbox, no Firebase reads/writes); inbox keeps 60 (was 30), "Copied" toasts skipped, the same message within 10 min moves to the top instead of repeating. Functions: dvToast, new notifFromToast, lmShowSaveToast, notifStore.
+
 ## v1879 · 17-Oct-2026 IST
 User: "data changes must never need a new widget build - build the exam internal that way now". Seat plans now also save SIT_DATA[int]._who (URN -> exam batch, ~10 KB in DB1 internals/sittingAllocation) so the cloud Sync seating (davan-scraper v2.9.2) writes a ready-made card per student to DB2 davan_pub/cards_by_urn/<URN>/exam_seat (one row per exam: date, time, subject, room, bench, seat; one update per sync). Student widget w242 (next channel) only draws such cards (Cards.java) - later data changes need no build. Function: sitAutoFillForTimeSlot.
 
