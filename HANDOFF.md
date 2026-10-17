@@ -59,3 +59,14 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - Not phone-tested yet: student 214-231 / staff 264-292 features (Your day, voice, Exams page, Xiaomi battery Fix, What's new by version).
 - Offered, not answered: Kannada "Your day", staff widget calendar events, 3:15 pm present/absent note, photo ring style, in-app "Run now" scraper.
 - In-app voice calls: enquiry only - do NOT build unless asked again.
+
+## Widget cards plan (user, 17-Oct-2026: "a data change must never need a new widget build - only a new look")
+- Idea: the app / cloud sync sends READY cards, the widget only draws them. Student widget w242 has `Cards.java` (fields documented
+  at its top): DB2 `davan_pub/cards_by_urn/<URN>/<cardId>` = {hide, internal, needs, eligOnly, rows:[{page, pos top|bottom|at:<place>,
+  title, body (b/br/small HTML), bg, color, from, until, hl, tap}]}. Any page shows top / bottom rows with no build; "at:" places so far:
+  internals `at:examDays`. Built-in parts a card can hide: `examDays`, `todaySeat`.
+- DONE: exam seats (card `exam_seat`, written by davan-scraper sync v2.9.2 `_write_exam_seat_cards`, Sync seating job 4x a day;
+  subject comes from staff app v1879 `_who` URN -> batch).
+- NEXT (user will say when): today's timetable / class changes, attendance, today's sheet, notices -> one card writer each (staff app
+  or sync), no widget build. Then the same `Cards.java` for the STAFF widget (one build). A build only for a new look, new phone
+  ability (alarm / notification type / button), or Android fixes.

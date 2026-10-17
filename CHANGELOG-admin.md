@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1879 · 17-Oct-2026 IST
+User: "data changes must never need a new widget build - build the exam internal that way now". Seat plans now also save SIT_DATA[int]._who (URN -> exam batch, ~10 KB in DB1 internals/sittingAllocation) so the cloud Sync seating (davan-scraper v2.9.2) writes a ready-made card per student to DB2 davan_pub/cards_by_urn/<URN>/exam_seat (one row per exam: date, time, subject, room, bench, seat; one update per sync). Student widget w242 (next channel) only draws such cards (Cards.java) - later data changes need no build. Function: sitAutoFillForTimeSlot.
+
 ## v1878 · 17-Oct-2026 IST
 User: "add this information as help in that same page". Room Master Sheet gets a fold-out "❓ How this works": Sheet n of N, printing and handing out, the 📦 paper box, ⚠ Not eligible vs 📘 New book, cells and footer, and when the Sync seating job gives students their seats. Text only, no data. Section: Room Master Sheet panel HTML.
 
