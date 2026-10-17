@@ -2,8 +2,11 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
-## v1881 · 17-Oct-2026 IST
+## v1882 · 17-Oct-2026 IST
 User: Roster has no bench / seat, wants a Hindi / Sanskrit / Urdu (rest Kannada) count on top, and help; the Room Master Sheet paper guide "is not clear", wants Sl No, gaps and the invigilator. Roster (screen, print, PDF): Bench · Seat column ("C · 7", "Dias"), 🗣 LANGUAGE line overall and per class, "❓ How this works" fold-out. Room Master Sheet guide: one block per exam in date order - "EXAM n · date · time · Invigilator: X", numbered lines (seats 1 and 3 / middle seat / dias, "every bench (A to P)"), language split for a language paper, total papers, a blank line between exams; bold headings on screen and PDF. No data change. Functions: sitRosterSeatText, sitRosterLangLines (new), sitRosterSummaryHtml, sitRosterPageHtml, sitRosterDownloadPDF, attBuildRoomMasterSheet (guide), attRoomMasterSheetHtml / PDF.
+
+## v1881 · 17-Oct-2026 IST
+User: "complete the left out". The 🔔 bell now also keeps dvAlert dialogs (title + text) and wnMsg save lines, besides dvToast / lmShowSaveToast. Local only, no Firebase cost. Functions: notifFromToast (body + icon args), dvAlert, wnMsg.
 
 ## v1880 · 17-Oct-2026 IST
 User: "toasts like hostel 48 hours passed, auto faculty loaded in Internals, staff alerts - after they show they should be in the 🔔 bell so I can see later". Every dvToast (and the substitution save toast) is now also saved to the 🔔 inbox (localStorage davan_notif_inbox, no Firebase reads/writes); inbox keeps 60 (was 30), "Copied" toasts skipped, the same message within 10 min moves to the top instead of repeating. Functions: dvToast, new notifFromToast, lmShowSaveToast, notifStore.
