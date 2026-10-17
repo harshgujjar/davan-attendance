@@ -13624,8 +13624,11 @@ async function onLoginSuccess() {
     // ── Auto-mirror ALL public data to RTDB on every admin login ──
     // Manager/VP read from davan_pub/* since Firestore is blocked for them on file://
     // Runs silently in background — no button needed, always up to date
+    // v1892 (load fast): it re-downloaded the student list, photos and every result and wrote them all back on EVERY admin open,
+    // 4 s in - while the page was still loading. Now once per 6 hours per device, 20 s after the open.
     setTimeout(async () => {
       if (!rtdb) return;
+      try { if (Date.now() - (+localStorage.getItem('davan_admin_mirror_at') || 0) < 6 * 3600e3) return; localStorage.setItem('davan_admin_mirror_at', String(Date.now())); } catch (e) {}
 
       // 1. User profiles -> davan_users
       try {
@@ -13805,7 +13808,7 @@ async function onLoginSuccess() {
         if (scsDoc.exists) await rtdb.ref('davan_pub/session_configs').set(scsDoc.data());
       } catch(e) { console.warn('[Admin auto-sync] All session configs failed:', e.message); }
 
-    }, 4000); // 4s delay — let login + Firestore auth settle
+    }, 20000); // v1892: 20 s (was 4 s) - after the page has loaded
   }
   // IA Eligibility live-status auto-publish on login — closes a real gap
   // found in production: the student portal showed nothing for a flagged
@@ -19081,7 +19084,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1891;  // always = HTML footer version number
+const CODE_BUILD = 1892;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -30147,6 +30150,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1892', date: '17-Oct-2026 IST', note: '⚡ Faster opening: the app\'s script files now come from the phone\'s own copy (no 3.5 MB download each time), staff and student photos show at once from the saved copy, and the admin\'s background copy of all data runs once in 6 hours, 20 s after opening (was every open, 4 s in).' },
 { v: 'v1891', date: '17-Oct-2026 IST', note: '📊 Final Shortage and IA Raw open on the 2nd Internal by themselves (once its cutoff is set) and wait for the students after a refresh instead of saying "no data".' },
 { v: 'v1890', date: '17-Oct-2026 IST', note: '📄 Room Master Sheet PDF: title no longer runs off the page (sheet times on their own wrapped line); shortage list is neat - one line per kind (2nd Internal / 1st & 2nd) with the names.' },
 { v: 'v1889', date: '17-Oct-2026 IST', note: '🧾 Roster: under each room line, one line per class - "I BCom: 26 · Language: Hindi 9 · Sanskrit/Urdu 1 · Kannada 16" (screen, print, PDF).' },
@@ -30161,7 +30165,6 @@ const HTML_CHANGELOG = [
 { v: 'v1880', date: '17-Oct-2026 IST', note: '🔔 Every pop-up message (toast) - e.g. hostel complaints 48 h+, faculty auto-loaded in Internals, staff alerts - is now also kept in the 🔔 bell on the top bar, so a message you missed can be read later (newest 60 kept, same message within 10 min not repeated).' },
 { v: 'v1879', date: '17-Oct-2026 IST', note: '🪑 Exam seats reach the student widget as ready cards (one row per exam: date, time, subject, room, bench, seat) - later seating changes need no widget update.' },
 { v: 'v1878', date: '17-Oct-2026 IST', note: '❓ Room Master Sheet: "How this works" help on the page - what Sheet 1 of 4 means, how to print and give sheets, Not eligible vs 📘 New book, when students get their seats.' },
-{ v: 'v1877', date: '17-Oct-2026 IST', note: '🪑 Room Master Sheet: "Group A/B/C" now named by its exam times (Sheet 1 of 4: 9:30am - Wed 28/10 …). Seats per exam time now reach the student app (portal v11.75 + Sync seating fix).' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -52264,25 +52267,37 @@ async function facPhotosSyncDb2(merged) {
     if (Object.keys(add).length) { console.log('[facPhoto] copying', Object.keys(add).length, 'photo(s) to DB2'); facPhotosToDb2(add); }
   } catch (e) { console.warn('[facPhoto] DB2 sync', e && e.message); }
 }
-async function facPreloadPhotos() {
+/* v1892 (user, 17-Oct-2026 "make the staff app load fast"): the photo lists (faculty + students) are kept on the phone (IndexedDB
+   davan_kv). An open draws from that copy at once and refreshes it in the background when it is older than 10 min (was: 3 + 3
+   reads one after another on every open, before any photo showed). The sources are read in parallel, and the RTDB copy gets only
+   the photos it is missing (was: the whole Firestore list re-uploaded by every login). dvKvStale(key) after an upload. */
+const _DVKV = { db: 'davan_kv', st: 'kv' };
+function _dvKvOpen() { return new Promise((res, rej) => { try { const r = indexedDB.open(_DVKV.db, 1); r.onupgradeneeded = () => r.result.createObjectStore(_DVKV.st); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } }); }
+async function dvKvGet(k) { try { const d = await _dvKvOpen(); return await new Promise(res => { const q = d.transaction(_DVKV.st).objectStore(_DVKV.st).get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch (e) { return null; } }
+async function dvKvPut(k, v) { try { const d = await _dvKvOpen(); d.transaction(_DVKV.st, 'readwrite').objectStore(_DVKV.st).put(v, k); } catch (e) {} }
+function dvKvStale(k) { dvKvGet(k).then(c => { if (c) { c.at = 0; dvKvPut(k, c); } }).catch(() => {}); }
+const DV_PHOTO_FRESH_MS = 10 * 60e3;
+/* cached loader: copy at once (refresh in the background when old), else wait for the network; force = always wait for the network */
+async function _dvPhotoCached(key, fetchFn, onBg, force) {
+  const c = force ? null : await dvKvGet(key);
+  if (c && c.data && Object.keys(c.data).length) {
+    if (Date.now() - (c.at || 0) > DV_PHOTO_FRESH_MS) setTimeout(() => { fetchFn().then(m => { dvKvPut(key, { data: m, at: Date.now() }); onBg(m); }).catch(() => {}); }, 2500);
+    return c.data;
+  }
+  const m = await fetchFn(); if (m && Object.keys(m).length) dvKvPut(key, { data: m, at: Date.now() }); return m;
+}
+function _dvMissing(have, from) { const o = {}; Object.keys(from || {}).forEach(k => { if (from[k] && (have || {})[k] !== from[k] && !/[.#$\[\]\/]/.test(k)) o[k] = from[k]; }); return o; }
+async function facPreloadPhotos(force) {
+  const m = await _dvPhotoCached('fac_photos', _facFetchPhotos, mm => { facPhotos = mm; if (typeof _facAvatarInject === 'function') _facAvatarInject(); }, force);
+  facPhotos = m; return m;
+}
+async function _facFetchPhotos() {
   const merged = {};
-  if (rtdb) {
-    try {
-      const snap = await rtdb.ref('davan_pub/faculty_photos').once('value');
-      const v = snap.val();
-      if (v) Object.assign(merged, v);
-    } catch(e) { /* ignore */ }
-  }
-  if (db) {
-    try {
-      const doc = await db.collection('app_data').doc('faculty_photos').get();
-      if (doc.exists) {
-        const fsP = doc.data() || {};
-        Object.assign(merged, fsP);
-        if (rtdb && Object.keys(fsP).length) rtdb.ref('davan_pub/faculty_photos').update(fsP).catch(()=>{});
-      }
-    } catch(e) { /* ignore */ }
-  }
+  const [v, fsP] = await Promise.all([
+    rtdb ? rtdb.ref('davan_pub/faculty_photos').once('value').then(s => s.val() || {}).catch(() => ({})) : {},
+    db ? db.collection('app_data').doc('faculty_photos').get().then(d => d.exists ? (d.data() || {}) : {}).catch(() => ({})) : {}]);
+  Object.assign(merged, v, fsP);
+  { const add = _dvMissing(v, fsP); if (rtdb && Object.keys(add).length) rtdb.ref('davan_pub/faculty_photos').update(add).catch(()=>{}); }
   // v1628: the PUC staff list's photos (RTDB puc_faculty, small) fill in anyone the degree list has no photo for - loaded here,
   // with the degree photos, so every page (Staff Directory, board, dashboards) has them on its first draw, not only after the
   // PUC board loads. Degree photos always win.
@@ -52312,7 +52327,6 @@ async function facPreloadPhotos() {
       }
     } catch(e) { /* ignore */ }
   }
-  facPhotos = merged;
   try { facPhotosSyncDb2(merged); } catch (e) {}
   return merged;
 }
@@ -52502,7 +52516,7 @@ async function facUploadPhoto(name, file, statusCb) {
     // v954a: append a cache-busting version so browsers don't keep showing the OLD cached
     // image when a faculty's photo is re-uploaded to the same Cloudinary public_id/URL.
     const url = data.secure_url + (data.secure_url.includes('?') ? '&' : '?') + 'v=' + Date.now();
-    facPhotos[key] = url;
+    facPhotos[key] = url; dvKvStale('fac_photos');
     try {
       await db.collection('app_data').doc('faculty_photos').set({ [key]: url }, { merge: true });
       if (rtdb) rtdb.ref('davan_pub/faculty_photos').update({ [key]: url }).catch(()=>{});
@@ -52526,45 +52540,21 @@ async function facUploadPhoto(name, file, statusCb) {
 // ── Preload photos at login — so cards always have photos regardless of which panel opened them
 // Strategy: try ALL sources and merge them so no photo is ever missing.
 // Order: RTDB pub → RTDB auth → Firestore (authoritative, wins on conflict)
-async function rcPreloadPhotos() {
+async function rcPreloadPhotos(force) {
+  const m = await _dvPhotoCached('stu_photos', _rcFetchPhotos, mm => { rcPhotos = mm; _stuAvatarInject(); }, force);
+  rcPhotos = m; return m;
+}
+// Order: RTDB pub -> RTDB auth -> Firestore (authoritative, wins on conflict); v1892: read in parallel
+async function _rcFetchPhotos() {
   const merged = {};
-
-  // 1. Try RTDB davan_pub/student_photos (fast, always works for all roles)
-  if (rtdb) {
-    try {
-      const snap = await rtdb.ref('davan_pub/student_photos').once('value');
-      const v = snap.val();
-      if (v) { Object.assign(merged, v); console.log('[rcPhotos] RTDB pub:', Object.keys(v).length, 'photos'); }
-    } catch(e) { console.warn('[rcPhotos] RTDB pub failed:', e.message); }
-
-    // 2. Also try RTDB davan_student_photos (auth path — may have older uploads)
-    try {
-      const snap2 = await rtdb.ref('davan_student_photos').once('value');
-      const v2 = snap2.val();
-      if (v2) { Object.assign(merged, v2); console.log('[rcPhotos] RTDB auth:', Object.keys(v2).length, 'photos'); }
-    } catch(e) { /* silently ignore */ }
-  }
-
-  // 3. Try Firestore app_data/student_photos — all roles can read (rules: auth != null)
-  // This catches photos uploaded before RTDB mirroring was added
-  if (db) {
-    try {
-      const doc = await db.collection('app_data').doc('student_photos').get();
-      if (doc.exists) {
-        const fsPhotos = doc.data() || {};
-        const before = Object.keys(merged).length;
-        Object.assign(merged, fsPhotos); // Firestore wins on conflict (most authoritative)
-        // Backfill RTDB with any photos missing from it
-        if (rtdb && Object.keys(fsPhotos).length > 0) {
-          rtdb.ref('davan_pub/student_photos').update(fsPhotos).catch(() => {});
-        }
-      }
-    } catch(e) {
-      console.warn('[rcPhotos] Firestore read failed:', e.code || e.message);
-    }
-  }
-
-  rcPhotos = merged;
+  const [v, v2, fsPhotos] = await Promise.all([
+    rtdb ? rtdb.ref('davan_pub/student_photos').once('value').then(s => s.val() || {}).catch(e => { console.warn('[rcPhotos] RTDB pub failed:', e.message); return {}; }) : {},
+    rtdb ? rtdb.ref('davan_student_photos').once('value').then(s => s.val() || {}).catch(() => ({})) : {},
+    // catches photos uploaded before RTDB mirroring was added
+    db ? db.collection('app_data').doc('student_photos').get().then(d => d.exists ? (d.data() || {}) : {}).catch(e => { console.warn('[rcPhotos] Firestore read failed:', e.code || e.message); return {}; }) : {}]);
+  Object.assign(merged, v, v2, fsPhotos);
+  // Backfill RTDB with the photos missing from it (only those - v1892)
+  { const add = _dvMissing(v, fsPhotos); if (rtdb && Object.keys(add).length) rtdb.ref('davan_pub/student_photos').update(add).catch(() => {}); }
   return merged;
 }
 
@@ -55992,7 +55982,7 @@ async function rcDoSingleUploadPanel(e) {
   const url = await rcCloudinaryUpload(file, urn);
   if (!url) { if(msg) { msg.style.color='var(--danger)'; msg.textContent='❌ Upload failed'; } return; }
 
-  rcPhotos[urn] = url;
+  rcPhotos[urn] = url; dvKvStale('stu_photos');
   await _rcSavePhotoToFirebase(urn, url);
 
   const st = allStudents.find(x => (x.urn||x.seat_no) === urn);
@@ -56061,7 +56051,7 @@ async function rcDoBulkUpload(e) {
     done++;
     if (url) {
       const cleanUrn = urn.trim();
-      rcPhotos[cleanUrn] = url;
+      rcPhotos[cleanUrn] = url; dvKvStale('stu_photos');
       ok++;
       // ── Save immediately after each upload — never batch ──
       try {
@@ -76948,7 +76938,7 @@ async function dlRefreshPhotos() {
   if (btn) { btn.textContent = '⏳ Refreshing…'; btn.disabled = true; }
   // Force re-fetch from all Firebase sources
   try {
-    rcPhotosReady = rcPreloadPhotos();
+    rcPhotosReady = rcPreloadPhotos(true);
     await rcPhotosReady;
   } catch(e) {}
   if (_dlPhotoData) {

@@ -1,5 +1,5 @@
 // sw.js — Davan Attendance System v6
-const CACHE_VERSION = 'davan-v11';   // 07-Oct-2026: renotify (admin v1794); 15-Oct-2026: Super Admin alerts (admin v1853)
+const CACHE_VERSION = 'davan-v12';   // 17-Oct-2026: admin script files cache-first (admin v1892);   // 07-Oct-2026: renotify (admin v1794); 15-Oct-2026: Super Admin alerts (admin v1853)
 const SA_CACHE = 'davan-sa';       // v1853: the Super Admin's photo for his alerts (kept across versions)
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
 const ICON_URL = 'https://harshgujjar.github.io/davan-attendance/icon-192.png';
@@ -70,6 +70,21 @@ self.addEventListener('fetch', e => {
     let path;
     try { path = new URL(url).pathname; } catch (err) { path = ''; }
     if (!OWN_PAGES.includes(path)) return;
+  }
+
+  // 17-Oct-2026 (admin v1892, "make the staff app load fast"): the app's own script files js/admin-<n>-<hash>.js never change (a new
+  // build gets a new name), so they come from the cache at once - no network wait for ~3.5 MB on every open (was: network first,
+  // GitHub Pages lets the browser keep them only 10 min). When a new build's file arrives, the older files of that slot are dropped.
+  const am = url.match(/\/js\/admin-(\d+)-[0-9a-f]+\.js$/);
+  if (am) {
+    e.respondWith(caches.open(CACHE_VERSION).then(c => c.match(e.request).then(hit => hit || fetch(e.request).then(res => {
+      if (res.ok && res.type === 'basic') {
+        c.put(e.request, res.clone());
+        c.keys().then(ks => ks.forEach(k => { const m = k.url.match(/\/js\/admin-(\d+)-[0-9a-f]+\.js$/); if (m && m[1] === am[1] && k.url !== url) c.delete(k); }));
+      }
+      return res;
+    }))));
+    return;
   }
 
   e.respondWith(
