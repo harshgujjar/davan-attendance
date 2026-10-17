@@ -14,8 +14,8 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## Current versions
 | App | Now | Notes |
 |---|---|---|
-| Staff app (src/index.src.html -> index.html) | v1876 | details: CHANGELOG-admin.md |
-| Student portal (student_portal.html) | v11.74 | CHANGELOG-portal.md |
+| Staff app (src/index.src.html -> index.html) | v1877 | details: CHANGELOG-admin.md |
+| Student portal (student_portal.html) | v11.75 | CHANGELOG-portal.md |
 | PUC app (puc.html) / parent_ptm | v5.246 / v4.7.3 | v4.7.3 Test scheme "🔁 Apply max / pass to published cards" (fix pass mark without republish); v5.246 Mid Term % out of 80; Mid Term round in PTM view logs; a student missing from an exam bucket is filled from All Exams (AISHWARYA R B 1D26004 missing from mid_term/1PUC-COM-A cloud scrape 16-Oct) |
 | Student widget | public build 241 = w193 (16-Oct, hand release); next = 241 (241: "For the 2nd internal" per-subject window card on Attendance + Internals) (240 (240: morning brief says holiday on a holiday) (239: hostel students on approved leave get no class reminders / next / tomorrow / morning "no class" until the last leave day; leave from StuHostel snapshot) (238: morning brief always spoken + "Dear name" on all voice) (237: What's new fold; 236: internal card from 60 days; 235: hostel fee on Today, page 2 filters All/Installed/New/Old/Hostel) (232: exam page no empty / "Regular Class" lines; 233: father name from results_by_urn / parent_overrides when portal_students has none; 234: ▶ day button on the name line, phone · F/o father plain below, main layout renamed widget_top) - public 16-Oct 9:15 pm. Test student V NEESHA (widget code KPGYNC) is in student-widget-next.json codes = gets every next build at once | source davan-scraper widgets/student |
 | Staff widget | public build 295 = w239 (16-Oct, hand release); next 295 (295: morning brief always spoken) (293: ☁️ alerts; 294: What's new fold) | source davan-scraper widgets/staff |
@@ -51,6 +51,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## Open items
 - Exam seating (v1866): Option A strict - 4 classes per room (sitPlanSlotSeatingA), 2 sides x 8 benches; regenerated when Sitting or Attendance tab opens. Not tested on real data yet.
 - IA eligibility (v1860): 2nd internal = only classes after the IA1 cutoff (5-Sep) - students may look fine on the widget (whole semester) but be short in that window. +1/+2 rule now applied live. Window % now shown to students: portal v11.73 Attendance card, widget 241 (staff app v1861 publishes ia_live_status IA2 row .w). Not phone-tested.
+- Seating per exam time (v1877): davan-scraper sync v2.9.1 writes sitting_by_urn perDay rows {date,time,room,seatNo,bench} for the newest Internal with SLOT plans; portal v11.75 shows them. Student widget still reads perDay date->room only (2 exams on one day: shows the last room, top-level bench = first exam) - next widget build should show time + bench per row.
 - V Sem BCA Software Engineering: user to confirm if Vijayalakshmi teaches the MORNING batch (then section B - undo the swap in Edit Allocation).
 - PUC: rovelabs login is typed into puc.html (public) - user to change the password; offered to remove the prefill.
 - PUC Mid-Term: re-scrape when 2PUC COM-B / C marks are entered. 16-Oct: 2PUC BS + EC have no Mid Term on the portal (all classes); AISHWARYA R B (1D26004) has no English / History Mid Term (English 53 typed as "IA - 3"). Missing-students check = compare puc_marks/<AY>/<exam>/<class> with /all (public REST read).

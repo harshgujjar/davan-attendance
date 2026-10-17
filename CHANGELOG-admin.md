@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1877 · 17-Oct-2026 IST
+User: "what is this Group A to D" + "this allocation has not reached students". A Room Master Sheet group (one printed sheet) = the exam times when the same students sit in that room; it is now titled by those times ("Sheet 1 of 4: 9:30am - Wed 28/10, Thu 29/10"). Students: the cloud Sync seating kept one seat per student, but each exam time now has its own room and seat - davan-scraper sync v2.9.1 writes one perDay row per exam {date, time, room, seatNo, bench} to DB2 davan_pub/sitting_by_urn (same one write, no new reads). Pairs with portal v11.75. Function: attBuildRoomMasterSheet (groupLabel).
+
 ## v1876 · 17-Oct-2026 IST
 User: bundle guide said "Paper 1" - name the exam subject; 2nd Internal shortage list showed students short only in the 1st Internal (marked "Not eligible for 1st Internal" on the row, e.g. H NAYAZ). Now eligibility is judged for the Internal being seated: only students short for it are "Not eligible" (both = "1st & 2nd"); short only in the 1st = eligible, marked 📘 New book (new blue book - writing for the 1st time), in its own list on the sheet, PDF, Excel and roster pages. No new Firebase reads. Functions: sitEligibilityInfo (new), sitRosterEligibilityTag, sitRosterNewBook (new), attBuildRoomMasterSheet (guide + newBookList), attRoomMasterSheetHtml / PDF / Excel, sitRosterPageHtml.
 
