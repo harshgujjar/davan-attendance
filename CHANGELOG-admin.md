@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1897 · 17-Oct-2026 IST
+User: "other pages have the same 800 px limit - make all proper and mobile friendly". Page wrappers capped at 600-1000 px now use the full width (panel-branding, admin-settings, class-settings cs-rows, cfb/scr/sa/ntf/rates/flw/gsw roots, fac-dob, academic-calendar); small form boxes keep their size. New CSS: .url-bar wraps; on phones (<=768 px) fields / images / cards never exceed the screen; <=480 px the Shortage Summary sticky header fits and 2-column inline grids stack. Checked headless at 390 px: no page's static part is wider than the screen (pages drawn from data not checked). No data change.
+
 ## v1896 · 17-Oct-2026 IST
 User: "the cloud notifications to Super Admin come to mobile correctly but not to my laptop". DB2 davan_pub/sa_push was empty: the browser had renewed its push address, the worker dropped the dead one (404 / 410) and nothing re-added it. New saAutoKeep (run from saBoot once the Super Admin is signed in, computers only, notifications allowed, not removed with "Remove this laptop") reads its own davan_pub/sa_push/<key> (1 tiny read per open) and writes it again when missing or changed. saThisLaptop remembers add / remove in localStorage sa_lap.
 
