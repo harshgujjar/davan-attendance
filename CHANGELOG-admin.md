@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1895 · 17-Oct-2026 IST
+User (screenshot): "this page is small, I have so much space". The Faculty Class Alerts & Staff Widgets page (panel-faculty-alerts) was wrapped in max-width 800px; it now uses the full width, so the Faculty Subscription Status table no longer scrolls sideways. No data change.
+
 ## v1894 · 17-Oct-2026 IST
 User: "no, it still takes the same time to open". The real wait was the opening screen (dvBoot): it stayed until the fresh app_data/students (~550 KB) had downloaded (dvBootStep 2), although the dashboard was already drawn from localStorage; and a session restore first waited for the profile read (users/<uid>, a cold Firestore connection). Now the screen closes right after the cached draw, and the profile saved on the phone (davan_profile_<uid>) is used at once; the fresh profile is read in the background and the page reloads once if role / name / title etc. changed. No extra reads. Functions: auth.onAuthStateChanged handler, onLoginSuccess.
 
