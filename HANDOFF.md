@@ -61,7 +61,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - Offered, not answered: Kannada "Your day", staff widget calendar events, 3:15 pm present/absent note, photo ring style, in-app "Run now" scraper.
 - In-app voice calls: enquiry only - do NOT build unless asked again.
 
-## 📚 Learn (English / Aptitude / Technical) - PLAN ONLY, read ROADMAP-learn.md; build only when the user says (17-Oct)
+## 🎯 Placement page (English / Aptitude / Technical; teaches: Learn -> Practice -> Test) - PLAN ONLY, read ROADMAP-placement.md; build only when the user says (17-Oct)
 
 ## Widget cards plan - ON HOLD (user, 17-Oct-2026: v2 = shared all/class cards, notify, link tap, dismiss, order; Learn needs it). (user, 17-Oct-2026: "a data change must never need a new widget build - only a new look")
 - Idea: the app / cloud sync sends READY cards, the widget only draws them. Student widget w242 has `Cards.java` (fields documented
