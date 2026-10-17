@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1876 · 17-Oct-2026 IST
+User: bundle guide said "Paper 1" - name the exam subject; 2nd Internal shortage list showed students short only in the 1st Internal (marked "Not eligible for 1st Internal" on the row, e.g. H NAYAZ). Now eligibility is judged for the Internal being seated: only students short for it are "Not eligible" (both = "1st & 2nd"); short only in the 1st = eligible, marked 📘 New book (new blue book - writing for the 1st time), in its own list on the sheet, PDF, Excel and roster pages. No new Firebase reads. Functions: sitEligibilityInfo (new), sitRosterEligibilityTag, sitRosterNewBook (new), attBuildRoomMasterSheet (guide + newBookList), attRoomMasterSheetHtml / PDF / Excel, sitRosterPageHtml.
+
 ## v1875 · 16-Oct-2026 IST
 User: "why not only 2 batches per room - A B A on every bench" and section letters showed on every class. sitPlanSlotSeatingA: every room = one class on seats 1 and 3 of all benches (32), another class in the middle (16); a class that runs out is followed by the next one not in the other column; the pair per room is chosen by a small beam search for the fewest rooms (dias counted), then the fewest classes per room. sitUrnToYcSec adds the section letter only when that class has 2+ sections; the Room Master Sheet uses it too. No new reads or writes.
 
