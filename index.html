@@ -622,8 +622,36 @@
   /* v1898 load report: time every Firestore / RTDB read */
   (function(){try{var T=window.DVP;if(!T||!window.firebase)return;var now=function(){return performance.now();};
    var R=firebase.database&&firebase.database.Reference;if(R&&R.prototype&&R.prototype.once){var o=R.prototype.once;R.prototype.once=function(){var s=now(),p='';try{p=decodeURIComponent(this.toString().replace(/^https?:\/\/[^\/]+/,''));}catch(e){}var pr=o.apply(this,arguments);if(pr&&pr.then)pr.then(function(){T.add('rtdb',p||'/',now()-s);},function(){T.add('rtdb',(p||'/')+' FAILED',now()-s);});return pr;};}
-   var F=firebase.firestore;if(F&&F.DocumentReference){var g=F.DocumentReference.prototype.get;F.DocumentReference.prototype.get=function(){var s=now(),p=this.path;var pr=g.apply(this,arguments);pr.then(function(){T.add('firestore',p,now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
-   if(F&&F.Query){var q=F.Query.prototype.get;F.Query.prototype.get=function(){var s=now(),p='';try{p=this.id||(this._delegate&&this._delegate._query&&this._delegate._query.path.canonicalString())||'query';}catch(e){p='query';}var pr=q.apply(this,arguments);pr.then(function(sn){T.add('firestore',p+' ('+(sn&&sn.size)+' docs)',now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
+   /* v1899 (load report 17-Oct-2026: every Firestore read waited 6-7 s on the SDK's shared connection, REST answers took 0.2-0.5 s):
+      a one-time read of a document or of a whole collection goes over Firestore's REST API with the signed-in user's token (same
+      security rules) and gives back the same kind of snapshot (exists, id, ref, data(), get(field) / docs, size, empty, forEach).
+      Any REST failure (except "not found") falls back to the SDK read, so nothing can be lost. Live listeners and writes are unchanged. */
+   var F=firebase.firestore;
+   function val(v){if(!v||typeof v!=='object')return null;if('stringValue'in v)return v.stringValue;if('integerValue'in v)return Number(v.integerValue);if('doubleValue'in v)return Number(v.doubleValue);if('booleanValue'in v)return v.booleanValue;if('nullValue'in v)return null;
+    if('mapValue'in v){var o={},f=(v.mapValue&&v.mapValue.fields)||{};for(var k in f)o[k]=val(f[k]);return o;}if('arrayValue'in v)return((v.arrayValue&&v.arrayValue.values)||[]).map(val);
+    if('timestampValue'in v){try{return F.Timestamp.fromDate(new Date(v.timestampValue));}catch(e){return v.timestampValue;}}
+    if('referenceValue'in v){try{return firebase.firestore().doc(v.referenceValue.replace(/^projects\/[^\/]+\/databases\/[^\/]+\/documents\//,''));}catch(e){return v.referenceValue;}}
+    if('geoPointValue'in v){try{return new F.GeoPoint(v.geoPointValue.latitude||0,v.geoPointValue.longitude||0);}catch(e){return v.geoPointValue;}}
+    if('bytesValue'in v){try{return F.Blob.fromBase64String(v.bytesValue);}catch(e){return v.bytesValue;}}return null;}
+   function mk(ref,fields){var d=function(){if(!fields)return undefined;var o={};for(var k in fields)o[k]=val(fields[k]);return o;};
+    return{exists:!!fields,id:ref.id,ref:ref,metadata:{fromCache:false,hasPendingWrites:false,isEqual:function(){return false;}},data:d,
+     get:function(fp){var x=d();String(fp).split('.').forEach(function(k){x=x==null?undefined:x[k];});return x;},isEqual:function(){return false;}};}
+   function base(fs){return'https://firestore.googleapis.com/v1/projects/'+fs.app.options.projectId+'/databases/(default)/documents/';}
+   function enc(p){return p.split('/').map(encodeURIComponent).join('/');}
+   function tok(fs){if(!fs||!fs.app||fs.app.name!=='[DEFAULT]')return Promise.reject(new Error('other app'));var u=firebase.auth().currentUser;return u?u.getIdToken():Promise.reject(new Error('not signed in'));}
+   function restDoc(ref){return tok(ref.firestore).then(function(t){return fetch(base(ref.firestore)+enc(ref.path),{headers:{Authorization:'Bearer '+t}});}).then(function(r){
+    if(r.status===404)return mk(ref,null);if(!r.ok)throw new Error('REST '+r.status);return r.json().then(function(j){return mk(ref,j.fields||{});});});}
+   function restCol(col){var out=[];return tok(col.firestore).then(function(t){var page=function(pt){return fetch(base(col.firestore)+enc(col.path)+'?pageSize=300'+(pt?'&pageToken='+encodeURIComponent(pt):''),{headers:{Authorization:'Bearer '+t}}).then(function(r){
+     if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(j){(j.documents||[]).forEach(function(dd){var id=dd.name.split('/').pop();out.push(mk(col.doc(id),dd.fields||{}));});return j.nextPageToken?page(j.nextPageToken):null;});};return page('');}).then(function(){
+     return{docs:out,size:out.length,empty:!out.length,query:col,metadata:{fromCache:false,hasPendingWrites:false},forEach:function(fn,th){out.forEach(fn,th);},docChanges:function(){return[];}};});}
+   var useRest=function(o){return !(o&&o.source==='cache')&&window.fetch&&!window.DV_FS_NO_REST;};
+   if(F&&F.DocumentReference){var g=F.DocumentReference.prototype.get;F.DocumentReference.prototype.get=function(o){var s=now(),p=this.path,me=this,a=arguments;
+    var pr=useRest(o)?restDoc(me).then(function(x){T.add('firestore',p+' (fast)',now()-s);return x;},function(e){T.add('firestore',p+' REST no: '+(e&&e.message),now()-s);return g.apply(me,a);}):g.apply(me,a);
+    pr.then(function(){T.add('firestore',p,now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
+   if(F&&F.Query){var q=F.Query.prototype.get;F.Query.prototype.get=function(o){var s=now(),me=this,a=arguments,p='';try{p=this.id||(this._delegate&&this._delegate._query&&this._delegate._query.path.canonicalString())||'query';}catch(e){p='query';}
+    var isCol=F.CollectionReference&&me instanceof F.CollectionReference;
+    var pr=(isCol&&useRest(o))?restCol(me).then(function(x){T.add('firestore',p+' (fast, '+x.size+' docs)',now()-s);return x;},function(e){T.add('firestore',p+' REST no: '+(e&&e.message),now()-s);return q.apply(me,a);}):q.apply(me,a);
+    pr.then(function(sn){T.add('firestore',p+' ('+(sn&&sn.size)+' docs)',now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
   }catch(e){}})();
   </script>
   <style>
@@ -8635,7 +8663,7 @@
 <!-- ═══════════════════════════════════════════════════════════════
      JAVASCRIPT
 ═══════════════════════════════════════════════════════════════ -->
-<script src="js/admin-1-bcc8d2b466.js"></script>
+<script src="js/admin-1-9870937092.js"></script>
 <!-- ══════════════════════════════════════════════════════════
      FOLLOW-UP RECORD MODAL
 ════════════════════════════════════════════════════════════ -->
@@ -9013,6 +9041,7 @@ function renderExemptions() {
   }
 
   try {
+    if (/github\.io$/.test(location.hostname)) throw new Error('no backend on GitHub Pages');   // v1899: was a 5.5 s 404 on every open
     const res  = await fetch('/api/status');
     const data = await res.json();
 
@@ -9221,7 +9250,7 @@ function renderExemptions() {
   </div>
 </div>
 
-<script src="js/admin-6-6e8aabe2e5.js"></script>
+<script src="js/admin-6-bc42b152ca.js"></script>
 
 <script src="js/admin-7-2de10356f8.js"></script>
 

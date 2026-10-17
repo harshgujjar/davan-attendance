@@ -621,8 +621,36 @@
   /* v1898 load report: time every Firestore / RTDB read */
   (function(){try{var T=window.DVP;if(!T||!window.firebase)return;var now=function(){return performance.now();};
    var R=firebase.database&&firebase.database.Reference;if(R&&R.prototype&&R.prototype.once){var o=R.prototype.once;R.prototype.once=function(){var s=now(),p='';try{p=decodeURIComponent(this.toString().replace(/^https?:\/\/[^\/]+/,''));}catch(e){}var pr=o.apply(this,arguments);if(pr&&pr.then)pr.then(function(){T.add('rtdb',p||'/',now()-s);},function(){T.add('rtdb',(p||'/')+' FAILED',now()-s);});return pr;};}
-   var F=firebase.firestore;if(F&&F.DocumentReference){var g=F.DocumentReference.prototype.get;F.DocumentReference.prototype.get=function(){var s=now(),p=this.path;var pr=g.apply(this,arguments);pr.then(function(){T.add('firestore',p,now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
-   if(F&&F.Query){var q=F.Query.prototype.get;F.Query.prototype.get=function(){var s=now(),p='';try{p=this.id||(this._delegate&&this._delegate._query&&this._delegate._query.path.canonicalString())||'query';}catch(e){p='query';}var pr=q.apply(this,arguments);pr.then(function(sn){T.add('firestore',p+' ('+(sn&&sn.size)+' docs)',now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
+   /* v1899 (load report 17-Oct-2026: every Firestore read waited 6-7 s on the SDK's shared connection, REST answers took 0.2-0.5 s):
+      a one-time read of a document or of a whole collection goes over Firestore's REST API with the signed-in user's token (same
+      security rules) and gives back the same kind of snapshot (exists, id, ref, data(), get(field) / docs, size, empty, forEach).
+      Any REST failure (except "not found") falls back to the SDK read, so nothing can be lost. Live listeners and writes are unchanged. */
+   var F=firebase.firestore;
+   function val(v){if(!v||typeof v!=='object')return null;if('stringValue'in v)return v.stringValue;if('integerValue'in v)return Number(v.integerValue);if('doubleValue'in v)return Number(v.doubleValue);if('booleanValue'in v)return v.booleanValue;if('nullValue'in v)return null;
+    if('mapValue'in v){var o={},f=(v.mapValue&&v.mapValue.fields)||{};for(var k in f)o[k]=val(f[k]);return o;}if('arrayValue'in v)return((v.arrayValue&&v.arrayValue.values)||[]).map(val);
+    if('timestampValue'in v){try{return F.Timestamp.fromDate(new Date(v.timestampValue));}catch(e){return v.timestampValue;}}
+    if('referenceValue'in v){try{return firebase.firestore().doc(v.referenceValue.replace(/^projects\/[^\/]+\/databases\/[^\/]+\/documents\//,''));}catch(e){return v.referenceValue;}}
+    if('geoPointValue'in v){try{return new F.GeoPoint(v.geoPointValue.latitude||0,v.geoPointValue.longitude||0);}catch(e){return v.geoPointValue;}}
+    if('bytesValue'in v){try{return F.Blob.fromBase64String(v.bytesValue);}catch(e){return v.bytesValue;}}return null;}
+   function mk(ref,fields){var d=function(){if(!fields)return undefined;var o={};for(var k in fields)o[k]=val(fields[k]);return o;};
+    return{exists:!!fields,id:ref.id,ref:ref,metadata:{fromCache:false,hasPendingWrites:false,isEqual:function(){return false;}},data:d,
+     get:function(fp){var x=d();String(fp).split('.').forEach(function(k){x=x==null?undefined:x[k];});return x;},isEqual:function(){return false;}};}
+   function base(fs){return'https://firestore.googleapis.com/v1/projects/'+fs.app.options.projectId+'/databases/(default)/documents/';}
+   function enc(p){return p.split('/').map(encodeURIComponent).join('/');}
+   function tok(fs){if(!fs||!fs.app||fs.app.name!=='[DEFAULT]')return Promise.reject(new Error('other app'));var u=firebase.auth().currentUser;return u?u.getIdToken():Promise.reject(new Error('not signed in'));}
+   function restDoc(ref){return tok(ref.firestore).then(function(t){return fetch(base(ref.firestore)+enc(ref.path),{headers:{Authorization:'Bearer '+t}});}).then(function(r){
+    if(r.status===404)return mk(ref,null);if(!r.ok)throw new Error('REST '+r.status);return r.json().then(function(j){return mk(ref,j.fields||{});});});}
+   function restCol(col){var out=[];return tok(col.firestore).then(function(t){var page=function(pt){return fetch(base(col.firestore)+enc(col.path)+'?pageSize=300'+(pt?'&pageToken='+encodeURIComponent(pt):''),{headers:{Authorization:'Bearer '+t}}).then(function(r){
+     if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(j){(j.documents||[]).forEach(function(dd){var id=dd.name.split('/').pop();out.push(mk(col.doc(id),dd.fields||{}));});return j.nextPageToken?page(j.nextPageToken):null;});};return page('');}).then(function(){
+     return{docs:out,size:out.length,empty:!out.length,query:col,metadata:{fromCache:false,hasPendingWrites:false},forEach:function(fn,th){out.forEach(fn,th);},docChanges:function(){return[];}};});}
+   var useRest=function(o){return !(o&&o.source==='cache')&&window.fetch&&!window.DV_FS_NO_REST;};
+   if(F&&F.DocumentReference){var g=F.DocumentReference.prototype.get;F.DocumentReference.prototype.get=function(o){var s=now(),p=this.path,me=this,a=arguments;
+    var pr=useRest(o)?restDoc(me).then(function(x){T.add('firestore',p+' (fast)',now()-s);return x;},function(e){T.add('firestore',p+' REST no: '+(e&&e.message),now()-s);return g.apply(me,a);}):g.apply(me,a);
+    pr.then(function(){T.add('firestore',p,now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
+   if(F&&F.Query){var q=F.Query.prototype.get;F.Query.prototype.get=function(o){var s=now(),me=this,a=arguments,p='';try{p=this.id||(this._delegate&&this._delegate._query&&this._delegate._query.path.canonicalString())||'query';}catch(e){p='query';}
+    var isCol=F.CollectionReference&&me instanceof F.CollectionReference;
+    var pr=(isCol&&useRest(o))?restCol(me).then(function(x){T.add('firestore',p+' (fast, '+x.size+' docs)',now()-s);return x;},function(e){T.add('firestore',p+' REST no: '+(e&&e.message),now()-s);return q.apply(me,a);}):q.apply(me,a);
+    pr.then(function(sn){T.add('firestore',p+' ('+(sn&&sn.size)+' docs)',now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
   }catch(e){}})();
   </script>
   <style>
@@ -19138,7 +19166,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1898;  // always = HTML footer version number
+const CODE_BUILD = 1899;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -19678,30 +19706,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   _facultyResultStatsCache = {};
   console.log('[DOMContentLoaded] Result stats cache cleared for fresh data');
   
-  // Seed admin account on first run (silent — skips if already exists)
-  try {
-    const methods = await auth.fetchSignInMethodsForEmail('admin@davan.local');
-    if (!methods.length) {
-      try {
-        const cred = await auth.createUserWithEmailAndPassword('admin@davan.local', 'admin123');
-        await db.collection('users').doc(cred.user.uid).set({
-          name:'Admin', username:'admin', role:ROLE_ADMIN, facultyKey:'', classIncharge:'',
-          createdAt: new Date().toISOString(), createdBy:'system'
-        });
-        await auth.signOut();
-        console.log('[Admin Seed] ✅ Created successfully');
-      } catch (createError) {
-        // Silently ignore if email already exists or other creation errors
-        if (createError.code !== 'auth/email-already-in-use') {
-          console.warn('[Admin Seed] Creation error:', createError.code);
-        }
-      }
-    } else {
-      console.log('[Admin Seed] Admin already exists');
-    }
-  } catch(e) { 
-    console.log('[Admin Seed] Check error:', e.code||e.message); 
-  }
+  // v1899 (load report 17-Oct-2026): the first-run "seed admin account" check is gone - on every open it asked the server
+  // about admin@davan.local (5.9 s) and tried to create it again (400), and the remembered-login auto sign-in below waited for it.
 
   // Pre-fill remembered admin username
   const savedUser = localStorage.getItem('davan_remember_user');
@@ -29296,6 +29302,7 @@ function renderExemptions() {
   }
 
   try {
+    if (/github\.io$/.test(location.hostname)) throw new Error('no backend on GitHub Pages');   // v1899: was a 5.5 s 404 on every open
     const res  = await fetch('/api/status');
     const data = await res.json();
 
@@ -30204,6 +30211,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1899', date: '17-Oct-2026 IST', note: '⚡ Pages fill much faster (from your load report): database reads go straight to the server (0.2-0.5 s each, they waited 6-7 s in a shared queue), and a leftover first-run check that cost ~6 s on every open (and delayed the auto sign-in) is gone.' },
 { v: 'v1898', date: '17-Oct-2026 IST', note: '⏱ Load report (Super Admin, round button bottom-left): shows what this computer / phone waited for - every database read, page open, script file and freeze, with times - and a 📋 Copy button to send it, so the slow part can be fixed exactly.' },
 { v: 'v1897', date: '17-Oct-2026 IST', note: '↔️ More pages use the full screen width (Admin Settings, Branding, Class Settings, Notifications, Scraper, Rates, Global Switches, Staff birthdays, Academic Calendar ...), and on a phone nothing sticks out past the screen: button rows wrap, fields and pictures shrink, 2-column forms stack.' },
 { v: 'v1896', date: '17-Oct-2026 IST', note: '☁️ Super Admin cloud alerts keep reaching the laptop: the staff app re-adds this laptop by itself on every open when the browser has renewed its alert address (it was dropped and only the phone got them).' },
@@ -30218,7 +30226,6 @@ const HTML_CHANGELOG = [
 { v: 'v1887', date: '17-Oct-2026 IST', note: '🪑 Sitting room PDF: the seat table now fills the whole page - taller cells, bigger URN / name, seat numbers easier to read.' },
 { v: 'v1886', date: '17-Oct-2026 IST', note: '🪑 Sitting opens by itself on the first exam time - the seat grid shows at once, no need to tap a time first.' },
 { v: 'v1885', date: '17-Oct-2026 IST', note: '🧾 Roster opens by itself: it loads (and makes, if missing) the latest Internal\'s seating - no need to open Sitting first. Print / PDF work straight away too.' },
-{ v: 'v1884', date: '17-Oct-2026 IST', note: '📄 Roster PDF: every page says its room and exam time, page 1 of N inside that room, and which PDF pages to print for it; page 1 lists each room\'s pages.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -30254,6 +30261,7 @@ async function loadVersionInfo() {
   if (footerVerNum) footerVerNum.textContent = version;
   
   try {
+    if (/github\.io$/.test(location.hostname)) throw new Error('no backend on GitHub Pages');   // v1899: was a 5.5 s 404 on every open
     const res  = await fetch('/api/version');
     const data = await res.json();
     

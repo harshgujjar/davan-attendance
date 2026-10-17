@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1899 · 17-Oct-2026 IST
+User's ⏱ load report: start-up itself was fast (scripts from the SW cache, signed in 2.9 s, opening screen 4.7 s), but ~20 Firestore SDK reads all waited 6-7 s and ended together at ~17 s, and the DOMContentLoaded handler awaited a first-run "seed admin" check (fetchSignInMethodsForEmail admin@davan.local = createAuthUri 5.9 s + a failing signUp) before the remembered-login auto sign-in. Now: the seed check is removed; one-time DocumentReference.get / unfiltered CollectionReference.get on the default app go over the Firestore REST API with the user's ID token (same rules, same snapshot shape), SDK fallback on any failure; /api/status and /api/version (404 on GitHub Pages, 5.5 s) are skipped there. Same number of Firestore reads. Functions: Firebase wrapper script after the SDK (restDoc, restCol, mk, val), DOMContentLoaded auto-reconnect handler.
+
 ## v1898 · 17-Oct-2026 IST
 User: "still loads very slow, I don't find any improvement". Instead of guessing: a load report. A tiny recorder at the top of the page (window.DVP) times every fetch, every Firestore DocumentReference/Query get and RTDB once, page switches, sign-in, the opening screen closing and freezes >= 200 ms (PerformanceObserver longtask); the Super Admin's ⏱ button (bottom-left) shows it with script download sizes (0 KB = phone's copy) and a 📋 Copy button. Memory only, no reads or writes. Functions: DVP (head), dvLoadBtn, dvLoadReport, dvLoadReportText, switchPanel, onLoginSuccess, dvBootDone.
 
