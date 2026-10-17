@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1886 · 17-Oct-2026 IST
+User: "Sitting also doesn't open by itself - the timetable (time) has to be clicked". With no time chip (or one from another Internal) the seat grid was empty; now the first exam time of the Internal is selected on open and on an Internal change. No data change. Functions: sitPickDefaultSlot (new), sitInit, sitOnInternalChange.
+
 ## v1885 · 17-Oct-2026 IST
 User: Roster said "No seated rooms yet - open the Sitting tab first" - "why, it should show by itself". Roster now loads by itself: sitEnsureReady (new, once per session) loads the Internal list, the latest Internal, its timetable and DB1 internals/sittingAllocation, and makes the seating if missing (same as opening Sitting: one read + the usual seating save); Roster's Print / PDF call it too. Functions: sitEnsureReady, sitRosterOpen (new), intSwitchTab, sitInit, sitRosterPrint, sitRosterDownloadPDF.
 
