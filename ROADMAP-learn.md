@@ -1,0 +1,72 @@
+# Roadmap: 📚 Davan Learn - English, Aptitude, Technical (plan agreed with the user 17-Oct-2026)
+
+PLAN ONLY - do not build until the user says. Read this before any Learn work; tick steps (☑ + versions) when done.
+
+## Decisions (user, 17-Oct-2026)
+- Degree students only (BCA / BBA / BCom). PUC left out. Optional (never locks anything). Kannada help in explanations: yes.
+- Faculty get the same options (play for themselves; shown separately, never ranked against students).
+- No content review: questions are written by Claude + the user only.
+- Widget: a NEW page "📚 Learn" (student + staff widget), drawn with Cards.java (needs Cards v2 with tap-to-answer rows).
+- App: the Learn page appears only for people who have started (answered at least once on the widget, or tapped "Start learning").
+- Super Admin ONLY sees the reports (who uses it, how often, each person's tries / level / weak topics, today's word, per class /
+  student / faculty). Nobody else sees other people's data.
+- Data: fully interactive, stored in DB4 for now; must be movable to DB5 later with no app / widget build (see "Database").
+- Aptitude (and every track) is LEVEL based: clear all levels -> "PRO". The data is used for campus drives.
+
+## What the student gets
+Widget page 📚 Learn (1-2 min a day):
+- 🔤 Word of the day (spoken English + Kannada meaning, example sentence), 🧮 question of the day (tap A/B/C/D -> ✅/❌ + 1-line
+  explanation), 🔥 streak, ⭐ XP, current level of each track, "Continue level 4 ->" (opens the app).
+- 8 am word, 4 pm question (outside class periods, 20 min from other notifications, registered in NOTIF_REGISTRY, default ON).
+
+App page 📚 Learn (attractive + game-like):
+- Tracks as a level MAP (like a game path): English, Aptitude (Quant / Reasoning / Verbal), Technical (per course).
+- Each level = 10 questions, pass 8/10 to unlock the next; stars 1-3 by score + speed; a wrong answer shows the explanation
+  (English + Kannada) and comes back later (revision).
+- Clear the last level of a track -> "🏆 PRO" badge + Pro test (30 questions, timed). All tracks Pro -> "Davan Placement Pro".
+- Fun: XP, streaks, badges, confetti / sound on level-up, class league (weekly, top 10 with photos - photo rules apply),
+  Saturday 20-minute challenge, "beat your friend" duel later.
+- My progress: accuracy per topic, weak topics, time per question, Ready Score.
+
+## Tracks and levels (first content set)
+- English (10 levels): basics (articles, tenses) -> grammar errors -> vocabulary / synonyms -> reading comprehension ->
+  email + letter writing -> interview phrases / self-introduction -> group-discussion phrases -> PRO. Speaking practice later
+  (phone mic: say the sentence, check it).
+- Aptitude, 3 sub-tracks x 10 levels: Quant (number system, %, profit-loss, SI/CI, ratio, time-work, time-speed-distance, averages,
+  data interpretation), Reasoning (series, coding-decoding, blood relations, directions, seating, syllogism, puzzles),
+  Verbal (para-jumbles, fill-ups, error spotting, comprehension).
+- Technical:
+  - BCA: C, Java / Python, DBMS + SQL, OS, Networks, Data Structures, Web basics, "guess the output" code questions, HR-tech interview Qs.
+  - BBA: management principles, marketing, HR, finance basics, business communication, case studies, MS Excel / PowerPoint.
+  - BCom: accounting, GST + Tally, taxation basics, banking + finance, cost accounting, MS Excel, financial calculations.
+  - All degree students: computer basics + MS Office (optional extra track).
+- Content = JSON files in this repo (learn/<track>/L<n>.json), downloaded once and cached - costs no Firebase reads.
+  Each question: {id, q, opts[4], ans, exp, expKn, topic, lvl}. Word list: learn/words.json (365 words).
+
+## Campus drive use
+- "Ready Score" 0-100 per student = aptitude 40 + English 30 + technical 30 (from levels cleared + Pro tests).
+- Super Admin page: filter by course / class / min level / Pro badges / Ready Score -> list with photos -> 📋 Copy / CSV export
+  for the company. Shows each student's levels, accuracy, weak topics, days active.
+
+## Super Admin report (staff app, Super Admin login only)
+- Today: word of the day, question of the day, how many answered (widget / app), % correct.
+- Usage: daily / weekly active, how often each person opens it (days active, last active, average minutes), streak leaders.
+- Per student / per faculty: every try (date, track, level, score, time), level map, weak topics, Ready Score.
+- Per class: participation %, average level, top 10, never started.
+
+## Database (DB4 now, DB5 later - keep it switchable)
+- Everything under ONE root `learn/` so a move = export + import of one node.
+- Which database: DB2 `davan_pub/learn_cfg/db` = the database URL (+ key name). App, widgets and reports read it at start;
+  changing it moves everyone at once - no build. Writes go through one helper per app (learnDb() / Learn.db()).
+- Paths: learn/ans/<URN or S-code>/<day>/<qid> = {a, ok, ms} (tries); learn/prog/<id> = {xp, streak, lvl:{track:n}, pro:[...],
+  ready, last, days} (small summary, what the widget + reports read); learn/daily/<date> = {word, qid}; learn/stats/<date>
+  = counts (written by the app on answer, so the report reads one small node, not every student).
+- Cost (estimate): ~500 active x ~20 answers a day x ~80 bytes = ~1 MB / day written; reads = own prog node + daily node only.
+  Report reads prog/ (~1,500 x ~300 bytes = ~0.5 MB) only when the Super Admin opens it. Content files from GitHub, not Firebase.
+
+## Steps (build only when the user says)
+- ☐ 1. Content set 1: words.json + English L1-L3 + Aptitude L1-L3 (each sub-track) + Technical L1-L2 per course (Claude writes).
+- ☐ 2. Student app 📚 Learn page (level map, play, progress, badges) + learn_cfg db switch + DB4 rules for learn/.
+- ☐ 3. Staff app: Super Admin Learn report + campus-drive filter / export; faculty get the Learn page in the staff app.
+- ☐ 4. Cards v2 (tap-to-answer rows) + widget 📚 Learn page: student build + staff build; 8 am / 4 pm notifications.
+- ☐ 5. More content (levels 4-10, Pro tests), Saturday challenge, class league, speaking practice.
