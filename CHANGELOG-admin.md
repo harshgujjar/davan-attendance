@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1892 · 17-Oct-2026 IST
+User: Final Shortage "still won't open after refresh" (2nd Internal selected, the area blank). iafRender waited on iaeEnsureFresh (lock checks, snapshot, permissions) and on iarAutoApplyBatch's cloud save before drawing. Now it shows "⏳ Working out the final shortage…" and waits at most 12 s / 6 s for those (iarSaveTA already stores the result in localStorage first, so the list is right; the cloud save finishes in the background). Function: iafRender.
+
 ## v1891 · 17-Oct-2026 IST
 User: "Final Shortage does not land on the 2nd internal (the latest) and does not load by itself". Final Shortage and IA Raw now open on IA2 when its cutoff is set (until the user taps a tab), and after a refresh they wait up to 90 s for the student list ("⏳ Loading students…") instead of "No student data loaded". No new reads. Functions: _iaWaitStudents, _iaLatestExam, _iaPaintTabs (new), iafRender, iaeRender, iafSwitchExam, iaeSwitchExam.
 
