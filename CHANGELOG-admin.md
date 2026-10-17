@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1880 · 17-Oct-2026 IST
+User: Roster has no bench / seat, wants a Hindi / Sanskrit / Urdu (rest Kannada) count on top, and help; the Room Master Sheet paper guide "is not clear", wants Sl No, gaps and the invigilator. Roster (screen, print, PDF): Bench · Seat column ("C · 7", "Dias"), 🗣 LANGUAGE line overall and per class, "❓ How this works" fold-out. Room Master Sheet guide: one block per exam in date order - "EXAM n · date · time · Invigilator: X", numbered lines (seats 1 and 3 / middle seat / dias, "every bench (A to P)"), language split for a language paper, total papers, a blank line between exams; bold headings on screen and PDF. No data change. Functions: sitRosterSeatText, sitRosterLangLines (new), sitRosterSummaryHtml, sitRosterPageHtml, sitRosterDownloadPDF, attBuildRoomMasterSheet (guide), attRoomMasterSheetHtml / PDF.
+
 ## v1879 · 17-Oct-2026 IST
 User: "data changes must never need a new widget build - build the exam internal that way now". Seat plans now also save SIT_DATA[int]._who (URN -> exam batch, ~10 KB in DB1 internals/sittingAllocation) so the cloud Sync seating (davan-scraper v2.9.2) writes a ready-made card per student to DB2 davan_pub/cards_by_urn/<URN>/exam_seat (one row per exam: date, time, subject, room, bench, seat; one update per sync). Student widget w242 (next channel) only draws such cards (Cards.java) - later data changes need no build. Function: sitAutoFillForTimeSlot.
 
