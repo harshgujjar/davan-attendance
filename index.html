@@ -621,7 +621,25 @@
   <script>
   /* v1898 load report: time every Firestore / RTDB read */
   (function(){try{var T=window.DVP;if(!T||!window.firebase)return;var now=function(){return performance.now();};
-   var R=firebase.database&&firebase.database.Reference;if(R&&R.prototype&&R.prototype.once){var o=R.prototype.once;R.prototype.once=function(){var s=now(),p='';try{p=decodeURIComponent(this.toString().replace(/^https?:\/\/[^\/]+/,''));}catch(e){}var pr=o.apply(this,arguments);if(pr&&pr.then)pr.then(function(){T.add('rtdb',p||'/',now()-s);},function(){T.add('rtdb',(p||'/')+' FAILED',now()-s);});return pr;};}
+   /* v1900 (load report 17-Oct-2026: the RTDB SDK needed ~7 s to connect, every once('value') waited 6-8 s; REST answers took 0.2-0.7 s):
+      a plain one-time read (ref.once('value'), no query, no callbacks) of the staff app's own database goes over the RTDB REST API with
+      the user's ID token (same rules) and gives the same kind of snapshot (val, exists, key, ref, child, forEach, numChildren, hasChild...).
+      Any failure falls back to the SDK. Live listeners (.on), queries and writes are unchanged. */
+   var R=firebase.database&&firebase.database.Reference;
+   function rkeys(v){return Object.keys(v).sort(function(a,b){var ia=/^-?\d{1,10}$/.test(a),ib=/^-?\d{1,10}$/.test(b);if(ia&&ib)return(+a)-(+b)||(a<b?-1:1);if(ia)return-1;if(ib)return 1;return a<b?-1:a>b?1:0;});}
+   function rsnap(ref,v){if(v===undefined)v=null;var o={key:ref.key,ref:ref,val:function(){return v===null||typeof v!=='object'?v:JSON.parse(JSON.stringify(v));},exportVal:function(){return o.val();},toJSON:function(){return o.val();},
+    exists:function(){return v!==null;},getPriority:function(){return null;},
+    child:function(p){var x=v;String(p).split('/').filter(Boolean).forEach(function(k){x=(x!==null&&typeof x==='object'&&x[k]!==undefined)?x[k]:null;});return rsnap(ref.child(p),x);},
+    hasChild:function(p){return o.child(p).exists();},hasChildren:function(){return v!==null&&typeof v==='object'&&Object.keys(v).length>0;},
+    numChildren:function(){return v!==null&&typeof v==='object'?Object.keys(v).length:0;},size:0,
+    forEach:function(fn){if(v===null||typeof v!=='object')return false;var ks=rkeys(v);for(var i=0;i<ks.length;i++){if(fn(rsnap(ref.child(ks[i]),v[ks[i]]))===true)return true;}return false;}};
+    o.size=o.numChildren();return o;}
+   function restOnce(ref){var db=ref.database;if(!db||!db.app||db.app.name!=='[DEFAULT]'||!(ref instanceof R))return Promise.reject(new Error('not ours'));
+    var u=firebase.auth().currentUser;if(!u)return Promise.reject(new Error('not signed in'));
+    return u.getIdToken().then(function(t){var url=ref.toString().replace(/\/$/,'');return fetch(url+(ref.key===null?'/':'')+'.json?auth='+encodeURIComponent(t));}).then(function(r){if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(v){return rsnap(ref,v);});}
+   if(R&&R.prototype&&R.prototype.once){var o=R.prototype.once;R.prototype.once=function(ev){var s=now(),p='',me=this,a=arguments;try{p=decodeURIComponent(this.toString().replace(/^https?:\/\/[^\/]+/,''));}catch(e){}
+    var pr=(ev==='value'&&a.length===1&&window.fetch&&!window.DV_FS_NO_REST)?restOnce(me).then(function(x){T.add('rtdb',(p||'/')+' (fast)',now()-s);return x;},function(e){if(!/not (ours|signed)/.test(e&&e.message))T.add('rtdb',(p||'/')+' REST no: '+(e&&e.message),now()-s);return o.apply(me,a);}):o.apply(me,a);
+    if(pr&&pr.then)pr.then(function(){},function(){T.add('rtdb',(p||'/')+' FAILED',now()-s);});return pr;};}
    /* v1899 (load report 17-Oct-2026: every Firestore read waited 6-7 s on the SDK's shared connection, REST answers took 0.2-0.5 s):
       a one-time read of a document or of a whole collection goes over Firestore's REST API with the signed-in user's token (same
       security rules) and gives back the same kind of snapshot (exists, id, ref, data(), get(field) / docs, size, empty, forEach).
@@ -647,11 +665,11 @@
    var useRest=function(o){return !(o&&o.source==='cache')&&window.fetch&&!window.DV_FS_NO_REST;};
    if(F&&F.DocumentReference){var g=F.DocumentReference.prototype.get;F.DocumentReference.prototype.get=function(o){var s=now(),p=this.path,me=this,a=arguments;
     var pr=useRest(o)?restDoc(me).then(function(x){T.add('firestore',p+' (fast)',now()-s);return x;},function(e){T.add('firestore',p+' REST no: '+(e&&e.message),now()-s);return g.apply(me,a);}):g.apply(me,a);
-    pr.then(function(){T.add('firestore',p,now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
+    pr.then(function(){if(!useRest(o))T.add('firestore',p,now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
    if(F&&F.Query){var q=F.Query.prototype.get;F.Query.prototype.get=function(o){var s=now(),me=this,a=arguments,p='';try{p=this.id||(this._delegate&&this._delegate._query&&this._delegate._query.path.canonicalString())||'query';}catch(e){p='query';}
     var isCol=F.CollectionReference&&me instanceof F.CollectionReference;
     var pr=(isCol&&useRest(o))?restCol(me).then(function(x){T.add('firestore',p+' (fast, '+x.size+' docs)',now()-s);return x;},function(e){T.add('firestore',p+' REST no: '+(e&&e.message),now()-s);return q.apply(me,a);}):q.apply(me,a);
-    pr.then(function(sn){T.add('firestore',p+' ('+(sn&&sn.size)+' docs)',now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
+    pr.then(function(sn){if(!(isCol&&useRest(o)))T.add('firestore',p+' ('+(sn&&sn.size)+' docs)',now()-s);},function(){T.add('firestore',p+' FAILED',now()-s);});return pr;};}
   }catch(e){}})();
   </script>
   <style>
@@ -8663,7 +8681,7 @@
 <!-- ═══════════════════════════════════════════════════════════════
      JAVASCRIPT
 ═══════════════════════════════════════════════════════════════ -->
-<script src="js/admin-1-9870937092.js"></script>
+<script src="js/admin-1-2c50f1bf36.js"></script>
 <!-- ══════════════════════════════════════════════════════════
      FOLLOW-UP RECORD MODAL
 ════════════════════════════════════════════════════════════ -->
@@ -9250,7 +9268,7 @@ function renderExemptions() {
   </div>
 </div>
 
-<script src="js/admin-6-bc42b152ca.js"></script>
+<script src="js/admin-6-782dd83d50.js"></script>
 
 <script src="js/admin-7-2de10356f8.js"></script>
 

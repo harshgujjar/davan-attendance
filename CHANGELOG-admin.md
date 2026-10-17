@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1900 · 17-Oct-2026 IST
+User's 2nd ⏱ load report (v1899): Firestore REST reads 0.3-2 s, but loadFirestoreData started only at ~14 s because it first awaited facLoadRenames (RTDB davan_pub/faculty_renames 7.6 s - the DB1 RTDB SDK took ~7 s to connect; every once('value') 6-8 s). Now facLoadRenames runs in parallel with the document reads (awaited before use), and a plain ref.once('value') on the staff app's RTDB goes over the RTDB REST API with the user's ID token (same rules, same snapshot shape), SDK fallback on failure. Same number of reads. Functions: loadFirestoreData, Firebase wrapper script (restOnce, rsnap, rkeys).
+
 ## v1899 · 17-Oct-2026 IST
 User's ⏱ load report: start-up itself was fast (scripts from the SW cache, signed in 2.9 s, opening screen 4.7 s), but ~20 Firestore SDK reads all waited 6-7 s and ended together at ~17 s, and the DOMContentLoaded handler awaited a first-run "seed admin" check (fetchSignInMethodsForEmail admin@davan.local = createAuthUri 5.9 s + a failing signUp) before the remembered-login auto sign-in. Now: the seed check is removed; one-time DocumentReference.get / unfiltered CollectionReference.get on the default app go over the Firestore REST API with the user's ID token (same rules, same snapshot shape), SDK fallback on any failure; /api/status and /api/version (404 on GitHub Pages, 5.5 s) are skipped there. Same number of Firestore reads. Functions: Firebase wrapper script after the SDK (restDoc, restCol, mk, val), DOMContentLoaded auto-reconnect handler.
 
