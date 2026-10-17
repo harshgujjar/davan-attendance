@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1889 · 17-Oct-2026 IST
+User: wanted "I BCom: 24 · Language: Hindi 5 · Sanskrit/Urdu 1 · Kannada 18" with the room line, not only inside the table. Roster (screen, print, PDF): one 🗣 line per class under each room's count line. No data change. Functions: sitRosterRoomLangLines (new), sitRosterPageHtml, sitRosterDownloadPDF.
+
 ## v1888 · 17-Oct-2026 IST
 User: Roster PDF had the language totals only on top - "per class you don't say, and per student show Hindi / Sanskrit / Urdu, leave Kannada blank". Roster (screen, print, PDF): new Language column (Hindi / Sanskrit / Urdu / Sanskrit/Urdu, blank = Kannada) instead of the tag after the name; each class heading = "I BCom: 24 · Language: Hindi 5 · Sanskrit/Urdu 1 · Kannada 18". No data change. Functions: sitRosterBatchLang (new), sitRosterPageHtml, sitRosterDownloadPDF.
 
