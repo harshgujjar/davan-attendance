@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1894 · 17-Oct-2026 IST
+User: "III BCA A and B section in all places". Sitting bench lines (grid, print, PDF, Excel) now name the section ("Bench A - I BCom + III BCA A") and the Room Master paper guide has one line per section ("Subject (III BCA - Section A): 10 papers - ..."), subject still looked up by the class. Checked: the planner already seats each class section by section (A, then B - sitBuildClassGroups sorts by section then name), so no seating change. The exam timetable keeps "III BCA" as one batch (both sections write the same paper). Functions: bench label helpers in sitRecolorBench / sitBuildPrintHtml / sitDownloadPDF / sitDownloadExcel, attBuildRoomMasterSheet.
+
 ## v1893 · 17-Oct-2026 IST
 User: Final Shortage "still won't open after refresh" (2nd Internal selected, the area blank). iafRender waited on iaeEnsureFresh (lock checks, snapshot, permissions) and on iarAutoApplyBatch's cloud save before drawing. Now it shows "⏳ Working out the final shortage…" and waits at most 12 s / 6 s for those (iarSaveTA already stores the result in localStorage first, so the list is right; the cloud save finishes in the background). Function: iafRender.
 
