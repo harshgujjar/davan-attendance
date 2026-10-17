@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1888 · 17-Oct-2026 IST
+User: Roster PDF had the language totals only on top - "per class you don't say, and per student show Hindi / Sanskrit / Urdu, leave Kannada blank". Roster (screen, print, PDF): new Language column (Hindi / Sanskrit / Urdu / Sanskrit/Urdu, blank = Kannada) instead of the tag after the name; each class heading = "I BCom: 24 · Language: Hindi 5 · Sanskrit/Urdu 1 · Kannada 18". No data change. Functions: sitRosterBatchLang (new), sitRosterPageHtml, sitRosterDownloadPDF.
+
 ## v1887 · 17-Oct-2026 IST
 User: Sitting room PDF table used only the top part of the page - "make it vertically big, cells look good". The 8 benches now share the page height left after the header and before the counts / signature (bench line ~20%, seat number ~25%, student cell the rest), URN / name font 8-9, seat numbers 8.5, head 9. No data change. Function: sitDownloadPDF.
 
