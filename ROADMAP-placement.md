@@ -1,4 +1,6 @@
-# Roadmap: 📚 Davan Learn - English, Aptitude, Technical (plan agreed with the user 17-Oct-2026)
+# Roadmap: 🎯 Placement - English, Aptitude, Technical (plan agreed with the user 17-Oct-2026)
+
+Name (user, 17-Oct): the page is "🎯 Placement" (not Learn) in the widget and the app; 'Learn' below = this page.
 
 PLAN ONLY - do not build until the user says. Read this before any Learn work; tick steps (☑ + versions) when done.
 
@@ -12,6 +14,24 @@ PLAN ONLY - do not build until the user says. Read this before any Learn work; t
   student / faculty). Nobody else sees other people's data.
 - Data: fully interactive, stored in DB4 for now; must be movable to DB5 later with no app / widget build (see "Database").
 - Aptitude (and every track) is LEVEL based: clear all levels -> "PRO". The data is used for campus drives.
+
+## It TEACHES, not only asks (user, 17-Oct) - every level = Learn -> Practice -> Test
+- Learn: 3-5 swipe lesson cards (rule / trick in simple English + Kannada, 2-3 solved examples step by step, spoken by the phone's voice).
+- Practice: 10 questions with 💡 hint and full step-by-step solution after each; mistakes come back next day (revision).
+- Test: 10 questions, no hints, pass 8/10 -> next level. Fail -> "watch the lesson again" for the topics missed.
+- Aptitude extra: shortcut tricks (e.g. % as fractions, 10% / 1% method, unit digit), formula sheet per topic, timer practice.
+- English teaching (beyond word of the day):
+  - 🎧 Listen: the phone reads a sentence / short story / dialogue; questions on what was heard.
+  - 🗣 Speak: listen & repeat - the phone's speech recognition (Android SpeechRecognizer in the widget, Web Speech API in the
+    app) writes what the student said; words said wrong turn red, 'say it again'; score per sentence. Free, on the phone.
+  - 🔁 Kannada -> English: a Kannada sentence, the student builds the English one from word tiles (then types it).
+  - ✍ Write: email / leave letter / self-introduction - fill-the-blanks first, then a model answer to compare.
+  - 💬 Role-play: interview, phone call, shop, office - the phone asks, the student picks or speaks the answer.
+  - ❌ Mistake of the day ("I am having 2 brothers" -> "I have 2 brothers"), daily speaking topic (1 minute, self-recorded).
+  - Later (costs money, ask first): AI check of spoken / written answers (Claude API).
+- Technical teaching: short concept notes + diagram, code walk-through (BCA: run-in-head "guess the output"), flashcards,
+  interview Q with a model answer (tap to reveal, self-mark 'I knew it' / 'didn't know'), BBA/BCom: worked examples
+  (journal entries, GST calc, ratio analysis, Excel formulas step by step), mini case studies.
 
 ## What the student gets
 Widget page 📚 Learn (1-2 min a day):
