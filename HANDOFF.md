@@ -65,7 +65,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   at its top): DB2 `davan_pub/cards_by_urn/<URN>/<cardId>` = {hide, internal, needs, eligOnly, rows:[{page, pos top|bottom|at:<place>,
   title, body (b/br/small HTML), bg, color, from, until, hl, tap}]}. Any page shows top / bottom rows with no build; "at:" places so far:
   internals `at:examDays`. Built-in parts a card can hide: `examDays`, `todaySeat`.
-- DONE: exam seats (card `exam_seat`, written by davan-scraper sync v2.9.2 `_write_exam_seat_cards`, Sync seating job 4x a day;
+- DONE: exam seats (card `exam_seat`, one row per DAY with subjects + times, seat once - sync v2.9.3; written by davan-scraper sync `_write_exam_seat_cards`, Sync seating job 4x a day;
   subject comes from staff app v1879 `_who` URN -> batch).
 - NEXT (user will say when): today's timetable / class changes, attendance, today's sheet, notices -> one card writer each (staff app
   or sync), no widget build. Then the same `Cards.java` for the STAFF widget (one build). A build only for a new look, new phone
