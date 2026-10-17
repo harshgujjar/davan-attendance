@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1883 · 17-Oct-2026 IST
+User: "in the PDF say it's Group A, show the page numbers so I can print only that; each sheet starts at page 1". Room Master Sheet PDF: every page's footer = ROOM · Sheet n of N · page x of y (restarts per sheet) and, on the right, "To print only this sheet: PDF pages a-b (PDF page p of T)"; page 1 top line lists every sheet's pages. No data change. Function: attRoomMasterSheetDownloadPDF.
+
 ## v1882 · 17-Oct-2026 IST
 User: Roster has no bench / seat, wants a Hindi / Sanskrit / Urdu (rest Kannada) count on top, and help; the Room Master Sheet paper guide "is not clear", wants Sl No, gaps and the invigilator. Roster (screen, print, PDF): Bench · Seat column ("C · 7", "Dias"), 🗣 LANGUAGE line overall and per class, "❓ How this works" fold-out. Room Master Sheet guide: one block per exam in date order - "EXAM n · date · time · Invigilator: X", numbered lines (seats 1 and 3 / middle seat / dias, "every bench (A to P)"), language split for a language paper, total papers, a blank line between exams; bold headings on screen and PDF. No data change. Functions: sitRosterSeatText, sitRosterLangLines (new), sitRosterSummaryHtml, sitRosterPageHtml, sitRosterDownloadPDF, attBuildRoomMasterSheet (guide), attRoomMasterSheetHtml / PDF.
 
