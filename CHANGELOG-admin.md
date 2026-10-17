@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1878 · 17-Oct-2026 IST
+User: "add this information as help in that same page". Room Master Sheet gets a fold-out "❓ How this works": Sheet n of N, printing and handing out, the 📦 paper box, ⚠ Not eligible vs 📘 New book, cells and footer, and when the Sync seating job gives students their seats. Text only, no data. Section: Room Master Sheet panel HTML.
+
 ## v1877 · 17-Oct-2026 IST
 User: "what is this Group A to D" + "this allocation has not reached students". A Room Master Sheet group (one printed sheet) = the exam times when the same students sit in that room; it is now titled by those times ("Sheet 1 of 4: 9:30am - Wed 28/10, Thu 29/10"). Students: the cloud Sync seating kept one seat per student, but each exam time now has its own room and seat - davan-scraper sync v2.9.1 writes one perDay row per exam {date, time, room, seatNo, bench} to DB2 davan_pub/sitting_by_urn (same one write, no new reads). Pairs with portal v11.75. Function: attBuildRoomMasterSheet (groupLabel).
 
