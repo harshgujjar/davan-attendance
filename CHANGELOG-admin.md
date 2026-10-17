@@ -2,8 +2,11 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
-## v1892 · 17-Oct-2026 IST
+## v1893 · 17-Oct-2026 IST
 User: Final Shortage "still won't open after refresh" (2nd Internal selected, the area blank). iafRender waited on iaeEnsureFresh (lock checks, snapshot, permissions) and on iarAutoApplyBatch's cloud save before drawing. Now it shows "⏳ Working out the final shortage…" and waits at most 12 s / 6 s for those (iarSaveTA already stores the result in localStorage first, so the list is right; the cloud save finishes in the background). Function: iafRender.
+
+## v1892 · 17-Oct-2026 IST
+User: "make the staff app load fast". sw.js (davan-v12) serves the hashed script files js/admin-<n>-<hash>.js cache-first (they never change; old hashes of a slot are dropped), so an open no longer waits on ~3.5 MB from GitHub Pages. Staff and student photo lists are kept in IndexedDB (davan_kv) and drawn at once, refreshed in the background when older than 10 min; the sources are read in parallel and RTDB davan_pub/student_photos / faculty_photos get only missing photos (was: 3 + 3 serial reads and a full re-upload on every login). The admin auto-mirror (Firestore -> RTDB davan_users, davan_pub/*) runs once per 6 h per device, 20 s after opening (was every admin open at 4 s) - fewer DB1 reads and writes. Functions: rcPreloadPhotos, _rcFetchPhotos, facPreloadPhotos, _facFetchPhotos, _dvPhotoCached, dvKvGet/Put/Stale, onLoginSuccess.
 
 ## v1891 · 17-Oct-2026 IST
 User: "Final Shortage does not land on the 2nd internal (the latest) and does not load by itself". Final Shortage and IA Raw now open on IA2 when its cutoff is set (until the user taps a tab), and after a refresh they wait up to 90 s for the student list ("⏳ Loading students…") instead of "No student data loaded". No new reads. Functions: _iaWaitStudents, _iaLatestExam, _iaPaintTabs (new), iafRender, iaeRender, iafSwitchExam, iaeSwitchExam.
