@@ -51,6 +51,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## Open items
 - Exam seating (v1866): Option A strict - 4 classes per room (sitPlanSlotSeatingA), 2 sides x 8 benches; regenerated when Sitting or Attendance tab opens. Not tested on real data yet.
 - IA eligibility (v1860): 2nd internal = only classes after the IA1 cutoff (5-Sep) - students may look fine on the widget (whole semester) but be short in that window. +1/+2 rule now applied live. Window % now shown to students: portal v11.73 Attendance card, widget 241 (staff app v1861 publishes ia_live_status IA2 row .w). Not phone-tested.
+- OPEN (user, 17-Oct-2026): "every table and the staff app take very long to load, even after a refresh" - next session: measure the startup (which Firebase reads / scripts are big and slow - all students + attendance at login?), cache in IndexedDB, load per page. Not started.
 - Seating per exam time (v1877): davan-scraper sync v2.9.1 writes sitting_by_urn perDay rows {date,time,room,seatNo,bench} for the newest Internal with SLOT plans; portal v11.75 shows them. Student widget still reads perDay date->room only (2 exams on one day: shows the last room, top-level bench = first exam) - next widget build should show time + bench per row.
 - V Sem BCA Software Engineering: user to confirm if Vijayalakshmi teaches the MORNING batch (then section B - undo the swap in Edit Allocation).
 - PUC: rovelabs login is typed into puc.html (public) - user to change the password; offered to remove the prefill.
