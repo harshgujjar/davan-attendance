@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1890 · 17-Oct-2026 IST
+User (PDF screenshot): the title line ran off the page and "the shortage para is so scattered" (the ⚠ sign broke jsPDF's font spacing). Room Master Sheet PDF: title on its own line, the sheet's exam times wrapped below it; shortage = "SHORTAGE - NOT ELIGIBLE (n)" then one line per kind ("Not eligible for 2nd Internal (12): names", "... 1st & 2nd ... (1): name"); screen / print summary grouped the same way. No data change. Functions: attRoomMasterSheetDownloadPDF, attRoomMasterSheetHtml.
+
 ## v1889 · 17-Oct-2026 IST
 User: wanted "I BCom: 24 · Language: Hindi 5 · Sanskrit/Urdu 1 · Kannada 18" with the room line, not only inside the table. Roster (screen, print, PDF): one 🗣 line per class under each room's count line. No data change. Functions: sitRosterRoomLangLines (new), sitRosterPageHtml, sitRosterDownloadPDF.
 
