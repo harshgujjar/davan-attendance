@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1887 · 17-Oct-2026 IST
+User: Sitting room PDF table used only the top part of the page - "make it vertically big, cells look good". The 8 benches now share the page height left after the header and before the counts / signature (bench line ~20%, seat number ~25%, student cell the rest), URN / name font 8-9, seat numbers 8.5, head 9. No data change. Function: sitDownloadPDF.
+
 ## v1886 · 17-Oct-2026 IST
 User: "Sitting also doesn't open by itself - the timetable (time) has to be clicked". With no time chip (or one from another Internal) the seat grid was empty; now the first exam time of the Internal is selected on open and on an Internal change. No data change. Functions: sitPickDefaultSlot (new), sitInit, sitOnInternalChange.
 
