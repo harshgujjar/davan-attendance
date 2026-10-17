@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1898 · 17-Oct-2026 IST
+User: "still loads very slow, I don't find any improvement". Instead of guessing: a load report. A tiny recorder at the top of the page (window.DVP) times every fetch, every Firestore DocumentReference/Query get and RTDB once, page switches, sign-in, the opening screen closing and freezes >= 200 ms (PerformanceObserver longtask); the Super Admin's ⏱ button (bottom-left) shows it with script download sizes (0 KB = phone's copy) and a 📋 Copy button. Memory only, no reads or writes. Functions: DVP (head), dvLoadBtn, dvLoadReport, dvLoadReportText, switchPanel, onLoginSuccess, dvBootDone.
+
 ## v1897 · 17-Oct-2026 IST
 User: "other pages have the same 800 px limit - make all proper and mobile friendly". Page wrappers capped at 600-1000 px now use the full width (panel-branding, admin-settings, class-settings cs-rows, cfb/scr/sa/ntf/rates/flw/gsw roots, fac-dob, academic-calendar); small form boxes keep their size. New CSS: .url-bar wraps; on phones (<=768 px) fields / images / cards never exceed the screen; <=480 px the Shortage Summary sticky header fits and 2-column inline grids stack. Checked headless at 390 px: no page's static part is wider than the screen (pages drawn from data not checked). No data change.
 
