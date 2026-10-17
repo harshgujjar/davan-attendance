@@ -34,7 +34,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   (via fcm-push; sw.js tag sa-<colour>-<id>). Phone = staff widget SaEv (w293+, Super Admin only, polls ~5 min). Jobs: last step
   `tools/sa_notify.py "<name>" <kind>` (both repos), text from $RUNNER_TEMP/sa.json; a job alert must name its own running run (worker checks).
 - 9:30 pm usage alert = worker cron "0,15 16" (16:00 UTC); Cloudflare account has 5 timers in total - do not add a timer.
-- New job / feature that should tell the Super Admin: add the sa_notify step (or saPost in the staff app). Laptop: staff app ☁️ Cloud alerts -> "Get alerts on this laptop".
+- New job / feature that should tell the Super Admin: add the sa_notify step (or saPost in the staff app). Laptop: staff app ☁️ Cloud alerts -> "Get alerts on this laptop". From v1896 saAutoKeep re-adds the laptop on every open (address renewed -> worker dropped it).
 - Not phone-tested: w293 channels / sounds; laptop photo + strip.
 
 ## Side projects (user's own)

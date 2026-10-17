@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1896 · 17-Oct-2026 IST
+User: "the cloud notifications to Super Admin come to mobile correctly but not to my laptop". DB2 davan_pub/sa_push was empty: the browser had renewed its push address, the worker dropped the dead one (404 / 410) and nothing re-added it. New saAutoKeep (run from saBoot once the Super Admin is signed in, computers only, notifications allowed, not removed with "Remove this laptop") reads its own davan_pub/sa_push/<key> (1 tiny read per open) and writes it again when missing or changed. saThisLaptop remembers add / remove in localStorage sa_lap.
+
 ## v1895 · 17-Oct-2026 IST
 User (screenshot): "this page is small, I have so much space". The Faculty Class Alerts & Staff Widgets page (panel-faculty-alerts) was wrapped in max-width 800px; it now uses the full width, so the Faculty Subscription Status table no longer scrolls sideways. No data change.
 
