@@ -2,6 +2,8 @@
 
 Name (user, 17-Oct): the page is "🎯 Placement" (not Learn) in the widget and the app; 'Learn' below = this page.
 
+Mockup (17-Oct, 8 screens, clickable): https://claude.ai/artifact/E2rS4V5k1TsDywAVFBpv4t (private to the user).
+
 PLAN ONLY - do not build until the user says. Read this before any Learn work; tick steps (☑ + versions) when done.
 
 ## Decisions (user, 17-Oct-2026)
