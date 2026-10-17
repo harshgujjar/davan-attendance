@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1893 · 17-Oct-2026 IST
+User: "no, it still takes the same time to open". The real wait was the opening screen (dvBoot): it stayed until the fresh app_data/students (~550 KB) had downloaded (dvBootStep 2), although the dashboard was already drawn from localStorage; and a session restore first waited for the profile read (users/<uid>, a cold Firestore connection). Now the screen closes right after the cached draw, and the profile saved on the phone (davan_profile_<uid>) is used at once; the fresh profile is read in the background and the page reloads once if role / name / title etc. changed. No extra reads. Functions: auth.onAuthStateChanged handler, onLoginSuccess.
+
 ## v1892 · 17-Oct-2026 IST
 User: "make the staff app load fast". sw.js (davan-v12) serves the hashed script files js/admin-<n>-<hash>.js cache-first (they never change; old hashes of a slot are dropped), so an open no longer waits on ~3.5 MB from GitHub Pages. Staff and student photo lists are kept in IndexedDB (davan_kv) and drawn at once, refreshed in the background when older than 10 min; the sources are read in parallel and RTDB davan_pub/student_photos / faculty_photos get only missing photos (was: 3 + 3 serial reads and a full re-upload on every login). The admin auto-mirror (Firestore -> RTDB davan_users, davan_pub/*) runs once per 6 h per device, 20 s after opening (was every admin open at 4 s) - fewer DB1 reads and writes. Functions: rcPreloadPhotos, _rcFetchPhotos, facPreloadPhotos, _facFetchPhotos, _dvPhotoCached, dvKvGet/Put/Stale, onLoginSuccess.
 
