@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1896 · 17-Oct-2026 IST
+User: "other pages have the same 800 px limit - make all proper and mobile friendly". Page wrappers capped at 600-1000 px now use the full width (panel-branding, admin-settings, class-settings cs-rows, cfb/scr/sa/ntf/rates/flw/gsw roots, fac-dob, academic-calendar); small form boxes keep their size. New CSS: .url-bar wraps; on phones (<=768 px) fields / images / cards never exceed the screen; <=480 px the Shortage Summary sticky header fits and 2-column inline grids stack. Checked headless at 390 px: no page's static part is wider than the screen (pages drawn from data not checked). No data change.
+
 ## v1895 · 17-Oct-2026 IST
 User (screenshot): "this page is small, I have so much space". The Faculty Class Alerts & Staff Widgets page (panel-faculty-alerts) was wrapped in max-width 800px; it now uses the full width, so the Faculty Subscription Status table no longer scrolls sideways. No data change.
 
