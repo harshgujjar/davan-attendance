@@ -116,3 +116,15 @@ App page 📚 Learn (attractive + game-like):
   Ready Score used by the college for campus-drive shortlists (only if the college really does it - user to decide);
   PRO ring on the student's photo in both apps; monthly top-10 shout-out on the Davan widgets; social proof ("312 practising
   this week"); widget nudges ("your class is ahead of you").
+
+## Mockup v3 (18-Oct) - widget drawn from the REAL student widget
+- Widget Placement page = normal Pages.Row rows (c_chip / c_lilac / c_cream / c_ev / c_rose / c_water, title 12.5 bold, badge pill,
+  body 16, inner box, 2 bars, table lines, up to 6 btn_pill buttons). Row already has badge / inner / bar / t / btns: Cards v2 only
+  has to pass these fields from the card JSON + button actions (answer A-D, Hear, Say it, Know it, Got it, ಕನ್ನಡ, Next). New page
+  (10th dot "🎯") = one widget build. Two-way: answer on the widget, the row turns green / rose with the explanation + follow-up buttons.
+- Japanese shown with Kannada letters for the sound (しごと = ಶಿಗೊತೊ) + Kannada meaning (ಕೆಲಸ) + English (work).
+- Notifications (registry, default ON, 20-min gap, outside class periods): word 8:05 am (spoken), question 6:15 pm with answer
+  buttons IN the notification, streak 8:15 pm only if not opened, level-up / certificate when it happens, league Sun 6:30 pm,
+  new mock Thu 6:45 pm. Times to be clash-checked on the 🔔 page when built.
+- Added screens: first open (goal, English / ಕನ್ನಡ help, time a day, 5-min level check), mock result (sections, weak topics),
+  certificate (QR verify, LinkedIn / WhatsApp / PDF), placement tips on home + widget.
