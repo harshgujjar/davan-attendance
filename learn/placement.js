@@ -8,7 +8,7 @@
    PLC.open(el, {id, name, cls, role:'stu'|'stf', course:'BCA'|'BBA'|'BCOM'|'', preview:false, sa:false})
    preview = Super Admin looking at someone else: their real data is shown, nothing is written (user, 18-Oct). */
 (function () {
-  const VER = 1;
+  const VER = 2;
   const S = { bank: null, prog: null, o: null, el: null, v: 'home', a: {}, tok: null, tokExp: 0, hide: {}, qx: {} };
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const ist = (d) => new Date((d || Date.now()) + 330 * 60000).toISOString().slice(0, 10);
@@ -50,8 +50,11 @@
   const tracks = () => S.bank.tracks.filter(t => t.g !== 'tech' || !S.o.course || t.course === S.o.course || S.o.role === 'stf');
   const track = id => S.bank.tracks.find(t => t.id === id);
   const qOf = q => Object.assign({}, q, S.qx[q.id] || {});
-  const qsOf = (t, l) => (l.qs || []).filter(q => !S.hide[q.id]).map(qOf);
-  const allApt = () => { const o = []; S.bank.tracks.filter(t => t.g === 'apt').forEach(t => t.levels.forEach(l => qsOf(t, l).forEach(q => o.push(Object.assign({ tr: t.id, tag: l.tag }, q))))); return o; };
+  const qsOf = (t, l) => {
+    if (l.pro) { const all = []; t.levels.filter(x => !x.pro).forEach(x => (x.qs || []).forEach(q => { if (!S.hide[q.id]) all.push(Object.assign({ tag: x.tag, lvn: x.name }, qOf(q))); })); return all.sort(() => Math.random() - .5).slice(0, 12); }
+    return (l.qs || []).filter(q => !S.hide[q.id]).map(q => Object.assign({ lvn: l.name }, qOf(q)));
+  };
+  const allApt = () => { const o = []; S.bank.tracks.filter(t => t.g === 'apt').forEach(t => t.levels.filter(l => !l.pro).forEach(l => qsOf(t, l).forEach(q => o.push(Object.assign({ tr: t.id, tag: l.tag }, q))))); return o; };
   const today = () => { const n = dayNo(), b = S.bank, ap = allApt(); return { word: b.words[n % b.words.length], q: ap.length ? ap[(n * 7) % ap.length] : null, jp: b.jp[n % b.jp.length], tip: b.tips[n % b.tips.length] }; };
 
   // ── progress ──
@@ -118,7 +121,7 @@
   // ── views ──
   function go(v, a) { S.v = v; S.a = a || {}; draw(); try { S.el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }
   function draw() {
-    const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank }[S.v] || home;
+    const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank, gate, mocks }[S.v] || home;
     S.el.innerHTML = '<div class="plc">' + (S.o.preview ? '<div class="pv">👀 Preview of ' + esc(S.o.name) + ' · nothing you do here is saved</div>' : '') + h() + '</div>';
   }
   const back = (v, a) => `<button class="b w" onclick="PLC.go('${v || 'home'}'${a ? ',' + esc(JSON.stringify(a)) : ''})">←</button>`;
@@ -143,7 +146,7 @@
         <h2 style="margin-top:4px">${esc(w.w.toUpperCase())}</h2><div>${esc(w.m)} · <b>${esc(w.kn)}</b></div><div class="mu" style="font-style:italic">"${esc(w.ex)}"</div></div>
       ${qh}
       <div class="g2">${tracks().map(card).join('')}</div>
-      <div class="g2" style="margin-top:10px"><button class="b" onclick="PLC.go('speak')">🎤 Speaking practice</button><button class="b" onclick="PLC.go('jp')">🇯🇵 Japanese words</button><button class="b w" onclick="PLC.go('cert')">🏅 My certificates</button>${S.o.sa ? `<button class="b dk" onclick="PLC.go('report')">📊 Report</button><button class="b dk" onclick="PLC.go('qbank')">📚 Question bank</button>` : ''}</div>
+      <div class="g2" style="margin-top:10px"><button class="b" onclick="PLC.go('speak')">🎤 Speaking practice</button><button class="b" onclick="PLC.go('jp')">🇯🇵 Japanese words</button><button class="b dk" onclick="PLC.go('mocks')">📝 Company mock tests</button><button class="b w" onclick="PLC.go('cert')">🏅 My certificates</button>${S.o.sa ? `<button class="b dk" onclick="PLC.go('report')">📊 Report</button><button class="b dk" onclick="PLC.go('qbank')">📚 Question bank</button>` : ''}</div>
       <div class="k" style="background:var(--gr)"><div class="row" style="justify-content:space-between"><span class="kick" style="color:#1E7B3A">💡 PLACEMENT TIP · ${esc(tip.c.toUpperCase())}</span><span><button class="b w" onclick="PLC.go('home',{tip:${(ti + tips.length - 1) % tips.length}})">‹</button> <button class="b w" onclick="PLC.go('home',{tip:${(ti + 1) % tips.length}})">›</button></span></div>
         <div style="font-weight:800;font-size:16px;margin:6px 0">${esc(tip.t)}</div><div>${esc(tip.b)}</div><div class="mu">${esc(tip.kn)}</div></div>`;
   }
@@ -153,7 +156,7 @@
       return `<div class="k" style="background:${st === 'done' ? 'var(--gr)' : st === 'now' ? 'var(--ye)' : '#efe3d6'}"><div class="row"><div class="lv" style="background:${st === 'done' ? '#7fdc9b' : st === 'now' ? '#ffc94d' : '#ddd'}">${st === 'done' ? '✓' : st === 'lock' ? '🔒' : l.n}</div>
         <div style="flex:1"><div style="font-weight:800">Level ${l.n} · ${esc(l.name)}</div><div class="mu">🏷 ${esc(l.tag)}${b != null ? ' · best ' + b + '%' : ''}</div></div></div>` +
         (st !== 'lock' ? `<div class="row" style="margin-top:10px"><button class="b w" onclick="PLC.go('lesson',{t:'${t.id}',l:${l.n},i:0})">📖 Learn</button><button class="b w" onclick="PLC.start('${t.id}',${l.n},'prac')">✍️ Practice</button><button class="b" onclick="PLC.start('${t.id}',${l.n},'test')">🏁 Test (pass ${Math.round(S.bank.pass * 100)}%)</button></div>` : '') + '</div>'; }).join('');
-    return `<div class="row">${back()}<h2>${t.emoji} ${esc(t.name.toUpperCase())}</h2></div>${nodes}<div class="k mu">Levels ${t.levels.length + 1}–10 and the 👑 PRO test are being added. Bronze 🥉 certificate at level 2, silver 🥈 at 5, gold 👑 at 10.</div>`;
+    return `<div class="row">${back()}<h2>${t.emoji} ${esc(t.name.toUpperCase())}</h2></div>${nodes}<div class="k mu">Certificates: bronze 🥉 at level 2, silver 🥈 at level 5, gold 👑 when you pass the PRO test (level 10).</div>`;
   }
   function lesson() {
     const t = track(S.a.t), l = t.levels.find(x => x.n === S.a.l), i = S.a.i || 0, c = l.cards[i], kn = S.a.kn;
@@ -170,6 +173,7 @@
   }
   function quiz() {
     const z = S.quiz, t = track(z.t);
+    if (z.i >= z.qs.length && z.mode === 'mock') return mockResult();
     if (z.i >= z.qs.length) {
       const pct = Math.round(z.ok * 100 / z.qs.length), pass = z.mode === 'test' && pct >= S.bank.pass * 100;
       return `<div class="k" style="text-align:center;background:${pass ? 'linear-gradient(135deg,#a8ecc0,#9fe3dd)' : 'var(--ye)'}"><div class="kick">${z.mode === 'test' ? 'TEST RESULT' : 'PRACTICE DONE'}</div><div class="big">${pct}%</div>
@@ -177,8 +181,8 @@
         <div class="row"><button class="b w" onclick="PLC.go('track',{t:'${z.t}'})">← Levels</button><button class="b" onclick="PLC.start('${z.t}',${z.n},'${z.mode}')">↺ Again</button>${z.mode === 'prac' ? `<button class="b dk" onclick="PLC.start('${z.t}',${z.n},'test')">🏁 Take the test</button>` : ''}</div>`;
     }
     const q = z.qs[z.i], pk = z.pick, fb = z.mode === 'prac' && pk != null;
-    return `<div class="row">${back('track', { t: z.t })}<div class="bar" style="flex:1"><i style="width:${Math.round(z.i * 100 / z.qs.length)}%"></i></div><b>${z.i + 1}/${z.qs.length}</b></div>
-      <div class="row" style="margin:8px 0"><span class="pill" style="background:#cfe0ff">🏷 ${esc(q.tag || z.tag)}</span><span class="pill">${z.mode === 'test' ? '🏁 Test' : '✍️ Practice'}</span></div>
+    return `<div class="row">${z.mode === 'mock' ? back('mocks') : back('track', { t: z.t })}<div class="bar" style="flex:1"><i style="width:${Math.round(z.i * 100 / z.qs.length)}%"></i></div><b>${z.i + 1}/${z.qs.length}</b></div>
+      <div class="row" style="margin:8px 0"><span class="pill" style="background:#cfe0ff">🏷 ${esc(q.tag || z.tag)}</span><span class="pill">${z.mode === 'test' ? '🏁 Test' : z.mode === 'mock' ? '📝 ' + esc(q.sec) : '✍️ Practice'}</span>${z.end ? '<span class="pill" id="plc-timer" style="background:#ffc9c9">⏱</span>' : ''}</div>
       <div class="k" style="font-size:18px;font-weight:700;background:var(--cr)">${esc(q.q)}</div>
       ${q.ord.map(i => `<button class="opt ${fb ? (i === q.a ? 'ok' : i === pk ? 'no' : '') : (pk === i ? 'ok' : '')}" onclick="PLC.pick(${i})">${esc(q.o[i])}</button>`).join('')}
       ${fb ? `<div class="k" style="background:${pk === q.a ? 'var(--gr)' : 'var(--ro)'}"><b>${pk === q.a ? '🎉 Correct' : '❌ Answer: ' + esc(q.o[q.a])}</b><div>${esc(q.e)}</div></div>` : ''}
@@ -187,11 +191,14 @@
   function pick(i) {
     const z = S.quiz, q = z.qs[z.i]; if (z.pick != null) return;
     z.pick = i; if (i === q.a) z.ok++; stat(q, i);
-    if (z.mode === 'test') return next();
+    if (z.wrong && i !== q.a) z.wrong.push(q.lvn || '');
+    if (z.secOk && i === q.a) z.secOk[q.sec] = (z.secOk[q.sec] || 0) + 1;
+    if (z.mode === 'test' || z.mode === 'mock') return next();
     draw();
   }
   function next() {
     const z = S.quiz; z.i++; z.pick = null;
+    if (z.i >= z.qs.length && z.mode === 'mock') { if (!z.saved) { z.saved = 1; clearInterval(S.tick); const pct = Math.round(z.ok * 100 / z.qs.length), p = P(); p.mk = p.mk || {}; p.mk[z.t] = Math.max(p.mk[z.t] || 0, pct); touch(z.ok * 2); log('mock', z.t, 0, z.ok, z.qs.length); } return draw(); }
     if (z.i >= z.qs.length) {
       const pct = Math.round(z.ok * 100 / z.qs.length), p = P(); p.best = p.best || {}; const bk = z.t + '_' + z.n;
       p.best[bk] = Math.max(p.best[bk] || 0, pct); p.lv = p.lv || {};
@@ -200,6 +207,42 @@
       touch(xp); log(z.mode, z.t, z.n, z.ok, z.qs.length);
     }
     draw();
+  }
+  function mocks() {
+    const p = P();
+    return `<div class="row">${back()}<h2>📝 MOCK TESTS</h2></div><div class="k mu">${esc(S.bank.mockNote || '')}</div>` +
+      (S.bank.mocks || []).map(m => `<div class="k"><div class="row" style="justify-content:space-between"><b style="font-size:17px">${esc(m.name)}</b><span class="pill">⏱ ${m.min} min</span></div>
+        <div class="mu">${m.sec.map(x => esc(x[0]) + ' ' + x[2]).join(' · ')} questions${(p.mk || {})[m.id] != null ? ' · your best ' + p.mk[m.id] + '%' : ''}</div>
+        <button class="b" style="margin-top:8px" onclick="PLC.mock('${m.id}')">Start →</button></div>`).join('');
+  }
+  function mock(id) {
+    const m = S.bank.mocks.find(x => x.id === id), qs = [];
+    m.sec.forEach(([nm, tid, n]) => { const t = track(tid), pool = []; t.levels.filter(l => !l.pro).forEach(l => (l.qs || []).forEach(q => { if (!S.hide[q.id]) pool.push(Object.assign({ tag: l.tag, lvn: t.name + ' · ' + l.name, sec: nm }, qOf(q))); }));
+      pool.sort(() => Math.random() - .5).slice(0, n).forEach(q => qs.push(q)); });
+    qs.forEach(q => { q.ord = q.o.map((_, i) => i).sort(() => Math.random() - .5); });
+    S.quiz = { t: id, n: 0, mode: 'mock', qs, i: 0, ok: 0, pick: null, t0: Date.now(), tag: m.name, end: Date.now() + m.min * 60000, wrong: [], secOk: {}, m };
+    clearInterval(S.tick); S.tick = setInterval(() => { const z = S.quiz; if (!z || z.mode !== 'mock' || z.i >= z.qs.length) return clearInterval(S.tick);
+      const left = Math.max(0, z.end - Date.now()), el = document.getElementById('plc-timer'); if (el) el.textContent = '⏱ ' + Math.floor(left / 60000) + ':' + String(Math.floor(left / 1000) % 60).padStart(2, '0');
+      if (!left) { z.i = z.qs.length - 1; z.pick = null; next(); } }, 1000);
+    go('quiz');
+  }
+  function mockResult() {
+    const z = S.quiz, m = z.m, pct = Math.round(z.ok * 100 / z.qs.length), weak = {};
+    z.wrong.forEach(w => { if (w) weak[w] = (weak[w] || 0) + 1; });
+    const wk = Object.entries(weak).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    return `<div class="k" style="text-align:center;background:linear-gradient(135deg,#9cc3ff,#c9b5ff 60%,#ffb3d1)"><div class="kick">${esc(m.name.toUpperCase())}</div><div class="big">${pct}%</div><div style="font-weight:800">${z.ok} of ${z.qs.length} right · ${Math.round((Date.now() - z.t0) / 60000)} min</div></div>
+      ${m.sec.map(([nm, , n]) => { const ok = z.secOk[nm] || 0, p = Math.round(ok * 100 / n); return `<div class="k"><div class="row" style="justify-content:space-between"><b>${esc(nm)}</b><b style="color:${p >= 65 ? '#1E7B3A' : p >= 50 ? '#9A5B00' : '#B3261E'}">${ok} / ${n}</b></div><div class="bar" style="margin-top:6px"><i style="width:${p}%"></i></div></div>`; }).join('')}
+      ${wk.length ? `<div class="k" style="background:var(--ye)"><b>😬 Practise these first</b><div>${wk.map(([w, c]) => esc(w) + ' (' + c + ' wrong)').join(' · ')}</div></div>` : ''}
+      <div class="row"><button class="b w" onclick="PLC.go('mocks')">← Mock tests</button><button class="b" onclick="PLC.mock('${m.id}')">↺ Try again</button></div>`;
+  }
+  function gate() {
+    const w = today().word;
+    return `<div class="k" style="background:linear-gradient(135deg,#ffd36b,#ffb08a 55%,#ffb3d1)"><h2>🎯 PLACEMENT</h2><div style="font-weight:800;font-size:17px;margin:6px 0">Get ready for campus drives: English, Aptitude (TCS NQT · Infosys · Wipro · Accenture · AMCAT pattern), Technical for your course and 🇯🇵 Japanese.</div>
+      <div>Levels 1 → 10, company mock tests, speaking practice and certificates for your resume.</div></div>
+      <div class="k"><b style="font-size:17px">🔓 Unlock it in 2 minutes</b>
+        <div style="margin:8px 0;line-height:1.8">1️⃣ Install the <b>Davan widget</b> on your home screen<br>2️⃣ Swipe to its 🎯 <b>Placement</b> page (3rd dot)<br>3️⃣ Answer today's <b>Question of the day</b> on the widget<br>4️⃣ Come back here - everything opens 🎉</div>
+        <div class="row"><button class="b" onclick="PLC.install()">📲 Install the widget</button><button class="b w" onclick="PLC.recheck()">✅ I answered - check again</button></div></div>
+      <div class="k" style="background:var(--li)"><div class="kick" style="color:#5B3E96">✨ TODAY'S WORD (a taste)</div><h2 style="margin-top:4px">${esc(w.w.toUpperCase())}</h2><div>${esc(w.m)} · <b>${esc(w.kn)}</b></div></div>`;
   }
   function qod(i) {
     const q = today().q, p = P(); if (S.a.qod != null || p.qd === ist()) return;
@@ -299,11 +342,12 @@
     css(); S.el = el; S.o = o; S.prog = null; S.v = o.view || 'home'; S.a = {};
     el.innerHTML = '<div class="plc">Loading 🎯 Placement…</div>';
     try { await loadBank(); S.prog = (await get('prog/' + o.id)) || {}; } catch (e) { el.innerHTML = '<div class="plc">Could not load Placement: ' + esc(e.message) + '</div>'; return; }
+    if (o.role === 'stu' && !o.preview && !(S.prog.xp > 0)) S.v = 'gate';   // v2 (user, 18-Oct): students unlock the app page by answering on the widget
     draw();
   }
   window.PLC = {
     open, go: (v, a) => { go(v, a); if (v === 'report' && a && a.sel) showLog(a.sel); }, say, slow: t => { try { const u = new SpeechSynthesisUtterance(t); u.lang = 'en-IN'; u.rate = .6; speechSynthesis.speak(u); } catch (e) {} },
-    start, pick, next, qod, mic, hide, edit, csv, reload: () => { S.all = null; S.qs = null; draw(); },
+    start, pick, next, qod, mic, hide, edit, csv, mock, install: () => { if (S.o.onInstall) S.o.onInstall(); }, recheck: () => open(S.el, S.o), reload: () => { S.all = null; S.qs = null; draw(); },
     previewOf: id => { const p = S.all[id] || {}; const back0 = S.o; open(S.el, { id, name: p.n, cls: p.c, role: p.r, course: (String(p.c).toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0], preview: true, sa: false }).then(() => { S.el.querySelector('.pv').innerHTML += ` <button class="b" onclick='PLC.open(PLC._el, ${esc(JSON.stringify(back0))})'>↩ Back to me</button>`; }); },
     get _el() { return S.el; }, key, courseOf: c => (String(c || '').toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0]
   };
