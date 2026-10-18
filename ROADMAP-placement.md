@@ -128,3 +128,14 @@ App page 📚 Learn (attractive + game-like):
   new mock Thu 6:45 pm. Times to be clash-checked on the 🔔 page when built.
 - Added screens: first open (goal, English / ಕನ್ನಡ help, time a day, 5-min level check), mock result (sections, weak topics),
   certificate (QR verify, LinkedIn / WhatsApp / PDF), placement tips on home + widget.
+
+## Open as (page 2) + staff learners (user, 18-Oct)
+- Super Admin opens a student (or staff) on page 2 of the widget / in the app: the Placement page shows THAT person's real data
+  (levels, streak, XP, Ready Score, tries, today's word / question, what they answered). READ-ONLY for their record.
+- Anything the Super Admin does there (answer, practise, Say it, Know it, mock test) is a "preview session": shown at once on his
+  screen, kept only on his phone (memory, cleared on ↩ Back to me), NEVER written to learn/ans or learn/prog of that person, never
+  counts in streak / XP / league / reports / certificates. A small "👀 Preview · not saved" tag on the page. Same rule in the app.
+  (Roles.who(c) for what is SHOWN; writes go only to the owner's own id - pair_raw - and are skipped while another person is open.)
+- Staff learn too: Super Admin, Principal, admins, office and faculty get the full Placement page in the staff widget + staff app,
+  with their OWN progress (id = S-code / login), own streak and certificates, a separate staff league, never ranked against
+  students and left out of student reports / campus-drive lists. Japanese track for staff (the Super Admin wants to learn it).
