@@ -160,3 +160,11 @@ built in code (no new layout ids -> no stale-view problem). Check no other sessi
   The widget rows built in w246 / s298 are to be redone to match the mockup in the same build. Build in a fresh session.
 - THE mockup to build from (18-Oct, clean, 6 screens in one row): https://claude.ai/artifact/96dDUE8i4qvc6K3HeXpFkY (1 widget, 2 widget settings with 🎯 Placement, 3-6 widget-app screens). Student app dashboard banner stays ON and only sells the widget (portal v11.82).
 - (user, 18-Oct, LATEST - overrides the lines above) Build EXACTLY the 5 screens of https://claude.ai/artifact/96dDUE8i4qvc6K3HeXpFkY inside the widget app (1 ⚙ settings with the 🎯 Placement card, 2 Placement home, 3 practice / test, 4 speaking, 5 Japanese) - nothing extra. NO new row on the home-screen widget (user: "why you added new").
+
+## Confirmed plan - 3 layers (user, 18-Oct-2026: "It's now correct") - NOT built yet
+- **Layer 1 = the home-screen widget (main product)**: 4 Placement pages - 1 English, 2 Aptitude, 3 Technical, 4 Japanese.
+  Daily, one item at a time, two-way (answer A-D, hear / say, know it). Mockup: artifact 96dDUE8i4qvc6K3HeXpFkY row 1 (WEnglish / WAptitude / WTechnical / WJapanese).
+- **Layer 2 = the widget app's own Android page 🎯 Placement** (native, never a browser): levels, lessons, practice / tests, speaking with the mic,
+  Japanese levels, mock tests. Mockup row 2.
+- **Layer 3 = browser Davan app**: history / results only (read-only "My Placement", later) + the dashboard banner selling the widget + Super Admin report / question bank.
+- Staff get the same in the staff widget with their own progress. Build only when the user says, in a fresh session, with the other widget session paused.
