@@ -3,7 +3,8 @@
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
 ## v1904 · 18-Oct-2026 IST
-User: "this week I want to stop the subject feedback". Class feedback page: ⏸ Skip this week only / ▶ Undo (cfbSkipHtml, cfbSkipWeek). Writes DB2 davan_pub/class_fb_cfg {on:false, pausedWk:<week>, skip/<week>:true} (one tiny write); cfbAutoSum turns it back on in the first admin session after next Saturday 11 am (on:true, pausedWk cleared, start = the new week, so every widget / app version skips the old week - no widget build needed). Pairs with portal v11.78.
+User: "this week I want to stop the subject feedback". Class feedback page: ⏸ Skip this week only / ▶ Undo (cfbSkipHtml, cfbSkipWeek). Writes DB2 davan_pub/class_fb_cfg {on:false, pausedWk:<week>, skip/<week>:true} (one tiny write); cfbAutoSum turns it back on in the first admin session after next Saturday 11 am (on:true, pausedWk cleared, start = the new week, so every widget / app version skips the old week - no widget build needed). Pairs with portal v11.79.
+User: "add levels 3 to 10 and mock tests". learn/bank.json v2 (built by learn/build_levels.py: number questions computed, options shuffled with a fixed seed): 8 tracks x 10 levels, 464 questions, level 10 = PRO (12 mixed). learn/placement.js v2: PRO levels, 📝 mock tests (5 company patterns, timer, section scores, weak topics; learn/prog mk + one log row), student lock until the first widget answer. Script ?v=2. plcInit.
 
 ## v1903 · 18-Oct-2026 IST
 NOTIF_REGISTRY: gen_plc_word (5:30 pm) and gen_plc_qod (6:50 pm, only if not answered) for stu + stf, default ON, for student widget w244 / staff widget w296 (🎯 Placement page, answered on the widget). No new reads.
