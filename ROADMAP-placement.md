@@ -90,7 +90,7 @@ App page 📚 Learn (attractive + game-like):
 - ☑ 1. (18-Oct: bank.json, 8 tracks x L1-L2) Content set 1: words.json + English L1-L3 + Aptitude L1-L3 (each sub-track) + Technical L1-L2 per course (Claude writes).
 - ☑ 2. (portal v11.76/77) Student app 📚 Learn page (level map, play, progress, badges) + learn_cfg db switch + DB4 rules for learn/.
 - ☑ 3. (v1902/03) Staff app: Super Admin Learn report + campus-drive filter / export; faculty get the Learn page in the staff app.
-- ☑ 4. (native Placement.java rows, student w244 / staff w296, next channel; not Cards v2) Cards v2 (tap-to-answer rows) + widget 📚 Learn page: student build + staff build; 8 am / 4 pm notifications.
+- ☑ 4. (native Placement.java rows, student w244 / staff w296; FULL mockup v3 page student w246 / staff w298, next channel; not Cards v2) Cards v2 (tap-to-answer rows) + widget 📚 Learn page: student build + staff build; 8 am / 4 pm notifications.
 - ☐ 5. More content (levels 4-10, Pro tests), Saturday challenge, class league, speaking practice.
 
 ## Proposed 18-Oct (user asked, not yet decided)
