@@ -154,3 +154,7 @@ built in code (no new layout ids -> no stale-view problem). Check no other sessi
   + a big 🎯 Placement card (score, streak, Open Placement) and 4 quick buttons at the top of ⚙ Widget settings
   (StudentPermissionActivity; staff: its settings screen). Mockup row 4 "Android · inside the Davan widget app" (Settings + N* boards).
   Build only after the user approves the mockup.
+- (user, 18-Oct, FINAL) ONLY 2 places: (1) the home-screen widget, built to look like the mockup's widget board; (2) the widget's own
+  Android settings page with a 🎯 Placement page carrying ALL features (native). Apps / browser: switched off (portal v11.81 hides
+  menu + banner, staff app v1907 = Super Admin only for report / question bank). Students must come to the widget, not the app.
+  The widget rows built in w246 / s298 are to be redone to match the mockup in the same build. Build in a fresh session.
