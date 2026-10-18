@@ -168,3 +168,9 @@ built in code (no new layout ids -> no stale-view problem). Check no other sessi
   Japanese levels, mock tests. Mockup row 2.
 - **Layer 3 = browser Davan app**: history / results only (read-only "My Placement", later) + the dashboard banner selling the widget + Super Admin report / question bank.
 - Staff get the same in the staff widget with their own progress. Build only when the user says, in a fresh session, with the other widget session paused.
+
+## Change (user, 18-Oct-2026): WIDGET ONLY - no native app page (Layer 2 dropped)
+Everything runs in the 4 widget pages: lesson cards (▶ Next card), "why" after a wrong answer, mic speaking (tap 🎤 -> Google's small
+speech box over the home screen, score back in the widget - the only popup Android forces), mock tests one question at a time with a
+timer (Chronometer), results, certificate drawn as a picture + Android share sheet. Answers stay A-D (widgets cannot take typing).
+Mockup: artifact 96dDUE8i4qvc6K3HeXpFkY row 1 (daily) + row 2 (same pages, other moments). Browser app = history + banner only.
