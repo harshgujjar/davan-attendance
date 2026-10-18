@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1902 · 18-Oct-2026 IST
+User: "start Placement". New 🎯 Placement side-menu page for all staff (shared learn/placement.js + learn/bank.json, same as student portal v11.76): English, Aptitude, Technical, Japanese with Kannada; Learn -> Practice -> Test levels, question / word of the day, speaking practice, certificates. Super Admin only: 📊 report (Ready Score, campus-drive filter, CSV, per-person tries, preview of anyone's page that never writes) and 📚 Question bank (hide / edit, next 7 days). Data DB4 learn/ (prog, log, qs, stats, hide, qx); the report reads learn/prog + qs once when opened. plcInit.
+
 ## v1901 · 17-Oct-2026 IST
 User: "III BCA A and B section in all places". Sitting bench lines (grid, print, PDF, Excel) now name the section ("Bench A - I BCom + III BCA A") and the Room Master paper guide has one line per section ("Subject (III BCA - Section A): 10 papers - ..."), subject still looked up by the class. Checked: the planner already seats each class section by section (A, then B - sitBuildClassGroups sorts by section then name), so no seating change. The exam timetable keeps "III BCA" as one batch (both sections write the same paper). Functions: bench label helpers in sitRecolorBench / sitBuildPrintHtml / sitDownloadPDF / sitDownloadExcel, attBuildRoomMasterSheet.
 

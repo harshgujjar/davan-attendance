@@ -1,0 +1,310 @@
+/* Davan 🎯 Placement (v1, 18-Oct-2026) - one file shared by the student app (student_portal.html) and the staff app (index.html).
+   Content: learn/bank.json (tracks -> levels -> lesson cards + questions, words, tips, Japanese words, speaking lines).
+   Data (bank.db = DB4 lessonplan-archive now; change bank.json "db" to move to DB5, no app build):
+     <root>/prog/<ID> {n, c, r, xp, st, ld, d, lv:{track:n}, best:{track_n:%}, sp}      one small row per learner
+     <root>/log/<ID>/<push> {t, k, tr, l, s, of}                                          one row per finished practice / test / speak
+     <root>/qs/<qid> {n, ok, p0..p3}   <root>/stats/<date>/{act/<ID>, q/<qid>/...}        counters (.sv increment)
+     <root>/hide/<qid> true   <root>/qx/<qid> {q,o,a,e}                                     Super Admin: hide / edit a question
+   PLC.open(el, {id, name, cls, role:'stu'|'stf', course:'BCA'|'BBA'|'BCOM'|'', preview:false, sa:false})
+   preview = Super Admin looking at someone else: their real data is shown, nothing is written (user, 18-Oct). */
+(function () {
+  const VER = 1;
+  const S = { bank: null, prog: null, o: null, el: null, v: 'home', a: {}, tok: null, tokExp: 0, hide: {}, qx: {} };
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ist = (d) => new Date((d || Date.now()) + 330 * 60000).toISOString().slice(0, 10);
+  const dayNo = () => Math.floor((Date.now() + 330 * 60000) / 864e5) - 20454;   // 0 on 1-Jan-2026
+  const key = s => String(s || '').toUpperCase().replace(/[.#$\[\]\/\s]+/g, '_');
+  const SA_ID = 'STF_HARSHA';
+
+  // ── database (anonymous auth, REST) ──
+  async function tok() {
+    if (S.tok && Date.now() < S.tokExp) return S.tok;
+    const k = 'plc_tok_' + S.bank.db.key.slice(-6);
+    try { const c = JSON.parse(sessionStorage.getItem(k) || 'null'); if (c && c.exp > Date.now()) { S.tok = c.t; S.tokExp = c.exp; return S.tok; } } catch (e) {}
+    const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + S.bank.db.key, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"returnSecureToken":true}' });
+    const j = await r.json(); S.tok = j.idToken; S.tokExp = Date.now() + 50 * 60000;
+    try { sessionStorage.setItem(k, JSON.stringify({ t: S.tok, exp: S.tokExp })); } catch (e) {}
+    return S.tok;
+  }
+  const url = (p, q) => S.bank.db.url + '/' + S.bank.db.root + '/' + p + '.json?' + (q ? q + '&' : '');
+  async function get(p, q) { const r = await fetch(url(p, q) + 'auth=' + await tok()); if (!r.ok) throw new Error('read ' + r.status); return r.json(); }
+  async function put(m, p, v) {
+    if (S.o && S.o.preview) return;   // preview: never write someone else's record
+    try { await fetch(url(p, 'print=silent') + 'auth=' + await tok(), { method: m, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) }); } catch (e) { console.warn('[plc]', e.message); }
+  }
+  const inc = { '.sv': { increment: 1 } };
+
+  // ── bank ──
+  async function loadBank() {
+    if (S.bank) return;
+    const ck = 'plc_bank_v' + VER;
+    try { const c = JSON.parse(localStorage.getItem(ck) || 'null'); if (c && c.day === ist()) S.bank = c.b; } catch (e) {}
+    if (!S.bank) {
+      const base = (document.querySelector('script[src*="learn/placement.js"]') || {}).src || '';
+      const r = await fetch(base.replace(/placement\.js.*$/, 'bank.json') + '?d=' + ist());
+      S.bank = await r.json();
+      try { localStorage.setItem(ck, JSON.stringify({ day: ist(), b: S.bank })); } catch (e) {}
+    }
+    try { const [h, x] = await Promise.all([get('hide'), get('qx')]); S.hide = h || {}; S.qx = x || {}; } catch (e) {}
+  }
+  const tracks = () => S.bank.tracks.filter(t => t.g !== 'tech' || !S.o.course || t.course === S.o.course || S.o.role === 'stf');
+  const track = id => S.bank.tracks.find(t => t.id === id);
+  const qOf = q => Object.assign({}, q, S.qx[q.id] || {});
+  const qsOf = (t, l) => (l.qs || []).filter(q => !S.hide[q.id]).map(qOf);
+  const allApt = () => { const o = []; S.bank.tracks.filter(t => t.g === 'apt').forEach(t => t.levels.forEach(l => qsOf(t, l).forEach(q => o.push(Object.assign({ tr: t.id, tag: l.tag }, q))))); return o; };
+  const today = () => { const n = dayNo(), b = S.bank, ap = allApt(); return { word: b.words[n % b.words.length], q: ap.length ? ap[(n * 7) % ap.length] : null, jp: b.jp[n % b.jp.length], tip: b.tips[n % b.tips.length] }; };
+
+  // ── progress ──
+  const P = () => S.prog || (S.prog = {});
+  const lv = id => (P().lv || {})[id] || 0;
+  function ready() {
+    const a = (lv('quant') + lv('reason') + lv('verbal')) / 30 * 40, e = lv('english') / 10 * 30;
+    const tt = S.bank.tracks.find(t => t.g === 'tech' && t.course === S.o.course); const t = tt ? lv(tt.id) / 10 * 30 : 0;
+    return { all: Math.round(a + e + t), a: Math.round(a), e: Math.round(e), t: Math.round(t) };
+  }
+  function touch(xp) {
+    const p = P(), d = ist(), y = ist(Date.now() - 864e5);
+    if (p.ld !== d) { p.st = p.ld === y ? (p.st || 0) + 1 : 1; p.d = (p.d || 0) + 1; p.ld = d; }
+    p.xp = (p.xp || 0) + (xp || 0); p.n = S.o.name; p.c = S.o.cls || ''; p.r = S.o.role; p.rs = ready().all;
+    put('PATCH', 'prog/' + S.o.id, p);
+    put('PATCH', 'stats/' + d + '/act', { [S.o.id]: 1 });
+  }
+  function log(k, tr, l, s, of) { put('POST', 'log/' + S.o.id, { t: Date.now(), k, tr, l, s, of }); }
+  function stat(q, pick) {
+    const v = { n: inc }; if (pick === q.a) v.ok = inc; v['p' + pick] = inc;
+    put('PATCH', 'qs/' + q.id, v);
+  }
+
+  // ── speech ──
+  function say(text, lang) {
+    try { const u = new SpeechSynthesisUtterance(text); u.lang = lang || 'en-IN'; u.rate = lang === 'ja-JP' ? 0.8 : 0.95; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { alert('Voice is not available on this phone'); }
+  }
+  function listen(lang, done) {
+    const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!R) { done(null, 'Speaking practice needs Chrome on Android'); return; }
+    const r = new R(); r.lang = lang || 'en-IN'; r.interimResults = false; r.maxAlternatives = 1;
+    r.onresult = e => done(e.results[0][0].transcript); r.onerror = e => done(null, e.error === 'not-allowed' ? 'Allow the microphone to practise speaking' : 'Did not hear you - try again'); r.start();
+  }
+  function compare(target, heard) {
+    const n = s => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean);
+    const t = n(target), h = new Set(n(heard || '')); let ok = 0;
+    const words = target.split(/\s+/).map(w => { const good = h.has(n(w)[0] || ''); if (good) ok++; return { w, good }; });
+    return { pct: Math.round(ok * 100 / Math.max(1, t.length)), words };
+  }
+
+  // ── styles ──
+  const CSS = `.plc{--pk:#FDE8D4;--cr:#FFFAF2;--ye:#FFF1C4;--li:#EEE6FB;--gr:#E3F5E6;--ro:#FDE2E4;--wa:#DFF1FB;--ink:#1F1A15;--br:#5C3D05;--mu:#6B5F55;--btn:#FFE08A;
+  font-family:'DM Sans',system-ui,sans-serif;color:var(--ink);background:var(--pk);border-radius:18px;padding:14px;max-width:760px;margin:0 auto}
+  .plc *{box-sizing:border-box}.plc h2{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:1px;margin:0;line-height:1}
+  .plc .k{border:2px solid var(--ink);box-shadow:4px 4px 0 var(--ink);border-radius:18px;padding:14px;background:var(--cr);margin:10px 0}
+  .plc .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.plc .g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .plc .b{border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink);background:var(--btn);color:var(--br);border-radius:14px;padding:10px 14px;font:800 14px 'DM Sans',system-ui,sans-serif;cursor:pointer}
+  .plc .b:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}.plc .b.dk{background:var(--ink);color:var(--btn)}.plc .b.w{background:var(--cr)}
+  .plc .pill{display:inline-block;border:1.5px solid var(--ink);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:800;background:var(--ye)}
+  .plc .mu{color:var(--mu);font-size:13px}.plc .kick{font-size:11px;font-weight:800;letter-spacing:.08em}
+  .plc .big{font-family:'Bebas Neue',sans-serif;font-size:58px;line-height:.9}.plc .bar{height:10px;border:1.5px solid var(--ink);border-radius:8px;background:#fff;overflow:hidden}.plc .bar i{display:block;height:100%;background:linear-gradient(90deg,#f0a500,#ff6b3d)}
+  .plc .tr{border:2px solid var(--ink);box-shadow:4px 4px 0 var(--ink);border-radius:18px;padding:12px;cursor:pointer;color:var(--ink);text-align:left;font-family:inherit}
+  .plc .opt{display:block;width:100%;text-align:left;margin:8px 0;padding:14px;font-size:16px;font-weight:700;border:2px solid var(--ink);border-radius:14px;background:#fff;box-shadow:3px 3px 0 var(--ink);cursor:pointer;font-family:inherit;color:var(--ink)}
+  .plc .opt.ok{background:#bdf0cb}.plc .opt.no{background:#ffc9c9}.plc .pv{background:#1F1A15;color:#FFE08A;border-radius:12px;padding:8px 12px;font-weight:800;margin-bottom:8px}
+  .plc table{width:100%;border-collapse:collapse;font-size:13px}.plc td,.plc th{padding:6px;border-bottom:1px solid #e8d2b8;text-align:left}.plc tr.sel{background:var(--ye)}
+  .plc .lv{width:54px;height:54px;border-radius:50%;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink);display:flex;align-items:center;justify-content:center;font:800 18px 'DM Sans';cursor:pointer}`;
+  function css() {
+    if (document.getElementById('plc-css')) return;
+    const s = document.createElement('style'); s.id = 'plc-css'; s.textContent = CSS; document.head.appendChild(s);
+    if (!document.querySelector('link[href*="Bebas+Neue"]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;600;700;800&display=swap'; document.head.appendChild(l); }
+  }
+  const GRAD = { apt: 'linear-gradient(135deg,#9cc3ff,#c9b5ff)', eng: 'linear-gradient(135deg,#ffb3d1,#c9b5ff)', tech: 'linear-gradient(135deg,#a8ecc0,#9fe3dd)', jp: 'linear-gradient(135deg,#ffb0a8,#ffb3d1)' };
+
+  // ── views ──
+  function go(v, a) { S.v = v; S.a = a || {}; draw(); try { S.el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }
+  function draw() {
+    const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank }[S.v] || home;
+    S.el.innerHTML = '<div class="plc">' + (S.o.preview ? '<div class="pv">👀 Preview of ' + esc(S.o.name) + ' · nothing you do here is saved</div>' : '') + h() + '</div>';
+  }
+  const back = (v, a) => `<button class="b w" onclick="PLC.go('${v || 'home'}'${a ? ',' + esc(JSON.stringify(a)) : ''})">←</button>`;
+
+  function home() {
+    const p = P(), r = ready(), t = today(), w = t.word, q = t.q, done = (p.qd === ist());
+    const card = tr => { const n = lv(tr.id), tot = tr.levels.length; return `<button class="tr" style="background:${GRAD[tr.g]}" onclick="PLC.go('track',{t:'${tr.id}'})"><div style="font-size:24px">${tr.emoji}</div><div style="font-family:'Bebas Neue';font-size:22px">${esc(tr.name.toUpperCase())}</div><div style="font-size:12px;font-weight:700">Level ${Math.min(n + 1, tot)}${n >= tot ? ' ✓ · more soon' : ''}</div></button>`; };
+    let qh = '';
+    if (q) {
+      const pick = S.a.qod;
+      qh = `<div class="k" style="background:var(--cr)"><div class="row"><span class="kick" style="color:#1A5C8A">🧠 QUESTION OF THE DAY</span><span class="pill">🏷 ${esc(q.tag || '')}</span></div>
+        <div style="font-weight:700;font-size:16px;margin:8px 0">${esc(q.q)}</div>` +
+        (done && pick == null ? `<div class="mu">✅ Answered today · come back tomorrow</div>` :
+        q.o.map((o, i) => `<button class="opt ${pick != null ? (i === q.a ? 'ok' : i === pick ? 'no' : '') : ''}" onclick="PLC.qod(${i})">${esc(o)}</button>`).join('') +
+        (pick != null ? `<div class="mu" style="margin-top:6px">${pick === q.a ? '🎉 Correct · +20 XP' : '😅 Answer: ' + esc(q.o[q.a])} · ${esc(q.e)}</div>` : '')) + '</div>';
+    }
+    const tips = S.bank.tips, ti = S.a.tip == null ? dayNo() % tips.length : S.a.tip, tip = tips[ti];
+    return `<div class="row" style="justify-content:space-between"><div><div class="mu">Hey ${esc((S.o.name || '').split(' ')[0])} 👋</div><h2>🎯 PLACEMENT</h2></div><span class="pill" style="font-size:15px">🔥 ${p.st || 0} day${p.st === 1 ? '' : 's'}</span></div>
+      <div class="k" style="background:linear-gradient(135deg,#ffd36b,#ffb08a)"><div class="row" style="justify-content:space-between"><div><div class="kick">YOUR READY SCORE</div><div class="big">${r.all}<span style="font-size:24px">/100</span></div><div style="font-weight:700;font-size:13px">⚡ ${p.xp || 0} XP · ${p.d || 0} days practised</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:800"><span class="pill">🧠 Aptitude ${r.a}/40</span><span class="pill">🗣 English ${r.e}/30</span><span class="pill">💻 Technical ${r.t}/30</span></div></div></div>
+      <div class="k" style="background:var(--li)"><div class="row" style="justify-content:space-between"><span class="kick" style="color:#5B3E96">✨ WORD OF THE DAY</span><button class="b" onclick="PLC.say(${esc(JSON.stringify(w.w + '. ' + w.ex))})">🔊</button></div>
+        <h2 style="margin-top:4px">${esc(w.w.toUpperCase())}</h2><div>${esc(w.m)} · <b>${esc(w.kn)}</b></div><div class="mu" style="font-style:italic">"${esc(w.ex)}"</div></div>
+      ${qh}
+      <div class="g2">${tracks().map(card).join('')}</div>
+      <div class="g2" style="margin-top:10px"><button class="b" onclick="PLC.go('speak')">🎤 Speaking practice</button><button class="b" onclick="PLC.go('jp')">🇯🇵 Japanese words</button><button class="b w" onclick="PLC.go('cert')">🏅 My certificates</button>${S.o.sa ? `<button class="b dk" onclick="PLC.go('report')">📊 Report</button><button class="b dk" onclick="PLC.go('qbank')">📚 Question bank</button>` : ''}</div>
+      <div class="k" style="background:var(--gr)"><div class="row" style="justify-content:space-between"><span class="kick" style="color:#1E7B3A">💡 PLACEMENT TIP · ${esc(tip.c.toUpperCase())}</span><span><button class="b w" onclick="PLC.go('home',{tip:${(ti + tips.length - 1) % tips.length}})">‹</button> <button class="b w" onclick="PLC.go('home',{tip:${(ti + 1) % tips.length}})">›</button></span></div>
+        <div style="font-weight:800;font-size:16px;margin:6px 0">${esc(tip.t)}</div><div>${esc(tip.b)}</div><div class="mu">${esc(tip.kn)}</div></div>`;
+  }
+  function trackV() {
+    const t = track(S.a.t), n = lv(t.id);
+    const nodes = t.levels.map(l => { const st = l.n <= n ? 'done' : l.n === n + 1 ? 'now' : 'lock'; const b = (P().best || {})[t.id + '_' + l.n];
+      return `<div class="k" style="background:${st === 'done' ? 'var(--gr)' : st === 'now' ? 'var(--ye)' : '#efe3d6'}"><div class="row"><div class="lv" style="background:${st === 'done' ? '#7fdc9b' : st === 'now' ? '#ffc94d' : '#ddd'}">${st === 'done' ? '✓' : st === 'lock' ? '🔒' : l.n}</div>
+        <div style="flex:1"><div style="font-weight:800">Level ${l.n} · ${esc(l.name)}</div><div class="mu">🏷 ${esc(l.tag)}${b != null ? ' · best ' + b + '%' : ''}</div></div></div>` +
+        (st !== 'lock' ? `<div class="row" style="margin-top:10px"><button class="b w" onclick="PLC.go('lesson',{t:'${t.id}',l:${l.n},i:0})">📖 Learn</button><button class="b w" onclick="PLC.start('${t.id}',${l.n},'prac')">✍️ Practice</button><button class="b" onclick="PLC.start('${t.id}',${l.n},'test')">🏁 Test (pass ${Math.round(S.bank.pass * 100)}%)</button></div>` : '') + '</div>'; }).join('');
+    return `<div class="row">${back()}<h2>${t.emoji} ${esc(t.name.toUpperCase())}</h2></div>${nodes}<div class="k mu">Levels ${t.levels.length + 1}–10 and the 👑 PRO test are being added. Bronze 🥉 certificate at level 2, silver 🥈 at 5, gold 👑 at 10.</div>`;
+  }
+  function lesson() {
+    const t = track(S.a.t), l = t.levels.find(x => x.n === S.a.l), i = S.a.i || 0, c = l.cards[i], kn = S.a.kn;
+    return `<div class="row">${back('track', { t: t.id })}<span class="mu" style="flex:1">${esc(l.name)} · card ${i + 1}/${l.cards.length}</span><button class="b ${kn ? '' : 'w'}" onclick="PLC.go('lesson',{t:'${t.id}',l:${l.n},i:${i},kn:${!kn}})">ಕನ್ನಡ</button></div>
+      <div class="k" style="min-height:300px;background:var(--cr)"><h2 style="font-size:30px">${esc(c.t)}</h2><p style="font-size:17px;line-height:1.5">${esc(c.b)}</p>
+      <div class="k" style="background:linear-gradient(135deg,#ffd36b,#ffb08a);font-weight:800;font-size:18px">${esc(c.box)}</div>${kn ? `<p style="font-size:17px;font-weight:700">${esc(c.kn)}</p>` : ''}
+      <button class="b w" onclick="PLC.say(${esc(JSON.stringify(c.t + '. ' + c.b + '. ' + c.box))})">🔊 Read it to me</button></div>
+      <div class="row">${i > 0 ? `<button class="b w" onclick="PLC.go('lesson',{t:'${t.id}',l:${l.n},i:${i - 1},kn:${!!kn}})">← Back</button>` : ''}
+      ${i < l.cards.length - 1 ? `<button class="b dk" style="flex:1" onclick="PLC.go('lesson',{t:'${t.id}',l:${l.n},i:${i + 1},kn:${!!kn}})">Next card →</button>` : `<button class="b" style="flex:1" onclick="PLC.start('${t.id}',${l.n},'prac')">Got it! Start practice 💪</button>`}</div>`;
+  }
+  function start(tid, n, mode) {
+    const t = track(tid), l = t.levels.find(x => x.n === n), qs = qsOf(t, l).map(q => { const ord = q.o.map((_, i) => i).sort(() => Math.random() - .5); return Object.assign({}, q, { ord }); });
+    S.quiz = { t: tid, n, mode, qs, i: 0, ok: 0, pick: null, t0: Date.now(), tag: l.tag }; go('quiz');
+  }
+  function quiz() {
+    const z = S.quiz, t = track(z.t);
+    if (z.i >= z.qs.length) {
+      const pct = Math.round(z.ok * 100 / z.qs.length), pass = z.mode === 'test' && pct >= S.bank.pass * 100;
+      return `<div class="k" style="text-align:center;background:${pass ? 'linear-gradient(135deg,#a8ecc0,#9fe3dd)' : 'var(--ye)'}"><div class="kick">${z.mode === 'test' ? 'TEST RESULT' : 'PRACTICE DONE'}</div><div class="big">${pct}%</div>
+        <div style="font-weight:800;font-size:18px">${pass ? '🎉 LEVEL ' + z.n + ' CLEARED · +50 XP' : z.mode === 'test' ? '😅 Need ' + Math.round(S.bank.pass * 100) + '% · try again after practice' : z.ok + ' of ' + z.qs.length + ' right'}</div></div>
+        <div class="row"><button class="b w" onclick="PLC.go('track',{t:'${z.t}'})">← Levels</button><button class="b" onclick="PLC.start('${z.t}',${z.n},'${z.mode}')">↺ Again</button>${z.mode === 'prac' ? `<button class="b dk" onclick="PLC.start('${z.t}',${z.n},'test')">🏁 Take the test</button>` : ''}</div>`;
+    }
+    const q = z.qs[z.i], pk = z.pick, fb = z.mode === 'prac' && pk != null;
+    return `<div class="row">${back('track', { t: z.t })}<div class="bar" style="flex:1"><i style="width:${Math.round(z.i * 100 / z.qs.length)}%"></i></div><b>${z.i + 1}/${z.qs.length}</b></div>
+      <div class="row" style="margin:8px 0"><span class="pill" style="background:#cfe0ff">🏷 ${esc(q.tag || z.tag)}</span><span class="pill">${z.mode === 'test' ? '🏁 Test' : '✍️ Practice'}</span></div>
+      <div class="k" style="font-size:18px;font-weight:700;background:var(--cr)">${esc(q.q)}</div>
+      ${q.ord.map(i => `<button class="opt ${fb ? (i === q.a ? 'ok' : i === pk ? 'no' : '') : (pk === i ? 'ok' : '')}" onclick="PLC.pick(${i})">${esc(q.o[i])}</button>`).join('')}
+      ${fb ? `<div class="k" style="background:${pk === q.a ? 'var(--gr)' : 'var(--ro)'}"><b>${pk === q.a ? '🎉 Correct' : '❌ Answer: ' + esc(q.o[q.a])}</b><div>${esc(q.e)}</div></div>` : ''}
+      ${pk != null ? `<button class="b dk" style="width:100%" onclick="PLC.next()">Next →</button>` : ''}`;
+  }
+  function pick(i) {
+    const z = S.quiz, q = z.qs[z.i]; if (z.pick != null) return;
+    z.pick = i; if (i === q.a) z.ok++; stat(q, i);
+    if (z.mode === 'test') return next();
+    draw();
+  }
+  function next() {
+    const z = S.quiz; z.i++; z.pick = null;
+    if (z.i >= z.qs.length) {
+      const pct = Math.round(z.ok * 100 / z.qs.length), p = P(); p.best = p.best || {}; const bk = z.t + '_' + z.n;
+      p.best[bk] = Math.max(p.best[bk] || 0, pct); p.lv = p.lv || {};
+      let xp = z.ok * (z.mode === 'prac' ? 10 : 5);
+      if (z.mode === 'test' && pct >= S.bank.pass * 100 && lv(z.t) < z.n) { p.lv[z.t] = z.n; xp += 50; }
+      touch(xp); log(z.mode, z.t, z.n, z.ok, z.qs.length);
+    }
+    draw();
+  }
+  function qod(i) {
+    const q = today().q, p = P(); if (S.a.qod != null || p.qd === ist()) return;
+    S.a.qod = i; p.qd = ist(); stat(q, i); put('PATCH', 'stats/' + ist() + '/q/' + q.id, { n: inc, ['p' + i]: inc }); touch(i === q.a ? 20 : 5); log('qod', q.tr, 0, i === q.a ? 1 : 0, 1); draw();
+  }
+  function speak() {
+    const L = S.bank.speak, i = (S.a.i == null ? dayNo() : S.a.i) % L.length, s = L[i], r = S.a.res;
+    return `<div class="row">${back()}<h2>🎤 SPEAKING</h2></div>
+      <div class="k" style="background:var(--li)"><div class="kick" style="color:#5B3E96">LISTEN, THEN SAY IT</div><div style="font-size:21px;font-weight:700;margin:8px 0">${esc(s.s)}</div><div class="mu">${esc(s.kn)}</div>
+      <div class="row" style="margin-top:8px"><button class="b" onclick="PLC.say(${esc(JSON.stringify(s.s))})">🔊 Listen</button><button class="b w" onclick="PLC.slow(${esc(JSON.stringify(s.s))})">🐢 Slow</button></div></div>
+      ${r ? `<div class="k">${r.err ? esc(r.err) : `<div class="row" style="justify-content:space-between"><span class="kick">WHAT THE PHONE HEARD</span><span class="big" style="font-size:40px;color:${r.pct >= 70 ? '#1E7B3A' : '#B3261E'}">${r.pct}%</span></div>
+        <div style="font-size:18px;font-weight:700;line-height:1.8">${r.words.map(w => `<span style="padding:2px 6px;border-radius:8px;${w.good ? 'color:#1E7B3A' : 'background:#ffc9c9'}">${esc(w.w)}</span>`).join(' ')}</div><div class="mu">Heard: "${esc(r.heard)}"</div>`}</div>` : ''}
+      <div style="text-align:center;margin:18px 0"><button class="b" style="width:96px;height:96px;border-radius:50%;font-size:40px" onclick="PLC.mic(${i})">🎤</button><div class="mu" style="margin-top:8px">Tap and say the sentence</div></div>
+      <div class="row"><button class="b w" onclick="PLC.go('speak',{i:${(i + L.length - 1) % L.length}})">‹ Previous</button><button class="b w" onclick="PLC.go('speak',{i:${(i + 1) % L.length}})">Next sentence ›</button></div>`;
+  }
+  function mic(i) {
+    const s = S.bank.speak[i];
+    listen('en-IN', (heard, err) => { if (err) { S.a = { i, res: { err } }; return draw(); }
+      const c = compare(s.s, heard); S.a = { i, res: Object.assign({ heard }, c) };
+      const p = P(); p.sp = (p.sp || 0) + 1; touch(c.pct >= 70 ? 15 : 5); log('speak', 'english', 0, c.pct, 100); draw(); });
+  }
+  function jpV() {
+    const L = S.bank.jp, i = (S.a.i == null ? dayNo() : S.a.i) % L.length, w = L[i], open = S.a.open;
+    return `<div class="row">${back()}<h2>🇯🇵 JAPANESE</h2><span class="pill">JLPT N5 path</span></div>
+      <button class="k" style="width:100%;min-height:260px;background:linear-gradient(135deg,#ffb0a8,#ffb3d1);cursor:pointer;text-align:center;font-family:inherit" onclick="PLC.go('jp',{i:${i},open:${!open}})">
+        <div style="font-size:64px;font-weight:800">${esc(w.j)}</div>${open ? `<div style="font-size:22px;font-weight:800">${esc(w.r)} · ${esc(w.ks)}</div><div style="font-size:18px;font-weight:800">ಕನ್ನಡ: ${esc(w.kn)}</div><div>English: ${esc(w.en)}</div>` : '<div class="mu">tap to flip 🔄</div>'}</button>
+      <div class="row"><button class="b" onclick="PLC.say(${esc(JSON.stringify(w.j))},'ja-JP')">🔊 Hear</button><button class="b w" onclick="PLC.go('jp',{i:${(i + 1) % L.length}})">Next →</button><button class="b dk" onclick="PLC.go('track',{t:'japanese'})">📖 Hiragana levels</button></div>
+      <div class="k mu">Japanese letters are sounds, like Kannada letters (あ = ಅ, か = ಕ), so every word is also shown in Kannada letters.</div>`;
+  }
+  function cert() {
+    const p = P(), have = tracks().map(t => ({ t, n: lv(t.id) })).filter(x => x.n >= 2);
+    const tier = n => n >= 10 ? ['👑 GOLD · PRO', '#f0a500'] : n >= 5 ? ['🥈 SILVER', '#9aa4b2'] : ['🥉 BRONZE', '#c47f3a'];
+    const c = S.a.c != null ? have.find(x => x.t.id === S.a.c) : null;
+    if (c) { const [nm, col] = tier(c.n), id = 'DVP-' + key(S.o.id).slice(-8) + '-' + c.t.id.toUpperCase() + '-' + c.n;
+      return `<div class="row">${back('cert')}<button class="b" onclick="window.print()">⬇ Save PDF / print</button></div>
+        <div class="k" style="text-align:center;border:6px double ${col};background:#fffaf2"><div style="font-weight:800;letter-spacing:1px"><span style="color:#2B2A84">DA</span><span style="color:#D3262E">V</span><span style="color:#2B2A84">AN</span> · PLACEMENT</div>
+        <div style="font-family:Georgia,serif;font-size:26px;color:#5C3D05;margin:8px 0">Certificate of Achievement</div><div class="mu">This is to certify that</div><div style="font-family:Georgia,serif;font-size:28px">${esc(S.o.name)}</div><div class="mu">${esc(S.o.cls || '')}</div>
+        <p style="font-size:15px">has completed level ${c.n} of <b>${esc(c.t.name)}</b> on Davan Placement.</p><span class="pill" style="background:${col}">${nm}</span><div class="mu" style="margin-top:10px">${ist()} · ID ${id}</div></div>`; }
+    return `<div class="row">${back()}<h2>🏅 CERTIFICATES</h2></div>` + (have.length ? have.map(x => `<button class="tr k" style="width:100%;background:var(--ye)" onclick="PLC.go('cert',{c:'${x.t.id}'})">${tier(x.n)[0]} · ${esc(x.t.name)} · level ${x.n}</button>`).join('') : '<div class="k">Clear level 2 of any track to earn your first 🥉 certificate.</div>') + `<div class="k mu">Add them to your resume and LinkedIn (Licences &amp; certifications).</div>`;
+  }
+
+  // ── Super Admin: report + question bank ──
+  async function loadAll() { if (!S.all || Date.now() - S.allAt > 120000) { S.all = (await get('prog')) || {}; S.allAt = Date.now(); S.qs = (await get('qs')) || {}; S.st = (await get('stats/' + ist())) || {}; } }
+  function report() {
+    if (!S.all) { loadAll().then(draw).catch(e => { S.el.innerHTML = '<div class="plc">Could not read: ' + esc(e.message) + '</div>'; }); return '<div>Loading…</div>'; }
+    const f = S.a.f || 'stu', min = S.a.min || 0, d7 = ist(Date.now() - 7 * 864e5);
+    const rows = Object.entries(S.all).map(([id, p]) => Object.assign({ id }, p)).filter(p => (f === 'all' || p.r === f || (f === 'BCA' || f === 'BBA' || f === 'BCOM') && p.r === 'stu' && String(p.c).toUpperCase().replace(/[.\s]/g, '').includes(f)) && (p.rs || 0) >= min).sort((a, b) => (b.rs || 0) - (a.rs || 0) || (b.xp || 0) - (a.xp || 0));
+    const all = Object.values(S.all), act = Object.keys(S.st.act || {}).length, wk = all.filter(p => (p.ld || '') >= d7).length, t = today(), qs = (S.st.q || {})[t.q ? t.q.id : ''] || {};
+    const cls = {}; all.filter(p => p.r === 'stu').forEach(p => { cls[p.c] = (cls[p.c] || 0) + 1; });
+    const sel = S.a.sel && S.all[S.a.sel];
+    return `<div class="row">${back()}<h2>📊 PLACEMENT REPORT</h2><span class="pill" style="background:#ffc9c9">Super Admin only</span><button class="b w" onclick="PLC.reload()">⟳</button></div>
+      <div class="g2" style="grid-template-columns:repeat(4,minmax(0,1fr))">${[['ACTIVE TODAY', act], ['THIS WEEK', wk], ['LEARNERS', all.length], ['LEVELS CLEARED', all.reduce((s, p) => s + Object.values(p.lv || {}).reduce((a, b) => a + b, 0), 0)]].map(([a, b]) => `<div class="k" style="margin:0"><div class="kick">${a}</div><div class="big" style="font-size:40px">${b}</div></div>`).join('')}</div>
+      <div class="k" style="background:var(--li)"><b>Today:</b> word <b>${esc(t.word.w)}</b> · question "${esc(t.q ? t.q.q : '')}" · answered ${qs.n || 0}${t.q ? ' · picks ' + t.q.o.map((o, i) => esc(o) + ' ' + (qs['p' + i] || 0)).join(' / ') : ''}</div>
+      <div class="row">${['stu', 'stf', 'BCA', 'BBA', 'BCOM', 'all'].map(x => `<button class="b ${f === x ? 'dk' : 'w'}" onclick="PLC.go('report',{f:'${x}',min:${min}})">${{ stu: 'Students', stf: 'Staff', all: 'All' }[x] || x}</button>`).join('')}
+        ${[0, 45, 70].map(m => `<button class="b ${min === m ? 'dk' : 'w'}" onclick="PLC.go('report',{f:'${f}',min:${m}})">${m ? 'Ready ' + m + '+' : 'Any score'}</button>`).join('')}<button class="b" onclick="PLC.csv()">⬇ CSV</button></div>
+      ${sel ? `<div class="k" style="background:var(--ye)"><b>${esc(sel.n)}</b> · ${esc(sel.c)} · Ready ${sel.rs || 0} · ${sel.xp || 0} XP · 🔥 ${sel.st || 0} · ${sel.d || 0} days · last ${esc(sel.ld || '-')}<div>Levels: ${esc(Object.entries(sel.lv || {}).map(([k, v]) => k + ' ' + v).join(' · ') || 'none yet')}</div><div id="plc-log" class="mu">Loading tries…</div>
+        <button class="b dk" onclick="PLC.previewOf('${esc(S.a.sel)}')">👀 Open their Placement page (preview)</button></div>` : ''}
+      <div class="k" style="overflow-x:auto"><table><tr><th>Name</th><th>Class</th><th>Ready</th><th>XP</th><th>🔥</th><th>Days</th><th>Last</th><th>Levels</th></tr>
+      ${rows.slice(0, 400).map(p => `<tr class="${S.a.sel === p.id ? 'sel' : ''}" style="cursor:pointer" onclick="PLC.go('report',{f:'${f}',min:${min},sel:'${esc(p.id)}'})"><td><span>${esc(p.n)}</span></td><td>${esc(p.c)}</td><td><b>${p.rs || 0}</b></td><td>${p.xp || 0}</td><td>${p.st || 0}</td><td>${p.d || 0}</td><td>${esc(p.ld || '')}</td><td>${Object.values(p.lv || {}).reduce((a, b) => a + b, 0)}</td></tr>`).join('')}</table>${rows.length ? '' : '<div class="mu">Nobody yet.</div>'}</div>
+      <div class="k"><b>Students by class</b><div class="mu">${Object.entries(cls).sort().map(([c, n]) => esc(c) + ': ' + n).join(' · ') || '-'}</div></div>`;
+  }
+  async function showLog(id) {
+    try { const l = (await get('log/' + id, 'orderBy="$key"&limitToLast=12')) || {};
+      const el = document.getElementById('plc-log'); if (el) el.innerHTML = Object.values(l).reverse().map(x => esc(new Date(x.t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + ' · ' + ({ prac: 'practice', test: 'test', qod: 'question of the day', speak: 'speaking' }[x.k] || x.k) + ' · ' + x.tr + (x.l ? ' L' + x.l : '') + ' · ' + x.s + '/' + x.of)).join('<br>') || 'No tries yet';
+    } catch (e) {}
+  }
+  function qbank() {
+    if (!S.qs) { loadAll().then(draw); return '<div>Loading…</div>'; }
+    const tid = S.a.t || 'quant', t = track(tid), n0 = dayNo(), ap = allApt();
+    const days = [0, 1, 2, 3, 4, 5, 6].map(k => { const n = n0 + k; return { d: ist(Date.now() + k * 864e5), w: S.bank.words[n % S.bank.words.length].w, q: ap.length ? ap[(n * 7) % ap.length].q : '' }; });
+    return `<div class="row">${back()}<h2>📚 QUESTION BANK</h2><span class="pill" style="background:#ffc9c9">Super Admin only</span></div>
+      <div class="k" style="background:var(--li)"><b>📅 Coming next</b>${days.map(x => `<div class="mu">${x.d} · <b>${esc(x.w)}</b> · ${esc(x.q)}</div>`).join('')}</div>
+      <div class="row">${S.bank.tracks.map(x => `<button class="b ${x.id === tid ? 'dk' : 'w'}" onclick="PLC.go('qbank',{t:'${x.id}'})">${x.emoji} ${esc(x.name)}</button>`).join('')}</div>
+      ${t.levels.map(l => `<div class="k"><b>Level ${l.n} · ${esc(l.name)}</b> <span class="pill">🏷 ${esc(l.tag)}</span><div class="mu">Lesson: ${l.cards.map(c => esc(c.t)).join(' · ')}</div>
+        <table><tr><th>Question</th><th>Answer</th><th>% right</th><th>Tries</th><th></th></tr>${l.qs.map(q0 => { const q = qOf(q0), s = S.qs[q.id] || {}, h = S.hide[q.id];
+          return `<tr style="${h ? 'opacity:.45' : ''}"><td>${esc(q.q)}</td><td>${esc(q.o[q.a])}</td><td><b style="color:${!s.n ? '#6B5F55' : s.ok / s.n >= .6 ? '#1E7B3A' : '#B3261E'}">${s.n ? Math.round((s.ok || 0) * 100 / s.n) + '%' : '–'}</b></td><td>${s.n || 0}</td>
+          <td style="white-space:nowrap"><button class="b w" onclick="PLC.hide('${q.id}')">${h ? '👁 Show' : '🙈 Hide'}</button> <button class="b w" onclick="PLC.edit('${q.id}')">✎</button></td></tr>`; }).join('')}</table></div>`).join('')}
+      <div class="k mu">🙈 Hide takes a question out for everyone from the next refresh. ✎ Edit changes the text / options / answer (saved on top of the bank). New questions: ask Claude to add them to learn/bank.json.</div>`;
+  }
+  function findQ(id) { for (const t of S.bank.tracks) for (const l of t.levels) for (const q of l.qs) if (q.id === id) return qOf(q); }
+  async function hide(id) { const v = !S.hide[id]; S.hide[id] = v; await put('PATCH', 'hide', { [id]: v || null }); draw(); }
+  async function edit(id) {
+    const q = findQ(id); const t = prompt('Question', q.q); if (t == null) return;
+    const o = prompt('Options separated by |', q.o.join(' | ')); if (o == null) return;
+    const opts = o.split('|').map(s => s.trim()).filter(Boolean); const a = prompt('Correct option number (1-' + opts.length + ')', q.a + 1); if (a == null) return;
+    const e = prompt('Explanation', q.e); if (e == null) return;
+    const v = { q: t, o: opts, a: Math.max(0, Math.min(opts.length - 1, (+a || 1) - 1)), e }; S.qx[id] = v; await put('PUT', 'qx/' + id, v); draw();
+  }
+  function csv() {
+    const L = [['Name', 'Class', 'Role', 'Ready', 'XP', 'Streak', 'Days', 'Last', 'Levels']].concat(Object.values(S.all || {}).map(p => [p.n, p.c, p.r, p.rs || 0, p.xp || 0, p.st || 0, p.d || 0, p.ld || '', JSON.stringify(p.lv || {})]));
+    const txt = L.map(r => r.map(x => '"' + String(x).replace(/"/g, '""') + '"').join(',')).join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/csv' })); a.download = 'placement-' + ist() + '.csv'; a.click();
+  }
+
+  // ── public ──
+  async function open(el, o) {
+    css(); S.el = el; S.o = o; S.prog = null; S.v = o.view || 'home'; S.a = {};
+    el.innerHTML = '<div class="plc">Loading 🎯 Placement…</div>';
+    try { await loadBank(); S.prog = (await get('prog/' + o.id)) || {}; } catch (e) { el.innerHTML = '<div class="plc">Could not load Placement: ' + esc(e.message) + '</div>'; return; }
+    draw();
+  }
+  window.PLC = {
+    open, go: (v, a) => { go(v, a); if (v === 'report' && a && a.sel) showLog(a.sel); }, say, slow: t => { try { const u = new SpeechSynthesisUtterance(t); u.lang = 'en-IN'; u.rate = .6; speechSynthesis.speak(u); } catch (e) {} },
+    start, pick, next, qod, mic, hide, edit, csv, reload: () => { S.all = null; S.qs = null; draw(); },
+    previewOf: id => { const p = S.all[id] || {}; const back0 = S.o; open(S.el, { id, name: p.n, cls: p.c, role: p.r, course: (String(p.c).toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0], preview: true, sa: false }).then(() => { S.el.querySelector('.pv').innerHTML += ` <button class="b" onclick='PLC.open(PLC._el, ${esc(JSON.stringify(back0))})'>↩ Back to me</button>`; }); },
+    get _el() { return S.el; }, key, courseOf: c => (String(c || '').toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0]
+  };
+})();
