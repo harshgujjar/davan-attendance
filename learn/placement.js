@@ -135,7 +135,11 @@
   function go(v, a) { S.v = v; S.a = a || {}; draw(); try { S.el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }
   function draw() {
     const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank, gate, mocks }[S.v] || home;
-    S.el.innerHTML = '<div class="plc">' + (S.o.preview ? '<div class="pv">👀 Preview of ' + esc(S.o.name) + ' · nothing you do here is saved</div>' : '') + h() + '</div>';
+    // v4 (user, 18-Oct): no big preview banner - a small 👀 ↩ chip (back to me) and 🏠 (the app's home) on the Placement home only
+    const top = S.v !== 'home' || (!S.o.onHome && !S.o.preview) ? '' : '<div class="row" style="gap:6px;margin-bottom:6px">' +
+      (S.o.onHome ? '<button class="b w" style="padding:6px 12px" title="Home" onclick="PLC.home()">🏠</button>' : '') +
+      (S.o.preview && S.back ? '<button class="b w" style="padding:6px 12px" title="Back to me" onclick="PLC.me()">👀 ↩</button>' : '') + '</div>';
+    S.el.innerHTML = '<div class="plc">' + top + h() + '</div>';
   }
   const back = (v, a) => `<button class="b w" onclick="PLC.go('${v || 'home'}'${a ? ',' + esc(JSON.stringify(a)) : ''})">←</button>`;
 
@@ -400,7 +404,8 @@
   window.PLC = {
     open, go: (v, a) => { go(v, a); if (v === 'report' && a && a.sel) showLog(a.sel); }, say, slow: t => { try { const u = new SpeechSynthesisUtterance(t); u.lang = 'en-IN'; u.rate = .6; speechSynthesis.speak(u); } catch (e) {} },
     start, pick, next, qod, mic, hide, edit, csv, mock, install: () => { if (S.o.onInstall) S.o.onInstall(); }, recheck: () => open(S.el, S.o), reload: () => { S.all = null; S.qs = null; draw(); },
-    previewOf: id => { const p = S.all[id] || {}; const back0 = S.o; open(S.el, { id, name: p.n, cls: p.c, role: p.r, course: (String(p.c).toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0], preview: true, sa: false }).then(() => { S.el.querySelector('.pv').innerHTML += ` <button class="b" onclick='PLC.open(PLC._el, ${esc(JSON.stringify(back0))})'>↩ Back to me</button>`; }); },
+    previewOf: id => { const p = S.all[id] || {}; if (!S.o.preview) S.back = S.o; S.v = 'home'; open(S.el, { id, name: p.n, cls: p.c, role: p.r, course: (String(p.c).toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0], preview: true, sa: false, onHome: S.back && S.back.onHome }); },
+    me: () => { const b = S.back; S.back = null; S.v = 'home'; if (b) open(S.el, b); }, home: () => { if (S.o.onHome) S.o.onHome(); },
     get _el() { return S.el; }, key, courseOf: c => (String(c || '').toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0]
   };
 })();

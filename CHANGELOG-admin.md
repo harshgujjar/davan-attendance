@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1909 · 18-Oct-2026 IST
+User: "no option to go home; the preview bar blocks the top, one emoji is enough". learn/placement.js (?v=4): the "👀 Preview of … nothing you do here is saved" banner is replaced by a small 👀 ↩ (back to me, now kept across screens) and a 🏠 button (Placement home only) that goes to the dashboard. No data change. draw, previewOf, PLC.me / PLC.home, plcInit (onHome).
+
 ## v1908 · 18-Oct-2026 IST
 User: "daily morning new word, voice note". NOTIF_REGISTRY gen_plc_word (stu + stf) now 7:40 am (m 460) and spoken; pairs with student widget w249 / staff widget s301 (Gen slot 7:40, Placement.speakWord). No new reads or writes.
 
