@@ -1,6 +1,6 @@
 # Session handoff - read this first (short, current state only)
 
-Last updated: 17-Oct-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
+Last updated: 18-Oct-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
 Keep THIS file short: replace old lines, do not append history (history goes in the changelogs / commit messages).
 
 ## How the user works
@@ -14,8 +14,8 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## Current versions
 | App | Now | Notes |
 |---|---|---|
-| Staff app (src/index.src.html -> index.html) | v1903 | details: CHANGELOG-admin.md |
-| Student portal (student_portal.html) | v11.77 | CHANGELOG-portal.md |
+| Staff app (src/index.src.html -> index.html) | v1904 | details: CHANGELOG-admin.md (v1904: Class feedback ⏸ Skip this week only - on:false + pausedWk; back on by itself next Sat with start = new week) |
+| Student portal (student_portal.html) | v11.78 | CHANGELOG-portal.md |
 | PUC app (puc.html) / parent_ptm | v5.246 / v4.7.4 | v4.7.4 + scraper puc_scrape p2 / puc_marks p3 (17-Oct): a student the portal blocks for fees (0 held, left out of marks) keeps the last good data - AISHWARYA R B 1D26004 blocked 2 days, card showed 0/0; republish her card; v4.7.3 Test scheme "🔁 Apply max / pass to published cards" (fix pass mark without republish); v5.246 Mid Term % out of 80; Mid Term round in PTM view logs; a student missing from an exam bucket is filled from All Exams (AISHWARYA R B 1D26004 missing from mid_term/1PUC-COM-A cloud scrape 16-Oct) |
 | Student widget | public build 241 = w193 (16-Oct, hand release); next = 244 (244: 🎯 Placement page 10 = 3rd dot, two-way question of the day, word, Japanese, tips) (243: page 2 "⬅ Settings" no longer drops the opened student - only ↩ Back to me does, like staff w210; user saw a newly opened student "come back to V NEESHA". Super Admin phone = EMTH7Q) (242: server cards - Cards.java draws davan_pub/cards_by_urn/<URN> rows; first card exam_seat from sync v2.9.2) (241: "For the 2nd internal" per-subject window card on Attendance + Internals) (240 (240: morning brief says holiday on a holiday) (239: hostel students on approved leave get no class reminders / next / tomorrow / morning "no class" until the last leave day; leave from StuHostel snapshot) (238: morning brief always spoken + "Dear name" on all voice) (237: What's new fold; 236: internal card from 60 days; 235: hostel fee on Today, page 2 filters All/Installed/New/Old/Hostel) (232: exam page no empty / "Regular Class" lines; 233: father name from results_by_urn / parent_overrides when portal_students has none; 234: ▶ day button on the name line, phone · F/o father plain below, main layout renamed widget_top) - public 16-Oct 9:15 pm. Test student V NEESHA (widget code KPGYNC) is in student-widget-next.json codes = gets every next build at once | source davan-scraper widgets/student |
 | Staff widget | public build 295 = w239 (16-Oct, hand release); next 296 (296: 🎯 Placement = every login's 2nd page, Row.badge/inr, d13) (295: morning brief always spoken) (293: ☁️ alerts; 294: What's new fold) | source davan-scraper widgets/staff |

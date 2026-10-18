@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1904 · 18-Oct-2026 IST
+User: "this week I want to stop the subject feedback". Class feedback page: ⏸ Skip this week only / ▶ Undo (cfbSkipHtml, cfbSkipWeek). Writes DB2 davan_pub/class_fb_cfg {on:false, pausedWk:<week>, skip/<week>:true} (one tiny write); cfbAutoSum turns it back on in the first admin session after next Saturday 11 am (on:true, pausedWk cleared, start = the new week, so every widget / app version skips the old week - no widget build needed). Pairs with portal v11.78.
+
 ## v1903 · 18-Oct-2026 IST
 NOTIF_REGISTRY: gen_plc_word (5:30 pm) and gen_plc_qod (6:50 pm, only if not answered) for stu + stf, default ON, for student widget w244 / staff widget w296 (🎯 Placement page, answered on the widget). No new reads.
 

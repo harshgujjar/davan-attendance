@@ -24,6 +24,7 @@ In a new session the user uploads the newest widget zips and says "do the next s
 - Faculty: own subjects, no names, hidden until >= 5 answers, ⚠ under 40% of the class, response rate shown. Monday 8 am.
 - Admin + Principal: everything with names and photos; college / per faculty / per student / not answered (widget / app / neither).
 - Kept per semester for the faculty semester scorecard.
+- Admin "⏸ Skip this week only" (v1904 / portal v11.78): class_fb_cfg {on:false, pausedWk, skip/<week>}; back on by itself next round with start = that week.
 
 ## Steps
 - ☑ 0. This roadmap + CLAUDE.md rule (04-Oct-2026)
