@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1908 · 18-Oct-2026 IST
+User: "daily morning new word, voice note". NOTIF_REGISTRY gen_plc_word (stu + stf) now 7:40 am (m 460) and spoken; pairs with student widget w249 / staff widget s301 (Gen slot 7:40, Placement.speakWord). No new reads or writes.
+
 ## v1907 · 18-Oct-2026 IST
 User: "only 2 ways - my widget and my Android settings page; app and browser don't open". nav-placement now admin-only and 'placement' in SUPER_ONLY_PANELS (Super Admin keeps 📊 report + 📚 question bank). Pairs with portal v11.81 (student app Placement switched off).
 
