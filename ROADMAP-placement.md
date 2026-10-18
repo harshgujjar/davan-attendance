@@ -104,3 +104,15 @@ App page 📚 Learn (attractive + game-like):
   previous campus-drive pattern papers (TCS NQT / Infosys / Wipro / Accenture / AMCAT style) for Pro tests, error notebook.
 - Foreign language (bonus track, phase 2): ONE first - Japanese (JLPT N5) or German (A1); kana / alphabet, 300 words, phrases,
   phone voice + speech recognition support both. French / Chinese later only if students ask.
+
+## Decided 18-Oct (user)
+- The whole concept is "🎯 Placement"; Japanese (JLPT N5 path) is a track INSIDE it (English, Aptitude, Technical, Japanese).
+- Every question shows its source tag. HONEST tags only (Claude writes the questions, they are not copied papers):
+  "TCS NQT pattern", "Infosys pattern", "Wipro pattern", "Accenture pattern", "AMCAT pattern", "Interview Q (HR / technical)",
+  "Workplace situation". Never "asked in TCS 2025" unless it really is a published previous-year question. No company logos.
+- Questions framed as real work situations (salary hike %, client call, office email, bank / GST case).
+- No competitions for now. Pull students in with: free Davan "Placement Ready" certificate per track (PDF, QR to verify, PRO =
+  gold) for resume / LinkedIn; company-pattern mock tests ("TCS NQT pattern mock, 60 min"); "Prepare for <company>" paths;
+  Ready Score used by the college for campus-drive shortlists (only if the college really does it - user to decide);
+  PRO ring on the student's photo in both apps; monthly top-10 shout-out on the Davan widgets; social proof ("312 practising
+  this week"); widget nudges ("your class is ahead of you").
