@@ -92,3 +92,15 @@ App page 📚 Learn (attractive + game-like):
 - ☐ 3. Staff app: Super Admin Learn report + campus-drive filter / export; faculty get the Learn page in the staff app.
 - ☐ 4. Cards v2 (tap-to-answer rows) + widget 📚 Learn page: student build + staff build; 8 am / 4 pm notifications.
 - ☐ 5. More content (levels 4-10, Pro tests), Saturday challenge, class league, speaking practice.
+
+## Proposed 18-Oct (user asked, not yet decided)
+- Super Admin "📚 Question bank" page: every lesson / question / word by track + level, coming-next calendar (next 7 days of word +
+  question of the day), "play as student" preview, per-question stats (% right, avg time, most-picked wrong option), 🙈 hide / ✎ edit.
+  Admin sees everything BEFORE students and faculty (content goes live next morning; the Super Admin can hide it the day before).
+- Look: Gen Z style (dark mode default, bold big type, bright gradient cards, stickers / emoji, animated streak flame, confetti,
+  story-style swipe lessons, avatars, sounds, haptics) in the Davan app's own colours. Mockup to be redone when the user says.
+- Teaching methods: microlearning (5-min), retrieval practice + spaced repetition (wrong / old items come back 1-3-7-21 days),
+  worked example -> faded example -> solo, 80% mastery gate, interleaved mixed practice, instant feedback, shadowing for speaking,
+  previous campus-drive pattern papers (TCS NQT / Infosys / Wipro / Accenture / AMCAT style) for Pro tests, error notebook.
+- Foreign language (bonus track, phase 2): ONE first - Japanese (JLPT N5) or German (A1); kana / alphabet, 300 words, phrases,
+  phone voice + speech recognition support both. French / Chinese later only if students ask.
