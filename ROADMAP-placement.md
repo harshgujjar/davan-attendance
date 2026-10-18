@@ -175,3 +175,4 @@ speech box over the home screen, score back in the widget - the only popup Andro
 timer (Chronometer), results, certificate drawn as a picture + Android share sheet. Answers stay A-D (widgets cannot take typing).
 Mockup: artifact 96dDUE8i4qvc6K3HeXpFkY row 1 (daily) + row 2 (same pages, other moments). Browser app = history + banner only.
 - Placement HOME page in the widget (user, 18-Oct-2026): page 🎯 first (ready score, streak, today's tasks, 4 tiles); a tile tap jumps to that page (same as a page-dot tap), ⌂ goes back. Widget has 5 Placement pages: 🎯 🗣 🧠 💻 🇯🇵.
+- DESIGN (user, 18-Oct-2026: "our first plan was correct"): the widget pages use the FIRST Placement design (ready score + company chips + 4 gradient tiles home, zig-zag level map, lesson cards, big A-D practice, speaking with mic, Japanese card + N5 path) inside the widget frame with the page dots / ⌂ footer - not plain rows. Mockup 96dDUE8i4qvc6K3HeXpFkY v8.
