@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1903 · 18-Oct-2026 IST
+NOTIF_REGISTRY: gen_plc_word (5:30 pm) and gen_plc_qod (6:50 pm, only if not answered) for stu + stf, default ON, for student widget w244 / staff widget w296 (🎯 Placement page, answered on the widget). No new reads.
+
 ## v1902 · 18-Oct-2026 IST
 User: "start Placement". New 🎯 Placement side-menu page for all staff (shared learn/placement.js + learn/bank.json, same as student portal v11.76): English, Aptitude, Technical, Japanese with Kannada; Learn -> Practice -> Test levels, question / word of the day, speaking practice, certificates. Super Admin only: 📊 report (Ready Score, campus-drive filter, CSV, per-person tries, preview of anyone's page that never writes) and 📚 Question bank (hide / edit, next 7 days). Data DB4 learn/ (prog, log, qs, stats, hide, qx); the report reads learn/prog + qs once when opened. plcInit.
 
