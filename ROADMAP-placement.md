@@ -139,3 +139,13 @@ App page 📚 Learn (attractive + game-like):
 - Staff learn too: Super Admin, Principal, admins, office and faculty get the full Placement page in the staff widget + staff app,
   with their OWN progress (id = S-code / login), own streak and certificates, a separate staff league, never ranked against
   students and left out of student reports / campus-drive lists. Japanese track for staff (the Super Admin wants to learn it).
+
+## NEXT (user, 18-Oct): everything in the WIDGET, mockup look (app opens only after the first widget answer)
+User: "voice etc is in widget only, not in app - I want all features in the widget, look / feel / colour as the mockup".
+Plan: a NATIVE full-screen PlacementActivity inside both widget APKs (student + staff), opened by the widget row buttons
+(▶ Practice, 📖 Learn, 🎤 Speak, 🇯🇵 Japanese, 📝 Mock, 🏅, 💡) - not the browser, not the Davan app. Screens = the approved
+mockup (claude.ai/artifact/E2rS4V5k1TsDywAVFBpv4t; same as learn/placement.js v3): level map path, story lesson cards (EN / ಕನ್ನಡ,
+TextToSpeech), practice / test 2x2 tiles (pass 80%), speaking (SpeechRecognizer, wrong words red, score), Japanese flip cards +
+N5 levels, mock tests (timer, sections, weak topics), tips, certificates. Data: learn/bank.json (cached) + DB4 learn/prog, log, qs
+(same fields as placement.js, so app and widget share progress); page-2 Open-as = preview, never writes. Java, no lambdas, Views
+built in code (no new layout ids -> no stale-view problem). Check no other session is building widgets first (versions clash).
