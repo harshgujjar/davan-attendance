@@ -159,3 +159,4 @@ built in code (no new layout ids -> no stale-view problem). Check no other sessi
   menu + banner, staff app v1907 = Super Admin only for report / question bank). Students must come to the widget, not the app.
   The widget rows built in w246 / s298 are to be redone to match the mockup in the same build. Build in a fresh session.
 - THE mockup to build from (18-Oct, clean, 6 screens in one row): https://claude.ai/artifact/96dDUE8i4qvc6K3HeXpFkY (1 widget, 2 widget settings with 🎯 Placement, 3-6 widget-app screens). Student app dashboard banner stays ON and only sells the widget (portal v11.82).
+- (user, 18-Oct, LATEST - overrides the lines above) Build EXACTLY the 5 screens of https://claude.ai/artifact/96dDUE8i4qvc6K3HeXpFkY inside the widget app (1 ⚙ settings with the 🎯 Placement card, 2 Placement home, 3 practice / test, 4 speaking, 5 Japanese) - nothing extra. NO new row on the home-screen widget (user: "why you added new").
