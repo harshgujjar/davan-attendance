@@ -149,3 +149,8 @@ TextToSpeech), practice / test 2x2 tiles (pass 80%), speaking (SpeechRecognizer,
 N5 levels, mock tests (timer, sections, weak topics), tips, certificates. Data: learn/bank.json (cached) + DB4 learn/prog, log, qs
 (same fields as placement.js, so app and widget share progress); page-2 Open-as = preview, never writes. Java, no lambdas, Views
 built in code (no new layout ids -> no stale-view problem). Check no other session is building widgets first (versions clash).
+- (user, 18-Oct) The WIDGET is the main product; the Davan app is only a backup. Android only, never a browser page for this.
+  Entry points: a new widget row "🚀 FULL PLACEMENT · IN THIS WIDGET APP" (▶ Practice · 📖 Learn · 🎤 Speak · 📝 Mock · 🇯🇵 · 🏅)
+  + a big 🎯 Placement card (score, streak, Open Placement) and 4 quick buttons at the top of ⚙ Widget settings
+  (StudentPermissionActivity; staff: its settings screen). Mockup row 4 "Android · inside the Davan widget app" (Settings + N* boards).
+  Build only after the user approves the mockup.
