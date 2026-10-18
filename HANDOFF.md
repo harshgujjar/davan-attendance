@@ -24,7 +24,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## Where things are
 - Widget sources + keystores: private **harshgujjar/davan-scraper** `widgets/` (README there). Toolchain: `bash tools/widget-toolchain.sh`,
   build `ANDROID_JAR=$HOME/tc/android.jar bash build.sh`; edit `layout-master/`, never res/layout/; no Java lambdas.
-- Cloud jobs (davan-scraper Actions): Scrape (run once), PUC scrape, PUC marks, Sync allocations, Sync seating, DB2 usage, DB2 peek,
+- Cloud jobs (davan-scraper Actions): Scrape (run once), PUC scrape, PUC marks, Sync allocations, Sync seating, DB2 usage, DB2 peek, Placement usage (read-only DB4 learn/prog counts, 18-Oct),
   Widget versions, Scrape status, Class feedback status. Cloudflare worker code: tools/cloudflare-release-worker.js (auto-deployed).
 - Firebase DB2 = FREE Spark plan, 10 GB downloads / month: stay under ~330 MB / day (ask the user for the console screenshot to check).
 - Student widget floor: build 133 (STU_WIDGET_BLOCK_V = STU_MIN_WIDGET_FLOOR = DB2 minApkVersion - keep all three equal).
