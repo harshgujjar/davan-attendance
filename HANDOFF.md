@@ -14,11 +14,11 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## Current versions
 | App | Now | Notes |
 |---|---|---|
-| Staff app (src/index.src.html -> index.html) | v1901 | details: CHANGELOG-admin.md |
-| Student portal (student_portal.html) | v11.75 | CHANGELOG-portal.md |
+| Staff app (src/index.src.html -> index.html) | v1903 | details: CHANGELOG-admin.md |
+| Student portal (student_portal.html) | v11.77 | CHANGELOG-portal.md |
 | PUC app (puc.html) / parent_ptm | v5.246 / v4.7.4 | v4.7.4 + scraper puc_scrape p2 / puc_marks p3 (17-Oct): a student the portal blocks for fees (0 held, left out of marks) keeps the last good data - AISHWARYA R B 1D26004 blocked 2 days, card showed 0/0; republish her card; v4.7.3 Test scheme "🔁 Apply max / pass to published cards" (fix pass mark without republish); v5.246 Mid Term % out of 80; Mid Term round in PTM view logs; a student missing from an exam bucket is filled from All Exams (AISHWARYA R B 1D26004 missing from mid_term/1PUC-COM-A cloud scrape 16-Oct) |
-| Student widget | public build 241 = w193 (16-Oct, hand release); next = 243 (243: page 2 "⬅ Settings" no longer drops the opened student - only ↩ Back to me does, like staff w210; user saw a newly opened student "come back to V NEESHA". Super Admin phone = EMTH7Q) (242: server cards - Cards.java draws davan_pub/cards_by_urn/<URN> rows; first card exam_seat from sync v2.9.2) (241: "For the 2nd internal" per-subject window card on Attendance + Internals) (240 (240: morning brief says holiday on a holiday) (239: hostel students on approved leave get no class reminders / next / tomorrow / morning "no class" until the last leave day; leave from StuHostel snapshot) (238: morning brief always spoken + "Dear name" on all voice) (237: What's new fold; 236: internal card from 60 days; 235: hostel fee on Today, page 2 filters All/Installed/New/Old/Hostel) (232: exam page no empty / "Regular Class" lines; 233: father name from results_by_urn / parent_overrides when portal_students has none; 234: ▶ day button on the name line, phone · F/o father plain below, main layout renamed widget_top) - public 16-Oct 9:15 pm. Test student V NEESHA (widget code KPGYNC) is in student-widget-next.json codes = gets every next build at once | source davan-scraper widgets/student |
-| Staff widget | public build 295 = w239 (16-Oct, hand release); next 295 (295: morning brief always spoken) (293: ☁️ alerts; 294: What's new fold) | source davan-scraper widgets/staff |
+| Student widget | public build 241 = w193 (16-Oct, hand release); next = 244 (244: 🎯 Placement page 10 = 3rd dot, two-way question of the day, word, Japanese, tips) (243: page 2 "⬅ Settings" no longer drops the opened student - only ↩ Back to me does, like staff w210; user saw a newly opened student "come back to V NEESHA". Super Admin phone = EMTH7Q) (242: server cards - Cards.java draws davan_pub/cards_by_urn/<URN> rows; first card exam_seat from sync v2.9.2) (241: "For the 2nd internal" per-subject window card on Attendance + Internals) (240 (240: morning brief says holiday on a holiday) (239: hostel students on approved leave get no class reminders / next / tomorrow / morning "no class" until the last leave day; leave from StuHostel snapshot) (238: morning brief always spoken + "Dear name" on all voice) (237: What's new fold; 236: internal card from 60 days; 235: hostel fee on Today, page 2 filters All/Installed/New/Old/Hostel) (232: exam page no empty / "Regular Class" lines; 233: father name from results_by_urn / parent_overrides when portal_students has none; 234: ▶ day button on the name line, phone · F/o father plain below, main layout renamed widget_top) - public 16-Oct 9:15 pm. Test student V NEESHA (widget code KPGYNC) is in student-widget-next.json codes = gets every next build at once | source davan-scraper widgets/student |
+| Staff widget | public build 295 = w239 (16-Oct, hand release); next 296 (296: 🎯 Placement = every login's 2nd page, Row.badge/inr, d13) (295: morning brief always spoken) (293: ☁️ alerts; 294: What's new fold) | source davan-scraper widgets/staff |
 | Scraper app.py (davan-scraper) | v108 | runs in the cloud, Cloudflare worker davan-release v9 starts it |
 
 ## Where things are
@@ -61,7 +61,13 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - Offered, not answered: Kannada "Your day", staff widget calendar events, 3:15 pm present/absent note, photo ring style, in-app "Run now" scraper.
 - In-app voice calls: enquiry only - do NOT build unless asked again.
 
-## 🎯 Placement page (English / Aptitude / Technical; teaches: Learn -> Practice -> Test) - PLAN ONLY, read ROADMAP-placement.md; build only when the user says (17-Oct)
+## 🎯 Placement - BUILT v1 (18-Oct): read ROADMAP-placement.md
+- Code: learn/placement.js (shared by portal stuPlacementOpen + staff app plcInit; Super Admin report + question bank inside), content learn/bank.json
+  (8 tracks x 2 levels x 8 Qs, words, tips, jp, speak; "db" = where data lives). Widgets: Placement.java in both (student page 10, staff PLC 2nd page).
+- Data DB4 learn/ (prog, log, qs, stats, hide, qx). ⚠ DB4 rules must allow learn/ writes - user to add (tested 18-Oct: write 401):
+  "learn": {".read": "auth != null", ".write": "auth != null"} in davan-lessonplan-archive Realtime Database rules. Until then nothing saves.
+- Next: levels 3-10 + PRO tests + company mocks, Kannada explanations for questions, notification answer buttons, class league,
+  widget follows bank.db only for DB4 (Net.DB4) - a DB5 move needs a small widget change.
 
 ## Widget cards plan - ON HOLD (user, 17-Oct-2026: v2 = shared all/class cards, notify, link tap, dismiss, order; Learn needs it). (user, 17-Oct-2026: "a data change must never need a new widget build - only a new look")
 - Idea: the app / cloud sync sends READY cards, the widget only draws them. Student widget w242 has `Cards.java` (fields documented
