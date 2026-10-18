@@ -180,3 +180,4 @@ Mockup: artifact 96dDUE8i4qvc6K3HeXpFkY row 1 (daily) + row 2 (same pages, other
 - BUILT 18-Oct-2026: widget part = student w247 / staff s299 (next channel, public at 9:15 pm). Technical tile = the student's own course only (staff: BCA). NEXT: the native widget-app page 2 🎯 Placement.
 - BUILT 18-Oct-2026: native page = PlcActivity in student w248 / staff s300 (tiles + settings 🎯 card open it; Open as = that person's data, 👀 Preview, nothing saved).
 - 18-Oct-2026: word of the day = 7:40 am notification + spoken (w249 / s301, staff app v1908 registry).
+- NEXT: Japanese letters first + Type → 日本語 - JAPANESE-PLAN.md (mockup approved for building, 18-Oct-2026).

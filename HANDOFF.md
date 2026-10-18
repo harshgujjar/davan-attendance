@@ -62,6 +62,8 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - In-app voice calls: enquiry only - do NOT build unless asked again.
 
 ## 🎯 Placement - BUILT v1 (18-Oct): read ROADMAP-placement.md
+- NEXT SESSION: 🇯🇵 Japanese letters-first + Type → 日本語 (A offline romaji, B word list, C Google Translate via worker) - read JAPANESE-PLAN.md
+  (mockup row 3 of 96dDUE8i4qvc6K3HeXpFkY; Google key steps there - user adds it as Cloudflare secret GOOGLE_TRANSLATE_KEY). Still open: "Reply or hold" meaning (⏭ Later on widget question vs answer buttons on the 6:50 pm notification) - ask.
 - Code: learn/placement.js (shared by portal stuPlacementOpen + staff app plcInit; Super Admin report + question bank inside), content learn/bank.json
   (v2: 8 tracks x 10 levels, 464 Qs, level 10 = PRO mixed, 5 company-pattern mocks; rebuild with python3 learn/build_levels.py; words, tips, jp, speak; "db" = where data lives). Widgets: Placement.java in both (student page 10, staff PLC 2nd page).
 - Data DB4 learn/ (prog, log, qs, stats, hide, qx). DB4 rule "learn" (auth != null read/write) added 18-Oct by davan-scraper Action "DB4 rules - add Placement" (tested: write 200).
