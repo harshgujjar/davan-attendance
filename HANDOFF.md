@@ -64,8 +64,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## 🎯 Placement - BUILT v1 (18-Oct): read ROADMAP-placement.md
 - Code: learn/placement.js (shared by portal stuPlacementOpen + staff app plcInit; Super Admin report + question bank inside), content learn/bank.json
   (8 tracks x 2 levels x 8 Qs, words, tips, jp, speak; "db" = where data lives). Widgets: Placement.java in both (student page 10, staff PLC 2nd page).
-- Data DB4 learn/ (prog, log, qs, stats, hide, qx). ⚠ DB4 rules must allow learn/ writes - user to add (tested 18-Oct: write 401):
-  "learn": {".read": "auth != null", ".write": "auth != null"} in davan-lessonplan-archive Realtime Database rules. Until then nothing saves.
+- Data DB4 learn/ (prog, log, qs, stats, hide, qx). DB4 rule "learn" (auth != null read/write) added 18-Oct by davan-scraper Action "DB4 rules - add Placement" (tested: write 200).
 - Next: levels 3-10 + PRO tests + company mocks, Kannada explanations for questions, notification answer buttons, class league,
   widget follows bank.db only for DB4 (Net.DB4) - a DB5 move needs a small widget change.
 
