@@ -480,7 +480,7 @@
     css(); S.el = el; S.o = o; S.prog = null; S.hl = null; S.v = o.view || (o.hist ? 'hhome' : 'home'); S.a = {};
     el.innerHTML = '<div class="plc">Loading 🎯 Placement…</div>';
     try { await loadBank(); S.prog = (await get('prog/' + o.id)) || {}; } catch (e) { el.innerHTML = '<div class="plc">Could not load Placement: ' + esc(e.message) + '</div>'; return; }
-    if (o.role === 'stu' && !o.preview && !(S.prog.xp > 0)) S.v = 'gate';   // v2 (user, 18-Oct): students unlock the app page by answering on the widget
+    if ((o.role === 'stu' || (o.hist && o.role === 'stf')) && !o.preview && !(S.prog.xp > 0)) S.v = 'gate';   // v2 (user, 18-Oct): students unlock the app page by answering on the widget
     draw();
   }
   window.PLC = {

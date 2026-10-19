@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1912 · 19-Oct-2026 IST
+User: "add a Placement history page in the staff app too". The 🎯 Placement page is open to admin, manager, VP, principal and faculty (was Super Admin only): history and review only (progress, history with the picked answers, solutions + tricks, tips, certificates), locked until the first answer on the staff widget (needs staff widget w303 for the picked answers). The Super Admin keeps the full page with the report and question bank. Data: reads DB4 learn/prog/STF_<name> and learn/log/STF_<name> when the page opens; no writes. Pairs with learn/placement.js hist mode (portal v11.85-86), staff widget w303. Functions: plcInit, nav roles, SUPER_ONLY_PANELS.
+
 ## v1911 · 19-Oct-2026 IST
 User: staff app showed "Bench Q · Seat 49" while the student app and widget showed "Dias chair" for the same seat. Seats above 48 are dias chairs (same rule as the sync); the per-student seat tables (Internals seating lookup and the student card) now use it. Data: none touched, no extra reads. Functions: sitSeatCellText (new), the two per-student seat tables.
 
