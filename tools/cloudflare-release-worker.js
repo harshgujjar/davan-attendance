@@ -206,8 +206,15 @@ export default {
       if (hm === '16:00') { ctx.waitUntil(saUsage()); return; }
       ctx.waitUntil(startOrAlert(startRelease(env, 'Cloudflare timer ' + (hm === '15:45' ? '45 15' : '15 16')), 'The 9:15 pm widget release')); return;
     }
-    // v10 (user, 19-Oct-2026): every day 12:35 UTC = 6:05 pm IST -> davan-scraper learn-usage.yml (Placement usage) -> Super Admin alert
-    if (c === '35 12 * * *') { ctx.waitUntil(startOrAlert(startPlacement(env), 'The 6:05 pm Placement usage')); return; }
+    // v10 (user, 19-Oct-2026): the 3 daily timers became ONE (the free plan allows 5 timers in all): "0,5,15,45 12,15,16 * * *"; only these
+    // times do anything: 12:05 UTC = 6:05 pm IST Placement usage alert (davan-scraper learn-usage.yml), 15:45 = 9:15 pm release,
+    // 16:00 = 9:30 pm usage alert, 16:15 = 9:45 pm backup release; the other minutes of the cross product (12:00 / 12:15 / 12:45 ...) are ignored
+    if (c === '0,5,15,45 12,15,16 * * *') {
+      if (hm === '12:05') ctx.waitUntil(startOrAlert(startPlacement(env), 'The 6:05 pm Placement usage'));
+      else if (hm === '16:00') ctx.waitUntil(saUsage());
+      else if (hm === '15:45' || hm === '16:15') ctx.waitUntil(startOrAlert(startRelease(env, 'Cloudflare timer ' + (hm === '15:45' ? '45 15' : '15 16')), 'The 9:15 pm widget release'));
+      return;
+    }
     if (d.getUTCDay() === 0) return;
     const puc = c.split(' ')[0].split(',').indexOf('4') >= 0;   // the PUC timer's minutes are 0,4,18,30,34,48; the college one's 0,15,30,45
     if (puc) { if (PUC_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startOrAlert(startScrape(env, 'Cloudflare timer ' + hm + ' UTC', PUC_WORKFLOW), 'The PUC scrape')); return; }

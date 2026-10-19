@@ -33,7 +33,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - Every alert = POST davan-release.harshgujjar.workers.dev/sa -> DB2 davan_pub/sa_ev (+ sa_ev_at) + push to laptops in davan_pub/sa_push
   (via fcm-push; sw.js tag sa-<colour>-<id>). Phone = staff widget SaEv (w293+, Super Admin only, polls ~5 min). Jobs: last step
   `tools/sa_notify.py "<name>" <kind>` (both repos), text from $RUNNER_TEMP/sa.json; a job alert must name its own running run (worker checks).
-- 9:30 pm usage alert = worker cron "0,15 16" (16:00 UTC); 6:05 pm IST daily 🎯 Placement usage alert = cron "35 12 * * *" (v10, 19-Oct; starts davan-scraper learn-usage.yml, which ends with sa_notify). Cloudflare account has 5 timers in total and ALL 5 are now used - do not add a timer.
+- 9:30 pm usage alert = worker cron "0,15 16" (16:00 UTC); 6:05 pm IST daily 🎯 Placement usage alert (v10, 19-Oct: the 3 daily timers merged into ONE cron "0,5,15,45 12,15,16 * * *", the worker picks the job by time; starts davan-scraper learn-usage.yml, which ends with sa_notify). Cloudflare account has 5 timers in total and 3 are used now (2 free).
 - New job / feature that should tell the Super Admin: add the sa_notify step (or saPost in the staff app). Laptop: staff app ☁️ Cloud alerts -> "Get alerts on this laptop". From v1896 saAutoKeep re-adds the laptop on every open (address renewed -> worker dropped it).
 - Not phone-tested: w293 channels / sounds; laptop photo + strip.
 - v1914: a job's sa.json may carry `link` = a staff-app page `index.html?go=<panel>` (worker keeps it only for harshgujjar.github.io/davan-attendance/, else the run URL); saBoot clicks #nav-<panel> after login. Widget check uses it. Not checked: that the staff widget's SaEv tap opens `link`.
