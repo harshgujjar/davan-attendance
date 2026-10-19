@@ -134,7 +134,7 @@
   // ── views ──
   function go(v, a) { S.v = v; S.a = a || {}; draw(); try { S.el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }
   function draw() {
-    const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank, gate: () => gate0() + (S.o.hist ? lockedList() : ''), mocks, hhome, hlog, hsol, hlevel, htips }[S.v] || (S.o.hist ? hhome : home);
+    const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank, gate: () => gate0() + (S.o.hist ? lockedList() : ''), mocks, hhome, hlog, hsol, hlevel, htips, hpick }[S.v] || (S.o.hist ? hhome : home);
     // v4 (user, 18-Oct): no big preview banner - a small 👀 ↩ chip (back to me) and 🏠 (the app's home) on the Placement home only
     const top = S.v !== 'home' || (!S.o.onHome && !S.o.preview) ? '' : '<div class="row" style="gap:6px;margin-bottom:6px">' +
       (S.o.onHome ? '<button class="b w" style="padding:6px 12px" title="Home" onclick="PLC.home()">🏠</button>' : '') +
@@ -430,10 +430,22 @@
       const t = track(x.tr), m = mk.find(q => q.id === x.tr), nm = t ? t.emoji + ' ' + t.name : m ? m.name || m.id : x.tr || '';
       const sc = x.of > 1 ? (x.of === 100 ? x.s + '%' : x.s + ' / ' + x.of) : (x.s ? '✓ right' : '✗ wrong');
       const good = x.of > 1 ? x.s * 100 / x.of >= 65 : !!x.s;
-      return `<div class="k" style="margin:8px 0;padding:10px 12px"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div><div style="font-weight:800">${KIND[x.k] || esc(x.k || 'Session')}</div><div class="mu">${esc(nm)}${x.l ? ' · level ' + x.l : ''}</div></div><div style="text-align:right"><span class="pill" style="background:${good ? 'var(--gr)' : 'var(--ro)'}">${sc}</span><div class="mu" style="font-size:11px;margin-top:2px">${when(x.t)}</div></div></div></div>`;
+      const pk = x.pk ? ` onclick="PLC.go('hpick',{i:${S.hl.indexOf(x)}})" style="margin:8px 0;padding:10px 12px;cursor:pointer"` : ` style="margin:8px 0;padding:10px 12px"`;
+      return `<div class="k"${pk}><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div><div style="font-weight:800">${KIND[x.k] || esc(x.k || 'Session')}</div><div class="mu">${esc(nm)}${x.l ? ' · level ' + x.l : ''}</div></div><div style="text-align:right"><span class="pill" style="background:${good ? 'var(--gr)' : 'var(--ro)'}">${sc}</span><div class="mu" style="font-size:11px;margin-top:2px">${when(x.t)}</div></div></div>${x.pk ? '<div class="mu" style="margin-top:6px;font-weight:800;color:#5B3E96">▸ See my answers</div>' : ''}</div>`;
     };
     return hback('📜 MY HISTORY') + (S.hl.length ? `<div class="mu">Your last ${S.hl.length} sessions, newest first.</div>` + S.hl.map(row).join('') : `<div class="k">${S.hlErr ? 'Could not load your history - check the internet.' : 'Nothing yet - your practice, tests and mocks from the widget show here.'}</div>`) +
       wbar('Every session you finish in the widget is added here. Go and add one today!');
+  }
+  // v4: one finished session with what the student picked (log row field pk = "qid:pick,...", saved by widget w252 / w303 onwards)
+  function hpick() {
+    const x = (S.hl || [])[S.a.i];
+    if (!x || !x.pk) return hlog();
+    const t = track(x.tr), nm = t ? t.emoji + ' ' + t.name : x.tr || '';
+    const items = String(x.pk).split(',').map(z => { const [id, pk] = z.split(':'); const q = findQ(id); return q ? { q: qOf(q), pick: parseInt(pk, 10) } : null; }).filter(Boolean);
+    return `<div class="row" style="margin-bottom:6px"><button class="b w" style="padding:8px 12px" onclick="PLC.go('hlog')">←</button><h2 style="flex:1">${KIND[x.k] || 'SESSION'}</h2></div><div class="k"><b>${esc(nm)}${x.l ? ' · level ' + x.l : ''}</b><div class="mu">${when(x.t)} · ${x.of > 1 ? x.s + ' / ' + x.of : x.s ? '✓ right' : '✗ wrong'}</div></div>` +
+      items.map((m, i) => { const q = m.q, ok = m.pick === q.a; return `<div class="k" style="background:${ok ? 'var(--gr)' : 'var(--ro)'}"><div style="font-weight:800">${i + 1}. ${esc(q.q)}</div>` +
+        (q.o || []).map((o, j) => `<div style="margin-top:6px;padding:6px 10px;border:2px solid var(--ink);border-radius:10px;background:${j === q.a ? '#cdeccf' : j === m.pick ? '#f8c9cd' : '#fff'}">${j === q.a ? '✅ ' : j === m.pick ? '❌ ' : ''}${esc(o)}${j === m.pick ? ' <b>← you chose</b>' : ''}</div>`).join('') + (q.e ? `<div style="margin-top:8px;line-height:1.5">💡 ${esc(q.e)}</div>` : '') + '</div>'; }).join('') +
+      (items.length ? '' : '<div class="k">These questions are no longer in the bank.</div>') + wbar('Wrong ones are the best teachers - try them again in the widget.');
   }
   function hsol() {
     const tr = tracks().filter(t => !t.levels.every(l => l.pro));
