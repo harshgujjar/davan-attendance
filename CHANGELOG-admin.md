@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1911 · 19-Oct-2026 IST
+User: staff app showed "Bench Q · Seat 49" while the student app and widget showed "Dias chair" for the same seat. Seats above 48 are dias chairs (same rule as the sync); the per-student seat tables (Internals seating lookup and the student card) now use it. Data: none touched, no extra reads. Functions: sitSeatCellText (new), the two per-student seat tables.
+
 ## v1910 · 19-Oct-2026 IST
 User: "DB4 claude_meter/users - add DB1, DB2, DB4 also here separately" (both usage and who reads). 🧮 Claude Meter page gets a 🗄️ box per database (cmtrDbInit, 📋 Copy): Firebase's own downloaded MB per day for 7 days, stored MB, peak connections; DB2 also shows MB per app today and the 12 biggest paths. Data: one small read of DB4 claude_meter/db_usage per open, written every 3 h by the new davan-scraper Action "DB usage to Claude Meter" (tools/db_usage_save.py, Cloud Monitoring + DB2 davan_pub/meter*). DB1 / DB4 readers are not metered by the apps.
 
