@@ -181,3 +181,6 @@ Mockup: artifact 96dDUE8i4qvc6K3HeXpFkY row 1 (daily) + row 2 (same pages, other
 - BUILT 18-Oct-2026: native page = PlcActivity in student w248 / staff s300 (tiles + settings 🎯 card open it; Open as = that person's data, 👀 Preview, nothing saved).
 - 18-Oct-2026: word of the day = 7:40 am notification + spoken (w249 / s301, staff app v1908 registry).
 - NEXT: Japanese letters first + Type → 日本語 - JAPANESE-PLAN.md (mockup approved for building, 18-Oct-2026).
+
+## Student web app page (user, 19-Oct-2026, overrides "apps switched off") - BUILT portal v11.85
+The app's 🎯 Placement page is HISTORY & REVIEW only: progress, 📜 history, 📖 solutions + tricks of cleared levels, 💡 tips, 🏅 certificates (download). No practice / tests / speaking in the app - every screen sends the student back to the widget. Shown for degree students, locked (sections greyed + install steps) until the first widget answer (prog.xp > 0). Code: learn/placement.js `hist` mode. Not stored: the answer the student picked (the log keeps only kind / track / level / score), so solutions show the right answer + why, not "you chose B" - would need the widget to save picks.
