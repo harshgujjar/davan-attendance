@@ -49,6 +49,13 @@ const PUC_CRON = '0,4,18,30,34,48 5,7,8,9,10,12 * * MON-SAT';
 const GH_HDR = env => ({ 'Authorization': 'Bearer ' + env.GH_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'davan-release-worker',
   'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' });
 
+async function startPlacement(env) {
+  if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
+  const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/learn-usage.yml/dispatches', {
+    method: 'POST', headers: GH_HDR(env), body: JSON.stringify({ ref: 'main' }),
+  });
+  return { ok: r.status === 204, msg: r.status === 204 ? 'learn-usage.yml started' : 'GitHub said ' + r.status };
+}
 async function startScrape(env, why, wf) {
   if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
   const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + (wf || SCR_WORKFLOW) + '/dispatches', {
@@ -199,6 +206,8 @@ export default {
       if (hm === '16:00') { ctx.waitUntil(saUsage()); return; }
       ctx.waitUntil(startOrAlert(startRelease(env, 'Cloudflare timer ' + (hm === '15:45' ? '45 15' : '15 16')), 'The 9:15 pm widget release')); return;
     }
+    // v10 (user, 19-Oct-2026): every day 12:35 UTC = 6:05 pm IST -> davan-scraper learn-usage.yml (Placement usage) -> Super Admin alert
+    if (c === '35 12 * * *') { ctx.waitUntil(startOrAlert(startPlacement(env), 'The 6:05 pm Placement usage')); return; }
     if (d.getUTCDay() === 0) return;
     const puc = c.split(' ')[0].split(',').indexOf('4') >= 0;   // the PUC timer's minutes are 0,4,18,30,34,48; the college one's 0,15,30,45
     if (puc) { if (PUC_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startOrAlert(startScrape(env, 'Cloudflare timer ' + hm + ' UTC', PUC_WORKFLOW), 'The PUC scrape')); return; }
