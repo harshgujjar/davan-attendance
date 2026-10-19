@@ -5,10 +5,13 @@
      <root>/log/<ID>/<push> {t, k, tr, l, s, of}                                          one row per finished practice / test / speak
      <root>/qs/<qid> {n, ok, p0..p3}   <root>/stats/<date>/{act/<ID>, q/<qid>/...}        counters (.sv increment)
      <root>/hide/<qid> true   <root>/qx/<qid> {q,o,a,e}                                     Super Admin: hide / edit a question
-   PLC.open(el, {id, name, cls, role:'stu'|'stf', course:'BCA'|'BBA'|'BCOM'|'', preview:false, sa:false})
+     v5 (19-Oct-2026): prog also keeps wk {w: Monday, x} (this week's XP, weekly league), mo / pm {m: 'YYYY-MM', x} (monthly top 10),
+     bs = best streak (badges); the widgets add sat {d, s} (Saturday challenge) and h = 1 (hostel student).
+   PLC.open(el, {id, name, cls, role:'stu'|'stf', course:'BCA'|'BBA'|'BCOM'|'', preview:false, sa:false,
+     avatar(p, size) -> photo HTML for a learner p = {id, n, r} (tap = zoom), afterDraw() -> fill in late photos})
    preview = Super Admin looking at someone else: their real data is shown, nothing is written (user, 18-Oct). */
 (function () {
-  const VER = 3;   // bank cache key (content unchanged); v4 code = history mode (o.hist) for the student app
+  const VER = 3;   // v5 code (19-Oct): league, badges, paths, photos, certificate QR   // bank cache key (content unchanged); v4 code = history mode (o.hist) for the student app
   const S = { bank: null, prog: null, o: null, el: null, v: 'home', a: {}, tok: null, tokExp: 0, hide: {}, qx: {} };
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const ist = (d) => new Date((d || Date.now()) + 330 * 60000).toISOString().slice(0, 10);
@@ -68,6 +71,9 @@
   function touch(xp) {
     const p = P(), d = ist(), y = ist(Date.now() - 864e5);
     if (p.ld !== d) { p.st = p.ld === y ? (p.st || 0) + 1 : 1; p.d = (p.d || 0) + 1; p.ld = d; }
+    const wk = wkKey(), mo = ist().slice(0, 7);   // v5: weekly league + monthly top 10 + best streak
+    p.wk = p.wk && p.wk.w === wk ? { w: wk, x: (p.wk.x || 0) + (xp || 0) } : { w: wk, x: xp || 0 };
+    if (!p.mo || p.mo.m !== mo) { if (p.mo) p.pm = p.mo; p.mo = { m: mo, x: 0 }; } p.mo.x += xp || 0; p.bs = Math.max(p.bs || 0, p.st || 0);
     p.xp = (p.xp || 0) + (xp || 0); p.n = S.o.name; p.c = S.o.cls || ''; p.r = S.o.role; p.rs = ready().all;
     put('PATCH', 'prog/' + S.o.id, p);
     put('PATCH', 'stats/' + d + '/act', { [S.o.id]: 1 });
@@ -140,6 +146,7 @@
       (S.o.onHome ? '<button class="b w" style="padding:6px 12px" title="Home" onclick="PLC.home()">🏠</button>' : '') +
       (S.o.preview && S.back ? '<button class="b w" style="padding:6px 12px" title="Back to me" onclick="PLC.me()">👀 ↩</button>' : '') + '</div>';
     S.el.innerHTML = '<div class="plc">' + top + h() + '</div>';
+    try { if (S.o.afterDraw) S.o.afterDraw(); } catch (e) {}   // v5: late photos (the app's own photo helpers)
   }
   const homeV = () => S.o.hist ? 'hhome' : 'home';
   const back = (v, a) => `<button class="b w" onclick="PLC.go('${v || homeV()}'${a ? ',' + esc(JSON.stringify(a)) : ''})">←</button>`;
@@ -162,7 +169,7 @@
     }
     const tips = S.bank.tips, cats = [...new Set(tips.map(x => x.c))], ci = S.a.tc || tips[dayNo() % tips.length].c, tip = tips.filter(x => x.c === ci)[dayNo() % tips.filter(x => x.c === ci).length];
     if (S.act == null) { S.act = 0; get('stats/' + ist() + '/act', 'shallow=true').then(v => { S.act = v ? Object.keys(v).length : 0; if (S.v === 'home') draw(); }).catch(() => {}); }
-    return `<div class="row" style="justify-content:space-between"><div class="row"><div class="av"><div>${esc(ini)}</div></div><div><div class="mu">Hey ${esc(first)} 👋</div><div class="bb" style="font-size:38px">PLACEMENT</div></div></div>
+    return `<div class="row" style="justify-content:space-between"><div class="row">${face(me(), 52)}<div><div class="mu">Hey ${esc(first)} 👋</div><div class="bb" style="font-size:38px">PLACEMENT</div></div></div>
         <span class="pill" style="font-size:16px;padding:7px 14px;background:#FFF1C4;box-shadow:3px 3px 0 #1F1A15"><span class="flame">🔥</span> ${p.st || 0}</span></div>
       <div class="k glow" style="background:${GRAD.gold};display:flex;gap:12px;align-items:center"><div style="flex:1"><div class="kick">YOUR READY SCORE</div><div class="big">${r.all}<span style="font-size:26px">/100</span></div><div style="font-weight:800;font-size:13px">⚡ ${p.xp || 0} XP · ${p.d || 0} days practised</div></div>
         <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:800">${[['🧠 APT', r.a, 40], ['🗣 ENG', r.e, 30], ['💻 TECH', r.t, 30]].map(([a, b, c]) => `<span style="background:#1F1A15;color:#f0a500;padding:7px 10px;border-radius:10px">${a}<br>${b}/${c}</span>`).join('')}</div></div>
@@ -337,7 +344,8 @@
       return `<div class="row">${back('cert')}<button class="b" onclick="window.print()">⬇ Save PDF / print</button></div>
         <div class="k" style="text-align:center;border:6px double ${col};background:#fffaf2"><div style="font-weight:800;letter-spacing:1px"><span style="color:#2B2A84">DA</span><span style="color:#D3262E">V</span><span style="color:#2B2A84">AN</span> · PLACEMENT</div>
         <div style="font-family:Georgia,serif;font-size:26px;color:#5C3D05;margin:8px 0">Certificate of Achievement</div><div class="mu">This is to certify that</div><div style="font-family:Georgia,serif;font-size:28px">${esc(S.o.name)}</div><div class="mu">${esc(S.o.cls || '')}</div>
-        <p style="font-size:15px">has completed level ${c.n} of <b>${esc(c.t.name)}</b> on Davan Placement.</p><span class="pill" style="background:${col}">${nm}</span><div class="mu" style="margin-top:10px">${ist()} · ID ${id}</div></div>`; }
+        <p style="font-size:15px">has completed level ${c.n} of <b>${esc(c.t.name)}</b> on Davan Placement.</p><span class="pill" style="background:${col}">${nm}</span><div class="mu" style="margin-top:10px">${ist()} · ID ${id}</div>
+        <div style="margin-top:10px">${qrSvg(vurl(c), 120)}</div><div class="mu" style="font-size:11px">Scan to verify</div></div>` + certShare(c, nm, id); }
     return `<div class="row">${back()}<h2>🏅 CERTIFICATES</h2></div>` + (have.length ? have.map(x => `<button class="tr k" style="width:100%;background:var(--ye)" onclick="PLC.go('cert',{c:'${x.t.id}'})">${tier(x.n)[0]} · ${esc(x.t.name)} · level ${x.n}</button>`).join('') : '<div class="k">Clear level 2 of any track to earn your first 🥉 certificate.</div>') + `<div class="k mu">Add them to your resume and LinkedIn (Licences &amp; certifications).</div>`;
   }
 
@@ -358,7 +366,7 @@
       ${sel ? `<div class="k" style="background:var(--ye)"><b>${esc(sel.n)}</b> · ${esc(sel.c)} · Ready ${sel.rs || 0} · ${sel.xp || 0} XP · 🔥 ${sel.st || 0} · ${sel.d || 0} days · last ${esc(sel.ld || '-')}<div>Levels: ${esc(Object.entries(sel.lv || {}).map(([k, v]) => k + ' ' + v).join(' · ') || 'none yet')}</div><div id="plc-log" class="mu">Loading tries…</div>
         <button class="b dk" onclick="PLC.previewOf('${esc(S.a.sel)}')">👀 Open their Placement page (preview)</button></div>` : ''}
       <div class="k" style="overflow-x:auto"><table><tr><th>Name</th><th>Class</th><th>Ready</th><th>XP</th><th>🔥</th><th>Days</th><th>Last</th><th>Levels</th></tr>
-      ${rows.slice(0, 400).map(p => `<tr class="${S.a.sel === p.id ? 'sel' : ''}" style="cursor:pointer" onclick="PLC.go('report',{f:'${f}',min:${min},sel:'${esc(p.id)}'})"><td><span>${esc(p.n)}</span></td><td>${esc(p.c)}</td><td><b>${p.rs || 0}</b></td><td>${p.xp || 0}</td><td>${p.st || 0}</td><td>${p.d || 0}</td><td>${esc(p.ld || '')}</td><td>${Object.values(p.lv || {}).reduce((a, b) => a + b, 0)}</td></tr>`).join('')}</table>${rows.length ? '' : '<div class="mu">Nobody yet.</div>'}</div>
+      ${rows.slice(0, 400).map(p => `<tr class="${S.a.sel === p.id ? 'sel' : ''}" style="cursor:pointer" onclick="PLC.go('report',{f:'${f}',min:${min},sel:'${esc(p.id)}'})"><td><div class="row" style="flex-wrap:nowrap;gap:6px">${face(p, 26)}<span>${esc(p.n)}</span></div></td><td>${esc(p.c)}</td><td><b>${p.rs || 0}</b></td><td>${p.xp || 0}</td><td>${p.st || 0}</td><td>${p.d || 0}</td><td>${esc(p.ld || '')}</td><td>${Object.values(p.lv || {}).reduce((a, b) => a + b, 0)}</td></tr>`).join('')}</table>${rows.length ? '' : '<div class="mu">Nobody yet.</div>'}</div>
       <div class="k"><b>Students by class</b><div class="mu">${Object.entries(cls).sort().map(([c, n]) => esc(c) + ': ' + n).join(' · ') || '-'}</div></div>`;
   }
   async function showLog(id) {
@@ -399,7 +407,7 @@
   //    Practice, tests and speaking happen in the Davan widget; every screen sends the student back there. Opened with o.hist = true.
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const when = t => { const d = new Date(t + 330 * 60000), h = d.getUTCHours(); return d.getUTCDate() + ' ' + MON[d.getUTCMonth()] + ' · ' + ((h % 12) || 12) + ':' + String(d.getUTCMinutes()).padStart(2, '0') + (h < 12 ? ' am' : ' pm'); };
-  const KIND = { qod: '❓ Question of the day', speak: '🎤 Speaking', mock: '📝 Mock test', prac: '✍️ Practice', test: '🏁 Level test', word: '💬 Word of the day', ok: '✅ Quick answer' };
+  const KIND = { qod: '❓ Question of the day', speak: '🎤 Speaking', mock: '📝 Mock test', prac: '✍️ Practice', test: '🏁 Level test', word: '💬 Word of the day', ok: '✅ Quick answer', rev: '🔁 Revision', sat: '⏱ Saturday challenge', say: '🎤 Saying a word' };
   const wbar = t => `<div class="k" style="background:${GRAD.gold}"><div style="font-weight:800;font-size:15px;line-height:1.45">${t}</div><div class="row" style="margin-top:8px"><button class="b dk" onclick="PLC.install()">📲 Davan widget</button></div></div>`;
   const hback = t => `<div class="row" style="margin-bottom:6px"><button class="b w" style="padding:8px 12px" onclick="PLC.go('hhome')">←</button><h2 style="flex:1">${t}</h2></div>`;
   const doneLv = t => Math.min(t.levels.filter(l => !l.pro).length, lv(t.id));
@@ -412,12 +420,13 @@
     const p = P(), r = ready(), ini = (S.o.name || '?').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase();
     const tr = tracks().filter(t => !t.levels.every(l => l.pro));
     const tiles = [['hlog', '📜', 'My history'], ['hsol', '📖', 'Solutions & tricks'], ['htips', '💡', 'Placement tips'], ['cert', '🏅', 'Certificates']];
-    return `<div class="k" style="background:${GRAD.gold}"><div class="bb" style="font-size:34px">🎯 MY PLACEMENT</div><div style="font-weight:700;margin-top:4px">${esc(S.o.name || '')} · history, solutions &amp; certificates</div></div>` +
+    return `<div class="k" style="background:${GRAD.gold}"><div class="row" style="flex-wrap:nowrap;gap:12px">${face(me(), 58)}<div style="flex:1"><div class="bb" style="font-size:34px">🎯 MY PLACEMENT</div><div style="font-weight:700;margin-top:4px"><span>${esc(S.o.name || '')}</span></div><div style="font-weight:700">history, solutions &amp; certificates</div></div></div></div>` +
       wbar('Practise, take tests and speak in your <b>Davan widget</b> - that is where you get ready for campus drives. This page keeps your record.') +
       `<div class="k"><div class="kick">📊 MY PROGRESS</div><div class="g2" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px;text-align:center">` +
       [['🎯', r.all + '%', 'ready'], ['🔥', p.st || 0, 'day streak'], ['📅', p.d || 0, 'days'], ['⭐', p.xp || 0, 'XP']].map(([e, v, l]) => `<div style="background:var(--ye);border:2px solid var(--ink);border-radius:12px;padding:8px 2px"><div style="font-size:18px">${e}</div><div class="bb" style="font-size:22px">${v}</div><div class="mu" style="font-size:11px">${l}</div></div>`).join('') + `</div>` +
       tr.map(t => { const n = doneLv(t), tot = t.levels.filter(l => !l.pro).length, pc = Math.round(n * 100 / tot); return `<div style="margin-top:10px"><div class="row" style="justify-content:space-between"><b>${t.emoji} ${esc(t.name)}</b><span class="mu">level ${n} / ${tot}</span></div><div style="height:10px;border:2px solid var(--ink);border-radius:8px;background:#fff;overflow:hidden"><div style="width:${pc}%;height:100%;background:${GRAD.tech}"></div></div></div>`; }).join('') + `</div>` +
       `<div class="g2" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">${tiles.map(([v, e, t]) => `<button class="b w" style="padding:16px 8px;font-size:15px" onclick="PLC.go('${v}')"><div style="font-size:26px">${e}</div>${t}</button>`).join('')}</div>` +
+      leagueCard() + badges(p) + pathCard() +
       wbar('Keep your 🔥 streak going - open the 🎯 Placement page on your widget and clear the next level.');
   }
   function hlog() {
@@ -475,9 +484,125 @@
       wbar('Use these tricks in your next widget practice.');
   }
 
+  // ── v5 (user, 19-Oct-2026 BUILD-ALL steps 1-5): photos, weekly league, badges, company paths, certificates with a QR to verify ──
+  const wkKey = () => { const wd = ((dayNo() + 3) % 7 + 7) % 7; return ist(Date.now() - wd * 864e5); };   // Monday of this week (IST); 1-Jan-2026 was a Thursday
+  const wkX = p => p && p.wk && p.wk.w === wkKey() ? p.wk.x || 0 : 0;
+  const isPro = p => Object.values((p && p.lv) || {}).some(n => n >= 10);
+  const me = () => ({ id: S.o.id, n: S.o.name, r: S.o.role, lv: P().lv });
+  /** Photo (the app's own helper, tap = zoom) or initials; a 👑 PRO learner (any track at level 10) gets a gold ring. */
+  function face(p, size) {
+    let h = ''; try { if (S.o.avatar) h = S.o.avatar(p, size) || ''; } catch (e) {}
+    if (!h) { const ini = String(p.n || '?').split(/\s+/).filter(Boolean).map(x => x[0]).join('').slice(0, 2).toUpperCase();
+      h = `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:var(--ye);border:2px solid var(--ink);font-weight:800;font-size:${Math.round(size * .38)}px;flex:0 0 auto">${esc(ini)}</span>`; }
+    return isPro(p) ? `<span title="👑 PRO" style="display:inline-flex;flex:0 0 auto;padding:3px;border-radius:50%;background:conic-gradient(#f0a500,#ec4899,#8b5cf6,#f0a500)">${h}</span>` : h;
+  }
+  function leagueLoad() {
+    if (S.lg !== undefined && Date.now() - S.lgAt < 10 * 60000) return;
+    S.lgAt = Date.now(); if (S.lg === undefined) S.lg = null;
+    const stf = S.o.role === 'stf', c = P().c || S.o.cls || '';
+    if (!stf && !c) { S.lg = []; return; }
+    get('prog', 'orderBy=%22' + (stf ? 'r' : 'c') + '%22&equalTo=' + encodeURIComponent(JSON.stringify(stf ? 'stf' : c)))
+      .then(r => { S.lg = Object.entries(r || {}).map(([id, p]) => Object.assign({ id }, p)).filter(p => stf || p.r === 'stu'); draw(); })
+      .catch(() => { S.lg = []; draw(); });
+  }
+  /** 🏆 this week's league: top 10 of the class (staff: all staff, never with students) by this week's XP, + you; monthly top 10 in the first week. */
+  function leagueCard() {
+    leagueLoad(); const mid = S.o.id, stf = S.o.role === 'stf';
+    if (!S.lg) return `<div class="k"><div class="kick">🏆 THIS WEEK'S LEAGUE</div><div class="mu">Loading…</div></div>`;
+    const rows = S.lg.map(p => Object.assign({}, p, { x: wkX(p) })), mine0 = rows.find(p => p.id === mid);
+    if (mine0) { mine0.x = Math.max(mine0.x, wkX(P())); mine0.lv = P().lv; } else rows.push(Object.assign(me(), { x: wkX(P()) }));
+    const act = rows.filter(p => p.x > 0).sort((a, b) => b.x - a.x || (b.rs || 0) - (a.rs || 0)), rank = act.findIndex(p => p.id === mid) + 1, ahead = rank ? rank - 1 : act.length;
+    const row = (p, i) => `<div class="row" style="flex-wrap:nowrap;gap:8px;margin-top:6px;padding:6px 8px;border-radius:12px;${p.id === mid ? 'background:var(--ye);border:2px solid var(--ink)' : ''}"><b style="width:28px;text-align:center">${['🥇', '🥈', '🥉'][i] || i + 1}</b>${face(p, 34)}<div style="flex:1;min-width:0"><b>${esc(p.n || '')}</b>${p.id === mid ? ' <span class="mu">(you)</span>' : ''}</div><b style="white-space:nowrap">${p.x} XP</b></div>`;
+    let h = `<div class="k"><div class="row" style="justify-content:space-between"><div class="kick">🏆 THIS WEEK'S LEAGUE · ${stf ? 'STAFF' : esc(P().c || S.o.cls || '')}</div><span class="pill" style="background:var(--gr)">👥 ${act.length} practising this week</span></div>` +
+      (act.length ? act.slice(0, 10).map(row).join('') : '<div class="mu" style="margin-top:6px">Nobody has practised this week yet - be the first!</div>') +
+      (rank > 10 ? '<div class="mu" style="text-align:center">…</div>' + row(act[rank - 1], rank - 1) : '') +
+      (!rank ? '<div class="mu" style="margin-top:8px">You have no XP this week yet.</div>' : '') +
+      (ahead >= 3 ? `<div style="margin-top:8px;padding:8px 12px;border-radius:12px;background:var(--ro);font-weight:700">📣 Your ${stf ? 'colleagues are' : 'class is'} ahead - ${ahead} ${stf ? 'colleagues' : 'classmates'} have more XP than you this week. One practice in the widget = up to +100 XP.</div>` : '') +
+      '<div class="mu" style="margin-top:6px">Starts again every Monday · result on Sunday 6:30 pm</div></div>';
+    const d = new Date(Date.now() + 330 * 60000).getUTCDate(), lm = ist(Date.now() - d * 864e5).slice(0, 7);
+    if (d <= 7) { const mx = p => p.mo && p.mo.m === lm ? p.mo.x : p.pm && p.pm.m === lm ? p.pm.x : 0, mt = S.lg.map(p => Object.assign({}, p, { x: mx(p) })).filter(p => p.x > 0).sort((a, b) => b.x - a.x).slice(0, 10);
+      if (mt.length) h += `<div class="k" style="background:${GRAD.gold}"><div class="kick">🌟 TOP ${mt.length} OF ${MON[+lm.slice(5) - 1].toUpperCase()} - WELL DONE!</div>` + mt.map(row).join('') + '</div>'; }
+    return h;
+  }
+  const lvSum = p => Object.values(p.lv || {}).reduce((a, b) => a + b, 0), bestSt = p => Math.max(p.bs || 0, p.st || 0);
+  const BADGES = [['🔥', '3-day streak', p => bestSt(p) >= 3], ['🔥', '7-day streak', p => bestSt(p) >= 7], ['🌋', '30-day streak', p => bestSt(p) >= 30],
+    ['⚡', '100 XP', p => (p.xp || 0) >= 100], ['💎', '1000 XP', p => (p.xp || 0) >= 1000], ['🚀', '5000 XP', p => (p.xp || 0) >= 5000],
+    ['🎯', 'First level', p => lvSum(p) >= 1], ['🏔', '10 levels', p => lvSum(p) >= 10], ['📝', 'Mock 70%+', p => Object.values(p.mk || {}).some(x => x >= 70)],
+    ['🎤', 'Speaker', p => (p.sp || 0) >= 5], ['🇯🇵', 'Japanese starter', p => ((p.lv || {}).japanese || 0) >= 1], ['⏱', 'Saturday challenger', p => !!p.sat], ['👑', 'PRO', isPro]];
+  function badges(p) {
+    const got = BADGES.filter(b => b[2](p)).length;
+    return `<div class="k"><div class="kick">🎖 BADGES · ${got} / ${BADGES.length}</div><div class="row" style="gap:6px;margin-top:8px">` +
+      BADGES.map(b => b[2](p) ? `<span class="pill" style="background:var(--ye)">${b[0]} ${b[1]}</span>` : `<span class="pill" style="background:#eee;color:#888">🔒 ${b[1]}</span>`).join('') + '</div></div>';
+  }
+  const techT = () => S.bank.tracks.find(t => t.g === 'tech' && t.course === S.o.course) || (S.o.role === 'stf' ? track('bca') : null);
+  /** 🛣 "Prepare for <company>": the steps of that company's path (bank.json paths) with ✅ for the ones done. */
+  function pathCard() {
+    const ps = S.bank.paths || []; if (!ps.length) return '';
+    const pa = ps.find(x => x.co === S.a.co) || ps[0], p = P();
+    const st = pa.steps.map(s => {
+      if (s.mock) { const m = (S.bank.mocks || []).find(x => x.id === s.mock), b = (p.mk || {})[s.mock] || 0; return { ok: b >= s.p, t: '📝 ' + (m ? m.name : s.mock) + ' - ' + s.p + '%+', sub: b ? 'your best ' + b + '%' : 'not taken yet' }; }
+      const t = s.t === 'tech' ? techT() : track(s.t); if (!t) return null; const n = lv(t.id); return { ok: n >= s.n, t: t.emoji + ' ' + t.name + ' - level ' + s.n, sub: 'you: level ' + n };
+    }).filter(Boolean), done = st.filter(x => x.ok).length;
+    return `<div class="k"><div class="kick">🛣 PREPARE FOR A COMPANY</div><div class="row" style="gap:6px;margin-top:8px">` +
+      ps.map(x => `<button class="b ${x.co === pa.co ? 'dk' : 'w'}" style="padding:6px 12px" onclick="PLC.go('${homeV()}',{co:'${x.co}'})">${esc(x.name)}</button>`).join('') + '</div>' +
+      `<div style="font-weight:800;margin-top:10px">${esc(pa.name)} path · ${done} of ${st.length} done${done === st.length ? ' 🎉 ready!' : ''}</div>` +
+      st.map(x => `<div class="row" style="flex-wrap:nowrap;margin-top:6px"><span style="font-size:18px">${x.ok ? '✅' : '⬜'}</span><div style="flex:1"><div style="font-weight:700">${esc(x.t)}</div><div class="mu">${esc(x.sub)}</div></div></div>`).join('') + '</div>';
+  }
+  const VERIFY = 'https://harshgujjar.github.io/davan-attendance/learn/v.html';
+  const vurl = c => VERIFY + '#' + encodeURIComponent(S.o.id) + '.' + c.t.id + '.' + c.n;
+  function certShare(c, tierName, id) {
+    const u = vurl(c), txt = '🏅 ' + S.o.name + ' - ' + tierName + ' · ' + c.t.name + ' level ' + c.n + ' on Davan Placement (ID ' + id + '). Verify: ' + u, d = new Date(Date.now() + 330 * 60000);
+    const li = 'https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=' + encodeURIComponent('Davan Placement - ' + c.t.name + ' level ' + c.n) + '&organizationName=' + encodeURIComponent('Davan College') +
+      '&issueYear=' + d.getUTCFullYear() + '&issueMonth=' + (d.getUTCMonth() + 1) + '&certUrl=' + encodeURIComponent(u) + '&certId=' + encodeURIComponent(id);
+    return `<div class="row" style="margin-top:8px"><a class="b" style="background:#25D366;color:#fff;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(txt)}">WhatsApp</a>` +
+      `<a class="b" style="background:#0A66C2;color:#fff;text-decoration:none" target="_blank" rel="noopener" href="${li}">in Add to LinkedIn</a><a class="b w" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">🔍 Verify page</a></div>`;
+  }
+  function qrSvg(text, px) {
+    const m = qrMatrix(text); if (!m) return ''; const n = m.length, s = n + 8; let d = '';
+    m.forEach((r, y) => r.forEach((on, x) => { if (on) d += 'M' + (x + 4) + ' ' + (y + 4) + 'h1v1h-1z'; }));
+    return `<svg viewBox="0 0 ${s} ${s}" width="${px}" height="${px}" shape-rendering="crispEdges" style="background:#fff;border-radius:6px"><path d="${d}" fill="#000"/></svg>`;
+  }
+  // QR code (byte mode, error level M, versions 1-6 = up to 106 bytes), for the certificate's 🔍 verify link. Same as PlcQr.java in both widgets (checked against python qrcode, 19-Oct).
+  function qrMatrix(text, forceMask) {
+    const D = [16, 28, 44, 64, 86, 108], B = [1, 1, 1, 2, 2, 4], E = [10, 16, 26, 18, 24, 16], T = [26, 44, 70, 100, 134, 172];
+    const bytes = Array.from(new TextEncoder().encode(text)); let v = 0; while (v < 6 && 12 + 8 * bytes.length > D[v] * 8) v++; if (v >= 6) return null;
+    const bits = []; const put = (x, n) => { for (let i = n - 1; i >= 0; i--) bits.push((x >>> i) & 1); };
+    put(4, 4); put(bytes.length, 8); bytes.forEach(b => put(b, 8)); put(0, Math.min(4, D[v] * 8 - bits.length)); while (bits.length % 8) bits.push(0);
+    const data = []; for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(''), 2)); for (let p = 0xEC; data.length < D[v]; p ^= 0xEC ^ 0x11) data.push(p);
+    const mul = (x, y) => { let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; } return z; };
+    const ec = E[v], div = new Array(ec).fill(0); div[ec - 1] = 1; for (let i = 0, r = 1; i < ec; i++, r = mul(r, 2)) for (let j = 0; j < ec; j++) { div[j] = mul(div[j], r); if (j + 1 < ec) div[j] ^= div[j + 1]; }
+    const nb = B[v], dl = D[v] / nb, blocks = [];
+    for (let b = 0; b < nb; b++) { const d = data.slice(b * dl, (b + 1) * dl), r = new Array(ec).fill(0); d.forEach(x => { const f = x ^ r.shift(); r.push(0); div.forEach((c, i) => { r[i] ^= mul(c, f); }); }); blocks.push(d.concat(r)); }
+    const all = []; for (let i = 0; i < dl + ec; i++) blocks.forEach(b => all.push(b[i]));
+    const n = 17 + 4 * (v + 1), m = [], fn = []; for (let y = 0; y < n; y++) { m.push(new Array(n).fill(false)); fn.push(new Array(n).fill(false)); }
+    const set = (x, y, d) => { m[y][x] = d; fn[y][x] = true; };
+    for (let i = 0; i < n; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+    [[3, 3], [n - 4, 3], [3, n - 4]].forEach(([cx, cy]) => { for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const x = cx + dx, y = cy + dy, d = Math.max(Math.abs(dx), Math.abs(dy)); if (x >= 0 && x < n && y >= 0 && y < n) set(x, y, d !== 2 && d !== 4); } });
+    if (v > 0) { const a = n - 7; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(a + dx, a + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1); }
+    const fmt = mask => { const d = mask, b0 = d; let r = d; for (let i = 0; i < 10; i++) r = (r << 1) ^ ((r >>> 9) * 0x537); const b = ((b0 << 10) | r) ^ 0x5412, g = i => ((b >>> i) & 1) === 1;
+      for (let i = 0; i <= 5; i++) set(8, i, g(i)); set(8, 7, g(6)); set(8, 8, g(7)); set(7, 8, g(8)); for (let i = 9; i < 15; i++) set(14 - i, 8, g(i));
+      for (let i = 0; i < 8; i++) set(n - 1 - i, 8, g(i)); for (let i = 8; i < 15; i++) set(8, n - 15 + i, g(i)); set(8, n - 8, true); };
+    fmt(0);
+    let k = 0; for (let right = n - 1; right >= 1; right -= 2) { if (right === 6) right = 5;
+      for (let vert = 0; vert < n; vert++) for (let j = 0; j < 2; j++) { const x = right - j, y = ((right + 1) & 2) === 0 ? n - 1 - vert : vert;
+        if (!fn[y][x] && k < all.length * 8) { m[y][x] = ((all[k >>> 3] >>> (7 - (k & 7))) & 1) === 1; k++; } } }
+    const MK = [(x, y) => (x + y) % 2 === 0, (x, y) => y % 2 === 0, x => x % 3 === 0, (x, y) => (x + y) % 3 === 0, (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0,
+      (x, y) => x * y % 2 + x * y % 3 === 0, (x, y) => (x * y % 2 + x * y % 3) % 2 === 0, (x, y) => ((x + y) % 2 + x * y % 3) % 2 === 0];
+    const flip = k2 => { for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (!fn[y][x] && MK[k2](x, y)) m[y][x] = !m[y][x]; };
+    const score = () => { let s = 0, dark = 0;
+      for (let t = 0; t < 2; t++) for (let a = 0; a < n; a++) { let run = 1; const line = [];
+        for (let b = 0; b < n; b++) { const c = t ? m[b][a] : m[a][b]; line.push(c ? 1 : 0); if (b > 0 && c === (t ? m[b - 1][a] : m[a][b - 1])) { run++; if (run === 5) s += 3; else if (run > 5) s++; } else run = 1; }
+        const ln = '0000' + line.join('') + '0000'; for (let i = ln.indexOf('1011101'); i >= 0; i = ln.indexOf('1011101', i + 1)) if (ln.substr(i - 4, 4) === '0000' || ln.substr(i + 7, 4) === '0000') s += 40; }
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { if (m[y][x]) dark++; if (x < n - 1 && y < n - 1 && m[y][x] === m[y][x + 1] && m[y][x] === m[y + 1][x] && m[y][x] === m[y + 1][x + 1]) s += 3; }
+      return s + Math.floor(Math.abs(dark * 20 - n * n * 10) / (n * n)) * 10; };
+    let best = forceMask == null ? -1 : forceMask, bs = 1e9;
+    if (best < 0) for (let k2 = 0; k2 < 8; k2++) { flip(k2); fmt(k2); const s = score(); if (s < bs) { bs = s; best = k2; } flip(k2); }
+    flip(best); fmt(best); return m;
+  }
+
   // ── public ──
   async function open(el, o) {
-    css(); S.el = el; S.o = o; S.prog = null; S.hl = null; S.v = o.view || (o.hist ? 'hhome' : 'home'); S.a = {};
+    css(); S.el = el; S.o = o; S.prog = null; S.hl = null; S.lg = undefined; S.v = o.view || (o.hist ? 'hhome' : 'home'); S.a = {};
     el.innerHTML = '<div class="plc">Loading 🎯 Placement…</div>';
     try { await loadBank(); S.prog = (await get('prog/' + o.id)) || {}; } catch (e) { el.innerHTML = '<div class="plc">Could not load Placement: ' + esc(e.message) + '</div>'; return; }
     if ((o.role === 'stu' || (o.hist && o.role === 'stf')) && !o.preview && !(S.prog.xp > 0)) S.v = 'gate';   // v2 (user, 18-Oct): students unlock the app page by answering on the widget

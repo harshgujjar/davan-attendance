@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1913 · 19-Oct-2026 IST
+User: "build placement plan steps 1 to 5" (ROADMAP-placement BUILD-ALL). 🎯 Placement page (learn/placement.js v5, shared with the portal): photos in the header, staff league and the Super Admin report (tap = zoom), 🏆 weekly staff league (prog?orderBy="r"&equalTo="stf", never with students), 🎖 badges, 🛣 Prepare for <company> paths (bank.json paths), certificates with a QR to learn/v.html (new verify page) + WhatsApp / LinkedIn. 🔔 registry: gen_plc_league (Sun 6:30 pm), gen_plc_mock (Thu 6:45 pm), gen_plc_streak (8:15 pm), plc_lvl (level cleared) for students and staff; the 6:50 pm question now has A-D buttons in the notification. Data: prog gets wk / mo / pm / bs; one league read (~20 KB) per page open. Pairs with student widget w253, staff widget s304, portal v11.87. Functions: plcInit (avatar / afterDraw), NOTIF_REGISTRY.
+
 ## v1912 · 19-Oct-2026 IST
 User: "add a Placement history page in the staff app too". The 🎯 Placement page is open to admin, manager, VP, principal and faculty (was Super Admin only): history and review only (progress, history with the picked answers, solutions + tricks, tips, certificates), locked until the first answer on the staff widget (needs staff widget w303 for the picked answers). The Super Admin keeps the full page with the report and question bank. Data: reads DB4 learn/prog/STF_<name> and learn/log/STF_<name> when the page opens; no writes. Pairs with learn/placement.js hist mode (portal v11.85-86), staff widget w303. Functions: plcInit, nav roles, SUPER_ONLY_PANELS.
 

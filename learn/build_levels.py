@@ -334,6 +334,12 @@ B["mocks"] = [{"id": "tcs", "name": "TCS NQT pattern mock", "min": 40, "sec": [[
               {"id": "wipro", "name": "Wipro pattern mock", "min": 30, "sec": [["Quantitative", "quant", 10], ["Logical", "reason", 10], ["Verbal", "verbal", 10]]},
               {"id": "accenture", "name": "Accenture pattern mock", "min": 35, "sec": [["Quantitative", "quant", 8], ["Reasoning", "reason", 12], ["Verbal", "verbal", 10]]},
               {"id": "amcat", "name": "AMCAT pattern mock", "min": 35, "sec": [["Quantitative", "quant", 10], ["Logical", "reason", 10], ["English", "verbal", 10]]}]
+B["paths"] = [   # 19-Oct-2026 (BUILD-ALL step 5): "Prepare for <company>" - levels + the company mock; "tech" = the learner's own course
+    {"co": "tcs", "name": "TCS NQT", "steps": [{"t": "quant", "n": 3}, {"t": "reason", "n": 3}, {"t": "verbal", "n": 2}, {"t": "english", "n": 3}, {"mock": "tcs", "p": 70}]},
+    {"co": "infosys", "name": "Infosys", "steps": [{"t": "quant", "n": 3}, {"t": "reason", "n": 4}, {"t": "verbal", "n": 3}, {"t": "english", "n": 3}, {"mock": "infosys", "p": 70}]},
+    {"co": "wipro", "name": "Wipro", "steps": [{"t": "quant", "n": 2}, {"t": "reason", "n": 3}, {"t": "verbal", "n": 3}, {"t": "tech", "n": 2}, {"mock": "wipro", "p": 65}]},
+    {"co": "accenture", "name": "Accenture", "steps": [{"t": "reason", "n": 4}, {"t": "quant", "n": 2}, {"t": "verbal", "n": 3}, {"t": "english", "n": 3}, {"mock": "accenture", "p": 70}]},
+    {"co": "amcat", "name": "AMCAT", "steps": [{"t": "quant", "n": 3}, {"t": "reason", "n": 3}, {"t": "english", "n": 4}, {"t": "tech", "n": 2}, {"mock": "amcat", "p": 70}]}]
 B["mockNote"] = "Practice tests in the style of these companies' online tests (same sections and timing). The questions are Davan's own, not copied from real papers."
 # ids, checks, seeded shuffle (the widget shows options in this order)
 n_q = 0
