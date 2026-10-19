@@ -184,3 +184,17 @@ Mockup: artifact 96dDUE8i4qvc6K3HeXpFkY row 1 (daily) + row 2 (same pages, other
 
 ## Student web app page (user, 19-Oct-2026, overrides "apps switched off") - BUILT portal v11.85
 The app's 🎯 Placement page is HISTORY & REVIEW only: progress, 📜 history, 📖 solutions + tricks of cleared levels, 💡 tips, 🏅 certificates (download). No practice / tests / speaking in the app - every screen sends the student back to the widget. Shown for degree students, locked (sections greyed + install steps) until the first widget answer (prog.xp > 0). Code: learn/placement.js `hist` mode. Not stored: the answer the student picked (the log keeps only kind / track / level / score), so solutions show the right answer + why, not "you chose B" - would need the widget to save picks.
+
+## BUILD-ALL PLAN (user, 19-Oct-2026: "build all in one go") - NOT built yet; decisions: league ON, photos everywhere, staff league separate
+Checked in code 19-Oct: the "class league" is only a comment in Placement.java (nothing drawn); the widgets draw only the owner's initials, never a photo.
+One request, built as ONE release train in a fresh session (student w253 + staff w304 + portal + staff app), in this order so each step can be tested:
+1. PHOTOS (rule "every list of people"): real photo (tap = zoom, 🏨 mark) in the Placement header (widget, native page, portal, staff app); PRO ring.
+   Needs: where other people's photos come from for a league row (check the existing student / staff photo store; the widget only holds its owner's photo).
+2. WEEKLY LEAGUE: prog gets weekly XP `wk` = {w: weekKey, x: xp} (touch() in widget + app); league = top 10 of the class by this week's XP (+ you), photos,
+   staff league separate (r = stf), Sunday 6:30 pm result; monthly top-10 shout-out; "your class is ahead" nudge; "N practising this week" counter.
+3. NOTIFICATIONS (registry, default ON, 20 min gap, 7 am - 9 pm): question with A-D buttons in the notification, streak 8:15 pm only if not opened,
+   level-up / certificate when it happens, new mock Thu 6:45 pm, league Sun 6:30 pm. (Word 7:40 am + question 6:50 pm are built.)
+4. FUN: badges, confetti + sound on level-up, animated flame, wrong answers return for revision, Saturday 20-minute challenge.
+5. CERTIFICATES: QR to verify + LinkedIn / WhatsApp share; "Prepare for <company>" paths.
+6. LATER (own sessions): "beat your friend" duel; Kannada explanation for all 464 questions (content writing).
+Pairs: student widget + staff widget (same code, both repos' PlcActivity / Placement), learn/placement.js (portal + staff app), staff app registry (NOTIF_REGISTRY), DB4 index on learn/prog (wk).
