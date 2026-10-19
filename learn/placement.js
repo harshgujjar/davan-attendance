@@ -8,7 +8,7 @@
    PLC.open(el, {id, name, cls, role:'stu'|'stf', course:'BCA'|'BBA'|'BCOM'|'', preview:false, sa:false})
    preview = Super Admin looking at someone else: their real data is shown, nothing is written (user, 18-Oct). */
 (function () {
-  const VER = 3;
+  const VER = 3;   // bank cache key (content unchanged); v4 code = history mode (o.hist) for the student app
   const S = { bank: null, prog: null, o: null, el: null, v: 'home', a: {}, tok: null, tokExp: 0, hide: {}, qx: {} };
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const ist = (d) => new Date((d || Date.now()) + 330 * 60000).toISOString().slice(0, 10);
@@ -129,19 +129,20 @@
   const GRAD = { gold: 'linear-gradient(135deg,#f0a500,#ff6b3d 55%,#ec4899)', apt: 'linear-gradient(135deg,#3b82f6,#8b5cf6)', eng: 'linear-gradient(135deg,#ec4899,#8b5cf6)', tech: 'linear-gradient(135deg,#22c55e,#14b8a6)', jp: 'linear-gradient(135deg,#ef4444,#ec4899)', blue: 'linear-gradient(135deg,#3b82f6,#8b5cf6 60%,#ec4899)' };
   const GROUP = { apt: ['quant', 'reason', 'verbal'] };
   const nav = (on) => `<div class="nav">${[['home', '🎯', 'Placement'], ['mocks', '📝', 'Mocks'], ['speak', '🎤', 'Speak'], ['cert', '🏅', 'Certificates']].map(([v, e, t]) => `<button class="${on === v ? 'on' : ''}" onclick="PLC.go('${v}')"><span>${e}</span>${t}</button>`).join('')}</div>`;
-  const hdr = (title, right) => `<div class="row" style="margin-bottom:6px"><button class="b w" style="padding:8px 12px" onclick="PLC.go('home')">←</button><h2 style="flex:1">${title}</h2>${right || ''}</div>`;
+  const hdr = (title, right) => `<div class="row" style="margin-bottom:6px"><button class="b w" style="padding:8px 12px" onclick="PLC.go('${homeV()}')">←</button><h2 style="flex:1">${title}</h2>${right || ''}</div>`;
 
   // ── views ──
   function go(v, a) { S.v = v; S.a = a || {}; draw(); try { S.el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }
   function draw() {
-    const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank, gate, mocks }[S.v] || home;
+    const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank, gate: () => gate0() + (S.o.hist ? lockedList() : ''), mocks, hhome, hlog, hsol, hlevel, htips }[S.v] || (S.o.hist ? hhome : home);
     // v4 (user, 18-Oct): no big preview banner - a small 👀 ↩ chip (back to me) and 🏠 (the app's home) on the Placement home only
     const top = S.v !== 'home' || (!S.o.onHome && !S.o.preview) ? '' : '<div class="row" style="gap:6px;margin-bottom:6px">' +
       (S.o.onHome ? '<button class="b w" style="padding:6px 12px" title="Home" onclick="PLC.home()">🏠</button>' : '') +
       (S.o.preview && S.back ? '<button class="b w" style="padding:6px 12px" title="Back to me" onclick="PLC.me()">👀 ↩</button>' : '') + '</div>';
     S.el.innerHTML = '<div class="plc">' + top + h() + '</div>';
   }
-  const back = (v, a) => `<button class="b w" onclick="PLC.go('${v || 'home'}'${a ? ',' + esc(JSON.stringify(a)) : ''})">←</button>`;
+  const homeV = () => S.o.hist ? 'hhome' : 'home';
+  const back = (v, a) => `<button class="b w" onclick="PLC.go('${v || homeV()}'${a ? ',' + esc(JSON.stringify(a)) : ''})">←</button>`;
 
   function home() {
     const p = P(), r = ready(), t = today(), w = t.word, q = t.q, done = (p.qd === ist()), first = (S.o.name || '').split(' ')[0];
@@ -288,7 +289,7 @@
       ${wk.length ? `<div class="k" style="background:var(--ye)"><div class="kick" style="color:#9A5B00">😬 FIX THESE ${wk.length} FIRST</div><div style="margin-top:4px">${wk.map(([w, c]) => esc(w) + ' (' + c + ' wrong)').join(' · ')}</div></div>` : ''}
       <div class="row"><button class="b w" onclick="PLC.go('mocks')">← Mock tests</button><button class="b" style="flex:1;background:${GRAD.gold}" onclick="PLC.mock('${m.id}')">↺ Try again 💪</button></div>`;
   }
-  function gate() {
+  function gate0() {
     const w = today().word;
     return `<div class="k glow" style="background:${GRAD.gold}"><div class="bb" style="font-size:40px">🎯 PLACEMENT</div><div style="font-weight:800;font-size:17px;margin:8px 0">Get ready for campus drives: English, Aptitude (TCS NQT · Infosys · Wipro · Accenture · AMCAT pattern), Technical for your course and 🇯🇵 Japanese.</div>
       <div style="font-weight:700">Levels 1 → 10 · company mock tests · speaking practice · certificates for your resume</div></div>
@@ -393,9 +394,78 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/csv' })); a.download = 'placement-' + ist() + '.csv'; a.click();
   }
 
+
+  // ── v4 (user, 19-Oct-2026): the student APP page is history & review only - progress, history, solutions, tricks, certificates.
+  //    Practice, tests and speaking happen in the Davan widget; every screen sends the student back there. Opened with o.hist = true.
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const when = t => { const d = new Date(t + 330 * 60000), h = d.getUTCHours(); return d.getUTCDate() + ' ' + MON[d.getUTCMonth()] + ' · ' + ((h % 12) || 12) + ':' + String(d.getUTCMinutes()).padStart(2, '0') + (h < 12 ? ' am' : ' pm'); };
+  const KIND = { qod: '❓ Question of the day', speak: '🎤 Speaking', mock: '📝 Mock test', prac: '✍️ Practice', test: '🏁 Level test', word: '💬 Word of the day', ok: '✅ Quick answer' };
+  const wbar = t => `<div class="k" style="background:${GRAD.gold}"><div style="font-weight:800;font-size:15px;line-height:1.45">${t}</div><div class="row" style="margin-top:8px"><button class="b dk" onclick="PLC.install()">📲 Davan widget</button></div></div>`;
+  const hback = t => `<div class="row" style="margin-bottom:6px"><button class="b w" style="padding:8px 12px" onclick="PLC.go('hhome')">←</button><h2 style="flex:1">${t}</h2></div>`;
+  const doneLv = t => Math.min(t.levels.filter(l => !l.pro).length, lv(t.id));
+  const SECS = [['📊', 'My progress', 'Ready score, streak, level of every track'], ['📜', 'My history', 'Every practice, test, mock and speaking session'], ['📖', 'Solutions & tricks', 'Lessons, formulas, answers and explanations of the levels you cleared'], ['💡', 'Placement tips', 'Resume, interview and campus-drive tips'], ['🏅', 'Certificates', 'Download the ones you earned']];
+  function lockedList() {
+    return `<div class="k" style="background:#f1ece4"><div class="kick" style="color:#6B5F55">🔒 OPENS AFTER YOUR FIRST ANSWER ON THE WIDGET</div>` +
+      SECS.map(([e, t, d]) => `<div class="row" style="opacity:.55;margin-top:8px;flex-wrap:nowrap"><span style="font-size:22px">${e}</span><div style="flex:1"><div style="font-weight:800">${t} 🔒</div><div class="mu">${d}</div></div></div>`).join('') + '</div>';
+  }
+  function hhome() {
+    const p = P(), r = ready(), ini = (S.o.name || '?').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase();
+    const tr = tracks().filter(t => !t.levels.every(l => l.pro));
+    const tiles = [['hlog', '📜', 'My history'], ['hsol', '📖', 'Solutions & tricks'], ['htips', '💡', 'Placement tips'], ['cert', '🏅', 'Certificates']];
+    return `<div class="k" style="background:${GRAD.gold}"><div class="bb" style="font-size:34px">🎯 MY PLACEMENT</div><div style="font-weight:700;margin-top:4px">${esc(S.o.name || '')} · history, solutions &amp; certificates</div></div>` +
+      wbar('Practise, take tests and speak in your <b>Davan widget</b> - that is where you get ready for campus drives. This page keeps your record.') +
+      `<div class="k"><div class="kick">📊 MY PROGRESS</div><div class="g2" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px;text-align:center">` +
+      [['🎯', r.all + '%', 'ready'], ['🔥', p.st || 0, 'day streak'], ['📅', p.d || 0, 'days'], ['⭐', p.xp || 0, 'XP']].map(([e, v, l]) => `<div style="background:var(--ye);border:2px solid var(--ink);border-radius:12px;padding:8px 2px"><div style="font-size:18px">${e}</div><div class="bb" style="font-size:22px">${v}</div><div class="mu" style="font-size:11px">${l}</div></div>`).join('') + `</div>` +
+      tr.map(t => { const n = doneLv(t), tot = t.levels.filter(l => !l.pro).length, pc = Math.round(n * 100 / tot); return `<div style="margin-top:10px"><div class="row" style="justify-content:space-between"><b>${t.emoji} ${esc(t.name)}</b><span class="mu">level ${n} / ${tot}</span></div><div style="height:10px;border:2px solid var(--ink);border-radius:8px;background:#fff;overflow:hidden"><div style="width:${pc}%;height:100%;background:${GRAD.tech}"></div></div></div>`; }).join('') + `</div>` +
+      `<div class="g2" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">${tiles.map(([v, e, t]) => `<button class="b w" style="padding:16px 8px;font-size:15px" onclick="PLC.go('${v}')"><div style="font-size:26px">${e}</div>${t}</button>`).join('')}</div>` +
+      wbar('Keep your 🔥 streak going - open the 🎯 Placement page on your widget and clear the next level.');
+  }
+  function hlog() {
+    if (!S.hl) {
+      get('log/' + S.o.id, 'orderBy=%22$key%22&limitToLast=100').then(r => { S.hl = Object.values(r || {}).filter(x => x && x.t).sort((a, b) => b.t - a.t); if (S.v === 'hlog') draw(); }).catch(() => { S.hl = []; S.hlErr = 1; if (S.v === 'hlog') draw(); });
+      return hback('📜 MY HISTORY') + '<div class="mu">Loading…</div>';
+    }
+    const mk = S.bank.mocks || [];
+    const row = x => {
+      const t = track(x.tr), m = mk.find(q => q.id === x.tr), nm = t ? t.emoji + ' ' + t.name : m ? m.name || m.id : x.tr || '';
+      const sc = x.of > 1 ? (x.of === 100 ? x.s + '%' : x.s + ' / ' + x.of) : (x.s ? '✓ right' : '✗ wrong');
+      const good = x.of > 1 ? x.s * 100 / x.of >= 65 : !!x.s;
+      return `<div class="k" style="margin:8px 0;padding:10px 12px"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div><div style="font-weight:800">${KIND[x.k] || esc(x.k || 'Session')}</div><div class="mu">${esc(nm)}${x.l ? ' · level ' + x.l : ''}</div></div><div style="text-align:right"><span class="pill" style="background:${good ? 'var(--gr)' : 'var(--ro)'}">${sc}</span><div class="mu" style="font-size:11px;margin-top:2px">${when(x.t)}</div></div></div></div>`;
+    };
+    return hback('📜 MY HISTORY') + (S.hl.length ? `<div class="mu">Your last ${S.hl.length} sessions, newest first.</div>` + S.hl.map(row).join('') : `<div class="k">${S.hlErr ? 'Could not load your history - check the internet.' : 'Nothing yet - your practice, tests and mocks from the widget show here.'}</div>`) +
+      wbar('Every session you finish in the widget is added here. Go and add one today!');
+  }
+  function hsol() {
+    const tr = tracks().filter(t => !t.levels.every(l => l.pro));
+    return hback('📖 SOLUTIONS &amp; TRICKS') + `<div class="mu">Open a level you have cleared to see its lessons, formulas and tricks, and every question with the answer and why.</div>` +
+      tr.map(t => { const n = doneLv(t), tot = t.levels.filter(l => !l.pro).length;
+        return `<div class="k"><div class="row" style="justify-content:space-between"><b>${t.emoji} ${esc(t.name)}</b><span class="mu">${n} / ${tot} cleared</span></div><div class="row" style="margin-top:8px">` +
+          t.levels.filter(l => !l.pro).map(l => l.n <= n ? `<button class="b w" style="padding:6px 10px" onclick="PLC.go('hlevel',{t:'${t.id}',l:${l.n}})">${l.n} · ${esc(l.name)}</button>` : `<span class="pill" style="background:#eee;color:#888">🔒 ${l.n}</span>`).join('') + '</div></div>'; }).join('') +
+      wbar('Locked levels open when you clear them in the widget.');
+  }
+  function hlevel() {
+    const t = track(S.a.t), l = t && t.levels.find(x => x.n === S.a.l); if (!l || l.n > lv(t.id)) return hsol();
+    const qs = qsOf(t, l);
+    return `<div class="row" style="margin-bottom:6px"><button class="b w" style="padding:8px 12px" onclick="PLC.go('hsol')">←</button><h2 style="flex:1">${t.emoji} ${esc(t.name.toUpperCase())} · LEVEL ${l.n}</h2></div><div class="k" style="background:var(--cr)"><b>${esc(l.name)}</b><div class="mu">🏷 ${esc(l.tag)}</div></div>` +
+      '<div class="kick" style="margin:10px 0 0">📖 LESSON &amp; TRICKS</div>' +
+      (l.cards || []).map(c => `<div class="k"><div style="font-weight:800">${esc(c.t)}</div><div style="margin-top:4px;line-height:1.5">${esc(c.b)}</div>${c.box ? `<div style="margin-top:8px;padding:8px 10px;background:var(--ye);border:2px dashed var(--ink);border-radius:12px;font-weight:800">⚡ ${esc(c.box)}</div>` : ''}${c.kn ? `<div class="mu" style="margin-top:6px">${esc(c.kn)}</div>` : ''}</div>`).join('') +
+      '<div class="kick" style="margin:14px 0 0">✍️ QUESTIONS WITH ANSWERS</div>' +
+      qs.map((q, i) => `<div class="k"><div style="font-weight:800">${i + 1}. ${esc(q.q)}</div>${(q.o || []).map((o, j) => `<div style="margin-top:6px;padding:6px 10px;border:2px solid var(--ink);border-radius:10px;background:${j === q.a ? 'var(--gr)' : '#fff'}">${j === q.a ? '✅ ' : ''}${esc(o)}</div>`).join('')}${q.e ? `<div style="margin-top:8px;line-height:1.5">💡 ${esc(q.e)}</div>` : ''}</div>`).join('') +
+      wbar('Understood this level? Take the next one in your widget.');
+  }
+  function htips() {
+    const tr = tracks().filter(t => !t.levels.every(l => l.pro));
+    const tricks = tr.map(t => { const n = doneLv(t), items = t.levels.filter(l => !l.pro && l.n <= n).map(l => (l.cards || []).filter(c => c.box).map(c => `<div style="margin-top:6px"><span class="mu">${esc(l.name)} · ${esc(c.t)}</span><div style="font-weight:800">⚡ ${esc(c.box)}</div></div>`).join('')).join('');
+      return items ? `<div class="k"><b>${t.emoji} ${esc(t.name)}</b>${items}</div>` : ''; }).join('');
+    return hback('💡 TRICKS &amp; TIPS') + (tricks ? '<div class="kick">⚡ FORMULAS &amp; SHORTCUTS FROM YOUR CLEARED LEVELS</div>' + tricks : '') +
+      '<div class="kick" style="margin-top:12px">🎓 PLACEMENT TIPS</div>' +
+      (S.bank.tips || []).map(x => `<div class="k"><div class="kick">${esc(x.c)}</div><div style="font-weight:800;margin-top:2px">${esc(x.t)}</div><div style="margin-top:4px;line-height:1.5">${esc(x.b)}</div></div>`).join('') +
+      wbar('Use these tricks in your next widget practice.');
+  }
+
   // ── public ──
   async function open(el, o) {
-    css(); S.el = el; S.o = o; S.prog = null; S.v = o.view || 'home'; S.a = {};
+    css(); S.el = el; S.o = o; S.prog = null; S.hl = null; S.v = o.view || (o.hist ? 'hhome' : 'home'); S.a = {};
     el.innerHTML = '<div class="plc">Loading 🎯 Placement…</div>';
     try { await loadBank(); S.prog = (await get('prog/' + o.id)) || {}; } catch (e) { el.innerHTML = '<div class="plc">Could not load Placement: ' + esc(e.message) + '</div>'; return; }
     if (o.role === 'stu' && !o.preview && !(S.prog.xp > 0)) S.v = 'gate';   // v2 (user, 18-Oct): students unlock the app page by answering on the widget
