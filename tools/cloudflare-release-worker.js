@@ -165,7 +165,9 @@ async function saIncoming(env, b) {
   const g = await r.json(), age = Date.now() - Date.parse(g.created_at || 0), upd = Date.now() - Date.parse(g.updated_at || 0);
   if (!(age < 12 * 3600000 && (g.status !== 'completed' || upd < 15 * 60000))) return { ok: false, msg: 'run is not running' };
   return saEvent({ kind: b.kind || 'job', color: b.color || (b.ok === false ? 'red' : 'green'), title: b.title || (g.name + (b.ok === false ? ' FAILED' : ' done')),
-    body: b.body, by: b.by || 'cloud', link: g.html_url });
+    body: b.body, by: b.by || 'cloud',
+    // v1914 (user, 19-Oct: "it should take us to the right place, not just a web page"): a job may name a staff-app page (?go=<panel>)
+    link: /^https:\/\/harshgujjar\.github\.io\/davan-attendance\//.test(String(b.link || '')) ? b.link : g.html_url });
 }
 /** 9:30 pm IST: the day's DB2 download (staff app meter numbers) as one alert; old events deleted. */
 async function saUsage() {

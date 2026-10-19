@@ -2,6 +2,12 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1914 · 19-Oct-2026 IST
+☁️ The daily Widget check (8:05 am) warned every day "minApkVersion is not back to 108" - a false alarm left from the 05-Oct incident: the
+student widget floor is 133 on purpose (v1814). The check now compares DB2 `davan_pub/student_widget_latest/minApkVersion` with
+`STU_WIDGET_BLOCK_V` and warns only when it is above it. Tapping the alert opens 📲 Widget Version (`index.html?go=widget-version`, new in
+`saBoot`) instead of the GitHub run page; the worker (`saIncoming`) takes a job's `link` when it is a staff-app page. No new Firebase reads.
+
 ## v1913 · 19-Oct-2026 IST
 User: "build placement plan steps 1 to 5" (ROADMAP-placement BUILD-ALL). 🎯 Placement page (learn/placement.js v5, shared with the portal): photos in the header, staff league and the Super Admin report (tap = zoom), 🏆 weekly staff league (prog?orderBy="r"&equalTo="stf", never with students), 🎖 badges, 🛣 Prepare for <company> paths (bank.json paths), certificates with a QR to learn/v.html (new verify page) + WhatsApp / LinkedIn. 🔔 registry: gen_plc_league (Sun 6:30 pm), gen_plc_mock (Thu 6:45 pm), gen_plc_streak (8:15 pm), plc_lvl (level cleared) for students and staff; the 6:50 pm question now has A-D buttons in the notification. Data: prog gets wk / mo / pm / bs; one league read (~20 KB) per page open. Pairs with student widget w253, staff widget s304, portal v11.87. Functions: plcInit (avatar / afterDraw), NOTIF_REGISTRY.
 
