@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1916 · 20-Oct-2026 IST
+📖 Registry: the daily English word (7:50 am + 6:30 pm, students) can be switched off or re-timed here. Words come from daily-words.json (363 words, no Firebase). Pairs with widget w258. Data: public file daily-words.json (read by the widget once a week). Functions: NOTIF_REGISTRY entries gen_dword_am / gen_dword_pm.
+
 ## v1915 · 20-Oct-2026 IST
 🍽️ Hostel meal questions: new switches in Hostel Settings → Student access & feedback - 📅 pause all questions until a date, Good/Bad only or stars only, once a day in the evening, one meal a day per student, ask only X% of students, never forced (Not now + 7-day pause after N skips), quiet mode. Notification / Widget / Student app ticks are the same switches the widget reads. Data: hostel/config/students (no extra reads). Pairs with student app v11.88. Functions: hcSwCardHtml, hcSwSave, hcSwPaused.
 
