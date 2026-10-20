@@ -56,6 +56,16 @@ async function startPlacement(env) {
   });
   return { ok: r.status === 204, msg: r.status === 204 ? 'learn-usage.yml started' : 'GitHub said ' + r.status };
 }
+// v10 (user, 21-Oct-2026): starts davan-scraper ig-posts.yml (Instagram numbers + the Super Admin's commands). The job is cheap and its own
+// concurrency group queues double starts; this also refuses a second start within 45 s.
+let _igLast = 0;
+async function startIg(env) {
+  if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
+  if (Date.now() - _igLast < 45000) return { ok: true, msg: 'already started a moment ago' };
+  _igLast = Date.now();
+  const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/ig-posts.yml/dispatches', { method: 'POST', headers: GH_HDR(env), body: JSON.stringify({ ref: 'main' }) });
+  return { ok: r.status === 204, msg: r.status === 204 ? 'ig-posts.yml started' : 'GitHub said ' + r.status };
+}
 async function startScrape(env, why, wf) {
   if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
   const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + (wf || SCR_WORKFLOW) + '/dispatches', {
@@ -233,6 +243,7 @@ export default {
     }
     if (u.searchParams.get('marks')) return new Response(JSON.stringify(await startMarks(env, String(u.searchParams.get('marks')).trim(), u.searchParams.get('cls') || '')), { headers: CORS });
     if (u.searchParams.get('log')) return new Response(JSON.stringify(await logRequest(env, String(u.searchParams.get('log')).trim().toUpperCase())), { headers: CORS });
+    if (u.searchParams.get('ig') === '1') return new Response(JSON.stringify(await startIg(env)), { headers: CORS });   // v10: the staff app's Instagram page - Run now / after a command
     if (u.searchParams.get('now') === '1') return new Response(JSON.stringify(await startRelease(env, 'Release now button')), { headers: CORS });
     // 07-Oct-2026 (user: "show whether my new Cloudflare worker is connected"): gh = the GitHub key really opens the release job
     // (one read-only GitHub call); the staff app's Faculty Class Alerts page and Widget updates card show it. crons = its timers.

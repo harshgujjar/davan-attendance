@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1920 · 21-Oct-2026 IST
+📸 New page 📸 Instagram, Super Admin only: followers, views, reach and profile visits with this-week-vs-last-week, daily reach and follower line, top post, best time to post, reels vs photos, audience (age / gender / cities), comments (reply / hide / delete), messages (reply), create a post or story (with an "Are you sure?" step), CSV export, alert switches and the token days. Data: DB2 davan_pub/ig_admin / ig_hist / ig_cfg / ig_cmd (filled and read by the davan-scraper Action "Instagram posts", now hourly 5:35 am - 11:35 pm; commands carry the sender's Firebase token and the job checks it is the Super Admin). Worker davan-release v10: ?ig=1 starts the job. Pairs with staff widget w319. Functions: igInit, igDraw, igCmd, igPublish.
+
 ## v1919 · 21-Oct-2026 IST
 📸 New card "Latest from Davan" on the admin and faculty dashboards: the newest posts of the college Instagram page (@davan_dvg), tap opens the post. Data: DB2 davan_pub/ig_posts, one small read per session; filled 4x a day by the davan-scraper Action "Instagram posts" (official Instagram API, secret IG_TOKEN, token renews itself). Pairs with student app v11.91. Function: igPostsRender.
 
