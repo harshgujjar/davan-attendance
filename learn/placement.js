@@ -485,6 +485,7 @@
   }
 
   // ── v5 (user, 19-Oct-2026 BUILD-ALL steps 1-5): photos, weekly league, badges, company paths, certificates with a QR to verify ──
+  const TEST_IDS = ['U13NU26C0005'];   // user, 20-Oct: the Super Admin's test login never shows in other students' league
   const wkKey = () => { const wd = ((dayNo() + 3) % 7 + 7) % 7; return ist(Date.now() - wd * 864e5); };   // Monday of this week (IST); 1-Jan-2026 was a Thursday
   const wkX = p => p && p.wk && p.wk.w === wkKey() ? p.wk.x || 0 : 0;
   const isPro = p => Object.values((p && p.lv) || {}).some(n => n >= 10);
@@ -502,7 +503,7 @@
     const stf = S.o.role === 'stf', c = P().c || S.o.cls || '';
     if (!stf && !c) { S.lg = []; return; }
     get('prog', 'orderBy=%22' + (stf ? 'r' : 'c') + '%22&equalTo=' + encodeURIComponent(JSON.stringify(stf ? 'stf' : c)))
-      .then(r => { S.lg = Object.entries(r || {}).map(([id, p]) => Object.assign({ id }, p)).filter(p => stf || p.r === 'stu'); draw(); })
+      .then(r => { S.lg = Object.entries(r || {}).map(([id, p]) => Object.assign({ id }, p)).filter(p => (stf || p.r === 'stu') && (p.id === S.o.id || !TEST_IDS.includes(p.id))); draw(); })
       .catch(() => { S.lg = []; draw(); });
   }
   /** 🏆 this week's league: top 10 of the class (staff: all staff, never with students) by this week's XP, + you; monthly top 10 in the first week. */
