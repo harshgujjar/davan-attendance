@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1921 · 21-Oct-2026 IST
+📈 Instagram page, Overview: new card "Since Day 1" - followers, following, posts, views / reach / profile visits / website taps (7 days) and likes now vs the numbers saved on Day 1 (21 Oct 2026). Data: DB2 davan_pub/ig_base (written once by the cloud job; also docs/INSTAGRAM-DAY1.md in davan-scraper) and ig_admin.base. Function: igBase.
+
 ## v1920 · 21-Oct-2026 IST
 📸 New page 📸 Instagram, Super Admin only: followers, views, reach and profile visits with this-week-vs-last-week, daily reach and follower line, top post, best time to post, reels vs photos, audience (age / gender / cities), comments (reply / hide / delete), messages (reply), create a post or story (with an "Are you sure?" step), CSV export, alert switches and the token days. Data: DB2 davan_pub/ig_admin / ig_hist / ig_cfg / ig_cmd (filled and read by the davan-scraper Action "Instagram posts", now hourly 5:35 am - 11:35 pm; commands carry the sender's Firebase token and the job checks it is the Super Admin). Worker davan-release v10: ?ig=1 starts the job. Pairs with staff widget w319. Functions: igInit, igDraw, igCmd, igPublish.
 
