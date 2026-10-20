@@ -485,7 +485,7 @@
   }
 
   // ── v5 (user, 19-Oct-2026 BUILD-ALL steps 1-5): photos, weekly league, badges, company paths, certificates with a QR to verify ──
-  const TEST_IDS = ['U13NU26C0005'];   // user, 20-Oct: the Super Admin's test login never shows in other students' league
+  const TEST_IDS = [];   // nobody is hidden from the league (user, 20-Oct: V Neesha is a real student too)
   const wkKey = () => { const wd = ((dayNo() + 3) % 7 + 7) % 7; return ist(Date.now() - wd * 864e5); };   // Monday of this week (IST); 1-Jan-2026 was a Thursday
   const wkX = p => p && p.wk && p.wk.w === wkKey() ? p.wk.x || 0 : 0;
   const isPro = p => Object.values((p && p.lv) || {}).some(n => n >= 10);
