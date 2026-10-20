@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1918 · 20-Oct-2026 IST
+⚡ Faster start (load report: same DB2 path read 4-7 times, e.g. staff_widget_report x7). Identical reads now share one request and the answer for 20 s. Data: none new; fewer reads. Function: hswGet (+ _hswGet1).
+
 ## v1917 · 20-Oct-2026 IST
 📖 Staff also get the daily English word (7:50 am + 6:30 pm, staff widget w310); two more rows in the 🔔 registry. Functions: NOTIF_REGISTRY stf rows gen_dword_am / gen_dword_pm.
 
