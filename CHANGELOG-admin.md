@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1915 · 20-Oct-2026 IST
+🍽️ Hostel meal questions: new switches in Hostel Settings → Student access & feedback - 📅 pause all questions until a date, Good/Bad only or stars only, once a day in the evening, one meal a day per student, ask only X% of students, never forced (Not now + 7-day pause after N skips), quiet mode. Notification / Widget / Student app ticks are the same switches the widget reads. Data: hostel/config/students (no extra reads). Pairs with student app v11.88. Functions: hcSwCardHtml, hcSwSave, hcSwPaused.
+
 ## v1914 · 19-Oct-2026 IST
 ☁️ The daily Widget check (8:05 am) warned every day "minApkVersion is not back to 108" - a false alarm left from the 05-Oct incident: the
 student widget floor is 133 on purpose (v1814). The check now compares DB2 `davan_pub/student_widget_latest/minApkVersion` with
