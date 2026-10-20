@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1919 · 21-Oct-2026 IST
+📸 New card "Latest from Davan" on the admin and faculty dashboards: the newest posts of the college Instagram page (@davan_dvg), tap opens the post. Data: DB2 davan_pub/ig_posts, one small read per session; filled 4x a day by the davan-scraper Action "Instagram posts" (official Instagram API, secret IG_TOKEN, token renews itself). Pairs with student app v11.91. Function: igPostsRender.
+
 ## v1918 · 20-Oct-2026 IST
 ⚡ Faster start (load report: same DB2 path read 4-7 times, e.g. staff_widget_report x7). Identical reads now share one request and the answer for 20 s. Data: none new; fewer reads. Function: hswGet (+ _hswGet1).
 
