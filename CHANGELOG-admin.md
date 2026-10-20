@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1917 · 20-Oct-2026 IST
+📖 Staff also get the daily English word (7:50 am + 6:30 pm, staff widget w310); two more rows in the 🔔 registry. Functions: NOTIF_REGISTRY stf rows gen_dword_am / gen_dword_pm.
+
 ## v1916 · 20-Oct-2026 IST
 📖 Registry: the daily English word (7:50 am + 6:30 pm, students) can be switched off or re-timed here. Words come from daily-words.json (363 words, no Firebase). Pairs with widget w258. Data: public file daily-words.json (read by the widget once a week). Functions: NOTIF_REGISTRY entries gen_dword_am / gen_dword_pm.
 
