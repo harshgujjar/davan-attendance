@@ -24,7 +24,10 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_VERSION && k !== SA_CACHE).map(k => caches.delete(k)))
-    ).then(() => clients.claim())
+    // 21-Oct-2026: drop the saved staff-app page itself, so the first open after a new sw.js loads the newest page from GitHub
+    // (phones stuck on v1929 by the old bug get the current build at once)
+    ).then(() => caches.open(CACHE_VERSION)).then(c => c.keys().then(ks => Promise.all(ks.filter(k => /\/davan-attendance\/(index\.html)?(\?.*)?$/.test(k.url)).map(k => c.delete(k)))))
+    .catch(() => {}).then(() => clients.claim())
   );
 });
 
@@ -77,10 +80,13 @@ self.addEventListener('fetch', e => {
     if (!/[?&]b=/.test(url)) {
       const key = new URL(path, url).href;
       e.respondWith(caches.open(CACHE_VERSION).then(c => c.match(key).then(hit => {
+        // 21-Oct-2026 fix (v1930 never arrived, user: "so many refresh, it's not loading"): the saved page's text is read HERE,
+        // before the page uses it - reading it after (hit.clone() on a used body) threw, so the new page was never saved.
+        const oldT = hit ? hit.clone().text() : null;
         const net = fetch(e.request, { cache: 'no-cache' }).then(res => {
           if (res.ok && res.type === 'basic') {
             const save = res.clone();
-            e.waitUntil((hit ? Promise.all([hit.clone().text(), res.clone().text()]) : Promise.resolve(null)).then(t => c.put(key, save).then(() => {
+            e.waitUntil((oldT ? Promise.all([oldT, res.clone().text()]) : Promise.resolve(null)).then(t => c.put(key, save).then(() => {
               if (t && t[0] !== t[1]) return self.clients.matchAll({ type: 'window' }).then(cs => cs.forEach(cl => cl.postMessage({ type: 'dv-page-new' })));
             })).catch(() => {}));
           }

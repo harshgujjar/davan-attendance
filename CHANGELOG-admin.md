@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## sw.js fix · 21-Oct-2026 IST (after v1930)
+🐞 v1930 never reached phones (user: "so many refresh, it's not loading" - still v1929). The v1929 sw.js compared the saved page with GitHub's by reading the saved copy AFTER the page had used it (`hit.clone()` on a used body threw), so the new page was never saved and every open showed v1929. Now the saved text is read first; on activate the new sw.js also drops the saved staff-app page, so the next open loads the newest build from GitHub. Tested in Chromium: old sw.js stuck on V1 forever, new one shows V2 on the next open. No Firebase change.
+
 ## v1930 · 21-Oct-2026 IST
 ⚡ Opening, part 2 (user: "make this the final build for slow opening"; v1929 report: screen open at 2.2 s but the phone busy 5.5 s after). The hidden Students table (400 rows) was drawn 3 times while opening - `renderStudents` now draws only while panel-students is open and keeps the newest list for `switchPanel('students')`. `fsGetFast` hashes the app_data/students answer (`_dvHash`) and keeps the saved list when it matches `davan_students_sig` (skips ~0.5 s of unpacking; `dvStuSave` stores the fingerprint only for the server's own list). The REST read wrappers share one answer per path for 15 s (timetable was read 7 times, ia_windows 5, tg_staging 4), cleared by any SDK write. One login chime. Load report: live listener callbacks over 100 ms ("listener <path>") and the last answer before each busy block. Fewer reads than before; no new ones.
 
