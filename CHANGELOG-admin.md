@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1923 · 21-Oct-2026 IST
+📸 Digital marketing access (user: Amith John should see the Instagram page like the admin, but not its settings). A login whose Title (User Management) contains "Digital Marketing" (or "Instagram") gets the 📸 Instagram side-menu page with every tab except Settings / Widget look, and the staff widget's 📸 Instagram page (link payload ig:true, staff widget w329). Page actions (reply / hide / delete comment, DM, publish) are accepted by the cloud job for this login too (davan-scraper tools/ig_posts.py v2.1). No new reads or writes. Functions: igAccess, igCanOpen, igInit, igDraw, applySidebarForRole, hswPayload.
+
 ## v1922 · 21-Oct-2026 IST
 🎨 Instagram page → Settings → "Widget look": the Super Admin sets how the Instagram cards look in the student and staff widgets - on/off, header + text, 1-5 posts, story, time, likes, comments, caption length, reels/photos, top/bottom, Today/News, who sees it, colour, tap target - and saves; no widget build. Data: DB2 davan_pub/ig_cfg.wl (written here), copied by the cloud job into ig_posts.wl (widgets read it with their hourly sync, no new read). Pairs with student widget w269 and staff widget w323. Functions: igWl, igWlSave, igWlReset.
 
