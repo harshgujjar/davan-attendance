@@ -1,5 +1,5 @@
 // sw.js — Davan Attendance System v6
-const CACHE_VERSION = 'davan-v12';   // 17-Oct-2026: admin script files cache-first (admin v1892);   // 07-Oct-2026: renotify (admin v1794); 15-Oct-2026: Super Admin alerts (admin v1853)
+const CACHE_VERSION = 'davan-v12';   // kept in v1929 (page from the phone's copy, same cache); 17-Oct-2026: admin script files cache-first (admin v1892);   // 07-Oct-2026: renotify (admin v1794); 15-Oct-2026: Super Admin alerts (admin v1853)
 const SA_CACHE = 'davan-sa';       // v1853: the Super Admin's photo for his alerts (kept across versions)
 const APP_URL = 'https://harshgujjar.github.io/davan-attendance/';
 const ICON_URL = 'https://harshgujjar.github.io/davan-attendance/icon-192.png';
@@ -70,6 +70,27 @@ self.addEventListener('fetch', e => {
     let path;
     try { path = new URL(url).pathname; } catch (err) { path = ''; }
     if (!OWN_PAGES.includes(path)) return;
+    // 21-Oct-2026 (admin v1929, user: "still slow to open"): the page itself comes from the phone's copy at once (was network
+    // first: every open waited ~1.2 s for GitHub to say "not changed"). GitHub is asked in the background; a changed page is
+    // saved for the next open and the open window is told (it offers "New version - tap to update"). The build gate's
+    // ?b= reload (and a page never saved yet) still goes to the network first.
+    if (!/[?&]b=/.test(url)) {
+      const key = new URL(path, url).href;
+      e.respondWith(caches.open(CACHE_VERSION).then(c => c.match(key).then(hit => {
+        const net = fetch(e.request, { cache: 'no-cache' }).then(res => {
+          if (res.ok && res.type === 'basic') {
+            const save = res.clone();
+            e.waitUntil((hit ? Promise.all([hit.clone().text(), res.clone().text()]) : Promise.resolve(null)).then(t => c.put(key, save).then(() => {
+              if (t && t[0] !== t[1]) return self.clients.matchAll({ type: 'window' }).then(cs => cs.forEach(cl => cl.postMessage({ type: 'dv-page-new' })));
+            })).catch(() => {}));
+          }
+          return res;
+        });
+        if (hit) { e.waitUntil(net.catch(() => {})); return hit; }
+        return net.catch(() => caches.match(e.request));
+      })));
+      return;
+    }
   }
 
   // 17-Oct-2026 (admin v1892, "make the staff app load fast"): the app's own script files js/admin-<n>-<hash>.js never change (a new

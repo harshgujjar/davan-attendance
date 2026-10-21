@@ -10860,6 +10860,10 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db   = firebase.firestore();
 const auth = firebase.auth();
+// v1929 (user, 21-Oct: "still slow to open"): resolves once Firebase has restored (or not) the saved login on this phone. The
+// remember-me auto-login waits for it - it used to fire after a fixed 1.2 s, before the restore finished, and signed in a
+// SECOND time with the password (load report: signInWithPassword at 3.4 s, users doc read twice, ~1 s lost).
+window._dvAuthReady = new Promise(res => { const un = auth.onAuthStateChanged(u => { try { un(); } catch (e) {} res(u || null); }); });
 const rtdb = firebase.database(); // Realtime DB — for presence + live toast
 
 // v995-debug: wrap signInWithEmailAndPassword on the PRIMARY auth object only, to catch
@@ -11808,7 +11812,7 @@ async function loadFirestoreData() {
   allStudents = studentsDoc.data; window._stuSrc = 'Firestore app_data/students';   // v1624
   window._allStudentsConfirmedFresh = true; try { window.dvBootStep && window.dvBootStep(2); } catch (e) {}   // v1591
   console.log('[loadFirestoreData] ✅ Loaded', allStudents.length, 'students from Firestore app_data/students');
-  try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch(e){}
+  dvStuSave();   // v1929: later, off the start-up path (was a ~550 KB localStorage write here)
   // v911: Timetable is loaded from Firebase, but guarded by an active-sem stamp to
   // prevent the old v772 poisoning (a stale snapshot overwriting the live timetable).
   // Trust ttDoc only if it is stamped for the CURRENT active sem; otherwise ignore it
@@ -13668,6 +13672,15 @@ async function onLoginSuccess() {
   const _noCacheYet = !localStorage.getItem('davan_students');
   if (_noCacheYet && typeof appStartLoadTimer === 'function') appStartLoadTimer('Loading your dashboard…');
   try { const c = localStorage.getItem('davan_students'); if (c) allStudents = JSON.parse(c); } catch(e) {}
+  try { window.DVP && DVP.add('page', 'saved student list: ' + (_noCacheYet ? 'not in localStorage - trying IndexedDB' : 'localStorage (' + (allStudents || []).length + ')')); } catch (e) {}
+  // v1929: no localStorage copy (it was full) - draw from the IndexedDB copy as soon as it is read, unless the server was faster
+  if (_noCacheYet) dvKvGet('students').then(c => {
+    try { window.DVP && DVP.add('page', 'saved student list in IndexedDB: ' + (c && c.list ? c.list.length : 'none')); } catch (e) {}
+    if (!c || !Array.isArray(c.list) || !c.list.length || (Array.isArray(allStudents) && allStudents.length)) return;
+    allStudents = c.list; if (typeof appStopLoadTimer === 'function') appStopLoadTimer();
+    if (typeof renderAllSoon === 'function') renderAllSoon();
+    try { window.dvBootStep && window.dvBootStep(2); } catch (e) {}
+  }).catch(() => {});
   // Apply cached session_config immediately so switcher label + SESSION_CONFIG are correct
   // before the async RTDB/Firestore call returns (manager/VP especially rely on this)
   try {
@@ -13679,13 +13692,13 @@ async function onLoginSuccess() {
     const cachedCfgs = JSON.parse(localStorage.getItem('davan_session_configs') || 'null');
     if (cachedCfgs && typeof cachedCfgs === 'object') ALL_SEM_CONFIGS = cachedCfgs;
   } catch(e) {}
-  if (typeof lmLoadData === 'function') lmLoadData(); if (typeof renderAll === 'function') renderAll();
+  if (typeof lmLoadData === 'function') lmLoadData(); if (typeof renderAllSoon === 'function') renderAllSoon();   // v1929: in pieces
   // v1892: the dashboard is drawn from this phone's saved copy - close the opening screen now (it waited for the fresh
   // 550 KB student list from the server, up to 6 s more); the fresh data redraws the page by itself when it arrives.
   if (Array.isArray(allStudents) && allStudents.length) { try { window.dvBootStep && window.dvBootStep(2); } catch (e) {} }
   // Fetch Firestore in background — always re-render after load
   loadFirestoreData().then(() => {
-    if (typeof lmLoadData === 'function') lmLoadData(); if (typeof renderAll === 'function') renderAll();
+    if (typeof lmLoadData === 'function') lmLoadData(); if (typeof renderAllSoon === 'function') renderAllSoon();   // v1929: in pieces
     // Re-render alloc editor explicitly — it may have rendered before Firestore loaded
     // (race condition: lmLoadData() runs first from localStorage, renderAll() shows stale data,
     //  then Firestore overwrites LM_ALLOCATIONS but panel is already painted with wrong rows)
@@ -19321,7 +19334,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1928;  // always = HTML footer version number
+const CODE_BUILD = 1929;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -19887,14 +19900,14 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Auto-login: only if onAuthStateChanged hasn't already restored a session
     // We defer slightly so Firebase's onAuthStateChanged fires first
     console.log('[AutoLogin] Faculty credentials found, currentUser:', !!currentUser);
-    setTimeout(() => {
-      console.log('[AutoLogin] Attempting faculty auto-login, currentUser:', !!currentUser);
-      if (!currentUser) doFacultyLogin();
-    }, 1200);
+    (window._dvAuthReady || Promise.resolve(null)).then(fbUser => setTimeout(() => {   // v1929: after the saved login is restored, not a fixed 1.2 s
+      console.log('[AutoLogin] Attempting faculty auto-login, currentUser:', !!currentUser, '| restored:', !!fbUser);
+      if (!currentUser && !auth.currentUser) doFacultyLogin();
+    }, 300));
   } else if (!_deliberateLogout && savedUser && savedAdminPw) {
     // Auto-login admin/manager tab if credentials are saved
     console.log('[AutoLogin] Admin credentials found, currentUser:', !!currentUser);
-    setTimeout(() => {
+    (window._dvAuthReady || Promise.resolve(null)).then(() => setTimeout(() => {   // v1929: after the saved login is restored, not a fixed 1.2 s
       // v995 DEBUG: re-check every guard right before firing, not just at schedule time.
       // Root cause of "logs in as faculty, bounces to admin after ~2s": this timer is
       // armed on every page load whenever a stale davan_remember_admin_pw exists in
@@ -19907,7 +19920,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       // all at fire-time, and logs exactly which guard stopped it (or didn't).
       const _stillLoggedOut = (() => { try { return sessionStorage.getItem('davan_user_logged_out') === '1'; } catch(e) { return false; } })();
       console.log('[AutoLogin] Firing check — currentUser:', !!currentUser, '| currentProfile role:', currentProfile?.role, '| currentProfile name:', currentProfile?.name, '| _isManualLogin:', _isManualLogin, '| loggedOutFlag:', _stillLoggedOut);
-      if (currentUser) {
+      if (currentUser || auth.currentUser) {
         console.log('[AutoLogin] ABORTED — a session already exists (' + (currentProfile?.name||'unknown') + ', role=' + (currentProfile?.role||'?') + '). Stale admin remember-me creds will NOT override it.');
         return;
       }
@@ -19921,7 +19934,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       }
       console.log('[AutoLogin] Proceeding with stale admin auto-login — no active/in-progress session found.');
       doFirebaseLogin();
-    }, 1200);
+    }, 300));
   }
   // NOTE: applySidebarForRole(null) intentionally removed here.
   // onAuthStateChanged handles the initial sidebar state correctly.
@@ -22684,27 +22697,49 @@ function lcbStop() {
   _lcbTimer = null;
 }
 
-function renderAll() {
+function renderAll() { _renderAllSteps().forEach(f => f()); }
+// v1929 (user, 21-Oct: "still slow to open"; load report: screen frozen ~2 s after the student list arrived): at start-up the same
+// steps run one per task, so the phone can close the opening screen and answer taps between them; when the open page is not the
+// dashboard they start 1.2 s later (the open page draws first). A newer call cancels a run that has not finished.
+let _renderAllRun = 0;
+function renderAllSoon() {
+  const run = ++_renderAllRun, steps = _renderAllSteps(), t0 = performance.now();
+  const dash = document.getElementById('panel-dashboard'), wait = dash && dash.classList.contains('active') ? 0 : 1200;
+  let i = 0;
+  const next = () => {
+    if (run !== _renderAllRun) return;
+    const a = performance.now();
+    try { steps[i](); } catch (e) { console.warn('[renderAllSoon] step ' + i, e && e.message); }
+    const d = performance.now() - a; if (d > 150) try { window.DVP && DVP.add('draw', 'renderAll step ' + i + ' (' + (steps[i].n || '?') + ')', d); } catch (e) {}
+    if (++i < steps.length) setTimeout(next, 0); else try { window.DVP && DVP.add('page', 'dashboard tables drawn (' + Math.round(performance.now() - t0) + ' ms)'); } catch (e) {}
+  };
+  setTimeout(next, wait);
+}
+function _renderAllSteps() {
+  const S = [], add = (n, f) => { const g = () => f(); g.n = n; S.push(g); };
+  add('widgets', () => {
   if (typeof wgtRenderAdmin === 'function') wgtRenderAdmin();
   // Refresh faculty dashboard if it's the active panel
   if (isActingAsFaculty()) {
     const fdPanel = document.getElementById('panel-dashboard-faculty');
     if (fdPanel && fdPanel.classList.contains('active')) fdbRender();
   }
-  populateSubjectFilter();
-  renderDashboard();
+  });
+  add('populateSubjectFilter', populateSubjectFilter);
+  add('renderDashboard', renderDashboard);
   // Default sort: avg attendance % ascending (worst first)
-  allStudents.sort((a,b) => (effectiveAvgPct(a)??999) - (effectiveAvgPct(b)??999));
-  renderStudents(allStudents);
-  renderAbsentees();
-  renderClasses();
-  renderShortage();
-  renderShortageSummary();
-  renderNotify();
-  renderExemptions();
-  cvShowList();
-  applyFilters();
-  saveDavanSharedData();
+  add('sort + renderStudents', () => { allStudents.sort((a,b) => (effectiveAvgPct(a)??999) - (effectiveAvgPct(b)??999));
+  renderStudents(allStudents); });
+  add('renderAbsentees', renderAbsentees);
+  add('renderClasses', renderClasses);
+  add('renderShortage', renderShortage);
+  add('renderShortageSummary', renderShortageSummary);
+  add('renderNotify', renderNotify);
+  add('renderExemptions', renderExemptions);
+  add('cvShowList', cvShowList);
+  add('applyFilters', applyFilters);
+  add('saveDavanSharedData', saveDavanSharedData);
+  add('live board', () => {
   // Refresh live class board if dashboard is visible
   const dashPanelEl = document.getElementById('panel-dashboard');
   if (dashPanelEl && dashPanelEl.classList.contains('active')) {
@@ -22715,15 +22750,27 @@ function renderAll() {
   if (typeof dashTab !== 'undefined' && (dashTab === 'strdavan' || dashTab === 'strnutana')) {
     if (typeof strRenderTab === 'function') strRenderTab(dashTab === 'strdavan' ? 'DI' : 'NU');
   }
+  });
+  return S;
 }
 
+// v1929: the ~550 KB student list was written to localStorage on EVERY draw (and right after loading), on the phone's main thread,
+// and a full localStorage dropped it silently - then the next open had no saved copy and the opening screen waited for the server.
+// Now one write 2.5 s after the last change, to localStorage (when it fits) AND IndexedDB (davan_kv 'students', always fits).
+let _dvStuSaveT = null;
+function dvStuSave() {
+  clearTimeout(_dvStuSaveT);
+  _dvStuSaveT = setTimeout(() => {
+    if (!Array.isArray(allStudents) || !allStudents.length) return;
+    try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch (e) { try { localStorage.removeItem('davan_students'); } catch (e2) {} }
+    try { dvKvPut('students', { at: Date.now(), list: allStudents }); } catch (e) {}
+  }, 2500);
+}
 function saveDavanSharedData() {
-  try {
-    localStorage.setItem('davan_students', JSON.stringify(allStudents));
+  dvStuSave();
     // NOTE: do NOT touch davan_scraped_at here — it is set by the scraper and
     // loaded from Firestore meta. Overwriting with new Date() causes the login
     // page meta card to show login time instead of actual scrape time.
-  } catch(e) {}
   if (typeof updateDataStrip === "function") updateDataStrip(); if (typeof updateLoginMetaCard === "function") updateLoginMetaCard();
 }
 
@@ -30366,6 +30413,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1929', date: '21-Oct-2026 IST', note: '⚡ Faster opening: the page comes from the phone\'s copy at once (a "New version - tap to update" bar when there is a newer one), one sign-in instead of two, the hidden tables draw in small pieces after the open page, and the saved student list is kept in IndexedDB too. Load report: 🔬 Profile next open + what kept the phone busy.' },
 { v: 'v1928', date: '21-Oct-2026 IST', note: '📸 Latest from Davan now looks like Instagram: a Follow box (rotating Davan logo, followers, Follow / ✓ I followed), full post cards one below the other with likes, caption and comments, newest 5 + See more, and Hide / Show all. Tap ♡ / picture / Follow opens Instagram to like or follow. On the admin dashboard it moved below the Live Class Board. Pairs with student app v11.92, widgets.' },
 { v: 'v1927', date: '21-Oct-2026 IST', note: '🏨 My hostel (resident staff in the staff app, e.g. Amith John): today + tomorrow menu with meal times and the hostel notices, right here - no jump to the students\' app.' },
 { v: 'v1926', date: '21-Oct-2026 IST', note: '📸 Amith John (resident + Instagram): own side-menu card 📸 Instagram + 🏨 My hostel app, no Subject Tracker / Student Portal, Add My Photo works, normal staff login (widget link) - and a refresh never reopens a hidden page.' },
@@ -30380,7 +30428,6 @@ const HTML_CHANGELOG = [
 { v: 'v1917', date: '20-Oct-2026 IST', note: '📖 Staff also get the daily English word (7:50 am + 6:30 pm, staff widget w310); two more rows in the 🔔 registry.' },
 { v: 'v1916', date: '20-Oct-2026 IST', note: '📖 Registry: the daily English word (7:50 am + 6:30 pm, students) can be switched off or re-timed here. Words come from daily-words.json (363 words, no Firebase). Pairs with widget w258.' },
 { v: 'v1915', date: '20-Oct-2026 IST', note: '🍽️ Hostel meal questions: new switches in Hostel Settings → Student access & feedback - 📅 pause all questions until a date, Good/Bad only or stars only, once a day in the evening, one meal a day per student, ask only X% of students, never forced (Not now + 7-day pause after N skips), quiet mode. Notification / Widget / Student app ticks are the same switches the widget reads. Data: hostel/config/students (no extra reads). Pairs with student app v11.88.' },
-{ v: 'v1914', date: '19-Oct-2026 IST', note: '☁️ Widget check no longer warns "minApkVersion is not back to 108" - the 133 floor is on purpose. Tapping a Widget check alert now opens 📲 Widget Version.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -84018,6 +84065,17 @@ function dvLoadReportText() {
     rs.forEach(r => L.push('  ' + r.name.replace(/^.*\//, '').slice(0, 44).padEnd(44) + ' ' + String(Math.round(r.duration)).padStart(6) + ' ms  ' + Math.round((r.transferSize || 0) / 1024) + ' KB')); } catch (e) {}
   const slow = ev.filter(e => e[3] != null && e[3] >= 300).sort((a, b) => b[3] - a[3]).slice(0, 15);
   L.push('', 'SLOWEST (>= 0.3 s)'); slow.forEach(e => L.push('  ' + String(e[3]).padStart(6) + ' ms  ' + e[1].padEnd(9) + ' ' + e[2] + (e[4] ? ' · ' + e[4] : '') + '   (at ' + f(e[0]) + ')'));
+  // v1929: WHAT kept the phone busy - the biggest blocks with the app's last log line before each, and (after 🔬 Profile next
+  // open) every app function over 0.15 s, so a freeze can be fixed by name instead of guessed.
+  try { const B = window.__dvLong || [], G = window.__dvLog || [];
+    const near = t => { for (let i = G.length - 1; i >= 0; i--) if (G[i].t <= t + 5) return G[i].m; return ''; };
+    L.push('', 'PHONE BUSY ' + f(B.reduce((a, x) => a + x.d, 0)) + ' in ' + B.length + ' blocks (biggest; after = last log line before it)');
+    B.slice().sort((a, b) => b.d - a.d).slice(0, 8).sort((a, b) => a.s - b.s).forEach(x => L.push('  ' + f(x.s).padStart(6) + '  ' + String(Math.round(x.d)).padStart(5) + ' ms  after: ' + near(x.s)));
+    const P = window.__dvProf || [];
+    if (window.__dvProfOn) { L.push('', 'FUNCTIONS over 0.15 s (this open; indent = called inside)');
+      P.slice().sort((a, b) => a.s - b.s).forEach(x => L.push('  ' + f(x.s).padStart(6) + '  ' + String(Math.round(x.d)).padStart(5) + ' ms  ' + '  '.repeat(Math.min(x.z, 8)) + x.n));
+      if (!P.length) L.push('  (none)'); }
+    else L.push('  (press 🔬 Profile next open for the slow functions by name)'); } catch (e) {}
   L.push('', 'TIMELINE (time since the page opened · what · how long)');
   ev.forEach(e => L.push(f(e[0]).padStart(7) + '  ' + e[1].padEnd(9) + ' ' + e[2] + (e[3] != null ? '  ' + e[3] + ' ms' : '') + (e[4] ? ' · ' + e[4] : '')));
   return L.join('\n');
@@ -84028,7 +84086,7 @@ function dvLoadReport() {
   m.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:12px;';
   m.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column;">'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--border);"><b style="flex:1;color:var(--text);">⏱ Load report</b>'
-    + '<button type="button" class="btn" id="dv-load-copy">📋 Copy</button><button type="button" class="btn" id="dv-load-re">↻ Refresh</button><button type="button" class="btn" id="dv-load-x">✕</button></div>'
+    + '<button type="button" class="btn" id="dv-load-copy">📋 Copy</button><button type="button" class="btn" id="dv-load-re">↻ Refresh</button><button type="button" class="btn" id="dv-load-prof" title="Reopens the app once with every function timed, then open this report again">🔬 Profile next open</button><button type="button" class="btn" id="dv-load-x">✕</button></div>'
     + '<div style="padding:8px 14px;font-size:12px;color:var(--muted);">Open the slow page, wait until it has loaded, then press 📋 Copy and paste it to Claude. For the start-up: refresh the app, wait, then open this.</div>'
     + '<pre id="dv-load-txt" style="margin:0;padding:10px 14px;overflow:auto;font-size:11px;line-height:1.45;color:var(--text);white-space:pre;flex:1;"></pre></div>';
   document.body.appendChild(m);
@@ -84036,6 +84094,7 @@ function dvLoadReport() {
   fill(); m.onclick = e => { if (e.target === m) m.remove(); };
   document.getElementById('dv-load-x').onclick = () => m.remove();
   document.getElementById('dv-load-re').onclick = fill;
+  document.getElementById('dv-load-prof').onclick = () => { try { localStorage.setItem('dv_prof', '1'); } catch (e) {} location.reload(); };
   document.getElementById('dv-load-copy').onclick = function () { dvCopyText(dvLoadReportText(), this); };
 }
 function dvCopyText(t, btn) {
@@ -86173,6 +86232,16 @@ async function saAutoKeep() {
     console.log('[sa] this laptop re-added to Super Admin alerts');
   } catch (e) { console.warn('[sa] auto-keep', e.message); }
 }
+// v1929: sw.js now shows the saved page at once and checks GitHub in the background; when the page has changed it says so here
+// and a small bar offers the new version (reload = the fresh copy it has just saved). Nothing is reloaded by itself.
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
+  if (!e.data || e.data.type !== 'dv-page-new' || document.getElementById('dv-page-new')) return;
+  const b = document.createElement('div'); b.id = 'dv-page-new';
+  b.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:10095;background:#1e293b;color:#fff;padding:10px 16px;border-radius:22px;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.3);cursor:pointer;white-space:nowrap';
+  b.textContent = '\uD83C\uDD95 New version - tap to update';
+  b.onclick = () => location.reload();
+  document.body.appendChild(b);
+});
 (function saBoot() {
   try {
     { let n = 0; const t = setInterval(() => { if (++n > 240) return clearInterval(t);
@@ -91042,13 +91111,23 @@ setInterval(appBuildCheck, 10 * 60000);
   function tagVisible() { document.querySelectorAll('.panel.active').forEach(tag); ['.sidebar', 'header', '#hc-modal', '.modal'].forEach(q => document.querySelectorAll(q).forEach(tag)); }
   window.hcTagVisible = tagVisible;
   function set(list) { names = new Set(list.map(norm)); lens = new Set([...names].map(x => x.length)); idle(tagVisible); }
+  // v1929: the lp-archive login is restored from the phone a moment AFTER initializeApp; reading au.currentUser at once found
+  // nothing and made a NEW anonymous account on every open (load report: two accounts:signUp, 2.1 s). Wait for the restore
+  // (max 3 s, shared by both callers) and only then sign in anonymously.
+  let _hcUserP = null;
+  function hcUser(au) {
+    if (au.currentUser) return Promise.resolve(au.currentUser);
+    return _hcUserP || (_hcUserP = new Promise(res => { let d = false; const fin = u => { if (d) return; d = true; try { off(); } catch (e) {} res(u || null); };
+      const off = au.onAuthStateChanged(fin); setTimeout(() => fin(au.currentUser), 3000); })
+      .then(u => u || au.signInAnonymously().then(c => c.user)).finally(() => { _hcUserP = null; }));
+  }
   // v1854: URN set of active student residents (hostel fee list) - same read, cached 6 h
   window.hcResUrns = async function () {
     let c = null; try { c = JSON.parse(localStorage.getItem(K + 'u') || 'null'); } catch (e) {}
     if (c && c.list && Date.now() - c.at < TTL) return new Set(c.list);
     if (!window.firebase || !firebase.initializeApp) return new Set(c && c.list || []);
     const app = firebase.apps.find(a => a.name === 'lp-archive') || firebase.initializeApp(CFG, 'lp-archive');
-    const au = app.auth(), u = au.currentUser || (await au.signInAnonymously()).user;
+    const au = app.auth(), u = await hcUser(au);
     const r = await fetch(URL + '/hostel/residents.json?auth=' + await u.getIdToken()); if (!r.ok) return new Set(c && c.list || []);
     const o = (await r.json()) || {}, list = Object.keys(o).filter(k => o[k] && o[k].active && !/^RS_/i.test(k)).map(k => k.toUpperCase());
     try { localStorage.setItem(K + 'u', JSON.stringify({ at: Date.now(), list })); } catch (e) {}
@@ -91058,7 +91137,7 @@ setInterval(appBuildCheck, 10 * 60000);
     try {
       if (!window.firebase || !firebase.initializeApp) return;
       const app = firebase.apps.find(a => a.name === 'lp-archive') || firebase.initializeApp(CFG, 'lp-archive');
-      const au = app.auth(), u = au.currentUser || (await au.signInAnonymously()).user;
+      const au = app.auth(), u = await hcUser(au);
       const r = await fetch(URL + '/hostel/residents.json?auth=' + await u.getIdToken());
       if (!r.ok) return;
       const list = Object.values((await r.json()) || {}).filter(x => x && x.active && x.name).map(x => x.name);
