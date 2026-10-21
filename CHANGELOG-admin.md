@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1934 · 21-Oct-2026 IST
+⚡ Opening (v1933 report: screen closed 3.2 s, LONG FRAMES: 1.1 s + 0.78 s of app code right after Firestore answers, 0.54 s Firestore library on a live listener, eruda loaded on every admin open). The opening screen closes as soon as the dashboard is drawn from the saved copy (renderAllSoon after `renderDashboard`, was a 0.5 s timer stuck behind other work); eruda only with ?debug=1 / #debug / dv_eruda=1; `cmtStart` (stu_comments listener) 8 s after login; the student list is saved only in IndexedDB (`dvStuSave` removes the localStorage copy; onLoginSuccess uses `__dvStuIdb`, a localStorage copy is only a stand-in, the "Loading your dashboard" overlay only when IndexedDB is empty too). Load report: WORK AFTER READS - every Firestore / RTDB read records its caller (`who`) and the busy time right after its answer (`after`), so the remaining blocks get function names. Fewer downloads (no eruda); no new reads.
+
 ## v1933 · 21-Oct-2026 IST
 🔎 v1932 report: student list fingerprint matched (saved copy kept), busy 3.2 s (was 5.6), but the phone refused the profiler ("JS profiling is disabled by Document Policy" - the header from sw.js is not honoured there) and the opening screen waited for the IndexedDB copy (localStorage had dropped the list again; read only after sign-in, 1.2 s). Now: the first script records Long Animation Frames (`__dvLoaf`: script, function, caller, file@char per busy frame - no header needed) and the load report shows them as LONG FRAMES; the IndexedDB student list is read as soon as the page starts (`__dvStuIdb`, used by onLoginSuccess). Tested in Chromium. No Firebase change.
 
