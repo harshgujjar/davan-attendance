@@ -182,3 +182,10 @@ Before asking the user for a screenshot of a widget problem, read the phone's ow
 (db 2): `davan_pub/student_widget_report/<code>` (field `crashSummary` = last error; from w226 an "Open as" failure is saved as
 "open as <URN>: ...") and `davan_pub/widget_logs/<code>` (full log, when the Super Admin asked for it). Staff widget: its own report node.
 Find a phone's code with filter = the person's name. Keep token use low: peek with narrow paths + filter, small maxc.
+
+## Instagram page: Super Admin + digital marketing (user, 21-Oct-2026 - rule)
+Amith John (digital marketing) sees the 📸 Instagram page exactly like the Super Admin - staff app (side menu) and staff widget (📸 page) -
+EXCEPT the Settings tab (alert switches + Widget look), which stays Super Admin only. Access = the word "Digital Marketing" (or "Instagram")
+in the login's Title (User Management): staff app `igAccess(p)` / `igCanOpen()`, link payload `ig:true` (hswPayload), widget `IgStaff.mkt(c)`,
+cloud job `is_super` in davan-scraper tools/ig_posts.py (accepts his commands). Every NEW Instagram feature or fix must use these checks
+(never `umMeSuper()` / `Speak.isSup` alone), so he gets it with the normal release - except settings, which stay `umMeSuper()` only.
