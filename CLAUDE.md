@@ -121,7 +121,7 @@ zipalign, apksigner and a JDK from Ubuntu, and puts Android API 34 `android.jar`
 `build-tools` branch - dl.google.com is blocked in cloud sessions; the jar is a slim 77 MB copy, checked 07-Oct-2026: w182 / w241
 rebuilt with it are identical to the released APKs). Never put android.jar on main. Build: in the widget folder
 `ANDROID_JAR=$HOME/tc/android.jar bash build.sh`. New version = copy the folder to the next number, bump AndroidManifest + BuildInfo,
-write W<nn>_CHANGES.md, build, then release as above. Send the user the new APK. Send the source zip ONLY when the user asks for it
+write W<nn>_CHANGES.md, build, then release as above. Do NOT send the user the APK (user, 21-Oct-2026: "auto update happens, no need to waste tokens") - only when the user asks for it. Send the source zip ONLY when the user asks for it
 (user, 04-Oct-2026: it wastes tokens otherwise) - and always before a session is about to end so the next session can build.
 
 ## Faculty without classes (user, 03-Oct-2026)
