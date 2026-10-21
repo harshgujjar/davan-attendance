@@ -634,9 +634,16 @@
     numChildren:function(){return v!==null&&typeof v==='object'?Object.keys(v).length:0;},size:0,
     forEach:function(fn){if(v===null||typeof v!=='object')return false;var ks=rkeys(v);for(var i=0;i<ks.length;i++){if(fn(rsnap(ref.child(ks[i]),v[ks[i]]))===true)return true;}return false;}};
     o.size=o.numChildren();return o;}
+   /* v1930 (load report: the same path read 3-7 times in the first seconds): one answer per path is shared for 15 s; any write
+      through the SDK (set / update / remove / push / transaction - Firestore too) clears these shared answers. */
+   var RC={},RW=function(){RC={};try{FC={};}catch(e){}};
    function restOnce(ref){var db=ref.database;if(!db||!db.app||db.app.name!=='[DEFAULT]'||!(ref instanceof R))return Promise.reject(new Error('not ours'));
     var u=firebase.auth().currentUser;if(!u)return Promise.reject(new Error('not signed in'));
-    return u.getIdToken().then(function(t){var url=ref.toString().replace(/\/$/,'');return fetch(url+(ref.key===null?'/':'')+'.json?auth='+encodeURIComponent(t));}).then(function(r){if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(v){return rsnap(ref,v);});}
+    var url=ref.toString().replace(/\/$/,''),c=RC[url];if(c&&now()-c.t<15000)return c.p.then(function(v){return rsnap(ref,v);});
+    var pr=u.getIdToken().then(function(t){return fetch(url+(ref.key===null?'/':'')+'.json?auth='+encodeURIComponent(t));}).then(function(r){if(!r.ok)throw new Error('REST '+r.status);return r.json();});
+    RC[url]={t:now(),p:pr};pr.catch(function(){if(RC[url]&&RC[url].p===pr)delete RC[url];});
+    return pr.then(function(v){return rsnap(ref,v);});}
+   if(R&&R.prototype)['set','update','remove','push','setWithPriority','transaction'].forEach(function(m){var f=R.prototype[m];if(typeof f==='function')R.prototype[m]=function(){RW();return f.apply(this,arguments);};});
    if(R&&R.prototype&&R.prototype.once){var o=R.prototype.once;R.prototype.once=function(ev){var s=now(),p='',me=this,a=arguments;try{p=decodeURIComponent(this.toString().replace(/^https?:\/\/[^\/]+/,''));}catch(e){}
     var pr=(ev==='value'&&a.length===1&&window.fetch&&!window.DV_FS_NO_REST)?restOnce(me).then(function(x){T.add('rtdb',(p||'/')+' (fast)',now()-s);return x;},function(e){if(!/not (ours|signed)/.test(e&&e.message))T.add('rtdb',(p||'/')+' REST no: '+(e&&e.message),now()-s);return o.apply(me,a);}):o.apply(me,a);
     if(pr&&pr.then)pr.then(function(){},function(){T.add('rtdb',(p||'/')+' FAILED',now()-s);});return pr;};}
@@ -657,11 +664,25 @@
    function base(fs){return'https://firestore.googleapis.com/v1/projects/'+fs.app.options.projectId+'/databases/(default)/documents/';}
    function enc(p){return p.split('/').map(encodeURIComponent).join('/');}
    function tok(fs){if(!fs||!fs.app||fs.app.name!=='[DEFAULT]')return Promise.reject(new Error('other app'));var u=firebase.auth().currentUser;return u?u.getIdToken():Promise.reject(new Error('not signed in'));}
-   function restDoc(ref){return tok(ref.firestore).then(function(t){return fetch(base(ref.firestore)+enc(ref.path),{headers:{Authorization:'Bearer '+t}});}).then(function(r){
-    if(r.status===404)return mk(ref,null);if(!r.ok)throw new Error('REST '+r.status);return r.json().then(function(j){return mk(ref,j.fields||{});});});}
-   function restCol(col){var out=[];return tok(col.firestore).then(function(t){var page=function(pt){return fetch(base(col.firestore)+enc(col.path)+'?pageSize=300'+(pt?'&pageToken='+encodeURIComponent(pt):''),{headers:{Authorization:'Bearer '+t}}).then(function(r){
-     if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(j){(j.documents||[]).forEach(function(dd){var id=dd.name.split('/').pop();out.push(mk(col.doc(id),dd.fields||{}));});return j.nextPageToken?page(j.nextPageToken):null;});};return page('');}).then(function(){
+   var FC={};   /* v1930: shared Firestore REST answers, 15 s, cleared by any write (RW) */
+   function shared(k,mkp){var c=FC[k];if(c&&now()-c.t<15000)return c.p;var p=mkp();FC[k]={t:now(),p:p};p.catch(function(){if(FC[k]&&FC[k].p===p)delete FC[k];});return p;}
+   function restDoc(ref){return shared('d:'+ref.path,function(){return tok(ref.firestore).then(function(t){return fetch(base(ref.firestore)+enc(ref.path),{headers:{Authorization:'Bearer '+t}});}).then(function(r){
+    if(r.status===404)return null;if(!r.ok)throw new Error('REST '+r.status);return r.json().then(function(j){return j.fields||{};});});}).then(function(f){return mk(ref,f);});}
+   function restCol(col){return shared('c:'+col.path,function(){return restCol0(col);}).then(function(raw){var out=raw.map(function(x){return mk(col.doc(x[0]),x[1]);});
      return{docs:out,size:out.length,empty:!out.length,query:col,metadata:{fromCache:false,hasPendingWrites:false},forEach:function(fn,th){out.forEach(fn,th);},docChanges:function(){return[];}};});}
+   function restCol0(col){var out=[];return tok(col.firestore).then(function(t){var page=function(pt){return fetch(base(col.firestore)+enc(col.path)+'?pageSize=300'+(pt?'&pageToken='+encodeURIComponent(pt):''),{headers:{Authorization:'Bearer '+t}}).then(function(r){
+     if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(j){(j.documents||[]).forEach(function(dd){out.push([dd.name.split('/').pop(),dd.fields||{}]);});return j.nextPageToken?page(j.nextPageToken):null;});};return page('');}).then(function(){return out;});}
+   try{if(F){[F.DocumentReference,F.CollectionReference,F.WriteBatch].forEach(function(C){if(!C||!C.prototype)return;['set','update','delete','add','commit'].forEach(function(m){var f=C.prototype[m];if(typeof f==='function')C.prototype[m]=function(){RW();return f.apply(this,arguments);};});});
+    if(F.Firestore&&F.Firestore.prototype.runTransaction){var rt=F.Firestore.prototype.runTransaction;F.Firestore.prototype.runTransaction=function(){RW();return rt.apply(this,arguments);};}}}catch(e){}
+   /* v1930: live listeners - time each callback; one over 100 ms shows in the load report as "listener <path>" (the unnamed busy
+      blocks in the 21-Oct report came at the same moments as Firestore Listen/channel answers) */
+   var tcb=function(lbl,fn){return function(){var a=now();try{return fn.apply(this,arguments);}finally{var d=now()-a;if(d>=100)T.add('listener',lbl,d);}};};
+   try{[F&&F.DocumentReference,F&&F.Query].forEach(function(C){if(!C||!C.prototype||!C.prototype.onSnapshot)return;var os=C.prototype.onSnapshot;C.prototype.onSnapshot=function(){var p='';try{p=this.path||this.id||'query';}catch(e){}
+     var a=Array.prototype.slice.call(arguments);for(var i=0;i<a.length;i++){if(typeof a[i]==='function'){a[i]=tcb(p,a[i]);break;}if(a[i]&&typeof a[i].next==='function'){var o=a[i];a[i]={next:tcb(p,o.next.bind(o)),error:o.error&&o.error.bind(o),complete:o.complete&&o.complete.bind(o)};break;}}
+     return os.apply(this,a);};});
+    if(R&&R.prototype&&R.prototype.on){var on=R.prototype.on,cbs=new WeakMap();R.prototype.on=function(ev,cb){if(typeof cb!=='function')return on.apply(this,arguments);var p='';try{p=decodeURIComponent(this.toString().replace(/^https?:\/\/[^\/]+/,''));}catch(e){}
+     var w=cbs.get(cb);if(!w){w=tcb('rtdb '+p+' '+ev,cb);cbs.set(cb,w);}var a=Array.prototype.slice.call(arguments);a[1]=w;on.apply(this,a);return cb;};
+     var off=R.prototype.off;R.prototype.off=function(ev,cb){if(typeof cb==='function'&&cbs.has(cb)){var a=Array.prototype.slice.call(arguments);a[1]=cbs.get(cb);return off.apply(this,a);}return off.apply(this,arguments);};}}catch(e){}
    var useRest=function(o){return !(o&&o.source==='cache')&&window.fetch&&!window.DV_FS_NO_REST;};
    if(F&&F.DocumentReference){var g=F.DocumentReference.prototype.get;F.DocumentReference.prototype.get=function(o){var s=now(),p=this.path,me=this,a=arguments;
     var pr=useRest(o)?restDoc(me).then(function(x){T.add('firestore',p+' (fast)',now()-s);return x;},function(e){T.add('firestore',p+' REST no: '+(e&&e.message),now()-s);return g.apply(me,a);}):g.apply(me,a);
@@ -8711,7 +8732,7 @@
 <!-- ═══════════════════════════════════════════════════════════════
      JAVASCRIPT
 ═══════════════════════════════════════════════════════════════ -->
-<script src="js/admin-1-fcc8a0bd36.js"></script>
+<script src="js/admin-1-fab13298f7.js"></script>
 <!-- ══════════════════════════════════════════════════════════
      FOLLOW-UP RECORD MODAL
 ════════════════════════════════════════════════════════════ -->
@@ -9298,7 +9319,7 @@ function renderExemptions() {
   </div>
 </div>
 
-<script src="js/admin-6-9684b95d72.js"></script>
+<script src="js/admin-6-77b0245985.js"></script>
 
 <script src="js/admin-7-5f306c3206.js"></script>
 
@@ -9518,7 +9539,7 @@ function renderExemptions() {
   .hc-floor-h{font-family:var(--mono);font-size:11px;color:var(--muted);margin:14px 0 8px;text-transform:uppercase;}
 </style>
 
-<script src="js/admin-10-1a0cf257dc.js"></script>
+<script src="js/admin-10-47e605dfb7.js"></script>
 
 <script src="js/admin-11-cdfa399193.js"></script>
 

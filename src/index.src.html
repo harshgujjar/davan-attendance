@@ -633,9 +633,16 @@
     numChildren:function(){return v!==null&&typeof v==='object'?Object.keys(v).length:0;},size:0,
     forEach:function(fn){if(v===null||typeof v!=='object')return false;var ks=rkeys(v);for(var i=0;i<ks.length;i++){if(fn(rsnap(ref.child(ks[i]),v[ks[i]]))===true)return true;}return false;}};
     o.size=o.numChildren();return o;}
+   /* v1930 (load report: the same path read 3-7 times in the first seconds): one answer per path is shared for 15 s; any write
+      through the SDK (set / update / remove / push / transaction - Firestore too) clears these shared answers. */
+   var RC={},RW=function(){RC={};try{FC={};}catch(e){}};
    function restOnce(ref){var db=ref.database;if(!db||!db.app||db.app.name!=='[DEFAULT]'||!(ref instanceof R))return Promise.reject(new Error('not ours'));
     var u=firebase.auth().currentUser;if(!u)return Promise.reject(new Error('not signed in'));
-    return u.getIdToken().then(function(t){var url=ref.toString().replace(/\/$/,'');return fetch(url+(ref.key===null?'/':'')+'.json?auth='+encodeURIComponent(t));}).then(function(r){if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(v){return rsnap(ref,v);});}
+    var url=ref.toString().replace(/\/$/,''),c=RC[url];if(c&&now()-c.t<15000)return c.p.then(function(v){return rsnap(ref,v);});
+    var pr=u.getIdToken().then(function(t){return fetch(url+(ref.key===null?'/':'')+'.json?auth='+encodeURIComponent(t));}).then(function(r){if(!r.ok)throw new Error('REST '+r.status);return r.json();});
+    RC[url]={t:now(),p:pr};pr.catch(function(){if(RC[url]&&RC[url].p===pr)delete RC[url];});
+    return pr.then(function(v){return rsnap(ref,v);});}
+   if(R&&R.prototype)['set','update','remove','push','setWithPriority','transaction'].forEach(function(m){var f=R.prototype[m];if(typeof f==='function')R.prototype[m]=function(){RW();return f.apply(this,arguments);};});
    if(R&&R.prototype&&R.prototype.once){var o=R.prototype.once;R.prototype.once=function(ev){var s=now(),p='',me=this,a=arguments;try{p=decodeURIComponent(this.toString().replace(/^https?:\/\/[^\/]+/,''));}catch(e){}
     var pr=(ev==='value'&&a.length===1&&window.fetch&&!window.DV_FS_NO_REST)?restOnce(me).then(function(x){T.add('rtdb',(p||'/')+' (fast)',now()-s);return x;},function(e){if(!/not (ours|signed)/.test(e&&e.message))T.add('rtdb',(p||'/')+' REST no: '+(e&&e.message),now()-s);return o.apply(me,a);}):o.apply(me,a);
     if(pr&&pr.then)pr.then(function(){},function(){T.add('rtdb',(p||'/')+' FAILED',now()-s);});return pr;};}
@@ -656,11 +663,25 @@
    function base(fs){return'https://firestore.googleapis.com/v1/projects/'+fs.app.options.projectId+'/databases/(default)/documents/';}
    function enc(p){return p.split('/').map(encodeURIComponent).join('/');}
    function tok(fs){if(!fs||!fs.app||fs.app.name!=='[DEFAULT]')return Promise.reject(new Error('other app'));var u=firebase.auth().currentUser;return u?u.getIdToken():Promise.reject(new Error('not signed in'));}
-   function restDoc(ref){return tok(ref.firestore).then(function(t){return fetch(base(ref.firestore)+enc(ref.path),{headers:{Authorization:'Bearer '+t}});}).then(function(r){
-    if(r.status===404)return mk(ref,null);if(!r.ok)throw new Error('REST '+r.status);return r.json().then(function(j){return mk(ref,j.fields||{});});});}
-   function restCol(col){var out=[];return tok(col.firestore).then(function(t){var page=function(pt){return fetch(base(col.firestore)+enc(col.path)+'?pageSize=300'+(pt?'&pageToken='+encodeURIComponent(pt):''),{headers:{Authorization:'Bearer '+t}}).then(function(r){
-     if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(j){(j.documents||[]).forEach(function(dd){var id=dd.name.split('/').pop();out.push(mk(col.doc(id),dd.fields||{}));});return j.nextPageToken?page(j.nextPageToken):null;});};return page('');}).then(function(){
+   var FC={};   /* v1930: shared Firestore REST answers, 15 s, cleared by any write (RW) */
+   function shared(k,mkp){var c=FC[k];if(c&&now()-c.t<15000)return c.p;var p=mkp();FC[k]={t:now(),p:p};p.catch(function(){if(FC[k]&&FC[k].p===p)delete FC[k];});return p;}
+   function restDoc(ref){return shared('d:'+ref.path,function(){return tok(ref.firestore).then(function(t){return fetch(base(ref.firestore)+enc(ref.path),{headers:{Authorization:'Bearer '+t}});}).then(function(r){
+    if(r.status===404)return null;if(!r.ok)throw new Error('REST '+r.status);return r.json().then(function(j){return j.fields||{};});});}).then(function(f){return mk(ref,f);});}
+   function restCol(col){return shared('c:'+col.path,function(){return restCol0(col);}).then(function(raw){var out=raw.map(function(x){return mk(col.doc(x[0]),x[1]);});
      return{docs:out,size:out.length,empty:!out.length,query:col,metadata:{fromCache:false,hasPendingWrites:false},forEach:function(fn,th){out.forEach(fn,th);},docChanges:function(){return[];}};});}
+   function restCol0(col){var out=[];return tok(col.firestore).then(function(t){var page=function(pt){return fetch(base(col.firestore)+enc(col.path)+'?pageSize=300'+(pt?'&pageToken='+encodeURIComponent(pt):''),{headers:{Authorization:'Bearer '+t}}).then(function(r){
+     if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(j){(j.documents||[]).forEach(function(dd){out.push([dd.name.split('/').pop(),dd.fields||{}]);});return j.nextPageToken?page(j.nextPageToken):null;});};return page('');}).then(function(){return out;});}
+   try{if(F){[F.DocumentReference,F.CollectionReference,F.WriteBatch].forEach(function(C){if(!C||!C.prototype)return;['set','update','delete','add','commit'].forEach(function(m){var f=C.prototype[m];if(typeof f==='function')C.prototype[m]=function(){RW();return f.apply(this,arguments);};});});
+    if(F.Firestore&&F.Firestore.prototype.runTransaction){var rt=F.Firestore.prototype.runTransaction;F.Firestore.prototype.runTransaction=function(){RW();return rt.apply(this,arguments);};}}}catch(e){}
+   /* v1930: live listeners - time each callback; one over 100 ms shows in the load report as "listener <path>" (the unnamed busy
+      blocks in the 21-Oct report came at the same moments as Firestore Listen/channel answers) */
+   var tcb=function(lbl,fn){return function(){var a=now();try{return fn.apply(this,arguments);}finally{var d=now()-a;if(d>=100)T.add('listener',lbl,d);}};};
+   try{[F&&F.DocumentReference,F&&F.Query].forEach(function(C){if(!C||!C.prototype||!C.prototype.onSnapshot)return;var os=C.prototype.onSnapshot;C.prototype.onSnapshot=function(){var p='';try{p=this.path||this.id||'query';}catch(e){}
+     var a=Array.prototype.slice.call(arguments);for(var i=0;i<a.length;i++){if(typeof a[i]==='function'){a[i]=tcb(p,a[i]);break;}if(a[i]&&typeof a[i].next==='function'){var o=a[i];a[i]={next:tcb(p,o.next.bind(o)),error:o.error&&o.error.bind(o),complete:o.complete&&o.complete.bind(o)};break;}}
+     return os.apply(this,a);};});
+    if(R&&R.prototype&&R.prototype.on){var on=R.prototype.on,cbs=new WeakMap();R.prototype.on=function(ev,cb){if(typeof cb!=='function')return on.apply(this,arguments);var p='';try{p=decodeURIComponent(this.toString().replace(/^https?:\/\/[^\/]+/,''));}catch(e){}
+     var w=cbs.get(cb);if(!w){w=tcb('rtdb '+p+' '+ev,cb);cbs.set(cb,w);}var a=Array.prototype.slice.call(arguments);a[1]=w;on.apply(this,a);return cb;};
+     var off=R.prototype.off;R.prototype.off=function(ev,cb){if(typeof cb==='function'&&cbs.has(cb)){var a=Array.prototype.slice.call(arguments);a[1]=cbs.get(cb);return off.apply(this,a);}return off.apply(this,arguments);};}}catch(e){}
    var useRest=function(o){return !(o&&o.source==='cache')&&window.fetch&&!window.DV_FS_NO_REST;};
    if(F&&F.DocumentReference){var g=F.DocumentReference.prototype.get;F.DocumentReference.prototype.get=function(o){var s=now(),p=this.path,me=this,a=arguments;
     var pr=useRest(o)?restDoc(me).then(function(x){T.add('firestore',p+' (fast)',now()-s);return x;},function(e){T.add('firestore',p+' REST no: '+(e&&e.message),now()-s);return g.apply(me,a);}):g.apply(me,a);
@@ -11536,6 +11557,8 @@ function _fsRestVal(v) {
   if ('bytesValue' in v) return v.bytesValue;
   return null;
 }
+// v1930: quick text fingerprint (FNV-1a, 32 bit) for the student-list answer
+function _dvHash(t) { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(36); }
 function _fsSoft(p) { return Promise.resolve(p).catch(e => { console.warn('[loadFirestoreData] side read skipped:', e && (e.code || e.message)); return null; }); }   // v1623
 async function fsGetFast(col, id) {
   const t0 = performance.now();
@@ -11546,8 +11569,23 @@ async function fsGetFast(col, id) {
     const res = await fetch('https://firestore.googleapis.com/v1/projects/' + pid + '/databases/(default)/documents/' + col + '/' + id, { headers: { Authorization: 'Bearer ' + tok } });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error('REST ' + res.status);
-    const j = await res.json();
+    let j;
+    if (col === 'app_data' && id === 'students') {
+      // v1930 (load report: ~0.5 s frozen turning the 550 KB answer into the student list): when the server's answer is exactly
+      // the one this phone saved last time (same length + hash), the saved list - already on screen - is used as it is.
+      const txt = await res.text(), sig = txt.length + ':' + _dvHash(txt);
+      window._stuSig = sig; window._stuSame = false;
+      let saved = null; try { saved = localStorage.getItem('davan_students_sig'); } catch (e) {}
+      if (saved === sig && window._stuFromSaved && Array.isArray(allStudents) && allStudents.length) {
+        window._stuSame = true; window._stuSigList = allStudents;
+        console.log('[fsGetFast] app_data/students unchanged - saved list kept (' + Math.round(performance.now() - t0) + ' ms)');
+        try { window.DVP && DVP.add('page', 'student list unchanged on the server - saved copy kept'); } catch (e) {}
+        return { data: allStudents };
+      }
+      j = JSON.parse(txt);
+    } else j = await res.json();
     const out = {}, f = j.fields || {}; for (const k in f) out[k] = _fsRestVal(f[k]);
+    if (col === 'app_data' && id === 'students') window._stuSigList = out.data;   // v1930: the sig belongs to this list
     console.log('[fsGetFast] ' + col + '/' + id + ' in ' + Math.round(performance.now() - t0) + ' ms (REST)');
     if (typeof hcT === 'function') hcT('Firestore ' + col + '/' + id + ' (fast read)', performance.now() - t0);
     return out;
@@ -12148,6 +12186,7 @@ function loginSwitchTab(tab) {
 // queues the sound to fire on the very next user interaction instead.
 let _pendingLoginSound = false;
 async function _doPlayLoginSound() {
+  if (Date.now() - (window._dvChimedAt || 0) < 8000) return;   // v1930: one chime per login (load report: played twice)
   try {
     let ctx = _audioContext;
     if (!ctx) {
@@ -12176,7 +12215,7 @@ async function _doPlayLoginSound() {
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.8);
-    _pendingLoginSound = false;
+    _pendingLoginSound = false; window._dvChimedAt = Date.now();
     console.log('[LoginSound] ✅ Played!');
   } catch(e) {
     console.error('[LoginSound] Error:', e);
@@ -13671,13 +13710,13 @@ async function onLoginSuccess() {
   // the normal warm-cache path below stays instant/silent as before.
   const _noCacheYet = !localStorage.getItem('davan_students');
   if (_noCacheYet && typeof appStartLoadTimer === 'function') appStartLoadTimer('Loading your dashboard…');
-  try { const c = localStorage.getItem('davan_students'); if (c) allStudents = JSON.parse(c); } catch(e) {}
+  try { const c = localStorage.getItem('davan_students'); if (c) { allStudents = JSON.parse(c); window._stuFromSaved = true; } } catch(e) {}
   try { window.DVP && DVP.add('page', 'saved student list: ' + (_noCacheYet ? 'not in localStorage - trying IndexedDB' : 'localStorage (' + (allStudents || []).length + ')')); } catch (e) {}
   // v1929: no localStorage copy (it was full) - draw from the IndexedDB copy as soon as it is read, unless the server was faster
   if (_noCacheYet) dvKvGet('students').then(c => {
     try { window.DVP && DVP.add('page', 'saved student list in IndexedDB: ' + (c && c.list ? c.list.length : 'none')); } catch (e) {}
     if (!c || !Array.isArray(c.list) || !c.list.length || (Array.isArray(allStudents) && allStudents.length)) return;
-    allStudents = c.list; if (typeof appStopLoadTimer === 'function') appStopLoadTimer();
+    allStudents = c.list; window._stuFromSaved = true; if (typeof appStopLoadTimer === 'function') appStopLoadTimer();
     if (typeof renderAllSoon === 'function') renderAllSoon();
     try { window.dvBootStep && window.dvBootStep(2); } catch (e) {}
   }).catch(() => {});
@@ -19077,6 +19116,7 @@ function mobCloseSidebar() {
 }
 function switchPanel(name) {
   try { window.DVP && DVP.add('page', 'open page: ' + name); } catch (e) {}   // v1898 load report
+  if (name === 'students') setTimeout(() => { if (_stuPendingList) renderStudents(_stuPendingList); }, 0);   // v1930: drawn on open
   // v1690 (user): "table is not opening" - Faculty Alerts loaded its table only from the side-menu click; reopened any other way (the app
   // restores the last page after an update) it stayed on "Loading…". Now it loads whenever the page is shown (once per 5 s).
   if (name === 'faculty-alerts') setTimeout(() => { if (Date.now() - (window._faInitAt || 0) > 5000 && typeof facAlertInit === 'function') { facAlertInit(); if (typeof wnLoadConfig === 'function') wnLoadConfig(); } }, 50);
@@ -19334,7 +19374,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1929;  // always = HTML footer version number
+const CODE_BUILD = 1930;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -22762,7 +22802,10 @@ function dvStuSave() {
   clearTimeout(_dvStuSaveT);
   _dvStuSaveT = setTimeout(() => {
     if (!Array.isArray(allStudents) || !allStudents.length) return;
+    if (window._stuSame && window._stuSigList === allStudents) return;   // v1930: unchanged server list, already saved
     try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch (e) { try { localStorage.removeItem('davan_students'); } catch (e2) {} }
+    // v1930: the fingerprint is kept only when the saved list IS the server's list (not a list changed on this phone)
+    try { if (window._stuSig && window._stuSigList === allStudents) localStorage.setItem('davan_students_sig', window._stuSig); else localStorage.removeItem('davan_students_sig'); } catch (e) {}
     try { dvKvPut('students', { at: Date.now(), list: allStudents }); } catch (e) {}
   }, 2500);
 }
@@ -24544,8 +24587,14 @@ function renderDashboard() {
 // ║  renderStudents, getFacultyStudents, applyFilters, autoScrapeOnLogin║
 // ║  Lines (approx): 6616–7155                                      ║
 // ╚══════════════════════════════════════════════════════════════════╝
+// v1930 (load report: the hidden Students table - 400 rows - was drawn 3 times while opening, 0.25-0.42 s each): it is drawn only
+// while its page is open; otherwise the newest list waits here and is drawn when the page opens (switchPanel).
+let _stuPendingList = null;
 function renderStudents(list) {
   if (_legacyPanelGuard('panel-students', 'Students')) return;
+  const _sp = document.getElementById('panel-students');
+  if (_sp && !_sp.classList.contains('active')) { _stuPendingList = list; return; }
+  _stuPendingList = null;
   const tbody = document.getElementById('students-tbody');
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">📭</div>No data loaded.</div></td></tr>';
@@ -30413,6 +30462,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1930', date: '21-Oct-2026 IST', note: '⚡ Opening, part 2: the Students table is drawn only when you open it (was 3 times while opening), an unchanged student list is not unpacked again, the same Firebase read is shared for 15 s (timetable was read 7 times), one login chime. Load report names slow live listeners too.' },
 { v: 'v1929', date: '21-Oct-2026 IST', note: '⚡ Faster opening: the page comes from the phone\'s copy at once (a "New version - tap to update" bar when there is a newer one), one sign-in instead of two, the hidden tables draw in small pieces after the open page, and the saved student list is kept in IndexedDB too. Load report: 🔬 Profile next open + what kept the phone busy.' },
 { v: 'v1928', date: '21-Oct-2026 IST', note: '📸 Latest from Davan now looks like Instagram: a Follow box (rotating Davan logo, followers, Follow / ✓ I followed), full post cards one below the other with likes, caption and comments, newest 5 + See more, and Hide / Show all. Tap ♡ / picture / Follow opens Instagram to like or follow. On the admin dashboard it moved below the Live Class Board. Pairs with student app v11.92, widgets.' },
 { v: 'v1927', date: '21-Oct-2026 IST', note: '🏨 My hostel (resident staff in the staff app, e.g. Amith John): today + tomorrow menu with meal times and the hostel notices, right here - no jump to the students\' app.' },
@@ -30427,7 +30477,6 @@ const HTML_CHANGELOG = [
 { v: 'v1918', date: '20-Oct-2026 IST', note: '⚡ Faster start: the same Firebase reads (widget report, etc.) that ran 4-7 times at opening now run once and are shared for 20 s. Fewer reads, no new data. Function: hswGet.' },
 { v: 'v1917', date: '20-Oct-2026 IST', note: '📖 Staff also get the daily English word (7:50 am + 6:30 pm, staff widget w310); two more rows in the 🔔 registry.' },
 { v: 'v1916', date: '20-Oct-2026 IST', note: '📖 Registry: the daily English word (7:50 am + 6:30 pm, students) can be switched off or re-timed here. Words come from daily-words.json (363 words, no Firebase). Pairs with widget w258.' },
-{ v: 'v1915', date: '20-Oct-2026 IST', note: '🍽️ Hostel meal questions: new switches in Hostel Settings → Student access & feedback - 📅 pause all questions until a date, Good/Bad only or stars only, once a day in the evening, one meal a day per student, ask only X% of students, never forced (Not now + 7-day pause after N skips), quiet mode. Notification / Widget / Student app ticks are the same switches the widget reads. Data: hostel/config/students (no extra reads). Pairs with student app v11.88.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -84070,7 +84119,9 @@ function dvLoadReportText() {
   try { const B = window.__dvLong || [], G = window.__dvLog || [];
     const near = t => { for (let i = G.length - 1; i >= 0; i--) if (G[i].t <= t + 5) return G[i].m; return ''; };
     L.push('', 'PHONE BUSY ' + f(B.reduce((a, x) => a + x.d, 0)) + ' in ' + B.length + ' blocks (biggest; after = last log line before it)');
-    B.slice().sort((a, b) => b.d - a.d).slice(0, 8).sort((a, b) => a.s - b.s).forEach(x => L.push('  ' + f(x.s).padStart(6) + '  ' + String(Math.round(x.d)).padStart(5) + ' ms  after: ' + near(x.s)));
+    // v1930: also the last recorded answer / page step that arrived just before the block (it is usually what the block handled)
+    const lastEv = t => { let m = ''; for (const e of ev) { if (e[1] === 'freeze') continue; if (e[0] <= t + 5) m = e[1] + ' ' + e[2].slice(0, 60); else break; } return m; };
+    B.slice().sort((a, b) => b.d - a.d).slice(0, 8).sort((a, b) => a.s - b.s).forEach(x => L.push('  ' + f(x.s).padStart(6) + '  ' + String(Math.round(x.d)).padStart(5) + ' ms  after: ' + near(x.s) + '\n                  last answer: ' + lastEv(x.s)));
     const P = window.__dvProf || [];
     if (window.__dvProfOn) { L.push('', 'FUNCTIONS over 0.15 s (this open; indent = called inside)');
       P.slice().sort((a, b) => a.s - b.s).forEach(x => L.push('  ' + f(x.s).padStart(6) + '  ' + String(Math.round(x.d)).padStart(5) + ' ms  ' + '  '.repeat(Math.min(x.z, 8)) + x.n));
