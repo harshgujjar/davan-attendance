@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1927 · 21-Oct-2026 IST
+🏨 My hostel page (user: the side-menu hostel link opened the students' app - "show the details here only"). For a resident staff member with Instagram access (Amith John) the side menu item now opens a read-only page in the staff app: today's and tomorrow's canteen menu with meal times and the notices for his hostel. Reads: canteen/template, defaults, periods (DB4) + canteen override / closed ranges + hostel/notices, only when the page is opened (same as the Canteen Menu page). Function: myHostelInit (new).
+
 ## v1926 · 21-Oct-2026 IST
 User checked Amith John's login (resident staff, Title Graphic Designer): Instagram not in the side menu (it sat in the Super Admin's hidden Admin card), Subject Tracker shown and no way back, no Add My Photo. Now a resident with Instagram access goes through the normal staff login (hostel login, staff widget link, own photo) instead of returning early, lands on 📸 Instagram, and has his own side-menu card (📸 Instagram, 🏨 My hostel app); Subject Tracker / Student Portal are hidden for residents; a refresh never restores a page whose card is hidden. No new reads or writes. Functions: onLoginSuccess, applySidebarForRole, syncEmptySidebarCards, facCheckOwnPhoto, _navRestoreState, igDraw.
 
