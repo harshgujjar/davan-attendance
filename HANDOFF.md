@@ -72,6 +72,11 @@ Build (user decided: keep BOTH):
    "word of the day"; Placement page also shows the daily word card (Words.row). New builds student 277+ / staff 333+ -> "next" channel.
 4. Optional: make the 30-word placement list longer (repeats every 30 days now).
 Versions to bump: staff app CODE_BUILD + HTML_CHANGELOG, portal APP_VERSION (placement.js is shared), both widget BuildInfo.NEWS.
+5. **Placement intro animation fix** (user, 21-Oct: "bow is only coming and hitting the bullseye, not the arrow"). Cause: `PlcActivity.intro()`
+   (student + staff, same code) flies the 🏹 EMOJI = one picture of bow + arrow, so the bow itself slides in and stops at (-10dp, -70dp) on top of
+   the 🎯 (whose font already shows a dart stuck in it), then just fades. Fix: bow stays still on the left; a separate arrow drawn in code (custom
+   View: shaft + head + feathers) - string pulls back, arrow alone flies on a slight curve and sticks in the bullseye centre with a wobble; target
+   shakes, gold burst from the bullseye, PLACEMENT closes up as now; draw our own red/white ring target instead of 🎯. Still ~1.8 s, tap to skip.
 
 ## Open items
 - 📸 INSTAGRAM LOOK (21-Oct, BUILT from the approved mockup): staff app v1928 / portal v11.92 / student widget 276 / staff w332 (-next, public at 9:15 pm). Apps: igPostsHTML (same code in both files), localStorage ig_hide / ig_fol; widgets: IgUi.java (same file in both, big pictures files/igbig 480 px RGB_565), Store ig_hide, Follow box uses the old Follow follow_tap / follow_yes. NOT seen on a phone yet: check the widget cards (big picture size, taps, Hide) after the release. Widget look settings n / colour / header text no longer used by the widgets.
