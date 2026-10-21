@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1926 · 21-Oct-2026 IST
+User checked Amith John's login (resident staff, Title Graphic Designer): Instagram not in the side menu (it sat in the Super Admin's hidden Admin card), Subject Tracker shown and no way back, no Add My Photo. Now a resident with Instagram access goes through the normal staff login (hostel login, staff widget link, own photo) instead of returning early, lands on 📸 Instagram, and has his own side-menu card (📸 Instagram, 🏨 My hostel app); Subject Tracker / Student Portal are hidden for residents; a refresh never restores a page whose card is hidden. No new reads or writes. Functions: onLoginSuccess, applySidebarForRole, syncEmptySidebarCards, facCheckOwnPhoto, _navRestoreState, igDraw.
+
 ## v1925 · 21-Oct-2026 IST
 📸 Amith John's login (role Resident staff, Title Graphic Designer) was sent straight to the hostel part of the student app after login, so he never reached the Instagram page. A resident with Instagram access now stays in the staff app on the 📸 Instagram page (hostel link and staff widget link still done), with a 🏨 Open my hostel app button there. No new reads or writes. Functions: the resident branch after login (applySidebarForRole caller), igDraw.
 
