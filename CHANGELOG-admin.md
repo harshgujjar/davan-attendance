@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1925 · 21-Oct-2026 IST
+📸 Amith John's login (role Resident staff, Title Graphic Designer) was sent straight to the hostel part of the student app after login, so he never reached the Instagram page. A resident with Instagram access now stays in the staff app on the 📸 Instagram page (hostel link and staff widget link still done), with a 🏨 Open my hostel app button there. No new reads or writes. Functions: the resident branch after login (applySidebarForRole caller), igDraw.
+
 ## v1924 · 21-Oct-2026 IST
 📸 Instagram page access also for the Title "Graphic Designer" (user: Amith John is a graphic designer, his login already exists - use it as it is). Pairs with davan-scraper tools/ig_posts.py v2.2; widgets unchanged (they follow the link flag ig). Function: igAccess.
 
