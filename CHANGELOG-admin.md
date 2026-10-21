@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1922 · 21-Oct-2026 IST
+🎨 Instagram page → Settings → "Widget look": the Super Admin sets how the Instagram cards look in the student and staff widgets - on/off, header + text, 1-5 posts, story, time, likes, comments, caption length, reels/photos, top/bottom, Today/News, who sees it, colour, tap target - and saves; no widget build. Data: DB2 davan_pub/ig_cfg.wl (written here), copied by the cloud job into ig_posts.wl (widgets read it with their hourly sync, no new read). Pairs with student widget w269 and staff widget w323. Functions: igWl, igWlSave, igWlReset.
+
 ## v1921 · 21-Oct-2026 IST
 📈 Instagram page, Overview: new card "Since Day 1" - followers, following, posts, views / reach / profile visits / website taps (7 days) and likes now vs the numbers saved on Day 1 (21 Oct 2026). Data: DB2 davan_pub/ig_base (written once by the cloud job; also docs/INSTAGRAM-DAY1.md in davan-scraper) and ig_admin.base. Function: igBase.
 
