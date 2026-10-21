@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1936 · 21-Oct-2026 IST
+👋 Welcome toast after login (user: "it takes a lot of time, make it fast"): `liveShowToast` from onLoginSuccess now starts after 50 ms and stays 2 s (was 0.5 s delay + 6 s). No data change.
+
 ## v1935 · 21-Oct-2026 IST
 ⚡ v1934 report: opening screen closed at 1.5 s; WORK AFTER READS named the busy code - admission-status module `init` (1.15 s, hidden page), `ttRenderViewer` x3 (hidden Timetable), `renderNotify` -> `ntLoadLogs` (0.84 s, hidden Notify), `wcpCheckWidgetHealth`, `facAlertSchedulerTick` (0.68 s). Now: s38 admission status `initOnce` 15 s after sign-in or on panel show; `ttRenderViewer` and `renderNotify` draw only while their panel is open (`_ttvPending` / `_ntPending`, drawn by switchPanel); widget health check 9 s later; first faculty-alert tick 12 s later. Read wrappers hand each answer over in its own task (`hand`) so WORK AFTER READS is per read. Load report auto-saved for the Super Admin (user: "use DB1", keep manual too): DB1 `davan_pub/load_report` {latest, r0-r4} 20 s after each open + ☁️ Upload now (`dvLoadUpload`); ~30 KB write per Super Admin open, nobody else.
 
