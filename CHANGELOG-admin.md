@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1924 · 21-Oct-2026 IST
+📸 Instagram page access also for the Title "Graphic Designer" (user: Amith John is a graphic designer, his login already exists - use it as it is). Pairs with davan-scraper tools/ig_posts.py v2.2; widgets unchanged (they follow the link flag ig). Function: igAccess.
+
 ## v1923 · 21-Oct-2026 IST
 📸 Digital marketing access (user: Amith John should see the Instagram page like the admin, but not its settings). A login whose Title (User Management) contains "Digital Marketing" (or "Instagram") gets the 📸 Instagram side-menu page with every tab except Settings / Widget look, and the staff widget's 📸 Instagram page (link payload ig:true, staff widget w329). Page actions (reply / hide / delete comment, DM, publish) are accepted by the cloud job for this login too (davan-scraper tools/ig_posts.py v2.1). No new reads or writes. Functions: igAccess, igCanOpen, igInit, igDraw, applySidebarForRole, hswPayload.
 

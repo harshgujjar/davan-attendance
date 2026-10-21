@@ -185,7 +185,7 @@ Find a phone's code with filter = the person's name. Keep token use low: peek wi
 
 ## Instagram page: Super Admin + digital marketing (user, 21-Oct-2026 - rule)
 Amith John (digital marketing) sees the 📸 Instagram page exactly like the Super Admin - staff app (side menu) and staff widget (📸 page) -
-EXCEPT the Settings tab (alert switches + Widget look), which stays Super Admin only. Access = the word "Digital Marketing" (or "Instagram")
+EXCEPT the Settings tab (alert switches + Widget look), which stays Super Admin only. Access = "Graphic Designer" (his existing Title), "Digital Marketing" or "Instagram"
 in the login's Title (User Management): staff app `igAccess(p)` / `igCanOpen()`, link payload `ig:true` (hswPayload), widget `IgStaff.mkt(c)`,
 cloud job `is_super` in davan-scraper tools/ig_posts.py (accepts his commands). Every NEW Instagram feature or fix must use these checks
 (never `umMeSuper()` / `Speak.isSup` alone), so he gets it with the normal release - except settings, which stay `umMeSuper()` only.
