@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1935 · 21-Oct-2026 IST
+⚡ v1934 report: opening screen closed at 1.5 s; WORK AFTER READS named the busy code - admission-status module `init` (1.15 s, hidden page), `ttRenderViewer` x3 (hidden Timetable), `renderNotify` -> `ntLoadLogs` (0.84 s, hidden Notify), `wcpCheckWidgetHealth`, `facAlertSchedulerTick` (0.68 s). Now: s38 admission status `initOnce` 15 s after sign-in or on panel show; `ttRenderViewer` and `renderNotify` draw only while their panel is open (`_ttvPending` / `_ntPending`, drawn by switchPanel); widget health check 9 s later; first faculty-alert tick 12 s later. Read wrappers hand each answer over in its own task (`hand`) so WORK AFTER READS is per read. Load report auto-saved for the Super Admin (user: "use DB1", keep manual too): DB1 `davan_pub/load_report` {latest, r0-r4} 20 s after each open + ☁️ Upload now (`dvLoadUpload`); ~30 KB write per Super Admin open, nobody else.
+
 ## v1934 · 21-Oct-2026 IST
 ⚡ Opening (v1933 report: screen closed 3.2 s, LONG FRAMES: 1.1 s + 0.78 s of app code right after Firestore answers, 0.54 s Firestore library on a live listener, eruda loaded on every admin open). The opening screen closes as soon as the dashboard is drawn from the saved copy (renderAllSoon after `renderDashboard`, was a 0.5 s timer stuck behind other work); eruda only with ?debug=1 / #debug / dv_eruda=1; `cmtStart` (stu_comments listener) 8 s after login; the student list is saved only in IndexedDB (`dvStuSave` removes the localStorage copy; onLoginSuccess uses `__dvStuIdb`, a localStorage copy is only a stand-in, the "Loading your dashboard" overlay only when IndexedDB is empty too). Load report: WORK AFTER READS - every Firestore / RTDB read records its caller (`who`) and the busy time right after its answer (`after`), so the remaining blocks get function names. Fewer downloads (no eruda); no new reads.
 
