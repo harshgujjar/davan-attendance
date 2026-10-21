@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1933 · 21-Oct-2026 IST
+🔎 v1932 report: student list fingerprint matched (saved copy kept), busy 3.2 s (was 5.6), but the phone refused the profiler ("JS profiling is disabled by Document Policy" - the header from sw.js is not honoured there) and the opening screen waited for the IndexedDB copy (localStorage had dropped the list again; read only after sign-in, 1.2 s). Now: the first script records Long Animation Frames (`__dvLoaf`: script, function, caller, file@char per busy frame - no header needed) and the load report shows them as LONG FRAMES; the IndexedDB student list is read as soon as the page starts (`__dvStuIdb`, used by onLoginSuccess). Tested in Chromium. No Firebase change.
+
 ## v1932 · 21-Oct-2026 IST
 🧬 Deep profile (user: "use proper injection debug and find what is missing"). v1931 report: screen open 1.8 s, but the student list was unpacked again (1 s) and the busy blocks had no names. Load report button "🧬 Deep profile next open" (dv_jsprof) starts the browser's JS Self-Profiling API (Profiler, 10 ms samples) in the first script; sw.js now serves the page with `Document-Policy: js-profiling` (GitHub Pages cannot); `dvJsProfText` lists the innermost / outermost app functions, the exact running function and what ran inside each big busy block (file:line:col in this build). Student list fingerprint = document updateTime + length (v1930's text hash never matched) and is kept when the list came from the server load (`_stuSigFresh`, cleared by RTDB fallback / cached fallback / fsSet of students); the report shows "student list fingerprint" and "student list saved" lines. Tested in Chromium. No Firebase change.
 
