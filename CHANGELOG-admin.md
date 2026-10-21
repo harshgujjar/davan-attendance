@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1928 · 21-Oct-2026 IST
+📸 Latest from Davan redone as Instagram (user: "make it Instagram look and feel so students like and follow", approved mockup). Follow box (rotating Davan GIF logo in the Instagram ring, followers from ig_posts.fol, Follow / ✓ I followed), full cards one below the other (likes, caption with "more", comments, date), newest 5 + See more (3), Hide ▴ / Show all ▾ (hidden = Follow box + newest post). Taps open the post / @davan_dvg in the Instagram app (Instagram allows no in-app like or follow). Admin dashboard: moved from the top to below the Live Class Board. No new reads (same davan_pub/ig_posts read); Hide / I followed are kept in localStorage (ig_hide, ig_fol). Pairs with student app v11.92, student widget 276, staff widget 332. Functions: igPostsRender, igPostsHTML, igCss, igTap, igToggle, igFollowed, igSeeMore.
+
 ## v1927 · 21-Oct-2026 IST
 🏨 My hostel page (user: the side-menu hostel link opened the students' app - "show the details here only"). For a resident staff member with Instagram access (Amith John) the side menu item now opens a read-only page in the staff app: today's and tomorrow's canteen menu with meal times and the notices for his hostel. Reads: canteen/template, defaults, periods (DB4) + canteen override / closed ranges + hostel/notices, only when the page is opened (same as the Canteen Menu page). Function: myHostelInit (new).
 

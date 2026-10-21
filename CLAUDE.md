@@ -189,3 +189,8 @@ EXCEPT the Settings tab (alert switches + Widget look), which stays Super Admin 
 in the login's Title (User Management): staff app `igAccess(p)` / `igCanOpen()`, link payload `ig:true` (hswPayload), widget `IgStaff.mkt(c)`,
 cloud job `is_super` in davan-scraper tools/ig_posts.py (accepts his commands). Every NEW Instagram feature or fix must use these checks
 (never `umMeSuper()` / `Speak.isSup` alone), so he gets it with the normal release - except settings, which stay `umMeSuper()` only.
+
+## "Tell me" = explain only; mockups are exact (user, 21-Oct-2026)
+- When the user says "tell me", only explain / plan - build NOTHING until the user says to build (go / build it).
+- A mockup must be accurate (real colours, fonts, sizes, data from the code), and the build must match the last approved mockup exactly -
+  no extra changes after the corrections. If something cannot be built as shown, say so before building.
