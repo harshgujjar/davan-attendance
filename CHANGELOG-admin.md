@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1931 · 21-Oct-2026 IST
+⚡ Opening, part 3 (v1930 report: screen open at 1.9 s; timetable still fetched 7 times, renderShortage 0.39 s on a hidden page). Saves made while opening cleared ALL shared 15 s answers; now a save clears only the answers it can change (`RWp` for RTDB paths, `FWp` for a Firestore doc + its collection; batches / transactions still clear all). `renderShortage` draws only while panel-shortage is open (`_shPending`, drawn by `switchPanel('shortage')`). The 1.3 s block in that report was the one-time unpacking of the student list (no fingerprint saved yet) - from the next open the unchanged list is kept. No new reads.
+
 ## sw.js fix · 21-Oct-2026 IST (after v1930)
 🐞 v1930 never reached phones (user: "so many refresh, it's not loading" - still v1929). The v1929 sw.js compared the saved page with GitHub's by reading the saved copy AFTER the page had used it (`hit.clone()` on a used body threw), so the new page was never saved and every open showed v1929. Now the saved text is read first; on activate the new sw.js also drops the saved staff-app page, so the next open loads the newest build from GitHub. Tested in Chromium: old sw.js stuck on V1 forever, new one shows V2 on the next open. No Firebase change.
 

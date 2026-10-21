@@ -635,14 +635,20 @@
     o.size=o.numChildren();return o;}
    /* v1930 (load report: the same path read 3-7 times in the first seconds): one answer per path is shared for 15 s; any write
       through the SDK (set / update / remove / push / transaction - Firestore too) clears these shared answers. */
+   /* v1931 (v1930 report: timetable still fetched 7 times - the app saves things while opening and every save cleared ALL shared
+      answers): a save now clears only the answers it can change (the same path, its parents and children); batches / transactions
+      still clear everything. */
    var RC={},RW=function(){RC={};try{FC={};}catch(e){}};
+   var near=function(a,b){return a===b||a.indexOf(b+'/')===0||b.indexOf(a+'/')===0;};
+   var RWp=function(u){for(var k in RC)if(near(k,u))delete RC[k];};
+   var FWp=function(p,col){try{delete FC['d:'+p];delete FC['c:'+col];for(var k in FC)if(k.indexOf('c:')===0&&near(k.slice(2),p))delete FC[k];}catch(e){}};
    function restOnce(ref){var db=ref.database;if(!db||!db.app||db.app.name!=='[DEFAULT]'||!(ref instanceof R))return Promise.reject(new Error('not ours'));
     var u=firebase.auth().currentUser;if(!u)return Promise.reject(new Error('not signed in'));
     var url=ref.toString().replace(/\/$/,''),c=RC[url];if(c&&now()-c.t<15000)return c.p.then(function(v){return rsnap(ref,v);});
     var pr=u.getIdToken().then(function(t){return fetch(url+(ref.key===null?'/':'')+'.json?auth='+encodeURIComponent(t));}).then(function(r){if(!r.ok)throw new Error('REST '+r.status);return r.json();});
     RC[url]={t:now(),p:pr};pr.catch(function(){if(RC[url]&&RC[url].p===pr)delete RC[url];});
     return pr.then(function(v){return rsnap(ref,v);});}
-   if(R&&R.prototype)['set','update','remove','push','setWithPriority','transaction'].forEach(function(m){var f=R.prototype[m];if(typeof f==='function')R.prototype[m]=function(){RW();return f.apply(this,arguments);};});
+   if(R&&R.prototype)['set','update','remove','push','setWithPriority','transaction'].forEach(function(m){var f=R.prototype[m];if(typeof f==='function')R.prototype[m]=function(){try{RWp(this.toString().replace(/\/$/,''));}catch(e){RW();}return f.apply(this,arguments);};});
    if(R&&R.prototype&&R.prototype.once){var o=R.prototype.once;R.prototype.once=function(ev){var s=now(),p='',me=this,a=arguments;try{p=decodeURIComponent(this.toString().replace(/^https?:\/\/[^\/]+/,''));}catch(e){}
     var pr=(ev==='value'&&a.length===1&&window.fetch&&!window.DV_FS_NO_REST)?restOnce(me).then(function(x){T.add('rtdb',(p||'/')+' (fast)',now()-s);return x;},function(e){if(!/not (ours|signed)/.test(e&&e.message))T.add('rtdb',(p||'/')+' REST no: '+(e&&e.message),now()-s);return o.apply(me,a);}):o.apply(me,a);
     if(pr&&pr.then)pr.then(function(){},function(){T.add('rtdb',(p||'/')+' FAILED',now()-s);});return pr;};}
@@ -671,7 +677,8 @@
      return{docs:out,size:out.length,empty:!out.length,query:col,metadata:{fromCache:false,hasPendingWrites:false},forEach:function(fn,th){out.forEach(fn,th);},docChanges:function(){return[];}};});}
    function restCol0(col){var out=[];return tok(col.firestore).then(function(t){var page=function(pt){return fetch(base(col.firestore)+enc(col.path)+'?pageSize=300'+(pt?'&pageToken='+encodeURIComponent(pt):''),{headers:{Authorization:'Bearer '+t}}).then(function(r){
      if(!r.ok)throw new Error('REST '+r.status);return r.json();}).then(function(j){(j.documents||[]).forEach(function(dd){out.push([dd.name.split('/').pop(),dd.fields||{}]);});return j.nextPageToken?page(j.nextPageToken):null;});};return page('');}).then(function(){return out;});}
-   try{if(F){[F.DocumentReference,F.CollectionReference,F.WriteBatch].forEach(function(C){if(!C||!C.prototype)return;['set','update','delete','add','commit'].forEach(function(m){var f=C.prototype[m];if(typeof f==='function')C.prototype[m]=function(){RW();return f.apply(this,arguments);};});});
+   try{if(F){[F.DocumentReference,F.CollectionReference,F.WriteBatch].forEach(function(C){if(!C||!C.prototype)return;['set','update','delete','add','commit'].forEach(function(m){var f=C.prototype[m];if(typeof f==='function')C.prototype[m]=function(){
+     try{if(C===F.DocumentReference)FWp(this.path,this.path.split('/').slice(0,-1).join('/'));else if(C===F.CollectionReference)FWp(this.path+'/',this.path);else RW();}catch(e){RW();}return f.apply(this,arguments);};});});
     if(F.Firestore&&F.Firestore.prototype.runTransaction){var rt=F.Firestore.prototype.runTransaction;F.Firestore.prototype.runTransaction=function(){RW();return rt.apply(this,arguments);};}}}catch(e){}
    /* v1930: live listeners - time each callback; one over 100 ms shows in the load report as "listener <path>" (the unnamed busy
       blocks in the 21-Oct report came at the same moments as Firestore Listen/channel answers) */
@@ -19117,6 +19124,7 @@ function mobCloseSidebar() {
 function switchPanel(name) {
   try { window.DVP && DVP.add('page', 'open page: ' + name); } catch (e) {}   // v1898 load report
   if (name === 'students') setTimeout(() => { if (_stuPendingList) renderStudents(_stuPendingList); }, 0);   // v1930: drawn on open
+  if (name === 'shortage') setTimeout(() => { if (_shPending) renderShortage(); }, 0);   // v1931
   // v1690 (user): "table is not opening" - Faculty Alerts loaded its table only from the side-menu click; reopened any other way (the app
   // restores the last page after an update) it stayed on "Loading…". Now it loads whenever the page is shown (once per 5 s).
   if (name === 'faculty-alerts') setTimeout(() => { if (Date.now() - (window._faInitAt || 0) > 5000 && typeof facAlertInit === 'function') { facAlertInit(); if (typeof wnLoadConfig === 'function') wnLoadConfig(); } }, 50);
@@ -19374,7 +19382,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1930;  // always = HTML footer version number
+const CODE_BUILD = 1931;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -25966,8 +25974,11 @@ function shUpdateArrows() {
   });
 }
 
+// v1931 (v1930 report: renderShortage 0.39 s while opening, page hidden): like the Students table, drawn only while its page is open
+let _shPending = false;
 function renderShortage() {
   if (_legacyPanelGuard('panel-shortage', 'Shortage Report')) return;
+  { const _p = document.getElementById('panel-shortage'); if (_p && !_p.classList.contains('active')) { _shPending = true; return; } _shPending = false; }
   const college    = (document.getElementById('sh-college')?.value  || '').toLowerCase();
   const course     = (document.getElementById('sh-course')?.value   || '').toLowerCase();
   const sem        = (document.getElementById('sh-sem')?.value      || '').toLowerCase();
@@ -30462,6 +30473,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1931', date: '21-Oct-2026 IST', note: '⚡ Opening, part 3: a save no longer throws away every shared Firebase answer (only the one it changes), and the Shortage table is drawn only when you open it.' },
 { v: 'v1930', date: '21-Oct-2026 IST', note: '⚡ Opening, part 2: the Students table is drawn only when you open it (was 3 times while opening), an unchanged student list is not unpacked again, the same Firebase read is shared for 15 s (timetable was read 7 times), one login chime. Load report names slow live listeners too.' },
 { v: 'v1929', date: '21-Oct-2026 IST', note: '⚡ Faster opening: the page comes from the phone\'s copy at once (a "New version - tap to update" bar when there is a newer one), one sign-in instead of two, the hidden tables draw in small pieces after the open page, and the saved student list is kept in IndexedDB too. Load report: 🔬 Profile next open + what kept the phone busy.' },
 { v: 'v1928', date: '21-Oct-2026 IST', note: '📸 Latest from Davan now looks like Instagram: a Follow box (rotating Davan logo, followers, Follow / ✓ I followed), full post cards one below the other with likes, caption and comments, newest 5 + See more, and Hide / Show all. Tap ♡ / picture / Follow opens Instagram to like or follow. On the admin dashboard it moved below the Live Class Board. Pairs with student app v11.92, widgets.' },
@@ -30476,7 +30488,6 @@ const HTML_CHANGELOG = [
 { v: 'v1919', date: '21-Oct-2026 IST', note: '📸 New card \"Latest from Davan\" on the dashboards: the newest posts of the college Instagram page, tap opens the post. Reads davan_pub/ig_posts (one small read), filled 4x a day by the cloud job. Pairs with student app v11.91.' },
 { v: 'v1918', date: '20-Oct-2026 IST', note: '⚡ Faster start: the same Firebase reads (widget report, etc.) that ran 4-7 times at opening now run once and are shared for 20 s. Fewer reads, no new data. Function: hswGet.' },
 { v: 'v1917', date: '20-Oct-2026 IST', note: '📖 Staff also get the daily English word (7:50 am + 6:30 pm, staff widget w310); two more rows in the 🔔 registry.' },
-{ v: 'v1916', date: '20-Oct-2026 IST', note: '📖 Registry: the daily English word (7:50 am + 6:30 pm, students) can be switched off or re-timed here. Words come from daily-words.json (363 words, no Firebase). Pairs with widget w258.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
