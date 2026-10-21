@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1932 · 21-Oct-2026 IST
+🧬 Deep profile (user: "use proper injection debug and find what is missing"). v1931 report: screen open 1.8 s, but the student list was unpacked again (1 s) and the busy blocks had no names. Load report button "🧬 Deep profile next open" (dv_jsprof) starts the browser's JS Self-Profiling API (Profiler, 10 ms samples) in the first script; sw.js now serves the page with `Document-Policy: js-profiling` (GitHub Pages cannot); `dvJsProfText` lists the innermost / outermost app functions, the exact running function and what ran inside each big busy block (file:line:col in this build). Student list fingerprint = document updateTime + length (v1930's text hash never matched) and is kept when the list came from the server load (`_stuSigFresh`, cleared by RTDB fallback / cached fallback / fsSet of students); the report shows "student list fingerprint" and "student list saved" lines. Tested in Chromium. No Firebase change.
+
 ## v1931 · 21-Oct-2026 IST
 ⚡ Opening, part 3 (v1930 report: screen open at 1.9 s; timetable still fetched 7 times, renderShortage 0.39 s on a hidden page). Saves made while opening cleared ALL shared 15 s answers; now a save clears only the answers it can change (`RWp` for RTDB paths, `FWp` for a Firestore doc + its collection; batches / transactions still clear all). `renderShortage` draws only while panel-shortage is open (`_shPending`, drawn by `switchPanel('shortage')`). The 1.3 s block in that report was the one-time unpacking of the student list (no fingerprint saved yet) - from the next open the unchanged list is kept. No new reads.
 

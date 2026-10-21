@@ -77,6 +77,9 @@ self.addEventListener('fetch', e => {
     // first: every open waited ~1.2 s for GitHub to say "not changed"). GitHub is asked in the background; a changed page is
     // saved for the next open and the open window is told (it offers "New version - tap to update"). The build gate's
     // ?b= reload (and a page never saved yet) still goes to the network first.
+    // v1932: the page is sent with "Document-Policy: js-profiling" so the load report's 🧬 Deep profile can use the browser's own
+    // profiler (GitHub Pages cannot send that header itself). It does nothing until the profiler is started.
+    const pol = r => { try { const h = new Headers(r.headers); h.set('Document-Policy', 'js-profiling'); return new Response(r.body, { status: r.status, statusText: r.statusText, headers: h }); } catch (er) { return r; } };
     if (!/[?&]b=/.test(url)) {
       const key = new URL(path, url).href;
       e.respondWith(caches.open(CACHE_VERSION).then(c => c.match(key).then(hit => {
@@ -92,8 +95,8 @@ self.addEventListener('fetch', e => {
           }
           return res;
         });
-        if (hit) { e.waitUntil(net.catch(() => {})); return hit; }
-        return net.catch(() => caches.match(e.request));
+        if (hit) { e.waitUntil(net.catch(() => {})); return pol(hit); }
+        return net.then(pol).catch(() => caches.match(e.request));
       })));
       return;
     }

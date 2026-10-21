@@ -5,6 +5,14 @@
 /* v1898 LOAD REPORT (user, 17-Oct-2026: "still loads very slow, I don't find any improvement"): records what the app waits for on
    THIS device - every fetch, Firestore / RTDB read, page switch and freeze (>= 200 ms) with times - for the Super Admin's
    ⏱ button (dvLoadReport, 📋 Copy). Memory only, max 500 lines, no network. */
+/* v1932 DEEP PROFILE (user, 21-Oct: "use proper injection debug and find what is missing"): the browser's own sampling profiler
+   (JS Self-Profiling API) records what the phone runs every 10 ms - app code, Firebase library, everything, also async parts -
+   for this ONE open after ⏱ -> 🧬 Deep profile next open. sw.js sends the Document-Policy: js-profiling header it needs. */
+try{if(localStorage.getItem('dv_jsprof')==='1'){localStorage.removeItem('dv_jsprof');
+ if(window.Profiler){var __P=new Profiler({sampleInterval:10,maxBufferSize:100000});window.__dvJsProf={p:__P,done:false};
+  window.__dvJsStop=function(){var J=window.__dvJsProf;if(!J||J.done)return J&&J.pr||Promise.resolve();J.done=true;J.pr=J.p.stop().then(function(tr){window.__dvJsTrace=tr;});return J.pr;};
+  setTimeout(window.__dvJsStop,20000);}
+ else window.__dvJsProfNo='this phone\'s browser has no profiler (Profiler API) or the page came without the js-profiling header';}}catch(e){window.__dvJsProfNo='profiler failed: '+e.message;}
 (function(){var T=window.DVP={ev:[],add:function(k,l,ms,x){try{this.ev.push([performance.now(),k,String(l),ms==null?null:Math.round(ms),x||'']);if(this.ev.length>500)this.ev.shift();}catch(e){}}};
  var of=window.fetch;if(of)window.fetch=function(u){var s=performance.now(),url=String(u&&u.url||u).replace(/([?&])(auth|key|access_token|token)=[^&]*/g,'$1').replace(/^https?:\/\//,'').slice(0,110);
   return of.apply(this,arguments).then(function(r){var n=r.headers&&r.headers.get('content-length');T.add('fetch',url+' '+r.status,performance.now()-s,n?Math.round(n/1024)+' KB':'');return r;},function(e){T.add('fetch',url+' FAILED',performance.now()-s);throw e;});};
@@ -11580,9 +11588,12 @@ async function fsGetFast(col, id) {
     if (col === 'app_data' && id === 'students') {
       // v1930 (load report: ~0.5 s frozen turning the 550 KB answer into the student list): when the server's answer is exactly
       // the one this phone saved last time (same length + hash), the saved list - already on screen - is used as it is.
-      const txt = await res.text(), sig = txt.length + ':' + _dvHash(txt);
+      // v1932: the fingerprint is the document's updateTime (changes only when the list is saved again) + length; v1930's hash of
+      // the whole text never matched on the phone (load report: unpacked again every open)
+      const txt = await res.text(), ut = (txt.slice(-300).match(/"updateTime"\s*:\s*"([^"]+)"/) || [])[1] || _dvHash(txt), sig = txt.length + ':' + ut;
       window._stuSig = sig; window._stuSame = false;
       let saved = null; try { saved = localStorage.getItem('davan_students_sig'); } catch (e) {}
+      try { window.DVP && DVP.add('page', 'student list fingerprint: server ' + sig + ' · saved ' + (saved || 'none') + ' · list from saved copy: ' + !!window._stuFromSaved); } catch (e) {}
       if (saved === sig && window._stuFromSaved && Array.isArray(allStudents) && allStudents.length) {
         window._stuSame = true; window._stuSigList = allStudents;
         console.log('[fsGetFast] app_data/students unchanged - saved list kept (' + Math.round(performance.now() - t0) + ' ms)');
@@ -11592,7 +11603,7 @@ async function fsGetFast(col, id) {
       j = JSON.parse(txt);
     } else j = await res.json();
     const out = {}, f = j.fields || {}; for (const k in f) out[k] = _fsRestVal(f[k]);
-    if (col === 'app_data' && id === 'students') window._stuSigList = out.data;   // v1930: the sig belongs to this list
+    if (col === 'app_data' && id === 'students') { window._stuSigList = out.data; window._stuSigFresh = true; }   // v1930: the sig belongs to this list
     console.log('[fsGetFast] ' + col + '/' + id + ' in ' + Math.round(performance.now() - t0) + ' ms (REST)');
     if (typeof hcT === 'function') hcT('Firestore ' + col + '/' + id + ' (fast read)', performance.now() - t0);
     return out;
@@ -11605,6 +11616,7 @@ async function fsGetFast(col, id) {
 // nested map: with { merge: true } Firestore keeps map keys the new data no longer has, so a deleted
 // grid / assignment silently came back on the next load (Tidy grids, Delete grid).
 async function fsSet(col, id, data, opts) {
+  if (col === 'app_data' && id === 'students') window._stuSigFresh = false;   // v1932: a list saved from this phone has no server fingerprint
   // NUCLEAR GUARD: never write app_data/students with empty data array
   if (col === 'app_data' && id === 'students') {
     var _cnt = (data && Array.isArray(data.data)) ? data.data.length : -1;
@@ -11835,7 +11847,7 @@ async function loadFirestoreData() {
       // Other error (network etc) — try localStorage cache silently
       console.error('[loadFirestoreData] non-permission error:', e);
       const cached = (() => { try { return JSON.parse(localStorage.getItem('davan_students') || 'null'); } catch(_){ return null; } })();
-      if (cached?.length) { allStudents = cached; if (typeof renderAll === 'function') renderAll(); }
+      if (cached?.length) { allStudents = cached; window._stuSigFresh = false; if (typeof renderAll === 'function') renderAll(); }
     }
     return;
   }
@@ -11931,7 +11943,7 @@ async function _loadFromRTDB() {
       const snap = await rtdb.ref(path).once('value');
     const val  = snap.val();
     if (val?.data?.length) {
-      allStudents = val.data; window._stuSrc = 'RTDB fallback ' + path + (val.savedAt ? ' (saved ' + val.savedAt + ')' : '');   // v1624
+      allStudents = val.data; window._stuSigFresh = false; window._stuSrc = 'RTDB fallback ' + path + (val.savedAt ? ' (saved ' + val.savedAt + ')' : '');   // v1624
       window._allStudentsConfirmedFresh = true; try { window.dvBootStep && window.dvBootStep(2); } catch (e) {}   // v1591
       console.log('[_loadFromRTDB] ✅ Loaded', allStudents.length, 'students from RTDB path:', path);
       try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch(e) {}
@@ -19382,7 +19394,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1931;  // always = HTML footer version number
+const CODE_BUILD = 1932;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -22813,7 +22825,10 @@ function dvStuSave() {
     if (window._stuSame && window._stuSigList === allStudents) return;   // v1930: unchanged server list, already saved
     try { localStorage.setItem('davan_students', JSON.stringify(allStudents)); } catch (e) { try { localStorage.removeItem('davan_students'); } catch (e2) {} }
     // v1930: the fingerprint is kept only when the saved list IS the server's list (not a list changed on this phone)
-    try { if (window._stuSig && window._stuSigList === allStudents) localStorage.setItem('davan_students_sig', window._stuSig); else localStorage.removeItem('davan_students_sig'); } catch (e) {}
+    // v1932: also when the list was replaced by a copy of itself after loading (v1930 needed the very same array, which some step
+    // after loading replaces - so the fingerprint was never kept); a list from anywhere else clears it (_stuSigFresh false)
+    try { if (window._stuSig && window._stuSigFresh && Array.isArray(window._stuSigList) && window._stuSigList.length === allStudents.length) localStorage.setItem('davan_students_sig', window._stuSig); else localStorage.removeItem('davan_students_sig'); } catch (e) {}
+    try { window.DVP && DVP.add('page', 'student list saved (' + allStudents.length + ', fingerprint ' + (localStorage.getItem('davan_students_sig') ? 'kept' : 'none') + ')'); } catch (e) {}
     try { dvKvPut('students', { at: Date.now(), list: allStudents }); } catch (e) {}
   }, 2500);
 }
@@ -30473,6 +30488,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1932', date: '21-Oct-2026 IST', note: '🧬 Load report: Deep profile - the browser\'s own profiler shows exactly which code keeps the phone busy while opening. The unchanged student list is now recognised by its save time, so it is not unpacked again on every open.' },
 { v: 'v1931', date: '21-Oct-2026 IST', note: '⚡ Opening, part 3: a save no longer throws away every shared Firebase answer (only the one it changes), and the Shortage table is drawn only when you open it.' },
 { v: 'v1930', date: '21-Oct-2026 IST', note: '⚡ Opening, part 2: the Students table is drawn only when you open it (was 3 times while opening), an unchanged student list is not unpacked again, the same Firebase read is shared for 15 s (timetable was read 7 times), one login chime. Load report names slow live listeners too.' },
 { v: 'v1929', date: '21-Oct-2026 IST', note: '⚡ Faster opening: the page comes from the phone\'s copy at once (a "New version - tap to update" bar when there is a newer one), one sign-in instead of two, the hidden tables draw in small pieces after the open page, and the saved student list is kept in IndexedDB too. Load report: 🔬 Profile next open + what kept the phone busy.' },
@@ -30487,7 +30503,6 @@ const HTML_CHANGELOG = [
 { v: 'v1920', date: '21-Oct-2026 IST', note: '📸 New page 📸 Instagram (Super Admin only): followers, views, reach, week vs week, top posts, audience, comments (reply / hide / delete), messages, create a post or story, alert switches, token days. Reads davan_pub/ig_admin (filled every hour by the cloud job).' },
 { v: 'v1919', date: '21-Oct-2026 IST', note: '📸 New card \"Latest from Davan\" on the dashboards: the newest posts of the college Instagram page, tap opens the post. Reads davan_pub/ig_posts (one small read), filled 4x a day by the cloud job. Pairs with student app v11.91.' },
 { v: 'v1918', date: '20-Oct-2026 IST', note: '⚡ Faster start: the same Firebase reads (widget report, etc.) that ran 4-7 times at opening now run once and are shared for 20 s. Fewer reads, no new data. Function: hswGet.' },
-{ v: 'v1917', date: '20-Oct-2026 IST', note: '📖 Staff also get the daily English word (7:50 am + 6:30 pm, staff widget w310); two more rows in the 🔔 registry.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -84138,9 +84153,45 @@ function dvLoadReportText() {
       P.slice().sort((a, b) => a.s - b.s).forEach(x => L.push('  ' + f(x.s).padStart(6) + '  ' + String(Math.round(x.d)).padStart(5) + ' ms  ' + '  '.repeat(Math.min(x.z, 8)) + x.n));
       if (!P.length) L.push('  (none)'); }
     else L.push('  (press 🔬 Profile next open for the slow functions by name)'); } catch (e) {}
+  try { L.push(...dvJsProfText()); } catch (e) { L.push('', 'DEEP PROFILE failed: ' + e.message); }
   L.push('', 'TIMELINE (time since the page opened · what · how long)');
   ev.forEach(e => L.push(f(e[0]).padStart(7) + '  ' + e[1].padEnd(9) + ' ' + e[2] + (e[3] != null ? '  ' + e[3] + ' ms' : '') + (e[4] ? ' · ' + e[4] : '')));
   return L.join('\n');
+}
+// v1932: the 🧬 deep profile (browser sampling profiler, 10 ms) turned into text: which code ran most (innermost app function and
+// the library / browser function it was in), and for each of the biggest busy blocks what ran inside it. file:line:col point into
+// the built index.html / js/admin-<n>-<hash>.js of this version.
+function dvJsProfText() {
+  const out = [];
+  if (window.__dvJsProfNo) return ['', 'DEEP PROFILE: ' + window.__dvJsProfNo];
+  const tr = window.__dvJsTrace; if (!window.__dvJsProf) return [];
+  if (!tr) return ['', 'DEEP PROFILE: still recording - open this report again in a few seconds'];
+  const fr = tr.frames || [], rs = tr.resources || [], st = tr.stacks || [], sm = tr.samples || [];
+  const file = i => i == null ? '' : String(rs[i] || '').replace(/^.*\//, '').replace(/\?.*$/, '');
+  const lab = f => (f.name || '(anonymous)') + (f.resourceId != null ? ' ' + file(f.resourceId) + ':' + (f.line || 0) + ':' + (f.column || 0) : '');
+  const isApp = f => f && f.resourceId != null && /(admin-\d+-[0-9a-f]+\.js|index\.html|davan-attendance\/(\?|$)|learn\/placement\.js)/.test(String(rs[f.resourceId] || ''));
+  const chain = sid => { const a = []; while (sid != null && st[sid]) { a.push(fr[st[sid].frameId]); sid = st[sid].parentId; } return a; };   // leaf first
+  const busy = [], self = {}, app = {}, root = {};
+  let total = 0;
+  for (let i = 0; i < sm.length; i++) {
+    const x = sm[i]; if (x.stackId == null) continue;
+    const dt = Math.min(50, ((sm[i + 1] && sm[i + 1].timestamp) || x.timestamp + 10) - x.timestamp); total += dt;
+    const c = chain(x.stackId); if (!c.length) continue;
+    const leaf = lab(c[0]); self[leaf] = (self[leaf] || 0) + dt;
+    const a = c.find(isApp); const al = a ? lab(a) : '(no app code: library / browser) ' + leaf; app[al] = (app[al] || 0) + dt;
+    let r = null; for (let k = c.length - 1; k >= 0; k--) if (isApp(c[k])) { r = c[k]; break; }
+    const rl = r ? lab(r) : '-'; root[rl] = (root[rl] || 0) + dt;
+    busy.push([x.timestamp, dt, al, rl]);
+  }
+  const top = (o, n) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => '  ' + String(Math.round(v)).padStart(6) + ' ms  ' + k);
+  out.push('', 'DEEP PROFILE (browser sampling profiler, every 10 ms, first ' + ((sm.length && sm[sm.length - 1].timestamp / 1000) || 0).toFixed(1) + ' s; code running ' + (total / 1000).toFixed(1) + ' s in all)');
+  out.push(' MOST TIME - innermost app function (with the library function it called, when no app code)'); out.push(...top(app, 18));
+  out.push(' MOST TIME - outermost app function (what started the work)'); out.push(...top(root, 12));
+  out.push(' MOST TIME - exact function running (library / browser included)'); out.push(...top(self, 12));
+  const B = (window.__dvLong || []).slice().sort((a, b) => b.d - a.d).slice(0, 6).sort((a, b) => a.s - b.s);
+  B.forEach(b => { const o = {}; busy.forEach(x => { if (x[0] >= b.s - 5 && x[0] <= b.s + b.d + 5) { const k = x[3] + '  >  ' + x[2]; o[k] = (o[k] || 0) + x[1]; } });
+    out.push(' BUSY BLOCK at ' + (b.s / 1000).toFixed(1) + ' s, ' + Math.round(b.d) + ' ms - started by  >  innermost:'); out.push(...top(o, 5)); });
+  return out;
 }
 function dvLoadReport() {
   let m = document.getElementById('dv-load-modal'); if (m) m.remove();
@@ -84148,7 +84199,7 @@ function dvLoadReport() {
   m.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:12px;';
   m.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column;">'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--border);"><b style="flex:1;color:var(--text);">⏱ Load report</b>'
-    + '<button type="button" class="btn" id="dv-load-copy">📋 Copy</button><button type="button" class="btn" id="dv-load-re">↻ Refresh</button><button type="button" class="btn" id="dv-load-prof" title="Reopens the app once with every function timed, then open this report again">🔬 Profile next open</button><button type="button" class="btn" id="dv-load-x">✕</button></div>'
+    + '<button type="button" class="btn" id="dv-load-copy">📋 Copy</button><button type="button" class="btn" id="dv-load-re">↻ Refresh</button><button type="button" class="btn" id="dv-load-jsprof" title="Reopens the app once with the browser profiler on (what ran every 10 ms), then open this report again">🧬 Deep profile next open</button><button type="button" class="btn" id="dv-load-prof" title="Reopens the app once with every function timed, then open this report again">🔬 Profile next open</button><button type="button" class="btn" id="dv-load-x">✕</button></div>'
     + '<div style="padding:8px 14px;font-size:12px;color:var(--muted);">Open the slow page, wait until it has loaded, then press 📋 Copy and paste it to Claude. For the start-up: refresh the app, wait, then open this.</div>'
     + '<pre id="dv-load-txt" style="margin:0;padding:10px 14px;overflow:auto;font-size:11px;line-height:1.45;color:var(--text);white-space:pre;flex:1;"></pre></div>';
   document.body.appendChild(m);
@@ -84156,6 +84207,8 @@ function dvLoadReport() {
   fill(); m.onclick = e => { if (e.target === m) m.remove(); };
   document.getElementById('dv-load-x').onclick = () => m.remove();
   document.getElementById('dv-load-re').onclick = fill;
+  document.getElementById('dv-load-jsprof').onclick = () => { try { localStorage.setItem('dv_jsprof', '1'); } catch (e) {} location.reload(); };
+  if (window.__dvJsStop && !window.__dvJsTrace) window.__dvJsStop().then(fill).catch(() => {});   // v1932: stop the recording now and show it
   document.getElementById('dv-load-prof').onclick = () => { try { localStorage.setItem('dv_prof', '1'); } catch (e) {} location.reload(); };
   document.getElementById('dv-load-copy').onclick = function () { dvCopyText(dvLoadReportText(), this); };
 }
