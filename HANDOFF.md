@@ -58,6 +58,21 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   📊 Placement report (same as learn/placement.js `report`), 📸 Instagram settings (alert switches + Widget look, the same nodes as the staff app igInit Settings tab).
 - One build = staff 333 (card + screen engine) -> "next" channel. Reads only when a screen is opened. Staff app (index.html) unchanged.
 
+## 🛠 NEXT BUILD 2 (user, 21-Oct-2026): 🎯 Placement page - "Placement word" + daily English word - build 22-Oct-2026 from 8 am IST (with NEXT BUILD above)
+Why: user saw "Salary" as "word of the day" on the Placement page and thought the fixes failed. Cause: the page's word is from learn/bank.json `words`
+(only 30 placement words, `today()` in learn/placement.js: index = days since 1-Jan-2026 mod 30; 21-Oct = 23 = Salary, 22-Oct = Promotion) - a
+different list from the daily English word (daily-words.json, 363 words, widgets 7:50 am). The widget fixes (273-275 / 327-331) never touched it.
+Build (user decided: keep BOTH):
+1. Rename everywhere "Word of the day" on the Placement page -> **"💬 Placement word"** (learn/placement.js card ~"WORD" kick, KIND.word, week-plan list;
+   registry `gen_plc_word` name "✨ Placement: word of the day" -> "✨ Placement word" in src/index.src.html, stu + stf rows).
+2. Add a second card **"📖 Word of the day"** on the Placement page = the SAME daily English word the widgets show at 7:50 (daily-words.json, fields
+   w / p / pk / m / mk / e / ek; same day index as the widget's Words.java - check it so both show the same word), with 🔊 Hear it. Shared file, so
+   student portal + staff app both get it. No Firebase (public json, cache it once a day).
+3. Widgets (davan-scraper widgets/student + staff): Placement page / Placement.speakWord / 7:40 notification text say "Placement word", not
+   "word of the day"; Placement page also shows the daily word card (Words.row). New builds student 277+ / staff 333+ -> "next" channel.
+4. Optional: make the 30-word placement list longer (repeats every 30 days now).
+Versions to bump: staff app CODE_BUILD + HTML_CHANGELOG, portal APP_VERSION (placement.js is shared), both widget BuildInfo.NEWS.
+
 ## Open items
 - 📸 INSTAGRAM LOOK (21-Oct, BUILT from the approved mockup): staff app v1928 / portal v11.92 / student widget 276 / staff w332 (-next, public at 9:15 pm). Apps: igPostsHTML (same code in both files), localStorage ig_hide / ig_fol; widgets: IgUi.java (same file in both, big pictures files/igbig 480 px RGB_565), Store ig_hide, Follow box uses the old Follow follow_tap / follow_yes. NOT seen on a phone yet: check the widget cards (big picture size, taps, Hide) after the release. Widget look settings n / colour / header text no longer used by the widgets.
 - 📸 INSTAGRAM (21-Oct, BUILT): token IG_TOKEN (secret in davan-scraper) has all 5 permissions. Action "Instagram posts" (hourly 5:35 am-11:35 pm, tools/ig_posts.py v2) writes DB2 davan_pub/ig_posts (public: posts, stories, likes), ig_admin (Super Admin numbers), ig_hist (daily followers), ig_state, reads ig_cfg (alert switches) and ig_cmd (SA commands: reply/hide/delete comment, DM, publish photo/story - each checked with the sender's Firebase token). Staff app v1922: 📸 Instagram page (+ Widget look settings) (8 tabs, SA only). Worker davan-release v10: ?ig=1 starts the job (deploys by itself from main). Widgets on "-next": student w269 (Today: slim card per post/reel/story, no buttons; the look follows ig_posts.wl = Widget look in the staff app Instagram -> Settings, no rebuild needed), staff w323 (card on Today + SA page 3 "Instagram" with serial nos and a Since Day 1 card, Google Home card on page 5 for SA). Day 1 = 21-Oct-2026 numbers kept in DB2 davan_pub/ig_base + davan-scraper docs/INSTAGRAM-DAY1.md (written once; delete ig_base to restart); both go public at the 9:15 pm release. Reel pictures: the API only gives a video frame (dark), so the job reads the real cover from each reel page's og:image (newest 8 reels, 40 s budget; falls back to the API frame). NOT TESTED on a phone / live: publish, reply, DM, hide, delete (never posted anything); comments + DMs were empty on the test; follower alerts need a few hourly runs to show. Instagram gives no names of who followed/unfollowed. Notification switches live in the Instagram page Settings tab (not in the 🔔 registry).
