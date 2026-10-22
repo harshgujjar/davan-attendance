@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1938 · 22-Oct-2026 IST
+🎯 Placement word (user, 21-Oct: "Salary was shown as word of the day"): the notification registry row gen_plc_word is now "✨ Placement word" (students + staff); the Placement page (shared learn/placement.js) says "💬 Placement word" and shows the daily English word as its own card. New file sa-screens.json = the staff widget's 🛠 Super Admin page screens (no app code). No Firebase cost (daily-words.json is a public file, cached once a day). Pairs with: portal v11.94, student widget 279, staff widget w335.
+
 ## v1937 · 22-Oct-2026 IST
 👆 Who tapped (user: "who clicked, from which class and section, widget vs web app, sorting; DB4 only"; approved mockup). New tab on the 📸 Instagram page (Super Admin + Amith): tiles (♡ taps, opens, new I follow, people) split 📱 widget / 🌐 app, widget-vs-app bars, per post, per class & section (sortable, 🥇 / 🔻), students or staff list (photo, Never tapped / Not following, class, search, sort, 📋 Copy); the open tab now has a white outline. Every tap on the Instagram cards is +1 in DB4 ig/taps/<post>/<id> + ig/day/<date>/<id> (one write per person, post and kind per hour); Follow / I followed = DB4 follow/<id>/ig. 👥 Follow Us reads DB4 follow/ (old DB2 davan_pub/follow merged and copied up until 31-Oct-2026). 5 🔔 registry rows: ig_post, ig_nudge, gen_ig_board, ig_follow, gen_ig_sum. Reads: DB4 ig/taps + 7 ig/day nodes + follow when the tab opens. Pairs with portal v11.93, student widget 278, staff widget w334, davan-scraper v110 (DB4 ig/sum). Functions: igWt, igwLoad, igwSum, igwLabel, igLog, igFolLog, igGo, flwLoadAll, flwInit, stwUsage, igInit (#igtab=wt).
 

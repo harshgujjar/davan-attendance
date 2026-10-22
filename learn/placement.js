@@ -48,6 +48,11 @@
       S.bank = await r.json();
       try { localStorage.setItem(ck, JSON.stringify({ day: ist(), b: S.bank })); } catch (e) {}
     }
+    /* v11.94 (user, 22-Oct-2026): the daily English word (same file + same day index as the widgets' 7:50 word) shown under the Placement word */
+    try { const dk = 'plc_dw'; const c = JSON.parse(localStorage.getItem(dk) || 'null'); if (c && c.day === ist()) S.dw = c.w; else {
+      const base = (document.querySelector('script[src*="learn/placement.js"]') || {}).src || '';
+      const j = await (await fetch(base.replace(/learn\/placement\.js.*$/, 'daily-words.json') + '?d=' + ist())).json(); const a = j.words || [];
+      S.dw = a.length ? a[((dayNo() * 2) % a.length + a.length) % a.length] : null; localStorage.setItem(dk, JSON.stringify({ day: ist(), w: S.dw })); } } catch (e) {}
     try { const [h, x] = await Promise.all([get('hide'), get('qx')]); S.hide = h || {}; S.qx = x || {}; } catch (e) {}
   }
   const tracks = () => S.bank.tracks.filter(t => t.g !== 'tech' || !S.o.course || t.course === S.o.course || S.o.role === 'stf');
@@ -179,8 +184,10 @@
         ${card('eng', '🗣️', 'ENGLISH', `Level ${Math.min(10, lv('english') + 1)} · speak 🎤`, "PLC.go('track',{t:'english'})")}
         ${tt ? card('tech', '💻', 'TECHNICAL', `${esc(tt.course === 'BCOM' ? 'BCom' : tt.course)} · Level ${Math.min(10, lv(tt.id) + 1)}`, `PLC.go('track',{t:'${tt.id}'})`) : ''}
         ${card('jp', '🇯🇵', 'JAPANESE', `Japan jobs · JLPT N5 · L${Math.min(10, lv('japanese') + 1)}`, "PLC.go('jp')", '<span class="pill" style="position:absolute;top:10px;right:10px;background:#1F1A15;color:#f0a500;border-color:#1F1A15">NEW</span>')}</div>
-      <div class="k" style="background:var(--li);display:flex;align-items:center;gap:12px"><div style="flex:1"><div class="kick" style="color:#5B3E96">WORD OF THE DAY ✨</div><div class="bb" style="font-size:30px;margin-top:4px">${esc(w.w.toUpperCase())}</div><div class="mu" style="color:var(--ink)">${esc(w.m)} · <b>${esc(w.kn)}</b></div><div class="mu" style="font-style:italic">"${esc(w.ex)}"</div></div>
+      <div class="k" style="background:var(--li);display:flex;align-items:center;gap:12px"><div style="flex:1"><div class="kick" style="color:#5B3E96">💬 PLACEMENT WORD</div><div class="bb" style="font-size:30px;margin-top:4px">${esc(w.w.toUpperCase())}</div><div class="mu" style="color:var(--ink)">${esc(w.m)} · <b>${esc(w.kn)}</b></div><div class="mu" style="font-style:italic">"${esc(w.ex)}"</div></div>
         <button class="b" style="width:52px;height:52px;border-radius:50%;padding:0;background:#8b5cf6;font-size:20px" onclick="PLC.say(${esc(JSON.stringify(w.w + '. ' + w.ex))})">🔊</button></div>
+      ${S.dw ? `<div class="k" style="background:var(--ye);display:flex;align-items:center;gap:12px"><div style="flex:1"><div class="kick" style="color:#8A5A00">📖 WORD OF THE DAY</div><div class="bb" style="font-size:30px;margin-top:4px">${esc(S.dw.w.toUpperCase())}</div><div class="mu">${esc(S.dw.p)} · ${esc(S.dw.pk)}</div><div class="mu" style="color:var(--ink)">${esc(S.dw.m)} · <b>${esc(S.dw.mk)}</b></div><div class="mu" style="font-style:italic">"${esc(S.dw.e)}"</div><div class="mu">${esc(S.dw.ek)}</div></div>
+        <button class="b" style="width:52px;height:52px;border-radius:50%;padding:0;background:#f0a500;font-size:20px" onclick="PLC.say(${esc(JSON.stringify(S.dw.w + '. ' + S.dw.m + '. ' + S.dw.e))})">🔊</button></div>` : ''}
       ${qh}
       <div class="row" style="margin:6px 0"><span style="display:flex"><span style="width:24px;height:24px;border-radius:50%;background:#3b82f6;border:2px solid #FDE8D4"></span><span style="width:24px;height:24px;border-radius:50%;background:#ec4899;border:2px solid #FDE8D4;margin-left:-8px"></span><span style="width:24px;height:24px;border-radius:50%;background:#22c55e;border:2px solid #FDE8D4;margin-left:-8px"></span></span>
         <span class="mu"><b style="color:var(--ink)">${Math.max(1, S.act || 0)} ${Math.max(1, S.act || 0) === 1 ? 'learner' : 'learners'}</b> practising today · keep your 🔥 streak</span></div>
@@ -407,7 +414,7 @@
   //    Practice, tests and speaking happen in the Davan widget; every screen sends the student back there. Opened with o.hist = true.
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const when = t => { const d = new Date(t + 330 * 60000), h = d.getUTCHours(); return d.getUTCDate() + ' ' + MON[d.getUTCMonth()] + ' · ' + ((h % 12) || 12) + ':' + String(d.getUTCMinutes()).padStart(2, '0') + (h < 12 ? ' am' : ' pm'); };
-  const KIND = { qod: '❓ Question of the day', speak: '🎤 Speaking', mock: '📝 Mock test', prac: '✍️ Practice', test: '🏁 Level test', word: '💬 Word of the day', ok: '✅ Quick answer', rev: '🔁 Revision', sat: '⏱ Saturday challenge', say: '🎤 Saying a word' };
+  const KIND = { qod: '❓ Question of the day', speak: '🎤 Speaking', mock: '📝 Mock test', prac: '✍️ Practice', test: '🏁 Level test', word: '💬 Placement word', ok: '✅ Quick answer', rev: '🔁 Revision', sat: '⏱ Saturday challenge', say: '🎤 Saying a word' };
   const wbar = t => `<div class="k" style="background:${GRAD.gold}"><div style="font-weight:800;font-size:15px;line-height:1.45">${t}</div><div class="row" style="margin-top:8px"><button class="b dk" onclick="PLC.install()">📲 Davan widget</button></div></div>`;
   const hback = t => `<div class="row" style="margin-bottom:6px"><button class="b w" style="padding:8px 12px" onclick="PLC.go('hhome')">←</button><h2 style="flex:1">${t}</h2></div>`;
   const doneLv = t => Math.min(t.levels.filter(l => !l.pro).length, lv(t.id));
