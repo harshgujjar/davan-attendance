@@ -47,7 +47,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   claude-pulse.keystore (alias claudepulse) - user to upload it to davan-scraper/claude-pulse/ (ask for it + its password). Not phone-tested.
   v2.7 (15-Oct, source pushed, compiled, signed v2.9 LIVE via ClaudePulse.apk + claude-pulse-version.json, self-updating): fixes repeated alerts (week-key jitter), alerts only while Claude is open, notification
   settings + weekly graph. Release: copy APK to ClaudePulse.apk + raise apkVersion in claude-pulse-version.json. Keystore password: ask the user.
-  v3.0 (22-Oct, source pushed + compiles, NOT released): LimitAlert.kt - countdown in bar when a limit is 100%, repeating chime when used up, exact-alarm buzz at reset. NEEDS keystore password (ask user) to sign, then release: ClaudePulse.apk + claude-pulse-version.json apkVersion 17.
+  v3.0 (22-Oct, signed + LIVE via ClaudePulse.apk, apkVersion 17; keystore password is in session_01WxUbdFmpbT3rniPj2amM8y build command): LimitAlert.kt - countdown in bar when a limit is 100%, repeating chime when used up, exact-alarm buzz at reset.
 - Status Date app: PARKED (davan-scraper apps/statusdate/PLAN.md) - only when the user asks.
 
 ## 🛠 NEXT BUILD (user, 21-Oct-2026): Super Admin native page - OPTION A - build ONLY after 22-Oct-2026 8 am IST (weekly limit refresh)
