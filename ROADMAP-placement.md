@@ -222,9 +222,9 @@ Live AI interview when 20 students pass PRO; PRO+ Rs 500 only after 10 PRO+ stud
 - ◐ S4 AI (23-Oct: worker /ai live v12; feedback moments lvl / mock / stuck BUILT widgets 282 / w339 + staff v1943 💬 Feedback with AI summary; still: Ready 70 / Saturday / monthly moments, portal card, coach note, student AI auth): Cloudflare Workers AI through the worker; feedback = one tap on result screens + one AI "why?" (chips + 🎤), max 1 a day,
   +10 XP, schedule table in the mockup; AI joins the pieces per student; SA 💬 Feedback page (Placement / App / Widget);
   🤖 coach note auto for Ready 70+ (Sunday, cap 50 a week).
-- ☐ S5 growth: teasers as students come close (PRO, Saturday challenge, Live AI 0/20); ⚔️ course battle BCA/BBA/BCom
+- ☑ S5 (23-Oct: widgets 285 / w342 PlcGrow, staff v1946 Ask your class; card instead of a push for the class ask) growth: teasers as students come close (PRO, Saturday challenge, Live AI 0/20); ⚔️ course battle BCA/BBA/BCom
   (average XP per learner) + optional share card (+50 XP first time); comeback engine (stuck / away 2+ days / never started, 1 a day);
   class teacher 📣 Ask your class card + stuck list (staff widget + staff app).
-- ☐ S6 👑 PRO ladder: endless levels after 10, each harder, 9/10 to pass, fresh questions on a retry; anti-cheat (shuffle, minimum time,
+- ◐ S6 (23-Oct: ladder + flags BUILT in widgets 285 / w342, Super Admin 🚩 PRO checks v1946; NOT yet: server-side answer checking - answers are still in bank.json) 👑 PRO ladder: endless levels after 10, each harder, 9/10 to pass, fresh questions on a retry; anti-cheat (shuffle, minimum time,
   tab switches, practice vs mock check, flags only, server-side answers).
 - ☐ Later: 🤖 live AI mock interview (at 20 PRO); 💎 PRO+ plan (after 10, Rs 500 - decide then).

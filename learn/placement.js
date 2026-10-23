@@ -476,6 +476,9 @@
     const sel = S.a.sel && S.all[S.a.sel];
     return `<div class="row">${back()}<h2>📊 PLACEMENT REPORT</h2><span class="pill" style="background:#ffc9c9">Super Admin only</span><button class="b w" onclick="PLC.reload()">⟳</button></div>
       <div class="g2" style="grid-template-columns:repeat(4,minmax(0,1fr))">${[['ACTIVE TODAY', act], ['THIS WEEK', wk], ['LEARNERS', all.length], ['LEVELS CLEARED', all.reduce((s, p) => s + Object.values(p.lv || {}).reduce((a, b) => a + b, 0), 0)]].map(([a, b]) => `<div class="k" style="margin:0"><div class="kick">${a}</div><div class="big" style="font-size:40px">${b}</div></div>`).join('')}</div>
+      ${(() => { if (S.flags === undefined) { S.flags = null; get('flag').then(f => { S.flags = f || {}; draw(); }).catch(() => { S.flags = {}; }); }   // v11: 🚩 PRO checks (S6 anti-cheat)
+        const fl = []; Object.entries(S.flags || {}).forEach(([id, x]) => Object.values(x || {}).forEach(r => fl.push(Object.assign({ id }, r)))); fl.sort((a, b) => b.t - a.t);
+        return fl.length ? `<div class="k" style="background:#ffe1e1"><div class="kick">🚩 PRO CHECKS · ${fl.length}</div><div class="mu">A PRO try with 3+ very fast answers (under 2 s) or leaving the app. Nothing is blocked - talk to the student if it repeats.</div>${fl.slice(0, 30).map(r => `<div class="row" style="flex-wrap:nowrap;gap:8px;margin-top:8px">${face({ id: r.id, n: r.n || r.id, r: 'stu' }, 28)}<div style="min-width:0"><b>${esc(r.n || r.id)}</b> <span class="mu">${esc((r.tr || '') + ' PRO ' + (r.k || '') + ' · ' + (r.pct || 0) + '% · fast ' + (r.fast || 0) + ' · left the app ' + (r.away || 0) + ' · ' + (r.sec || 0) + ' s · ' + new Date(r.t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</span></div></div>`).join('')}</div>` : ''; })()}
       ${(() => { const st = all.filter(p => p.r === 'stu'), t0 = ist(), d3 = ist(Date.now() - 3 * 864e5);   // v10 (user, 23-Oct): new / moved up / stopped
         const v = [['🆕 NEW TODAY', st.filter(p => p.fd === t0).length], ['🆕 NEW · 7 DAYS', st.filter(p => p.fd && p.fd >= d7).length], ['⬆ MOVED UP TODAY', st.filter(p => p.lu === t0).length], ['⬆ MOVED UP · 7 DAYS', st.filter(p => p.lu && p.lu >= d7).length], ['😴 STOPPED 3+ DAYS', st.filter(p => p.ld && p.ld < d3).length]];
         return `<div class="row" style="flex-wrap:nowrap;overflow-x:auto;gap:6px;margin-top:8px">${v.map(([a, b]) => `<div class="k" style="margin:0;min-width:96px;background:var(--li)"><div class="kick" style="font-size:9px">${a}</div><div class="bb" style="font-size:26px">${b}</div></div>`).join('')}</div><div class="mu">Students only. New = first answer (counted from 23-Oct-2026); moved up = cleared a level.</div>`; })()}
@@ -730,10 +733,11 @@
     draw();
   }
   window.PLC = {
-    open, go: (v, a) => { go(v, a); if (v === 'report' && a && a.sel) showLog(a.sel); }, say, slow: t => { try { const u = new SpeechSynthesisUtterance(t); u.lang = 'en-IN'; u.rate = .6; speechSynthesis.speak(u); } catch (e) {} },
+    open, go: (v, a) => { if (v === 'report') S.flags = undefined; go(v, a); if (v === 'report' && a && a.sel) showLog(a.sel); }, say, slow: t => { try { const u = new SpeechSynthesisUtterance(t); u.lang = 'en-IN'; u.rate = .6; speechSynthesis.speak(u); } catch (e) {} },
     start, pick, next, qod, mic, hide, edit, csv, mock, repRead, fbAi, fbReload: () => { S.fb = null; draw(); }, fbCopy: b => { try { if (window.dvCopyText) return window.dvCopyText(S.fbText || '', b); navigator.clipboard.writeText(S.fbText || ''); } catch (e) {} }, install: () => { if (S.o.onInstall) S.o.onInstall(); }, recheck: () => open(S.el, S.o), reload: () => { S.all = null; S.qs = null; draw(); },
     previewOf: id => { const p = S.all[id] || {}; if (!S.o.preview) S.back = S.o; S.v = 'home'; open(S.el, { id, name: p.n, cls: p.c, role: p.r, course: (String(p.c).toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0], preview: true, sa: false, onHome: S.back && S.back.onHome }); },
     me: () => { const b = S.back; S.back = null; S.v = 'home'; if (b) open(S.el, b); }, home: () => { if (S.o.onHome) S.o.onHome(); },
+    progAll: () => get('prog', 'orderBy=%22r%22&equalTo=%22stu%22'),   // v11: the staff app's 📣 Ask your class
     get _el() { return S.el; }, key, courseOf: c => (String(c || '').toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0]
   };
 })();

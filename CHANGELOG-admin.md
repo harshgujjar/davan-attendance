@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1946 · 23-Oct-2026 IST
+S5 + S6 (user: "build S5 and S6 next"): 📣 Ask your class on the Placement page (plcAskInit / plcAskClass): for each class the teacher takes (_daMyClasses) - joined / class size, average Ready, stuck at level 0 with photos; one tap writes DB2 davan_pub/cards_by_urn/<URN>/plc_ask (a Today-page card for 3 days on each NOT-joined student's widget, no build needed) and davan_pub/plc_ask/<class> {at, by, n} (once a week). Reads learn/prog (students) once per open (PLC.progAll). Super Admin Placement report: 🚩 PRO checks from DB4 learn/flag (learn/placement.js v11). Pairs with student widget 285 / staff widget w342 (teasers, welcome back, course battle, share card, comeback reminders, 👑 PRO ladder + anti-cheat flags).
+
 ## v1945 · 23-Oct-2026 IST
 S1 + S2 (user: "build S1 and S2 next"): 🤖 Ollama / ngrok removed (user: "Ollama on the laptop is not good") - both Smart Assist copies ask the college AI first (aiAsk, worker /ai, system prompt up to 12000 chars now) and keep the Anthropic key only as a paid backup; Admin Settings text, asetCheckAiStatus (college AI status), AI usage page (college / old Ollama rows). Removed asetSaveNgrokUrl, getNgrokUrl, _cachedNgrokUrl. 📊 Placement report (learn/placement.js v10): 🆕 new today / 7 days (prog.fd), ⬆ moved up (prog.lu), 😴 stopped 3+ days; Technical in another course = knowledge XP prog.kx only (not XP / league / Ready). 🇯🇵 daily-jp.json (tools/build_daily_jp.py: 203 words with Kannada letters + meanings, 30 checked Why Japan facts) for the widgets' 7:30 note and the portal card. Pairs with portal v11.96, student widget 284, staff widget w341, worker v13 (12000-char system prompt).
 
