@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1945 · 23-Oct-2026 IST
+S1 + S2 (user: "build S1 and S2 next"): 🤖 Ollama / ngrok removed (user: "Ollama on the laptop is not good") - both Smart Assist copies ask the college AI first (aiAsk, worker /ai, system prompt up to 12000 chars now) and keep the Anthropic key only as a paid backup; Admin Settings text, asetCheckAiStatus (college AI status), AI usage page (college / old Ollama rows). Removed asetSaveNgrokUrl, getNgrokUrl, _cachedNgrokUrl. 📊 Placement report (learn/placement.js v10): 🆕 new today / 7 days (prog.fd), ⬆ moved up (prog.lu), 😴 stopped 3+ days; Technical in another course = knowledge XP prog.kx only (not XP / league / Ready). 🇯🇵 daily-jp.json (tools/build_daily_jp.py: 203 words with Kannada letters + meanings, 30 checked Why Japan facts) for the widgets' 7:30 note and the portal card. Pairs with portal v11.96, student widget 284, staff widget w341, worker v13 (12000-char system prompt).
+
 ## v1944 · 23-Oct-2026 IST
 📊 Placement report card (user: "build the report card next"): learn/placement.js v9 repV / repData / repLoad / repRead - Ready dial + rank, questions per day (7 days, % right), score parts, you vs class, a 5-part report in words (code), 🔊 Read, 🤖 coach note. Button on the Placement home (everyone) and the history home (portal). Super Admin: 👀 preview a learner -> 📊 My report card. Worker v13 coachRun writes DB4 learn/coach/<ID> on Sundays (Ready 70+, max ~48 a week). Reads per open: learn/prog (same role) + log/<ID> last 300 + coach/<ID>, cached 30 min. Pairs with portal v11.95, student widget 283, staff widget w340.
 

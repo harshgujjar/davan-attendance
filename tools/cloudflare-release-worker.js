@@ -284,7 +284,7 @@ async function aiIncoming(env, b) {
   const max = +cfg.max || 300, per = +cfg.perUser || 60, mine = ((use.u || {})[who.uid]) || 0, out = use.out || {};
   if ((use.n || 0) >= max) return { ok: false, msg: 'Today\'s AI limit (' + max + ') is used up - back tomorrow.', left: 0 };
   if (mine >= per) return { ok: false, msg: 'You used your ' + per + ' AI answers for today - back tomorrow.', left: 0 };
-  const messages = [{ role: 'system', content: clip(b.system, 2000) || 'You are a helpful assistant for Davan College, Davangere (India). Answer clearly and briefly in simple English.' },
+  const messages = [{ role: 'system', content: clip(b.system, 12000) || 'You are a helpful assistant for Davan College, Davangere (India). Answer clearly and briefly in simple English.' },
     { role: 'user', content: prompt }];
   const mx = Math.min(Math.max(+b.max || 400, 50), 1200), tried = [];
   for (const prov of aiProviders(env)) {

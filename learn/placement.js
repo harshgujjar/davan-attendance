@@ -79,6 +79,7 @@
     const wk = wkKey(), mo = ist().slice(0, 7);   // v5: weekly league + monthly top 10 + best streak
     p.wk = p.wk && p.wk.w === wk ? { w: wk, x: (p.wk.x || 0) + (xp || 0) } : { w: wk, x: xp || 0 };
     if (!p.mo || p.mo.m !== mo) { if (p.mo) p.pm = p.mo; p.mo = { m: mo, x: 0 }; } p.mo.x += xp || 0; p.bs = Math.max(p.bs || 0, p.st || 0);
+    if (!p.fd) p.fd = d;   // v10: first day (Super Admin: new learners)
     p.xp = (p.xp || 0) + (xp || 0); p.n = S.o.name; p.c = S.o.cls || ''; p.r = S.o.role; p.rs = ready().all;
     put('PATCH', 'prog/' + S.o.id, p);
     put('PATCH', 'stats/' + d + '/act', { [S.o.id]: 1 });
@@ -269,8 +270,9 @@
       const pct = Math.round(z.ok * 100 / z.qs.length), p = P(); p.best = p.best || {}; const bk = z.t + '_' + z.n;
       p.best[bk] = Math.max(p.best[bk] || 0, pct); p.lv = p.lv || {};
       let xp = z.ok * (z.mode === 'prac' ? 10 : 5);
-      if (z.mode === 'test' && pct >= S.bank.pass * 100 && lv(z.t) < z.n) { p.lv[z.t] = z.n; xp += 50; }
-      touch(xp); log(z.mode, z.t, z.n, z.ok, z.qs.length);
+      if (z.mode === 'test' && pct >= S.bank.pass * 100 && lv(z.t) < z.n) { p.lv[z.t] = z.n; p.lu = ist(); xp += 50; }   // v10: lu = last level-up day
+      const tt = S.bank.tracks.find(x => x.id === z.t), ex = tt && tt.g === 'tech' && tt.course !== (S.o.course || 'BCA');   // v10: another course = Explore, knowledge XP only
+      if (ex) { p.kx = (p.kx || 0) + xp; delete p.lu; touch(0); } else touch(xp); log(z.mode, z.t, z.n, z.ok, z.qs.length);
     }
     draw();
   }
@@ -474,6 +476,9 @@
     const sel = S.a.sel && S.all[S.a.sel];
     return `<div class="row">${back()}<h2>📊 PLACEMENT REPORT</h2><span class="pill" style="background:#ffc9c9">Super Admin only</span><button class="b w" onclick="PLC.reload()">⟳</button></div>
       <div class="g2" style="grid-template-columns:repeat(4,minmax(0,1fr))">${[['ACTIVE TODAY', act], ['THIS WEEK', wk], ['LEARNERS', all.length], ['LEVELS CLEARED', all.reduce((s, p) => s + Object.values(p.lv || {}).reduce((a, b) => a + b, 0), 0)]].map(([a, b]) => `<div class="k" style="margin:0"><div class="kick">${a}</div><div class="big" style="font-size:40px">${b}</div></div>`).join('')}</div>
+      ${(() => { const st = all.filter(p => p.r === 'stu'), t0 = ist(), d3 = ist(Date.now() - 3 * 864e5);   // v10 (user, 23-Oct): new / moved up / stopped
+        const v = [['🆕 NEW TODAY', st.filter(p => p.fd === t0).length], ['🆕 NEW · 7 DAYS', st.filter(p => p.fd && p.fd >= d7).length], ['⬆ MOVED UP TODAY', st.filter(p => p.lu === t0).length], ['⬆ MOVED UP · 7 DAYS', st.filter(p => p.lu && p.lu >= d7).length], ['😴 STOPPED 3+ DAYS', st.filter(p => p.ld && p.ld < d3).length]];
+        return `<div class="row" style="flex-wrap:nowrap;overflow-x:auto;gap:6px;margin-top:8px">${v.map(([a, b]) => `<div class="k" style="margin:0;min-width:96px;background:var(--li)"><div class="kick" style="font-size:9px">${a}</div><div class="bb" style="font-size:26px">${b}</div></div>`).join('')}</div><div class="mu">Students only. New = first answer (counted from 23-Oct-2026); moved up = cleared a level.</div>`; })()}
       <div class="k" style="background:var(--li)"><b>Today:</b> word <b>${esc(t.word.w)}</b> · question "${esc(t.q ? t.q.q : '')}" · answered ${qs.n || 0}${t.q ? ' · picks ' + t.q.o.map((o, i) => esc(o) + ' ' + (qs['p' + i] || 0)).join(' / ') : ''}</div>
       <div class="row">${['stu', 'stf', 'BCA', 'BBA', 'BCOM', 'all'].map(x => `<button class="b ${f === x ? 'dk' : 'w'}" onclick="PLC.go('report',{f:'${x}',min:${min}})">${{ stu: 'Students', stf: 'Staff', all: 'All' }[x] || x}</button>`).join('')}
         ${[0, 45, 70].map(m => `<button class="b ${min === m ? 'dk' : 'w'}" onclick="PLC.go('report',{f:'${f}',min:${m}})">${m ? 'Ready ' + m + '+' : 'Any score'}</button>`).join('')}<button class="b" onclick="PLC.csv()">⬇ CSV</button></div>

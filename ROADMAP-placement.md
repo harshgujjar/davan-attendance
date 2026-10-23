@@ -209,11 +209,11 @@ Live data 23-Oct: 31 students + 2 staff; top Nanditha 76 / Akshatha 72 / Sindhu 
 Already done 23-Oct: SA report photos (staff w336), local weather (student 280 / staff w337), class-feedback skip ahead (v1940), tools/learn_report.py (davan-scraper, read only).
 Decisions: Level 1 pass mark unchanged (8/10); anti-cheat for PRO only; Ollama code removed from the staff app; AI = Cloudflare Workers AI;
 Live AI interview when 20 students pass PRO; PRO+ Rs 500 only after 10 PRO+ students (decide later); sharing optional, never forced.
-- ☐ S1 small: 🏨 on SaActivity report rows (p.h); SA report counts 🆕 new today/week (prog.fd first day, old learners from their log),
+- ☑ S1 (23-Oct: staff v1945, widgets 284 / w341, learn/placement.js v10 - Technical tabs built without a separate mockup, as asked) small: 🏨 on SaActivity report rows (p.h); SA report counts 🆕 new today/week (prog.fd first day, old learners from their log),
   ⬆ moved up a level today/week, 😴 stopped 3+ days (native SA page + staff app); remove Ollama from the staff app;
   💻 Technical other courses: chips [BCA ✓][BBA][BCom], own course first; other courses = "Explore" with their OWN knowledge XP (kx),
   shown only there - NOT in XP, league, Ready score, rank or report (student widget native, portal, staff app). Mockup first.
-- ☐ S2 🇯🇵 Japanese word of the day replaces the ✨ quote in the 7:30 voice note: daily-jp.json (365 words: word, romaji, Kannada letters,
+- ◐ S2 (23-Oct: 7:30 note + widget card + portal card + daily-jp.json BUILT, widgets 284 / w341, portal v11.96; still: tap counts in the report, Why Japan card, 7-day starter, 🇯🇵 badge, teaser after English L10) 🇯🇵 Japanese word of the day replaces the ✨ quote in the 7:30 voice note: daily-jp.json (365 words: word, romaji, Kannada letters,
   English + Kannada meaning, example) + one checked "Why Japan" line a day (JLPT, MEXT, jobs, comparison, live Davan numbers, tips);
   🔊 Hear / 🔁 Slowly / ✅ Got it; widget Today card, portal dashboard card, Today's messages; staff widget too; count taps.
   Plus: Why Japan card, 7-day starter challenge, 🇯🇵 badge in league/battle, teaser after English level 10.
