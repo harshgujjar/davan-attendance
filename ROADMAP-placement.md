@@ -219,7 +219,7 @@ Live AI interview when 20 students pass PRO; PRO+ Rs 500 only after 10 PRO+ stud
   Plus: Why Japan card, 7-day starter challenge, 🇯🇵 badge in league/battle, teaser after English level 10.
 - ☐ S3 📊 report card: graphics + code-written text (where you stand / going well / holding back / compare / next) + 🔊 Read;
   student widget native + portal (backup) + SA view of any student.
-- ☐ S4 AI: Cloudflare Workers AI through the worker; feedback = one tap on result screens + one AI "why?" (chips + 🎤), max 1 a day,
+- ◐ S4 AI (23-Oct: worker /ai live v12; feedback moments lvl / mock / stuck BUILT widgets 282 / w339 + staff v1943 💬 Feedback with AI summary; still: Ready 70 / Saturday / monthly moments, portal card, coach note, student AI auth): Cloudflare Workers AI through the worker; feedback = one tap on result screens + one AI "why?" (chips + 🎤), max 1 a day,
   +10 XP, schedule table in the mockup; AI joins the pieces per student; SA 💬 Feedback page (Placement / App / Widget);
   🤖 coach note auto for Ready 70+ (Sunday, cap 50 a week).
 - ☐ S5 growth: teasers as students come close (PRO, Saturday challenge, Live AI 0/20); ⚔️ course battle BCA/BBA/BCom

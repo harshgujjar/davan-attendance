@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1943 · 23-Oct-2026 IST
+💬 Placement AI feedback (user: "build the Placement AI feedback"): Super Admin Placement page gets 💬 Feedback (learn/placement.js v8 fbV / fbAi): answers from DB4 learn/fb (written by student widget 282 / staff w339 after a level test, a mock or the 3rd failed try), tallies, reasons, own words with photos, 📋 Copy, and 🤖 Sum up with AI (aiAsk, 1 AI answer, saved to DB4 learn/fb_sum). Reads learn/fb once per open. Pairs with student widget 282 / staff widget w339. plcInit passes ai.
+
 ## v1942 · 23-Oct-2026 IST
 🤖 AI fix (user's test: "5028 llama-3.1-8b-instruct was deprecated on 2026-05-30"): worker v12 tries @cf/zai-org/glm-4.7-flash, then @cf/meta/llama-3.1-8b-instruct-fast (or the model set in DB2 davan_pub/ai_cfg.model first); a model error is no longer shown as "resting". AI page: Model box (ai_cfg.model) and ↺ Try again today (clears davan_pub/ai_use/<date>/out). Functions: aiInit, aiClearOut; worker aiCall, aiText.
 
