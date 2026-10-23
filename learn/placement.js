@@ -423,7 +423,29 @@
       <div class="k"><div class="kick">📅 QUESTIONS PER DAY · LAST 7 DAYS</div><div style="display:flex;gap:6px;align-items:flex-end;height:110px;margin-top:10px">${d.days.map(x => { const v = d.per[x] || { q: 0, ok: 0 }; return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;justify-content:flex-end;height:100%"><span style="font-size:10px;font-weight:800">${v.q ? Math.round(v.ok * 100 / v.q) + '%' : ''}</span><div style="width:100%;height:${Math.max(3, Math.round(v.q * 70 / mx))}px;border:1.5px solid var(--ink);border-radius:6px;background:${v.q ? 'linear-gradient(180deg,#f0a500,#ff6b3d)' : '#fff'}"></div><span style="font-size:10px" class="mu">${new Date(x + 'T00:00:00Z').toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'UTC' })}</span></div>`; }).join('')}</div><div class="mu" style="margin-top:4px">bar = questions answered · number = % right</div></div>
       <div class="k"><div class="kick">💪 WHERE YOUR SCORE COMES FROM</div>${bar('🧠 Aptitude', d.r.a, 40, d.r.a >= 40)}${bar('🗣 English', d.r.e, 30, d.r.e >= 30)}${bar('💻 Technical', d.r.t, 30, d.r.t >= 30)}${d.clsAvg != null ? `<div class="row" style="flex-wrap:nowrap;margin-top:6px"><span style="width:104px;font-weight:800;font-size:13px">You vs class</span><div class="bar" style="flex:1"><i style="width:${d.r.all}%"></i></div><b style="font-size:12px;margin-left:6px">${d.r.all} vs ${d.clsAvg}</b></div>` : ''}</div>
       <div class="k"><div class="kick">📝 YOUR REPORT, IN WORDS · 🔊 tap Read to hear it</div>${d.parts.map(x => `<div style="font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;margin-top:12px">${esc(x[0])}</div><div style="margin-top:4px">${esc(x[1])}</div>`).join('')}</div>
-      ${R.coach && R.coach.text ? `<div class="k" style="background:var(--li)"><div class="kick">🤖 YOUR COACH SAYS · ${esc(new Date(R.coach.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }))}</div><div style="margin-top:6px;white-space:pre-wrap">${esc(R.coach.text)}</div></div>` : (d.r.all >= 70 ? `<div class="k" style="background:var(--li)"><div class="kick">🤖 YOUR COACH</div><div class="mu" style="margin-top:4px">Your personal coach note comes on Sunday evening.</div></div>` : '')}`;
+      ${fbMonthCard()}
+      ${R.coach && R.coach.text ? `<div class="k" style="background:var(--li)"><div class="kick">✨ YOUR AI COACH SAYS · ${esc(new Date(R.coach.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }))}</div><div style="margin-top:6px;white-space:pre-wrap">${esc(R.coach.text)}</div></div>` : (d.r.all >= 70 ? `<div class="k" style="background:var(--li)"><div class="kick">✨ YOUR AI COACH</div><div class="mu" style="margin-top:4px">Your personal coach note comes on Sunday evening.</div></div>` : '')}`;
+  }
+  // v13 (S4 leftovers): once a month the report card asks "is the college helping your placement?" - also in the browser app (backup for
+  // students without the widget). Same record as the widgets: learn/fb/<ID>/<time> {m: 'month', tap, why, txt, app: 'web'}; prog.fbm = the month.
+  const FBM_WHY = { yes: ['This Placement training', 'My teachers', 'Mock tests', 'Daily practice'], bit: ['More mock tests', 'Company visits and drives', 'Interview practice', 'Spoken English classes'] };
+  function fbMonthCard() {
+    const mo = ist().slice(0, 7); if (S.o.preview || P().fbm === mo) return '';
+    const a = S.fbm || {}; if (a.sent) return `<div class="k" style="background:var(--li)"><div class="kick">🙏 THANK YOU</div><div>+10 XP · your words help us make Placement better.</div></div>`;
+    const tapB = (k, l) => `<button class="chip ${a.tap === k ? 'on' : ''}" onclick="PLC.fbm('tap','${k}')">${l}</button>`;
+    return `<div class="k" style="background:var(--li)"><div class="kick">💬 IS DAVAN COLLEGE HELPING YOUR PLACEMENT?</div>
+      <div class="row" style="margin-top:8px">${tapB('yes', '👍 Yes')}${tapB('bit', '🙂 A bit')}${tapB('no', '👎 Not really')}</div>
+      ${a.tap ? `<div style="font-weight:700;margin-top:10px">💬 ${a.tap === 'yes' ? 'What helps you most?' : 'What should the college do more?'}</div><div class="row" style="margin-top:6px">${FBM_WHY[a.tap === 'yes' ? 'yes' : 'bit'].map(w => `<button class="chip ${a.why === w ? 'on' : ''}" onclick="PLC.fbm('why',${esc(JSON.stringify(w))})">${esc(w)}</button>`).join('')}</div>
+        <div class="row" style="margin-top:8px;flex-wrap:nowrap"><input id="plc-fbm-t" placeholder="Say more (optional)" style="flex:1;min-width:0;border:2px solid var(--ink);border-radius:14px;padding:10px;font:600 14px 'DM Sans',sans-serif"><button class="b dk" onclick="PLC.fbm('send')">Send</button></div>` : ''}
+      <div class="mu" style="margin-top:6px">+10 XP · once a month</div></div>`;
+  }
+  function fbm(k, v) {
+    S.fbm = S.fbm || { key: String(Date.now()) }; const a = S.fbm, mo = ist().slice(0, 7);
+    if (k === 'tap') { const first = !a.tap; a.tap = v; if (first) { P().fbm = mo; touch(10); } }
+    else if (k === 'why') a.why = v;
+    else if (k === 'send') { const t = ((document.getElementById('plc-fbm-t') || {}).value || '').trim().slice(0, 600); if (t) a.txt = t; a.sent = 1; }
+    put('PUT', 'fb/' + S.o.id + '/' + a.key, { t: +a.key, m: 'month', tap: a.tap || '', why: a.why || '', txt: a.txt || '', app: 'web' });
+    draw();
   }
   function repRead(b) {   // v12: read without emoji, PRO said as the word Pro
     try { if (speechSynthesis.speaking) { speechSynthesis.cancel(); if (b) b.textContent = '🔊 Read'; return; }
@@ -432,8 +454,8 @@
   // ── v8 (user, 23-Oct-2026: "build the Placement AI feedback"): Super Admin 💬 Feedback - the one-tap answers from the widgets
   // (DB4 learn/fb/<ID>/<time> {t, m: lvl|mock|stuck, tr, l, pct, tap, why, txt, app}) + an AI summary (S.o.ai = the staff app's aiAsk),
   // saved to learn/fb_sum {at, text, n} so it shows without asking the AI again.
-  const FB_TAP = { easy: '😴 too easy', right: '👍 just right', hard: '😵 too hard', real: '😀 felt real', bit: '🙂 a bit real', no: '😕 not real' };
-  const FB_M = { lvl: 'Level test', mock: 'Mock test', stuck: '3rd failed try' };
+  const FB_TAP = { easy: '😴 too easy', right: '👍 just right', hard: '😵 too hard', real: '😀 felt real', bit: '🙂 a bit', no: '😕 not really', much: '🚀 much more ready', same: '😐 the same', yes: '👍 yes' };
+  const FB_M = { lvl: 'Level test', mock: 'Mock test', stuck: '3rd failed try', sat: 'Saturday challenge', r70: 'Reached Ready 70', month: 'Monthly: is the college helping?' };
   function fbRows() { const out = []; Object.entries(S.fb || {}).forEach(([id, x]) => Object.values(x || {}).forEach(r => { if (r && r.t) out.push(Object.assign({ id }, r)); })); return out.sort((a, b) => b.t - a.t); }
   function fbV() {
     if (!S.fb) { Promise.all([get('fb'), get('fb_sum'), loadAll()]).then(([f, sm]) => { S.fb = f || {}; S.fbSum = sm || null; draw(); }).catch(e => { S.el.innerHTML = '<div class="plc">Could not read: ' + esc(e.message) + '</div>'; }); return '<div>Loading…</div>'; }
@@ -449,12 +471,12 @@
     return `<div class="row">${back()}<h2>💬 FEEDBACK</h2><span class="pill" style="background:#ffc9c9">Super Admin only</span><button class="b w" onclick="PLC.fbReload()">⟳</button><button class="b w" onclick="PLC.fbCopy(this)">📋 Copy</button></div>
       <div class="g2" style="margin-top:10px"><div class="k" style="margin:0;text-align:center"><div class="big" style="font-size:44px">${rows.length}</div><div class="kick">ANSWERS</div></div>
         <div class="k" style="margin:0;text-align:center"><div class="big" style="font-size:44px">${tday}</div><div class="kick">TODAY</div></div></div>
-      <div class="k" style="background:var(--li)"><div class="kick">🤖 WHAT STUDENTS SAY (AI SUMMARY)</div>
+      <div class="k" style="background:var(--li)"><div class="kick">✨ WHAT STUDENTS SAY · AI SUMMARY</div>
         <div id="plc-fbsum" style="white-space:pre-wrap;margin-top:6px;font-size:14px">${sm && sm.text ? esc(sm.text) + '<div class="mu" style="margin-top:6px">' + esc(new Date(sm.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })) + ' · from ' + (sm.n || 0) + ' answers</div>' : '<span class="mu">No summary yet.</span>'}</div>
-        ${S.o.ai ? `<div class="row" style="margin-top:8px"><button class="b dk" id="plc-fbai" onclick="PLC.fbAi()">🤖 Sum up with AI</button><span class="mu">uses 1 AI answer</span></div>` : ''}</div>
+        ${S.o.ai ? `<div class="row" style="margin-top:8px"><button class="b dk" id="plc-fbai" onclick="PLC.fbAi()">✨ Sum up with AI</button><span class="mu">uses 1 AI answer</span></div>` : ''}</div>
       <div class="k"><div class="kick">👆 ONE-TAP ANSWERS</div>${Object.keys(tal).length ? Object.entries(tal).map(([k, v]) => `<div style="margin-top:8px"><b>${esc(k)}</b><div class="row" style="margin-top:4px">${Object.entries(v).map(([t, n]) => `<span class="pill">${esc(FB_TAP[t] || t)} · ${n}</span>`).join('')}</div></div>`).join('') : '<div class="mu">Nobody has answered yet. Answers come from the widgets after a level test or a mock.</div>'}</div>
       ${Object.keys(why).length ? `<div class="k"><div class="kick">🤔 WHY</div><div class="row" style="margin-top:6px">${Object.entries(why).sort((a, b) => b[1] - a[1]).map(([w, n]) => `<span class="pill" style="background:var(--cr)">${esc(w)} · ${n}</span>`).join('')}</div></div>` : ''}
-      <div class="k"><div class="kick">✍️ IN THEIR OWN WORDS · ${words.length}</div>${words.slice(0, 100).map(r => `<div class="row" style="flex-wrap:nowrap;align-items:flex-start;gap:8px;margin-top:10px">${face({ id: r.id, n: nm(r), r: r.app === 'stf' ? 'stf' : 'stu' }, 32)}<div style="min-width:0"><b>${esc(nm(r))}</b> <span class="mu">${esc(cl(r))}</span><div>${esc(r.txt)}</div><div class="mu">${esc((FB_M[r.m] || r.m) + ' · ' + (r.tr || '') + (r.l ? ' L' + r.l : '') + ' · ' + (FB_TAP[r.tap] || r.tap || '') + (r.why ? ' · ' + r.why : '') + ' · ' + new Date(r.t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</div></div></div>`).join('') || '<div class="mu" style="margin-top:6px">No written answers yet.</div>'}</div>`;
+      <div class="k"><div class="kick">✍️ IN THEIR OWN WORDS · ${words.length}</div>${words.slice(0, 100).map(r => `<div class="row" style="flex-wrap:nowrap;align-items:flex-start;gap:8px;margin-top:10px">${face({ id: r.id, n: nm(r), r: r.app === 'stf' ? 'stf' : 'stu' }, 32)}<div style="min-width:0"><b>${esc(nm(r))}</b> <span class="mu">${esc(cl(r))}</span><div>${esc(r.txt)}</div>${r.ai ? `<div style="margin-top:3px;color:#6b4ea3">✨ ${esc(r.ai)}</div>` : ''}<div class="mu">${esc((FB_M[r.m] || r.m) + ' · ' + (r.tr || '') + (r.l ? ' L' + r.l : '') + ' · ' + (FB_TAP[r.tap] || r.tap || '') + (r.why ? ' · ' + r.why : '') + ' · ' + new Date(r.t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</div></div></div>`).join('') || '<div class="mu" style="margin-top:6px">No written answers yet.</div>'}</div>`;
   }
   async function fbAi() {
     const b = document.getElementById('plc-fbai'), box = document.getElementById('plc-fbsum'); if (!S.o.ai || !box) return;
@@ -484,6 +506,7 @@
       ${(() => { const st = all.filter(p => p.r === 'stu'), t0 = ist(), d3 = ist(Date.now() - 3 * 864e5);   // v10 (user, 23-Oct): new / moved up / stopped
         const v = [['🆕 NEW TODAY', st.filter(p => p.fd === t0).length], ['🆕 NEW · 7 DAYS', st.filter(p => p.fd && p.fd >= d7).length], ['⬆ MOVED UP TODAY', st.filter(p => p.lu === t0).length], ['⬆ MOVED UP · 7 DAYS', st.filter(p => p.lu && p.lu >= d7).length], ['😴 STOPPED 3+ DAYS', st.filter(p => p.ld && p.ld < d3).length]];
         return `<div class="row" style="flex-wrap:nowrap;overflow-x:auto;gap:6px;margin-top:8px">${v.map(([a, b]) => `<div class="k" style="margin:0;min-width:96px;background:var(--li)"><div class="kick" style="font-size:9px">${a}</div><div class="bb" style="font-size:26px">${b}</div></div>`).join('')}</div><div class="mu">Students only. New = first answer (counted from 23-Oct-2026); moved up = cleared a level.</div>`; })()}
+      ${(() => { const j = (S.st || {}).jp || {}; return `<div class="k" style="margin-top:8px"><b>🇯🇵 Japanese word today:</b> heard ${j.h || 0} · repeated ${j.r || 0} · got it ${j.g || 0} <span class="mu">(widget taps; v13)</span></div>`; })()}
       <div class="k" style="background:var(--li)"><b>Today:</b> word <b>${esc(t.word.w)}</b> · question "${esc(t.q ? t.q.q : '')}" · answered ${qs.n || 0}${t.q ? ' · picks ' + t.q.o.map((o, i) => esc(o) + ' ' + (qs['p' + i] || 0)).join(' / ') : ''}</div>
       <div class="row">${['stu', 'stf', 'BCA', 'BBA', 'BCOM', 'all'].map(x => `<button class="b ${f === x ? 'dk' : 'w'}" onclick="PLC.go('report',{f:'${x}',min:${min}})">${{ stu: 'Students', stf: 'Staff', all: 'All' }[x] || x}</button>`).join('')}
         ${[0, 45, 70].map(m => `<button class="b ${min === m ? 'dk' : 'w'}" onclick="PLC.go('report',{f:'${f}',min:${m}})">${m ? 'Ready ' + m + '+' : 'Any score'}</button>`).join('')}<button class="b" onclick="PLC.csv()">⬇ CSV</button></div>
@@ -736,7 +759,7 @@
   }
   window.PLC = {
     open, go: (v, a) => { if (v === 'report') S.flags = undefined; go(v, a); if (v === 'report' && a && a.sel) showLog(a.sel); }, say, slow: t => { try { const u = new SpeechSynthesisUtterance(t); u.lang = 'en-IN'; u.rate = .6; speechSynthesis.speak(u); } catch (e) {} },
-    start, pick, next, qod, mic, hide, edit, csv, mock, repRead, fbAi, fbReload: () => { S.fb = null; draw(); }, fbCopy: b => { try { if (window.dvCopyText) return window.dvCopyText(S.fbText || '', b); navigator.clipboard.writeText(S.fbText || ''); } catch (e) {} }, install: () => { if (S.o.onInstall) S.o.onInstall(); }, recheck: () => open(S.el, S.o), reload: () => { S.all = null; S.qs = null; draw(); },
+    start, pick, next, qod, mic, hide, edit, csv, mock, repRead, fbm, fbAi, fbReload: () => { S.fb = null; draw(); }, fbCopy: b => { try { if (window.dvCopyText) return window.dvCopyText(S.fbText || '', b); navigator.clipboard.writeText(S.fbText || ''); } catch (e) {} }, install: () => { if (S.o.onInstall) S.o.onInstall(); }, recheck: () => open(S.el, S.o), reload: () => { S.all = null; S.qs = null; draw(); },
     previewOf: id => { const p = S.all[id] || {}; if (!S.o.preview) S.back = S.o; S.v = 'home'; open(S.el, { id, name: p.n, cls: p.c, role: p.r, course: (String(p.c).toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0], preview: true, sa: false, onHome: S.back && S.back.onHome }); },
     me: () => { const b = S.back; S.back = null; S.v = 'home'; if (b) open(S.el, b); }, home: () => { if (S.o.onHome) S.o.onHome(); },
     progAll: () => get('prog', 'orderBy=%22r%22&equalTo=%22stu%22'),   // v11: the staff app's 📣 Ask your class

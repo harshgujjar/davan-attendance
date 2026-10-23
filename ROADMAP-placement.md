@@ -213,18 +213,18 @@ Live AI interview when 20 students pass PRO; PRO+ Rs 500 only after 10 PRO+ stud
   ⬆ moved up a level today/week, 😴 stopped 3+ days (native SA page + staff app); remove Ollama from the staff app;
   💻 Technical other courses: chips [BCA ✓][BBA][BCom], own course first; other courses = "Explore" with their OWN knowledge XP (kx),
   shown only there - NOT in XP, league, Ready score, rank or report (student widget native, portal, staff app). Mockup first.
-- ◐ S2 (23-Oct: 7:30 note + widget card + portal card + daily-jp.json BUILT, widgets 284 / w341, portal v11.96; still: tap counts in the report, Why Japan card, 7-day starter, 🇯🇵 badge, teaser after English L10) 🇯🇵 Japanese word of the day replaces the ✨ quote in the 7:30 voice note: daily-jp.json (365 words: word, romaji, Kannada letters,
+- ☑ S2 (23-Oct, leftovers done same day: widgets 287 / w344 Why Japan + 7-day starter + 🇯🇵 marks + JP taps; portal JP card has no tap count; 7:30 note + widget card + portal card + daily-jp.json BUILT, widgets 284 / w341, portal v11.96; still: tap counts in the report, Why Japan card, 7-day starter, 🇯🇵 badge, teaser after English L10) 🇯🇵 Japanese word of the day replaces the ✨ quote in the 7:30 voice note: daily-jp.json (365 words: word, romaji, Kannada letters,
   English + Kannada meaning, example) + one checked "Why Japan" line a day (JLPT, MEXT, jobs, comparison, live Davan numbers, tips);
   🔊 Hear / 🔁 Slowly / ✅ Got it; widget Today card, portal dashboard card, Today's messages; staff widget too; count taps.
   Plus: Why Japan card, 7-day starter challenge, 🇯🇵 badge in league/battle, teaser after English level 10.
 - ☑ S3 (23-Oct: widgets 283 / w340 PlcRep, portal v11.95 + staff v1944 learn/placement.js v9, worker v13 Sunday coach notes) 📊 report card: graphics + code-written text (where you stand / going well / holding back / compare / next) + 🔊 Read;
   student widget native + portal (backup) + SA view of any student.
-- ◐ S4 AI (23-Oct: worker /ai live v12; feedback moments lvl / mock / stuck BUILT widgets 282 / w339 + staff v1943 💬 Feedback with AI summary; still: Ready 70 / Saturday / monthly moments, portal card, coach note, student AI auth): Cloudflare Workers AI through the worker; feedback = one tap on result screens + one AI "why?" (chips + 🎤), max 1 a day,
+- ☑ S4 AI (23-Oct, leftovers done: Ready 70 / Saturday / monthly moments, portal monthly card, ✨ AI reply via worker v14 fb_reply; worker /ai live v12; feedback moments lvl / mock / stuck BUILT widgets 282 / w339 + staff v1943 💬 Feedback with AI summary; still: Ready 70 / Saturday / monthly moments, portal card, coach note, student AI auth): Cloudflare Workers AI through the worker; feedback = one tap on result screens + one AI "why?" (chips + 🎤), max 1 a day,
   +10 XP, schedule table in the mockup; AI joins the pieces per student; SA 💬 Feedback page (Placement / App / Widget);
   🤖 coach note auto for Ready 70+ (Sunday, cap 50 a week).
 - ☑ S5 (23-Oct: widgets 285 / w342 PlcGrow, staff v1946 Ask your class; card instead of a push for the class ask) growth: teasers as students come close (PRO, Saturday challenge, Live AI 0/20); ⚔️ course battle BCA/BBA/BCom
   (average XP per learner) + optional share card (+50 XP first time); comeback engine (stuck / away 2+ days / never started, 1 a day);
   class teacher 📣 Ask your class card + stuck list (staff widget + staff app).
-- ◐ S6 (23-Oct: ladder + flags BUILT in widgets 285 / w342, Super Admin 🚩 PRO checks v1946; NOT yet: server-side answer checking - answers are still in bank.json) 👑 PRO ladder: endless levels after 10, each harder, 9/10 to pass, fresh questions on a retry; anti-cheat (shuffle, minimum time,
+- ☑ S6 (23-Oct; server-side answers DROPPED by decision: bank.json is public, so flags are the real check; ladder + flags BUILT in widgets 285 / w342, Super Admin 🚩 PRO checks v1946; NOT yet: server-side answer checking - answers are still in bank.json) 👑 PRO ladder: endless levels after 10, each harder, 9/10 to pass, fresh questions on a retry; anti-cheat (shuffle, minimum time,
   tab switches, practice vs mock check, flags only, server-side answers).
 - ☐ Later: 🤖 live AI mock interview (at 20 PRO); 💎 PRO+ plan (after 10, Rs 500 - decide then).

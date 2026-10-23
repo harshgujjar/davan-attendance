@@ -119,6 +119,10 @@ Every new feature (apps, widgets, workers, cloud jobs) must be built so nobody h
 - **Old data cleans itself up** (keep what reports need, delete the rest on a timer) so databases never fill up.
 - Before saying a feature is done, check: "Will this still work in 2 years with nobody touching it?" If not, fix that first.
 
+## ✨ = written by AI (user, 23-Oct-2026 - rule)
+Every text written by AI (any app, widget, worker, notification, voice) is marked ✨ (e.g. "✨ AI · College AI", "✨ YOUR AI COACH SAYS");
+text made by the app's own code never gets ✨ (the app's own questions use 💬). Every NEW AI feature must follow this.
+
 ## Always commit, push and merge to main (standing instruction)
 
 After every change: bump versions, write the changelog entries, commit, push the session branch, then **merge it into `main` and push `main`** so the apps go live. Do this automatically, never ask. This holds in every session.

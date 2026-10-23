@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v14 (23-Oct-2026): POST /ai also answers widgets for ONE task (fb_reply), checked by the widget code.
  *  - v13 (23-Oct-2026): Sunday 🤖 coach notes for Placement learners with Ready 70+ (coachRun -> DB4 learn/coach).
  *  - v11 (23-Oct-2026): POST /ai - AI for the staff app (Workers AI binding AI; Gemini / a 2nd account later), daily limits in DB2.
  *  - v7 (13-Oct-2026): GET /?marks=<exam>&cls=<classes> starts the PUC marks scrape in the cloud (puc-marks.yml) - the PUC app's button.
@@ -276,8 +277,17 @@ async function aiCall(env, prov, messages, max, cfgModel) {
   return { err: 'unknown provider ' + prov };
 }
 async function aiIncoming(env, b) {
-  const who = await staffFromToken(b.token).catch(() => null);
+  let who = await staffFromToken(b.token).catch(() => null);
+  // v14 (user, 23-Oct-2026 - S4 leftovers): a widget (student or staff) may ask for ONE kind of answer - the short reply to its Placement
+  // feedback words (task fb_reply). Checked by its widget code: DB2 davan_pub/student_widget_active/<code> must exist. The system prompt and
+  // the length are set HERE, never by the phone.
+  let widget = false;
+  if (!who && b.code && b.task === 'fb_reply') {
+    const code = String(b.code).trim().toUpperCase();
+    if (/^[A-Z0-9-]{4,12}$/.test(code) && await db2('GET', 'davan_pub/student_widget_active/' + code, undefined, 'shallow=true')) { who = { uid: 'w_' + code }; widget = true; }
+  }
   if (!who) return { ok: false, msg: 'Please log in to the staff app again.' };
+  if (widget) { b.system = 'You are the friendly placement coach of Davan College, Davangere. A student wrote feedback about the Placement training in the college app. Reply in ONE or TWO short sentences of simple English: thank them for their words, answer their point kindly and give one small practical tip if it fits. Never promise anything on behalf of the college, never invent facts, no lists.'; b.max = 160; }
   const prompt = clip(b.prompt, 4000).trim(); if (!prompt) return { ok: false, msg: 'Nothing to ask.' };
   const day = istDate(Date.now()), cfg = (await db2('GET', 'davan_pub/ai_cfg')) || {}, use = (await db2('GET', 'davan_pub/ai_use/' + day)) || {};
   if (cfg.on === false) return { ok: false, msg: 'AI is switched off (Super Admin).' };
@@ -397,6 +407,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 13, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 14, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
   },
 };

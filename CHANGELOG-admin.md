@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1948 · 23-Oct-2026 IST
+S2-S6 leftovers + "how do I know which answer is AI" (user, 23-Oct): ✨ = written by AI everywhere - Smart Assist labels (✨ AI · College AI / Anthropic), the AI test box, Placement ✨ AI summary, ✨ AI coach note, ✨ AI replies in the 💬 Feedback list; 💬 marks the app's own questions; legend on the 🤖 AI page. learn/placement.js v13: monthly "is the college helping your placement?" card on the report card (fbMonthCard / fbm, writes learn/fb with app web, prog.fbm), new moments in the feedback page (Ready 70, Saturday, monthly), Japanese word taps today (learn/stats/<day>/jp) in the report. Worker v14: /ai answers widgets for task fb_reply only, checked by the widget code (davan_pub/student_widget_active/<code>). S6 server-side PRO answers NOT built (the question bank is public on GitHub, so it would not stop a determined student - flags stay). Pairs with portal v11.98, widgets 287 / w344.
+
 ## v1947 · 23-Oct-2026 IST
 🔊 Report card voice (user: "it should tell BCA 5th sem A section; it says pro bit"): learn/placement.js v12 clsName (Davan-BCA-Sem5-SecA -> BCA 5th semester, section A) in the report text; 👑 PRO -> 👑 Pro level; repRead drops emoji and says PRO as "Pro". Pairs with portal v11.97, widgets 286 / w343 (PlcRep.clsName).
 
