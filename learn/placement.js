@@ -145,7 +145,7 @@
   // ── views ──
   function go(v, a) { S.v = v; S.a = a || {}; draw(); try { S.el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }
   function draw() {
-    const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank, fb: fbV, gate: () => gate0() + (S.o.hist ? lockedList() : ''), mocks, hhome, hlog, hsol, hlevel, htips, hpick }[S.v] || (S.o.hist ? hhome : home);
+    const h = { home, track: trackV, lesson, quiz, speak, jp: jpV, cert, report, qbank, fb: fbV, rep: repV, gate: () => gate0() + (S.o.hist ? lockedList() : ''), mocks, hhome, hlog, hsol, hlevel, htips, hpick }[S.v] || (S.o.hist ? hhome : home);
     // v4 (user, 18-Oct): no big preview banner - a small 👀 ↩ chip (back to me) and 🏠 (the app's home) on the Placement home only
     const top = S.v !== 'home' || (!S.o.onHome && !S.o.preview) ? '' : '<div class="row" style="gap:6px;margin-bottom:6px">' +
       (S.o.onHome ? '<button class="b w" style="padding:6px 12px" title="Home" onclick="PLC.home()">🏠</button>' : '') +
@@ -191,6 +191,7 @@
       ${qh}
       <div class="row" style="margin:6px 0"><span style="display:flex"><span style="width:24px;height:24px;border-radius:50%;background:#3b82f6;border:2px solid #FDE8D4"></span><span style="width:24px;height:24px;border-radius:50%;background:#ec4899;border:2px solid #FDE8D4;margin-left:-8px"></span><span style="width:24px;height:24px;border-radius:50%;background:#22c55e;border:2px solid #FDE8D4;margin-left:-8px"></span></span>
         <span class="mu"><b style="color:var(--ink)">${Math.max(1, S.act || 0)} ${Math.max(1, S.act || 0) === 1 ? 'learner' : 'learners'}</b> practising today · keep your 🔥 streak</span></div>
+      <div class="row"><button class="b" onclick="PLC.go('rep')">📊 My report card</button></div>
       ${S.o.sa ? `<div class="row"><button class="b dk" onclick="PLC.go('report')">📊 Report</button><button class="b dk" onclick="PLC.go('qbank')">📚 Question bank</button><button class="b dk" onclick="PLC.go('fb')">💬 Feedback</button></div>` : ''}
       <div class="row" style="justify-content:space-between;margin-top:14px"><span class="bb" style="font-size:28px">💡 PLACEMENT TIPS</span><span class="mu">new tip every day</span></div>
       <div class="row" style="margin-top:8px">${cats.map(c => `<button class="chip ${c === ci ? 'on' : ''}" style="${c === ci ? 'background:#22c55e' : ''}" onclick="PLC.go('home',{tc:'${esc(c)}',co:'${co ? co.id : ''}'})">${esc(c)}</button>`).join('')}</div>
@@ -356,6 +357,74 @@
     return `<div class="row">${back()}<h2>🏅 CERTIFICATES</h2></div>` + (have.length ? have.map(x => `<button class="tr k" style="width:100%;background:var(--ye)" onclick="PLC.go('cert',{c:'${x.t.id}'})">${tier(x.n)[0]} · ${esc(x.t.name)} · level ${x.n}</button>`).join('') : '<div class="k">Clear level 2 of any track to earn your first 🥉 certificate.</div>') + `<div class="k mu">Add them to your resume and LinkedIn (Licences &amp; certifications).</div>`;
   }
 
+  // ── v9 (user, 23-Oct-2026: "build the report card" - mockup v4 part 2): 📊 MY REPORT = graphics + a written report made by code from the
+  // student's own numbers (same rules as the widgets' PlcRep.java) + 🔊 Read. Reads: prog of the same role (rank, class average, college
+  // averages per level / mock - cached 30 min), log/<ID> last 300 rows (questions per day), coach/<ID> (the AI coach note the Cloudflare
+  // worker writes every Sunday for Ready 70+).
+  const TRN = { quant: 'Quant', reason: 'Reasoning', verbal: 'Verbal', english: 'English', japanese: 'Japanese', bca: 'BCA Technical', bba: 'BBA Technical', bcom: 'BCom Technical' };
+  function repLoad(id) {
+    const role = (S.o.role === 'stf' ? 'stf' : 'stu');
+    if (S.rep && S.rep.id === id && Date.now() - S.rep.at < 30 * 60000) return;
+    S.rep = { id, at: Date.now(), busy: true };
+    Promise.all([get('prog', 'orderBy=%22r%22&equalTo=%22' + role + '%22').catch(() => ({})), get('log/' + id, 'orderBy=%22$key%22&limitToLast=300').catch(() => ({})), get('coach/' + id).catch(() => null)])
+      .then(([pr, lg, co]) => { S.rep = { id, at: Date.now(), peers: Object.entries(pr || {}).map(([k, v]) => Object.assign({ id: k }, v)), log: Object.values(lg || {}), coach: co }; draw(); })
+      .catch(() => { S.rep = { id, at: Date.now(), peers: [], log: [], coach: null }; draw(); });
+  }
+  function repData() {
+    const p = P(), r = ready(), me = S.o.id, R = S.rep || {}, peers = (R.peers || []).filter(x => (x.xp || 0) > 0);
+    const rsOf = x => x.id === me ? r.all : (x.rs || 0), n = Math.max(peers.length, 1), rank = 1 + peers.filter(x => x.id !== me && rsOf(x) > r.all).length;
+    const cls = peers.filter(x => x.c && x.c === p.c), clsAvg = cls.length ? Math.round(cls.reduce((a, x) => a + rsOf(x), 0) / cls.length) : null;
+    const avgOf = (fn) => { const v = peers.map(fn).filter(x => typeof x === 'number'); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
+    const tt = (S.bank.tracks.find(t => t.g === 'tech' && t.course === S.o.course) || {}).id || '';
+    const parts = [], full = [], top = [];
+    // 1 where you stand
+    parts.push(['Where you stand', 'Your Ready score is ' + r.all + ' out of 100. ' + (peers.length > 1 ? 'That makes you number ' + rank + ' of ' + peers.length + (S.o.role === 'stf' ? ' staff learners. ' : ' students in the college. ') : '') +
+      'You have ' + (p.xp || 0) + ' XP from ' + (p.d || 0) + (p.d === 1 ? ' day' : ' days') + ' of practice' + ((p.st || 0) > 1 ? ', and you have practised ' + p.st + ' days in a row.' : '.')]);
+    // 2 going well
+    if (r.e >= 30) full.push('English is complete: 30 out of 30.'); if (tt && r.t >= 30) full.push((TRN[tt] || 'Technical') + ' is complete: 30 out of 30.');
+    ['quant', 'reason', 'verbal'].forEach(t => { if (lv(t) >= 10) top.push(TRN[t]); });
+    if (top.length) full.push('In ' + top.join(' and ') + ' you reached level 10, the top level.');
+    const mk = p.mk || {}, mb = Object.entries(mk).sort((a, b) => b[1] - a[1])[0];
+    if (mb) { const m = (S.bank.mocks || []).find(x => x.id === mb[0]), ca = avgOf(x => (x.mk || {})[mb[0]]); full.push('Your best ' + (m ? m.name : 'mock') + ' score is ' + mb[1] + '%' + (ca != null && peers.length > 2 ? ', while the college average on that mock is ' + ca + '%.' : '.')); }
+    parts.push(['What is going well', full.length ? full.join(' ') : 'You have made a start. Every level you clear adds to your Ready score, so the first test is the most important step.']);
+    // 3 holding back
+    const comp = [['Aptitude', r.a, 40, ['quant', 'reason', 'verbal']], ['English', r.e, 30, ['english']], ['Technical', r.t, 30, tt ? [tt] : []]].filter(c => c[3].length).sort((a, b) => a[1] / a[2] - b[1] / b[2])[0];
+    if (comp && comp[1] < comp[2]) {
+      const low = comp[3].map(t => [t, lv(t)]).sort((a, b) => a[1] - b[1]), lowL = low.filter(x => x[1] < 10);
+      let t = comp[0] + ' gives you only ' + comp[1] + ' of ' + comp[2] + ' points, because ' + lowL.map(x => TRN[x[0]] + ' is at level ' + x[1]).join(' and ') + '.';
+      const w = lowL[0], avg = w ? avgOf(x => (x.best || {})[w[0] + '_' + (w[1] + 1)]) : null;
+      if (w && avg != null && avg < 65 && peers.length > 2) t += ' ' + TRN[w[0]] + ' level ' + (w[1] + 1) + ' is one of the hardest tests in the college right now: the average score is ' + avg + '%, so read the lesson cards before the test.';
+      parts.push(['What is holding you back', t]);
+    } else parts.push(['What is holding you back', 'Nothing in the main tracks - every part of your Ready score is full. Keep it fresh with the mock tests and the Saturday challenge.']);
+    // 4 compare
+    if (clsAvg != null && cls.length > 1) parts.push(['How you compare', 'The average Ready score in ' + p.c + ' is ' + clsAvg + '. Yours is ' + r.all + (clsAvg > 0 && r.all >= clsAvg * 2 ? ', about ' + Math.round(r.all / clsAvg) + ' times your class average.' : r.all >= clsAvg ? ', above your class average.' : ', ' + (clsAvg - r.all) + ' points below your class average - a few levels will change that.')]);
+    // 5 next
+    const left = ['quant', 'reason', 'verbal', 'english'].concat(tt ? [tt] : []).reduce((a, t) => a + Math.max(0, 10 - lv(t)), 0);
+    parts.push(['What to do next', left ? (comp && comp[1] < comp[2] ? 'Clear the next levels in ' + comp[3].filter(t => lv(t) < 10).map(t => TRN[t]).join(' and ') + '. ' : '') + left + ' levels are left to 👑 PRO. At 2 levels a day that is about ' + Math.ceil(left / 2) + (Math.ceil(left / 2) === 1 ? ' day.' : ' days.') + ' Then the Saturday Challenge and, later, the live AI interview open for you.'
+      : 'You have cleared every level - you are 👑 PRO. Keep sharp with the mock tests and the Saturday challenge.']);
+    // questions per day (last 7 days) + % right
+    const days = []; for (let i = 6; i >= 0; i--) days.push(ist(Date.now() - i * 864e5));
+    const per = {}; (R.log || []).forEach(x => { const d = ist(x.t); if (!days.includes(d)) return; per[d] = per[d] || { q: 0, ok: 0 }; per[d].q += x.of || 0; per[d].ok += x.s || 0; });
+    return { r, rank, n: peers.length, clsAvg, parts, days, per };
+  }
+  function repV() {
+    repLoad(S.o.id); const R = S.rep || {};
+    if (R.busy) return `<div class="row">${back()}<h2>📊 MY REPORT</h2></div><div class="mu" style="margin-top:12px">Making your report…</div>`;
+    const d = repData(), p = P(), mx = Math.max(1, ...d.days.map(x => (d.per[x] || {}).q || 0));
+    S.repSay = d.parts.map(x => x[0] + '. ' + x[1]).join(' ') + (R.coach && R.coach.text ? ' Your coach says: ' + R.coach.text : '');
+    const bar = (lbl, v, of, g) => `<div class="row" style="flex-wrap:nowrap;margin-top:6px"><span style="width:104px;font-weight:800;font-size:13px">${lbl}</span><div class="bar" style="flex:1"><i style="width:${Math.min(100, Math.round(v * 100 / of))}%;${g ? 'background:linear-gradient(90deg,#22c55e,#14b8a6)' : ''}"></i></div><b style="font-size:12px;margin-left:6px">${v}/${of}</b></div>`;
+    return `<div class="row" style="flex-wrap:nowrap">${back()}<div style="flex:1;min-width:0"><div class="mu">${esc(S.o.name || '')}${p.c ? ' · ' + esc(p.c) : ''}</div><h2>📊 MY REPORT</h2></div><button class="b dk" onclick="PLC.repRead(this)">🔊 Read</button></div>
+      <div class="k" style="background:${GRAD.gold};display:flex;gap:12px;align-items:center"><div style="width:92px;height:92px;border-radius:50%;background:conic-gradient(#1F1A15 0 ${d.r.all}%,rgba(255,255,255,.55) ${d.r.all}% 100%);display:flex;align-items:center;justify-content:center;flex:0 0 auto"><div style="width:68px;height:68px;border-radius:50%;background:var(--cr);display:flex;flex-direction:column;align-items:center;justify-content:center"><span class="bb" style="font-size:34px">${d.r.all}</span><span style="font-size:10px;font-weight:800">/ 100</span></div></div>
+        <div style="font-weight:700">${d.n > 1 ? '#' + d.rank + ' of ' + d.n + '<br>' : ''}${p.xp || 0} XP · ${p.d || 0} days<br>🔥 ${p.st || 0}-day streak</div></div>
+      <div class="k"><div class="kick">📅 QUESTIONS PER DAY · LAST 7 DAYS</div><div style="display:flex;gap:6px;align-items:flex-end;height:110px;margin-top:10px">${d.days.map(x => { const v = d.per[x] || { q: 0, ok: 0 }; return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;justify-content:flex-end;height:100%"><span style="font-size:10px;font-weight:800">${v.q ? Math.round(v.ok * 100 / v.q) + '%' : ''}</span><div style="width:100%;height:${Math.max(3, Math.round(v.q * 70 / mx))}px;border:1.5px solid var(--ink);border-radius:6px;background:${v.q ? 'linear-gradient(180deg,#f0a500,#ff6b3d)' : '#fff'}"></div><span style="font-size:10px" class="mu">${new Date(x + 'T00:00:00Z').toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'UTC' })}</span></div>`; }).join('')}</div><div class="mu" style="margin-top:4px">bar = questions answered · number = % right</div></div>
+      <div class="k"><div class="kick">💪 WHERE YOUR SCORE COMES FROM</div>${bar('🧠 Aptitude', d.r.a, 40, d.r.a >= 40)}${bar('🗣 English', d.r.e, 30, d.r.e >= 30)}${bar('💻 Technical', d.r.t, 30, d.r.t >= 30)}${d.clsAvg != null ? `<div class="row" style="flex-wrap:nowrap;margin-top:6px"><span style="width:104px;font-weight:800;font-size:13px">You vs class</span><div class="bar" style="flex:1"><i style="width:${d.r.all}%"></i></div><b style="font-size:12px;margin-left:6px">${d.r.all} vs ${d.clsAvg}</b></div>` : ''}</div>
+      <div class="k"><div class="kick">📝 YOUR REPORT, IN WORDS · 🔊 tap Read to hear it</div>${d.parts.map(x => `<div style="font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;margin-top:12px">${esc(x[0])}</div><div style="margin-top:4px">${esc(x[1])}</div>`).join('')}</div>
+      ${R.coach && R.coach.text ? `<div class="k" style="background:var(--li)"><div class="kick">🤖 YOUR COACH SAYS · ${esc(new Date(R.coach.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }))}</div><div style="margin-top:6px;white-space:pre-wrap">${esc(R.coach.text)}</div></div>` : (d.r.all >= 70 ? `<div class="k" style="background:var(--li)"><div class="kick">🤖 YOUR COACH</div><div class="mu" style="margin-top:4px">Your personal coach note comes on Sunday evening.</div></div>` : '')}`;
+  }
+  function repRead(b) {
+    try { if (speechSynthesis.speaking) { speechSynthesis.cancel(); if (b) b.textContent = '🔊 Read'; return; }
+      const u = new SpeechSynthesisUtterance(S.repSay || ''); u.lang = 'en-IN'; u.rate = .95; u.onend = () => { if (b) b.textContent = '🔊 Read'; }; speechSynthesis.speak(u); if (b) b.textContent = '⏹ Stop'; } catch (e) {}
+  }
   // ── v8 (user, 23-Oct-2026: "build the Placement AI feedback"): Super Admin 💬 Feedback - the one-tap answers from the widgets
   // (DB4 learn/fb/<ID>/<time> {t, m: lvl|mock|stuck, tr, l, pct, tap, why, txt, app}) + an AI summary (S.o.ai = the staff app's aiAsk),
   // saved to learn/fb_sum {at, text, n} so it shows without asking the AI again.
@@ -470,6 +539,7 @@
       `<div class="k"><div class="kick">📊 MY PROGRESS</div><div class="g2" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px;text-align:center">` +
       [['🎯', r.all + '%', 'ready'], ['🔥', p.st || 0, 'day streak'], ['📅', p.d || 0, 'days'], ['⭐', p.xp || 0, 'XP']].map(([e, v, l]) => `<div style="background:var(--ye);border:2px solid var(--ink);border-radius:12px;padding:8px 2px"><div style="font-size:18px">${e}</div><div class="bb" style="font-size:22px">${v}</div><div class="mu" style="font-size:11px">${l}</div></div>`).join('') + `</div>` +
       tr.map(t => { const n = doneLv(t), tot = t.levels.filter(l => !l.pro).length, pc = Math.round(n * 100 / tot); return `<div style="margin-top:10px"><div class="row" style="justify-content:space-between"><b>${t.emoji} ${esc(t.name)}</b><span class="mu">level ${n} / ${tot}</span></div><div style="height:10px;border:2px solid var(--ink);border-radius:8px;background:#fff;overflow:hidden"><div style="width:${pc}%;height:100%;background:${GRAD.tech}"></div></div></div>`; }).join('') + `</div>` +
+      `<button class="b" style="width:100%;margin-bottom:10px;padding:14px;font-size:16px" onclick="PLC.go('rep')">📊 My report card - how I am doing, in words</button>` +
       `<div class="g2" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">${tiles.map(([v, e, t]) => `<button class="b w" style="padding:16px 8px;font-size:15px" onclick="PLC.go('${v}')"><div style="font-size:26px">${e}</div>${t}</button>`).join('')}</div>` +
       leagueCard() + badges(p) + pathCard() +
       wbar('Keep your 🔥 streak going - open the 🎯 Placement page on your widget and clear the next level.');
@@ -656,7 +726,7 @@
   }
   window.PLC = {
     open, go: (v, a) => { go(v, a); if (v === 'report' && a && a.sel) showLog(a.sel); }, say, slow: t => { try { const u = new SpeechSynthesisUtterance(t); u.lang = 'en-IN'; u.rate = .6; speechSynthesis.speak(u); } catch (e) {} },
-    start, pick, next, qod, mic, hide, edit, csv, mock, fbAi, fbReload: () => { S.fb = null; draw(); }, fbCopy: b => { try { if (window.dvCopyText) return window.dvCopyText(S.fbText || '', b); navigator.clipboard.writeText(S.fbText || ''); } catch (e) {} }, install: () => { if (S.o.onInstall) S.o.onInstall(); }, recheck: () => open(S.el, S.o), reload: () => { S.all = null; S.qs = null; draw(); },
+    start, pick, next, qod, mic, hide, edit, csv, mock, repRead, fbAi, fbReload: () => { S.fb = null; draw(); }, fbCopy: b => { try { if (window.dvCopyText) return window.dvCopyText(S.fbText || '', b); navigator.clipboard.writeText(S.fbText || ''); } catch (e) {} }, install: () => { if (S.o.onInstall) S.o.onInstall(); }, recheck: () => open(S.el, S.o), reload: () => { S.all = null; S.qs = null; draw(); },
     previewOf: id => { const p = S.all[id] || {}; if (!S.o.preview) S.back = S.o; S.v = 'home'; open(S.el, { id, name: p.n, cls: p.c, role: p.r, course: (String(p.c).toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0], preview: true, sa: false, onHome: S.back && S.back.onHome }); },
     me: () => { const b = S.back; S.back = null; S.v = 'home'; if (b) open(S.el, b); }, home: () => { if (S.o.onHome) S.o.onHome(); },
     get _el() { return S.el; }, key, courseOf: c => (String(c || '').toUpperCase().replace(/[.\s]/g, '').match(/BCA|BBA|BCOM/) || [''])[0]

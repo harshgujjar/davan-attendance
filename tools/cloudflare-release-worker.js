@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v13 (23-Oct-2026): Sunday 🤖 coach notes for Placement learners with Ready 70+ (coachRun -> DB4 learn/coach).
  *  - v11 (23-Oct-2026): POST /ai - AI for the staff app (Workers AI binding AI; Gemini / a 2nd account later), daily limits in DB2.
  *  - v7 (13-Oct-2026): GET /?marks=<exam>&cls=<classes> starts the PUC marks scrape in the cloud (puc-marks.yml) - the PUC app's button.
  *  - v6 (12-Oct-2026, the user's Cloudflare log showed only the two release timers ran): timers are recognised by their minute list,
@@ -301,6 +302,43 @@ async function aiIncoming(env, b) {
   return { ok: false, msg: (rest ? 'AI is resting - back tomorrow.' : 'AI error - not a daily limit, the AI will be fixed.') + (tried.length ? ' (' + tried.join(' | ') + ')' : '') };
 }
 
+// v13 (user, 23-Oct-2026: "build the report card next"): 🤖 coach notes - every Sunday the worker writes a short personal note for each
+// Placement learner with Ready 70+ (DB4 learn/coach/<ID> {at, text}); the report card (widgets PlcRep, learn/placement.js repV) shows it.
+// Runs Sunday 12:15 / 12:45 / 15:00 / 15:15 UTC (5:45 / 6:15 / 8:30 / 8:45 pm IST), max 12 learners a run (free plan: 50 sub-requests),
+// only learners whose note is older than 5 days -> at most ~48 notes a week. DB4 address + key come from learn/bank.json (db), so a DB move needs no deploy.
+const BANK_URL = 'https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/learn/bank.json';
+async function coachRun(env) {
+  if (!env.AI) return;
+  const bank = await (await fetch(BANK_URL + '?t=' + Date.now())).json(), db = bank.db || {};
+  const tk = (await (await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + db.key, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"returnSecureToken":true}' })).json()).idToken;
+  const u = p => db.url + '/' + db.root + '/' + p + '.json?auth=' + tk;
+  const prog = (await (await fetch(u('prog'))).json()) || {}, done = (await (await fetch(u('coach') + '&shallow=false')).json()) || {};
+  const tn = { quant: 'Quant', reason: 'Reasoning', verbal: 'Verbal', english: 'English', bca: 'BCA Technical', bba: 'BBA Technical', bcom: 'BCom Technical', japanese: 'Japanese' };
+  const due = Object.entries(prog).filter(([id, p]) => p && (p.rs || 0) >= 70 && !(done[id] && Date.now() - (done[id].at || 0) < 5 * 864e5)).sort((a, b) => (b[1].rs || 0) - (a[1].rs || 0)).slice(0, 12);
+  let n = 0;
+  for (const [id, p] of due) {
+    try {
+      const lg = Object.values((await (await fetch(u('log/' + id) + '&orderBy=%22$key%22&limitToLast=200')).json()) || {});
+      const byT = {}; lg.forEach(x => { const k = (x.tr || '?') + (x.l ? ' L' + x.l : ''); byT[k] = byT[k] || [0, 0]; byT[k][0] += x.s || 0; byT[k][1] += x.of || 0; });
+      const weak = Object.entries(byT).filter(([, v]) => v[1] >= 5).map(([k, v]) => [k, Math.round(v[0] * 100 / v[1])]).sort((a, b) => a[1] - b[1]).slice(0, 4);
+      const hours = {}; lg.forEach(x => { const h = new Date(x.t + 5.5 * 3600e3).getUTCHours(); if (x.of) { hours[h] = hours[h] || [0, 0]; hours[h][0] += x.s || 0; hours[h][1] += x.of; } });
+      const bestH = Object.entries(hours).filter(([, v]) => v[1] >= 10).sort((a, b) => b[1][0] / b[1][1] - a[1][0] / a[1][1])[0];
+      const facts = ['Name: ' + (p.n || ''), 'Ready score: ' + p.rs + '/100', 'XP ' + (p.xp || 0) + ', days practised ' + (p.d || 0) + ', streak ' + (p.st || 0),
+        'Levels: ' + Object.entries(p.lv || {}).map(([t, l]) => (tn[t] || t) + ' ' + l).join(', '),
+        'Mock tests (best %): ' + (Object.entries(p.mk || {}).map(([m, v]) => m + ' ' + v).join(', ') || 'none yet'),
+        'Weakest areas in the last answers (% right): ' + (weak.map(([k, v]) => k + ' ' + v + '%').join(', ') || 'not enough answers'),
+        bestH ? 'Best time of day: around ' + bestH[0] + ':00 (' + Math.round(bestH[1][0] * 100 / bestH[1][1]) + '% right)' : ''].filter(Boolean).join('\n');
+      const r = await env.AI.run(AI_MODELS[0], { max_tokens: 1400, messages: [
+        { role: 'system', content: 'You are a friendly placement coach at Davan College, Davangere. Write ONE short note (3 to 4 sentences, simple English, speak to the student as "you", first name only) from the facts given: one thing they do well, the one area to work on next with a concrete step, and one tip (e.g. their best time of day). Use only the facts; never invent numbers. No lists, no headings.' },
+        { role: 'user', content: facts }] });
+      const text = String(aiText(r) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim().slice(0, 900);
+      if (!text) continue;
+      await fetch(u('coach/' + id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ at: Date.now(), text }) }); n++;
+    } catch (e) { if (isLimit(0, String(e.message || e))) break; }
+  }
+  if (n) { const day = istDate(Date.now()), use = (await db2('GET', 'davan_pub/ai_use/' + day)) || {}; await db2('PATCH', 'davan_pub/ai_use/' + day, { n: (use.n || 0) + n, 'p/coach': (((use.p || {}).coach) || 0) + n }); }
+}
+
 export default {
   // the timers: 9:15 pm IST + 9:45 pm backup (release); v4: SCR_CRON -> the college scraper at SCR_TIMES only; v5: PUC_CRON -> PUC at PUC_TIMES
   async scheduled(event, env, ctx) {
@@ -318,6 +356,7 @@ export default {
     // 16:00 = 9:30 pm usage alert, 16:15 = 9:45 pm backup release; the other minutes of the cross product (12:00 / 12:15 / 12:45 ...) are ignored
     if (c === '0,5,15,45 12,15,16 * * *') {
       if (hm === '12:05') ctx.waitUntil(startOrAlert(startPlacement(env), 'The 6:05 pm Placement usage'));
+      else if (d.getUTCDay() === 0 && ['12:15', '12:45', '15:00', '15:15'].includes(hm)) ctx.waitUntil(coachRun(env).catch(() => {}));   // v13: Sunday coach notes
       else if (hm === '16:00') ctx.waitUntil(saUsage());
       else if (hm === '15:45' || hm === '16:15') ctx.waitUntil(startOrAlert(startRelease(env, 'Cloudflare timer ' + (hm === '15:45' ? '45 15' : '15 16')), 'The 9:15 pm widget release'));
       return;
@@ -358,6 +397,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 12, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 13, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
   },
 };

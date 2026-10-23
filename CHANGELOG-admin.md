@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1944 · 23-Oct-2026 IST
+📊 Placement report card (user: "build the report card next"): learn/placement.js v9 repV / repData / repLoad / repRead - Ready dial + rank, questions per day (7 days, % right), score parts, you vs class, a 5-part report in words (code), 🔊 Read, 🤖 coach note. Button on the Placement home (everyone) and the history home (portal). Super Admin: 👀 preview a learner -> 📊 My report card. Worker v13 coachRun writes DB4 learn/coach/<ID> on Sundays (Ready 70+, max ~48 a week). Reads per open: learn/prog (same role) + log/<ID> last 300 + coach/<ID>, cached 30 min. Pairs with portal v11.95, student widget 283, staff widget w340.
+
 ## v1943 · 23-Oct-2026 IST
 💬 Placement AI feedback (user: "build the Placement AI feedback"): Super Admin Placement page gets 💬 Feedback (learn/placement.js v8 fbV / fbAi): answers from DB4 learn/fb (written by student widget 282 / staff w339 after a level test, a mock or the 3rd failed try), tallies, reasons, own words with photos, 📋 Copy, and 🤖 Sum up with AI (aiAsk, 1 AI answer, saved to DB4 learn/fb_sum). Reads learn/fb once per open. Pairs with student widget 282 / staff widget w339. plcInit passes ai.
 

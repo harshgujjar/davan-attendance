@@ -217,7 +217,7 @@ Live AI interview when 20 students pass PRO; PRO+ Rs 500 only after 10 PRO+ stud
   English + Kannada meaning, example) + one checked "Why Japan" line a day (JLPT, MEXT, jobs, comparison, live Davan numbers, tips);
   🔊 Hear / 🔁 Slowly / ✅ Got it; widget Today card, portal dashboard card, Today's messages; staff widget too; count taps.
   Plus: Why Japan card, 7-day starter challenge, 🇯🇵 badge in league/battle, teaser after English level 10.
-- ☐ S3 📊 report card: graphics + code-written text (where you stand / going well / holding back / compare / next) + 🔊 Read;
+- ☑ S3 (23-Oct: widgets 283 / w340 PlcRep, portal v11.95 + staff v1944 learn/placement.js v9, worker v13 Sunday coach notes) 📊 report card: graphics + code-written text (where you stand / going well / holding back / compare / next) + 🔊 Read;
   student widget native + portal (backup) + SA view of any student.
 - ◐ S4 AI (23-Oct: worker /ai live v12; feedback moments lvl / mock / stuck BUILT widgets 282 / w339 + staff v1943 💬 Feedback with AI summary; still: Ready 70 / Saturday / monthly moments, portal card, coach note, student AI auth): Cloudflare Workers AI through the worker; feedback = one tap on result screens + one AI "why?" (chips + 🎤), max 1 a day,
   +10 XP, schedule table in the mockup; AI joins the pieces per student; SA 💬 Feedback page (Placement / App / Widget);
