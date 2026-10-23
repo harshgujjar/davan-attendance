@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1939 · 23-Oct-2026 IST
+⏸ Class feedback (user, 23-Oct: "tomorrow's subject survey off - no proper classes after the long holiday"): the Skip button only worked after Saturday 11 am, so a new "⏸ Skip next round (Sat …)" writes DB2 davan_pub/class_fb_cfg {on:false, pausedWk: next Saturday, skip/<week>} at once; the auto un-pause now waits until that week is over (pausedWk < this week). No extra reads. Functions: cfbSkipHtml, cfbSkipWeek, the cfg check in the class-feedback summary loader.
+
 ## v1938 · 22-Oct-2026 IST
 🎯 Placement word (user, 21-Oct: "Salary was shown as word of the day"): the notification registry row gen_plc_word is now "✨ Placement word" (students + staff); the Placement page (shared learn/placement.js) says "💬 Placement word" and shows the daily English word as its own card. New file sa-screens.json = the staff widget's 🛠 Super Admin page screens (no app code). No Firebase cost (daily-words.json is a public file, cached once a day). Pairs with: portal v11.94, student widget 279, staff widget w335.
 
