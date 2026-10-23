@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1947 · 23-Oct-2026 IST
+🔊 Report card voice (user: "it should tell BCA 5th sem A section; it says pro bit"): learn/placement.js v12 clsName (Davan-BCA-Sem5-SecA -> BCA 5th semester, section A) in the report text; 👑 PRO -> 👑 Pro level; repRead drops emoji and says PRO as "Pro". Pairs with portal v11.97, widgets 286 / w343 (PlcRep.clsName).
+
 ## v1946 · 23-Oct-2026 IST
 S5 + S6 (user: "build S5 and S6 next"): 📣 Ask your class on the Placement page (plcAskInit / plcAskClass): for each class the teacher takes (_daMyClasses) - joined / class size, average Ready, stuck at level 0 with photos; one tap writes DB2 davan_pub/cards_by_urn/<URN>/plc_ask (a Today-page card for 3 days on each NOT-joined student's widget, no build needed) and davan_pub/plc_ask/<class> {at, by, n} (once a week). Reads learn/prog (students) once per open (PLC.progAll). Super Admin Placement report: 🚩 PRO checks from DB4 learn/flag (learn/placement.js v11). Pairs with student widget 285 / staff widget w342 (teasers, welcome back, course battle, share card, comeback reminders, 👑 PRO ladder + anti-cheat flags).
 

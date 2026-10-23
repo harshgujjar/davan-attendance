@@ -364,6 +364,8 @@
   // averages per level / mock - cached 30 min), log/<ID> last 300 rows (questions per day), coach/<ID> (the AI coach note the Cloudflare
   // worker writes every Sunday for Ready 70+).
   const TRN = { quant: 'Quant', reason: 'Reasoning', verbal: 'Verbal', english: 'English', japanese: 'Japanese', bca: 'BCA Technical', bba: 'BBA Technical', bcom: 'BCom Technical' };
+  // v12 (user, 23-Oct-2026: "the voice should say BCA 5th sem A section"): Davan-BCA-Sem5-SecA -> BCA 5th semester, section A
+  const clsName = c => { const m = /-([A-Za-z]+)-Sem(\d)-Sec([A-Z])$/.exec(String(c || '')); if (!m) return String(c || ''); const n = +m[2], k = m[1].toUpperCase() === 'BCOM' ? 'BCom' : m[1].toUpperCase(); return k + ' ' + n + (['th', 'st', 'nd', 'rd'][n] || 'th') + ' semester, section ' + m[3]; };
   function repLoad(id) {
     const role = (S.o.role === 'stf' ? 'stf' : 'stu');
     if (S.rep && S.rep.id === id && Date.now() - S.rep.at < 30 * 60000) return;
@@ -399,11 +401,11 @@
       parts.push(['What is holding you back', t]);
     } else parts.push(['What is holding you back', 'Nothing in the main tracks - every part of your Ready score is full. Keep it fresh with the mock tests and the Saturday challenge.']);
     // 4 compare
-    if (clsAvg != null && cls.length > 1) parts.push(['How you compare', 'The average Ready score in ' + p.c + ' is ' + clsAvg + '. Yours is ' + r.all + (clsAvg > 0 && r.all >= clsAvg * 2 ? ', about ' + Math.round(r.all / clsAvg) + ' times your class average.' : r.all >= clsAvg ? ', above your class average.' : ', ' + (clsAvg - r.all) + ' points below your class average - a few levels will change that.')]);
+    if (clsAvg != null && cls.length > 1) parts.push(['How you compare', 'The average Ready score in ' + clsName(p.c) + ' is ' + clsAvg + '. Yours is ' + r.all + (clsAvg > 0 && r.all >= clsAvg * 2 ? ', about ' + Math.round(r.all / clsAvg) + ' times your class average.' : r.all >= clsAvg ? ', above your class average.' : ', ' + (clsAvg - r.all) + ' points below your class average - a few levels will change that.')]);
     // 5 next
     const left = ['quant', 'reason', 'verbal', 'english'].concat(tt ? [tt] : []).reduce((a, t) => a + Math.max(0, 10 - lv(t)), 0);
-    parts.push(['What to do next', left ? (comp && comp[1] < comp[2] ? 'Clear the next levels in ' + comp[3].filter(t => lv(t) < 10).map(t => TRN[t]).join(' and ') + '. ' : '') + left + ' levels are left to 👑 PRO. At 2 levels a day that is about ' + Math.ceil(left / 2) + (Math.ceil(left / 2) === 1 ? ' day.' : ' days.') + ' Then the Saturday Challenge and, later, the live AI interview open for you.'
-      : 'You have cleared every level - you are 👑 PRO. Keep sharp with the mock tests and the Saturday challenge.']);
+    parts.push(['What to do next', left ? (comp && comp[1] < comp[2] ? 'Clear the next levels in ' + comp[3].filter(t => lv(t) < 10).map(t => TRN[t]).join(' and ') + '. ' : '') + left + ' levels are left to 👑 Pro level. At 2 levels a day that is about ' + Math.ceil(left / 2) + (Math.ceil(left / 2) === 1 ? ' day.' : ' days.') + ' Then the Saturday Challenge and, later, the live AI interview open for you.'
+      : 'You have cleared every level - you are at 👑 Pro level. Keep sharp with the mock tests and the Saturday challenge.']);
     // questions per day (last 7 days) + % right
     const days = []; for (let i = 6; i >= 0; i--) days.push(ist(Date.now() - i * 864e5));
     const per = {}; (R.log || []).forEach(x => { const d = ist(x.t); if (!days.includes(d)) return; per[d] = per[d] || { q: 0, ok: 0 }; per[d].q += x.of || 0; per[d].ok += x.s || 0; });
@@ -423,9 +425,9 @@
       <div class="k"><div class="kick">📝 YOUR REPORT, IN WORDS · 🔊 tap Read to hear it</div>${d.parts.map(x => `<div style="font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;margin-top:12px">${esc(x[0])}</div><div style="margin-top:4px">${esc(x[1])}</div>`).join('')}</div>
       ${R.coach && R.coach.text ? `<div class="k" style="background:var(--li)"><div class="kick">🤖 YOUR COACH SAYS · ${esc(new Date(R.coach.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }))}</div><div style="margin-top:6px;white-space:pre-wrap">${esc(R.coach.text)}</div></div>` : (d.r.all >= 70 ? `<div class="k" style="background:var(--li)"><div class="kick">🤖 YOUR COACH</div><div class="mu" style="margin-top:4px">Your personal coach note comes on Sunday evening.</div></div>` : '')}`;
   }
-  function repRead(b) {
+  function repRead(b) {   // v12: read without emoji, PRO said as the word Pro
     try { if (speechSynthesis.speaking) { speechSynthesis.cancel(); if (b) b.textContent = '🔊 Read'; return; }
-      const u = new SpeechSynthesisUtterance(S.repSay || ''); u.lang = 'en-IN'; u.rate = .95; u.onend = () => { if (b) b.textContent = '🔊 Read'; }; speechSynthesis.speak(u); if (b) b.textContent = '⏹ Stop'; } catch (e) {}
+      const u = new SpeechSynthesisUtterance(String(S.repSay || '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F\u200D]/gu, '').replace(/PRO/g, 'Pro')); u.lang = 'en-IN'; u.rate = .95; u.onend = () => { if (b) b.textContent = '🔊 Read'; }; speechSynthesis.speak(u); if (b) b.textContent = '⏹ Stop'; } catch (e) {}
   }
   // ── v8 (user, 23-Oct-2026: "build the Placement AI feedback"): Super Admin 💬 Feedback - the one-tap answers from the widgets
   // (DB4 learn/fb/<ID>/<time> {t, m: lvl|mock|stuck, tr, l, pct, tap, why, txt, app}) + an AI summary (S.o.ai = the staff app's aiAsk),
