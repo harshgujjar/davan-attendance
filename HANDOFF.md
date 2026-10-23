@@ -107,3 +107,10 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - Where: screens 1-5 = student widget native app (PlcActivity) AND the student portal (backup, user 23-Oct); 6 = staff widget + staff app; 7 = SaActivity + staff app.
 - User decisions: Level 1 pass mark unchanged; anti-cheat for PRO only; Ollama code to be removed from the staff app; AI = Cloudflare Workers AI (explore); PRO+ Rs 500 only after 10 students, Live AI after 20 PRO. Sharing optional (advised against forcing).
 - OPEN (user 23-Oct): Super Admin report needs "new joined today/week" + "moved up a level" counts (prog has no join date yet - add fd = first day); 🏨 mark in SaActivity report rows (p.h == 1).
+
+## 🤖 AI - LIVE (23-Oct-2026, tested by the user: "cf · glm-4.7-flash · 8.2 s")
+- Worker davan-release v12 POST /ai (staff Firebase ID token only for now); Workers AI binding AI, models @cf/zai-org/glm-4.7-flash then
+  @cf/meta/llama-3.1-8b-instruct-fast (DB2 davan_pub/ai_cfg.model overrides); providers cf -> gemini (secret GEMINI_KEY) -> cf2 (CF2_ACCOUNT + CF2_TOKEN), each only when set.
+- Limits DB2 davan_pub/ai_cfg {on, max 300, perUser 60, model}; use davan_pub/ai_use/<IST date> {n, u, p, out}. Staff app 🤖 AI page (v1942): aiAsk() = the ONE call for every AI feature.
+- NEXT: Placement AI feedback (moment taps + one "why?"), then the rest of the Placement bundle (ROADMAP-placement FINAL BUILD PLAN). Students / widgets need their own check in aiIncoming (widget code via DB2 link) before they can call /ai.
+- Name idea "Davan Smart" - waiting for the user's choice.
