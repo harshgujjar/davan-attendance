@@ -216,7 +216,10 @@ async function startOrAlert(p, what) {
 //   When all are out: "AI is resting - back tomorrow".
 // - Limits + meter: DB2 davan_pub/ai_cfg {on (default true), max (calls a day, default 300), perUser (default 60)};
 //   davan_pub/ai_use/<IST date> {n, out:{provider:true}, u:{uid:n}, p:{provider:n}}. 2 tiny DB2 reads + 1 write per call.
-const AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+// v12 (23-Oct-2026: Cloudflare retired llama-3.1-8b-instruct on 30-May-2026): models tried in order; DB2 davan_pub/ai_cfg.model (set on the
+// staff app's AI page) goes first, so a future retirement needs no new deploy.
+const AI_MODELS = ['@cf/zai-org/glm-4.7-flash', '@cf/meta/llama-3.1-8b-instruct-fast'];
+const AI_MODEL = AI_MODELS[1];   // the 2nd Cloudflare account / REST path
 const STAFF_PROJECT = 'davan-attendance-2026';
 let _jwk = null, _jwkAt = 0;
 const b64u = x => Uint8Array.from(atob(x.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((x.length + 3) % 4)), ch => ch.charCodeAt(0));
@@ -241,10 +244,18 @@ function aiProviders(env) {
   return l;
 }
 const isLimit = (status, txt) => status === 429 || /quota|limit|exceed|neuron|allocation|exhaust|RESOURCE_EXHAUSTED/i.test(String(txt || ''));
-async function aiCall(env, prov, messages, max) {
+const aiText = r => { if (!r) return ''; if (typeof r.response === 'string') return r.response;
+  const c = r.choices && r.choices[0] && r.choices[0].message; if (c && typeof c.content === 'string') return c.content;
+  return r.result ? aiText(r.result) : ''; };
+async function aiCall(env, prov, messages, max, cfgModel) {
   if (prov === 'cf') {
-    try { const r = await env.AI.run(AI_MODEL, { messages, max_tokens: max }); return { text: String((r && r.response) || '').trim() }; }
-    catch (e) { const m = String(e.message || e); return { err: m, limit: isLimit(0, m) }; }
+    const errs = [], list = [cfgModel, ...AI_MODELS].filter((m, i, a) => m && a.indexOf(m) === i);
+    for (const model of list) {
+      try { const r = await env.AI.run(model, { messages, max_tokens: model.includes('glm') ? max + 1200 : max });   // glm thinks first - room for the answer
+        const t = String(aiText(r) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim(); if (t) return { text: t, model }; errs.push(model + ': empty answer');
+      } catch (e) { const m = String(e.message || e); if (isLimit(0, m) && !/deprecat/i.test(m)) return { err: m, limit: true }; errs.push(model + ': ' + m.slice(0, 120)); }
+    }
+    return { err: errs.join(' / ') };
   }
   if (prov === 'cf2') {
     const r = await fetch('https://api.cloudflare.com/client/v4/accounts/' + env.CF2_ACCOUNT + '/ai/run/' + AI_MODEL, { method: 'POST',
@@ -277,16 +288,17 @@ async function aiIncoming(env, b) {
   const mx = Math.min(Math.max(+b.max || 400, 50), 1200), tried = [];
   for (const prov of aiProviders(env)) {
     if (out[prov]) continue;
-    const r = await aiCall(env, prov, messages, mx).catch(e => ({ err: String(e.message || e) }));
+    const r = await aiCall(env, prov, messages, mx, cfg.model).catch(e => ({ err: String(e.message || e) }));
     if (r.text) {
       const patch = { n: (use.n || 0) + 1, ['u/' + who.uid]: mine + 1, ['p/' + prov]: (((use.p || {})[prov]) || 0) + 1, last: Date.now() };
       await db2('PATCH', 'davan_pub/ai_use/' + day, patch);
-      return { ok: true, text: r.text, provider: prov, left: Math.max(0, Math.min(max - patch.n, per - mine - 1)) };
+      return { ok: true, text: r.text, provider: prov + (r.model ? ' · ' + r.model.split('/').pop() : ''), left: Math.max(0, Math.min(max - patch.n, per - mine - 1)) };
     }
     tried.push(prov + ': ' + clip(r.err, 160));
     if (r.limit) await db2('PATCH', 'davan_pub/ai_use/' + day + '/out', { [prov]: true });   // used up for today -> next provider
   }
-  return { ok: false, msg: tried.length ? 'AI is resting - back tomorrow. (' + tried.join(' | ') + ')' : 'AI is resting - back tomorrow.' };
+  const rest = Object.keys(out).length || tried.some(t => isLimit(0, t) && !/deprecat/i.test(t));
+  return { ok: false, msg: (rest ? 'AI is resting - back tomorrow.' : 'AI error - not a daily limit, the AI will be fixed.') + (tried.length ? ' (' + tried.join(' | ') + ')' : '') };
 }
 
 export default {
@@ -346,6 +358,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 11, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 12, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
   },
 };

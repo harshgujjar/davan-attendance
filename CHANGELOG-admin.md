@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1942 · 23-Oct-2026 IST
+🤖 AI fix (user's test: "5028 llama-3.1-8b-instruct was deprecated on 2026-05-30"): worker v12 tries @cf/zai-org/glm-4.7-flash, then @cf/meta/llama-3.1-8b-instruct-fast (or the model set in DB2 davan_pub/ai_cfg.model first); a model error is no longer shown as "resting". AI page: Model box (ai_cfg.model) and ↺ Try again today (clears davan_pub/ai_use/<date>/out). Functions: aiInit, aiClearOut; worker aiCall, aiText.
+
 ## v1941 · 23-Oct-2026 IST
 🤖 AI (user, 23-Oct: "go AI"): new Super Admin page 🤖 AI - provider status (worker davan-release v11 POST /ai, Workers AI first; Gemini / a 2nd Cloudflare account only when their secrets are set), today's use, limits (DB2 davan_pub/ai_cfg {on, max, perUser}) and a test box with 📋 Copy. Each AI call = the worker's 2 small DB2 reads + 1 write (davan_pub/ai_use/<date>). Functions: aiAsk (the one call all AI features will use), aiInit, aiCfgSet, aiTest.
 
