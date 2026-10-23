@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1941 · 23-Oct-2026 IST
+🤖 AI (user, 23-Oct: "go AI"): new Super Admin page 🤖 AI - provider status (worker davan-release v11 POST /ai, Workers AI first; Gemini / a 2nd Cloudflare account only when their secrets are set), today's use, limits (DB2 davan_pub/ai_cfg {on, max, perUser}) and a test box with 📋 Copy. Each AI call = the worker's 2 small DB2 reads + 1 write (davan_pub/ai_use/<date>). Functions: aiAsk (the one call all AI features will use), aiInit, aiCfgSet, aiTest.
+
 ## v1940 · 23-Oct-2026 IST
 ⏸ Class feedback (user, 23-Oct: had pressed Skip this week, still wanted Saturday 24 off): the "this week is skipped" box now also offers "⏸ Skip the next round too" (cfbSkipWeek ahead), which moves pausedWk to next Saturday's week; skip/<this week> stays. No extra reads. Function: cfbSkipHtml.
 

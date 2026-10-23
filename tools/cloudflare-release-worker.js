@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v11 (23-Oct-2026): POST /ai - AI for the staff app (Workers AI binding AI; Gemini / a 2nd account later), daily limits in DB2.
  *  - v7 (13-Oct-2026): GET /?marks=<exam>&cls=<classes> starts the PUC marks scrape in the cloud (puc-marks.yml) - the PUC app's button.
  *  - v6 (12-Oct-2026, the user's Cloudflare log showed only the two release timers ran): timers are recognised by their minute list,
  *    not by the text "MON-SAT" (the dashboard may store the days as 2-7). Paste this code AND add the two scraper timers (RELEASE-WORKER.md).
@@ -204,6 +205,90 @@ async function startOrAlert(p, what) {
   return r;
 }
 
+
+// ── v11 (user, 23-Oct-2026: "go AI - when the day's AI is used up we stop for that day; later more accounts, maybe Gemini") ─────────
+// POST /ai {token, task, prompt, system?, max?}  ->  {ok, text, provider, left, msg}
+// - Who: a logged-in staff member of the staff app (Firebase email/password ID token of davan-attendance-2026, checked here with
+//   Google's public keys). Students / widgets come later (their own check).
+// - Providers in order (PROVIDERS): 'cf' = this account's Workers AI (binding AI, free daily allowance), 'gemini' = Google Gemini
+//   (secret GEMINI_KEY, only when set), 'cf2' = a second Cloudflare account over its REST API (secrets CF2_ACCOUNT + CF2_TOKEN, only
+//   when set). A provider that fails with a limit / quota answer is marked "out" for the rest of the IST day and the next one is tried.
+//   When all are out: "AI is resting - back tomorrow".
+// - Limits + meter: DB2 davan_pub/ai_cfg {on (default true), max (calls a day, default 300), perUser (default 60)};
+//   davan_pub/ai_use/<IST date> {n, out:{provider:true}, u:{uid:n}, p:{provider:n}}. 2 tiny DB2 reads + 1 write per call.
+const AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const STAFF_PROJECT = 'davan-attendance-2026';
+let _jwk = null, _jwkAt = 0;
+const b64u = x => Uint8Array.from(atob(x.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((x.length + 3) % 4)), ch => ch.charCodeAt(0));
+async function staffFromToken(tok) {
+  const p = String(tok || '').split('.'); if (p.length !== 3) return null;
+  const head = JSON.parse(new TextDecoder().decode(b64u(p[0]))), body = JSON.parse(new TextDecoder().decode(b64u(p[1])));
+  if (!_jwk || Date.now() - _jwkAt > 6 * 3600000) {
+    const r = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'); _jwk = (await r.json()).keys || []; _jwkAt = Date.now(); }
+  const k = _jwk.find(x => x.kid === head.kid); if (!k) return null;
+  const key = await crypto.subtle.importKey('jwk', k, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64u(p[2]), new TextEncoder().encode(p[0] + '.' + p[1]));
+  const now = Date.now() / 1000;
+  if (!ok || body.aud !== STAFF_PROJECT || body.iss !== 'https://securetoken.google.com/' + STAFF_PROJECT || body.exp < now || !body.sub) return null;
+  if ((body.firebase || {}).sign_in_provider !== 'password') return null;   // staff logins only (never an anonymous token)
+  return { uid: body.sub, email: body.email || '' };
+}
+function aiProviders(env) {
+  const l = [];
+  if (env.AI) l.push('cf');
+  if (env.GEMINI_KEY) l.push('gemini');
+  if (env.CF2_ACCOUNT && env.CF2_TOKEN) l.push('cf2');
+  return l;
+}
+const isLimit = (status, txt) => status === 429 || /quota|limit|exceed|neuron|allocation|exhaust|RESOURCE_EXHAUSTED/i.test(String(txt || ''));
+async function aiCall(env, prov, messages, max) {
+  if (prov === 'cf') {
+    try { const r = await env.AI.run(AI_MODEL, { messages, max_tokens: max }); return { text: String((r && r.response) || '').trim() }; }
+    catch (e) { const m = String(e.message || e); return { err: m, limit: isLimit(0, m) }; }
+  }
+  if (prov === 'cf2') {
+    const r = await fetch('https://api.cloudflare.com/client/v4/accounts/' + env.CF2_ACCOUNT + '/ai/run/' + AI_MODEL, { method: 'POST',
+      headers: { Authorization: 'Bearer ' + env.CF2_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ messages, max_tokens: max }) });
+    const t = await r.text(); if (!r.ok) return { err: 'cf2 ' + r.status + ' ' + t.slice(0, 200), limit: isLimit(r.status, t) };
+    try { return { text: String(JSON.parse(t).result.response || '').trim() }; } catch (e) { return { err: 'cf2 answer not readable' }; }
+  }
+  if (prov === 'gemini') {
+    const sys = messages.filter(m => m.role === 'system').map(m => m.content).join('\n');
+    const contents = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + (env.GEMINI_MODEL || 'gemini-2.5-flash') + ':generateContent?key=' + env.GEMINI_KEY, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents, systemInstruction: sys ? { parts: [{ text: sys }] } : undefined, generationConfig: { maxOutputTokens: max } }) });
+    const t = await r.text(); if (!r.ok) return { err: 'gemini ' + r.status + ' ' + t.slice(0, 200), limit: isLimit(r.status, t) };
+    try { return { text: (JSON.parse(t).candidates[0].content.parts || []).map(x => x.text || '').join('').trim() }; } catch (e) { return { err: 'gemini answer not readable' }; }
+  }
+  return { err: 'unknown provider ' + prov };
+}
+async function aiIncoming(env, b) {
+  const who = await staffFromToken(b.token).catch(() => null);
+  if (!who) return { ok: false, msg: 'Please log in to the staff app again.' };
+  const prompt = clip(b.prompt, 4000).trim(); if (!prompt) return { ok: false, msg: 'Nothing to ask.' };
+  const day = istDate(Date.now()), cfg = (await db2('GET', 'davan_pub/ai_cfg')) || {}, use = (await db2('GET', 'davan_pub/ai_use/' + day)) || {};
+  if (cfg.on === false) return { ok: false, msg: 'AI is switched off (Super Admin).' };
+  const max = +cfg.max || 300, per = +cfg.perUser || 60, mine = ((use.u || {})[who.uid]) || 0, out = use.out || {};
+  if ((use.n || 0) >= max) return { ok: false, msg: 'Today\'s AI limit (' + max + ') is used up - back tomorrow.', left: 0 };
+  if (mine >= per) return { ok: false, msg: 'You used your ' + per + ' AI answers for today - back tomorrow.', left: 0 };
+  const messages = [{ role: 'system', content: clip(b.system, 2000) || 'You are a helpful assistant for Davan College, Davangere (India). Answer clearly and briefly in simple English.' },
+    { role: 'user', content: prompt }];
+  const mx = Math.min(Math.max(+b.max || 400, 50), 1200), tried = [];
+  for (const prov of aiProviders(env)) {
+    if (out[prov]) continue;
+    const r = await aiCall(env, prov, messages, mx).catch(e => ({ err: String(e.message || e) }));
+    if (r.text) {
+      const patch = { n: (use.n || 0) + 1, ['u/' + who.uid]: mine + 1, ['p/' + prov]: (((use.p || {})[prov]) || 0) + 1, last: Date.now() };
+      await db2('PATCH', 'davan_pub/ai_use/' + day, patch);
+      return { ok: true, text: r.text, provider: prov, left: Math.max(0, Math.min(max - patch.n, per - mine - 1)) };
+    }
+    tried.push(prov + ': ' + clip(r.err, 160));
+    if (r.limit) await db2('PATCH', 'davan_pub/ai_use/' + day + '/out', { [prov]: true });   // used up for today -> next provider
+  }
+  return { ok: false, msg: tried.length ? 'AI is resting - back tomorrow. (' + tried.join(' | ') + ')' : 'AI is resting - back tomorrow.' };
+}
+
 export default {
   // the timers: 9:15 pm IST + 9:45 pm backup (release); v4: SCR_CRON -> the college scraper at SCR_TIMES only; v5: PUC_CRON -> PUC at PUC_TIMES
   async scheduled(event, env, ctx) {
@@ -241,6 +326,11 @@ export default {
       let r; try { r = await saIncoming(env, b); } catch (e) { r = { ok: false, msg: String(e.message || e) }; }
       return new Response(JSON.stringify(r), { headers: CORS });
     }
+    if (request.method === 'POST' && u.pathname === '/ai') {   // v11: AI for the staff app (Super Admin test box first)
+      let b = {}; try { b = JSON.parse(await request.text()); } catch (e) {}
+      let r; try { r = await aiIncoming(env, b); } catch (e) { r = { ok: false, msg: 'AI error: ' + String(e.message || e) }; }
+      return new Response(JSON.stringify(r), { headers: CORS });
+    }
     if (u.searchParams.get('marks')) return new Response(JSON.stringify(await startMarks(env, String(u.searchParams.get('marks')).trim(), u.searchParams.get('cls') || '')), { headers: CORS });
     if (u.searchParams.get('log')) return new Response(JSON.stringify(await logRequest(env, String(u.searchParams.get('log')).trim().toUpperCase())), { headers: CORS });
     if (u.searchParams.get('ig') === '1') return new Response(JSON.stringify(await startIg(env)), { headers: CORS });   // v10: the staff app's Instagram page - Run now / after a command
@@ -256,6 +346,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 9, sa: true, now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 11, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
   },
 };
