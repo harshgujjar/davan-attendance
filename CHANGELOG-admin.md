@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1940 · 23-Oct-2026 IST
+⏸ Class feedback (user, 23-Oct: had pressed Skip this week, still wanted Saturday 24 off): the "this week is skipped" box now also offers "⏸ Skip the next round too" (cfbSkipWeek ahead), which moves pausedWk to next Saturday's week; skip/<this week> stays. No extra reads. Function: cfbSkipHtml.
+
 ## v1939 · 23-Oct-2026 IST
 ⏸ Class feedback (user, 23-Oct: "tomorrow's subject survey off - no proper classes after the long holiday"): the Skip button only worked after Saturday 11 am, so a new "⏸ Skip next round (Sat …)" writes DB2 davan_pub/class_fb_cfg {on:false, pausedWk: next Saturday, skip/<week>} at once; the auto un-pause now waits until that week is over (pausedWk < this week). No extra reads. Functions: cfbSkipHtml, cfbSkipWeek, the cfg check in the class-feedback summary loader.
 
