@@ -101,7 +101,7 @@ Both widgets (student + staff) unless noted; source in davan-scraper/widgets (ad
 5. Release: build -> "next" (7UP47U Super Admin and EMTH7Q Neesha get it within minutes via `codes`), everyone else at the 9:15 pm release. Page-2 "Open as" rule: check once with a faculty + an admin for the staff widget.
 Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pub/student_widget_report/<code>` (works, ~1 min).
 
-## 🎯 Placement next steps - PLAN (23-Oct-2026, mockup v2 https://claude.ai/artifact/2RDGezjZqDbhu6999iZJQe, awaiting approval)
+## 🎯 Placement next steps - FINAL PLAN in ROADMAP-placement.md "FINAL BUILD PLAN" (23-Oct-2026, mockup v2 https://claude.ai/artifact/2RDGezjZqDbhu6999iZJQe, awaiting approval)
 - Live data 23-Oct (davan-scraper Action "Placement report" = tools/learn_report.py, read only): 31 students + 2 staff; top Nanditha 76 / Akshatha 72 / Sindhu 70; 19 at level 0; L1 tests + company mocks hardest.
 - Parts: 1 AI feedback chat (trigger-based, card + 1 notification, Later x3; Placement first, then app, widget) · 2 report card = graphics + code-written text (5 parts) + 🔊 Read, AI coach note auto for Ready 70+ · 3 teasers (PRO, Saturday challenge, Live AI at 20 PRO) · 4 course battle BCA/BBA/BCom + optional share card · 5 comeback engine · 6 class-teacher "Ask your class" · 7 Super Admin feedback themes.
 - Where: screens 1-5 = student widget native app (PlcActivity) AND the student portal (backup, user 23-Oct); 6 = staff widget + staff app; 7 = SaActivity + staff app.

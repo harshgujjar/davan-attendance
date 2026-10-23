@@ -203,3 +203,28 @@ Built 19-Oct (how): prog.wk {w: Monday IST, x}, mo / pm {m, x}, bs (best streak)
 League = learn/prog?orderBy="c"&equalTo=<class> (staff "r"="stf"), widget every 6 h (plc_lg), app on open; photos: student DB2 davan_student_photos/<URN> (files/plcf), staff FacPhoto.
 Notifications: gen_plc_qod custom big view A-D (Alerts.BIG, OpenActivity plc_nans), gen_plc_streak 20:15, gen_plc_mock Thu 18:45 (mock of the week), gen_plc_league Sun 18:30, plc_lvl event.
 Revision = phone-only plc_wrong (wrong qid -> back the next day). Certificates: QR -> learn/v.html#<id>.<track>.<level> (anonymous DB4 read). Paths = bank.json "paths" (also in build_levels.py).
+
+## FINAL BUILD PLAN (user, 23-Oct-2026) - mockup v4 https://claude.ai/artifact/2RDGezjZqDbhu6999iZJQe
+Live data 23-Oct: 31 students + 2 staff; top Nanditha 76 / Akshatha 72 / Sindhu 70; 19 at level 0; L1 tests + company mocks hardest; 2 on Japanese.
+Already done 23-Oct: SA report photos (staff w336), local weather (student 280 / staff w337), class-feedback skip ahead (v1940), tools/learn_report.py (davan-scraper, read only).
+Decisions: Level 1 pass mark unchanged (8/10); anti-cheat for PRO only; Ollama code removed from the staff app; AI = Cloudflare Workers AI;
+Live AI interview when 20 students pass PRO; PRO+ Rs 500 only after 10 PRO+ students (decide later); sharing optional, never forced.
+- ☐ S1 small: 🏨 on SaActivity report rows (p.h); SA report counts 🆕 new today/week (prog.fd first day, old learners from their log),
+  ⬆ moved up a level today/week, 😴 stopped 3+ days (native SA page + staff app); remove Ollama from the staff app;
+  💻 Technical other courses: chips [BCA ✓][BBA][BCom], own course first; other courses = "Explore" with their OWN knowledge XP (kx),
+  shown only there - NOT in XP, league, Ready score, rank or report (student widget native, portal, staff app). Mockup first.
+- ☐ S2 🇯🇵 Japanese word of the day replaces the ✨ quote in the 7:30 voice note: daily-jp.json (365 words: word, romaji, Kannada letters,
+  English + Kannada meaning, example) + one checked "Why Japan" line a day (JLPT, MEXT, jobs, comparison, live Davan numbers, tips);
+  🔊 Hear / 🔁 Slowly / ✅ Got it; widget Today card, portal dashboard card, Today's messages; staff widget too; count taps.
+  Plus: Why Japan card, 7-day starter challenge, 🇯🇵 badge in league/battle, teaser after English level 10.
+- ☐ S3 📊 report card: graphics + code-written text (where you stand / going well / holding back / compare / next) + 🔊 Read;
+  student widget native + portal (backup) + SA view of any student.
+- ☐ S4 AI: Cloudflare Workers AI through the worker; feedback = one tap on result screens + one AI "why?" (chips + 🎤), max 1 a day,
+  +10 XP, schedule table in the mockup; AI joins the pieces per student; SA 💬 Feedback page (Placement / App / Widget);
+  🤖 coach note auto for Ready 70+ (Sunday, cap 50 a week).
+- ☐ S5 growth: teasers as students come close (PRO, Saturday challenge, Live AI 0/20); ⚔️ course battle BCA/BBA/BCom
+  (average XP per learner) + optional share card (+50 XP first time); comeback engine (stuck / away 2+ days / never started, 1 a day);
+  class teacher 📣 Ask your class card + stuck list (staff widget + staff app).
+- ☐ S6 👑 PRO ladder: endless levels after 10, each harder, 9/10 to pass, fresh questions on a retry; anti-cheat (shuffle, minimum time,
+  tab switches, practice vs mock check, flags only, server-side answers).
+- ☐ Later: 🤖 live AI mock interview (at 20 PRO); 💎 PRO+ plan (after 10, Rs 500 - decide then).
