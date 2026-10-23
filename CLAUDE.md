@@ -107,6 +107,18 @@ No data: / blob: manifests or blob: workers. Every icon a manifest lists must ex
 
 Every debug / timing / diagnostic text shown to the user gets a one-tap **📋 Copy** button (`dvCopyText(text, btn)` in the staff app) so it can be pasted back fast.
 
+## Everything runs by itself, for years (user, 23-Oct-2026 - standing rule for every build)
+"My apps and widgets should be self-working; as we move forward I fix only bugs - the rest must work independently for ages to come."
+Every new feature (apps, widgets, workers, cloud jobs) must be built so nobody has to touch it again:
+- **No manual steps**: timers, releases, refreshes, clean-ups and yearly / semester changes happen automatically (dates from data, never typed into code).
+- **Content and settings live in data**, not in code: JSON files on main or DB nodes the Super Admin can edit (words, facts, limits, model names, texts), so a change never needs a new build.
+- **Always a fallback**: a missing permission, service, key, AI model or network gives a safe default (e.g. local weather -> Davangere, AI model retired -> next model), never a broken screen.
+- **Outside services can change**: never depend on one provider, model or version; keep a list to fall back through and make it changeable from data (AI models: DB2 davan_pub/ai_cfg.model).
+- **Free limits and expiry**: stop for the day when a free limit is used up and continue the next day; warn the Super Admin well before any key, token or certificate expires.
+- **Self-repair + tell**: a failed job retries / recovers by itself and sends a Super Admin alert (☁️ Cloud alerts) only when it cannot.
+- **Old data cleans itself up** (keep what reports need, delete the rest on a timer) so databases never fill up.
+- Before saying a feature is done, check: "Will this still work in 2 years with nobody touching it?" If not, fix that first.
+
 ## Always commit, push and merge to main (standing instruction)
 
 After every change: bump versions, write the changelog entries, commit, push the session branch, then **merge it into `main` and push `main`** so the apps go live. Do this automatically, never ask. This holds in every session.
