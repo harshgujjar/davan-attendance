@@ -106,7 +106,7 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - Parts: 1 AI feedback chat (trigger-based, card + 1 notification, Later x3; Placement first, then app, widget) · 2 report card = graphics + code-written text (5 parts) + 🔊 Read, AI coach note auto for Ready 70+ · 3 teasers (PRO, Saturday challenge, Live AI at 20 PRO) · 4 course battle BCA/BBA/BCom + optional share card · 5 comeback engine · 6 class-teacher "Ask your class" · 7 Super Admin feedback themes.
 - Where: screens 1-5 = student widget native app (PlcActivity) AND the student portal (backup, user 23-Oct); 6 = staff widget + staff app; 7 = SaActivity + staff app.
 - User decisions: Level 1 pass mark unchanged; anti-cheat for PRO only; Ollama code to be removed from the staff app; AI = Cloudflare Workers AI (explore); PRO+ Rs 500 only after 10 students, Live AI after 20 PRO. Sharing optional (advised against forcing).
-- OPEN (user 23-Oct): Super Admin report needs "new joined today/week" + "moved up a level" counts (prog has no join date yet - add fd = first day); 🏨 mark in SaActivity report rows (p.h == 1).
+- DONE 23-Oct (v1945 / w341): Super Admin report new / moved up / stopped counts (prog.fd, prog.lu) + 🏨 on SaActivity rows.
 
 ## 🤖 AI - LIVE (23-Oct-2026, tested by the user: "cf · glm-4.7-flash · 8.2 s")
 - Worker davan-release v12 POST /ai (staff Firebase ID token only for now); Workers AI binding AI, models @cf/zai-org/glm-4.7-flash then
