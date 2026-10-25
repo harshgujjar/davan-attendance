@@ -38,6 +38,10 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - Not phone-tested: w293 channels / sounds; laptop photo + strip.
 - v1914: a job's sa.json may carry `link` = a staff-app page `index.html?go=<panel>` (worker keeps it only for harshgujjar.github.io/davan-attendance/, else the run URL); saBoot clicks #nav-<panel> after login. Widget check uses it. Not checked: that the staff widget's SaEv tap opens `link`.
 
+## 🔐 Native widget login + queued widget builds - PLAN ONLY (user, 24-Oct-2026: "keep it .md, we ll discuss later") - read ROADMAP-native-login.md
+- Built this session: portal v11.99 only (admin-view popup: Cancel = link as that student). Everything else in the roadmap waits for the user.
+- Open: admin sign-in secret sits in the public portal file (rotate + remove, needs the user's go).
+
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
   v1.6.1 SUBMITTED to addons.mozilla.org 15-Oct (slug usage-meter-for-claude) - waiting for approval. Heartbeat -> DB4
