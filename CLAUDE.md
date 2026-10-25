@@ -210,3 +210,7 @@ cloud job `is_super` in davan-scraper tools/ig_posts.py (accepts his commands). 
 - When the user says "tell me", only explain / plan - build NOTHING until the user says to build (go / build it).
 - A mockup must be accurate (real colours, fonts, sizes, data from the code), and the build must match the last approved mockup exactly -
   no extra changes after the corrections. If something cannot be built as shown, say so before building.
+
+## Mockups are phone-first (user, 25-Oct-2026)
+Every mockup is ONE full-width, phone-friendly page (fluid, max ~480px, tap to move between screens) - never several phone frames on a canvas.
+The user opens mockups on a phone.
