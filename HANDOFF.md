@@ -121,3 +121,9 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - Name idea "Davan Smart" - waiting for the user's choice.
 
 - ✨ RULE (user, 23-Oct-2026: "how do I know which is AI"): every AI-written text starts with / is marked ✨ (apps + widgets); 💬 = the app's own question. Keep this for every new AI feature.
+
+## Student + admin app redesign - MOCKUPS ONLY, nothing built (user, 25/26-Oct-2026)
+- Direction chosen: top tabs (Today / Study / Campus / Grow / Me) with data cards (no bottom tabs), Ask Davan bar, time-of-day Today hero, optional campus map. Two student mockups (cards always open / cards fold) + one admin mockup (role preview, new Designer tab). Mockups are single phone-friendly pages, opened from claude.ai artifacts: student 1 8votf8YiX4nmammsKTyjKT, student 2 1DfkX2JzFxssAFCK4nbKYq, admin RW7xpb1FbCDifNHBxvvWyP.
+- Real data in them: V NEESHA (U13NU25S0031, BCA sem 3 A) read with the davan-scraper "DB2 peek" Action: davan_pub/students_by_urn, results_by_urn, sitting_by_urn, internals_current/meta, calendar, timetable_portal/data (class "II YEAR BCA (A)"), session_config, fee_cfg. Not read yet (shown as SAMPLE): hostel (DB4), placement/learn (DB4), library, lesson plan, fee_paid, ig_posts, news.
+- Present student pages (widget): 1 Today, 2 Internals, 3 Results, 4 Attendance, 5 Notices, 6 News, 7 Stars, 8 Hostel, 9 Timetable, 10 Placement; portal panels: dashboard, attendance, internals, inttt, timetable, lessonplan, notices, reportcard, calendar, placement, library, hostel, getapp, notiflog.
+- Open: user has not approved a final layout yet; next step is their pick (open vs fold cards) and the page-by-page review, then plan the build (data-driven JSON so text/box changes need no new APK; no release until the user says).
