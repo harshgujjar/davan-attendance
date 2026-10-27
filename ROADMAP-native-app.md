@@ -51,3 +51,4 @@ Father's name for Neesha in the header (placeholder until given); test phones; r
 
 - 27 Oct: test builds 1002-1006 done (1006 = whole foldable mockup + faculty photos, sent by hand; test json still 294, not auto-updating yet).
 - 27 Oct: test-channel auto-update ON (student-widget-test.json = NG build 1009). After any public widget release the nightly job copies next over the test files: re-push the NG APK + json.
+- 27 Oct: app-layout-ng.json on main = the live layout (titles, colours, order, tabs, Today list, challenge tasks); edit it, no build. Build 1013: full class page.
