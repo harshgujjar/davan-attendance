@@ -214,3 +214,7 @@ cloud job `is_super` in davan-scraper tools/ig_posts.py (accepts his commands). 
 ## Mockups are phone-first (user, 25-Oct-2026)
 Every mockup is ONE full-width, phone-friendly page (fluid, max ~480px, tap to move between screens) - never several phone frames on a canvas.
 The user opens mockups on a phone.
+
+## Native app: two icons stay (user, 27-Oct-2026 - rule, never change)
+The student app keeps BOTH launcher icons: the old "Davan" and the new "Davan (new)" (NgHomeActivity, added by widgets/student-ng/build-ng.sh). Never remove or merge either icon,
+in test builds or the later public release, unless the user asks.
