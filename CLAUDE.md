@@ -217,4 +217,4 @@ The user opens mockups on a phone.
 
 ## Native app: two icons stay (user, 27-Oct-2026 - rule, never change)
 The student app keeps BOTH launcher icons: the old "Davan" and the new "Davan (new)" (NgHomeActivity, added by widgets/student-ng/build-ng.sh). Never remove or merge either icon,
-in test builds or the later public release, unless the user asks.
+in test builds or the later public release, unless the user asks. The old icon opens the old screen, Davan (new) the new screen (no redirect).
