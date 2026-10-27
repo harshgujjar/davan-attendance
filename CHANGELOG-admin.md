@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1951 · 27-Oct-2026 IST
+"Yesterday in your classes" on the faculty dashboard shows one line per class (user, 27-Oct: show / hide names); tap the line to open the absent names and photos, always starts hidden, the totals line stays. No new reads or writes. Changed: fdbYdayRender, new fydTog.
+
 ## v1950 · 27-Oct-2026 IST
 Kotrappa K (Kannada) and Rekha M R (Hindi) were shown as one line "Kotrappa K · Kannada / Hindi" in the widgets' class alerts, voice and class cards (user, 27-Oct: "fix all in one time"). The shared board (davan_pub/staff_pub/board) now keeps each teacher per language (lg) and the staff widget w352 names each one with their own language. No new reads or writes. Changed: stwDegDay / board build (lg no longer deleted), Periods.teach / teachers / teachSpoken (widget). Pairs with staff widget w352 (Davan.Student-next / DavanWidget-next).
 
