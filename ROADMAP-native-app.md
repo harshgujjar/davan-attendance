@@ -40,3 +40,11 @@ Week 1 (27 Oct-2 Nov) steps 1-9; week 2 steps 10-13; week 3 steps 14-20; week 4 
 
 ## Still open
 Father's name for Neesha in the header (placeholder until given); test phones; real data for hostel / Placement / results (DB4 and results rows) when we reach those cards.
+
+## Progress (27-Oct-2026)
+- Done: steps 4-8 first cut. Source in the private repo harshgujjar/davan-scraper, folder widgets/student-ng (build-ng.sh builds the unchanged widgets/student + Ng*.java).
+  Test build 1001 compiles and is signed with the student key: launcher entry "Davan (new)", gate (admin-linked phone or testUrns in student-widget-test.json),
+  header with real name / class / phone / F/o father, 5 tabs, foldable cards, detail page, layout from NgLayout (live app-layout-ng.json or built-in default).
+  Real data wired: Attendance, Student ID, App. Other cards say "next test build".
+- NOT done: run on a phone, give the APK to testers (needs the test phones from the user and the way to deliver it), steps 9 onward.
+- Note: the nightly release copies the "-next" build over the "-test" files, so a test build in the test channel can be overwritten after a public release; re-push it then.
