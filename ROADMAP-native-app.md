@@ -50,3 +50,4 @@ Father's name for Neesha in the header (placeholder until given); test phones; r
 - Note: the nightly release copies the "-next" build over the "-test" files, so a test build in the test channel can be overwritten after a public release; re-push it then.
 
 - 27 Oct: test builds 1002-1006 done (1006 = whole foldable mockup + faculty photos, sent by hand; test json still 294, not auto-updating yet).
+- 27 Oct: test-channel auto-update ON (student-widget-test.json = NG build 1009). After any public widget release the nightly job copies next over the test files: re-push the NG APK + json.
