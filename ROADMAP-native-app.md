@@ -48,3 +48,5 @@ Father's name for Neesha in the header (placeholder until given); test phones; r
   Real data wired: Attendance, Student ID, App. Other cards say "next test build".
 - NOT done: run on a phone, give the APK to testers (needs the test phones from the user and the way to deliver it), steps 9 onward.
 - Note: the nightly release copies the "-next" build over the "-test" files, so a test build in the test channel can be overwritten after a public release; re-push it then.
+
+- 27 Oct: test builds 1002-1006 done (1006 = whole foldable mockup + faculty photos, sent by hand; test json still 294, not auto-updating yet).
