@@ -15,17 +15,17 @@ the davan-scraper "DB2 peek" Action (read only). Weather, phone time, hostel, Pl
 5. Layout from a JSON file Claude edits (no Designer page for now). App falls back to a built-in default layout.
 6. Login: native login (URN + password, Firebase email <urn lowercase>@davan.local) writes the SAME link record the portal writes
    (davan_pub/student_widget_active/<code>), so the widget does not need the web app. Logout clears that record. Admin mode = staff login,
-   never the master password inside the APK. No silent re-linking; the Super Admin phone stays protected; pair log kept.
+   the same master-password admin login as the portal today (typed password goes to the Firebase sign-in; the APK only holds the admin email, never the password), then choose Student or Admin. No silent re-linking; the Super Admin phone stays protected; pair log kept.
 7. Admin / staff app: separate mockup, built later (role tabs, role preview, Designer later).
-8. DEFERRED by the user (27-Oct): cleaning up the plain-text admin password in the public student_portal.html. Do not start it until the
-   user says. Because of this, the new app must NOT use or copy that secret in any way.
+8. DEFERRED by the user (27-Oct): cleaning up the plain-text admin password in the public student_portal.html. NO change for now; the admin login
+   stays as it is today (user, 27-Oct: "for admin login we will do the same, no cleanup"). Do not start the clean-up until the user says.
 
 ## Build plan (serial numbers)
 Phase 0 - prepare: 1 approve mockup; 2 (DEFERRED) admin-secret clean-up; 3 test list (user phone + Neesha's test phone); 4 toolchain + build mode.
 Phase 1 - foundation (test builds only): 5 own package + manifest piece + higher version; 6 allow-list gate; 7 layout JSON reader + cache + default; 8 shell (header, Ask bar, tabs, foldable cards, detail pages).
 Phase 2 - Study (real data from Store.st): 9 Today's classes, Timetable, Attendance (all groups), Internals + seat + IA eligibility, Results, Lesson plan, Calendar, Report card.
 Phase 3 - rest of the app: 10 Today tab hero + Heads-up banners; 11 Campus (Notices, Hostel incl. SOS + night check-in, Messages, News + rates, Stars, Weather, Instagram, Follow, Fees, Library); 12 Me (ID, Settings, App states); 13 Placement + Messages open the existing screens unchanged.
-Phase 4 - login: 14 native login + saved logins; 15 logout clears the link; 16 admin mode via staff login (Open as); 17 keep the link protections.
+Phase 4 - login: 14 native login + saved logins; 15 logout clears the link; 16 admin login = same master-password login as the portal today, then Open as; 17 keep the link protections.
 Phase 5 - new for students: 18 Grow (30-day challenges from JSON, Skill Passport, QR); 19 Ask Davan (own-data answers, ✨ AI with daily limit); 20 campus map.
 Phase 6 - test: 21 testers use it daily, fixes; 22 checks (DB reads, offline, old phones, every card vs the real app).
 Phase 7 - release (after the semester, only when the user says): 23 public build with the screen + "What's new"; 24 Super Admin switch = everyone; 25 rollback = switch off.
