@@ -127,3 +127,6 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - Real data in them: V NEESHA (U13NU25S0031, BCA sem 3 A) read with the davan-scraper "DB2 peek" Action: davan_pub/students_by_urn, results_by_urn, sitting_by_urn, internals_current/meta, calendar, timetable_portal/data (class "II YEAR BCA (A)"), session_config, fee_cfg. Not read yet (shown as SAMPLE): hostel (DB4), placement/learn (DB4), library, lesson plan, fee_paid, ig_posts, news.
 - Present student pages (widget): 1 Today, 2 Internals, 3 Results, 4 Attendance, 5 Notices, 6 News, 7 Stars, 8 Hostel, 9 Timetable, 10 Placement; portal panels: dashboard, attendance, internals, inttt, timetable, lessonplan, notices, reportcard, calendar, placement, library, hostel, getapp, notiflog.
 - Open: user has not approved a final layout yet; next step is their pick (open vs fold cards) and the page-by-page review, then plan the build (data-driven JSON so text/box changes need no new APK; no release until the user says).
+
+## Native student app redesign - ROADMAP-native-app.md (27-Oct-2026, design only)
+- Plan, decisions and build order are in ROADMAP-native-app.md; mockup links are inside it. Nothing is built; the new screen goes to the user + testers only (test channel), never the nightly release, until after the semester ends 20 Nov. Admin-secret clean-up is deferred by the user.

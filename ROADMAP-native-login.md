@@ -34,3 +34,5 @@ Until then (no build): Super Admin -> Global Switches -> Spoken alerts -> "Stude
 2. Logout button in student only, or staff too.
 3. Go for the admin-secret clean-up.
 4. Go for the builds (order: 1 = box rule + notification fix + logout, student; 2 = same, staff; 3 = native login, student).
+
+- 27-Oct-2026: decision 3 (cleaning the plain-text admin secret in the public portal page) is DEFERRED by the user - do not start until told. See ROADMAP-native-app.md.
