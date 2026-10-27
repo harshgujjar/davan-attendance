@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1950 · 27-Oct-2026 IST
+Kotrappa K (Kannada) and Rekha M R (Hindi) were shown as one line "Kotrappa K · Kannada / Hindi" in the widgets' class alerts, voice and class cards (user, 27-Oct: "fix all in one time"). The shared board (davan_pub/staff_pub/board) now keeps each teacher per language (lg) and the staff widget w352 names each one with their own language. No new reads or writes. Changed: stwDegDay / board build (lg no longer deleted), Periods.teach / teachers / teachSpoken (widget). Pairs with staff widget w352 (Davan.Student-next / DavanWidget-next).
+
 ## v1949 · 25-Oct-2026 IST
 The 7:30 am 🌅 Morning brief (staff and student widgets) now also comes on Sundays (user, 25-Oct: "why no good morning today"): "Happy Sunday" line + weather + no classes, spoken too. The 🔔 registry shows it as "Every day" (`gen_morning` dw 1234567). No new data or reads. Pairs with student widget 291 / staff widget w348.
 
