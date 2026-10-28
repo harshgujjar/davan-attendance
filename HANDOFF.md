@@ -62,7 +62,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## 📞 Parent calls (v1952, 28-Oct-2026) - next step: PBX relay
 Staff app page done (manual call + 🔊 on speaker + log + ☎️ PBX queue in DB4 hostel/parent_calls). NEXT (user approved the plan, waiting for details):
 a small relay on the user's LAPTOP (college hours only, not always on) - softphone (pjsua / baresip) registers as a SIP extension on the college
-**Matrix ETERNITY** PBX (LAN, SIM connected; exact variant + Jeeves admin menu screenshots still to come), reads queue st:'wait', dials, plays TTS
+**Matrix ETERNITY PE 6S** PBX (Jeeves at 192.168.1.101; System Prerequisites 28-Oct: VoIP Ports 06, SIP Extensions 0, SIP Trunks 16 -> SIP page refused; user asks the Matrix vendor to enable 2 SIP extensions + one that dials out on the Mobile trunk; user reaches the laptop by Chrome Remote Desktop), reads queue st:'wait', dials, plays TTS
 audio, writes st/res/doneAt + log/<month> (how:'pbx') + relay.seen heartbeat. Needs: SIP extension number + password, PBX LAN IP, outside-line code.
 Test answer detection on the GSM line (maybe "press 1 to hear" first). Parent numbers: only hostel students have them so far - staff add / paste.
 
