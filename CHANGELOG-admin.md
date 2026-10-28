@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1954 · 28-Oct-2026 IST
+🔊 Global Switches → Spoken alerts: "people can turn it off" is now two ticks, **staff can** / **students can** (user, 28-Oct: Roopa's toggle was locked; staff and students need different settings). Writes DB2 davan_pub/tts_cfg `allowOffStf`, `allowOffStu` and, for old widgets, `allowOff` = either tick (old widgets never lock someone who should be allowed). No extra reads. Pairs with student widget w295 (build 295); staff widget needs a build from the w352 source. Functions: gswShow, gswAllowOff, gswAllowOff2 (new).
+
 ## v1953 · 28-Oct-2026 IST
 🤖 Auto call on the Parent calls page (user, 28-Oct: "software calls the parents, laptop + Bluetooth, as if a real person is calling"; the Matrix PBX has no VoIP card). Queued calls are dialled by the new **Davan Caller** Android app (c1, default Phone app on a college phone with the SIM; source davan-scraper widgets/caller, DavanCaller.apk + caller-version.json on main); when the parent answers, the new laptop page **caller-voice.html** (Edge natural voices, Phone Link Bluetooth, VB-CABLE) speaks the message into the call twice, then the phone hangs up and logs answered / no answer / busy, retrying no-answer once after 30 min. Page shows phone + laptop status and links. Data (DB4): hostel/parent_calls/queue st wait/dial/talk/spoken/done, caller + relay heartbeats (phone 1 write/min, laptop 1 write + 1 read per 30 s while open, one live stream of the queue). Changed: pcInit, pcRender, pcListTable, pcQueue, pcRenderQueue, pcRenderLog, new pcResTxt, pcHow.
 
