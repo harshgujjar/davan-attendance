@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v2.1 · 29-Oct-2026 IST
+Log of 29-Oct 2:33: 🎧 Listen on laptop picked "AI Noise-cancelling Output (ASUS Utility)" (user heard nothing) - now Speakers / Headphones / Realtek first, never ASUS / noise / virtual / cable devices. Every 🧪 voice test also measures the cable level and logs ✅ / ❌ (the 2:24 call had level 0). Changed: toggleListen, testVoice, new testCable.
+
 ## caller-voice v2.0 · 29-Oct-2026 IST
 User, 29-Oct: "it shows waiting - how can I know why". Each waiting call on the laptop page now says why: ⏸ paused, 📱 phone offline since <time> (open Davan Caller, battery Unrestricted - this time Android had stopped the app), Auto calling OFF, or the phone's own status line. New: waitWhy.
 
