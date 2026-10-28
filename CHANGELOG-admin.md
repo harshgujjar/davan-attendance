@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1958 + Davan Caller c4 + caller-voice v1.7 · 29-Oct-2026 IST
+User, 29-Oct: "show the queued list, which is dialled, option to stop or redial", "auto update of the phone, collect the logs automatically - laptop and phone". Staff app queue tab: ⏹ Stop (row st 'stop'), 🔁 Redial, ⏸ Pause all (cfg.paused), 📋 Logs (copies DB4 logs/phone + logs/voice). Phone c4: obeys Stop (also while ringing, res 'stop', removed rows not re-created) and Pause, updates itself hourly (PackageInstaller session, silent after the first self-install), uploads its log each minute when it changed. Laptop page v1.6/v1.7: live call list with ⏹ Stop / ✕ / ▶ Now / 🔁 Redial / ⏸ Pause / 🧹 Clear finished, shows the phone log, uploads its own log, reloads itself when caller-version.json "voice" changes. Data (DB4 hostel/parent_calls): logs/phone + logs/voice (≤ 20 KB, written only on change), cfg.paused. Changed: pcRenderQueue, pcRender, new pcStop, pcRedial, pcPause, pcLogs.
+
 ## v1957 · 29-Oct-2026 IST
 🧪 "Test to me" on every student in Parent calls (user, 29-Oct: "hear the actual call we'll make to a student"): asks for the tester's number once (saved in this browser), queues that student's real message in the chosen language to it; queue row urn TEST / name "TEST · <student>", so the student's last-call info and the 7-day gap are untouched. Data: one DB4 hostel/parent_calls/queue write. Changed: pcListTable, new pcTestMe.
 

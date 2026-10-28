@@ -18,6 +18,7 @@ main{max-width:760px;margin:0 auto;padding:16px}h1{font-size:22px;color:var(--ac
 #big{font-size:20px;font-weight:700}.mut{color:var(--mut);font-size:13px}button,select{font:inherit;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
 button.pri{background:var(--acc);color:#fff;border-color:var(--acc)}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
 pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6px 0 0}ol{padding-left:20px;margin:6px 0}li{margin:4px 0}
+.qr{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)}.qr .nm{flex:1;min-width:180px}.qr button{padding:3px 10px;font-size:13px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
 </style>
 </head>
@@ -27,6 +28,11 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 <div class="mut">Keep this page open in <b>Microsoft Edge</b> on the college laptop during college hours. It speaks the attendance message into the parent call.</div>
 
 <div class="card"><div id="big">Starting…</div><div id="sub" class="mut"></div></div>
+
+<div class="card">
+  <div class="row"><b>Calls</b><button id="pauseBtn" onclick="togglePause()">⏸ Pause all</button><button onclick="clearDone()">🧹 Clear finished</button><span id="qsum" class="mut"></span></div>
+  <div id="qlist" class="mut">—</div>
+</div>
 
 <div class="card">
   <b>Voices</b> <span class="mut">(Edge has free natural voices: Neerja / Prabhat English, Sapna / Gagan Kannada, Swara / Madhur Hindi)</span>
@@ -39,8 +45,14 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 </div>
 
 <div class="card">
-  <div class="row"><b>Log</b><button id="cp" onclick="copyLog(this)">📋 Copy</button><button onclick="lines=[];$('log').textContent='—'">🧹 Clear log</button></div>
+  <div class="row"><b>Log</b><button id="cp" onclick="copyLog(this)">📋 Copy (laptop + phone)</button><button onclick="lines=[];$('log').textContent='—'">🧹 Clear log</button></div>
   <pre id="log">—</pre>
+</div>
+
+<div class="card">
+  <div class="row"><b>📱 Phone log</b><span id="plogat" class="mut"></span></div>
+  <div class="mut">Sent up by the Davan Caller phone every minute (c4 and newer). Both logs are also saved in the database for Claude / the staff app.</div>
+  <pre id="plog">—</pre>
 </div>
 
 <div class="card">
@@ -59,10 +71,11 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 const DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
 const KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ';
 const ROOT = 'hostel/parent_calls';
-const VER = 'v1.5';
+const VER = 'v1.7';
 const AGAIN = { en: 'Once again.', kn: 'ಮತ್ತೊಮ್ಮೆ ಕೇಳಿ.', hi: 'फिर से सुनिए.' };
 const TEST = { en: 'Namaskara. This is a test of the Davan College parent call voice.', kn: 'ನಮಸ್ಕಾರ. ಇದು ದಾವಣ್ ಕಾಲೇಜಿನ ಪೋಷಕರ ಕರೆಯ ಧ್ವನಿ ಪರೀಕ್ಷೆ.', hi: 'नमस्ते. यह दावन कॉलेज की अभिभावक कॉल आवाज़ का परीक्षण है.' };
 const seenRoute = {}, done = {};
+let lastUp = '', beats = 0;
 let stopNow = false;   // v1.4: set when the call ends while speaking
 let tok = '', tokExp = 0, queue = {}, cfg = {}, caller = null, busy = '', es = null, lines = [], wake = null;
 const $ = id => document.getElementById(id);
@@ -72,8 +85,9 @@ function log(s) {
   lines.unshift(new Date().toLocaleTimeString('en-IN') + '  ' + s); lines = lines.slice(0, 120);
   $('log').textContent = lines.join('\n');
 }
+function logText() { return 'Davan Caller Voice ' + VER + ' · ' + navigator.userAgent + '\n' + $('big').textContent + '\n' + lines.join('\n'); }
 function copyLog(btn) {
-  const t = 'Davan Caller Voice ' + VER + ' · ' + navigator.userAgent + '\n' + $('big').textContent + '\n' + lines.join('\n');
+  const t = logText() + '\n\n===== PHONE =====\n' + $('plog').textContent;
   navigator.clipboard.writeText(t).then(() => { btn.textContent = '✅ Copied'; setTimeout(() => btn.textContent = '📋 Copy', 1500); });
 }
 function big(s, sub) { $('big').textContent = s; if (sub != null) $('sub').textContent = sub; }
@@ -133,6 +147,7 @@ function check() {
   if (!busy) big(live ? (live[1].st === 'dial' ? '📞 Phone is calling the parent of ' + live[1].name + '…' : '🔊 …') : '✅ Ready - waiting for calls', wait + ' call(s) waiting in the queue');
   if (busy && !stopNow && (!queue[busy] || queue[busy].st !== 'talk')) { stopNow = true; speechSynthesis.cancel(); log('⏹ call ended (' + ((queue[busy] || {}).res || 'removed') + ') - stopped speaking'); }
   rows.forEach(([id, q]) => { if (q.route && seenRoute[id] !== q.route) { seenRoute[id] = q.route; log('📱 phone: call audio → ' + q.route + ' (' + q.name + ')'); } });
+  renderQueue(rows);
   const talk = rows.find(([id, q]) => q.st === 'talk' && !done[id]);
   if (talk && !busy) speakRow(talk[0], talk[1]);
 }
@@ -228,6 +243,49 @@ async function cableCheck() {
   const p = meterStop(m);
   log(p > 1 ? '✅ Cable check OK - level ' + p + ': Edge voice goes into the cable' : '❌ Cable check FAILED - level ' + p + ': no sound in the cable. Volume mixer: Microsoft Edge → Output = CABLE Input (and stop: the laptop speakers must stay silent)');
 }
+// ── v1.6: the call list - waiting / calling / speaking / finished, with ⏹ Stop, ✕ Remove, ▶ Now, 🔁 Redial, ⏸ Pause all ──
+const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const RES = { ans: '✅ answered', nr: '📵 no answer', busy: '🔴 busy', fail: '⚠ failed', stop: '⏹ stopped' };
+const tm = t => t ? new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) : '';
+function renderQueue(rows) {
+  rows = rows.filter(([, q]) => q.phone);
+  const live = q => q.st === 'dial' || q.st === 'talk', waiting = q => q.st === 'wait';
+  const rank = q => live(q) ? 0 : waiting(q) ? 1 : 2;
+  rows.sort((a, b) => rank(a[1]) - rank(b[1]) || (rank(a[1]) === 1 ? (a[1].at || 0) - (b[1].at || 0) : (b[1].spokenAt || b[1].doneAt || b[1].at || 0) - (a[1].spokenAt || a[1].doneAt || a[1].at || 0)));
+  const nW = rows.filter(([, q]) => waiting(q)).length, nL = rows.filter(([, q]) => live(q)).length;
+  $('qsum').textContent = (nL ? nL + ' on a call · ' : '') + nW + ' waiting · ' + (rows.length - nW - nL) + ' finished';
+  $('pauseBtn').textContent = cfg.paused ? '▶ Resume calling' : '⏸ Pause all';
+  $('pauseBtn').className = cfg.paused ? 'pri' : '';
+  $('qlist').innerHTML = (cfg.paused ? '<div class="warn" style="padding:6px 0">⏸ Paused - the phone will not dial new calls until you press Resume.</div>' : '') +
+    (rows.length ? rows.slice(0, 40).map(([id, q]) => {
+      const st = q.st === 'dial' ? '📞 <b>calling now</b>' : q.st === 'talk' ? '🔊 <b>speaking now</b>' : q.st === 'stop' ? '⏹ stopping…'
+        : waiting(q) ? (q.notBefore > Date.now() ? '⏳ next try ' + tm(q.notBefore) : '⏳ waiting') : '✔ ' + (RES[q.res] || 'done');
+      const extra = [q.pct != null && q.pct !== '' ? q.pct + '%' : '', q.attempts ? 'try ' + q.attempts : '', q.route ? q.route : '', q.dur ? q.dur + ' s' : ''].filter(Boolean).join(' · ');
+      const btn = live(q) || q.st === 'stop' ? `<button onclick="qAct('${id}','stop')">⏹ Stop</button>`
+        : waiting(q) ? (q.notBefore > Date.now() ? `<button onclick="qAct('${id}','now')">▶ Now</button>` : '') + `<button onclick="qAct('${id}','rm')">✕ Remove</button>`
+        : `<button onclick="qAct('${id}','redial')">🔁 Redial</button><button onclick="qAct('${id}','rm')">✕</button>`;
+      return `<div class="qr"><div class="nm"><b>${esc(q.name)}</b> <span class="mut">${esc(q.phone)} · ${esc(tm(q.at))}${q.by ? ' · ' + esc(q.by) : ''}</span><br><span>${st}</span> <span class="mut">${esc(extra)}</span></div>${btn}</div>`;
+    }).join('') : 'No calls. Queue them in the staff app (📞 Parent calls → 🤖 Auto call or 🧪 Test to me).');
+}
+async function qAct(id, act) {
+  const q = queue[id]; if (!q) return;
+  try {
+    if (act === 'stop') { if (!confirm('Stop the call to ' + q.name + ' now?')) return; await db('PATCH', ROOT + '/queue/' + id, { st: 'stop' }); log('⏹ stop asked - ' + q.name); }
+    else if (act === 'rm') { await db('PUT', ROOT + '/queue/' + id, null); log('✕ removed - ' + q.name); }
+    else if (act === 'now') { await db('PATCH', ROOT + '/queue/' + id, { notBefore: 0 }); log('▶ call now - ' + q.name); }
+    else if (act === 'redial') { await db('PATCH', ROOT + '/queue/' + id, { st: 'wait', notBefore: 0, attempts: 0, res: null, route: null, cable: null, dur: null, doneAt: null, spokenAt: null, at: Date.now() }); delete done[id]; log('🔁 redial queued - ' + q.name); }
+  } catch (e) { log('⚠ ' + act + ': ' + e.message); }
+}
+async function clearDone() {
+  const ids = Object.entries(queue).filter(([, q]) => q && !['wait', 'dial', 'talk', 'stop'].includes(q.st)).map(([id]) => id);
+  if (!ids.length) return;
+  const patch = {}; ids.forEach(id => patch[id] = null);
+  try { await db('PATCH', ROOT + '/queue', patch); log('🧹 cleared ' + ids.length + ' finished call(s)'); } catch (e) { log('⚠ clear: ' + e.message); }
+}
+async function togglePause() {
+  const want = !cfg.paused;
+  try { await db('PATCH', ROOT + '/cfg', { paused: want }); cfg.paused = want; log(want ? '⏸ calling paused' : '▶ calling resumed'); check(); } catch (e) { log('⚠ pause: ' + e.message); }
+}
 function testVoice(lang) { say(TEST[lang], lang); log('🧪 voice test ' + lang + ' (heard in the call only when Edge output = CABLE Input)'); }
 
 // ── voices list ──
@@ -249,9 +307,19 @@ async function beat() {
   try {
     await db('PUT', ROOT + '/relay', { seen: Date.now(), ver: VER, edge: /Edg\//.test(navigator.userAgent), voices: ['en', 'kn', 'hi'].map(l => (pickVoice(l) || {}).name || '-').join(' | ') });
     caller = await db('GET', ROOT + '/caller');
+    const lt = logText();   // v1.7: logs go up by themselves (staff app 📋 Logs / Claude read them)
+    if (lt !== lastUp) { await db('PUT', ROOT + '/logs/voice', { at: Date.now(), ver: VER, text: lt.slice(0, 20000) }); lastUp = lt; }
+    if (++beats % 2 === 1) { const pl = await db('GET', ROOT + '/logs/phone'); if (pl && pl.text) { $('plog').textContent = pl.text; $('plogat').textContent = '· ' + pl.ver + ' · sent ' + tm(pl.at); } }
     const c = caller && Date.now() - caller.seen < 150000;
     if (!busy) $('sub').textContent = (c ? '📱 Phone ' + (caller.model || '') + ': ' + (caller.status || '') + (caller.batt >= 0 ? ' · 🔋' + caller.batt + '%' : '') : '📱 Davan Caller phone is offline') ;
   } catch (e) { log('⚠ heartbeat: ' + e.message); }
+}
+// v1.7: reload by itself when a newer page is published (caller-version.json "voice"), never during a call
+async function selfUpdate() {
+  try {
+    const v = await (await fetch('caller-version.json?t=' + Date.now(), { cache: 'no-store' })).json();
+    if (v.voice && v.voice !== VER && !busy) { log('⬆ new page ' + v.voice + ' - reloading'); setTimeout(() => location.reload(), 1500); }
+  } catch (e) {}
 }
 async function loadCfg() { try { cfg = (await db('GET', ROOT + '/cfg')) || {}; } catch (e) {} }
 async function keepAwake() { try { if ('wakeLock' in navigator && !wake) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); } } catch (e) {} }
@@ -263,6 +331,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
   fillVoices(); keepAwake(); cableMeter(false);
   await loadCfg(); await beat(); listen();
   setInterval(beat, 30000); setInterval(loadCfg, 600000);
+  setInterval(selfUpdate, 600000);
   setInterval(() => { if (Date.now() > tokExp - 300000) { tok = ''; listen(); } }, 60000);   // fresh sign-in + stream before it expires (once)
 })();
 </script>
