@@ -60,17 +60,19 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - 🛠 Super Admin page (staff widget settings, owner's phone only): SaActivity + sa-screens.json (this repo, root). Blocks text / nav / switch / choice / field / btn / qbank / report. Edit the JSON for wording / order / new switches on existing DB paths. NOT phone-tested yet; people rows have no photo.
 - Source: davan-scraper widgets/student + staff (pushed). Optional still open: longer 30-word Placement list.
 
-## 📞 Parent calls (v1952/v1953, 28/29-Oct-2026) - WORKS end to end (user heard the voice 29-Oct, Davan Caller c3 + caller-voice v1.3)
-Staff app page: manual call + 🔊 on speaker + log; 🤖 Auto call queue (DB4 hostel/parent_calls). The college Matrix ETERNITY PE 6S (Jeeves 192.168.1.101)
-has NO VoIP card (vendor 28-Oct; VoIP8 card ~₹15k incl. GST online, Grandstream HT813 ~₹7-8k - vendor checking price), so the user chose Bluetooth:
-**Davan Caller** Android app c1 (com.davan.caller, source + caller.jks in davan-scraper widgets/caller, README there; DavanCaller.apk + caller-version.json
-on main = self-update button) is the default Phone app on a college phone, dials queue rows, STATE_ACTIVE -> st talk; **caller-voice.html** on the
-user's laptop (Edge natural voices, Phone Link Bluetooth calls, VB-CABLE: Edge output = CABLE Input, Phone Link mic = CABLE Output) speaks msg, sets
-st spoken; phone hangs up + logs. Working setup (29-Oct): phone motorola edge 50 pro (Android 16, SIM 2, 'Allow restricted settings' needed for the Phone-app role), Phone Link Calls
-paired FROM Phone Link (Windows-only pairing gave PAN only), Edge output = CABLE In 16ch / CABLE Input, Windows default + communications mic =
-CABLE Output, Neerja / Sapna / Swara natural voices. Logs: phone 📋 Copy (c3 shows call-audio route + end reason), voice page 🔬 Cable check.
-Open: route flips BT <-> earpiece for ~6 s after dialing (settles on BT); Super Admin hours were set to 10:00-09:59 for testing (all day).
-User reaches the laptop by Chrome Remote Desktop.
+## 📞 Parent calls (v1952-v1959, Davan Caller c5, caller-voice v2.5; 28/29-Oct-2026) - KEY FINDING, next build waits for user "go"
+Staff app 📞 Parent calls page (manual + 🤖 Auto call queue DB4 hostel/parent_calls, 🧪 Test to me, ⏹/🔁/⏸, 📋 Logs). Phone = Davan Caller
+(com.davan.caller, source davan-scraper widgets/caller, key caller.jks kept by the user - NOT in git; self-updates from caller-version.json).
+Laptop = caller-voice.html in Edge (logs itself: devices, defaults, cable level, route; uploads to DB4 logs/voice; phone uploads logs/phone -
+Claude reads both with anonymous auth, apiKey in LP_ARCHIVE_CFG). College Matrix ETERNITY PE 6S PBX has no VoIP card (VoIP8 ~₹15k).
+PROVEN 29-Oct 4 am (logs + user): calls the PHONE APP dials never get laptop audio - Android says "Bluetooth" but Windows opens no call audio,
+it flips back to the earpiece every ~5 s, Phone Link "Transfer to PC" does nothing. Calls PHONE LINK starts (its keypad) work perfectly:
+correct Sapna voice heard by the parent. Working laptop settings: default speaker = CABLE In 16ch, default + communications mic = CABLE Output,
+communications speaker = Speakers (Realtek), Volume mixer "Microphone (Gujjar Hands-Free HF Audio)" (Phone Link's call stream) input = CABLE
+Output / output = Speakers, Edge output CABLE In 16ch, ASUS AI-noise devices off. NEXT (proposed, user to say go): laptop helper (PowerShell,
+starts with Windows) takes the next queue row, opens tel:<n> and clicks Phone Link's Call button (UI Automation); phone app c6 stops dialing /
+forcing Bluetooth and only follows the Phone-Link-placed call (answer -> st talk -> spoken -> hang up -> log). Edge's speech ignores Edge's own
+output setting and follows the Windows DEFAULT speaker. Check the logs before asking the user to test (user, 29-Oct).
 
 ## 🎯 Placement - BUILT v1 (18-Oct): read ROADMAP-placement.md
 - NEXT SESSION: 🇯🇵 Japanese letters-first + Type → 日本語 (A offline romaji, B word list, C Google Translate via worker) - read JAPANESE-PLAN.md
