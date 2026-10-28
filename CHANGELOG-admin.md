@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1959 + caller-voice v1.8 · 29-Oct-2026 IST
+User, 29-Oct: "voice speed very slow, in Kannada 'Davan College' pronunciation very bad". Kannada / Hindi messages now fill {college} from cfg.collegeL (ದಾವನ್ ಕಾಲೇಜು / दावन कॉलेज) and {class} in that script (pcClassSay(cls, lang)); voice speed cfg.rate (default 1.1, was 0.92) from ⚙️ Settings or the laptop page's Speed box. Settings save keeps cfg.paused. Data: DB4 hostel/parent_calls/cfg rate, collegeL. Changed: PC_DEF, pcCfg, pcClassSay, pcMsg, pcRenderSet, pcSaveSet; laptop page fillRate, setRate.
+
 ## v1958 + Davan Caller c4 + caller-voice v1.7 · 29-Oct-2026 IST
 User, 29-Oct: "show the queued list, which is dialled, option to stop or redial", "auto update of the phone, collect the logs automatically - laptop and phone". Staff app queue tab: ⏹ Stop (row st 'stop'), 🔁 Redial, ⏸ Pause all (cfg.paused), 📋 Logs (copies DB4 logs/phone + logs/voice). Phone c4: obeys Stop (also while ringing, res 'stop', removed rows not re-created) and Pause, updates itself hourly (PackageInstaller session, silent after the first self-install), uploads its log each minute when it changed. Laptop page v1.6/v1.7: live call list with ⏹ Stop / ✕ / ▶ Now / 🔁 Redial / ⏸ Pause / 🧹 Clear finished, shows the phone log, uploads its own log, reloads itself when caller-version.json "voice" changes. Data (DB4 hostel/parent_calls): logs/phone + logs/voice (≤ 20 KB, written only on change), cfg.paused. Changed: pcRenderQueue, pcRender, new pcStop, pcRedial, pcPause, pcLogs.
 
