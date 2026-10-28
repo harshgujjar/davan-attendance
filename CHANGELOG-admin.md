@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1960 + Davan Caller c6 + davan-dialer d1 + caller-voice v2.6 · 29-Oct-2026 IST
+Proven 29-Oct 4 am (logs + user): calls the phone app dials never get laptop audio (Windows opens no call audio, Android flips back to the earpiece every ~5 s, "Transfer to PC" does nothing); calls Phone Link starts carry the laptop voice perfectly. New tools/davan-dialer.ps1 (+ .cmd starter that downloads the newest copy and restarts it) takes the next queue row, opens tel:<n> and clicks Phone Link's Call button (UI Automation), heartbeat hostel/parent_calls/dialer, log logs/dialer. Phone c6 no longer dials (cfg.dialer "laptop", "phone" = old way): it follows the Phone-Link call (Eng.follow), sends st 'talk' (via phonelink) on answer, hangs up after 'spoken', logs. Voice page: 🖥 Laptop dialer row in Connections, dialer log card, waiting reason. Staff app: 🖥 Laptop dialer download link.
+
 ## caller-voice v2.5 · 29-Oct-2026 IST
 User, 29-Oct: "you are making me the tester - put proper debug and see it in the log". The page now logs by itself: every audio device added / removed (checked every 2 s), the Windows default + communication speaker / mic whenever they change, during a call whether a Bluetooth call device exists ("NO Bluetooth call device - the audio is on the phone"), the parent-side level of the Bluetooth call input every 3 s with our cable level, and if Windows offers a Bluetooth call OUTPUT it sends the cable straight into it (🎯 direct route). New: devWatch, hfTick, onCall.
 
