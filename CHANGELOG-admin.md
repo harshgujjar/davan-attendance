@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v1.9 · 29-Oct-2026 IST
+User, 29-Oct: "show here where I have connected, so it is super easy". Laptop page: Connections checklist (✅ / ❌ + the fix) - phone online / Auto calling / Phone app / Bluetooth (from the phone heartbeat), last call audio route, natural voices, voice into the cable (last cable level), call microphone = CABLE Output (Windows default / communications device), queue connection, paused; 🎧 Listen on laptop plays CABLE Output on the speakers for testing (AudioContext.setSinkId). No new data. New: renderConn, toggleListen.
+
 ## Davan Caller c5 · 29-Oct-2026 IST
 "No voice heard" (user screenshot 29-Oct: call on the phone earpiece, Phone Link "Transfer to PC"): the phone now keeps moving the call audio to the laptop (requestBluetoothAudio, every second, also mid-call) and tells the laptop to speak only once the audio is on Bluetooth (max 8 s, cfg.btWaitSec). DavanCaller.apk + caller-version.json = c5, download link ?v=5 (no staff-app version bump).
 
