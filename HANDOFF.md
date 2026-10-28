@@ -60,13 +60,16 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - 🛠 Super Admin page (staff widget settings, owner's phone only): SaActivity + sa-screens.json (this repo, root). Blocks text / nav / switch / choice / field / btn / qbank / report. Edit the JSON for wording / order / new switches on existing DB paths. NOT phone-tested yet; people rows have no photo.
 - Source: davan-scraper widgets/student + staff (pushed). Optional still open: longer 30-word Placement list.
 
-## 📞 Parent calls (v1952/v1953, 28-Oct-2026) - BUILT, not yet tested on a phone
+## 📞 Parent calls (v1952/v1953, 28/29-Oct-2026) - WORKS end to end (user heard the voice 29-Oct, Davan Caller c3 + caller-voice v1.3)
 Staff app page: manual call + 🔊 on speaker + log; 🤖 Auto call queue (DB4 hostel/parent_calls). The college Matrix ETERNITY PE 6S (Jeeves 192.168.1.101)
 has NO VoIP card (vendor 28-Oct; VoIP8 card ~₹15k incl. GST online, Grandstream HT813 ~₹7-8k - vendor checking price), so the user chose Bluetooth:
 **Davan Caller** Android app c1 (com.davan.caller, source + caller.jks in davan-scraper widgets/caller, README there; DavanCaller.apk + caller-version.json
 on main = self-update button) is the default Phone app on a college phone, dials queue rows, STATE_ACTIVE -> st talk; **caller-voice.html** on the
 user's laptop (Edge natural voices, Phone Link Bluetooth calls, VB-CABLE: Edge output = CABLE Input, Phone Link mic = CABLE Output) speaks msg, sets
-st spoken; phone hangs up + logs. Next: user's real test (🧪 test call in the app) - fix what the phone log (📋 Copy) / voice-page log show.
+st spoken; phone hangs up + logs. Working setup (29-Oct): phone motorola edge 50 pro (Android 16, SIM 2, 'Allow restricted settings' needed for the Phone-app role), Phone Link Calls
+paired FROM Phone Link (Windows-only pairing gave PAN only), Edge output = CABLE In 16ch / CABLE Input, Windows default + communications mic =
+CABLE Output, Neerja / Sapna / Swara natural voices. Logs: phone 📋 Copy (c3 shows call-audio route + end reason), voice page 🔬 Cable check.
+Open: route flips BT <-> earpiece for ~6 s after dialing (settles on BT); Super Admin hours were set to 10:00-09:59 for testing (all day).
 User reaches the laptop by Chrome Remote Desktop.
 
 ## 🎯 Placement - BUILT v1 (18-Oct): read ROADMAP-placement.md
