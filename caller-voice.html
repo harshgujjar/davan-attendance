@@ -39,7 +39,7 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 </div>
 
 <div class="card">
-  <div class="row"><b>Log</b><button id="cp" onclick="copyLog(this)">📋 Copy</button></div>
+  <div class="row"><b>Log</b><button id="cp" onclick="copyLog(this)">📋 Copy</button><button onclick="lines=[];$('log').textContent='—'">🧹 Clear log</button></div>
   <pre id="log">—</pre>
 </div>
 
@@ -59,10 +59,11 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 const DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
 const KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ';
 const ROOT = 'hostel/parent_calls';
-const VER = 'v1.3';
+const VER = 'v1.4';
 const AGAIN = { en: 'Once again.', kn: 'ಮತ್ತೊಮ್ಮೆ ಕೇಳಿ.', hi: 'फिर से सुनिए.' };
 const TEST = { en: 'Namaskara. This is a test of the Davan College parent call voice.', kn: 'ನಮಸ್ಕಾರ. ಇದು ದಾವಣ್ ಕಾಲೇಜಿನ ಪೋಷಕರ ಕರೆಯ ಧ್ವನಿ ಪರೀಕ್ಷೆ.', hi: 'नमस्ते. यह दावन कॉलेज की अभिभावक कॉल आवाज़ का परीक्षण है.' };
 const seenRoute = {}, done = {};
+let stopNow = false;   // v1.4: set when the call ends while speaking
 let tok = '', tokExp = 0, queue = {}, cfg = {}, caller = null, busy = '', es = null, lines = [], wake = null;
 const $ = id => document.getElementById(id);
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
@@ -130,6 +131,7 @@ function check() {
   const rows = Object.entries(queue).filter(([, q]) => q && typeof q === 'object');
   const wait = rows.filter(([, q]) => q.st === 'wait').length, live = rows.find(([, q]) => q.st === 'dial' || q.st === 'talk');
   if (!busy) big(live ? (live[1].st === 'dial' ? '📞 Phone is calling the parent of ' + live[1].name + '…' : '🔊 …') : '✅ Ready - waiting for calls', wait + ' call(s) waiting in the queue');
+  if (busy && !stopNow && (!queue[busy] || queue[busy].st !== 'talk')) { stopNow = true; speechSynthesis.cancel(); log('⏹ call ended (' + ((queue[busy] || {}).res || 'removed') + ') - stopped speaking'); }
   rows.forEach(([id, q]) => { if (q.route && seenRoute[id] !== q.route) { seenRoute[id] = q.route; log('📱 phone: call audio → ' + q.route + ' (' + q.name + ')'); } });
   const talk = rows.find(([id, q]) => q.st === 'talk' && !done[id]);
   if (talk && !busy) speakRow(talk[0], talk[1]);
@@ -148,7 +150,7 @@ function say(text, lang) {
     const parts = String(text).split(/(?<=[.!?।])\s+/).filter(s => s.trim());
     let i = 0;
     const next = () => {
-      if (i >= parts.length) { res(); return; }
+      if (i >= parts.length || stopNow) { res(); return; }
       const u = new SpeechSynthesisUtterance(parts[i++]);
       if (v) { u.voice = v; u.lang = v.lang; }
       u.rate = 0.92;
@@ -165,16 +167,17 @@ function say(text, lang) {
   });
 }
 async function speakRow(id, q) {
-  busy = id;
+  busy = id; stopNow = false;
   const lang = q.lang || 'en', n = Math.max(1, +(cfg.repeat || 2));
   big('🔊 Speaking to the parent of ' + q.name, q.phone);
   log('✅ ' + q.name + ' - parent answered, speaking (' + lang + ')');
   await new Promise(r => setTimeout(r, 1200));          // let the line settle after "hello"
   const m = meterStart();
   for (let k = 0; k < n; k++) {
+    if (stopNow) break;
     if (k) { await new Promise(r => setTimeout(r, 900)); await say(AGAIN[lang] || AGAIN.en, lang); }
     await say(q.msg || '', lang);
-    if (!queue[id] || queue[id].st !== 'talk') break;   // parent hung up
+    if (stopNow || !queue[id] || queue[id].st !== 'talk') break;   // parent hung up
   }
   const lvl = meterStop(m);
   if (lvl != null) log(lvl > 1 ? '🔬 cable level ' + lvl + ' - the voice went into the cable ✅' : '🔬 cable level ' + lvl + ' - ❌ NO sound in the cable: Edge output is not CABLE Input');
