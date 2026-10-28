@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c2 · 29-Oct-2026 IST
+Calling hours that pass midnight (user set 10:00-09:59 = all day) never called in c1; c2 fixes Eng.inHours. DavanCaller.apk + caller-version.json = c2 (phones on c1 show the ⬆ Update button); staff-app download link ?v=2 (no version bump). caller-voice.html v1.1: one fresh sign-in before the hour ends instead of repeated reconnects.
+
 **v1955 (28-Oct-2026)** - Linking a widget no longer fails on one slow request (user: staff widget only connected after many tries). `swLink` now retries its 3 DB2 calls 4 times, 1.5 / 3 / 6 s apart, and says so when it still cannot connect. No extra reads when the network is fine. Pairs with portal v11.100. Functions: `_swTry`, `swLink`.
 
 ## v1954 · 28-Oct-2026 IST
