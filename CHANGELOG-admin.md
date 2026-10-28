@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1957 · 29-Oct-2026 IST
+🧪 "Test to me" on every student in Parent calls (user, 29-Oct: "hear the actual call we'll make to a student"): asks for the tester's number once (saved in this browser), queues that student's real message in the chosen language to it; queue row urn TEST / name "TEST · <student>", so the student's last-call info and the 7-day gap are untouched. Data: one DB4 hostel/parent_calls/queue write. Changed: pcListTable, new pcTestMe.
+
 ## v1956 · 29-Oct-2026 IST
 🤖 Parent calls queue after the first real tests (user screenshot, 29-Oct: "(4)" waiting but all were answered): only wait / dial / talk count as open, 'spoken' rows (laptop page before v1.3 overwrote the phone's done) and half rows without a phone (re-created when ✕ hit a call the phone was saving) are finished; new 🧹 Clear finished button, ✕ on every row that is not ringing / speaking, cleanup also deletes half rows. Data: DB4 hostel/parent_calls/queue deletes only. Changed: pcCleanup, pcWaiting, pcRender, pcRenderQueue, new pcLive, pcClearDone.
 
