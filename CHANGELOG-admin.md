@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v2.4 · 29-Oct-2026 IST
+Logs 29-Oct: the parent heard the voice only while the Windows DEFAULT microphone was CABLE Output (1:27); from 2:18 the default was Microphone Array (communications still CABLE Output) and nothing was heard although Bluetooth and the cable level were fine. Connections now needs CABLE Output as default AND communications mic, and the device list refreshes every 15 s.
+
 ## caller-voice v2.3 · 29-Oct-2026 IST
 Log 29-Oct 2:45: 🎛 Auto routing self-test level 0 - Edge does not give its speech voice to tab capture, button removed (code kept unused). 🧪 tests and the self-test cut the KIRAN call off mid-message - tests and Cable check now wait while a call speaks. New Connections row: Communications speaker must not be the ASUS "AI Noise-cancelling Output" (the call audio kept jumping Bluetooth ↔ earpiece every ~5 s since that device became the communications speaker).
 
