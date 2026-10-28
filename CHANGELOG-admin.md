@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c3 + caller-voice v1.2 · 29-Oct-2026 IST
+Debug for "no voice on the other phone" (user, 29-Oct: "put some log debug and check"). Phone c3 logs where the call audio goes (🔵 Bluetooth / 📱 earpiece / 🔊 speaker), re-asks for Bluetooth after the answer, logs why each call ended, and writes `route` to the queue row. Laptop page v1.2: 🔬 Cable check (listens on CABLE Output while Edge speaks and reports the level), the same level check on every real call (`cable` on the queue row), per-sentence voice log, list of audio devices. Staff app download link ?v=3 (no version bump).
+
 ## Davan Caller c2 · 29-Oct-2026 IST
 Calling hours that pass midnight (user set 10:00-09:59 = all day) never called in c1; c2 fixes Eng.inHours. DavanCaller.apk + caller-version.json = c2 (phones on c1 show the ⬆ Update button); staff-app download link ?v=2 (no version bump). caller-voice.html v1.1: one fresh sign-in before the hour ends instead of repeated reconnects.
 
