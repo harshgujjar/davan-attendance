@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Laptop start (one click) · 29-Oct-2026 IST
+User, 29-Oct: "why so complicated - one page should do all the job". A page cannot click Phone Link's Call button (Windows does not allow it), so the dialer stays, but tools/davan-dialer.cmd (downloaded as "Davan Caller.cmd") is now the ONE thing to start: it opens the voice page in Edge, runs the dialer minimised and keeps itself updated. Staff app link renamed 🖥 Laptop start (one click) (no version bump).
+
 ## v1960 + Davan Caller c6 + davan-dialer d1 + caller-voice v2.6 · 29-Oct-2026 IST
 Proven 29-Oct 4 am (logs + user): calls the phone app dials never get laptop audio (Windows opens no call audio, Android flips back to the earpiece every ~5 s, "Transfer to PC" does nothing); calls Phone Link starts carry the laptop voice perfectly. New tools/davan-dialer.ps1 (+ .cmd starter that downloads the newest copy and restarts it) takes the next queue row, opens tel:<n> and clicks Phone Link's Call button (UI Automation), heartbeat hostel/parent_calls/dialer, log logs/dialer. Phone c6 no longer dials (cfg.dialer "laptop", "phone" = old way): it follows the Phone-Link call (Eng.follow), sends st 'talk' (via phonelink) on answer, hangs up after 'spoken', logs. Voice page: 🖥 Laptop dialer row in Connections, dialer log card, waiting reason. Staff app: 🖥 Laptop dialer download link.
 

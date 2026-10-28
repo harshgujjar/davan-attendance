@@ -1,8 +1,11 @@
 @echo off
-rem Davan Dialer starter (put a shortcut to this file in shell:startup). Each start downloads the newest davan-dialer.ps1 and runs it;
+rem Davan Caller - ONE start for the laptop (put a shortcut to this file in shell:startup).
+rem Opens the voice page in Edge, then runs the dialer minimised: each start downloads the newest davan-dialer.ps1;
 rem when the script exits (new version published, or an error) it starts again after 10 s.
-title Davan Dialer
+if not "%~1"=="min" (start "Davan Caller" /min cmd /c ""%~f0" min" & exit /b)
+title Davan Caller (keep open)
 cd /d "%~dp0"
+start "" msedge "https://harshgujjar.github.io/davan-attendance/caller-voice.html"
 :loop
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -UseBasicParsing -Uri ('https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/tools/davan-dialer.ps1?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -OutFile '%~dp0davan-dialer.ps1' } catch { Write-Host 'offline - using the saved copy' }"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0davan-dialer.ps1"
