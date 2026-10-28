@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1952 · 28-Oct-2026 IST
+New 📞 Parent calls page (admin, manager, VP, Principal; user, 28-Oct: "manager calls parents, presses the student's name, it speaks"): students below the target with photo, %, low subjects and the parent number (add / edit / paste "URN, number"). 📞 dials, 🔊 speaks the message on the speaker (English / Kannada / Hindi; English if the phone has no such voice), result buttons log the call; answered parents are not repeated for 7 days; ☎️ PBX queues calls for the coming laptop relay (college Matrix PBX + SIM). Super Admin settings: target, gap, PBX hours, college name, the three messages. Data (DB4): hostel/private/<URN>/parentPhone (existing), hostel/parent_calls/cfg, queue, log/<YYYY-MM>, relay; reads only when the page opens; old queue / log months clean themselves up. Changed: new pcInit, pcRows, pcMsg, pcSpeak, pcMark, pcQueue, pcSaveSet.
+
 ## v1951 · 27-Oct-2026 IST
 "Yesterday in your classes" on the faculty dashboard shows one line per class (user, 27-Oct: show / hide names); tap the line to open the absent names and photos, always starts hidden, the totals line stays. No new reads or writes. Changed: fdbYdayRender, new fydTog.
 
