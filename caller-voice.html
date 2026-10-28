@@ -30,7 +30,8 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 <div class="card"><div id="big">Starting…</div><div id="sub" class="mut"></div></div>
 
 <div class="card">
-  <div class="row"><b>Connections</b><button id="lsn" onclick="toggleListen()">🎧 Listen on laptop</button><span class="mut">hear what goes into the call (testing only)</span></div>
+  <div class="row"><b>Connections</b><button id="rtb" class="pri" onclick="routeStart()">🎛 Auto routing (click once)</button><button id="lsn" onclick="toggleListen()">🎧 Listen on laptop</button></div>
+  <div class="mut">🎛 Auto routing: click once after opening the page, choose <b>this tab</b>, tick <b>"Also share tab audio"</b>, Share. Then the voice goes to the cable only during a call and to the speakers otherwise - no Volume mixer needed.</div>
   <div id="conn" style="line-height:1.9">…</div>
 </div>
 
@@ -77,7 +78,7 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 const DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
 const KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ';
 const ROOT = 'hostel/parent_calls';
-const VER = 'v2.1';
+const VER = 'v2.2';
 const AGAIN = { en: 'Once again.', kn: 'ಮತ್ತೊಮ್ಮೆ ಕೇಳಿ.', hi: 'फिर से सुनिए.' };
 const TEST = { en: 'Namaskara. This is a test of the Davan College parent call voice.', kn: 'ನಮಸ್ಕಾರ. ಇದು ದಾವನ್ ಕಾಲೇಜಿನ ಪೋಷಕರ ಕರೆಯ ಧ್ವನಿ ಪರೀಕ್ಷೆ.', hi: 'नमस्ते. यह दावन कॉलेज की अभिभावक कॉल आवाज़ का परीक्षण है.' };
 const seenRoute = {}, done = {};
@@ -193,6 +194,7 @@ async function speakRow(id, q) {
   const lang = q.lang || 'en', n = Math.max(1, +(cfg.repeat || 2));
   big('🔊 Speaking to the parent of ' + q.name, q.phone);
   log('✅ ' + q.name + ' - parent answered, speaking (' + lang + ')');
+  await routeTo('cable');
   await new Promise(r => setTimeout(r, 1200));          // let the line settle after "hello"
   const m = meterStart();
   for (let k = 0; k < n; k++) {
@@ -208,6 +210,7 @@ async function speakRow(id, q) {
   done[id] = 1; if (queue[id]) queue[id].st = 'spoken';   // v1.3: never speak the same call twice (the stream echo comes later)
   try { await db('PATCH', ROOT + '/queue/' + id, { st: 'spoken', spokenAt: Date.now(), cable: lvl }); log('✔ message done - ' + q.name); }
   catch (e) { log('⚠ could not mark done: ' + e.message); }
+  await routeTo('speakers');
   busy = ''; check();
 }
 // ── 🔬 cable meter: listens on CABLE Output (never played back) to prove Edge's voice goes into the cable ──
@@ -251,14 +254,17 @@ async function testCable(lang) {
   await say(TEST[lang], lang);
   const p = meterStop(m);
   if (p == null) { log('🔬 (press 🔬 Cable check once to also measure the cable)'); return; }
+  if (rt && rt.ok) { log('🔊 test played on the laptop speakers (🎛 auto routing: calls go to the cable) - use 🔬 Cable check to test the cable'); return; }
   lastCable = { lvl: p, at: Date.now() };
   log(p > 1 ? '🔬 test ' + lang + ': cable level ' + p + ' ✅ - this voice reaches the call' : '🔬 test ' + lang + ': cable level ' + p + ' ❌ - Edge is NOT playing into the cable (Volume mixer: Microsoft Edge → Output = CABLE Input)');
 }
 async function cableCheck() {
   log('🔬 Cable check…');
   if (!(await cableMeter(true))) return;
+  await routeTo('cable');
   const m = meterStart();
   await say(TEST.en, 'en');
+  await routeTo('speakers');
   const p = meterStop(m);
   lastCable = { lvl: p, at: Date.now() };
   log(p > 1 ? '✅ Cable check OK - level ' + p + ': Edge voice goes into the cable' : '❌ Cable check FAILED - level ' + p + ': no sound in the cable. Volume mixer: Microsoft Edge → Output = CABLE Input (and stop: the laptop speakers must stay silent)');
@@ -333,8 +339,9 @@ function renderConn() {
     row(ph ? !!c.bt : null, '🔵 Bluetooth phone ↔ laptop (Phone Link)', 'open Phone Link on the laptop, check Calls is connected') +
     row(last ? /Bluetooth/.test(last.route) : null, '🔈 Last call audio on the laptop' + (last ? ': ' + esc(last.route) + ' (' + esc(last.name) + ')' : ' (no call yet)'), 'Phone Link: click "Transfer to PC" during the call') +
     row(nat.length ? nat.length === 3 : null, '🗣 Natural voices: ' + (nat.join(', ') || 'none'), 'open this page in Microsoft Edge with internet') +
-    row(lastCable ? lastCable.lvl > 1 : null, '🔊 Voice goes into the cable' + (lastCable ? ' (level ' + lastCable.lvl + ', ' + tm(lastCable.at) + ')' : ' - press 🔬 Cable check'), 'Volume mixer: Microsoft Edge → Output = CABLE Input') +
+    row(rt && rt.ok ? true : lastCable ? lastCable.lvl > 1 : null, '🔊 Voice goes into the cable' + (lastCable ? ' (level ' + lastCable.lvl + ', ' + tm(lastCable.at) + ')' : ' - press 🔬 Cable check'), 'Volume mixer: Microsoft Edge → Output = CABLE Input') +
     row(devList.length ? /CABLE Output/i.test(commMic || defMic) : null, '🎙 Call microphone = CABLE Output' + (devList.length ? ' (now: ' + esc(commMic || defMic || '?') + ')' : ' - press 🔬 Cable check'), 'Win+R mmsys.cpl → Recording → CABLE Output → Set as Default Communication Device') +
+    row(rt ? !!rt.ok : null, '🎛 Auto routing' + (rt ? (rt.ok ? ' ON - calls → cable, rest → speakers' : ' not working in this Edge (use Volume mixer)') : ' off - click 🎛 Auto routing once'), 'Volume mixer: Microsoft Edge → Output = CABLE Input') +
     row(esOk, '🌐 Connected to the call queue', 'check the internet') +
     (cfg.paused ? '<div class="warn">⏸ Calling is paused (Calls → ▶ Resume)</div>' : '');
 }
@@ -349,6 +356,41 @@ async function toggleListen() {
     lsnCtx.createMediaStreamSource(cabStream).connect(lsnCtx.destination);
     $('lsn').textContent = '🎧 Stop listening'; log('🎧 listening on ' + (spk ? spk.label : 'default speakers') + ' - turn off after testing');
   } catch (e) { log('⚠ listen: ' + e.message); lsnCtx = null; }
+}
+// ── v2.2 🎛 Auto routing: the page captures this tab's own audio (Edge's voice, local playback suppressed) and sends it to
+//    CABLE Input only while a call is speaking, to the speakers otherwise - Windows' per-app setting no longer matters ──
+let rt = null, updNote = 0;
+function devId(re, not) { const d = devList.find(d => d.kind === 'audiooutput' && d.deviceId !== 'default' && d.deviceId !== 'communications' && re.test(d.label) && !(not && not.test(d.label))); return d ? d.deviceId : ''; }
+async function routeStart() {
+  if (rt) { log('🎛 auto routing is already on'); return; }
+  await cableMeter(true);
+  try {
+    const st = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: { suppressLocalAudioPlayback: true, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude', systemAudio: 'exclude' });
+    const a = st.getAudioTracks()[0];
+    if (!a) { st.getTracks().forEach(t => t.stop()); log('❌ no tab audio shared - click again and tick "Also share tab audio"'); return; }
+    st.getVideoTracks().forEach(t => t.enabled = false);
+    const ctx = new AudioContext(), src = ctx.createMediaStreamSource(new MediaStream([a])), an = ctx.createAnalyser(); an.fftSize = 1024;
+    src.connect(an); src.connect(ctx.destination);
+    rt = { st, ctx, an, buf: new Float32Array(1024), sink: '', ok: false };
+    a.onended = () => { log('⚠ tab sharing stopped - 🎛 auto routing off'); rt = null; renderConn(); };
+    await routeTo('speakers');
+    log('🎛 auto routing on - self-test (you should hear the test on the speakers)…');
+    const m = { peak: 0, on: true }, tick = () => { if (!m.on || !rt) return; rt.an.getFloatTimeDomainData(rt.buf); let s2 = 0; for (const x of rt.buf) s2 += x * x; m.peak = Math.max(m.peak, Math.sqrt(s2 / rt.buf.length)); setTimeout(tick, 50); };
+    tick(); await say(TEST.en, 'en'); m.on = false;
+    const p = Math.round(m.peak * 1000) / 10;
+    if (rt) rt.ok = p > 1;
+    log(p > 1 ? '✅ 🎛 auto routing works (level ' + p + '): during a call the voice goes to the cable, otherwise to the speakers. Keep this tab shared.'
+      : '❌ 🎛 Edge did not give its voice to the page (level ' + p + ') - this Edge cannot do it; keep Volume mixer: Edge → CABLE Input');
+    $('rtb').textContent = p > 1 ? '🎛 Auto routing ON' : '🎛 Auto routing (failed)';
+  } catch (e) { log('⚠ auto routing: ' + e.message); }
+  renderConn();
+}
+async function routeTo(where) {
+  if (!rt || !rt.ok || !rt.ctx.setSinkId || rt.sink === where) return;
+  const id = where === 'cable' ? (devId(/CABLE Input/i) || devId(/CABLE In/i)) : devId(/speaker|headphone|realtek/i, /cable|virtual|noise|asus/i);
+  try { await rt.ctx.setSinkId(id); rt.sink = where; log('🎛 voice → ' + (where === 'cable' ? 'CABLE Input (into the call)' : 'laptop speakers')); }
+  catch (e) { log('⚠ route ' + where + ': ' + e.message); }
 }
 async function togglePause() {
   const want = !cfg.paused;
@@ -386,6 +428,7 @@ async function beat() {
 async function selfUpdate() {
   try {
     const v = await (await fetch('caller-version.json?t=' + Date.now(), { cache: 'no-store' })).json();
+    if (v.voice && v.voice !== VER && rt) { if (!updNote) { updNote = 1; log('⬆ new page ' + v.voice + ' - press Ctrl+F5 when no calls are running (auto routing stays on until then)'); } return; }
     if (v.voice && v.voice !== VER && !busy) { log('⬆ new page ' + v.voice + ' - reloading'); setTimeout(() => location.reload(), 1500); }
   } catch (e) {}
 }

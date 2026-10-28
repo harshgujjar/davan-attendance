@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v2.2 · 29-Oct-2026 IST
+User, 29-Oct: "no Azure - when a call starts the voice should go to the cable, after it back to normal" (Windows had dropped Edge → CABLE Input by itself, cable level 0). 🎛 Auto routing: one click shares this tab's own audio with the page (getDisplayMedia, suppressLocalAudioPlayback); the page plays it through an AudioContext whose output it switches - CABLE Input while a call speaks / during 🔬 Cable check, laptop speakers otherwise (setSinkId). Self-test after Allow says ✅ / ❌; if Edge does not hand over its speech voice the old Volume-mixer way still works. Shown in Connections; no auto reload while routing is on. New: routeStart, routeTo, devId.
+
 ## caller-voice v2.1 · 29-Oct-2026 IST
 Log of 29-Oct 2:33: 🎧 Listen on laptop picked "AI Noise-cancelling Output (ASUS Utility)" (user heard nothing) - now Speakers / Headphones / Realtek first, never ASUS / noise / virtual / cable devices. Every 🧪 voice test also measures the cable level and logs ✅ / ❌ (the 2:24 call had level 0). Changed: toggleListen, testVoice, new testCable.
 
