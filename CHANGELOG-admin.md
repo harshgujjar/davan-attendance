@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c5 · 29-Oct-2026 IST
+"No voice heard" (user screenshot 29-Oct: call on the phone earpiece, Phone Link "Transfer to PC"): the phone now keeps moving the call audio to the laptop (requestBluetoothAudio, every second, also mid-call) and tells the laptop to speak only once the audio is on Bluetooth (max 8 s, cfg.btWaitSec). DavanCaller.apk + caller-version.json = c5, download link ?v=5 (no staff-app version bump).
+
 ## v1959 + caller-voice v1.8 · 29-Oct-2026 IST
 User, 29-Oct: "voice speed very slow, in Kannada 'Davan College' pronunciation very bad". Kannada / Hindi messages now fill {college} from cfg.collegeL (ದಾವನ್ ಕಾಲೇಜು / दावन कॉलेज) and {class} in that script (pcClassSay(cls, lang)); voice speed cfg.rate (default 1.1, was 0.92) from ⚙️ Settings or the laptop page's Speed box. Settings save keeps cfg.paused. Data: DB4 hostel/parent_calls/cfg rate, collegeL. Changed: PC_DEF, pcCfg, pcClassSay, pcMsg, pcRenderSet, pcSaveSet; laptop page fillRate, setRate.
 
