@@ -19447,7 +19447,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1955;  // always = HTML footer version number
+const CODE_BUILD = 1956;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -30551,6 +30551,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1956', date: '29-Oct-2026 IST', note: '🤖 Parent calls queue: finished calls no longer count as waiting, 🧹 Clear finished button, ✕ on every call that is not ringing, half rows from test runs hidden and cleaned up.' },
 { v: 'v1955', date: '28-Oct-2026 IST', note: '🔗 Linking a widget no longer fails on one slow request - the staff app retries 4 times before saying it could not connect.' },
 { v: 'v1954', date: '28-Oct-2026 IST', note: '🔊 Global Switches: "staff can turn the voice off" and "students can turn the voice off" are now two separate ticks.' },
 { v: 'v1953', date: '28-Oct-2026 IST', note: '🤖 Parent calls: Auto call - the Davan Caller phone (college SIM) calls the parents in the queue and the laptop speaks the message in a natural voice (Bluetooth). Phone + laptop status on the page.' },
@@ -30565,7 +30566,6 @@ const HTML_CHANGELOG = [
 { v: 'v1944', date: '23-Oct-2026 IST', note: '📊 Placement report card: charts, "how I am doing" in words and 🔊 Read - for every learner; the Super Admin sees anyone\'s through 👀 preview. AI coach notes every Sunday for Ready 70+.' },
 { v: 'v1943', date: '23-Oct-2026 IST', note: '💬 Placement → Feedback (Super Admin): the students\' one-tap answers after tests and mocks, their reasons and own words - and 🤖 Sum up with AI.' },
 { v: 'v1942', date: '23-Oct-2026 IST', note: '🤖 AI fixed: Cloudflare had retired the first AI model - it now uses a current one with a backup. The AI page can change the model and retry a provider marked used up.' },
-{ v: 'v1941', date: '23-Oct-2026 IST', note: '🤖 New AI page (Super Admin): the college\'s own AI - status, today\'s use, daily limits and a test box. It rests for the day when the free allowance is used up.' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -90500,7 +90500,7 @@ async function pcInit(force) {
 async function pcCleanup() {
   try {
     const patch = {}, wk = Date.now() - 7 * 864e5;
-    Object.entries(PC.queue).forEach(([id, q]) => { if (q && q.st === 'done' && (q.doneAt || q.at || 0) < wk) patch['queue/' + id] = null; });
+    Object.entries(PC.queue).forEach(([id, q]) => { if (q && (!pcLive(q) && (q.doneAt || q.spokenAt || q.at || 0) < wk || !q.phone)) patch['queue/' + id] = null; });   // v1956: broken rows (no phone) too
     const months = Object.keys(await pcShallow(PC_ROOT + '/log')), keep = pcMonth(new Date().setMonth(new Date().getMonth() - 12));
     months.forEach(mo => { if (mo < keep) patch['log/' + mo] = null; });
     if (Object.keys(patch).length) await lpDb4Patch(PC_ROOT, patch);
@@ -90529,7 +90529,9 @@ function pcLast(urn) {
   Object.values(PC.log).forEach(l => { if (l && l.urn === urn && (!best || l.at > best.at)) best = l; });
   return best;
 }
-function pcWaiting(urn) { return Object.values(PC.queue).some(q => q && q.urn === urn && q.st !== 'done'); }
+// v1956: only wait / dial / talk count as open - 'spoken' is a finished call whose 'done' was overwritten (laptop page before v1.3), a row without phone is a leftover
+function pcLive(q) { return !!q && !!q.phone && (q.st === 'wait' || q.st === 'dial' || q.st === 'talk'); }
+function pcWaiting(urn) { return Object.values(PC.queue).some(q => pcLive(q) && q.urn === urn); }
 function pcRecent(r) { return r.last && r.last.res === 'ans' && r.last.at > Date.now() - (+pcCfg().gapDays || 7) * 864e5; }
 function pcClassSay(cls) {
   const p = _paClassParts(cls);
@@ -90549,7 +90551,7 @@ function pcRender() {
   const root = document.getElementById('pc-root'); if (!root) return;
   const c = pcCfg(), sup = umMeSuper(), on = PC.relay && PC.relay.seen > Date.now() - 3 * 60e3;
   const ph = PC.caller && PC.caller.seen > Date.now() - 3 * 60e3 ? PC.caller : null;
-  const waiting = Object.values(PC.queue).filter(q => q && q.st !== 'done').length;
+  const waiting = Object.values(PC.queue).filter(pcLive).length;
   const tabs = [['list', '📋 Shortage list'], ['queue', '🤖 Auto-call queue' + (waiting ? ' (' + waiting + ')' : '')], ['log', '🗒️ Call log']].concat(sup ? [['set', '⚙️ Settings']] : []);
   root.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
       <span style="font-size:12px;padding:4px 10px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);">${ph ? '🟢 Caller phone: ' + hcEsc(ph.status || (ph.on ? 'on' : 'auto calling off')) + (ph.batt >= 0 ? ' · 🔋' + ph.batt + '%' : '') : '⚪ Caller phone offline'}</span>
@@ -90712,14 +90714,22 @@ function pcQueueAll() {
 function pcRenderQueue() {
   const body = document.getElementById('pc-body'); if (!body) return;
   const st = { wait: '⏳ waiting', dial: '📞 calling now', talk: '🔊 speaking now', spoken: '🔊 message played', done: '✔ done' };
-  const rows = Object.entries(PC.queue).filter(([, q]) => q).sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
-  body.innerHTML = rows.length ? rows.map(([id, q]) => `<div style="display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;background:var(--surface);">
+  const rows = Object.entries(PC.queue).filter(([, q]) => q && q.phone).sort((a, b) => pcLive(b[1]) - pcLive(a[1]) || (b[1].at || 0) - (a[1].at || 0));
+  const fin = Object.values(PC.queue).filter(q => !pcLive(q)).length;
+  body.innerHTML = (fin ? `<div style="margin-bottom:8px;"><button class="btn" onclick="pcClearDone()">🧹 Clear finished (${fin})</button> <span style="font-size:12px;color:var(--muted);">Results stay in the 🗒️ Call log.</span></div>` : '') + (rows.length ? rows.map(([id, q]) => `<div style="display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;background:var(--surface);">
       ${_stuAvatar(q.urn, q.name, 34)}
       <div style="flex:1;min-width:0;"><div><b>${hcEsc(q.name)}</b></div>
         <div style="font-size:12px;color:var(--muted);">${hcEsc(q.phone)} · ${hcEsc(q.pct)}% · ${hcEsc(st[q.st] || q.st)}${q.res ? ' · ' + pcResTxt(q.res) : ''}${q.attempts ? ' · try ' + hcEsc(q.attempts) : ''}${q.st === 'wait' && q.notBefore > Date.now() ? ' · next try ' + hcEsc(pcWhen(q.notBefore)) : ''} · ${hcEsc(pcWhen(q.at))} by ${hcEsc(q.by || '')}</div></div>
-      ${q.st === 'wait' ? `<button class="btn" onclick="pcUnqueue('${id}')">✕</button>` : ''}</div>`).join('') + '' :
-    '<div style="color:var(--muted);padding:12px;">No auto calls waiting. Use 🤖 Auto call on the shortage list.</div>';
+      ${q.st === 'dial' || q.st === 'talk' ? '' : `<button class="btn" onclick="pcUnqueue('${id}')">✕</button>`}</div>`).join('') :
+    '<div style="color:var(--muted);padding:12px;">No auto calls waiting. Use 🤖 Auto call on the shortage list.</div>');
   _stuAvatarInject();
+}
+async function pcClearDone() {
+  const patch = {}; Object.entries(PC.queue).forEach(([id, q]) => { if (!pcLive(q)) patch[id] = null; });
+  if (!Object.keys(patch).length) return;
+  try { await lpDb4Patch(PC_ROOT + '/queue', patch); } catch (e) { dvToast('❌ ' + e.message, 'error', 6000); return; }
+  Object.keys(patch).forEach(id => delete PC.queue[id]);
+  dvToast('🧹 Cleared ' + Object.keys(patch).length + ' finished call(s)', 'ok'); pcRender();
 }
 async function pcUnqueue(id) {
   try { await lpDb4Set(PC_ROOT + '/queue/' + id, null); } catch (e) { dvToast('❌ ' + e.message, 'error', 6000); return; }

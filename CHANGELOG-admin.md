@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1956 · 29-Oct-2026 IST
+🤖 Parent calls queue after the first real tests (user screenshot, 29-Oct: "(4)" waiting but all were answered): only wait / dial / talk count as open, 'spoken' rows (laptop page before v1.3 overwrote the phone's done) and half rows without a phone (re-created when ✕ hit a call the phone was saving) are finished; new 🧹 Clear finished button, ✕ on every row that is not ringing / speaking, cleanup also deletes half rows. Data: DB4 hostel/parent_calls/queue deletes only. Changed: pcCleanup, pcWaiting, pcRender, pcRenderQueue, new pcLive, pcClearDone.
+
 ## Davan Caller c3 + caller-voice v1.2 · 29-Oct-2026 IST
 Debug for "no voice on the other phone" (user, 29-Oct: "put some log debug and check"). Phone c3 logs where the call audio goes (🔵 Bluetooth / 📱 earpiece / 🔊 speaker), re-asks for Bluetooth after the answer, logs why each call ended, and writes `route` to the queue row. Laptop page v1.2: 🔬 Cable check (listens on CABLE Output while Edge speaks and reports the level), the same level check on every real call (`cable` on the queue row), per-sentence voice log, list of audio devices. Staff app download link ?v=3 (no version bump).
 
