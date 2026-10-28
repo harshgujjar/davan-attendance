@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v2.5 · 29-Oct-2026 IST
+User, 29-Oct: "you are making me the tester - put proper debug and see it in the log". The page now logs by itself: every audio device added / removed (checked every 2 s), the Windows default + communication speaker / mic whenever they change, during a call whether a Bluetooth call device exists ("NO Bluetooth call device - the audio is on the phone"), the parent-side level of the Bluetooth call input every 3 s with our cable level, and if Windows offers a Bluetooth call OUTPUT it sends the cable straight into it (🎯 direct route). New: devWatch, hfTick, onCall.
+
 ## caller-voice v2.4 · 29-Oct-2026 IST
 Logs 29-Oct: the parent heard the voice only while the Windows DEFAULT microphone was CABLE Output (1:27); from 2:18 the default was Microphone Array (communications still CABLE Output) and nothing was heard although Bluetooth and the cable level were fine. Connections now needs CABLE Output as default AND communications mic, and the device list refreshes every 15 s.
 

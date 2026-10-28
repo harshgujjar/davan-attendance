@@ -78,7 +78,7 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 const DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
 const KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ';
 const ROOT = 'hostel/parent_calls';
-const VER = 'v2.4';
+const VER = 'v2.5';
 const AGAIN = { en: 'Once again.', kn: 'ಮತ್ತೊಮ್ಮೆ ಕೇಳಿ.', hi: 'फिर से सुनिए.' };
 const TEST = { en: 'Namaskara. This is a test of the Davan College parent call voice.', kn: 'ನಮಸ್ಕಾರ. ಇದು ದಾವನ್ ಕಾಲೇಜಿನ ಪೋಷಕರ ಕರೆಯ ಧ್ವನಿ ಪರೀಕ್ಷೆ.', hi: 'नमस्ते. यह दावन कॉलेज की अभिभावक कॉल आवाज़ का परीक्षण है.' };
 const seenRoute = {}, done = {};
@@ -393,6 +393,60 @@ async function routeTo(where) {
   try { await rt.ctx.setSinkId(id); rt.sink = where; log('🎛 voice → ' + (where === 'cable' ? 'CABLE Input (into the call)' : 'laptop speakers')); }
   catch (e) { log('⚠ route ' + where + ': ' + e.message); }
 }
+// ── v2.5 automatic call debug (user, 29-Oct: "put proper debug, see it in the log"): every 2 s the page lists the Windows
+//    audio devices and logs what appears / disappears and the default / communication devices; during a call it listens to the
+//    Bluetooth call input ("Hands-Free", the parent's side) and logs its level, and if Windows gives a Bluetooth call OUTPUT it
+//    sends the cable (our voice) straight into it ──
+let devSig = '', defSig = '', hfIn = null, hfBridge = null, noHfLogged = '';
+const dLab = d => (d.kind === 'audioinput' ? '🎙 ' : '🔈 ') + (d.label || '?');
+const isHF = d => /hands-?free|HF Audio|AG Audio/i.test(d.label || '');
+function onCall() { const r = Object.entries(queue).find(([, q]) => q && (q.st === 'dial' || q.st === 'talk')); return r ? r[1] : null; }
+async function devWatch() {
+  let ds; try { ds = await navigator.mediaDevices.enumerateDevices(); } catch (e) { return; }
+  if (!ds.some(d => d.label)) return;   // labels need the microphone permission (🔬 Cable check once)
+  const real = ds.filter(d => (d.kind === 'audioinput' || d.kind === 'audiooutput') && d.deviceId !== 'default' && d.deviceId !== 'communications').map(dLab);
+  const prev = devSig ? devSig.split('\n') : null;
+  if (prev) {
+    real.filter(x => !prev.includes(x)).forEach(x => log('🔌 device ADDED: ' + x));
+    prev.filter(x => !real.includes(x)).forEach(x => log('🔌 device REMOVED: ' + x));
+  }
+  devSig = real.join('\n');
+  const pick = (kind, id) => ((ds.find(d => d.kind === kind && d.deviceId === id) || {}).label || '?').replace(/^(Default|Communications) - /, '');
+  const dsig = 'speaker ' + pick('audiooutput', 'default') + ' / call speaker ' + pick('audiooutput', 'communications') + ' / mic ' + pick('audioinput', 'default') + ' / call mic ' + pick('audioinput', 'communications');
+  if (dsig !== defSig) { log('⚙ Windows defaults: ' + dsig); defSig = dsig; }
+  devList = ds;
+  const q = onCall(), inp = ds.find(d => d.kind === 'audioinput' && isHF(d) && d.deviceId !== 'default' && d.deviceId !== 'communications'),
+    out = ds.find(d => d.kind === 'audiooutput' && isHF(d) && d.deviceId !== 'default' && d.deviceId !== 'communications');
+  if (q && q.st === 'talk' && !inp && !out && noHfLogged !== q.name) { noHfLogged = q.name; log('📞 NO Bluetooth call device on the laptop during this call - the call audio is on the PHONE, not the laptop'); }
+  if (q && inp && !hfIn) {
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: inp.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      const ctx = new AudioContext(), an = ctx.createAnalyser(); an.fftSize = 1024; ctx.createMediaStreamSource(st).connect(an);
+      try { await ctx.resume(); } catch (e) {}
+      hfIn = { st, ctx, an, buf: new Float32Array(1024), peak: 0 };
+      log('📞 listening to the Bluetooth call (parent side): ' + inp.label);
+    } catch (e) { log('⚠ call input: ' + e.message); }
+  }
+  if (hfIn && (!q || !inp)) { try { hfIn.st.getTracks().forEach(t => t.stop()); hfIn.ctx.close(); } catch (e) {} hfIn = null; log('📞 Bluetooth call input gone'); }
+  if (q && out && !hfBridge) {
+    if (!cabStream) await cableMeter(false);
+    if (cabStream) {
+      try {
+        const ctx = new AudioContext(); await ctx.setSinkId(out.deviceId);
+        ctx.createMediaStreamSource(cabStream).connect(ctx.destination); try { await ctx.resume(); } catch (e) {}
+        hfBridge = { ctx }; log('🎯 Bluetooth call OUTPUT found: ' + out.label + ' - sending our voice (cable) straight into the call');
+      } catch (e) { log('⚠ direct route: ' + e.message); }
+    } else log('⚠ Bluetooth call output found (' + out.label + ') but the cable is not open - press 🔬 Cable check once');
+  }
+  if (hfBridge && (!q || !out)) { try { hfBridge.ctx.close(); } catch (e) {} hfBridge = null; log('🎯 direct route closed'); }
+  if (hfIn) { hfIn.an.getFloatTimeDomainData(hfIn.buf); let s2 = 0; for (const x of hfIn.buf) s2 += x * x; hfIn.peak = Math.max(hfIn.peak, Math.sqrt(s2 / hfIn.buf.length)); }
+}
+function hfTick() {
+  if (!hfIn) return;
+  const p = Math.round(hfIn.peak * 1000) / 10; hfIn.peak = 0;
+  const c = meter ? (() => { meter.an.getFloatTimeDomainData(meter.buf); let s2 = 0; for (const x of meter.buf) s2 += x * x; return Math.round(Math.sqrt(s2 / meter.buf.length) * 1000) / 10; })() : null;
+  log('📞 call on laptop: parent side level ' + p + (p > 1 ? ' (sound from the phone ✅)' : ' (silent)') + (c != null ? ' · our cable now ' + c : '') + (hfBridge ? ' · 🎯 direct route on' : ''));
+}
 async function togglePause() {
   const want = !cfg.paused;
   try { await db('PATCH', ROOT + '/cfg', { paused: want }); cfg.paused = want; log(want ? '⏸ calling paused' : '▶ calling resumed'); check(); } catch (e) { log('⚠ pause: ' + e.message); }
@@ -445,7 +499,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
   fillVoices(); keepAwake(); cableMeter(false);
   await loadCfg(); await beat(); listen();
   setInterval(beat, 30000); setInterval(loadCfg, 600000); setInterval(renderConn, 3000);
-  setInterval(async () => { try { if (devList.length) devList = await navigator.mediaDevices.enumerateDevices(); } catch (e) {} }, 15000);   // v2.4: Windows device changes show without reload
+  setInterval(devWatch, 2000); setInterval(hfTick, 3000);   // v2.5: device changes + the Bluetooth call checked by the page itself
   setInterval(selfUpdate, 600000);
   setInterval(() => { if (Date.now() > tokExp - 300000) { tok = ''; listen(); } }, 60000);   // fresh sign-in + stream before it expires (once)
 })();
