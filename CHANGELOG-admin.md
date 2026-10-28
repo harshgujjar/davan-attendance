@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v2.0 · 29-Oct-2026 IST
+User, 29-Oct: "it shows waiting - how can I know why". Each waiting call on the laptop page now says why: ⏸ paused, 📱 phone offline since <time> (open Davan Caller, battery Unrestricted - this time Android had stopped the app), Auto calling OFF, or the phone's own status line. New: waitWhy.
+
 ## caller-voice v1.9 · 29-Oct-2026 IST
 User, 29-Oct: "show here where I have connected, so it is super easy". Laptop page: Connections checklist (✅ / ❌ + the fix) - phone online / Auto calling / Phone app / Bluetooth (from the phone heartbeat), last call audio route, natural voices, voice into the cable (last cable level), call microphone = CABLE Output (Windows default / communications device), queue connection, paused; 🎧 Listen on laptop plays CABLE Output on the speakers for testing (AudioContext.setSinkId). No new data. New: renderConn, toggleListen.
 
