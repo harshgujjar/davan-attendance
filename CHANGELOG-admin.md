@@ -2,6 +2,8 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+**v1955 (28-Oct-2026)** - Linking a widget no longer fails on one slow request (user: staff widget only connected after many tries). `swLink` now retries its 3 DB2 calls 4 times, 1.5 / 3 / 6 s apart, and says so when it still cannot connect. No extra reads when the network is fine. Pairs with portal v11.100. Functions: `_swTry`, `swLink`.
+
 ## v1954 · 28-Oct-2026 IST
 🔊 Global Switches → Spoken alerts: "people can turn it off" is now two ticks, **staff can** / **students can** (user, 28-Oct: Roopa's toggle was locked; staff and students need different settings). Writes DB2 davan_pub/tts_cfg `allowOffStf`, `allowOffStu` and, for old widgets, `allowOff` = either tick (old widgets never lock someone who should be allowed). No extra reads. Pairs with student widget w295 (build 295); staff widget needs a build from the w352 source. Functions: gswShow, gswAllowOff, gswAllowOff2 (new).
 
