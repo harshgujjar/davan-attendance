@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v2.3 · 29-Oct-2026 IST
+Log 29-Oct 2:45: 🎛 Auto routing self-test level 0 - Edge does not give its speech voice to tab capture, button removed (code kept unused). 🧪 tests and the self-test cut the KIRAN call off mid-message - tests and Cable check now wait while a call speaks. New Connections row: Communications speaker must not be the ASUS "AI Noise-cancelling Output" (the call audio kept jumping Bluetooth ↔ earpiece every ~5 s since that device became the communications speaker).
+
 ## caller-voice v2.2 · 29-Oct-2026 IST
 User, 29-Oct: "no Azure - when a call starts the voice should go to the cable, after it back to normal" (Windows had dropped Edge → CABLE Input by itself, cable level 0). 🎛 Auto routing: one click shares this tab's own audio with the page (getDisplayMedia, suppressLocalAudioPlayback); the page plays it through an AudioContext whose output it switches - CABLE Input while a call speaks / during 🔬 Cable check, laptop speakers otherwise (setSinkId). Self-test after Allow says ✅ / ❌; if Edge does not hand over its speech voice the old Volume-mixer way still works. Shown in Connections; no auto reload while routing is on. New: routeStart, routeTo, devId.
 
