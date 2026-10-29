@@ -3,13 +3,13 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd4'
+$VER = 'd5'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
 $DIR = Join-Path $env:LOCALAPPDATA 'DavanDialer'
 New-Item -ItemType Directory -Force -Path $DIR | Out-Null
-Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms
 # d3: real mouse click + bring the window to the front (Phone Link ignored the UI Automation "Invoke" - log 29-Oct 08:34, no call started)
 Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -18,6 +18,7 @@ public static class DvWin {
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e);
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   public static void Click(int x, int y) { SetCursorPos(x, y); mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero); }
 }
 "@
@@ -82,13 +83,16 @@ function ClickCall {
         if ($n -match '^\s*(Call|Dial|Call now)\s*$' -or $n -match '^Call\s') {
           $how = @()
           try { $h = [IntPtr]$w.Current.NativeWindowHandle; if ($h -ne [IntPtr]::Zero) { [void][DvWin]::ShowWindow($h, 9); [void][DvWin]::SetForegroundWindow($h) } } catch { }
-          Start-Sleep -Milliseconds 400
+          Start-Sleep -Milliseconds 500
+          # d5 (log 29-Oct 08:52: invoke + mouse click did not start the call; the click was off on a scaled screen): 1) keyboard Enter on the focused button
+          try { $b.SetFocus(); Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}'); $how += 'focus+Enter' } catch { $how += "Enter failed: $($_.Exception.Message)" }
+          if (InCall $w 4) { return "call started after '$n' ($($how -join ', '))" }
           try { $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $how += 'invoke' } catch { $how += 'invoke failed' }
           if (InCall $w 4) { return "call started after '$n' ($($how -join ', '))" }
           try {   # Phone Link did not react: real mouse click in the middle of the button
             $r = $b.Current.BoundingRectangle
             [DvWin]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)); $how += "mouse click at $([int]($r.X + $r.Width / 2)),$([int]($r.Y + $r.Height / 2))"
-          } catch { $how += 'mouse click failed' }
+          } catch { $how += "mouse click failed: $($_.Exception.Message)" }
           if (InCall $w 6) { return "call started after '$n' ($($how -join ', '))" }
           $script:lastButtons = ((AllButtons $w) -join ' | ')
           Log "! pressed '$n' ($($how -join ', ')) but no call started. Buttons now: $($script:lastButtons)"
@@ -129,6 +133,7 @@ function Beat {
   } catch { Write-Host "heartbeat: $($_.Exception.Message)" }
 }
 
+try { [void][DvWin]::SetProcessDPIAware() } catch { }   # d5: mouse coordinates = UI Automation's real pixels on scaled screens
 Log "> Davan Dialer $VER started"
 $cfg = $null; $cfgAt = 0; $lastBeat = 0; $mine = $null; $mineAt = 0; $verAt = 0; $stopAt = $null
 while ($true) {

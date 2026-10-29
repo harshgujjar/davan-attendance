@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## davan-dialer d5 · 29-Oct-2026 IST
+Log 08:52: d4 found Phone Link's "Call Dialed number …" button, but Invoke and the mouse click (1606,754 - off on a scaled screen) started no call. d5 is DPI-aware (SetProcessDPIAware) and presses Call three ways, checking after each: focus + Enter key, UI Automation Invoke, real mouse click; logs which one started the call.
+
 ## davan-dialer d4 + caller-voice v2.7 · 29-Oct-2026 IST
 User 29-Oct: a row stayed "stopping…" - Stop is done by the phone hanging up, but that call was never followed by the phone (d2 click problem). Laptop page: a 'stop' row offers ⏹ Force stop (st done, res stop) and ✕ Remove. Dialer d4 finishes its own call 15 s after a stop with no phone call, and any 'stop' row older than 2 min.
 
