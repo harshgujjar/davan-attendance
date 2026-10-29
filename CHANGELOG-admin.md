@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1962 + caller-voice v3.4 · 29-Oct-2026 IST
+User 29-Oct: "show Kannada or English or Hindi too" - each call in the staff app's auto-call queue and the laptop page's Calls list shows its language. Changed: pcRenderQueue, renderQueue.
+
 ## caller-voice v3.3 · 29-Oct-2026 IST
 User 29-Oct: "changing the speed has no effect" - the speaking tab read cfg only every 10 min. Now cfg (speed, repeat) is read right before every call and test, a change is broadcast to other open tabs, and the log shows the speed used for each message.
 
