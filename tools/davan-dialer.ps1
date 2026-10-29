@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd1'
+$VER = 'd2'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -67,7 +67,8 @@ function ClickCall {
       $btns = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
       foreach ($b in $btns) {
         $n = [string]$b.Current.Name
-        if ($n -match '^\s*(Call|Dial|Call now)\s*$' -or $n -match '^Call [+0-9 ]+$') {
+        # d2: Phone Link names it "Call Dialed number 8 8 9 2 ..." (log 29-Oct 08:29) - any name that starts with "Call " / is "Call", never the "Calls" tab
+        if ($n -match '^\s*(Call|Dial|Call now)\s*$' -or $n -match '^Call\s') {
           try { $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); return "clicked '$n' in '$($w.Current.Name)'" } catch { }
         }
       }

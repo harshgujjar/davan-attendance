@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## davan-dialer d2 · 29-Oct-2026 IST
+Dialer log 08:29: Phone Link opened with the number but its Call button is named "Call Dialed number 8 8 9 2 …", which d1 did not match - d2 clicks any button named "Call" or starting with "Call " (never the "Calls" tab). The .cmd download now forces TLS 1.2 (Windows PowerShell 5.1 said "offline").
+
 ## Laptop start (one click) · 29-Oct-2026 IST
 User, 29-Oct: "why so complicated - one page should do all the job". A page cannot click Phone Link's Call button (Windows does not allow it), so the dialer stays, but tools/davan-dialer.cmd (downloaded as "Davan Caller.cmd") is now the ONE thing to start: it opens the voice page in Edge, runs the dialer minimised and keeps itself updated. Staff app link renamed 🖥 Laptop start (one click) (no version bump).
 

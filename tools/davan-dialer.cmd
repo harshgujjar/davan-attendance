@@ -7,7 +7,7 @@ title Davan Caller (keep open)
 cd /d "%~dp0"
 start "" msedge "https://harshgujjar.github.io/davan-attendance/caller-voice.html"
 :loop
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -UseBasicParsing -Uri ('https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/tools/davan-dialer.ps1?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -OutFile '%~dp0davan-dialer.ps1' } catch { Write-Host 'offline - using the saved copy' }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { Invoke-WebRequest -UseBasicParsing -Uri ('https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/tools/davan-dialer.ps1?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -OutFile '%~dp0davan-dialer.ps1' } catch { Write-Host 'offline - using the saved copy' }"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0davan-dialer.ps1"
 timeout /t 10 /nobreak >nul
 goto loop
