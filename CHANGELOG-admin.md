@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v3.3 · 29-Oct-2026 IST
+User 29-Oct: "changing the speed has no effect" - the speaking tab read cfg only every 10 min. Now cfg (speed, repeat) is read right before every call and test, a change is broadcast to other open tabs, and the log shows the speed used for each message.
+
 ## caller-voice v3.2 · 29-Oct-2026 IST
 User 29-Oct: "Calls empty here; I dial from the default phone dialer" - a silent second tab skipped drawing the call list (now always drawn) and stayed silent even after the first tab closed (now takes over within ~12 s). The Davan Caller phone app is no longer needed (dialer d7 sees the answer and hangs up): its Connections rows and the "phone offline" waiting reason are removed; the phone can use its normal Phone app again.
 
