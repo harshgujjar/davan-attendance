@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## davan-dialer d8 + caller-voice v3.6 · 29-Oct-2026 IST
+Logs 29-Oct 09:52: d7 decided "ended before answered" 2 s after dialling (while ringing Phone Link shows no End button), so the answer was never seen and the laptop stayed silent - d8 waits for the answer or the ring timeout only. Several voice-page tabs were open (one per cmd start) and the OLDEST kept speaking - now the NEWEST tab speaks, older ones go silent and take over when it closes ('alive' every 5 s).
+
 ## caller-voice v3.5 · 29-Oct-2026 IST
 Log 29-Oct 09:47: a redialled call was answered but the laptop stayed silent - the "already spoken" mark (v1.3) was kept per queue row, and a redial / 30-min retry reuses the row. The mark is now per answered call (row id + ansAt).
 

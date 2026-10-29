@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd7'
+$VER = 'd8'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -189,7 +189,8 @@ while ($true) {
       if ($st -eq 'dial') {
         $ans = Answered
         if ($ans) { $ansAt = $now; Db 'PATCH' "$ROOT/queue/$mine" @{ st = 'talk'; ansAt = $now; via = 'phonelink' }; Log "CALL answered (Phone Link shows $ans) - laptop speaks"; Start-Sleep -Milliseconds 500; continue }
-        if (-not $open -and $now - $mineAt -gt 8000) { Finish $mine $row 'nr' 0; Log "! the call ended before it was answered (busy / rejected)"; $mine = $null; Start-Sleep -Seconds 6; continue }
+        # d8 (log 29-Oct 09:53: "ended before answered" 2 s after dialling - while it RINGS Phone Link has no End button yet): only the answer
+        # or the ring timeout decide
         $ring = if ($cfg.ringSec) { [int]$cfg.ringSec } else { 45 }
         if ($now - $mineAt -gt ($ring + 8) * 1000) { [void](EndCall); Finish $mine $row 'nr' 0; Log "! no answer in $ring s"; $mine = $null; Start-Sleep -Seconds 6; continue }
         Start-Sleep -Milliseconds 700; continue
