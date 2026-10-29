@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c8 · 29-Oct-2026 IST
+Log 09:04: the Phone-Link call (laptop dialer) went to the phone earpiece the moment it was answered - c8 moves it back to Bluetooth also in laptop mode and lets the laptop speak only once it is there (max 8 s). DavanCaller.apk + caller-version.json = c8, link ?v=8.
+
 ## davan-dialer d6 · 29-Oct-2026 IST
 Log 08:58: d5 started the call with focus + Enter, the phone followed it (ended BUSY by the network) - the chain works. 09:00: d5 took a hidden plain "Call" button (cannot focus, NaN position) and stopped. d6 tries only visible, enabled "Call …" buttons, "Call Dialed number …" first, and moves to the next one until a call starts.
 
