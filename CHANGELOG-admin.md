@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v3.7 · 29-Oct-2026 IST
+Log 29-Oct 11:19: the parent heard the message only ~27 s after answering - Edge's online (Microsoft) voice took 12 s to start and 16 s for sentence 1 (slow internet). v3.7 says one word at volume 0 while the phone rings so the voice is connected before the answer, and logs "online voice slow" when a sentence takes over 3 s to start. warm, check, say.
+
 ## Davan Caller c10 · 29-Oct-2026 IST
 Logs 29-Oct: a Phone Link call answered on Bluetooth slipped to the phone earpiece 2 s later, so the parent heard nothing (later calls had no phone log at all: Davan Caller was no longer the default Phone app). c10 puts such a call back on Bluetooth (up to 5 times a call, the speaker is left alone). It needs Davan Caller set as the default Phone app. Eng.watch.
 

@@ -84,7 +84,7 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 const DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
 const KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ';
 const ROOT = 'hostel/parent_calls';
-const VER = 'v3.6';
+const VER = 'v3.7';
 const AGAIN = { en: 'Once again.', kn: 'ಮತ್ತೊಮ್ಮೆ ಕೇಳಿ.', hi: 'फिर से सुनिए.' };
 const TEST = { en: 'Namaskara. This is a test of the Davan College parent call voice.', kn: 'ನಮಸ್ಕಾರ. ಇದು ದಾವನ್ ಕಾಲೇಜಿನ ಪೋಷಕರ ಕರೆಯ ಧ್ವನಿ ಪರೀಕ್ಷೆ.', hi: 'नमस्ते. यह दावन कॉलेज की अभिभावक कॉल आवाज़ का परीक्षण है.' };
 const seenRoute = {}, done = {};
@@ -181,12 +181,27 @@ function check() {
   renderQueue(rows);
   const talk = rows.find(([id, q]) => q.st === 'talk' && !done[id + ':' + (q.ansAt || '')]);   // v3.5: per answered call - a redial / retry reuses the row id
   if (talk && !busy) speakRow(talk[0], talk[1]);
+  const ring = rows.find(([id, q]) => q.st === 'dial' && !warmed[id + ':' + (q.dialAt || q.at || '')]);
+  if (ring && !busy) { warmed[ring[0] + ':' + (ring[1].dialAt || ring[1].at || '')] = 1; warm(ring[1].lang || 'en'); }
 }
 function pickVoice(lang) {
   const vs = speechSynthesis.getVoices(), saved = ls.get('cv_v_' + lang);
   const tag = { en: 'en-IN', kn: 'kn-IN', hi: 'hi-IN' }[lang];
   return vs.find(v => v.name === saved) || vs.find(v => v.lang === tag && /natural|online/i.test(v.name)) || vs.find(v => v.lang === tag)
     || vs.find(v => v.lang.toLowerCase().startsWith(lang)) || (lang !== 'en' ? null : vs.find(v => /^en/i.test(v.lang)));
+}
+// v3.7 (log 29-Oct 11:19: the online voice took 12 s to start + 16 s for sentence 1 after the answer): while the phone rings,
+// say one word at volume 0 so Edge's online voice is connected and ready the moment the parent answers
+const warmed = {};
+function warm(lang) {
+  try {
+    const v = pickVoice(lang) || pickVoice('en'); if (!v) return;
+    const u = new SpeechSynthesisUtterance({ kn: 'ನಮಸ್ಕಾರ', hi: 'नमस्ते' }[lang] || 'Namaskara');
+    u.voice = v; u.lang = v.lang; u.volume = 0;
+    const t0 = Date.now();
+    u.onstart = () => dbg('🔥 voice warmed up while ringing (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)');
+    speechSynthesis.speak(u);
+  } catch (e) {}
 }
 // Edge / Chrome stop long utterances after ~15 s, so speak sentence by sentence
 function say(text, lang) {
@@ -203,7 +218,7 @@ function say(text, lang) {
       const n = i, t0 = Date.now();
       let done = false; const fin = () => { if (!done) { done = true; clearTimeout(guard); next(); } };
       const guard = setTimeout(() => { log('   ⚠ sentence ' + n + ' did not finish in 20 s'); fin(); }, 20000);
-      u.onstart = () => dbg('   ▶ sentence ' + n + '/' + parts.length + ' started');
+      u.onstart = () => { const w = (Date.now() - t0) / 1000; dbg('   ▶ sentence ' + n + '/' + parts.length + ' started' + (w > 3 ? ' - ⚠ online voice slow (' + w.toFixed(1) + ' s, internet)' : '')); };
       u.onend = () => { dbg('   ■ sentence ' + n + ' done (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)'); fin(); };
       u.onerror = e => { log('   ⚠ sentence ' + n + ' error: ' + (e.error || e.type)); fin(); };
       speechSynthesis.speak(u);
