@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v3.1 · 29-Oct-2026 IST
+User screenshot 29-Oct: two tabs of the voice page open (the cmd opens it at every start) - both would speak into one call. The first open tab answers a BroadcastChannel hello; any later tab stays silent and says "already open in another tab".
+
 ## davan-dialer d7 + caller-voice v3.0 · 29-Oct-2026 IST
 Logs 29-Oct 09:04-09:13: when the phone app follows the Phone-Link call the audio jumps to its earpiece (c7, c8); with the phone passive (Auto calling OFF) the call stays on the laptop and people talk normally. And Phone Link's call stream resets its input to Microphone Array on every call (user screenshot) - user disables Microphone Array so CABLE Output is the only mic. d7: the dialer watches its own call - answer = Phone Link shows a call timer -> st talk; 'spoken' / 'stop' / ring timeout -> clicks Phone Link's End; writes the result (queue done / retry in 30 min, log/<month>) itself; no longer needs the phone heartbeat. Voice page: Connections wants the phone passive (Auto calling OFF).
 
