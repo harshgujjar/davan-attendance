@@ -154,7 +154,7 @@ function CallOpen { foreach ($w in PlWindows) { foreach ($n in (AllButtons $w)) 
 function StopCall {
   $t0 = Now; $ended = $false
   while ((Now) - $t0 -lt 15000) {
-    if (EndCall) { $ended = $true; Start-Sleep -Milliseconds 1200; if (-not (Running)) { break } } else { Start-Sleep -Milliseconds 700 }
+    if (EndCall) { $ended = $true; Start-Sleep -Milliseconds 1200; if (-not (CallOpen)) { break } } else { Start-Sleep -Milliseconds 700 }
   }
   Log $(if ($ended) { "OK call ended by Stop" } else { "! Stop: no call to end in Phone Link" })
 }
@@ -234,7 +234,7 @@ while ($true) {
     $relay = Db 'GET' "$ROOT/relay"; $phone = Db 'GET' "$ROOT/caller"
     if (-not $relay -or $now - [int64]$relay.seen -gt 90000) { $script:status = 'laptop: voice page offline - open caller-voice.html in Edge'; Start-Sleep -Seconds 10; continue }
     if ($q) { foreach ($p in $q.PSObject.Properties) { if ($p.Value.st -eq 'stop' -and $now - [int64]$p.Value.dialAt -gt 120000) { Db 'PATCH' "$ROOT/queue/$($p.Name)" @{ st = 'done'; res = 'stop'; doneAt = $now }; Log "OK old stop finished: $($p.Value.name)" } } }   # d4: stuck 'stop' rows
-    if (Running) { $script:status = 'line busy - a call is still open in Phone Link'; Start-Sleep -Seconds 3; continue }   # d13: never dial over a running call (13:29 'Call failed')
+    if (CallOpen) { $script:status = 'line busy - a call is still open in Phone Link'; Start-Sleep -Seconds 3; continue }   # d13: never dial over a running call (13:29 'Call failed')
     $pick = $null; $best = [int64]::MaxValue
     if ($q) { foreach ($p in $q.PSObject.Properties) { $r = $p.Value
       if ($r.st -ne 'wait' -or [int64]$r.notBefore -gt $now -or ([string]$r.phone).Length -lt 10 -or ($hasNow -and -not $r.now)) { continue }
