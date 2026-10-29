@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## davan-dialer d6 · 29-Oct-2026 IST
+Log 08:58: d5 started the call with focus + Enter, the phone followed it (ended BUSY by the network) - the chain works. 09:00: d5 took a hidden plain "Call" button (cannot focus, NaN position) and stopped. d6 tries only visible, enabled "Call …" buttons, "Call Dialed number …" first, and moves to the next one until a call starts.
+
 ## davan-dialer d5 · 29-Oct-2026 IST
 Log 08:52: d4 found Phone Link's "Call Dialed number …" button, but Invoke and the mouse click (1606,754 - off on a scaled screen) started no call. d5 is DPI-aware (SetProcessDPIAware) and presses Call three ways, checking after each: focus + Enter key, UI Automation Invoke, real mouse click; logs which one started the call.
 

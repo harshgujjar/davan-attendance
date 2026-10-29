@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd5'
+$VER = 'd6'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -77,28 +77,29 @@ function ClickCall {
     foreach ($w in $wins) {
       if (-not ($pids -contains $w.Current.ProcessId) -and $w.Current.Name -notlike '*Phone Link*') { continue }
       $btns = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
-      foreach ($b in $btns) {
+      # d6 (log 29-Oct 09:00: a hidden plain "Call" button was taken and nothing else tried): candidates = visible, enabled buttons named
+      # "Call ..." (never the "Calls" tab), the "Call Dialed number ..." one first; each one is tried until a call starts
+      $cands = @($btns | Where-Object { $nm = [string]$_.Current.Name; ($nm -match '^\s*(Call|Dial|Call now)\s*$' -or $nm -match '^Call\s') -and -not $_.Current.IsOffscreen -and $_.Current.IsEnabled -and -not [double]::IsNaN($_.Current.BoundingRectangle.X) } |
+        Sort-Object { if ([string]$_.Current.Name -match 'Dialed number') { 0 } else { 1 } })
+      foreach ($b in $cands) {
         $n = [string]$b.Current.Name
-        # d2: Phone Link names it "Call Dialed number 8 8 9 2 ..." (log 29-Oct 08:29) - any name that starts with "Call " / is "Call", never the "Calls" tab
-        if ($n -match '^\s*(Call|Dial|Call now)\s*$' -or $n -match '^Call\s') {
+        if ($true) {
           $how = @()
           try { $h = [IntPtr]$w.Current.NativeWindowHandle; if ($h -ne [IntPtr]::Zero) { [void][DvWin]::ShowWindow($h, 9); [void][DvWin]::SetForegroundWindow($h) } } catch { }
           Start-Sleep -Milliseconds 500
-          # d5 (log 29-Oct 08:52: invoke + mouse click did not start the call; the click was off on a scaled screen): 1) keyboard Enter on the focused button
           try { $b.SetFocus(); Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}'); $how += 'focus+Enter' } catch { $how += "Enter failed: $($_.Exception.Message)" }
           if (InCall $w 4) { return "call started after '$n' ($($how -join ', '))" }
           try { $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $how += 'invoke' } catch { $how += 'invoke failed' }
           if (InCall $w 4) { return "call started after '$n' ($($how -join ', '))" }
-          try {   # Phone Link did not react: real mouse click in the middle of the button
+          try {
             $r = $b.Current.BoundingRectangle
             [DvWin]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)); $how += "mouse click at $([int]($r.X + $r.Width / 2)),$([int]($r.Y + $r.Height / 2))"
           } catch { $how += "mouse click failed: $($_.Exception.Message)" }
           if (InCall $w 6) { return "call started after '$n' ($($how -join ', '))" }
-          $script:lastButtons = ((AllButtons $w) -join ' | ')
-          Log "! pressed '$n' ($($how -join ', ')) but no call started. Buttons now: $($script:lastButtons)"
-          return $null
+          Log "! pressed '$n' ($($how -join ', ')) but no call started - trying the next button"
         }
       }
+      if ($cands.Count -gt 0) { $script:lastButtons = ((AllButtons $w) -join ' | '); return $null }   # one round only - never press Call again and again
       $seen = (($btns | ForEach-Object { $_.Current.Name }) | Where-Object { $_ }) -join ' | '
     }
     Start-Sleep -Milliseconds 700
