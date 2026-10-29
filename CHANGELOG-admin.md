@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1967 + dialer d11 + Davan Caller c11 · 29-Oct-2026 IST
+User: "Call opens Phone Link but does not dial - make it dial, connect the parent and play the voice"; "if I want to call myself". Call (pcCall) now queues the student with now:true when the laptop dialer is online; d11 dials such a row first and at once, even when paused or outside the hours (DB4 hostel/parent_calls/queue, one write). c11 keeps the audio on Bluetooth only for a call the laptop dials from the queue; the user's own calls on the college phone are left alone. pcCall; dialer main loop; Eng.follow, Eng.watch.
+
 ## v1966 + caller-voice v3.9 + dialer d10 · 29-Oct-2026 IST
 User: "how will I know the parent heard it". The voice page counts the sentences played while the line was open and saves said / of / cable level on the queue row and the call log (DB4 hostel/parent_calls/queue/<id>, log/<YYYY-MM>/<id>; ~2 small writes a call); the dialer copies them into the log entry. Staff app Call log + queue show "✅ heard the full message", "⚠ hung up after 2/6 sentences" or "❌ hung up before the message". Also fixed: a call that ended mid-message was put back to 'spoken' by the voice page. pcHeard, pcHow, pcRenderQueue; speakRow, say; Finish.
 

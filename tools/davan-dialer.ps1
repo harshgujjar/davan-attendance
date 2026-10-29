@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd10'
+$VER = 'd11'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -212,15 +212,17 @@ while ($true) {
       }
       Log "OK call finished ($st)"; $mine = $null; Start-Sleep -Seconds 4; continue
     }
-    if ($cfg.paused) { $script:status = '|| Paused'; Start-Sleep -Seconds 10; continue }
-    if (-not (InHours $cfg)) { $script:status = "night: outside calling hours ($($cfg.hours))"; Start-Sleep -Seconds 30; continue }
+    # d11: a call pressed by hand (staff app Call, row.now) dials at once - also when paused or outside the hours
+    $q = Db 'GET' "$ROOT/queue"; $hasNow = $false
+    if ($q) { foreach ($p in $q.PSObject.Properties) { if ($p.Value.st -eq 'wait' -and $p.Value.now) { $hasNow = $true } } }
+    if ($cfg.paused -and -not $hasNow) { $script:status = '|| Paused'; Start-Sleep -Seconds 5; continue }
+    if (-not $hasNow -and -not (InHours $cfg)) { $script:status = "night: outside calling hours ($($cfg.hours))"; Start-Sleep -Seconds 30; continue }
     $relay = Db 'GET' "$ROOT/relay"; $phone = Db 'GET' "$ROOT/caller"
     if (-not $relay -or $now - [int64]$relay.seen -gt 90000) { $script:status = 'laptop: voice page offline - open caller-voice.html in Edge'; Start-Sleep -Seconds 10; continue }
-    $q = Db 'GET' "$ROOT/queue"
     if ($q) { foreach ($p in $q.PSObject.Properties) { if ($p.Value.st -eq 'stop' -and $now - [int64]$p.Value.dialAt -gt 120000) { Db 'PATCH' "$ROOT/queue/$($p.Name)" @{ st = 'done'; res = 'stop'; doneAt = $now }; Log "OK old stop finished: $($p.Value.name)" } } }   # d4: stuck 'stop' rows
     $pick = $null; $best = [int64]::MaxValue
     if ($q) { foreach ($p in $q.PSObject.Properties) { $r = $p.Value
-      if ($r.st -ne 'wait' -or [int64]$r.notBefore -gt $now -or ([string]$r.phone).Length -lt 10) { continue }
+      if ($r.st -ne 'wait' -or [int64]$r.notBefore -gt $now -or ([string]$r.phone).Length -lt 10 -or ($hasNow -and -not $r.now)) { continue }
       if ([int64]$r.at -lt $best) { $best = [int64]$r.at; $pick = $p.Name } } }
     if (-not $pick) { $script:status = 'OK Ready - no calls waiting'; Start-Sleep -Seconds 5; continue }
     $row = $q.$pick; $num = ([string]$row.phone) -replace '\D', ''
