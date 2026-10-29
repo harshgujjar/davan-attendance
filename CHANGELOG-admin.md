@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v3.2 · 29-Oct-2026 IST
+User 29-Oct: "Calls empty here; I dial from the default phone dialer" - a silent second tab skipped drawing the call list (now always drawn) and stayed silent even after the first tab closed (now takes over within ~12 s). The Davan Caller phone app is no longer needed (dialer d7 sees the answer and hangs up): its Connections rows and the "phone offline" waiting reason are removed; the phone can use its normal Phone app again.
+
 ## v1961 · 29-Oct-2026 IST
 User 29-Oct, after the first fully automatic call (dialer d7: Phone Link dialled, answer seen at 00:01, laptop spoke, 52 s): "it did not say D T, section / class not proper, English and Kannada". Messages now write initials, course and section letters as each voice says them (Kiran Dee Tee / ಡಿ ಟಿ / डी टी; section Ay / ಎ / ए; Bee See Ay / ಬಿ ಸಿ ಎ), semesters as words (fifth / ಐದನೇ / पाँचवाँ), names in normal case. Applies to newly queued calls. New: pcNameSay, pcLetter, PC_LETTERS, PC_ORD; changed pcClassSay, pcMsg.
 
