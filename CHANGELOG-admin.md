@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c7 · 29-Oct-2026 IST
+Log 08:34: dialer d2 clicked Phone Link's Call, but the phone logged nothing - c7 logs every call Android hands to the app and why a call is or is not followed. DavanCaller.apk + caller-version.json = c7, link ?v=7.
+
 ## davan-dialer d2 · 29-Oct-2026 IST
 Dialer log 08:29: Phone Link opened with the number but its Call button is named "Call Dialed number 8 8 9 2 …", which d1 did not match - d2 clicks any button named "Call" or starting with "Call " (never the "Calls" tab). The .cmd download now forces TLS 1.2 (Windows PowerShell 5.1 said "offline").
 
