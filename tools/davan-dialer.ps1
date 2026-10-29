@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd12'
+$VER = 'd13'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -19,10 +19,15 @@ public static class DvWin {
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int n);
+  [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out uint m);
+  [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, uint m);
   public static void Click(int x, int y) { SetCursorPos(x, y); mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero); }
 }
 "@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# d13 (log 29-Oct 13:26: the dialer froze - a click in its window starts QuickEdit "Select" and pauses the script): QuickEdit off
+try { $ch = [DvWin]::GetStdHandle(-10); $cm = 0; if ([DvWin]::GetConsoleMode($ch, [ref]$cm)) { [void][DvWin]::SetConsoleMode($ch, (($cm -band (-bnot 0x40)) -bor 0x80)) } } catch { }
 
 $script:log = New-Object System.Collections.ArrayList
 $script:status = 'Starting'
@@ -145,6 +150,14 @@ function Answered { foreach ($t in Timers) { $n = Secs $t; if ($n -ge 1 -and $n 
 # a call is running while Phone Link shows a timer or an End button
 function Running { if ((Timers).Count -gt 0) { return $true }; return (CallOpen) }
 function CallOpen { foreach ($w in PlWindows) { foreach ($n in (AllButtons $w)) { if ($n -match '^(End|End call|Hang up|Hang Up)\b') { return $true } } }; return $false }
+# d13 (log 29-Oct 13:29: Stop 5 s after dialling found no call in Phone Link yet, the call went through anyway): keep ending for 15 s
+function StopCall {
+  $t0 = Now; $ended = $false
+  while ((Now) - $t0 -lt 15000) {
+    if (EndCall) { $ended = $true; Start-Sleep -Milliseconds 1200; if (-not (Running)) { break } } else { Start-Sleep -Milliseconds 700 }
+  }
+  Log $(if ($ended) { "OK call ended by Stop" } else { "! Stop: no call to end in Phone Link" })
+}
 function EndCall {
   $bc = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
   foreach ($w in PlWindows) { foreach ($b in @($w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $bc))) {
@@ -193,8 +206,8 @@ while ($true) {
       $row = Db 'GET' "$ROOT/queue/$mine"; $st = if ($row) { $row.st } else { $null }
       $open = Running
       if ($open) { $gone = 0 } else { $gone++ }
-      if (-not $row) { if ($open) { [void](EndCall) }; Log "OK call removed from the queue"; $mine = $null; continue }
-      if ($st -eq 'stop') { [void](EndCall); Finish $mine $row 'stop' 0; $mine = $null; Start-Sleep -Seconds 4; continue }
+      if (-not $row) { StopCall; Log "OK call removed from the queue"; $mine = $null; continue }
+      if ($st -eq 'stop') { StopCall; Finish $mine $row 'stop' 0; $mine = $null; Start-Sleep -Seconds 4; continue }
       if ($st -eq 'dial') {
         $ans = Answered
         if ($ans) { $ansAt = $now; Db 'PATCH' "$ROOT/queue/$mine" @{ st = 'talk'; ansAt = $now; via = 'phonelink' }; Log "CALL answered (Phone Link shows $ans) - laptop speaks"; Start-Sleep -Milliseconds 500; continue }
@@ -221,6 +234,7 @@ while ($true) {
     $relay = Db 'GET' "$ROOT/relay"; $phone = Db 'GET' "$ROOT/caller"
     if (-not $relay -or $now - [int64]$relay.seen -gt 90000) { $script:status = 'laptop: voice page offline - open caller-voice.html in Edge'; Start-Sleep -Seconds 10; continue }
     if ($q) { foreach ($p in $q.PSObject.Properties) { if ($p.Value.st -eq 'stop' -and $now - [int64]$p.Value.dialAt -gt 120000) { Db 'PATCH' "$ROOT/queue/$($p.Name)" @{ st = 'done'; res = 'stop'; doneAt = $now }; Log "OK old stop finished: $($p.Value.name)" } } }   # d4: stuck 'stop' rows
+    if (Running) { $script:status = 'line busy - a call is still open in Phone Link'; Start-Sleep -Seconds 3; continue }   # d13: never dial over a running call (13:29 'Call failed')
     $pick = $null; $best = [int64]::MaxValue
     if ($q) { foreach ($p in $q.PSObject.Properties) { $r = $p.Value
       if ($r.st -ne 'wait' -or [int64]$r.notBefore -gt $now -or ([string]$r.phone).Length -lt 10 -or ($hasNow -and -not $r.now)) { continue }

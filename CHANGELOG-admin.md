@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## davan-dialer d13 · 29-Oct-2026 IST
+Logs 29-Oct 13:26-13:29: the dialer froze (a click in its window starts QuickEdit and pauses it); Stop pressed 5 s after dialling found no call in Phone Link, so the call went through silent; the next call was dialled over it ("Call failed"). d13 turns QuickEdit off, Stop / Remove keep pressing End for up to 15 s until the call is gone, and no call is dialled while Phone Link still shows one. StopCall, main loop.
+
 ## v1969 + caller-voice v4.0 + dialer d12 · 29-Oct-2026 IST
 Log 29-Oct 13:17: the phone kept Bluetooth, but Edge's online Kannada voice never started (cable level 0) - the parent heard nothing. v4.0 cancels and retries a sentence that has not started in 4 s; after 2 stalls an offline English voice reads the English message (msgEn, which the staff app now adds to every Kannada / Hindi queue row). d12 checks for a new dialer every 10 min outside calls (d9 had stayed old for 2 hours) and logs a failed check. say, localVoice, speakRow; pcQueue, pcCall, pcTestMe; dialer main loop.
 
