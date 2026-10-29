@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1965 · 29-Oct-2026 IST
+Parent calls: the language picked on the page is saved as the default for everyone (DB4 hostel/parent_calls/cfg.lang) and stays until changed; each student card has its own language picker (hostel/parent_calls/slang/<URN>, empty = default), used by Auto call, Test to me and Speak. One extra read at page load. pcLangOf, pcSetLang, pcSetSLang, pcQueue, pcTestMe, pcSpeak, pcListTable, pcInit.
+
 ## caller-voice v3.7 · 29-Oct-2026 IST
 Log 29-Oct 11:19: the parent heard the message only ~27 s after answering - Edge's online (Microsoft) voice took 12 s to start and 16 s for sentence 1 (slow internet). v3.7 says one word at volume 0 while the phone rings so the voice is connected before the answer, and logs "online voice slow" when a sentence takes over 3 s to start. warm, check, say.
 
