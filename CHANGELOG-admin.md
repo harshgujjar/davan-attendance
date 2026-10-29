@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c10 · 29-Oct-2026 IST
+Logs 29-Oct: a Phone Link call answered on Bluetooth slipped to the phone earpiece 2 s later, so the parent heard nothing (later calls had no phone log at all: Davan Caller was no longer the default Phone app). c10 puts such a call back on Bluetooth (up to 5 times a call, the speaker is left alone). It needs Davan Caller set as the default Phone app. Eng.watch.
+
 ## davan-dialer d9 · 29-Oct-2026 IST
 Logs 29-Oct 10:52: d8 took an old "00:55" timer from the previous call as the answer and 1 s later decided "hung up" (End button not found) - the laptop spoke 1 s. d9: answered = a fresh timer 0:01-0:10; the call counts as running while any timer or End button shows, and "hung up" needs 4 checks in a row without both. (Same log: the phone stayed on its speaker from the user's press in the previous call - the call never reached the laptop.)
 
