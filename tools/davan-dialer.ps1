@@ -3,13 +3,24 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd2'
+$VER = 'd3'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
 $DIR = Join-Path $env:LOCALAPPDATA 'DavanDialer'
 New-Item -ItemType Directory -Force -Path $DIR | Out-Null
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+# d3: real mouse click + bring the window to the front (Phone Link ignored the UI Automation "Invoke" - log 29-Oct 08:34, no call started)
+Add-Type @"
+using System; using System.Runtime.InteropServices;
+public static class DvWin {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e);
+  public static void Click(int x, int y) { SetCursorPos(x, y); mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero); }
+}
+"@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $script:log = New-Object System.Collections.ArrayList
@@ -69,7 +80,19 @@ function ClickCall {
         $n = [string]$b.Current.Name
         # d2: Phone Link names it "Call Dialed number 8 8 9 2 ..." (log 29-Oct 08:29) - any name that starts with "Call " / is "Call", never the "Calls" tab
         if ($n -match '^\s*(Call|Dial|Call now)\s*$' -or $n -match '^Call\s') {
-          try { $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); return "clicked '$n' in '$($w.Current.Name)'" } catch { }
+          $how = @()
+          try { $h = [IntPtr]$w.Current.NativeWindowHandle; if ($h -ne [IntPtr]::Zero) { [void][DvWin]::ShowWindow($h, 9); [void][DvWin]::SetForegroundWindow($h) } } catch { }
+          Start-Sleep -Milliseconds 400
+          try { $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $how += 'invoke' } catch { $how += 'invoke failed' }
+          if (InCall $w 4) { return "call started after '$n' ($($how -join ', '))" }
+          try {   # Phone Link did not react: real mouse click in the middle of the button
+            $r = $b.Current.BoundingRectangle
+            [DvWin]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)); $how += "mouse click at $([int]($r.X + $r.Width / 2)),$([int]($r.Y + $r.Height / 2))"
+          } catch { $how += 'mouse click failed' }
+          if (InCall $w 6) { return "call started after '$n' ($($how -join ', '))" }
+          $script:lastButtons = ((AllButtons $w) -join ' | ')
+          Log "! pressed '$n' ($($how -join ', ')) but no call started. Buttons now: $($script:lastButtons)"
+          return $null
         }
       }
       $seen = (($btns | ForEach-Object { $_.Current.Name }) | Where-Object { $_ }) -join ' | '
@@ -80,6 +103,24 @@ function ClickCall {
   return $null
 }
 
+function AllButtons($w) {
+  $bc = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+  try { return @($w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $bc) | ForEach-Object { $_.Current.Name } | Where-Object { $_ }) } catch { return @() }
+}
+# a call is running when Phone Link shows an End / Hang up button (in any of its windows)
+function InCall($w, $sec) {
+  $until = (Get-Date).AddSeconds($sec)
+  while ((Get-Date) -lt $until) {
+    $pids = @(Get-Process -Name 'PhoneExperienceHost', 'PhoneLink', 'YourPhone' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+    $wins = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+    foreach ($x in $wins) {
+      if (-not ($pids -contains $x.Current.ProcessId) -and $x.Current.Name -notlike '*Phone Link*') { continue }
+      foreach ($n in (AllButtons $x)) { if ($n -match '^(End|End call|Hang up|Hang Up)\b') { return $true } }
+    }
+    Start-Sleep -Milliseconds 500
+  }
+  return $false
+}
 function Beat {
   try {
     Db 'PUT' "$ROOT/dialer" @{ seen = (Now); ver = $VER; status = $script:status; pc = $env:COMPUTERNAME }
@@ -127,7 +168,7 @@ while ($true) {
     Start-Process "tel:$num"
     $c = ClickCall
     if ($c) { Log "CALL $c" } else {
-      Log "! Phone Link Call button not found in 15 s. Buttons seen: $($script:lastButtons)"
+      Log "! no call started (see the line above). Buttons seen: $($script:lastButtons)"
       Db 'PATCH' "$ROOT/queue/$pick" @{ st = 'wait'; notBefore = $now + 300000; res = 'fail' }; $mine = $null
     }
     Beat

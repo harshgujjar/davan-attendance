@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## davan-dialer d3 · 29-Oct-2026 IST
+User 29-Oct: "college phone showed nothing" although d2 logged "clicked Call" - Phone Link accepts the UI Automation Invoke without error but does not start the call. d3 brings Phone Link to the front, invokes, CHECKS that a call started (an End / Hang up button appears), else does a real mouse click on the button and checks again; logs "call started" or the buttons it sees. New: InCall, AllButtons, DvWin.
+
 ## Davan Caller c7 · 29-Oct-2026 IST
 Log 08:34: dialer d2 clicked Phone Link's Call, but the phone logged nothing - c7 logs every call Android hands to the app and why a call is or is not followed. DavanCaller.apk + caller-version.json = c7, link ?v=7.
 
