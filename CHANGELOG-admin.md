@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1966 + caller-voice v3.9 + dialer d10 · 29-Oct-2026 IST
+User: "how will I know the parent heard it". The voice page counts the sentences played while the line was open and saves said / of / cable level on the queue row and the call log (DB4 hostel/parent_calls/queue/<id>, log/<YYYY-MM>/<id>; ~2 small writes a call); the dialer copies them into the log entry. Staff app Call log + queue show "✅ heard the full message", "⚠ hung up after 2/6 sentences" or "❌ hung up before the message". Also fixed: a call that ended mid-message was put back to 'spoken' by the voice page. pcHeard, pcHow, pcRenderQueue; speakRow, say; Finish.
+
 ## caller-voice v3.8 · 29-Oct-2026 IST
 User: "it takes 9 s to start". Log 11:35: the voice warmed at the ring start was cold again 17 s later (3.4 s to start), plus a 1.2 s wait after the answer. v3.8 keeps the voice warm (one silent word every 4 s while the phone rings) and waits 0.3 s after the answer. warm, speakRow.
 

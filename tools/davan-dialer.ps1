@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd9'
+$VER = 'd10'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -162,7 +162,9 @@ function Finish($id, $row, $res, $dur) {
   if ($again) { Db 'PATCH' "$ROOT/queue/$id" @{ st = 'wait'; attempts = $att; res = $res; notBefore = $now + 1800000 } }
   else {
     Db 'PATCH' "$ROOT/queue/$id" @{ st = 'done'; attempts = $att; res = $res; doneAt = $now; dur = $dur }
-    Db 'PUT' ("$ROOT/log/" + (Get-Date -Format 'yyyy-MM') + "/$id") @{ urn = $row.urn; name = $row.name; phone = $row.phone; pct = $row.pct; by = 'Auto call'; at = $now; how = 'auto'; res = $res; dur = $dur }
+    $e = @{ urn = $row.urn; name = $row.name; phone = $row.phone; pct = $row.pct; by = 'Auto call'; at = $now; how = 'auto'; res = $res; dur = $dur }
+    foreach ($k in 'said', 'of', 'cable') { if ($null -ne $row.$k) { $e[$k] = $row.$k } }   # d10: how much of the message the parent heard (voice page v3.9)
+    Db 'PUT' ("$ROOT/log/" + (Get-Date -Format 'yyyy-MM') + "/$id") $e
   }
   Log ("OK " + $row.name + ": " + $res + $(if ($dur) { " ($dur s)" } else { '' }) + $(if ($again) { ' - will try again in 30 min' } else { '' }))
 }

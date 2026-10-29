@@ -84,7 +84,7 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 const DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
 const KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ';
 const ROOT = 'hostel/parent_calls';
-const VER = 'v3.8';
+const VER = 'v3.9';
 const AGAIN = { en: 'Once again.', kn: 'ಮತ್ತೊಮ್ಮೆ ಕೇಳಿ.', hi: 'फिर से सुनिए.' };
 const TEST = { en: 'Namaskara. This is a test of the Davan College parent call voice.', kn: 'ನಮಸ್ಕಾರ. ಇದು ದಾವನ್ ಕಾಲೇಜಿನ ಪೋಷಕರ ಕರೆಯ ಧ್ವನಿ ಪರೀಕ್ಷೆ.', hi: 'नमस्ते. यह दावन कॉलेज की अभिभावक कॉल आवाज़ का परीक्षण है.' };
 const seenRoute = {}, done = {};
@@ -214,9 +214,9 @@ function say(text, lang) {
     let v = pickVoice(lang);
     if (!v && lang !== 'en') { log('⚠ no ' + lang + ' voice - English used'); v = pickVoice('en'); }
     const parts = String(text).split(/(?<=[.!?।])\s+/).filter(s => s.trim());
-    let i = 0;
+    let i = 0, ok = 0;   // v3.9: ok = sentences fully spoken (the call log shows whether the parent heard all of it)
     const next = () => {
-      if (i >= parts.length || stopNow) { res(); return; }
+      if (i >= parts.length || stopNow) { res(ok); return; }
       const u = new SpeechSynthesisUtterance(parts[i++]);
       if (v) { u.voice = v; u.lang = v.lang; }
       u.rate = Math.min(1.5, Math.max(0.8, +cfg.rate || 1.1));   // v1.8: cfg.rate (Speed box / staff app Settings), was 0.92
@@ -224,7 +224,7 @@ function say(text, lang) {
       let done = false; const fin = () => { if (!done) { done = true; clearTimeout(guard); next(); } };
       const guard = setTimeout(() => { log('   ⚠ sentence ' + n + ' did not finish in 20 s'); fin(); }, 20000);
       u.onstart = () => { const w = (Date.now() - t0) / 1000; dbg('   ▶ sentence ' + n + '/' + parts.length + ' started' + (w > 3 ? ' - ⚠ online voice slow (' + w.toFixed(1) + ' s, internet)' : '')); };
-      u.onend = () => { dbg('   ■ sentence ' + n + ' done (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)'); fin(); };
+      u.onend = () => { ok++; dbg('   ■ sentence ' + n + ' done (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)'); fin(); };
       u.onerror = e => { log('   ⚠ sentence ' + n + ' error: ' + (e.error || e.type)); fin(); };
       speechSynthesis.speak(u);
     };
@@ -241,20 +241,26 @@ async function speakRow(id, q) {
   log('✅ ' + q.name + ' - parent answered, speaking (' + lang + ')');
   await routeTo('cable');
   await new Promise(r => setTimeout(r, 300));           // v3.8: was 1.2 s (user: "9 s to start is long")
-  const m = meterStart();
+  const m = meterStart(), of = String(q.msg || '').split(/(?<=[.!?।])\s+/).filter(x => x.trim()).length;
+  let said = 0;
   for (let k = 0; k < n; k++) {
     if (stopNow) break;
     if (k) { await new Promise(r => setTimeout(r, 900)); await say(AGAIN[lang] || AGAIN.en, lang); }
-    await say(q.msg || '', lang);
+    said += await say(q.msg || '', lang);
     if (stopNow || !queue[id] || queue[id].st !== 'talk') break;   // parent hung up
   }
   const lvl = meterStop(m);
   if (lvl != null) lastCable = { lvl, at: Date.now() };
   if (lvl != null) log(lvl > 1 ? '🔬 cable level ' + lvl + ' - the voice went into the cable ✅' : '🔬 cable level ' + lvl + ' - ❌ NO sound in the cable: Edge output is not CABLE Input');
   else log('🔬 cable level not measured - click 🔬 Cable check once after opening the page');
-  done[id + ':' + (q.ansAt || '')] = 1; if (queue[id]) queue[id].st = 'spoken';   // v1.3: never speak the same call twice (the stream echo comes later)
-  try { await db('PATCH', ROOT + '/queue/' + id, { st: 'spoken', spokenAt: Date.now(), cable: lvl }); log('✔ message done - ' + q.name); }
+  // v3.9 (user: "how will I know it was heard"): said / of = sentences of the message played while the line was open
+  const ended = stopNow || !queue[id] || queue[id].st !== 'talk', heard = { said, of, cable: lvl };
+  log((said >= of ? '✅ the parent heard the full message' : said ? '⚠ hung up after ' + said + '/' + of + ' sentences' : '❌ hung up before the message') + ' - ' + q.name);
+  done[id + ':' + (q.ansAt || '')] = 1; if (queue[id] && !ended) queue[id].st = 'spoken';   // v1.3: never speak the same call twice (the stream echo comes later)
+  try { await db('PATCH', ROOT + '/queue/' + id, ended ? heard : Object.assign({ st: 'spoken', spokenAt: Date.now() }, heard)); log('✔ message done - ' + q.name); }   // v3.9: an ended call stays 'done'
   catch (e) { log('⚠ could not mark done: ' + e.message); }
+  const mo = new Date(), path = ROOT + '/log/' + mo.getFullYear() + '-' + String(mo.getMonth() + 1).padStart(2, '0') + '/' + id;
+  setTimeout(async () => { try { if (await db('GET', path)) await db('PATCH', path, heard); } catch (e) {} }, 8000);   // after the dialer wrote the log entry
   await routeTo('speakers');
   busy = ''; check();
 }
