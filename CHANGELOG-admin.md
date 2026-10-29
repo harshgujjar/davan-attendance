@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1968 · 29-Oct-2026 IST
+User: "I added the parent number, it still says no parent number". The number was saved (DB4 hostel/private/<URN>/parentPhone) but the "N have a parent number" count was drawn only on a full render and stayed 0. pcSaveNum now redraws the whole page. No new reads.
+
 ## v1967 + dialer d11 + Davan Caller c11 · 29-Oct-2026 IST
 User: "Call opens Phone Link but does not dial - make it dial, connect the parent and play the voice"; "if I want to call myself". Call (pcCall) now queues the student with now:true when the laptop dialer is online; d11 dials such a row first and at once, even when paused or outside the hours (DB4 hostel/parent_calls/queue, one write). c11 keeps the audio on Bluetooth only for a call the laptop dials from the queue; the user's own calls on the college phone are left alone. pcCall; dialer main loop; Eng.follow, Eng.watch.
 
