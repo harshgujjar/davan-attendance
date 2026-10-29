@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v3.5 · 29-Oct-2026 IST
+Log 29-Oct 09:47: a redialled call was answered but the laptop stayed silent - the "already spoken" mark (v1.3) was kept per queue row, and a redial / 30-min retry reuses the row. The mark is now per answered call (row id + ansAt).
+
 ## v1962 + caller-voice v3.4 · 29-Oct-2026 IST
 User 29-Oct: "show Kannada or English or Hindi too" - each call in the staff app's auto-call queue and the laptop page's Calls list shows its language. Changed: pcRenderQueue, renderQueue.
 
