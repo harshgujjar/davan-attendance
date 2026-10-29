@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd3'
+$VER = 'd4'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -130,7 +130,7 @@ function Beat {
 }
 
 Log "> Davan Dialer $VER started"
-$cfg = $null; $cfgAt = 0; $lastBeat = 0; $mine = $null; $mineAt = 0; $verAt = 0
+$cfg = $null; $cfgAt = 0; $lastBeat = 0; $mine = $null; $mineAt = 0; $verAt = 0; $stopAt = $null
 while ($true) {
   try {
     $now = Now
@@ -142,6 +142,7 @@ while ($true) {
     if ($now - $cfgAt -gt 120000 -or -not $cfg) { $cfg = Db 'GET' "$ROOT/cfg"; if (-not $cfg) { $cfg = [pscustomobject]@{} }; $cfgAt = $now }
     if ($mine) {   # a call this laptop placed is in progress: wait for the phone to finish it
       $st = Db 'GET' "$ROOT/queue/$mine/st"
+      if ($st -eq 'stop') { if (-not $stopAt) { $stopAt = $now } elseif ($now - $stopAt -gt 15000) { Log "OK stop finished (no phone call to hang up)"; Db 'PATCH' "$ROOT/queue/$mine" @{ st = 'done'; res = 'stop'; doneAt = $now }; $mine = $null; $stopAt = $null; continue } } else { $stopAt = $null }   # d4
       if ($st -ne 'dial' -and $st -ne 'talk' -and $st -ne 'stop') { Log "OK call finished ($st)"; $mine = $null; $script:status = 'Ready'; Start-Sleep -Seconds 6; continue }
       if ($st -eq 'dial' -and $now - $mineAt -gt 90000) {   # the phone never picked it up
         Log "! the phone did not follow the call in 90 s - back to the queue"
@@ -156,6 +157,7 @@ while ($true) {
     if (-not $relay -or $now - [int64]$relay.seen -gt 90000) { $script:status = 'laptop: voice page offline - open caller-voice.html in Edge'; Start-Sleep -Seconds 10; continue }
     if (-not $phone -or $now - [int64]$phone.seen -gt 150000) { $script:status = 'phone: Davan Caller phone offline'; Start-Sleep -Seconds 10; continue }
     $q = Db 'GET' "$ROOT/queue"
+    if ($q) { foreach ($p in $q.PSObject.Properties) { if ($p.Value.st -eq 'stop' -and $now - [int64]$p.Value.dialAt -gt 120000) { Db 'PATCH' "$ROOT/queue/$($p.Name)" @{ st = 'done'; res = 'stop'; doneAt = $now }; Log "OK old stop finished: $($p.Value.name)" } } }   # d4: stuck 'stop' rows
     $pick = $null; $best = [int64]::MaxValue
     if ($q) { foreach ($p in $q.PSObject.Properties) { $r = $p.Value
       if ($r.st -ne 'wait' -or [int64]$r.notBefore -gt $now -or ([string]$r.phone).Length -lt 10) { continue }
