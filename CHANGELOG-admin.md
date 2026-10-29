@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1961 · 29-Oct-2026 IST
+User 29-Oct, after the first fully automatic call (dialer d7: Phone Link dialled, answer seen at 00:01, laptop spoke, 52 s): "it did not say D T, section / class not proper, English and Kannada". Messages now write initials, course and section letters as each voice says them (Kiran Dee Tee / ಡಿ ಟಿ / डी टी; section Ay / ಎ / ए; Bee See Ay / ಬಿ ಸಿ ಎ), semesters as words (fifth / ಐದನೇ / पाँचवाँ), names in normal case. Applies to newly queued calls. New: pcNameSay, pcLetter, PC_LETTERS, PC_ORD; changed pcClassSay, pcMsg.
+
 ## caller-voice v3.1 · 29-Oct-2026 IST
 User screenshot 29-Oct: two tabs of the voice page open (the cmd opens it at every start) - both would speak into one call. The first open tab answers a BroadcastChannel hello; any later tab stays silent and says "already open in another tab".
 
