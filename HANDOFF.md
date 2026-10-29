@@ -60,19 +60,18 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - 🛠 Super Admin page (staff widget settings, owner's phone only): SaActivity + sa-screens.json (this repo, root). Blocks text / nav / switch / choice / field / btn / qbank / report. Edit the JSON for wording / order / new switches on existing DB paths. NOT phone-tested yet; people rows have no photo.
 - Source: davan-scraper widgets/student + staff (pushed). Optional still open: longer 30-word Placement list.
 
-## 📞 Parent calls (v1952-v1959, Davan Caller c5, caller-voice v2.5; 28/29-Oct-2026) - KEY FINDING, next build waits for user "go"
-Staff app 📞 Parent calls page (manual + 🤖 Auto call queue DB4 hostel/parent_calls, 🧪 Test to me, ⏹/🔁/⏸, 📋 Logs). Phone = Davan Caller
-(com.davan.caller, source davan-scraper widgets/caller, key caller.jks kept by the user - NOT in git; self-updates from caller-version.json).
-Laptop = caller-voice.html in Edge (logs itself: devices, defaults, cable level, route; uploads to DB4 logs/voice; phone uploads logs/phone -
-Claude reads both with anonymous auth, apiKey in LP_ARCHIVE_CFG). College Matrix ETERNITY PE 6S PBX has no VoIP card (VoIP8 ~₹15k).
-PROVEN 29-Oct 4 am (logs + user): calls the PHONE APP dials never get laptop audio - Android says "Bluetooth" but Windows opens no call audio,
-it flips back to the earpiece every ~5 s, Phone Link "Transfer to PC" does nothing. Calls PHONE LINK starts (its keypad) work perfectly:
-correct Sapna voice heard by the parent. Working laptop settings: default speaker = CABLE In 16ch, default + communications mic = CABLE Output,
-communications speaker = Speakers (Realtek), Volume mixer "Microphone (Gujjar Hands-Free HF Audio)" (Phone Link's call stream) input = CABLE
-Output / output = Speakers, Edge output CABLE In 16ch, ASUS AI-noise devices off. NEXT (proposed, user to say go): laptop helper (PowerShell,
-starts with Windows) takes the next queue row, opens tel:<n> and clicks Phone Link's Call button (UI Automation); phone app c6 stops dialing /
-forcing Bluetooth and only follows the Phone-Link-placed call (answer -> st talk -> spoken -> hang up -> log). Edge's speech ignores Edge's own
-output setting and follows the Windows DEFAULT speaker. Check the logs before asking the user to test (user, 29-Oct).
+## 📞 Parent calls - WORKS fully automatic (29-Oct-2026 10:20, user: "rest all numbers I can hear")
+Flow: staff app 📞 Parent calls (v1963: 🤖 Auto call / 🧪 Test to me per-student number / ⏹ 🔁 ⏸ / 📋 Logs, messages say letters + semesters as words)
+-> DB4 hostel/parent_calls/queue -> LAPTOP: "Davan Caller.cmd" (tools/davan-dialer.cmd, shortcut in shell:startup) opens caller-voice.html
+in Edge (v3.6: newest tab speaks, Connections checklist, call list, logs) and runs tools/davan-dialer.ps1 (d8, self-updating via
+caller-version.json "dialer"): opens tel:<n> -> Phone Link, presses "Call Dialed number ..." (focus+Enter), sees the answer (Phone Link
+timer 00:01) -> st talk -> page speaks (Edge natural voices Neerja / Sapna / Swara, speed cfg.rate) -> 'spoken' -> clicks End -> result
++ log/<month>. The phone app Davan Caller (c8) is NOT needed for calls (keep Auto calling OFF; it disturbed the audio when it followed calls).
+Laptop settings that must stay: default speaker = CABLE In 16ch, default + communications mic = CABLE Output, Microphone Array DISABLED
+(Phone Link's call stream resets its input every call), communications speaker = Speakers (Realtek), ASUS AI-noise off, keep the black
+window minimised (clicking it pauses it). Logs (Claude reads them, anonymous auth): DB4 hostel/parent_calls/logs/{voice,dialer,phone},
+heartbeats relay / dialer. Open: number 7026225550 never hears the voice (Phone Link dials it as +91 from contacts - user to say whose);
+cfg.hours still 10:00-09:59 from testing; only hostel students have parent numbers. Rule (user): read the logs before asking for tests.
 
 ## 🎯 Placement - BUILT v1 (18-Oct): read ROADMAP-placement.md
 - NEXT SESSION: 🇯🇵 Japanese letters-first + Type → 日本語 (A offline romaji, B word list, C Google Translate via worker) - read JAPANESE-PLAN.md
