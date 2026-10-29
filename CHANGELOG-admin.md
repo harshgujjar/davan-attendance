@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1964 · 29-Oct-2026 IST
+User 29-Oct: "show which phone I am dialling; where I gave no number do not add one by default" - each student card shows its 🧪 test number (localStorage pc_test_num_<URN>), and Test to me pre-fills only that student's own number (no fallback to the last one used). Changed: pcListTable, pcTestMe.
+
 ## Davan Caller c9 · 29-Oct-2026 IST
 Logs 29-Oct 10:41: the laptop side works on every call (answered, voice in the cable) but some callees hear nothing - not the +91 / contact (ruled out by the user). c9 only watches: logs every call's state and audio route (laptop Bluetooth / earpiece) with Auto calling OFF, to compare a heard call with a silent one. Link ?v=9.
 
