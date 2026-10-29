@@ -70,7 +70,7 @@ timer 00:01) -> st talk -> page speaks (Edge natural voices Neerja / Sapna / Swa
 Laptop settings that must stay: default speaker = CABLE In 16ch, default + communications mic = CABLE Output, Microphone Array DISABLED
 (Phone Link's call stream resets its input every call), communications speaker = Speakers (Realtek), ASUS AI-noise off, keep the black
 window minimised (clicking it pauses it). Logs (Claude reads them, anonymous auth): DB4 hostel/parent_calls/logs/{voice,dialer,phone},
-heartbeats relay / dialer. Open: number 7026225550 never hears the voice (Phone Link dials it as +91 from contacts - user to say whose);
+heartbeats relay / dialer. 7026225550 = the college EPABX line (reception): the PBX answers first, so the message plays before a person picks up - expected, not a bug;
 cfg.hours still 10:00-09:59 from testing; only hostel students have parent numbers. Rule (user): read the logs before asking for tests.
 
 ## 🎯 Placement - BUILT v1 (18-Oct): read ROADMAP-placement.md
