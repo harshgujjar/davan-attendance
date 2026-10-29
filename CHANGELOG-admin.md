@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1969 + caller-voice v4.0 + dialer d12 · 29-Oct-2026 IST
+Log 29-Oct 13:17: the phone kept Bluetooth, but Edge's online Kannada voice never started (cable level 0) - the parent heard nothing. v4.0 cancels and retries a sentence that has not started in 4 s; after 2 stalls an offline English voice reads the English message (msgEn, which the staff app now adds to every Kannada / Hindi queue row). d12 checks for a new dialer every 10 min outside calls (d9 had stayed old for 2 hours) and logs a failed check. say, localVoice, speakRow; pcQueue, pcCall, pcTestMe; dialer main loop.
+
 ## v1968 · 29-Oct-2026 IST
 User: "I added the parent number, it still says no parent number". The number was saved (DB4 hostel/private/<URN>/parentPhone) but the "N have a parent number" count was drawn only on a full render and stayed 0. pcSaveNum now redraws the whole page. No new reads.
 

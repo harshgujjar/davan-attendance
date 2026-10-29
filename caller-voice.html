@@ -84,7 +84,7 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 const DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
 const KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ';
 const ROOT = 'hostel/parent_calls';
-const VER = 'v3.9';
+const VER = 'v4.0';
 const AGAIN = { en: 'Once again.', kn: 'ಮತ್ತೊಮ್ಮೆ ಕೇಳಿ.', hi: 'फिर से सुनिए.' };
 const TEST = { en: 'Namaskara. This is a test of the Davan College parent call voice.', kn: 'ನಮಸ್ಕಾರ. ಇದು ದಾವನ್ ಕಾಲೇಜಿನ ಪೋಷಕರ ಕರೆಯ ಧ್ವನಿ ಪರೀಕ್ಷೆ.', hi: 'नमस्ते. यह दावन कॉलेज की अभिभावक कॉल आवाज़ का परीक्षण है.' };
 const seenRoute = {}, done = {};
@@ -209,23 +209,35 @@ function warm(lang, first) {
   } catch (e) {}
 }
 // Edge / Chrome stop long utterances after ~15 s, so speak sentence by sentence
-function say(text, lang) {
+// v4.0 (log 29-Oct 13:17: the online Kannada voice never started - 0 sound in the call): a sentence that has not started in 4 s is
+// cancelled and tried again; after 2 such stalls say() gives up (sayStuck) and speakRow falls back to an offline voice
+let sayStuck = false;
+function localVoice() { const vs = speechSynthesis.getVoices(); return vs.find(x => x.localService && x.lang === 'en-IN') || vs.find(x => x.localService && /^en/i.test(x.lang)) || null; }
+function say(text, lang, force) {
+  sayStuck = false;
   return new Promise(res => {
-    let v = pickVoice(lang);
+    let v = force || pickVoice(lang), stalls = 0;
     if (!v && lang !== 'en') { log('⚠ no ' + lang + ' voice - English used'); v = pickVoice('en'); }
     const parts = String(text).split(/(?<=[.!?।])\s+/).filter(s => s.trim());
     let i = 0, ok = 0;   // v3.9: ok = sentences fully spoken (the call log shows whether the parent heard all of it)
-    const next = () => {
+    const next = (again) => {
       if (i >= parts.length || stopNow) { res(ok); return; }
-      const u = new SpeechSynthesisUtterance(parts[i++]);
+      if (!again) i++;
+      const u = new SpeechSynthesisUtterance(parts[i - 1]);
       if (v) { u.voice = v; u.lang = v.lang; }
       u.rate = Math.min(1.5, Math.max(0.8, +cfg.rate || 1.1));   // v1.8: cfg.rate (Speed box / staff app Settings), was 0.92
       const n = i, t0 = Date.now();
-      let done = false; const fin = () => { if (!done) { done = true; clearTimeout(guard); next(); } };
+      let done = false, started = false; const fin = () => { if (!done) { done = true; clearTimeout(guard); clearTimeout(sg); next(); } };
       const guard = setTimeout(() => { log('   ⚠ sentence ' + n + ' did not finish in 20 s'); fin(); }, 20000);
-      u.onstart = () => { const w = (Date.now() - t0) / 1000; dbg('   ▶ sentence ' + n + '/' + parts.length + ' started' + (w > 3 ? ' - ⚠ online voice slow (' + w.toFixed(1) + ' s, internet)' : '')); };
+      const sg = setTimeout(() => {
+        if (started || done || stopNow) return;
+        done = true; clearTimeout(guard); stalls++; speechSynthesis.cancel();
+        if (stalls >= 2) { sayStuck = true; log('   ❌ the voice is stuck (sentence ' + n + ' did not start twice) - internet / online voice'); res(ok); return; }
+        log('   ⚠ sentence ' + n + ' did not start in 4 s - trying again'); setTimeout(() => next(true), 250);
+      }, 4000);
+      u.onstart = () => { started = true; const w = (Date.now() - t0) / 1000; dbg('   ▶ sentence ' + n + '/' + parts.length + ' started' + (w > 3 ? ' - ⚠ online voice slow (' + w.toFixed(1) + ' s, internet)' : '')); };
       u.onend = () => { ok++; dbg('   ■ sentence ' + n + ' done (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)'); fin(); };
-      u.onerror = e => { log('   ⚠ sentence ' + n + ' error: ' + (e.error || e.type)); fin(); };
+      u.onerror = e => { if (done) return; log('   ⚠ sentence ' + n + ' error: ' + (e.error || e.type)); fin(); };
       speechSynthesis.speak(u);
     };
     log('🗣 voice: ' + (v ? v.name : 'browser default') + ' · speed ' + Math.min(1.5, Math.max(0.8, +cfg.rate || 1.1)) + '× · ' + parts.length + ' sentence(s)');
@@ -247,6 +259,11 @@ async function speakRow(id, q) {
     if (stopNow) break;
     if (k) { await new Promise(r => setTimeout(r, 900)); await say(AGAIN[lang] || AGAIN.en, lang); }
     said += await say(q.msg || '', lang);
+    if (sayStuck && !stopNow) {   // v4.0: online voice stuck - an offline English voice reads the English message (better than silence)
+      const lv = localVoice();
+      if (lv && q.msgEn) { log('🛟 offline voice ' + lv.name + ' reads the English message'); said += await say(q.msgEn, 'en', lv); }
+      else log('❌ no offline English voice / no English text - nothing more to say');
+    }
     if (stopNow || !queue[id] || queue[id].st !== 'talk') break;   // parent hung up
   }
   const lvl = meterStop(m);

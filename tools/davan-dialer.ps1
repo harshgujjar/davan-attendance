@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd11'
+$VER = 'd12'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -183,9 +183,10 @@ while ($true) {
   try {
     $now = Now
     if ($now - $lastBeat -gt 30000) { $lastBeat = $now; Beat }
-    if ($now - $verAt -gt 3600000) {   # newer copy published -> exit; davan-dialer.cmd downloads it and starts again
+    if (-not $mine -and $now - $verAt -gt 600000) {   # d12: every 10 min and never during a call (d9 stayed old for 2 h); newer copy -> exit, davan-dialer.cmd downloads it
       $verAt = $now
-      try { $v = Invoke-RestMethod -Uri ('https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/caller-version.json?t=' + $now); if ($v.dialer -and $v.dialer -ne $VER) { Log "^ new dialer $($v.dialer) - restarting"; Beat; exit 0 } } catch { }
+      try { $v = Invoke-RestMethod -Uri ('https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/caller-version.json?t=' + $now); if ($v.dialer -and $v.dialer -ne $VER) { Log "^ new dialer $($v.dialer) - restarting"; Beat; exit 0 } }
+      catch { Log "! version check failed: $($_.Exception.Message)"; $verAt = $now - 480000 }   # try again in 2 min
     }
     if ($now - $cfgAt -gt 120000 -or -not $cfg) { $cfg = Db 'GET' "$ROOT/cfg"; if (-not $cfg) { $cfg = [pscustomobject]@{} }; $cfgAt = $now }
     if ($mine) {   # d7: a call this laptop placed - the dialer watches it (answer, message done, stop, ring timeout) and ends it
