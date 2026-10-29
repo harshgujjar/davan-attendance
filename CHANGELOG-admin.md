@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v3.8 · 29-Oct-2026 IST
+User: "it takes 9 s to start". Log 11:35: the voice warmed at the ring start was cold again 17 s later (3.4 s to start), plus a 1.2 s wait after the answer. v3.8 keeps the voice warm (one silent word every 4 s while the phone rings) and waits 0.3 s after the answer. warm, speakRow.
+
 ## v1965 · 29-Oct-2026 IST
 Parent calls: the language picked on the page is saved as the default for everyone (DB4 hostel/parent_calls/cfg.lang) and stays until changed; each student card has its own language picker (hostel/parent_calls/slang/<URN>, empty = default), used by Auto call, Test to me and Speak. One extra read at page load. pcLangOf, pcSetLang, pcSetSLang, pcQueue, pcTestMe, pcSpeak, pcListTable, pcInit.
 
