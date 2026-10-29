@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd6'
+$VER = 'd7'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -126,6 +126,41 @@ function InCall($w, $sec) {
   }
   return $false
 }
+# d7 (logs 29-Oct 09:04-09:13: when the phone app follows the call the audio jumps to the earpiece; when the phone is passive it stays on
+# the laptop): the dialer itself sees the answer (Phone Link shows a call timer 0:05 / 00:05) and ends the call with Phone Link's End button
+function PlWindows {
+  $pids = @(Get-Process -Name 'PhoneExperienceHost', 'PhoneLink', 'YourPhone' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+  $wins = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+  return @($wins | Where-Object { ($pids -contains $_.Current.ProcessId) -or ($_.Current.Name -like '*Phone Link*') })
+}
+function PlTexts {
+  $tc = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text)
+  $out = @(); foreach ($w in PlWindows) { try { $out += @($w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $tc) | ForEach-Object { [string]$_.Current.Name } | Where-Object { $_ }) } catch { } }
+  return $out
+}
+function Answered { foreach ($t in PlTexts) { if ($t.Trim() -match '^\d{1,2}:\d{2}(:\d{2})?$' -and $t.Trim() -notmatch '^0?0:00$') { return $t.Trim() } }; return $null }
+function CallOpen { foreach ($w in PlWindows) { foreach ($n in (AllButtons $w)) { if ($n -match '^(End|End call|Hang up|Hang Up)\b') { return $true } } }; return $false }
+function EndCall {
+  $bc = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+  foreach ($w in PlWindows) { foreach ($b in @($w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $bc))) {
+    if ([string]$b.Current.Name -match '^(End|End call|Hang up|Hang Up)\b' -and -not $b.Current.IsOffscreen) {
+      try { $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { }
+      Start-Sleep -Milliseconds 800
+      if (CallOpen) { try { $r = $b.Current.BoundingRectangle; [DvWin]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) } catch { } }
+      return $true } } }
+  return $false
+}
+# result of a call this laptop placed: queue row done / retry + month log (same shape as the phone app wrote)
+function Finish($id, $row, $res, $dur) {
+  $now = Now; $att = [int]$row.attempts + 1; $tries = if ($cfg.tries) { [int]$cfg.tries } else { 2 }
+  $again = ($res -ne 'ans' -and $res -ne 'stop' -and $att -lt $tries)
+  if ($again) { Db 'PATCH' "$ROOT/queue/$id" @{ st = 'wait'; attempts = $att; res = $res; notBefore = $now + 1800000 } }
+  else {
+    Db 'PATCH' "$ROOT/queue/$id" @{ st = 'done'; attempts = $att; res = $res; doneAt = $now; dur = $dur }
+    Db 'PUT' ("$ROOT/log/" + (Get-Date -Format 'yyyy-MM') + "/$id") @{ urn = $row.urn; name = $row.name; phone = $row.phone; pct = $row.pct; by = 'Auto call'; at = $now; how = 'auto'; res = $res; dur = $dur }
+  }
+  Log ("OK " + $row.name + ": " + $res + $(if ($dur) { " ($dur s)" } else { '' }) + $(if ($again) { ' - will try again in 30 min' } else { '' }))
+}
 function Beat {
   try {
     Db 'PUT' "$ROOT/dialer" @{ seen = (Now); ver = $VER; status = $script:status; pc = $env:COMPUTERNAME }
@@ -146,22 +181,32 @@ while ($true) {
       try { $v = Invoke-RestMethod -Uri ('https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/caller-version.json?t=' + $now); if ($v.dialer -and $v.dialer -ne $VER) { Log "^ new dialer $($v.dialer) - restarting"; Beat; exit 0 } } catch { }
     }
     if ($now - $cfgAt -gt 120000 -or -not $cfg) { $cfg = Db 'GET' "$ROOT/cfg"; if (-not $cfg) { $cfg = [pscustomobject]@{} }; $cfgAt = $now }
-    if ($mine) {   # a call this laptop placed is in progress: wait for the phone to finish it
-      $st = Db 'GET' "$ROOT/queue/$mine/st"
-      if ($st -eq 'stop') { if (-not $stopAt) { $stopAt = $now } elseif ($now - $stopAt -gt 15000) { Log "OK stop finished (no phone call to hang up)"; Db 'PATCH' "$ROOT/queue/$mine" @{ st = 'done'; res = 'stop'; doneAt = $now }; $mine = $null; $stopAt = $null; continue } } else { $stopAt = $null }   # d4
-      if ($st -ne 'dial' -and $st -ne 'talk' -and $st -ne 'stop') { Log "OK call finished ($st)"; $mine = $null; $script:status = 'Ready'; Start-Sleep -Seconds 6; continue }
-      if ($st -eq 'dial' -and $now - $mineAt -gt 90000) {   # the phone never picked it up
-        Log "! the phone did not follow the call in 90 s - back to the queue"
-        Db 'PATCH' "$ROOT/queue/$mine" @{ st = 'wait'; notBefore = $now + 300000; res = 'fail' }; $mine = $null
+    if ($mine) {   # d7: a call this laptop placed - the dialer watches it (answer, message done, stop, ring timeout) and ends it
+      $row = Db 'GET' "$ROOT/queue/$mine"; $st = if ($row) { $row.st } else { $null }
+      $open = CallOpen
+      if (-not $row) { if ($open) { [void](EndCall) }; Log "OK call removed from the queue"; $mine = $null; continue }
+      if ($st -eq 'stop') { [void](EndCall); Finish $mine $row 'stop' 0; $mine = $null; Start-Sleep -Seconds 4; continue }
+      if ($st -eq 'dial') {
+        $ans = Answered
+        if ($ans) { $ansAt = $now; Db 'PATCH' "$ROOT/queue/$mine" @{ st = 'talk'; ansAt = $now; via = 'phonelink' }; Log "CALL answered (Phone Link shows $ans) - laptop speaks"; Start-Sleep -Milliseconds 500; continue }
+        if (-not $open -and $now - $mineAt -gt 8000) { Finish $mine $row 'nr' 0; Log "! the call ended before it was answered (busy / rejected)"; $mine = $null; Start-Sleep -Seconds 6; continue }
+        $ring = if ($cfg.ringSec) { [int]$cfg.ringSec } else { 45 }
+        if ($now - $mineAt -gt ($ring + 8) * 1000) { [void](EndCall); Finish $mine $row 'nr' 0; Log "! no answer in $ring s"; $mine = $null; Start-Sleep -Seconds 6; continue }
+        Start-Sleep -Milliseconds 700; continue
       }
-      if ($mine -and $now - $mineAt -gt 240000) { Log "! call still open after 4 min - letting go"; $mine = $null }
-      Start-Sleep -Seconds 3; continue
+      if ($st -eq 'talk' -or $st -eq 'spoken') {
+        $dur = [int](($now - [int64]$row.ansAt) / 1000)
+        if ($st -eq 'spoken') { [void](EndCall); Finish $mine $row 'ans' $dur; $mine = $null; Start-Sleep -Seconds 8; continue }
+        if (-not $open) { Finish $mine $row 'ans' $dur; Log "OK the parent hung up"; $mine = $null; Start-Sleep -Seconds 6; continue }
+        if ($dur -gt 180) { [void](EndCall); Finish $mine $row 'ans' $dur; $mine = $null; continue }
+        Start-Sleep -Milliseconds 800; continue
+      }
+      Log "OK call finished ($st)"; $mine = $null; Start-Sleep -Seconds 4; continue
     }
     if ($cfg.paused) { $script:status = '|| Paused'; Start-Sleep -Seconds 10; continue }
     if (-not (InHours $cfg)) { $script:status = "night: outside calling hours ($($cfg.hours))"; Start-Sleep -Seconds 30; continue }
     $relay = Db 'GET' "$ROOT/relay"; $phone = Db 'GET' "$ROOT/caller"
     if (-not $relay -or $now - [int64]$relay.seen -gt 90000) { $script:status = 'laptop: voice page offline - open caller-voice.html in Edge'; Start-Sleep -Seconds 10; continue }
-    if (-not $phone -or $now - [int64]$phone.seen -gt 150000) { $script:status = 'phone: Davan Caller phone offline'; Start-Sleep -Seconds 10; continue }
     $q = Db 'GET' "$ROOT/queue"
     if ($q) { foreach ($p in $q.PSObject.Properties) { if ($p.Value.st -eq 'stop' -and $now - [int64]$p.Value.dialAt -gt 120000) { Db 'PATCH' "$ROOT/queue/$($p.Name)" @{ st = 'done'; res = 'stop'; doneAt = $now }; Log "OK old stop finished: $($p.Value.name)" } } }   # d4: stuck 'stop' rows
     $pick = $null; $best = [int64]::MaxValue
