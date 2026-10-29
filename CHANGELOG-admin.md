@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## davan-dialer d9 · 29-Oct-2026 IST
+Logs 29-Oct 10:52: d8 took an old "00:55" timer from the previous call as the answer and 1 s later decided "hung up" (End button not found) - the laptop spoke 1 s. d9: answered = a fresh timer 0:01-0:10; the call counts as running while any timer or End button shows, and "hung up" needs 4 checks in a row without both. (Same log: the phone stayed on its speaker from the user's press in the previous call - the call never reached the laptop.)
+
 ## v1964 · 29-Oct-2026 IST
 User 29-Oct: "show which phone I am dialling; where I gave no number do not add one by default" - each student card shows its 🧪 test number (localStorage pc_test_num_<URN>), and Test to me pre-fills only that student's own number (no fallback to the last one used). Changed: pcListTable, pcTestMe.
 

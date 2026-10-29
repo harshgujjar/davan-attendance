@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd8'
+$VER = 'd9'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -138,7 +138,12 @@ function PlTexts {
   $out = @(); foreach ($w in PlWindows) { try { $out += @($w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $tc) | ForEach-Object { [string]$_.Current.Name } | Where-Object { $_ }) } catch { } }
   return $out
 }
-function Answered { foreach ($t in PlTexts) { if ($t.Trim() -match '^\d{1,2}:\d{2}(:\d{2})?$' -and $t.Trim() -notmatch '^0?0:00$') { return $t.Trim() } }; return $null }
+# d9 (log 29-Oct 10:52: an old "00:55" from the previous call was taken as the answer): answered = a FRESH timer 0:01 - 0:10
+function Timers { return @(PlTexts | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d{1,2}:\d{2}(:\d{2})?$' }) }
+function Secs($t) { $p = $t.Split(':'); $n = 0; foreach ($x in $p) { $n = $n * 60 + [int]$x }; return $n }
+function Answered { foreach ($t in Timers) { $n = Secs $t; if ($n -ge 1 -and $n -le 10) { return $t } }; return $null }
+# a call is running while Phone Link shows a timer or an End button
+function Running { if ((Timers).Count -gt 0) { return $true }; return (CallOpen) }
 function CallOpen { foreach ($w in PlWindows) { foreach ($n in (AllButtons $w)) { if ($n -match '^(End|End call|Hang up|Hang Up)\b') { return $true } } }; return $false }
 function EndCall {
   $bc = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
@@ -171,7 +176,7 @@ function Beat {
 
 try { [void][DvWin]::SetProcessDPIAware() } catch { }   # d5: mouse coordinates = UI Automation's real pixels on scaled screens
 Log "> Davan Dialer $VER started"
-$cfg = $null; $cfgAt = 0; $lastBeat = 0; $mine = $null; $mineAt = 0; $verAt = 0; $stopAt = $null
+$cfg = $null; $cfgAt = 0; $lastBeat = 0; $mine = $null; $mineAt = 0; $verAt = 0; $stopAt = $null; $gone = 0
 while ($true) {
   try {
     $now = Now
@@ -183,7 +188,8 @@ while ($true) {
     if ($now - $cfgAt -gt 120000 -or -not $cfg) { $cfg = Db 'GET' "$ROOT/cfg"; if (-not $cfg) { $cfg = [pscustomobject]@{} }; $cfgAt = $now }
     if ($mine) {   # d7: a call this laptop placed - the dialer watches it (answer, message done, stop, ring timeout) and ends it
       $row = Db 'GET' "$ROOT/queue/$mine"; $st = if ($row) { $row.st } else { $null }
-      $open = CallOpen
+      $open = Running
+      if ($open) { $gone = 0 } else { $gone++ }
       if (-not $row) { if ($open) { [void](EndCall) }; Log "OK call removed from the queue"; $mine = $null; continue }
       if ($st -eq 'stop') { [void](EndCall); Finish $mine $row 'stop' 0; $mine = $null; Start-Sleep -Seconds 4; continue }
       if ($st -eq 'dial') {
@@ -198,7 +204,7 @@ while ($true) {
       if ($st -eq 'talk' -or $st -eq 'spoken') {
         $dur = [int](($now - [int64]$row.ansAt) / 1000)
         if ($st -eq 'spoken') { [void](EndCall); Finish $mine $row 'ans' $dur; $mine = $null; Start-Sleep -Seconds 8; continue }
-        if (-not $open) { Finish $mine $row 'ans' $dur; Log "OK the parent hung up"; $mine = $null; Start-Sleep -Seconds 6; continue }
+        if ($gone -ge 4) { Finish $mine $row 'ans' $dur; Log "OK the parent hung up"; $mine = $null; Start-Sleep -Seconds 6; continue }   # d9: 4 checks in a row without timer / End
         if ($dur -gt 180) { [void](EndCall); Finish $mine $row 'ans' $dur; $mine = $null; continue }
         Start-Sleep -Milliseconds 800; continue
       }
@@ -217,7 +223,7 @@ while ($true) {
     if (-not $pick) { $script:status = 'OK Ready - no calls waiting'; Start-Sleep -Seconds 5; continue }
     $row = $q.$pick; $num = ([string]$row.phone) -replace '\D', ''
     Db 'PATCH' "$ROOT/queue/$pick" @{ st = 'dial'; dialAt = $now; dev = 'laptop' }
-    $mine = $pick; $mineAt = $now; $script:status = "CALL Phone Link dialling $($row.name)"
+    $mine = $pick; $mineAt = $now; $gone = 0; $script:status = "CALL Phone Link dialling $($row.name)"
     Log "CALL $($row.name) ($num) - opening Phone Link"
     Start-Process "tel:$num"
     $c = ClickCall
