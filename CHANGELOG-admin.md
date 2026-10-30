@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1973 + caller-voice v4.3 · 30-Oct-2026 IST
+User: "separate reports for fees and attendance, and anything added later". The 📄 Call report opens on 💰 Fee report, with 📉 Attendance report and All calls next to it (counts on each); title and Excel / PDF file names carry the type; a new call type only needs a line in PC_TYPES. Report 30-Oct 8:44 showed "message not checked" for an answered fee call: the voice page reloaded itself 0.3 s after the call and lost the delayed "heard" save - v4.3 waits for it (up to 20 s) before reloading. pcRenderLog, pcRepTitle, pcRepFile; voice speakRow, freshReload.
+
 ## v1972 · 30-Oct-2026 IST
 User: "if my manager marks paid tomorrow, what happens?" - a fee call already waiting in the queue (batch or 30-min retry) would still have dialled. Now the 💰 Fees page Save removes that student's waiting fee calls at once, and every open of Parent calls removes waiting fee calls of anyone already ✓ Paid; ringing / speaking calls are not cut, attendance calls untouched. One DB4 read + one PATCH only when there is something to cancel. pcFeeUnqueue, feeSave, pcInit.
 
