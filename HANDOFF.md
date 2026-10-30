@@ -40,6 +40,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 
 ## 🔐 Native widget login + queued widget builds - PLAN ONLY (user, 24-Oct-2026: "keep it .md, we ll discuss later") - read ROADMAP-native-login.md
 - Built this session: portal v11.99 only (admin-view popup: Cancel = link as that student). Everything else in the roadmap waits for the user.
+- 30-Oct-2026: student w297 / staff w355 -> -next: taps no longer open the app everywhere - only photo + college logo + section cards (act "none" for plain cards). Not phone-tested.
 - 28-Oct-2026 (later): BUILT student w296 (native login LoginActivity/NLogin/Vault, option A #wl= + portal v11.101, Log out, link retry + 60 s wait) and staff w354 (retry + wait + Log out; NO native login for staff) -> -next channel, public 9:15 pm. Source in davan-scraper widgets/student + staff (student build.sh now compiles stubs/ for javax.crypto). Not phone-tested. Open: DB2 rule for an anonymous write to student_widget_active (if the first login says 'Could not save the link', read the rule). Old line: widget link retry built (staff v1955 / portal v11.100, DONE). Still open for the widget APKs (source in davan-scraper): poll for the link for ~1 min after linking + 📋 Copy failure detail. Roadmap I = this native login plan: it removes the 'tap the link, wait' step; waits for the user's go.
 - Open: admin sign-in secret sits in the public portal file (rotate + remove, needs the user's go).
 
