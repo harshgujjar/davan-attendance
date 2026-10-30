@@ -84,7 +84,7 @@ pre{white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto;margin:6p
 const DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app';
 const KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ';
 const ROOT = 'hostel/parent_calls';
-const VER = 'v4.0';
+const VER = 'v4.1';
 const AGAIN = { en: 'Once again.', kn: 'ಮತ್ತೊಮ್ಮೆ ಕೇಳಿ.', hi: 'फिर से सुनिए.' };
 const TEST = { en: 'Namaskara. This is a test of the Davan College parent call voice.', kn: 'ನಮಸ್ಕಾರ. ಇದು ದಾವನ್ ಕಾಲೇಜಿನ ಪೋಷಕರ ಕರೆಯ ಧ್ವನಿ ಪರೀಕ್ಷೆ.', hi: 'नमस्ते. यह दावन कॉलेज की अभिभावक कॉल आवाज़ का परीक्षण है.' };
 const seenRoute = {}, done = {};
@@ -107,12 +107,14 @@ try {
 let esOk = false, devList = [], cabStream = null, lastCable = null, lsnCtx = null;
 let lastUp = '', beats = 0, dialer = null;
 let stopNow = false;   // v1.4: set when the call ends while speaking
-let tok = '', tokExp = 0, queue = {}, cfg = {}, caller = null, busy = '', es = null, lines = [], wake = null;
+let tok = '', tokExp = 0, queue = {}, cfg = {}, caller = null, busy = '', es = null, wake = null;
+let lines = (() => { try { return JSON.parse(sessionStorage.getItem('cv_lines') || '[]'); } catch (e) { return []; } })();   // v4.1: kept over a self-reload
 const $ = id => document.getElementById(id);
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 function log(s) {
   lines.unshift(new Date().toLocaleTimeString('en-IN') + '  ' + s); lines = lines.slice(0, 120);
+  try { sessionStorage.setItem('cv_lines', JSON.stringify(lines)); } catch (e) {}
   $('log').textContent = lines.join('\n');
 }
 function logText() { return 'Davan Caller Voice ' + VER + ' · ' + navigator.userAgent + '\n' + $('big').textContent + '\n' + lines.join('\n'); }
@@ -176,11 +178,12 @@ function check() {
   const wait = rows.filter(([, q]) => q.st === 'wait').length, live = rows.find(([, q]) => q.st === 'dial' || q.st === 'talk');
   if (passiveTab) { renderQueue(rows); return; }   // v3.2: the list always shows, only speaking is left to the other tab
   if (!busy) big(live ? (live[1].st === 'dial' ? '📞 Phone is calling the parent of ' + live[1].name + '…' : '🔊 …') : '✅ Ready - waiting for calls', wait + ' call(s) waiting in the queue');
-  if (busy && !stopNow && (!queue[busy] || queue[busy].st !== 'talk')) { stopNow = true; speechSynthesis.cancel(); log('⏹ call ended (' + ((queue[busy] || {}).res || 'removed') + ') - stopped speaking'); }
+  if (busy && !stopNow && (!queue[busy] || queue[busy].st !== 'talk')) { stopNow = true; speechSynthesis.cancel(); needFresh = true; log('⏹ call ended (' + ((queue[busy] || {}).res || 'removed') + ') - stopped speaking'); }
   rows.forEach(([id, q]) => { if (q.route && seenRoute[id] !== q.route) { seenRoute[id] = q.route; log('📱 phone: call audio → ' + q.route + ' (' + q.name + ')'); } });
   renderQueue(rows);
   const talk = rows.find(([id, q]) => q.st === 'talk' && !done[id + ':' + (q.ansAt || '')]);   // v3.5: per answered call - a redial / retry reuses the row id
   if (talk && !busy) speakRow(talk[0], talk[1]);
+  if (needFresh && !busy && !live) { needFresh = false; freshReload('speech was cancelled at the end of the last call'); return; }
   const ring = rows.find(([id, q]) => q.st === 'dial' && !warmed[id + ':' + (q.dialAt || q.at || '')]);
   if (ring && !busy) { warmed[ring[0] + ':' + (ring[1].dialAt || ring[1].at || '')] = 1; warm(ring[1].lang || 'en', true); }
 }
@@ -193,17 +196,21 @@ function pickVoice(lang) {
 // v3.7 (log 29-Oct 11:19: the online voice took 12 s to start + 16 s for sentence 1 after the answer): while the phone rings,
 // say one word at volume 0 so Edge's online voice is connected and ready the moment the parent answers
 const warmed = {};
-// v3.8 (log 29-Oct 11:35: warmed at ring start, 17 s later the voice was cold again - 3.4 s to start): keep it warm every 4 s while ringing
-setInterval(() => {
-  if (passiveTab || busy || speechSynthesis.speaking) return;
-  const r = Object.values(queue).find(q => q && q.st === 'dial'); if (r) warm(r.lang || 'en');
-}, 4000);
+// v4.1 (log 30-Oct 11:23: the voice hung right after the answer): Edge's online voice can hang when a sentence is cancelled while it
+// is still loading - the 4-s warm-ups (v3.8) were cancelled at the answer. Now: one warm-up per ring, never cancelled (say() waits for it),
+// a page that cancelled speech reloads itself when idle (fresh voice engine), and a voice stuck during a call reloads the page at once
+// (the reloaded page speaks the same call again)
+let warmBusy = false, needFresh = false, curKey = '';
+function waitWarm() { return new Promise(r => { const t0 = Date.now(); const w = () => (!warmBusy || Date.now() - t0 > 3000) ? r() : setTimeout(w, 100); w(); }); }
+function freshReload(why) { log('🔄 page reloads to reset the voice - ' + why); setTimeout(() => location.reload(), 300); }
 function warm(lang, first) {
   try {
     const v = pickVoice(lang) || pickVoice('en'); if (!v) return;
     const u = new SpeechSynthesisUtterance({ kn: 'ನಮಸ್ಕಾರ', hi: 'नमस्ते' }[lang] || 'Namaskara');
     u.voice = v; u.lang = v.lang; u.volume = 0;
-    const t0 = Date.now();
+    const t0 = Date.now(); warmBusy = true;
+    u.onend = u.onerror = () => { warmBusy = false; };
+    setTimeout(() => { warmBusy = false; }, 5000);
     if (first) u.onstart = () => dbg('🔥 voice warmed up while ringing (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)');
     speechSynthesis.speak(u);
   } catch (e) {}
@@ -231,7 +238,10 @@ function say(text, lang, force) {
       const guard = setTimeout(() => { log('   ⚠ sentence ' + n + ' did not finish in 20 s'); fin(); }, 20000);
       const sg = setTimeout(() => {
         if (started || done || stopNow) return;
-        done = true; clearTimeout(guard); stalls++; speechSynthesis.cancel();
+        done = true; clearTimeout(guard); stalls++;
+        let rk = ''; try { rk = sessionStorage.getItem('cv_rl'); } catch (e) {}
+        if (busy && curKey && rk !== curKey) { try { sessionStorage.setItem('cv_rl', curKey); } catch (e) {} freshReload('sentence ' + n + ' did not start in 4 s (call still on)'); return; }
+        speechSynthesis.cancel();
         if (stalls >= 2) { sayStuck = true; log('   ❌ the voice is stuck (sentence ' + n + ' did not start twice) - internet / online voice'); res(ok); return; }
         log('   ⚠ sentence ' + n + ' did not start in 4 s - trying again'); setTimeout(() => next(true), 250);
       }, 4000);
@@ -241,12 +251,12 @@ function say(text, lang, force) {
       speechSynthesis.speak(u);
     };
     log('🗣 voice: ' + (v ? v.name : 'browser default') + ' · speed ' + Math.min(1.5, Math.max(0.8, +cfg.rate || 1.1)) + '× · ' + parts.length + ' sentence(s)');
-    speechSynthesis.cancel(); next();
+    waitWarm().then(() => next());   // v4.1: no cancel here - cancelling a loading sentence hangs Edge's online voice
   });
 }
 async function speakRow(id, q) {
   if (passiveTab) return;   // v3.1: only one open voice page speaks
-  busy = id; stopNow = false;
+  busy = id; stopNow = false; curKey = id + ':' + (q.ansAt || '');
   await loadCfg();   // v3.3: speed / repeat read fresh before every call (the speaking tab kept an old speed for up to 10 min)
   const lang = q.lang || 'en', n = Math.max(1, +(cfg.repeat || 2));
   big('🔊 Speaking to the parent of ' + q.name, q.phone);

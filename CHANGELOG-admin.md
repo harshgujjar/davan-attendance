@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v4.1 · 30-Oct-2026 IST
+Logs 29-Oct 13:17 and 30-Oct 11:23: right after the answer Edge's online voice never started (cable level 0) - it hangs when a sentence is cancelled while still loading, and v3.8's warm-ups were cancelled at every answer. v4.1: one warm-up per ring and say() waits for it instead of cancelling; a page that cancelled speech at a call's end reloads itself when idle; a voice stuck during a call reloads the page at once and the reloaded page speaks the same call (once per call). The log is kept over the reload. warm, waitWarm, freshReload, say, check, speakRow.
+
 ## davan-dialer d13 · 29-Oct-2026 IST
 Logs 29-Oct 13:26-13:29: the dialer froze (a click in its window starts QuickEdit and pauses it); Stop pressed 5 s after dialling found no call in Phone Link, so the call went through silent; the next call was dialled over it ("Call failed"). d13 turns QuickEdit off, Stop / Remove keep pressing End for up to 15 s until the call is gone, and no call is dialled while Phone Link still shows one. StopCall, main loop.
 
