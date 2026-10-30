@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c12 · 30-Oct-2026 IST
+User: "installed it on the parent's phone - record what happens; the update permission is a must". A phone not paired with the laptop is a TEST / parent phone: it never calls and logs each call (ringing / answered / ended), every change of sound route, call volume and mic during the call, and the call-log entry afterwards, to its own DB4 nodes hostel/parent_calls/rx/<model_id> and logs/rx_<model_id> (one small write per change). "Install unknown apps" is required: a dialog on every open and a notification every 6 h until allowed. Rx, Eng.step/beat, MainActivity.
+
 ## caller-voice v4.1 · 30-Oct-2026 IST
 Logs 29-Oct 13:17 and 30-Oct 11:23: right after the answer Edge's online voice never started (cable level 0) - it hangs when a sentence is cancelled while still loading, and v3.8's warm-ups were cancelled at every answer. v4.1: one warm-up per ring and say() waits for it instead of cancelling; a page that cancelled speech at a call's end reloads itself when idle; a voice stuck during a call reloads the page at once and the reloaded page speaks the same call (once per call). The log is kept over the reload. warm, waitWarm, freshReload, say, check, speakRow.
 
