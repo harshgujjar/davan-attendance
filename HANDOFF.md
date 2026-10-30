@@ -40,6 +40,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 
 ## 🔐 Native widget login + queued widget builds - PLAN ONLY (user, 24-Oct-2026: "keep it .md, we ll discuss later") - read ROADMAP-native-login.md
 - Built this session: portal v11.99 only (admin-view popup: Cancel = link as that student). Everything else in the roadmap waits for the user.
+- 30-Oct-2026: student w301 / staff w357 -> -next, test 1022: Speak my reminders box only when tts_cfg allowOffStu / allowOffStf is on (or test list / page 3) - ROADMAP-native-login items 1-2 done.
 - 30-Oct-2026: student w300 -> -next + native test 1021 -> test: not-linked phone shows the login FIRST when the app opens (both icons), 'Not now' skips until next open (user choice A), login opens right after Log out (LoginActivity.askIfNeeded).
 - 30-Oct-2026: student w299 -> -next (settings: 🔑 Log in tile + hint when not linked) and native TEST build 1020 (Davan.Student-test.apk, rebuilt on w299 - 1019 was older than the widget login, so EMTH7Q had no login). Rebuild the ng test build after every student build that test phones need.
 - 30-Oct-2026: student w298 / staff w356 -> -next: icon number clears when settings / Today's messages opens (Msgs.clearBar), 🆕 N new in Today's messages, a plain notification tap opens that message (Alerts.msgTap). ROADMAP-native-login item 3 done.
