@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1970 · 30-Oct-2026 IST
+User: "in the total widget installs, don't count the ones banned for an old widget - show them, but not in the count". The student widget totals (stwUsage -> staff widget numbers) and the Device report's "Widget installed" group now count only widgets at or above the ban floor STU_WIDGET_BLOCK_V (133; was STU_WIDGET_MIN_V 108), so banned w108-w132 phones drop out. They still show in page 2's Old list, and the Device report lists them in a new "⛔ Old widget, banned" group. No new DB reads or writes. Functions: stwUsage, device report (stu part).
+
 ## Davan Caller c12 · 30-Oct-2026 IST
 User: "installed it on the parent's phone - record what happens; the update permission is a must". A phone not paired with the laptop is a TEST / parent phone: it never calls and logs each call (ringing / answered / ended), every change of sound route, call volume and mic during the call, and the call-log entry afterwards, to its own DB4 nodes hostel/parent_calls/rx/<model_id> and logs/rx_<model_id> (one small write per change). "Install unknown apps" is required: a dialog on every open and a notification every 6 h until allowed. Rx, Eng.step/beat, MainActivity.
 
