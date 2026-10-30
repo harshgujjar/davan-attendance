@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1976 · 30-Oct-2026 IST
+User: "the Kannada greeting should be: ನಮಸ್ಕಾರ, ಇದು ದಾವನ್ ಕಾಲೇಜಿನಿಂದ ಕರೆ". Default Kannada attendance + fee messages start with it (the saved messages in DB4 parent_calls/cfg msg.kn / msgFee.kn were updated the same way; still editable in ⚙️ Settings). PC_DEF.
+
 ## v1975 + caller-voice v4.6 · 30-Oct-2026 IST
 User: "after once it says 'hear once more' in Kannada - can the 2nd time be English?". A Kannada / Hindi call now says "Now the same message in English." and the English message the 2nd time (msgEn, already on every row); Settings switch "say it the 2nd time in English" = DB4 parent_calls/cfg.againEn (default on). pcSaveSet keeps cfg.repeat. pcRenderSet, pcSaveSet; voice speakRow.
 
