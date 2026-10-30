@@ -8,7 +8,7 @@ Status: discussed only. Nothing below is built except portal v11.99 (item 0). Th
 ## 1. Queued widget builds (approved in chat, not started)
 1. Student widget: show the "Speak my reminders" box only when the Super Admin allows ON/OFF (`davan_pub/tts_cfg/allowOff` = true) or the person is on the test list; `showStu` = false still hides it. Voice keeps speaking in the default language.
 2. Staff widget: same rule (`showStf`).
-3. Both: app-icon number = unread notifications the widget posted. Clear them when the app / settings opens; "Today's messages" marks NEW items and shows "N new"; a notification tap opens that message.
+3. ✅ BUILT 30-Oct (student w298 / staff w356). Both: app-icon number = unread notifications the widget posted. Clear them when the app / settings opens; "Today's messages" marks NEW items and shows "N new"; a notification tap opens that message.
 4. Logout-only button (student widget, staff too if the user says): "Log out" in settings with "Are you sure?", clears this phone's link (`Sync.unlink`); only the person's own tap does it. Check first whether the portal's logout also removes `student_widget_active/<code>` and match it.
 Until then (no build): Super Admin -> Global Switches -> Spoken alerts -> "Students see it" OFF hides the box.
 
