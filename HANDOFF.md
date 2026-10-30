@@ -41,6 +41,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 ## 🔐 Native widget login + queued widget builds - PLAN ONLY (user, 24-Oct-2026: "keep it .md, we ll discuss later") - read ROADMAP-native-login.md
 - Built this session: portal v11.99 only (admin-view popup: Cancel = link as that student). Everything else in the roadmap waits for the user.
 - 30-Oct-2026: staff widget native login DEFERRED by the user (plan + options in ROADMAP-native-login.md section 5). Do not build until asked.
+- 30-Oct-2026: student w303 / staff w358 -> -next, test 1024: only the Speak my reminders ON/OFF row hides when allowOffStu/Stf is off (w301/w357 hid the whole box - user: wrong).
 - 30-Oct-2026: student w302 -> -next, test 1023: login screen shows the typed URN's photo + name + class (tap = zoom), saved logins with photos. w301/w357 were hand-released to everyone 30-Oct morning (display 207 / 253).
 - 30-Oct-2026: student w301 / staff w357 -> -next, test 1022: Speak my reminders box only when tts_cfg allowOffStu / allowOffStf is on (or test list / page 3) - ROADMAP-native-login items 1-2 done.
 - 30-Oct-2026: student w300 -> -next + native test 1021 -> test: not-linked phone shows the login FIRST when the app opens (both icons), 'Not now' skips until next open (user choice A), login opens right after Log out (LoginActivity.askIfNeeded).
