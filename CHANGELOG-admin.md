@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v4.4 · 30-Oct-2026 IST
+User: "the voice page must open in Edge only". Opened in another browser on Windows, the page hands itself to Edge (microsoft-edge: link) - only Edge has the free natural voices. Page start.
+
 ## v1974 · 30-Oct-2026 IST
 User: "the test says ದಾವನ್‌ ಕಾಲೇಜ್ right, the call said ದಾವನ್ ಕಾಲೇಜು"; "the voice page must open in Edge only". Default Kannada college name is ದಾವನ್‌ ಕಾಲೇಜ್ (saved setting already was); 📞 Call on a waiting row and 🔁 Redial now rebuild the message from the current settings (they reused the words from when the call was first queued; rows keep surn for tests). 💻 Laptop voice page opens in Edge (microsoft-edge: link from other browsers on Windows). pcFreshMsg, pcCall, pcRedial, pcMakeRow, pcOpenVoice.
 
