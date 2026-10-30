@@ -218,3 +218,8 @@ The user opens mockups on a phone.
 ## Native app: two icons stay (user, 27-Oct-2026 - rule, never change)
 The student app keeps BOTH launcher icons: the old "Davan" and the new "Davan (new)" (NgHomeActivity, added by widgets/student-ng/build-ng.sh). Never remove or merge either icon,
 in test builds or the later public release, unless the user asks. The old icon opens the old screen, Davan (new) the new screen (no redirect).
+
+## Davan Caller (parent-call phone app): updates install by themselves (user, 30-Oct-2026 - rule)
+"Install without any tap, at once, no waiting." Never ask the user to install a Davan Caller APK by hand: publish it (DavanCaller.apk + caller-version.json
+apkVersion / name / ?v=) and the phones install it themselves within ~5 min when no call is on (c14+), silently - a hand-installed copy resets
+Android's installer of record and makes the next update ask for one tap. Send the APK only when the user asks for it (e.g. a new phone).

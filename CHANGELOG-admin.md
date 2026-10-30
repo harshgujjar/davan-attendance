@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c14 · 30-Oct-2026 IST
+User: "install by itself without any tap, at once". The phones check caller-version.json every 5 min (was hourly) and install as soon as no call is on; the install is silent once the app has updated itself one time (a hand-installed copy makes Android ask once). Eng.step.
+
 ## Davan Caller c13 · 30-Oct-2026 IST
 Logs 30-Oct 11:58 (college + test phone): the laptop's call slipped from Bluetooth to the college phone's earpiece while still ringing; the parent's phone was fine (volume 5/5) but heard nothing, because c10's rule only acted after an answer on Bluetooth. c13 keeps a queue call on Bluetooth from dialling to the end (up to 10 moves a call); own calls are left alone. Eng.holdBt, watch, follow.
 
