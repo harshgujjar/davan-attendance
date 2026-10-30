@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c13 · 30-Oct-2026 IST
+Logs 30-Oct 11:58 (college + test phone): the laptop's call slipped from Bluetooth to the college phone's earpiece while still ringing; the parent's phone was fine (volume 5/5) but heard nothing, because c10's rule only acted after an answer on Bluetooth. c13 keeps a queue call on Bluetooth from dialling to the end (up to 10 moves a call); own calls are left alone. Eng.holdBt, watch, follow.
+
 ## v1970 · 30-Oct-2026 IST
 User: "in the total widget installs, don't count the ones banned for an old widget - show them, but not in the count". The student widget totals (stwUsage -> staff widget numbers) and the Device report's "Widget installed" group now count only widgets at or above the ban floor STU_WIDGET_BLOCK_V (133; was STU_WIDGET_MIN_V 108), so banned w108-w132 phones drop out. They still show in page 2's Old list, and the Device report lists them in a new "⛔ Old widget, banned" group. No new DB reads or writes. Functions: stwUsage, device report (stu part).
 
