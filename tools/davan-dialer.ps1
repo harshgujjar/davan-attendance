@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd14'
+$VER = 'd15'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -214,6 +214,13 @@ while ($true) {
       $open = Running
       if ($open) { $gone = 0 } else { $gone++ }
       if (-not $row) { StopCall; Log "OK call removed from the queue"; $mine = $null; continue }
+      # d15 (log 30-Oct 21:12: the laptop noticed the hang-up 7 s late): the college phone (c15) writes phoneEnd the moment the call ends
+      if ($row.phoneEnd -and ($st -eq 'dial' -or $st -eq 'talk' -or $st -eq 'spoken')) {
+        $res = if ($st -eq 'dial') { 'nr' } else { 'ans' }; $dur = if ($ansAt) { [int](([int64]$row.phoneEnd - $ansAt) / 1000) } else { 0 }
+        if ($res -eq 'ans' -and $dur -lt 0) { $dur = 0 }
+        if (CallOpen) { [void](EndCall) }
+        Finish $mine $row $res $dur; Log "OK the phone says the call ended"; $mine = $null; Start-Sleep -Seconds 4; continue
+      }
       if ($st -eq 'stop') { StopCall; Finish $mine $row 'stop' 0; $mine = $null; Start-Sleep -Seconds 4; continue }
       if ($st -eq 'dial') {
         $ans = Answered
@@ -227,7 +234,7 @@ while ($true) {
       if ($st -eq 'talk' -or $st -eq 'spoken') {
         $dur = [int](($now - [int64]$row.ansAt) / 1000)
         if ($st -eq 'spoken') { [void](EndCall); Finish $mine $row 'ans' $dur; $mine = $null; Start-Sleep -Seconds 8; continue }
-        if ($gone -ge 4) { Finish $mine $row 'ans' $dur; Log "OK the parent hung up"; $mine = $null; Start-Sleep -Seconds 6; continue }   # d9: 4 checks in a row without timer / End
+        if ($gone -ge 3) { Finish $mine $row 'ans' $dur; Log "OK the parent hung up"; $mine = $null; Start-Sleep -Seconds 6; continue }   # d9: 4 checks in a row without timer / End
         if ($dur -gt 180) { [void](EndCall); Finish $mine $row 'ans' $dur; $mine = $null; continue }
         Start-Sleep -Milliseconds 800; continue
       }

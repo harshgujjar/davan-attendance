@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## Davan Caller c15 + dialer d15 + caller-voice v4.7 · 30-Oct-2026 IST
+User: "when the parent disconnects the voice still runs - make sure it stops and the call makes the report". Log 21:12: the phone saw the hang-up at :26, the laptop at :33. Now the college phone writes phoneEnd on the queue row the moment a queue call ends (DB4 hostel/parent_calls/queue/<id>, one write a call); the voice page stops speaking on it and the dialer finishes the call and writes the report entry at once (seconds from the answer to the phone's end). Without c15 the dialer's own check is quicker too (3 checks, was 4). Eng.follow/watch; dialer main loop; voice check.
+
 ## v1976 · 30-Oct-2026 IST
 User: "the Kannada greeting should be: ನಮಸ್ಕಾರ, ಇದು ದಾವನ್ ಕಾಲೇಜಿನಿಂದ ಕರೆ". Default Kannada attendance + fee messages start with it (the saved messages in DB4 parent_calls/cfg msg.kn / msgFee.kn were updated the same way; still editable in ⚙️ Settings). PC_DEF.
 
