@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## caller-voice v4.5 · 30-Oct-2026 IST
+User: "fee calls don't show up here". The voice page's Calls list marks every call 💰 Fee / 📉 Attendance (and whose number it is) and has All / 💰 Fee / 📉 Attendance filter buttons with counts. renderQueue.
+
 ## caller-voice v4.4 · 30-Oct-2026 IST
 User: "the voice page must open in Edge only". Opened in another browser on Windows, the page hands itself to Edge (microsoft-edge: link) - only Edge has the free natural voices. Page start.
 
