@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1971 + dialer d14 + caller-voice v4.2 · 30-Oct-2026 IST
+User: "a tab for students who have not paid the fees; more numbers per student; Principal too; ask twice before auto; proof of every call as PDF / Excel". Parent calls: 💰 Fees due tab (open 🎓 College fee window, not ✓ Paid; "I have paid" listed but not called), fee message in 3 languages (no amounts), numbers per student with labels (⭐ first, the next one on a no answer / busy try - d14), the number calls are made from (Settings), Principal can call, VP views, two confirmations before Auto-call all, one call per shared number in a batch, and a 📄 Call report (dates, type, class; Excel / PDF with a signature line / Copy) - ✅ "full message heard" only when answered + voice in the call + every sentence played. d14 logs every try with type, class, father, whose number, from, who asked + role; v4.2 writes "heard" to the right try. Data: DB4 hostel/private/<URN>/phones/<k> + main, parent_calls/cfg {fromNum, gapFee, msgFee}, log/<YYYY-MM>/<id>[_<try>] (kept 13 months); reads DB2 davan_pub/fee_cfg + fee_paid once per page open. pcNums, pcFeeRows, pcRenderFee, pcMakeRow, pcQueueAll, pcRenderLog, pcRepXlsx, pcRepPdf; dialer Finish; voice speakRow.
+
 ## Davan Caller c14 · 30-Oct-2026 IST
 User: "install by itself without any tap, at once". The phones check caller-version.json every 5 min (was hourly) and install as soon as no call is on; the install is silent once the app has updated itself one time (a hand-installed copy makes Android ask once). Eng.step.
 

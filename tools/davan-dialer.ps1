@@ -3,7 +3,7 @@
 # (DB4 hostel/parent_calls/queue, st 'wait'), opens tel:<number> (Phone Link) and clicks Phone Link's "Call" button with Windows
 # UI Automation. The Davan Caller phone (c6) follows that call: answer -> st 'talk' (caller-voice.html speaks) -> 'spoken' -> hang up -> log.
 # Started by davan-dialer.cmd (which downloads the newest copy of this file first). Heartbeat: hostel/parent_calls/dialer, log: logs/dialer.
-$VER = 'd13'
+$VER = 'd14'
 $KEY = 'AIzaSyDBfwaUiCP_5tLPgCV2yZSeeWRnwnvnkDQ'
 $DB = 'https://davan-lessonplan-archive-default-rtdb.asia-southeast1.firebasedatabase.app'
 $ROOT = 'hostel/parent_calls'
@@ -171,13 +171,20 @@ function EndCall {
 # result of a call this laptop placed: queue row done / retry + month log (same shape as the phone app wrote)
 function Finish($id, $row, $res, $dur) {
   $now = Now; $att = [int]$row.attempts + 1; $tries = if ($cfg.tries) { [int]$cfg.tries } else { 2 }
+  $nums = @($row.phones | Where-Object { $_ }); $whos = @($row.whos)
+  if ($nums.Count -gt $tries) { $tries = $nums.Count }   # d14: every saved number gets one try
   $again = ($res -ne 'ans' -and $res -ne 'stop' -and $att -lt $tries)
-  if ($again) { Db 'PATCH' "$ROOT/queue/$id" @{ st = 'wait'; attempts = $att; res = $res; notBefore = $now + 1800000 } }
-  else {
+  # d14 (user, 30-Oct: "if no answer / busy, the other number is called later"): every call is logged (the report proves each try),
+  # the next try uses the next saved number
+  $e = @{ urn = $row.urn; name = $row.name; phone = $row.phone; pct = $row.pct; by = $(if ($row.by) { $row.by } else { 'Auto call' }); at = $now; how = 'auto'; res = $res; dur = $dur; try = $att }
+  foreach ($k in 'said', 'of', 'cable', 'type', 'cls', 'father', 'who', 'from', 'role', 'lang', 'test', 'dialAt', 'ansAt', 'qAt') { if ($null -ne $row.$k) { $e[$k] = $row.$k } }
+  Db 'PUT' ("$ROOT/log/" + (Get-Date -Format 'yyyy-MM') + "/$id" + $(if ($att -gt 1) { "_$att" } else { '' })) $e
+  if ($again) {
+    $p = @{ st = 'wait'; attempts = $att; res = $res; notBefore = $now + 1800000 }
+    if ($nums.Count -gt 1) { $i = $att % $nums.Count; $p.phone = [string]$nums[$i]; if ($whos.Count -gt $i) { $p.who = [string]$whos[$i] } }
+    Db 'PATCH' "$ROOT/queue/$id" $p
+  } else {
     Db 'PATCH' "$ROOT/queue/$id" @{ st = 'done'; attempts = $att; res = $res; doneAt = $now; dur = $dur }
-    $e = @{ urn = $row.urn; name = $row.name; phone = $row.phone; pct = $row.pct; by = 'Auto call'; at = $now; how = 'auto'; res = $res; dur = $dur }
-    foreach ($k in 'said', 'of', 'cable') { if ($null -ne $row.$k) { $e[$k] = $row.$k } }   # d10: how much of the message the parent heard (voice page v3.9)
-    Db 'PUT' ("$ROOT/log/" + (Get-Date -Format 'yyyy-MM') + "/$id") $e
   }
   Log ("OK " + $row.name + ": " + $res + $(if ($dur) { " ($dur s)" } else { '' }) + $(if ($again) { ' - will try again in 30 min' } else { '' }))
 }
