@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1974 · 30-Oct-2026 IST
+User: "the test says ದಾವನ್‌ ಕಾಲೇಜ್ right, the call said ದಾವನ್ ಕಾಲೇಜು"; "the voice page must open in Edge only". Default Kannada college name is ದಾವನ್‌ ಕಾಲೇಜ್ (saved setting already was); 📞 Call on a waiting row and 🔁 Redial now rebuild the message from the current settings (they reused the words from when the call was first queued; rows keep surn for tests). 💻 Laptop voice page opens in Edge (microsoft-edge: link from other browsers on Windows). pcFreshMsg, pcCall, pcRedial, pcMakeRow, pcOpenVoice.
+
 ## v1973 + caller-voice v4.3 · 30-Oct-2026 IST
 User: "separate reports for fees and attendance, and anything added later". The 📄 Call report opens on 💰 Fee report, with 📉 Attendance report and All calls next to it (counts on each); title and Excel / PDF file names carry the type; a new call type only needs a line in PC_TYPES. Report 30-Oct 8:44 showed "message not checked" for an answered fee call: the voice page reloaded itself 0.3 s after the call and lost the delayed "heard" save - v4.3 waits for it (up to 20 s) before reloading. pcRenderLog, pcRepTitle, pcRepFile; voice speakRow, freshReload.
 
