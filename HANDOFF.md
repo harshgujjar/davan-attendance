@@ -80,7 +80,7 @@ in Edge (v4.1: no cancel of warm-up, self-reload when the voice hangs; v4.0: stu
 caller-version.json "dialer"): opens tel:<n> -> Phone Link, presses "Call Dialed number ..." (focus+Enter), sees the answer (Phone Link
 timer 00:01) -> st talk -> page speaks (Edge natural voices Neerja / Sapna / Swara, speed cfg.rate) -> 'spoken' -> clicks End -> result
 + log/<month>. The phone app Davan Caller (c8) is NOT needed for calls (keep Auto calling OFF; it disturbed the audio when it followed calls).
-Laptop settings that must stay: default speaker = CABLE In 16ch, default + communications mic = CABLE Output, Microphone Array DISABLED
+Laptop settings that must stay: default speaker = CABLE In 16ch, default + communications mic = CABLE Output, Microphone Array DISABLED, ASUS Armoury Crate AI Noise Cancelation OFF (mic + speaker - with it ON, 30-Oct, Phone Link dropped the call audio back to the phone every 2 s, even "Transfer to PC")
 (Phone Link's call stream resets its input every call), communications speaker = Speakers (Realtek), ASUS AI-noise off, keep the black
 window minimised (clicking it pauses it). Logs (Claude reads them, anonymous auth): DB4 hostel/parent_calls/logs/{voice,dialer,phone},
 heartbeats relay / dialer. 7026225550 = the college EPABX line (reception): the PBX answers first, so the message plays before a person picks up - expected, not a bug;
