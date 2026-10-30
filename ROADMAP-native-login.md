@@ -36,3 +36,9 @@ Until then (no build): Super Admin -> Global Switches -> Spoken alerts -> "Stude
 4. Go for the builds (order: 1 = box rule + notification fix + logout, student; 2 = same, staff; 3 = native login, student).
 
 - 27-Oct-2026: decision 3 (cleaning the plain-text admin secret in the public portal page) is DEFERRED by the user - do not start until told. See ROADMAP-native-app.md.
+
+## 5. Staff widget native login - NOT BUILT, deferred by the user (30-Oct-2026: "we'll not build that for now")
+Plan discussed: login first when not linked, Not now, Log out, option A. Problem: staff log in with a PASSWORD ONLY (app matches it in
+Firestore app_data/login_index; bulk-created accounts use the username as the Firebase password). Options: 1 password only via a salted slow-hash
+lookup + widget payload the admin's staff app publishes to DB2 (weak if passwords are phone numbers), 2 username + password (safest, staff
+don't know usernames), 3 tap your name + password. No choice made. Staff keep linking through the staff app.
