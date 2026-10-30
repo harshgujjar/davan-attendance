@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1975 + caller-voice v4.6 · 30-Oct-2026 IST
+User: "after once it says 'hear once more' in Kannada - can the 2nd time be English?". A Kannada / Hindi call now says "Now the same message in English." and the English message the 2nd time (msgEn, already on every row); Settings switch "say it the 2nd time in English" = DB4 parent_calls/cfg.againEn (default on). pcSaveSet keeps cfg.repeat. pcRenderSet, pcSaveSet; voice speakRow.
+
 ## caller-voice v4.5 · 30-Oct-2026 IST
 User: "fee calls don't show up here". The voice page's Calls list marks every call 💰 Fee / 📉 Attendance (and whose number it is) and has All / 💰 Fee / 📉 Attendance filter buttons with counts. renderQueue.
 
