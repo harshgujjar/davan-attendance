@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1983 · 31-Oct-2026 IST
+Internals: Sitting gets ALL Excel / PDF / Print buttons - every date, every time and every room (all classes) in one file (user: "all in one time download, date all, class all, time all"). The Attendance tab's class-sheet row (Internal / Class / Refresh / Excel / PDF / Print) and the room-wise Attendance / Signature Sheet are hidden (not used, confusing); the Duty tab is hidden for admins and in-charges, who use Auto Duty (other faculty keep it to see their own duties). No data or Firebase cost change. Functions: sitExportSlotKeys, sitResolveExportScope, sitBuildExportPages, sitBuildPrintHtml, sitExportFileStem, sitDownloadExcel/PDF, sitPrintRoom, intInit.
+
 ## v1982 · 31-Oct-2026 IST
 User: "also add serial numbers on the hostel fee list, all places where it requires". The 🏨 Hostel fee tab shares feeRender, so it already got numbers in v1981; now the 📞 Parent calls lists (💰 fee and 📉 attendance tabs) also number each student 1, 2, 3... in the shown order. No data or Firebase change. Changed: pcListTable.
 
