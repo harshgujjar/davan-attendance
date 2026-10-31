@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1980 · 31-Oct-2026 IST
+User: wants a one-year gold/silver record and a full analysis for students and staff, in amounts and %, opened by tapping the widget. The 💱 Rates page now shows the new rates.html (price line, since yesterday / week / month / 3 months in ₹ and %, buy-wait-sell zones, step plan, currencies) above the old table. Reads only public DB3 widgetConfig/news and widgetConfig/newsSourceConfig/ratesInsight (one small read each per open). Pairs with fetch_news.js v1.9.0 (writes ratesInsight, keeps rateHistory 400 days) and rates.html v1.00. Changed: ratesInit (iframe), message listener.
+
 ## v1979 · 31-Oct-2026 IST
 Checked the user's saved BCA Lab Exam (DB2 davan_pub/calendar: exam, 2-10 Nov, for "BCA", only ['BCA'] - correct) but davan_pub/staff_pub/calo was still empty: the save's widget send was skipped as "sent recently" (30-min rule). Saving or deleting an event now force-sends the staff widget data (one write), retried every 20 s for ~3 min while the dashboard data loads. Edit with BCA ticked shows an empty For box, so unticking makes it college-wide again; a For typed as just courses ("BCA", "BCA, B.Com") counts like the ticks, as the student widget reads it. Functions: calStwPush (new), calOnly, calEditEvent, calSaveEvent, calDeleteEvent.
 
