@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1978 · 31-Oct-2026 IST
+User: "from Monday BCA students have lab examination - only BCA class notifications stop; BCA faculty get none; skip attendance only for BCA; keep BBA / BCom for later". Academic Calendar -> Add Event has "Only for course" ticks (BCA / BBA / BCom): a Holiday / Exam / VACC with ticks stops classes only for those courses (all years, all sections), saved as only: ['BCA'] and for: "BCA" (the student widget already obeys "for"). My classes today, the Live class board (today) and the Subject progress tracker's class / working days leave the course out on those days; a course-only holiday is no longer a college holiday. Staff widget data: course-only events go in the new davan_pub/staff_pub/calo (old widgets ignore it, w360 drops only that course's periods); saving a calendar event re-sends the staff widget data. Pairs with portal v11.102, staff widget w360. Functions: calOnly, calCourseOf, calClassOff, calEventsForClass, calSaveEvent, calIsHoliday, _normCalForPortal, fdbTodayLpRender, lcbBuildPanel, stwPublish, SPT card loop.
+
 ## v1977 · 30-Oct-2026 IST
 User's load report (v1976): at 585 s the screen froze 1.4 s, all page layout, inside a 1-minute timer. The faculty dashboard's "My classes today" timer read offsetParent every minute, forcing a full layout of the whole page; it now checks that panel-dashboard-faculty is the active panel and the page is visible (no layout). No data or Firebase change. fdbTodayLpRender.
 
