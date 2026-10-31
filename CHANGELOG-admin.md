@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1981 · 31-Oct-2026 IST
+User: "add serial number so that we know properly" on the fee check list (college / hostel fee, who said "I have paid"). Each student row now starts with 1., 2., 3. in the shown order (follows the class / status filter). No data or Firebase change. Changed: feeRender.
+
 ## v1980 · 31-Oct-2026 IST
 User: wants a one-year gold/silver record and a full analysis for students and staff, in amounts and %, opened by tapping the widget. The 💱 Rates page now shows the new rates.html (price line, since yesterday / week / month / 3 months in ₹ and %, buy-wait-sell zones, step plan, currencies) above the old table. Reads only public DB3 widgetConfig/news and widgetConfig/newsSourceConfig/ratesInsight (one small read each per open). Pairs with fetch_news.js v1.9.0 (writes ratesInsight, keeps rateHistory 400 days) and rates.html v1.00. Changed: ratesInit (iframe), message listener.
 
