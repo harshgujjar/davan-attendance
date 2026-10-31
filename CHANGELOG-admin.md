@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1985 · 31-Oct-2026 IST
+Shortage summary card (IA Raw / Final Shortage): PER CLASS list gets serial numbers, and the per-class and "faculty with most shortage" rows are capped at 440px so on desktop the counts sit beside the names, not at the far right (user request). No data change. Functions: the summary card builder (perClassHtml / rankingHtml), the IA eligibility detail ranking.
+
 ## v1984 · 31-Oct-2026 IST
 Invigilation Duty Acknowledgment Sheet PDF: Total Faculty / Incharge / Principal footer was printed over the table heading (user screenshot) - it was drawn in autoTable's didDrawPage, before the table's final row was known. Now drawn once after the table (page break if no room). Same fix for the class Attendance sheet PDF. No data change. Functions: dutyDownloadSignatureSheetPDF, attDownloadPDF.
 
