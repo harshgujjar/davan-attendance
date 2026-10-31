@@ -19456,7 +19456,7 @@ function setTopbarVersion(text) {
 // does not, or vice versa -- they are one atomic edit, always made in the
 // same pass as the version bump itself, before the changelog entry is
 // written, not after.
-const CODE_BUILD = 1978;  // always = HTML footer version number
+const CODE_BUILD = 1979;  // always = HTML footer version number
 const BUILD_TIMESTAMP = { date: '29-Sep-2026', time: '13:00', full: '29-Sep-2026 13:00 IST' }; // hardcoded build time — do NOT use runtime time. Bump in lockstep with CODE_BUILD, every time -- see HARD RULE 13 above.
 // v999: the latest published APK versionCode + download URL — PWA-owned, written to
 // davan_pub/widget_latest on every login (wcpPublishLatestApk) so (a) this same PWA can
@@ -30569,6 +30569,7 @@ function updateDataStrip() {
 // ── Fetch version from backend and populate footer ──────────────
 // HTML-side changelog entries (prepended above backend entries)
 const HTML_CHANGELOG = [
+{ v: 'v1979', date: '31-Oct-2026 IST', note: '📝 Calendar: saving or deleting an event sends it to the staff widgets at once; unticking BCA on Edit makes the event for the whole college again.' },
 { v: 'v1978', date: '31-Oct-2026 IST', note: '📝 Academic Calendar: tick BCA / BBA / BCom in Add Event - that exam or holiday stops classes and class reminders for that course only (e.g. BCA lab exam).' },
 { v: 'v1977', date: '30-Oct-2026 IST', note: '⚡ Faster: removed a once-a-minute check that froze the screen for up to 1.5 s on slow phones.' },
 { v: 'v1976', date: '30-Oct-2026 IST', note: '🗣 Parent calls: the Kannada calls now start "ನಮಸ್ಕಾರ, ಇದು ದಾವನ್ ಕಾಲೇಜಿನಿಂದ ಕರೆ."' },
@@ -30583,7 +30584,6 @@ const HTML_CHANGELOG = [
 { v: 'v1967', date: '29-Oct-2026 IST', note: '📞 Parent calls: Call on a student now dials at once from the laptop and plays the recorded message when the parent answers (also when paused or outside the hours).' },
 { v: 'v1966', date: '29-Oct-2026 IST', note: '✅ Parent calls: the Call log and the auto-call queue show whether the parent heard the full message, hung up part-way (e.g. 2/6 sentences) or before it.' },
 { v: 'v1965', date: '29-Oct-2026 IST', note: '🗣 Parent calls: the language you pick on the page stays the default until you change it; each student can also have their own language (else the default).' },
-{ v: 'v1964', date: '29-Oct-2026 IST', note: '🧪 Parent calls: each student shows the test number used for Test to me; a student never tested starts with an empty number (no default).' },
 ];
 
 function renderChangelogBody(backendRows, backendVersion) {
@@ -76865,7 +76865,20 @@ async function calInit() {
 // a calendar event can be for some courses only (e.only = ['BCA'], ticked in the Add Event form). Such a Holiday / Exam / VACC
 // stops the classes of those courses only (all years, all sections) - never the whole college.
 const CAL_ONLY_COURSES = ['BCA', 'BBA', 'BCom'];
-function calOnly(e) { return (e && Array.isArray(e.only)) ? e.only.filter(Boolean) : []; }
+function calOnly(e) {
+  if (e && Array.isArray(e.only) && e.only.length) return e.only.filter(Boolean);
+  // "For" typed as just courses ("BCA" / "BCA, B.Com") means the same as the ticks - the student widget reads it that way too
+  const f = String((e && e.for) || '').trim(); if (!f) return [];
+  const parts = f.split(',').map(x => calCourseOf(x.trim()) && x.trim().toUpperCase().replace(/[.\s]/g, '') === calCourseOf(x.trim()).toUpperCase() ? calCourseOf(x.trim()) : '');
+  return parts.every(Boolean) ? [...new Set(parts)] : [];
+}
+// after a calendar save / delete the staff widgets get the change at once (staff_pub/cal + calo) - retried every 20 s for ~3 min
+// while the dashboard data is still loading (stwPublish answers "still loading" until then)
+function calStwPush(n) {
+  if (typeof stwPublish !== 'function') return;
+  // force: a normal send is skipped for 30 min after the last one ("sent recently") - a calendar change must go out now
+  setTimeout(() => stwPublish(true).then(r => { if (r && !r.ok && !/^Only/.test(r.msg || '') && n < 9) calStwPush(n + 1); }).catch(() => {}), n ? 20000 : 1500);
+}
 function calOnlySet(list) { document.querySelectorAll('#cal-only input').forEach(x => { x.checked = (list || []).includes(x.value); }); }
 // course of a class: student class key "Davan-BCA-Sem3-SecA" or timetable class "II YEAR BCOM (A)" -> 'BCA' / 'BCom' / ''
 function calCourseOf(cls) {
@@ -77181,8 +77194,8 @@ function calEditEvent(id) {
   document.getElementById('cal-from').value = e.from;
   document.getElementById('cal-to').value   = e.to||'';
   document.getElementById('cal-name').value = e.name;
-  document.getElementById('cal-for').value  = e.for||'';
   calOnlySet(calOnly(e));
+  document.getElementById('cal-for').value  = calOnly(e).length ? '' : (e.for||'');   // v1978: the ticks show the courses; unticking = whole college
   document.getElementById('cal-type').value = e.type;
   calToggleInternalNum();
   const numSel = document.getElementById('cal-internal-num');
@@ -77226,7 +77239,7 @@ async function calSaveEvent() {
     await db.collection('app_data').doc(CAL_DOC).set({ events: calEvents });
     dvToast('✅ Calendar event saved', 'ok');
     if (typeof _autoPushCalendarToPortal === 'function') _autoPushCalendarToPortal();  // auto-mirror to portal
-    if (typeof stwPublish === 'function') setTimeout(() => stwPublish(false).catch(() => {}), 1500);   // v1978: the staff widgets get the new day off at once
+    calStwPush(0);   // v1978
     // Full auto-sync: if this event is linked to an Internal (via the
     // "Which Internal?" dropdown) and already has a built Internal timetable,
     // push the new date(s) straight through — no separate confirm step.
@@ -77274,6 +77287,7 @@ async function calDeleteEvent(id) {
       await db.collection('app_data').doc(CAL_DOC).set({ events: calEvents });
       dvToast('✅ Event deleted', 'ok');
       if (typeof _autoPushCalendarToPortal === 'function') _autoPushCalendarToPortal();  // auto-mirror to portal
+      calStwPush(0);   // v1978
       calRenderUpcoming(); calRenderStats(); calRenderTable();
       if (typeof lb2Build === 'function') lb2Build();
       if (typeof scfgSmartDays === 'function' && document.getElementById('scfg-days-breakdown')) scfgSmartDays();
