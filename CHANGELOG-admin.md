@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1982 · 31-Oct-2026 IST
+User: "also add serial numbers on the hostel fee list, all places where it requires". The 🏨 Hostel fee tab shares feeRender, so it already got numbers in v1981; now the 📞 Parent calls lists (💰 fee and 📉 attendance tabs) also number each student 1, 2, 3... in the shown order. No data or Firebase change. Changed: pcListTable.
+
 ## v1981 · 31-Oct-2026 IST
 User: "add serial number so that we know properly" on the fee check list (college / hostel fee, who said "I have paid"). Each student row now starts with 1., 2., 3. in the shown order (follows the class / status filter). No data or Firebase change. Changed: feeRender.
 
