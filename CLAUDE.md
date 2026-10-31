@@ -119,6 +119,15 @@ Every new feature (apps, widgets, workers, cloud jobs) must be built so nobody h
 - **Old data cleans itself up** (keep what reports need, delete the rest on a timer) so databases never fill up.
 - Before saying a feature is done, check: "Will this still work in 2 years with nobody touching it?" If not, fix that first.
 
+## Minute-to-minute details (user, 31-Oct-2026 - default rule for every build)
+"Keep small small things properly set, minute to minute, so it gives a good impact to the users." Every build gets the small things right, not only the main feature:
+- Every place the change shows up says the right thing: real names / labels (e.g. "BCA Lab Exam", never a raw type like "exam"), correct
+  words for the case (an exam day is not called a holiday), singular / plural, dates, times, IST, emojis matching the meaning.
+- Check every screen the feature touches (both apps, both widgets, notifications, voice, morning brief, boards, empty states) and the
+  edge cases: nothing to show, one item, many items, first / last day, old app or widget versions still on phones.
+- Same look and wording everywhere (colours, icons, button names, Kannada text when the English text has it).
+- Before saying "done", go through it once as the user would see it, and fix the small mismatches in the SAME build - don't leave them for later.
+
 ## ✨ = written by AI (user, 23-Oct-2026 - rule)
 Every text written by AI (any app, widget, worker, notification, voice) is marked ✨ (e.g. "✨ AI · College AI", "✨ YOUR AI COACH SAYS");
 text made by the app's own code never gets ✨ (the app's own questions use 💬). Every NEW AI feature must follow this.
