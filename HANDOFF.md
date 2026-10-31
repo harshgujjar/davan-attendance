@@ -170,6 +170,6 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - News job (repo davan-student-news, scripts/fetch_news.js v1.9.0) writes DB3 `widgetConfig/newsSourceConfig/ratesInsight` (public read; series up to 1 year, amount + % changes,
   buy / wait / sell zones, step plan, `sig` one-liner also put in news.ratesSignal) only when the rates change; limits in `newsSourceConfig/ratesCfg` (buyPct 30, sellPct 70, dipWeekPct 4, planAmount ...).
   rateHistory (DB3 widgetConfig/rateHistory/<day>) is kept 400 days. Before our own log reached back, public silver prices (PUBLIC_SILVER_SEED) fill the chart (dashed).
-- `rates.html` (this repo, public) shows it; staff app Rates page embeds it (?embed=1); both widgets open it on tap. Text is made by code, so no ✨ (add ✨ only if an AI sentence is added).
+- `rates.html` (this repo, public) shows it; staff app Rates page embeds it (?embed=1); both widgets open it on tap. The numbers and zones are made by code (no ✨). The ✨ AI paragraph (worker davan-release v15 ratesAiRun, daily timer 12:15 / 12:45 / 15:00 UTC, not Sunday) is written to DB3 ratesInsight/ai once per rate change and shown only when ai.k = k; limits/providers = /ai (DB2 davan_pub/ai_cfg).
 - Peek DB3: Action "DB3 peek" in davan-student-news (works now), or davan-scraper DB2 peek db=3 (needs secret SA_DB3 = same key as FIREBASE_SERVICE_ACCOUNT_KEY there - user must add).
 - Not done: student portal has no rates page of its own (students reach rates.html from the widget only).

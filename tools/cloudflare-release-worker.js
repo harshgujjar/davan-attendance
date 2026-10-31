@@ -349,6 +349,36 @@ async function coachRun(env) {
   if (n) { const day = istDate(Date.now()), use = (await db2('GET', 'davan_pub/ai_use/' + day)) || {}; await db2('PATCH', 'davan_pub/ai_use/' + day, { n: (use.n || 0) + n, 'p/coach': (((use.p || {}).coach) || 0) + n }); }
 }
 
+// v15 (user, 31-Oct-2026: "add AI paragraph with ✨ in the gold / silver analysis"): after the news job (fetch_news v1.9.0) writes the numbers to DB3
+// widgetConfig/newsSourceConfig/ratesInsight, the worker writes ONE short paragraph about them to .../ratesInsight/ai {k, d, text, prov, at}; rates.html shows it
+// under "✨ AI · College AI" only when ai.k matches (the news job drops `ai` each time the rates change). Runs on the existing daily timer at 12:15 / 12:45 / 15:00 UTC
+// (5:45 / 6:15 / 8:30 pm IST, not Sunday), once per rate change. Same limits and providers as /ai (DB2 davan_pub/ai_cfg + ai_use); a failure writes nothing and the page simply has no paragraph.
+const DB3 = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app';
+async function ratesAiRun(env) {
+  const I = await (await fetch(DB3 + '/widgetConfig/newsSourceConfig/ratesInsight.json?t=' + Date.now())).json().catch(() => null);
+  if (!I || !I.silver || !I.k || (I.ai && I.ai.k === I.k)) return;
+  const day = istDate(Date.now()), cfg = (await db2('GET', 'davan_pub/ai_cfg')) || {}, use = (await db2('GET', 'davan_pub/ai_use/' + day)) || {}, out = use.out || {};
+  if (cfg.on === false || (use.n || 0) >= (+cfg.max || 300)) return;
+  const R = n => '₹' + Math.round(Math.abs(n)).toLocaleString('en-IN');
+  const ch = (o, w) => o && typeof o.d === 'number' ? w + ' ' + (o.d < 0 ? 'down ' : 'up ') + R(o.d) + ' (' + Math.abs(o.p) + '%)' : '';
+  const line = (A, nm, u) => !A ? '' : nm + ' per ' + u + ': ' + R(A.cur) + '; ' + [ch(A.ch.day, 'since yesterday'), ch(A.ch.week, 'this week'), ch(A.ch.month, 'this month')].filter(Boolean).join(', ') +
+    '; highest of the year ' + R(A.hi.v) + ', lowest ' + R(A.lo.v) + '; buy zone up to ' + R(A.buyBelow) + ', sell zone from ' + R(A.sellFrom) + '; app signal: ' + A.verdict + '.';
+  const prompt = ['IBJA rates of ' + I.asOf + ' (before 3% GST and making):', line(I.silver, 'Silver', 'kg'), line(I.gold24, 'Gold 24K', '10 g'), line(I.gold22, 'Gold 22K', '10 g')].filter(Boolean).join('\n');
+  const messages = [{ role: 'system', content: 'You write for the students and staff of Davan College, Davangere (India). Using ONLY the numbers given, write ONE paragraph of 70 to 90 words in simple English: what silver and gold did (use rupee amounts and %), whether it looks sensible to start buying in small parts or to wait, and when to think about selling a part. No markdown, no emoji, no promises about the future. End with: General guidance, not financial advice.' }, { role: 'user', content: prompt }];
+  for (const prov of aiProviders(env)) {
+    if (out[prov]) continue;
+    const r = await aiCall(env, prov, messages, 300, cfg.model).catch(e => ({ err: String(e.message || e) }));
+    if (r.text) {
+      const text = String(r.text).replace(/[*_#`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 900);
+      if (text.length < 40) return;
+      await fetch(DB3 + '/widgetConfig/newsSourceConfig/ratesInsight/ai.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ k: I.k, d: I.asOf, text, prov: prov + (r.model ? ' · ' + r.model.split('/').pop() : ''), at: new Date().toISOString() }) });
+      await db2('PATCH', 'davan_pub/ai_use/' + day, { n: (use.n || 0) + 1, ['u/rates']: (((use.u || {}).rates) || 0) + 1, ['p/' + prov]: (((use.p || {})[prov]) || 0) + 1, last: Date.now() });
+      return;
+    }
+    if (r.limit) await db2('PATCH', 'davan_pub/ai_use/' + day + '/out', { [prov]: true });
+  }
+}
+
 export default {
   // the timers: 9:15 pm IST + 9:45 pm backup (release); v4: SCR_CRON -> the college scraper at SCR_TIMES only; v5: PUC_CRON -> PUC at PUC_TIMES
   async scheduled(event, env, ctx) {
@@ -367,6 +397,7 @@ export default {
     if (c === '0,5,15,45 12,15,16 * * *') {
       if (hm === '12:05') ctx.waitUntil(startOrAlert(startPlacement(env), 'The 6:05 pm Placement usage'));
       else if (d.getUTCDay() === 0 && ['12:15', '12:45', '15:00', '15:15'].includes(hm)) ctx.waitUntil(coachRun(env).catch(() => {}));   // v13: Sunday coach notes
+      else if (d.getUTCDay() !== 0 && ['12:15', '12:45', '15:00'].includes(hm)) ctx.waitUntil(ratesAiRun(env).catch(() => {}));   // v15: ✨ gold / silver paragraph
       else if (hm === '16:00') ctx.waitUntil(saUsage());
       else if (hm === '15:45' || hm === '16:15') ctx.waitUntil(startOrAlert(startRelease(env, 'Cloudflare timer ' + (hm === '15:45' ? '45 15' : '15 16')), 'The 9:15 pm widget release'));
       return;
@@ -407,6 +438,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 14, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 15, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
   },
 };
