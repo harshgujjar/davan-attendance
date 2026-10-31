@@ -69,6 +69,16 @@ async function startIg(env) {
   const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/ig-posts.yml/dispatches', { method: 'POST', headers: GH_HDR(env), body: JSON.stringify({ ref: 'main' }) });
   return { ok: r.status === 204, msg: r.status === 204 ? 'ig-posts.yml started' : 'GitHub said ' + r.status };
 }
+// v16 (user, 31-Oct-2026: "new post is on Instagram but not showing"): GitHub ran the hourly ig-posts.yml only ~3 times a day, so a new post
+// waited up to 7 h. The worker's own timer IG_CRON now starts it every hour, 5:35 am - 11:35 pm IST (00:05-18:05 UTC); GitHub's own
+// schedule stays as a backup (the job's concurrency group queues a double start). A failed start alerts the Super Admin once a day only.
+const IG_CRON = '5 0-18 * * *';
+let _igAlertDay = '';
+async function igTimer(env) {
+  const r = await startIg(env), day = new Date().toISOString().slice(0, 10);
+  if (!r.ok && _igAlertDay !== day) { _igAlertDay = day; await saEvent({ kind: 'fail', color: 'red', title: '❌ The hourly Instagram job did not start', body: r.msg, by: 'Cloudflare timer' }); }
+  return r;
+}
 async function startScrape(env, why, wf) {
   if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
   const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + (wf || SCR_WORKFLOW) + '/dispatches', {
@@ -402,6 +412,7 @@ export default {
       else if (hm === '15:45' || hm === '16:15') ctx.waitUntil(startOrAlert(startRelease(env, 'Cloudflare timer ' + (hm === '15:45' ? '45 15' : '15 16')), 'The 9:15 pm widget release'));
       return;
     }
+    if (c === IG_CRON) { ctx.waitUntil(igTimer(env).catch(() => {})); return; }   // v16: hourly Instagram, every day incl. Sunday
     if (d.getUTCDay() === 0) return;
     const puc = c.split(' ')[0].split(',').indexOf('4') >= 0;   // the PUC timer's minutes are 0,4,18,30,34,48; the college one's 0,15,30,45
     if (puc) { if (PUC_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startOrAlert(startScrape(env, 'Cloudflare timer ' + hm + ' UTC', PUC_WORKFLOW), 'The PUC scrape')); return; }
@@ -438,6 +449,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 15, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 16, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
   },
 };
