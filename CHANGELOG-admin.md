@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1984 · 31-Oct-2026 IST
+Invigilation Duty Acknowledgment Sheet PDF: Total Faculty / Incharge / Principal footer was printed over the table heading (user screenshot) - it was drawn in autoTable's didDrawPage, before the table's final row was known. Now drawn once after the table (page break if no room). Same fix for the class Attendance sheet PDF. No data change. Functions: dutyDownloadSignatureSheetPDF, attDownloadPDF.
+
 ## v1983 · 31-Oct-2026 IST
 Internals: Sitting gets ALL Excel / PDF / Print buttons - every date, every time and every room (all classes) in one file (user: "all in one time download, date all, class all, time all"). The Attendance tab's class-sheet row (Internal / Class / Refresh / Excel / PDF / Print) and the room-wise Attendance / Signature Sheet are hidden (not used, confusing); the Duty tab is hidden for admins and in-charges, who use Auto Duty (other faculty keep it to see their own duties). No data or Firebase cost change. Functions: sitExportSlotKeys, sitResolveExportScope, sitBuildExportPages, sitBuildPrintHtml, sitExportFileStem, sitDownloadExcel/PDF, sitPrintRoom, intInit.
 
