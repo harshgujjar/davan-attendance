@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 1;
+  C.VER = 2;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -66,7 +66,13 @@
   function pushId() { var t = Date.now(); seq = t === lastT ? seq + 1 : 0; lastT = t; return t.toString(36) + '-' + seq + C.newKey(4); }
 
   /* ---------- live: EventSource keeps a local copy of a node and calls cb(value) on every change ---------- */
-  C.listen = function (p, cb) {
+  /* Browsers allow only 6 open connections to one server; each live EventSource keeps one open for ever, so with 6 every other
+     request (writes, the pairing code) waits for ever (seen 01-Nov in the Android app). So: at most 3 live streams; any other
+     node is checked every `poll` seconds instead (only while the page is visible). */
+  var streams = 0, MAX_STREAMS = 3;
+  C.listen = function (p, cb, poll) {
+    if (poll || streams >= MAX_STREAMS) return C.poll(p, cb, poll || 20);
+    streams++;
     var data = null, es = null, dead = false, retry = 0;
     function setAt(path, v, merge) {
       if (path === '/' || path === '') {
@@ -94,7 +100,19 @@
     }
     function later() { if (dead) return; retry = Math.min(retry + 1, 6); setTimeout(open, 2000 * retry); }
     open();
-    return { close: function () { dead = true; if (es) es.close(); }, value: function () { return data; } };
+    return { close: function () { if (!dead) streams--; dead = true; if (es) es.close(); }, value: function () { return data; } };
+  };
+  C.poll = function (p, cb, sec) {
+    var last = null, dead = false, t = null, data = null;
+    function run() {
+      if (dead) return;
+      if (document.hidden) { t = setTimeout(run, 3000); return; }
+      C.get(p).then(function (v) { var j = JSON.stringify(v); if (j !== last) { last = j; data = v; cb(v); } })
+        .catch(function () {}).then(function () { if (!dead) t = setTimeout(run, sec * 1000); });
+    }
+    run();
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && !dead) { clearTimeout(t); run(); } });
+    return { close: function () { dead = true; clearTimeout(t); }, value: function () { return data; } };
   };
 
   /* ---------- pairing (6-digit code, 15 minutes) ---------- */
