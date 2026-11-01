@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v25 · kids app h15: ✋ HOLD TO ANSWER (user: "can't it hear only me?" - log 19:20: other voices "Rekha", "for
+  example", and a few seconds' wait for silence). The child holds a big button while answering; only that is listened to, and letting go
+  checks at once (h15 listenHold / endListen = stopListening). Live words show while holding; an early stop while still holding listens
+  on. Kids ⚙️ → "🎤 How the child answers": ✋ Hold (default) / 🎙 Hands-free (hc_ans). Tested: 5/5, result ~0.1 s after release.
+  Functions: holdListen, holdMode, hear, drawAns, MainActivity.listenHold / endListen.
+
 - 01-Nov-2026 · kids v24 · parent v18 · core v13: user "I say 3, it does not take it" - log 19:09 (1×3): Google wrote "the", then 13 s
   later "three three". A single word that sounds like THE answer now counts ("the" / "tree" = 3, "to" = 2, "ate" = 8 ...); the same word
   for any other answer is not taken (asks again). Function: C.tableOne (SOUNDS).

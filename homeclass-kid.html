@@ -98,6 +98,10 @@ body.tv .btn:focus,body.tv .kid:focus,body.tv .key:focus,body.tv .ic:focus{outli
 .spkbox{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:12px 0;display:flex;flex-direction:column;gap:10px}
 .spkbox label{font-size:14px;color:var(--mute)}
 .btn.on{background:var(--brand);color:#fff}
+.hold{width:min(230px,62vw);height:min(230px,62vw);border-radius:50%;background:var(--kc,#5b4bff);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  box-shadow:0 10px 30px rgba(0,0,0,.18);touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;transition:transform .12s}
+.hold .hi{font-size:64px;line-height:1}.hold .ht{font:800 20px 'Baloo 2',Nunito,sans-serif}
+.hold.on{background:#ff4d6d;transform:scale(1.08);box-shadow:0 0 0 14px rgba(255,77,109,.25),0 0 0 28px rgba(255,77,109,.12)}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#22223b;color:#fff;border-radius:999px;padding:10px 18px;font-size:15px;display:none;z-index:40;max-width:90vw;text-align:center}
 .toast.on{display:block}
 .watch .q{font-size:clamp(60px,12vw,150px)}
@@ -193,6 +197,7 @@ body.tv .live-words{color:var(--gold)}
     <div class="q" id="kQ"></div>
     <div class="cap" id="kCap"></div>
     <div class="orb" id="kOrb">🎤</div>
+    <button class="hold" id="kHold" style="display:none"><span class="hi">🎤</span><span class="ht">Hold to answer</span></button>
     <div class="heard" id="kHeard"></div>
     <div class="board" id="kBoard"></div>
     <div class="typed" id="kTyped" style="display:none"></div>
@@ -253,6 +258,9 @@ body.tv .live-words{color:var(--gold)}
   <div class="set">
     <label>Name of this device<input id="sName" maxlength="30"></label>
     <label style="flex-direction:row;align-items:center;gap:10px;color:var(--ink)"><input type="checkbox" id="sAuto" style="width:24px;height:24px"> Starts classes by itself (class time + parent's ▶ Start)</label>
+    <div class="spkbox"><label>🎤 How the child answers</label>
+      <div class="r" id="sAns"><button class="btn soft" data-a="hold">✋ Hold to answer</button><button class="btn soft" data-a="free">🎙 Hands-free</button></div>
+      <div class="cap" style="text-align:left;font-size:14px">✋ = press and hold the big button while answering, let go when done: only that is heard, and it checks at once. 🎙 = no button (best in a quiet room).</div></div>
     <div class="spkbox"><label>🔊 Speaker - where the voice comes from</label>
       <div class="r"><button class="btn soft" id="sSpkGo">🔊 Speaker settings</button></div><div class="cap" id="sSpkNow" style="text-align:left"></div></div>
     <div class="r"><button class="btn" id="sSave">✓ Save</button><button class="btn soft" id="sVoice">🔊 Test voice</button><button class="btn soft" id="sMic">🎤 Test mic</button></div>
@@ -271,7 +279,7 @@ body.tv .live-words{color:var(--gold)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 24;
+var KID_VER = 25;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -381,8 +389,9 @@ async function hear(opts) {
   p.push(kp);
   if (!keys) {
     $('kOrb').classList.add('l');
-    if (!tvBoth) { ding(); $('kHeard').innerHTML = '🎤 <b>Your turn!</b>'; }
-    p.push((tvBoth ? tvListen(opts && opts.ms) : micListen(opts && opts.ms)).then(function (r) {
+    if (!tvBoth && !holdMode()) { ding(); $('kHeard').innerHTML = '🎤 <b>Your turn!</b>'; }
+    if (holdMode()) $('kOrb').classList.remove('l');
+    p.push((tvBoth ? tvListen(opts && opts.ms) : holdMode() ? holdListen() : micListen(opts && opts.ms)).then(function (r) {
       /* fix 01-Nov (user: "we say it, it shows the answer but says 'are you there'"): Google showed the words live but sent no final
          result (short answers like "eight") - use the words it showed */
       if ((!r.alts || !r.alts.length) && S.lastPart && Date.now() - S.lastPartAt < 15000) { C.diag('used the live words "' + S.lastPart + '" (Google sent no final result: ' + (r.err || 'empty') + ')'); r = { alts: [S.lastPart], err: null }; }
@@ -395,14 +404,49 @@ async function hear(opts) {
   var r = await Promise.race(p);
   typedRes = null;
   $('kOrb').classList.remove('l');
-  if (A && A.stopListen && r.typed) { if (tvListen.cancel) tvListen.cancel(); A.stopListen(); }
+  if (A && A.stopListen && r.typed) { if (tvListen.cancel) tvListen.cancel(); if (holdListen.cancel) holdListen.cancel(); A.stopListen(); }
+  $('kHold').style.display = 'none';
   showInput(null);
   chk();
   r.text = r.typed != null ? r.typed : (r.alts[0] || '');
   if (r.text) $('kHeard').innerHTML = 'I heard: <b>' + C.esc(r.text) + '</b>';
   return r;
 }
+/* ✋ Hold to answer (h15+): only what is said while the button is held counts; release = check at once (user, 01-Nov-2026:
+   other voices in the room were heard, and the answer took seconds) */
+function holdMode() { return !IS_TV && !!(A && A.listenHold) && C.LS.get('hc_ans', 'hold') === 'hold'; }
+function holdListen() {
+  return new Promise(function (res) {
+    var btn = $('kHold'), id = null, done = false, pressed = false, t0 = Date.now();
+    btn.style.display = ''; btn.classList.remove('on'); $('kOrb').style.display = 'none';
+    $('kHeard').innerHTML = '✋ <b>Hold the button and answer</b> - let go when done';
+    function fin(r) { if (done) return; done = true; btn.style.display = 'none'; btn.onpointerdown = btn.onpointerup = btn.onpointercancel = btn.onpointerleave = null; clearInterval(tk); res(r); }
+    function listenNow() {
+      id = String(++nid);
+      var my = id;
+      heardCb[my] = function (r) {
+        if (my !== id) return; id = null;
+        if (r.alts && r.alts.length) { btn.classList.remove('on'); fin(r); return; }
+        if (pressed && !done) { listenNow(); return; }           /* still holding: the engine stopped early - listen on */
+        btn.classList.remove('on');
+        if (r.err && r.err !== 'stop' && r.err !== 'silence') C.diag('hold mic: ' + r.err, 'w');
+        $('kHeard').innerHTML = '😕 I did not hear it - <b>hold</b> the button and say it again';
+      };
+      A.listenHold(my);
+    }
+    btn.onpointerdown = function (e) { e.preventDefault(); if (done || pressed) return; pressed = true; btn.classList.add('on'); btn.querySelector('.ht').textContent = 'Let go when done'; try { btn.setPointerCapture(e.pointerId); } catch (x) {}
+      $('kHeard').innerHTML = '🔴 <b>Listening…</b> let go when done'; S.lastPart = ''; if (!id) listenNow(); };
+    var up = function (e) { if (!pressed) return; pressed = false; btn.classList.remove('on'); btn.querySelector('.ht').textContent = 'Hold to answer'; if (id) A.endListen(); };
+    btn.onpointerup = up; btn.onpointercancel = up; btn.onpointerleave = up;
+    var tk = setInterval(function () {
+      if (S.stop) { if (id) { try { A.stopListen(); } catch (x) {} } fin({ alts: [], err: 'stop' }); return; }
+      if (!pressed && !id && Date.now() - t0 > 90000) fin({ alts: [], err: 'silence' });
+    }, 500);
+    holdListen.cancel = function () { if (id) { try { A.stopListen(); } catch (x) {} } fin({ alts: [], err: 'stop' }); };
+  });
+}
 function showInput(kind) {
+  if ($('kHold')) $('kHold').style.display = 'none';
   $('kPad').classList.toggle('on', kind === 'pad'); $('kTyped').style.display = kind === 'pad' ? '' : 'none';
   $('kTin').classList.toggle('on', kind === 'txt'); $('kOrb').style.display = kind ? 'none' : '';
   $('kTyped').textContent = ''; $('kTxt').value = '';
@@ -1173,7 +1217,7 @@ $('bSet').onclick = function () {
   $('sName').value = S.devName; $('sAuto').checked = S.auto;
   $('sInfo').innerHTML = 'Screen v' + KID_VER + (A && A.verName ? ' · app ' + C.esc(A.verName()) : ' · browser') + ' · ' + (IS_TV ? 'TV' : 'phone') +
     ' · mic: ' + (canMic && !IS_TV ? 'yes' : 'no (answers typed)') + '<br>Family linked ✓ · device id ' + C.devId();
-  show('sSet'); drawSpk();
+  show('sSet'); drawSpk(); drawAns();
 };
 $('sBack').onclick = goHome;
 $('sSave').onclick = function () {
@@ -1186,6 +1230,8 @@ $('sMic').onclick = function () {
     .then(function (r) { var t = (r.alts || [])[0]; toast(t ? 'I heard: ' + t : 'Nothing heard (' + (r.err || '') + ')', 4000); if (t) rawSay('I heard: ' + t); });
 };
 $('sUpd').onclick = function () { if (S.U) S.U.check(); if (A && A.checkUpdate) A.checkUpdate(); };
+function drawAns() { var m = C.LS.get('hc_ans', 'hold'); Array.prototype.forEach.call($('sAns').children, function (b) { b.classList.toggle('on', b.getAttribute('data-a') === m); }); }
+$('sAns').onclick = function (e) { var b = e.target.closest('[data-a]'); if (!b) return; C.LS.set('hc_ans', b.getAttribute('data-a')); drawAns(); C.diag('answer mode: ' + b.getAttribute('data-a')); toast(b.getAttribute('data-a') === 'hold' ? '✋ Hold to answer' : '🎙 Hands-free'); };
 $('sLog').onclick = function () {
   $('sLogBox').style.display = ''; $('sLogTxt').textContent = 'Loading…'; C.diagFlush();
   setTimeout(function () { C.diagText().then(function (t) { $('sLogTxt').textContent = t; var p = $('sLogTxt'); p.scrollTop = p.scrollHeight; }); }, 800);
