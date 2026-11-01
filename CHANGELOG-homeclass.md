@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids app h22: fast recitation lost lines as [unk] (log 21:58) - user: "first save the live recording on the phone, use it,
+  then test it". Every recite's sound is saved on the phone (newest 10) and sent to DB3 homeclass/<fam>/rec/<t> (what was heard) +
+  recdata/<t> (WAV, ~0.85 MB per 20 s; newest 30 kept, older deleted by the app). Used to test the engine on Vihaan's real voice
+  before the next listening fix. Java: Rec.save / Rec.sendAll / Rec.clean, VoskMic.keep.
+
 - 01-Nov-2026 · kids v32: "the table should fit my mobile screen, no scrolling" - the 📖 table page and the class screen with the table
   board (recite / test) now fill exactly one phone screen (100dvh; rows, fonts, mic and thumb button size from the screen height; >12
   lines go in two columns). TV unchanged. Checked at 393×740 and 360×640: no scroll. Functions: openShow, drawBoard (body.bOn).
