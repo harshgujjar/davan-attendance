@@ -1,5 +1,9 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids app h18: user "auto update will not happen" - log: h16 started downloading h17 twice but crashed (engine) before
+  the 47 MB download finished; the downloader also kept the whole APK in memory. h18 streams updates to a file (Net.toFile). One-time
+  hand install of h18 needed (h16 cannot update itself). Same crash guard as h17.
+
 - 01-Nov-2026 · kids app h17: h16 closed itself on Vihaan's phone ~15 s into a class (log: "app h16 open" again at the first listen,
   no Java error = native). Crash guard: a breadcrumb per offline-engine step (written at once), Android's exit reason + trace
   (ApplicationExitInfo) and Java crashes are logged on the next start; a crash inside the engine switches that phone to Google listening
