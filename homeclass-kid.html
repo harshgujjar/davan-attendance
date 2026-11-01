@@ -264,11 +264,11 @@ body.tv .live-words{color:var(--gold)}
 <div class="confetti" id="conf"></div>
 <div class="toast" id="toast"></div>
 
-<script src="homeclass-core.js?v=6"></script>
+<script src="homeclass-core.js?v=7"></script>
 <script>
 (function () {
 'use strict';
-var KID_VER = 10;
+var KID_VER = 11;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -509,8 +509,8 @@ async function askTable(a, b, info) {
   await say(spoken + '?');
   for (;;) {
     var r = await hear({ num: true });
-    var n = null, alt = r.alts || [];
-    for (var i = 0; i < alt.length && n === null; i++) n = C.answerNum(alt[i]);
+    var jd = C.tableJudge(r.alts || [], a, b), n = jd.n;
+    if (r.text) C.diag('heard ' + a + '×' + b + ': "' + (r.alts || [r.text]).slice(0, 3).join('" / "') + '" → ' + (jd.ok ? '✓' : (n === null ? '?' : '✗ ' + n)));
     if (!r.text) {
       silent++;
       if (silent >= 3) { await sleepy(); silent = 0; await say(spoken + '?'); continue; }
@@ -523,8 +523,7 @@ async function askTable(a, b, info) {
       if (C.isRepeat(r.text) || unclear < 3) { await say(unclear === 1 && !C.isRepeat(r.text) ? 'Say the number. ' + spoken + '?' : spoken + '?'); continue; }
       n = -1;
     }
-    /* the first number of the best guess may be right while the last is not ("56 56" etc.): trust the best guess only */
-    var ok = n === ans;
+    var ok = jd.ok;
     var ri = bFind(a, b), prev = ri >= 0 ? SES.board.rows[ri][2] : 0;
     bSet(a, b, ok ? (prev === 2 ? 3 : 1) : 2, 1);
     if (ok) {
@@ -541,7 +540,7 @@ async function askTable(a, b, info) {
     $('kQ').textContent = a + ' × ' + b + ' = ' + ans;
     for (var t = 0; t < 2; t++) {
       var r2 = await hear({ num: true });
-      if (r2.text && (r2.alts || []).some(function (x) { return C.hasNum(x, ans); })) { await say(t === 0 ? 'Good. Remember it!' : 'Yes. Remember it!', false); return false; }
+      if (r2.text && C.tableJudge(r2.alts || [], a, b).ok) { await say(t === 0 ? 'Good. Remember it!' : 'Yes. Remember it!', false); return false; }
       if (t === 0) await say(r2.text ? 'Listen again. ' + spoken + ' is ' + ans + '. Your turn.' : 'Your turn. Say: ' + spoken + ' is ' + ans + '.', false);
     }
     await say("That's okay. " + spoken + ' is ' + ans + '. We will try it again soon.', false);
@@ -557,7 +556,7 @@ async function learnFact(a, b) {
   await say(spoken + '. Your turn!');
   for (var t = 0; t < 3; t++) {
     var r = await hear({ num: true });
-    if (r.text && (r.alts || []).some(function (x) { return C.hasNum(x, ans); })) {
+    if (r.text && C.tableJudge(r.alts || [], a, b).ok) {
       bSet(a, b, 1, 1);
       logAns('l', a + '×' + b, ans, r.text, true, t === 0);
       await say(rnd(['Good!', 'Nice!', 'Yes!', 'Super!']), false); return;
@@ -592,6 +591,7 @@ async function loadProg(id) {
 }
 function saveProg() { if (!SES) return; C.LS.set('hc_prog_' + SES.kid.id, SES.prog); C.put('prog/' + SES.kid.id, SES.prog); }
 function shuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+function rounds() { return +(S.cfg && S.cfg.rounds) === 2 ? 2 : 1; }   /* perfect mixed rounds to finish a table (user: one is enough) */
 function upto() { return Math.max(10, Math.min(20, +(S.cfg && S.cfg.upto) || 10)); }
 function weakAdj(key, ok) {
   var w = SES.prog.weak;
@@ -649,11 +649,11 @@ async function tablesLearn(k) {
       var r2 = await round(shuffle(m), 'Table of ' + cur + ' · mixed');
       if (r2 === true) {
         st.ok++;
-        if (st.ok >= 2) {
+        if (st.ok >= rounds()) {
           st.st = 3; st.at = C.day(); SES.mastered.push(cur); confetti();
           flash(true, 'Table of ' + cur + ' mastered!', '⭐ +5 stars', 3200); SES.stars += 5;
           await say('Hurray! You have mastered the table of ' + cur + '! Five bonus stars!', false); hideFlash();
-        } else await say('Perfect! One more perfect round and the table of ' + cur + ' is yours.');
+        } else await say('Perfect! ' + (rounds() - st.ok === 1 ? 'One more perfect round' : (rounds() - st.ok) + ' more perfect rounds') + ' and the table of ' + cur + ' is yours.');
       } else if (r2 === false) { st.ok = 0; await say('Nice try. Practice makes perfect!'); }
       saveProg();
     }
@@ -822,6 +822,7 @@ function stopClass(why) {
   Object.keys(heardCb).forEach(function (id) { window.hcHeardErr(id, 'stop'); });
 }
 $('kStop').onclick = function () { stopClass('stopped'); };
+$('dHome').onclick = function () { goHome(); };                 /* fix 01-Nov: the button had no action (only the 25 s timer went home) */
 $('kPause').onclick = function () {
   S.pause = !S.pause; $('kPause').textContent = S.pause ? '▶ Go on' : '⏸ Pause';
   if (S.pause) { if (A) { try { A.stopListen(); } catch (e) {} } toast('Paused - press ▶ Go on'); setLive({ mode: 'paused', title: 'Paused' }); }
@@ -895,12 +896,13 @@ function drawHome2() {
       '<div class="row"><div class="av">' + C.esc(k.emoji || '🙂') + '</div><div><h2>' + C.esc(k.name) + '</h2><div class="sub">' + C.esc(C.stdName(k.std)) + ' · ' + C.esc(nextClassText(k)) + '</div></div></div>' +
       '<div class="chips"><span class="chip">✖️ ' + C.esc(info) + '</span>' + (nSets ? '<span class="chip">📝 ' + C.plural(nSets, 'lesson') + '</span>' : '') + (mast ? '<span class="chip">🏅 ' + C.plural(mast, 'table') + ' mastered</span>' : '') + '</div>' +
       (map ? '<div class="map">' + map + '</div>' : '') +
-      '<span class="go">▶ Start class</span></button>';
+      '<span class="go">' + (IS_TV ? '▶ Start on the phone' : '▶ Start class') + '</span></button>';
   });
   $('kids').innerHTML = html;
   var ov = A && A.canOverlay && !A.canOverlay();
   $('hOv').style.display = ov ? '' : 'none';
-  $('hHint').innerHTML = IS_TV ? '📺 Use the remote: arrows to move, <b>OK</b> to start. Answers are typed with the number keys on the screen.'
+  $('hHint').innerHTML = IS_TV ? '📺 Press <b>OK</b> on a child: the class starts on the kids phone (it listens) and shows here big and live.' +
+      '<div class="r" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">' + kids().map(function (k) { return '<button class="btn soft" data-prac="' + k.id + '">✍️ ' + C.esc(k.name) + ': practise here with the remote</button>'; }).join('') + '</div>'
     : castOn() ? '🔊 Speaking on <b>🏠 ' + C.esc(spk().name) + '</b> (Wi-Fi). Keep this phone near the children - it listens. Classes start by themselves at class time - or tap <b>▶ Start class</b>.'
     : '🔊 Voice from this phone (or its Bluetooth speaker). For a Google Home over Wi-Fi: <b>⚙️</b> (top right) → 🔊 Speaker. Classes start by themselves at class time - or tap <b>▶ Start class</b>.';
   footer();
@@ -910,11 +912,24 @@ function footer() {
   $('hFoot').innerHTML = '<span class="net' + (on ? '' : ' off') + '"></span>' + (on ? 'Online' : 'Offline - saving on this device') + (q ? ' · ' + q + ' to sync' : '') +
     ' · ' + C.esc(S.devName || 'This device') + ' · v' + KID_VER + (A && A.verName ? ' / app ' + A.verName() : '');
 }
+$('hHint').addEventListener('click', function (e) { var b = e.target.closest('[data-prac]'); if (b) { var k = kidById(b.getAttribute('data-prac')); if (k) runClass(k, 'tv-remote'); } });
 $('hOvGo').onclick = function () { if (A && A.openOverlay) A.openOverlay(); C.diag('opened "Display over other apps" settings'); };
 $('kids').addEventListener('click', function (e) {
   var b = e.target.closest('.kid'); if (!b) return;
-  var k = kidById(b.getAttribute('data-kid')); if (k) runClass(k, 'tap');
+  var k = kidById(b.getAttribute('data-kid')); if (!k) return;
+  if (IS_TV) startOnPhone(k); else runClass(k, 'tap');
 });
+/* TV (user, 01-Nov-2026): the TV cannot hear the children (the remote's mic goes only to Google Assistant), so ▶ on the TV starts the
+   class on the kids phone - it listens and speaks (Google Home) - and the TV shows the big live table board by itself. */
+async function startOnPhone(k) {
+  var devs = {}; try { devs = (await C.get('dev')) || {}; } catch (e) {}
+  var ph = Object.keys(devs).map(function (id) { var d = devs[id]; d.id = id; return d; })
+    .filter(function (d) { return d.id !== C.devId() && d.auto && d.kind !== 'tv' && Date.now() - (d.at || 0) < 11 * 60000; });
+  if (!ph.length) { toast('📱 The kids phone is not online - open Home Class on it. Or use ✍️ Practise here with the remote.', 7000); C.diag('TV: no kids phone online for ' + k.name); return; }
+  C.put('cmd', { do: 'start', kid: k.id, dev: ph[0].id, at: Date.now(), id: C.newKey(8), from: S.devName });
+  toast('▶ Starting ' + k.name + "'s class on " + (ph[0].name || 'the kids phone') + ' - it shows here in a moment', 7000);
+  C.diag('TV started ' + k.name + "'s class on " + (ph[0].name || ph[0].id));
+}
 function goHome() { if (S.running) return; drawHome(); show(watchKid() ? 'sWatch' : 'sHome'); }
 async function loadProgAll() {
   for (var i = 0, l = kids(); i < l.length; i++) {

@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 6;
+  C.VER = 7;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -216,6 +216,28 @@
     return n.length ? n[n.length - 1] : null;
   };
   C.hasNum = function (text, want) { return C.numbers(text, true).indexOf(want) >= 0; };
+  /* tables the way the kids say them (user, 01-Nov-2026): "two one ja two", "2 too ja four", "two ones are two", "2 into 3 is 6".
+     Google often joins quick numbers ("two one two" -> "212", "21 ja 2"): when the numbers start with a and b, the rest is the answer.
+     Returns {n: the answer heard or null, ok}. */
+  C.tableOne = function (text, a, b) {
+    var t = String(text || '').toLowerCase().replace(/\b(ja+|za+|jha|is|are|equals?|equal to|into|times|multiplied by|x)\b/g, ' , ').replace(/\bones\b/g, 'one');
+    var ans = a * b, nums = C.numbers(t, true);
+    if (!nums.length) return { n: null, ok: false };
+    var last = nums[nums.length - 1];
+    if (last === ans) return { n: ans, ok: true };
+    var digits = nums.join(''), pre = [String(a) + String(b), String(b) + String(a)];
+    for (var i = 0; i < pre.length; i++) if (digits.length > pre[i].length && digits.indexOf(pre[i]) === 0 && digits.slice(pre[i].length) === String(ans)) return { n: ans, ok: true };
+    return { n: last, ok: false };
+  };
+  /* all of Google's guesses: right when the best guess is right, or when the best guess had no clear number and another guess is right */
+  C.tableJudge = function (alts, a, b) {
+    alts = (alts || []).filter(Boolean);
+    var first = alts.length ? C.tableOne(alts[0], a, b) : { n: null, ok: false };
+    if (first.ok) return { ok: true, n: first.n, s: alts[0] };
+    for (var i = 1; i < alts.length; i++) { var r = C.tableOne(alts[i], a, b); if (r.ok && first.n === null) return { ok: true, n: r.n, s: alts[i] }; }
+    if (first.n === null) for (var j = 1; j < alts.length; j++) { var r2 = C.tableOne(alts[j], a, b); if (r2.n !== null) return { ok: false, n: r2.n, s: alts[j] }; }
+    return { ok: false, n: first.n, s: alts[0] || '' };
+  };
 
   var STOP = ' a an the is are was were be of to in on at for and or it its this that these those with by as from i we you he she they my our your his her their do does did has have had will can so but not no yes what which who whom why how when where there here '.split(' ');
   function words(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean); }
