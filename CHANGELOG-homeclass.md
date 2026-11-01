@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v28 · parent v21 · core v16: user "Check for update only says v27, it does not check h19" - the button checked only
+  the screen; the app was asked once (20:48) when GitHub still served the old version file, then not again for 10 min. Now the button
+  always asks the app as well and shows both ("Screen v27 · App h17 → h19 downloading"), and the app is asked again every 3 min until it
+  has the newest one. Function: C.watchUpdate.
+
 - 01-Nov-2026 · kids app h19: h17 updated itself (log 20:46) and found NO Android crash report for h16's restarts - so most likely the
   screen (WebView renderer) died, which takes the app down. onRenderProcessGone now rebuilds the screen and logs it; every unexpected
   exit reason is logged. Comes by auto-update after h18. Functions: onRenderProcessGone, reportLastExit.

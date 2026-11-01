@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 15;
+  C.VER = 16;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -576,12 +576,17 @@
       lastChk = Date.now();
       fetch(VER_URL + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
         var apkKey = kind + 'Apk';
-        if (bridge && bridge.ver && bridge.checkUpdate && v[apkKey] > bridge.ver() && Date.now() - Math.max(apkAsked, C.LS.get('hc_apkask', 0)) > 10 * 60000 && !(opt.busy && opt.busy())) {
+        var appNew = bridge && bridge.ver && bridge.checkUpdate && v[apkKey] > bridge.ver();
+        if (appNew && (force || Date.now() - Math.max(apkAsked, C.LS.get('hc_apkask', 0)) > 3 * 60000) && !(opt.busy && opt.busy())) {
           apkAsked = Date.now(); C.LS.set('hc_apkask', apkAsked); bridge.checkUpdate(); C.diag('update: app ' + bridge.ver() + ' -> ' + v[apkKey]);
           upCard('<b>📦 New app version found (' + C.esc(v[apkKey + 'Name'] || ('#' + v[apkKey])) + ')</b><br>Downloading… it installs by itself.', 8000);
         }
         if (v[kind] > myVer) { C.diag('update: page v' + myVer + ' -> v' + v[kind]); go(v); }
-        else if (force) upCard('<b>✅ Up to date</b> · v' + myVer, 3000);
+        else if (force) {   /* the button shows BOTH the screen and the app (user, 01-Nov: "it only says v27, it does not check h19") */
+          var appNow = bridge && bridge.verName ? bridge.verName() : '';
+          upCard(appNew ? '<b>✅ Screen v' + myVer + ' is up to date</b><br>📦 App ' + C.esc(appNow) + ' → ' + C.esc(v[apkKey + 'Name'] || '#' + v[apkKey]) + ': downloading now - it installs by itself' :
+            '<b>✅ All up to date</b> · screen v' + myVer + (appNow ? ' · app ' + C.esc(appNow) : ''), appNew ? 10000 : 4000);
+        }
       }).catch(function () { if (force) upCard('⚠️ Could not check for updates (offline?)', 4000); });
     }
     window.hcUpd = function (st, info) {        /* from the Android app while it installs a new APK */
