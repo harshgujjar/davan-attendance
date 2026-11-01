@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 12;
+  C.VER = 13;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -221,7 +221,14 @@
      Returns {n: the answer heard or null, ok}. */
   C.tableOne = function (text, a, b) {
     var t = String(text || '').toLowerCase().replace(/\b(ja+|za+|jha|is|are|equals?|equal to|into|times|multiplied by|x)\b/g, ' , ').replace(/\bones\b/g, 'one');
-    var ans = a * b, nums = C.numbers(t, true);
+    var ans = a * b;
+    /* one short word that Google writes instead of the answer ("the" / "tree" for three - log 01-Nov 19:09): right ONLY when it
+       sounds like THE answer; any other single filler word = not heard */
+    var SOUNDS = { 1: 'one won van wan', 2: 'two to too tu do', 3: 'three the tree free tea three', 4: 'four for fore far', 5: 'five fife hive', 6: 'six sex sicks sick',
+      7: 'seven heaven', 8: 'eight ate hate it', 9: 'nine nein line mine', 10: 'ten tan tin then when', 11: 'eleven', 12: 'twelve' };
+    var one = String(text || '').toLowerCase().replace(/[^a-z ]/g, ' ').trim().split(/\s+/);
+    if (one.length === 1 && one[0] && !/\d/.test(String(text)) && SOUNDS[ans] && SOUNDS[ans].split(' ').indexOf(one[0]) >= 0) return { n: ans, ok: true };
+    var nums = C.numbers(t, true);
     if (!nums.length) return { n: null, ok: false };
     /* mostly other words ("18 years pilot", "computer") = not an answer -> ask again, never mark wrong (log 01-Nov 19:08) */
     var KNOWN = /^(\d+|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fourty|fifty|sixty|seventy|eighty|ninety|hundred|and|won|to|too|tu|for|fore|ate|tree|free|sex|sicks|nein|tin|tan|ja+|za+|jha|is|are|equals?|equal|into|times|multiplied|by|x|ones|the|a|its|it's|answer)$/;

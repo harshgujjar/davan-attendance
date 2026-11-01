@@ -1,5 +1,9 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v24 · parent v18 · core v13: user "I say 3, it does not take it" - log 19:09 (1×3): Google wrote "the", then 13 s
+  later "three three". A single word that sounds like THE answer now counts ("the" / "tree" = 3, "to" = 2, "ate" = 8 ...); the same word
+  for any other answer is not taken (asks again). Function: C.tableOne (SOUNDS).
+
 - 01-Nov-2026 · kids v23 · parent v17 · core v12 · kids app h14: tuned from the real log 19:07-19:10 (h13 offline worked: 50, 60, 10, 72,
   30 ✓). Fixes: "Ja" / "the" (recitation pauses cut the answer) -> 2.2 s end silence; 3 × "speech no" after 1.5 s (offline gives up
   before the child starts) -> listens again quietly up to 8 s; "18 years pilot" / "computer" marked wrong -> mostly-other-words = not an
