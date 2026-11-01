@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 16;
+  C.VER = 17;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -574,11 +574,14 @@
     function check(force) {
       if (!force && (document.hidden || Date.now() - lastChk < 20000)) return;
       lastChk = Date.now();
+      if (force) upCard('<b>🔎 Checking for updates…</b>', 0);
       fetch(VER_URL + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
         var apkKey = kind + 'Apk';
         var appNew = bridge && bridge.ver && bridge.checkUpdate && v[apkKey] > bridge.ver();
         if (appNew && (force || Date.now() - Math.max(apkAsked, C.LS.get('hc_apkask', 0)) > 3 * 60000) && !(opt.busy && opt.busy())) {
-          apkAsked = Date.now(); C.LS.set('hc_apkask', apkAsked); bridge.checkUpdate(); C.diag('update: app ' + bridge.ver() + ' -> ' + v[apkKey]);
+          apkAsked = Date.now(); C.LS.set('hc_apkask', apkAsked);
+          if (bridge.checkUpdateTo) bridge.checkUpdateTo(v[apkKey], v[apkKey + 'Name'] || ''); else bridge.checkUpdate();
+          C.diag('update: app ' + bridge.ver() + ' -> ' + v[apkKey]);
           upCard('<b>📦 New app version found (' + C.esc(v[apkKey + 'Name'] || ('#' + v[apkKey])) + ')</b><br>Downloading… it installs by itself.', 8000);
         }
         if (v[kind] > myVer) { C.diag('update: page v' + myVer + ' -> v' + v[kind]); go(v); }
@@ -589,15 +592,24 @@
         }
       }).catch(function () { if (force) upCard('⚠️ Could not check for updates (offline?)', 4000); });
     }
-    window.hcUpd = function (st, info) {        /* from the Android app while it installs a new APK */
-      C.diag('app update: ' + st + ' ' + (info || ''), st === 'failed' ? 'e' : '');
-      var t = { downloading: '📥 Downloading the app update…', installing: '📦 Installing the app update now… the app restarts by itself in a few seconds',
+    /* the app's update, step by step, on the screen (user, 01-Nov-2026: "show what is happening - downloading, installing ...") */
+    window.hcUpd = function (st, info) {
+      if (st !== 'progress') C.diag('app update: ' + st + ' ' + (info || ''), st === 'failed' ? 'e' : '');
+      var bar = function (pct) { return '<div style="height:8px;background:rgba(255,255,255,.2);border-radius:9px;margin-top:10px;overflow:hidden"><i style="display:block;height:100%;width:' + Math.max(3, pct) + '%;background:#ffb703;transition:width .6s"></i></div>'; };
+      if (st === 'progress') {
+        var p = String(info || '').split('|'), pct = +p[0], mb = +p[1], tot = +p[2], nm = p[3] || '';
+        upCard('<b>📥 Downloading app ' + C.esc(nm) + (pct >= 0 ? ' · ' + pct + '%' : '') + '</b><div style="opacity:.75;font-size:13px">' + mb + (tot ? ' of ' + tot : '') + ' MB · keep the app open</div>' + bar(pct >= 0 ? pct : 30), 0);
+        return;
+      }
+      var t = { checking: '🔎 Checking for an app update…', downloading: '📥 Downloading app ' + (info || '') + '…', uptodate: '✅ The app is up to date (' + (info || '') + ')',
+        oldfile: '⏳ GitHub still has the old app file - trying again in 3 minutes by itself',
+        installing: '📦 Installing the app update now… the app restarts by itself in a few seconds',
         'installing-tap': '📦 Installing the app update now… the app closes for a moment - tap the "✅ updated" notification (or the app icon) to open it again',
         tap: '👆 Android shows an "Update this app?" window - press UPDATE / INSTALL (only this first time). No window? Pull down the notifications → "Tap to install"',
-        ready: (opt.busy && opt.busy()) ? '✅ App update downloaded - it installs as soon as this class ends' : '✅ App update downloaded - press the phone / TV HOME button once: it installs then (this older app version needs that, the new one installs by itself)', done: '✅ App updated', failed: '⚠️ App update failed - will try again later' }[st] || st;
-      if (st === 'downloading' && Date.now() - C.LS.get('hc_upd_dl', 0) < 10 * 60000) return;   /* old apps download again and again - show it once */
-      if (st === 'downloading') C.LS.set('hc_upd_dl', Date.now());
-      upCard('<b>' + t + '</b>' + (info ? '<div style="opacity:.7;font-size:13px">' + C.esc(info) + '</div>' : '') + '<div style="opacity:.6;font-size:12px;margin-top:6px">Tap to close</div>', /^installing/.test(st) ? 0 : 15000);
+        ready: (opt.busy && opt.busy()) ? '✅ App update downloaded - it installs as soon as this class ends' : '✅ App update downloaded - press the phone / TV HOME button once: it installs then',
+        done: '✅ App updated', failed: '⚠️ App update: ' + (info || 'failed') + '' }[st] || st;
+      var stay = st === 'downloading' || st === 'checking' || /^installing/.test(st);
+      upCard('<b>' + C.esc(t).replace(/&quot;/g, '"') + '</b>' + (st === 'downloading' ? bar(2) : '') + '<div style="opacity:.6;font-size:12px;margin-top:6px">Tap to close</div>', stay ? 0 : 15000);
     };
     setInterval(function () { if (pending && !(opt.busy && opt.busy())) go(pending); else check(false); }, 60000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) check(false); });
