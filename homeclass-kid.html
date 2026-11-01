@@ -95,6 +95,9 @@ body.tv .btn:focus,body.tv .kid:focus,body.tv .key:focus,body.tv .ic:focus{outli
 .set label{font-size:14px;color:var(--mute);display:flex;flex-direction:column;gap:6px}
 .set input{font:700 18px Nunito,sans-serif;padding:10px 14px;border-radius:12px;border:2px solid var(--line);background:transparent;color:var(--ink)}
 .set .r{display:flex;gap:10px;flex-wrap:wrap}
+.spkbox{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:12px 0;display:flex;flex-direction:column;gap:10px}
+.spkbox label{font-size:14px;color:var(--mute)}
+.btn.on{background:var(--brand);color:#fff}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#22223b;color:#fff;border-radius:999px;padding:10px 18px;font-size:15px;display:none;z-index:40;max-width:90vw;text-align:center}
 .toast.on{display:block}
 .watch .q{font-size:clamp(60px,12vw,150px)}
@@ -227,6 +230,12 @@ body.tv .live-words{color:var(--gold)}
   <div class="set">
     <label>Name of this device<input id="sName" maxlength="30"></label>
     <label style="flex-direction:row;align-items:center;gap:10px;color:var(--ink)"><input type="checkbox" id="sAuto" style="width:24px;height:24px"> Starts classes by itself (class time + parent's ▶ Start)</label>
+    <div class="spkbox" id="sSpk">
+      <label>🔊 Speaker - where the voice comes from</label>
+      <div class="r"><button class="btn soft" id="spPhone">📱 This phone / Bluetooth</button><button class="btn soft" id="spFind">🏠 Google Home (Wi-Fi)</button></div>
+      <div id="spList" class="r"></div>
+      <div class="cap" id="spNow" style="text-align:left"></div>
+    </div>
     <div class="r"><button class="btn" id="sSave">✓ Save</button><button class="btn soft" id="sVoice">🔊 Test voice</button><button class="btn soft" id="sMic">🎤 Test mic</button></div>
     <div class="cap" id="sInfo" style="text-align:left"></div>
     <div class="r"><button class="btn soft" id="sUpd">⬆ Check for update</button><button class="btn soft" id="sUnpair">🔗 Unpair</button></div>
@@ -241,7 +250,7 @@ body.tv .live-words{color:var(--gold)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 7;
+var KID_VER = 8;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -275,7 +284,7 @@ if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pic
 function rawSay(text) {
   return new Promise(function (res) {
     var id = ++nid, done = false, fin = function () { if (!done) { done = true; res(); } };
-    setTimeout(function () { if (!done) C.diag('voice: no "done" from the speaker engine - went on after a wait', 'w'); fin(); }, 2500 + text.length * 110);   /* never wait for ever */
+    setTimeout(function () { if (!done) C.diag('voice: no "done" from the speaker engine - went on after a wait', 'w'); fin(); }, 2500 + text.length * 110 + (castOn() ? 9000 : 0));   /* never wait for ever (Wi-Fi speaker: +9 s) */
     if (A) { spokeCb[id] = fin; A.speak(text, String(id)); return; }
     if (!window.speechSynthesis) return fin();
     var u = new SpeechSynthesisUtterance(text); if (voice) u.voice = voice; u.lang = 'en-IN'; u.rate = 0.92; u.pitch = 1.08;
@@ -872,7 +881,8 @@ function drawHome2() {
   });
   $('kids').innerHTML = html;
   $('hHint').innerHTML = IS_TV ? '📺 Use the remote: arrows to move, <b>OK</b> to start. Answers are typed with the number keys on the screen.'
-    : '🔊 Keep this phone near the Google Home (paired by Bluetooth). Classes start by themselves at class time - or tap <b>▶ Start class</b>.';
+    : castOn() ? '🔊 Speaking on <b>🏠 ' + C.esc(spk().name) + '</b> (Wi-Fi). Keep this phone near the children - it listens. Classes start by themselves at class time - or tap <b>▶ Start class</b>.'
+    : '🔊 Voice from this phone (or its Bluetooth speaker). For a Google Home over Wi-Fi: <b>⚙️</b> (top right) → 🔊 Speaker. Classes start by themselves at class time - or tap <b>▶ Start class</b>.';
   footer();
 }
 function footer() {
@@ -965,7 +975,7 @@ function alarms() {
 }
 function famToApp() { if (A && A.setFam) { try { A.setFam(C.fam(), C.devId(), !!S.auto); } catch (e) {} } }   /* h4+: background listener for Start / Call */
 function heartbeat() {
-  C.patch('dev/' + C.devId(), { name: S.devName, kind: IS_TV ? 'tv' : (A ? 'phone' : 'web'), ver: KID_VER, app: A && A.verName ? A.verName() : '', at: Date.now(), auto: S.auto, mic: canMic && !IS_TV });
+  C.patch('dev/' + C.devId(), { name: S.devName, kind: IS_TV ? 'tv' : (A ? 'phone' : 'web'), ver: KID_VER, app: A && A.verName ? A.verName() : '', at: Date.now(), auto: S.auto, mic: canMic && !IS_TV, spk: castOn() ? spk().name : 'phone' });
 }
 
 /* ================= pairing ================= */
@@ -985,11 +995,42 @@ function tryPair() {
   }).catch(function (e) { $('pairMsg').textContent = '⚠️ ' + e.message; code = ''; drawCode(); });
 }
 
+/* ================= 🔊 speaker (h6+): this phone / Bluetooth, or a Google Home over Wi-Fi ================= */
+function spk() { try { return A && A.speaker ? JSON.parse(A.speaker() || '{}') : {}; } catch (e) { return {}; } }
+function castOn() { var s = spk(); return s.mode === 'cast' && !!s.host; }
+function drawSpk() {
+  if (!A || !A.findSpeakers) { $('sSpk').innerHTML = '<label>🔊 Speaker</label><div class="cap" style="text-align:left">' + (A ? 'Google Home over Wi-Fi needs app h6 - it installs by itself in a minute (⬆ Check for update).' : 'In the browser the voice comes from this device.') + '</div>'; return; }
+  var s = spk(), c = castOn();
+  $('spPhone').classList.toggle('on', !c); $('spFind').classList.toggle('on', c);
+  $('spNow').innerHTML = c ? '✅ Speaking on <b>🏠 ' + C.esc(s.name) + '</b> over Wi-Fi. This phone still listens - keep it near the children.'
+    : '✅ Speaking from this phone (or the Bluetooth speaker it is paired with).';
+}
+$('spPhone').onclick = function () { A.setSpeaker(JSON.stringify({ mode: 'phone' })); $('spList').innerHTML = ''; drawSpk(); heartbeat(); rawSay('Hello! I will speak from this phone.'); };
+$('spFind').onclick = function () { $('spList').innerHTML = '<div class="cap">🔎 Looking for Google Home speakers on this Wi-Fi…</div>'; A.findSpeakers(); };
+window.hcSpeakers = function (json) {
+  var l = []; try { l = JSON.parse(json); } catch (e) {}
+  if (!l.length) { $('spList').innerHTML = '<div class="cap" style="text-align:left">😕 No Google Home found. Is this phone on the same Wi-Fi as the speaker? Then tap 🏠 again.</div>'; return; }
+  $('spList').innerHTML = l.map(function (x, i) { return '<button class="btn soft" data-sp="' + i + '">🏠 ' + C.esc(x.name) + (x.model ? ' <span style="opacity:.6;font-size:13px">' + C.esc(x.model) + '</span>' : '') + '</button>'; }).join('');
+  Array.prototype.forEach.call($('spList').querySelectorAll('[data-sp]'), function (b) {
+    b.onclick = function () {
+      var x = l[+b.getAttribute('data-sp')];
+      A.setSpeaker(JSON.stringify({ mode: 'cast', name: x.name, host: x.host, port: x.port, model: x.model || '' }));
+      $('spList').innerHTML = ''; drawSpk(); heartbeat();
+      toast('🏠 ' + x.name + ' - saying hello…', 4000);
+      rawSay('Hello! This is Home Class, speaking on ' + x.name + '.');
+    };
+  });
+  setTimeout(focusFirst, 30);
+};
+var spkErrAt = 0;
+window.hcSpkErr = function (r) { C.diag('speaker: ' + r + ' - phone voice used', 'w'); if (Date.now() - spkErrAt > 60000) { spkErrAt = Date.now(); toast('🏠 Google Home did not answer - using this phone\'s voice', 4000); } };
+
 /* ================= settings ================= */
 $('bSet').onclick = function () {
   $('sName').value = S.devName; $('sAuto').checked = S.auto;
   $('sInfo').innerHTML = 'Screen v' + KID_VER + (A && A.verName ? ' · app ' + C.esc(A.verName()) : ' · browser') + ' · ' + (IS_TV ? 'TV' : 'phone') +
     ' · mic: ' + (canMic && !IS_TV ? 'yes' : 'no (answers typed)') + '<br>Family linked ✓ · device id ' + C.devId();
+  drawSpk();
   show('sSet');
 };
 $('sBack').onclick = goHome;

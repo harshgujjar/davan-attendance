@@ -28,6 +28,11 @@ DB3 homeclass/<fam>/diag/<deviceId>/<YYYY-MM-DD>/<id> {t, m, l e|w} + diag/<dev>
 davan-student-news "DB3 peek" job (paths `homeclass?shallow`), then read with curl `<DB3>/homeclass/<key>/diag.json` (the key opens it)
 or peek `homeclass/<key>/diag/<dev>/<day>`. The user's main family (01-Nov) = the one with dev "Vihaan Gujjar" (key ends …SJZR? check dev).
 
+## 🔊 Speaker (h6)
+Kids app prefs "spk" {mode phone|cast, name, host, port, model}. Cast = Google Cast v2 to the Default Media Receiver (from the staff
+widget's HomeCast), one TLS connection per class (reader thread answers PING, closed after 90 s idle), Google translate_tts MP3 first,
+phone TTS WAV served from the phone as backup. Fails -> phone voice (hcSpkErr). Latency ~0.5-1 s per sentence after the first.
+
 ## Data: DB3 (davan-student-news) `homeclass/<familyKey 28 chars>/`
 - `cfg` {kids:{k1,k2:{name,std,from,to,style learn|revise,min,time "HH:MM" IST,days [0-6],on,emoji,color}}, upto 10|12|20}
 - `sets/<id>` lessons {title,type oral|spell,who all|k1|k2,until YYYY-MM-DD,items[{q,a,k?,s?}],off}
