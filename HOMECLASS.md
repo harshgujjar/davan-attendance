@@ -18,6 +18,11 @@ A change to the kids screen = edit homeclass-kid.html only (no new APK). A new A
 BuildInfo, write H<n>_CHANGES.md, build (`ANDROID_JAR=$HOME/tc/android.jar HOMECLASS_WEB=<this repo> bash build.sh`), copy to
 HomeClass.apk, bump apkVersion + ?v= in homeclass-version.json. Keep the source + keystore in davan-scraper widgets/homeclass.
 
+## Auto-update (01-Nov-2026)
+`homeclass-ver.json` {kid, par, kidApk(+Name), parApk(+Name), news[{k,v,at,t}]} - pages check it every 60 s + on return (C.watchUpdate),
+show "🆕 Updating" + news, reload with ?v=. APK: page calls bridge.checkUpdate() when kidApk / parApk is newer; Upd tells each step to
+window.hcUpd. Parent APK: homeclass-parent-version.json; kids APK: homeclass-version.json (both still checked every 6 h too).
+
 ## Data: DB3 (davan-student-news) `homeclass/<familyKey 28 chars>/`
 - `cfg` {kids:{k1,k2:{name,std,from,to,style learn|revise,min,time "HH:MM" IST,days [0-6],on,emoji,color}}, upto 10|12|20}
 - `sets/<id>` lessons {title,type oral|spell,who all|k1|k2,until YYYY-MM-DD,items[{q,a,k?,s?}],off}

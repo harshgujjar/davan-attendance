@@ -1,5 +1,13 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids screen v4 · parent app v4 · core v3 · kids app h3 · parent app p2: AUTO-UPDATE you can see (user: "as soon as
+  you update it should update by itself, refresh takes it at once, show what is updating"). homeclass-ver.json (kid / par / kidApk /
+  parApk + news) is checked every minute and when the app comes back; a newer page shows "🆕 Updating vX → vY" with the news and
+  reloads (?v= so no cache serves the old copy; never during a class or while a lesson is typed; one try per version per 10 min);
+  after it, "✅ Updated" with the news. A newer APK downloads at once and the steps show (📥 / 📦 / 👆 / ✅); kids phone installs
+  at once and reopens, parent app installs when you leave it. Tap the 🟢 chip or ⟳ Check for updates to check now.
+  Functions: C.watchUpdate, upCard, hcUpd, Upd.install / installReady, MainActivity.say.
+
 - 01-Nov-2026 · kids screen v3 · parent app v3 · core v2: FIX "Add a device" stuck on "Making a code…" in the Android parent app
   (user's screenshot). The parent page kept 6 live streams open and Android's WebView allows only 6 connections to one server, so
   every other request waited for ever. Now at most 3 live streams (C.listen); cfg / dev / sets are checked every 15-60 s

@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 2;
+  C.VER = 3;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -296,4 +296,82 @@
   };
   C.typeName = function (t) { return t === 'spell' ? 'Spelling' : 'Oral questions'; };
   C.esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+
+  /* ---------- auto-update (user, 01-Nov-2026: "as soon as you update, it should update by itself and show what is updating") ----------
+     homeclass-ver.json on GitHub Pages {kid, par, kidApk, parApk, news:[{k:'kid'|'par'|'all', v, at, t}]} is checked every 60 s and when
+     the app comes back to the screen. Newer page -> card "🆕 Updating…" with what changed -> reload (?v=new so no cache serves the old copy).
+     Never during a class / while a lesson is being typed (busy()). Newer APK -> the app downloads + installs it (bridge.checkUpdate) and
+     tells each step through window.hcUpd(state, info). After a reload: "✅ Updated" card with the news. */
+  var VER_URL = 'https://harshgujjar.github.io/davan-attendance/homeclass-ver.json';
+  function upCard(html, ms) {
+    var c = document.getElementById('hcUpCard');
+    if (!c) {
+      c = document.createElement('div'); c.id = 'hcUpCard';
+      c.style.cssText = 'position:fixed;left:50%;top:max(14px,env(safe-area-inset-top));transform:translateX(-50%);z-index:99;width:min(460px,92vw);' +
+        'background:#22223b;color:#fff;border-radius:20px;padding:14px 16px;box-shadow:0 12px 36px rgba(0,0,0,.35);font:600 15px/1.45 Nunito,system-ui,sans-serif';
+      document.body.appendChild(c);
+    }
+    c.innerHTML = html; c.style.display = '';
+    clearTimeout(c._t); if (ms) c._t = setTimeout(function () { c.style.display = 'none'; }, ms);
+    c.onclick = function () { c.style.display = 'none'; };
+  }
+  C.upCard = upCard;
+  function newsHTML(list) {
+    if (!list.length) return '';
+    return '<ul style="margin:8px 0 0;padding-left:18px">' + list.slice(0, 5).map(function (n) { return '<li>' + C.esc(n.t) + '</li>'; }).join('') + '</ul>';
+  }
+  function newsFor(v, kind, from, to) {
+    return ((v && v.news) || []).filter(function (n) { return (n.k === kind || n.k === 'all') && n.v > from && n.v <= to; });
+  }
+  C.watchUpdate = function (kind, myVer, opt) {
+    opt = opt || {};
+    var bridge = opt.bridge, label = kind === 'kid' ? 'Home Class' : 'Home Class · Parents', pending = null, lastChk = 0, apkAsked = 0;
+    /* just updated? say so once, with what changed */
+    var seen = C.LS.get('hc_ver_' + kind, 0);
+    if (seen && seen < myVer) {
+      C.LS.set('hc_ver_' + kind, myVer);
+      fetch(VER_URL + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
+        upCard('<b>✅ Updated to v' + myVer + '</b>' + newsHTML(newsFor(v, kind, seen, myVer)) + '<div style="opacity:.6;font-size:12px;margin-top:6px">Tap to close</div>', 12000);
+      }).catch(function () { upCard('<b>✅ Updated to v' + myVer + '</b>', 5000); });
+    } else if (!seen) C.LS.set('hc_ver_' + kind, myVer);
+    function go(v) {
+      if (opt.busy && opt.busy()) { pending = v; return; }
+      pending = null;
+      var tried = C.LS.get('hc_try_' + kind, {});                 /* never loop: one reload per new version per 10 min */
+      if (tried.v === v[kind] && Date.now() - tried.at < 10 * 60000) return;
+      C.LS.set('hc_try_' + kind, { v: v[kind], at: Date.now() });
+      var news = newsFor(v, kind, myVer, v[kind]);
+      upCard('<b>🆕 Updating ' + label + ' v' + myVer + ' → v' + v[kind] + '…</b>' + newsHTML(news) +
+        '<div style="height:6px;background:rgba(255,255,255,.2);border-radius:9px;margin-top:10px;overflow:hidden"><i id="hcUpBar" style="display:block;height:100%;width:5%;background:#ffb703;transition:width 3.5s linear"></i></div>');
+      setTimeout(function () { var b = document.getElementById('hcUpBar'); if (b) b.style.width = '100%'; }, 50);
+      setTimeout(function () {
+        var q = location.search.replace(/[?&]v=\d+/g, '').replace(/^&/, '?');
+        location.replace(location.pathname + (q ? q + '&' : '?') + 'v=' + v[kind] + location.hash);
+      }, 3800);
+    }
+    function check(force) {
+      if (!force && (document.hidden || Date.now() - lastChk < 20000)) return;
+      lastChk = Date.now();
+      fetch(VER_URL + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
+        var apkKey = kind + 'Apk';
+        if (bridge && bridge.ver && bridge.checkUpdate && v[apkKey] > bridge.ver() && Date.now() - apkAsked > 10 * 60000 && !(opt.busy && opt.busy())) {
+          apkAsked = Date.now(); bridge.checkUpdate();
+          upCard('<b>📦 New app version found (' + C.esc(v[apkKey + 'Name'] || ('#' + v[apkKey])) + ')</b><br>Downloading… it installs by itself.', 8000);
+        }
+        if (v[kind] > myVer) go(v);
+        else if (force) upCard('<b>✅ Up to date</b> · v' + myVer, 3000);
+      }).catch(function () { if (force) upCard('⚠️ Could not check for updates (offline?)', 4000); });
+    }
+    window.hcUpd = function (st, info) {        /* from the Android app while it installs a new APK */
+      var t = { downloading: '📥 Downloading the app update…', installing: '📦 Installing the app update… the app will restart by itself',
+        tap: '👆 Android asks for one tap to allow the update (only the first time)',
+        ready: kind === 'kid' ? '✅ App update downloaded - it installs after the class' : '✅ App update downloaded - it installs by itself when you leave the app', done: '✅ App updated', failed: '⚠️ App update failed - will try again later' }[st] || st;
+      upCard('<b>' + t + '</b>' + (info ? '<div style="opacity:.7;font-size:13px">' + C.esc(info) + '</div>' : ''), st === 'installing' ? 0 : 9000);
+    };
+    setInterval(function () { if (pending && !(opt.busy && opt.busy())) go(pending); else check(false); }, 60000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) check(false); });
+    window.addEventListener('focus', function () { check(false); });
+    setTimeout(function () { check(false); }, 4000);
+    return { check: function () { check(true); }, retry: function () { if (pending) go(pending); } };
+  };
 })();

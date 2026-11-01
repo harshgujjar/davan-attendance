@@ -235,6 +235,8 @@ Android's installer of record and makes the next update ask for one tap. Send th
 
 ## Gujjar Home Class (user's kids app, 01-Nov-2026) - read HOMECLASS.md first
 Kids screen = `homeclass-kid.html` (a change needs NO new APK - the app downloads it), parent app = `homeclass.html`, shared `homeclass-core.js`,
-data DB3 `homeclass/<familyKey>`. Every change: entry in `CHANGELOG-homeclass.md` + bump KID_VER / PAR_VER. Java changes: new APK version
+data DB3 `homeclass/<familyKey>`. Every change: entry in `CHANGELOG-homeclass.md` + bump KID_VER / PAR_VER AND the same number in
+`homeclass-ver.json` (kid / par, + a short `news` line for the family - every open app shows it and updates itself within a minute);
+a homeclass-core.js change also bumps `?v=` on its <script> tag in both pages. APK builds also raise kidApk / parApk there. Java changes: new APK version
 (source + keystore in davan-scraper widgets/homeclass), HomeClass.apk + homeclass-version.json (apkVersion + ?v=) - it installs itself.
 No login by design (the user: "no login, I want it open"). English only for now; Kannada / Hindi later.
