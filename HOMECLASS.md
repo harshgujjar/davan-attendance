@@ -8,7 +8,7 @@ English only (Kannada / Hindi later). No login. Nothing to do by hand after setu
 |---|---|---|
 | Kids app (Android, phone + Google TV) | source davan-scraper `widgets/homeclass` (com.gujjar.homeclass, key homeclass.jks / homeclass / homeclass2026) -> `HomeClass.apk` + `homeclass-version.json` | spare phone next to the Google Home (Bluetooth speaker), Google TV |
 | Kids screen | `homeclass-kid.html` | inside the app (downloaded fresh each start from GitHub Pages, kept for offline; copy in the APK) |
-| Parent app | `homeclass.html` (+ manifest-homeclass.json, app-sw.js) | Mom's and Dad's phones |
+| Parent app | `homeclass.html` (+ manifest-homeclass.json, app-sw.js); also as APK `HomeClassParents.apk` (com.gujjar.homeclassparent, source davan-scraper widgets/homeclass-parent, homeclass-parent-version.json) | Mom's and Dad's phones |
 | Shared code | `homeclass-core.js` | both pages |
 
 The app = WebView at the fake address https://homeclass.app/ (served by MainActivity.serve, so localStorage stays the same online

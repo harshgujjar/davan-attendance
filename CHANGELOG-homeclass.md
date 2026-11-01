@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · parent app v2 · Home Class Parents APK p1: the parent app as an Android app (user asked). HomeClassParents.apk +
+  homeclass-parent-version.json (self-update); source davan-scraper widgets/homeclass-parent, same key as the kids app. In the app,
+  🔊 Hear the first one and 🎤 Speak to type use the phone's own voice / Google speech dialog (window.HCP); Back goes editor ->
+  lessons -> home. Settings → Family shows the APK link. Functions: addSpoken, hcDictated, hcBack, eTry.
+
 - 01-Nov-2026 · kids screen v2 · kids app h2 (APK 2): 📋 table board (user: "TV should show the table and move as he says").
   The whole table is on the phone and big on the TV: the row being asked glows, turns green when right, orange with the answer
   when wrong, green with an orange edge once fixed; learning shows each row as it is taught. Oral questions show the key words
