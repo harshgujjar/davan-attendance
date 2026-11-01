@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids app h17: h16 closed itself on Vihaan's phone ~15 s into a class (log: "app h16 open" again at the first listen,
+  no Java error = native). Crash guard: a breadcrumb per offline-engine step (written at once), Android's exit reason + trace
+  (ApplicationExitInfo) and Java crashes are logged on the next start; a crash inside the engine switches that phone to Google listening
+  until the next app version (VoskEng.off); the engine's memory is freed 3 s after its thread stopped. Functions: reportLastExit, crumb, vEnd, VoskEng.off / disable.
+
 - 01-Nov-2026 · kids v27 · parent v20 · core v15 · kids app h16: 🗣️ SAY THE WHOLE TABLE + OFFLINE ENGINE (user: "what parents do - he tells
   the 5 table fast, the app follows, notes every mistake, tells him where, say it again, then once more"; "Android does not get what is
   told"). h16 carries the Vosk offline engine + small English model (47 MB APK), limited to table words (setGrammar), Google only as
