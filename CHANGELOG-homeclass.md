@@ -1,5 +1,9 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v32: "the table should fit my mobile screen, no scrolling" - the 📖 table page and the class screen with the table
+  board (recite / test) now fill exactly one phone screen (100dvh; rows, fonts, mic and thumb button size from the screen height; >12
+  lines go in two columns). TV unchanged. Checked at 393×740 and 360×640: no scroll. Functions: openShow, drawBoard (body.bOn).
+
 - 01-Nov-2026 · kids v31 · parent v24 · core v19: "it does not go with my speed" - log 21:46: fast speech drops "ja/za" ("one six six, one
   seven seven"), and the checker needed the separator, so those lines counted as not said. C.parseRecite now follows the pattern table ·
   line · answer with or without ja / za / into (the answer ends where the next "table · next line" starts); the LATEST version of a line
