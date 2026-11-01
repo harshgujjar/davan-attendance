@@ -39,6 +39,8 @@ Vosk (libs in davan-scraper widgets/homeclass/libs, README there) - model unzipp
 splits on ja / is / into, the line numbers in order decide where an answer ends. Learn style: st0 listen & repeat -> st1 recite (perfect =
 learnt, st3); without the engine (old app / TV / browser) st1 = the old in-order quiz.
 
+NEVER use org.vosk.android.SpeechService / StorageService (Java lambdas -> crash on Android with our dx build); VoskMic.java is the mic loop.
+
 ## Data: DB3 (davan-student-news) `homeclass/<familyKey 28 chars>/`
 - `cfg` {kids:{k1,k2:{name,std,from,to,style learn|revise,min,time "HH:MM" IST,days [0-6],on,emoji,color}}, upto 10|12|20}
 - `sets/<id>` lessons {title,type oral|spell,who all|k1|k2,until YYYY-MM-DD,items[{q,a,k?,s?}],off}

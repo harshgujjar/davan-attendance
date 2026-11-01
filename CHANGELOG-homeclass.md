@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids app h21: ROOT CAUSE of the crashes found by h19's crash report (log 20:54): "NoSuchMethodError LambdaMetafactory at
+  org.vosk.android.SpeechService$RecognizerThread.run" - Vosk's ready-made microphone helper uses Java lambdas that our no-Gradle (dx)
+  build leaves unconverted. VoskMic.java replaces it (AudioRecord loop, same callbacks, plain Java); build.sh refuses lambdas in our classes.
+  The engine re-enables itself (it was switched off for h19 only). Functions: VoskMic, MainActivity.vStart / vEnd.
+
 - 01-Nov-2026 · kids v29 · parent v22 · core v17 · kids app h20: UPDATE YOU CAN WATCH (user: "show what is happening - downloading,
   installing"). Card with every step: 🔎 checking, 📥 downloading app hNN · % · MB of MB (progress bar), ⏳ GitHub still has the old
   file (retry 3 min), 📦 installing, ✅ done / up to date. h20 also takes the newest version from the page (checkUpdateTo, from GitHub
