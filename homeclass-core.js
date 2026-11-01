@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 7;
+  C.VER = 8;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -450,8 +450,8 @@
       lastChk = Date.now();
       fetch(VER_URL + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
         var apkKey = kind + 'Apk';
-        if (bridge && bridge.ver && bridge.checkUpdate && v[apkKey] > bridge.ver() && Date.now() - apkAsked > 10 * 60000 && !(opt.busy && opt.busy())) {
-          apkAsked = Date.now(); bridge.checkUpdate(); C.diag('update: app ' + bridge.ver() + ' -> ' + v[apkKey]);
+        if (bridge && bridge.ver && bridge.checkUpdate && v[apkKey] > bridge.ver() && Date.now() - Math.max(apkAsked, C.LS.get('hc_apkask', 0)) > 10 * 60000 && !(opt.busy && opt.busy())) {
+          apkAsked = Date.now(); C.LS.set('hc_apkask', apkAsked); bridge.checkUpdate(); C.diag('update: app ' + bridge.ver() + ' -> ' + v[apkKey]);
           upCard('<b>📦 New app version found (' + C.esc(v[apkKey + 'Name'] || ('#' + v[apkKey])) + ')</b><br>Downloading… it installs by itself.', 8000);
         }
         if (v[kind] > myVer) { C.diag('update: page v' + myVer + ' -> v' + v[kind]); go(v); }
@@ -462,9 +462,11 @@
       C.diag('app update: ' + st + ' ' + (info || ''), st === 'failed' ? 'e' : '');
       var t = { downloading: '📥 Downloading the app update…', installing: '📦 Installing the app update now… the app restarts by itself in a few seconds',
         'installing-tap': '📦 Installing the app update now… the app closes for a moment - tap the "✅ updated" notification (or the app icon) to open it again',
-        tap: '👆 Android asks for one tap to allow the update (only the first time)',
-        ready: '✅ App update downloaded - it installs as soon as this class ends', done: '✅ App updated', failed: '⚠️ App update failed - will try again later' }[st] || st;
-      upCard('<b>' + t + '</b>' + (info ? '<div style="opacity:.7;font-size:13px">' + C.esc(info) + '</div>' : ''), /^installing/.test(st) ? 0 : 9000);
+        tap: '👆 Android shows an "Update this app?" window - press UPDATE / INSTALL (only this first time). No window? Pull down the notifications → "Tap to install"',
+        ready: (opt.busy && opt.busy()) ? '✅ App update downloaded - it installs as soon as this class ends' : '✅ App update downloaded - press the phone / TV HOME button once: it installs then (this older app version needs that, the new one installs by itself)', done: '✅ App updated', failed: '⚠️ App update failed - will try again later' }[st] || st;
+      if (st === 'downloading' && Date.now() - C.LS.get('hc_upd_dl', 0) < 10 * 60000) return;   /* old apps download again and again - show it once */
+      if (st === 'downloading') C.LS.set('hc_upd_dl', Date.now());
+      upCard('<b>' + t + '</b>' + (info ? '<div style="opacity:.7;font-size:13px">' + C.esc(info) + '</div>' : ''), /^installing|^tap|^ready/.test(st) ? 0 : 9000);
     };
     setInterval(function () { if (pending && !(opt.busy && opt.busy())) go(pending); else check(false); }, 60000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) check(false); });
