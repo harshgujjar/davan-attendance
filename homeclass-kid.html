@@ -278,11 +278,11 @@ body.tv .live-words{color:var(--gold)}
 <div class="confetti" id="conf"></div>
 <div class="toast" id="toast"></div>
 
-<script src="homeclass-core.js?v=14"></script>
+<script src="homeclass-core.js?v=15"></script>
 <script>
 (function () {
 'use strict';
-var KID_VER = 26;
+var KID_VER = 27;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -422,7 +422,8 @@ async function hear(opts) {
    Pressing while the app is still talking stops the voice at once and listens - an early answer is kept for that question. */
 function holdMode() { return !IS_TV && !!(A && A.listenHold) && C.LS.get('hc_ans', 'hold') === 'hold'; }
 var HB = { pressed: false, id: null, t0: 0, pending: null, waiter: null, tap: false };
-function hbShow() { var on = S.screen === 'sClass' && S.running && holdMode(); $('kHold').style.display = on ? '' : 'none'; document.body.classList.toggle('hasHold', on); }
+function hbShow() { var on = S.screen === 'sClass' && S.running && (holdMode() || S.reciting); $('kHold').style.display = on ? '' : 'none'; document.body.classList.toggle('hasHold', on);
+  if (on) hbLabel(S.reciting ? 'Done ✓' : 'Hold or tap'); }
 function hbLabel(t) { $('kHold').querySelector('.ht').textContent = t; }
 function hbDeliver(r) {
   r.q = S.curQ; r.at = Date.now();
@@ -442,6 +443,7 @@ function hbListen(tap) {
 }
 function hbDown(e) {
   e.preventDefault(); if (!S.running || HB.pressed) return;
+  if (S.reciting && RC) { if (!RC.stopping) { RC.stopping = true; A.reciteStop(); } return; }   /* while reciting: 🎤 = "I have finished" */
   HB.pressed = true; HB.t0 = Date.now(); HB.pending = null;
   try { $('kHold').setPointerCapture(e.pointerId); } catch (x) {}
   if (S.speaking) { try { A.stopSpeak(); } catch (x) {} if (S.sayId) window.hcSpoke(String(S.sayId)); }   /* barge-in */
@@ -619,6 +621,7 @@ function saveDay() {
 function fact(a, b) { return a + '×' + b; }
 /* ask one question; returns true when right the first time. Wrong -> told the right answer, says it back, comes again later */
 async function askTable(a, b, info) {
+  if (A && A.setGrammar) A.setGrammar(C.grammar());
   var ans = a * b, q = fact(a, b), spoken = a + ' times ' + b;
   S.curQ = 't' + q + '#' + (++S.qn); $('kHeard').innerHTML = '';
   $('kQ').className = 'q'; $('kQ').textContent = a + ' × ' + b + ' = ?';
@@ -675,7 +678,8 @@ async function askTable(a, b, info) {
 }
 /* learn: the app says the fact, the child says it back */
 async function learnFact(a, b) {
-  var ans = a * b, spoken = a + ' times ' + b + ' is ' + ans;
+  if (A && A.setGrammar) A.setGrammar(C.grammar());
+  var ans = a * b, spoken = a + ' ' + b + ' ja ' + ans;            /* the way parents teach it (user, 01-Nov-2026: "5 one ja 5") */
   S.curQ = 'l' + a + 'x' + b + '#' + (++S.qn); $('kHeard').innerHTML = '';
   $('kQ').className = 'q'; $('kQ').textContent = a + ' × ' + b + ' = ' + ans;
   bCur(a, b); bSet(a, b, 4, 1);
@@ -759,11 +763,21 @@ async function tablesLearn(k) {
     SES.title = 'Table of ' + cur + ' · ' + C.STAGES[st.st];
     if (st.st === 0) {
       $('kTag').textContent = 'Learning the table of ' + cur;
-      await say("Let's learn the table of " + cur + '. Listen and say it after me.');
+      await say("Let's learn the table of " + cur + '. Listen and say it after me, like this: ' + cur + ' one ja ' + cur + '.');
       var lb = []; for (var b0 = 1; b0 <= up; b0++) lb.push([cur, b0]);
       bTable(lb, 'Learning the table of ' + cur);
       for (var b = 1; b <= up; b++) { if (timeLeft() < 0 && b > 3) break; await learnFact(cur, b); }
       if (b > up) { st.st = 1; saveProg(); }
+    } else if (st.st === 1 && reciteOk()) {
+      SES.title = 'Table of ' + cur + ' · say it all';
+      var rr = await reciteTable(cur, up);
+      if (rr === true) {
+        st.st = 3; st.at = C.day(); st.ok = rounds(); SES.mastered.push(cur); confetti();
+        logAns('r', 'Table of ' + cur + ' (said all)', 'all right', 'perfect', true, true);
+        flash(true, 'Table of ' + cur + ' learnt!', '⭐ +5 stars', 3200); SES.stars += 5;
+        await say('Super! You said the whole table of ' + cur + ' without a mistake! Five bonus stars!', false); hideFlash();
+      }
+      saveProg();
     } else if (st.st === 1) {
       await say('Table of ' + cur + ', in order. Tell me the answers.');
       var l = []; for (var c = 1; c <= up; c++) l.push([cur, c]);
@@ -830,6 +844,7 @@ async function runSet(set) {
   await say('You got ' + res.ok + ' out of ' + res.n + ' right the first time' + (res.ok === res.n ? '. Perfect!' : '. Well done!'));
 }
 async function askOral(it, first) {
+  if (A && A.setGrammar) A.setGrammar('google');
   S.curQ = 'o' + it.q + '#' + (++S.qn);
   $('kQ').className = 'q txt'; $('kQ').textContent = it.q;
   bNew('o', { title: SES.title, keys: C.keysOf(it) });
@@ -857,6 +872,7 @@ async function askOral(it, first) {
   }
 }
 async function askSpell(it, first) {
+  if (A && A.setGrammar) A.setGrammar('google');
   var w = it.q, sen = it.s ? ' ' + it.s + '. ' + w + '.' : '';
   S.curQ = 's' + w + '#' + (++S.qn);
   $('kQ').className = 'q txt'; $('kQ').textContent = '✏️ Spell the word';
@@ -961,6 +977,79 @@ $('kPause').onclick = function () {
   if (S.pause) { if (A) { try { A.stopListen(); } catch (e) {} } toast('Paused - press ▶ Go on'); setLive({ mode: 'paused', title: 'Paused' }); }
 };
 $('kType').onclick = function () { S.forceKeys = !S.forceKeys; $('kType').textContent = S.forceKeys ? '🎤 Speak' : '⌨️ Type'; if (A) { try { A.stopListen(); } catch (e) {} } };
+
+/* ================= 🗣️ RECITE THE WHOLE TABLE (v27, app h16+) =================
+   User, 01-Nov-2026: "what parents do - tell me the 5 table: 5 one ja 5, 5 two ja 10 ... - the app hears it, notes every mistake, tells
+   him where he went wrong, he says it again, then the whole table one more time". The offline engine follows the whole recitation;
+   the board ticks each line live; afterwards: wrong lines ("You said 5 seven ja 30 - it is 5 seven ja 35, say it with me"), unsure lines
+   (fifteen / fifty) and missed lines are practised, then "the whole table one more time" (up to 3 times a class). */
+function reciteOk() { return !IS_TV && A && A.reciteStart && A.voskState && A.voskState() === 'ready'; }
+var RC = null;
+window.hcRecite = function (id, kind, text) {
+  if (!RC || RC.id !== id) return;
+  RC.text = text || RC.text; RC.at = Date.now();
+  var r = C.checkRecite(RC.text, RC.t, RC.up);
+  r.facts.forEach(function (f) { var right = f.said === RC.t * f.b; if (right) bSet(RC.t, f.b, 1, 1); else if (f.said !== null && !(SES.board.rows[bFind(RC.t, f.b)] || [])[2]) { /* shown after he finishes */ } });
+  var last = r.facts.length ? r.facts[r.facts.length - 1].b : 0; if (last) bCur(RC.t, Math.min(RC.up, last + (r.facts[r.facts.length - 1].said !== null ? 1 : 0)));
+  $('kHeard').innerHTML = '🗣️ ' + C.esc(RC.text.split(' ').slice(-8).join(' '));
+  drawBoard(); setLive({ mode: 'recite', title: SES.title, q: 'Table of ' + RC.t });
+  if (r.done.length === RC.up && kind !== 'f' && !RC.stopping) { RC.stopping = true; setTimeout(function () { if (RC && RC.id === id) A.reciteStop(); }, 900); }
+  if (kind === 'f' && RC.res) { var f = RC.res; RC.res = null; f(RC.text); }
+};
+function reciteListen(t, up) {
+  return new Promise(function (res) {
+    var id = String(++nid);
+    RC = { id: id, t: t, up: up, text: '', at: Date.now(), t0: Date.now(), res: res, stopping: false };
+    A.setGrammar(C.grammar(t, up)); A.reciteStart(id);
+    var tk = setInterval(function () {
+      if (!RC || RC.id !== id) return clearInterval(tk);
+      var quiet = Date.now() - RC.at, total = Date.now() - RC.t0;
+      if (S.stop || (RC.text && quiet > 4500) || (!RC.text && total > 20000) || total > 120000) { clearInterval(tk); if (!RC.stopping) { RC.stopping = true; A.reciteStop(); } }
+    }, 400);
+  });
+}
+async function reciteTable(t, up) {
+  var lines = []; for (var b = 1; b <= up; b++) lines.push([t, b]);
+  for (var attempt = 1; attempt <= 3; attempt++) {
+    bTable(lines, 'Say the table of ' + t);
+    $('kQ').className = 'q txt'; $('kQ').textContent = '🗣️ Say the table of ' + t;
+    S.curQ = 'r' + t + '#' + (++S.qn); S.reciting = true; hbShow();
+    await say(attempt === 1 ? 'Now you say the whole table of ' + t + '. Like this: ' + t + ' one ja ' + t + ', ' + t + ' two ja ' + (t * 2) + '. Start after the ding!'
+      : 'Now say the whole table of ' + t + ' one more time. Start after the ding!');
+    ding(); $('kHeard').innerHTML = '🗣️ <b>Say the table of ' + t + '</b> - press 🎤 when you finish';
+    setLive({ mode: 'recite', title: SES.title, q: 'Table of ' + t });
+    var text = await reciteListen(t, up);
+    S.reciting = false; RC = null; hbShow();
+    chk();
+    var r = C.checkRecite(text, t, up);
+    C.diag('recite ' + t + ' (try ' + attempt + '): "' + text + '" -> ' + (r.ok ? 'PERFECT' : 'wrong ' + JSON.stringify(r.wrong) + ' unsure ' + JSON.stringify(r.unsure) + ' missing ' + JSON.stringify(r.missing)));
+    if (!text) { await say("I did not hear you. Let's try again."); continue; }
+    if (!r.facts.length) { await say('I could not follow that. Say it slowly: ' + t + ' one ja ' + t + '.'); continue; }
+    if (r.ok) { r.done.forEach(function (b) { bSet(t, b, 1, 1); }); drawBoard(); return true; }
+    r.wrong.forEach(function (w) { bSet(t, w.b, 2, 1); }); drawBoard();
+    var fix = [];
+    r.wrong.slice(0, 3).forEach(function (w) { fix.push({ b: w.b, msg: 'You said ' + t + ' ' + w.b + ' ja ' + w.said + '. That is wrong. ' + t + ' ' + w.b + ' ja ' + (t * w.b) + '. Say it with me.' }); });
+    r.unsure.slice(0, 2).forEach(function (w) { fix.push({ b: w.b, msg: 'I am not sure I heard ' + t + ' ' + w.b + '. Say it again: ' + t + ' ' + w.b + ' ja ' + (t * w.b) + '.' }); });
+    r.missing.concat(r.unclear).slice(0, 3).forEach(function (b) { fix.push({ b: b, msg: 'You missed ' + t + ' ' + b + '. ' + t + ' ' + b + ' ja ' + (t * b) + '. Say it.' }); });
+    var nWrong = r.wrong.length, nMiss = r.missing.length + r.unclear.length;
+    await say(nWrong ? 'Good try! ' + (nWrong === 1 ? 'One line was wrong.' : nWrong + ' lines were wrong.') : (nMiss ? 'Almost! ' + (nMiss === 1 ? 'One line was missing.' : nMiss + ' lines were missing.') : 'Almost!'));
+    for (var i = 0; i < fix.length; i++) {
+      var f = fix[i]; bCur(t, f.b);
+      $('kQ').className = 'q'; $('kQ').textContent = t + ' × ' + f.b + ' = ' + (t * f.b);
+      S.curQ = 'f' + t + 'x' + f.b + '#' + (++S.qn);
+      A.setGrammar(C.grammar());
+      await say(f.msg);
+      for (var k = 0; k < 2; k++) {
+        var h = await hear({ num: true });
+        if (h.text && C.tableJudge(h.alts || [], t, f.b).ok) { bSet(t, f.b, 3, 1); drawBoard(); await say(rnd(['Good!', 'Yes!', 'Right!']), false); break; }
+        if (k === 0) await say('Listen. ' + t + ' ' + f.b + ' ja ' + (t * f.b) + '. Now you.');
+      }
+    }
+    logAns('r', 'Table of ' + t + ' (said all)', 'all right', text.slice(0, 120), false, true);
+  }
+  await say('Well done for trying! We will say the table of ' + t + ' again next time.');
+  return false;
+}
 
 /* ================= class-time call ================= */
 async function callKid(k, why) {

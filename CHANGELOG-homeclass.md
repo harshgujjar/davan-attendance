@@ -1,5 +1,13 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v27 · parent v20 · core v15 · kids app h16: 🗣️ SAY THE WHOLE TABLE + OFFLINE ENGINE (user: "what parents do - he tells
+  the 5 table fast, the app follows, notes every mistake, tells him where, say it again, then once more"; "Android does not get what is
+  told"). h16 carries the Vosk offline engine + small English model (47 MB APK), limited to table words (setGrammar), Google only as
+  backup and for oral / spelling. Learning now: listen & repeat ("5 one ja 5") -> say the whole table (board ticks each line live;
+  afterwards wrong / unsure (fifteen-fifty) / missed lines practised; "one more time", up to 3 a class) -> learnt. Tests: real engine
+  output of fast synthetic recitation (deliberate mistakes found), full flow 1-table with a mistake then perfect.
+  Functions: C.parseRecite / checkRecite / grammar / numWord, reciteTable / reciteListen / hcRecite, VoskEng, MainActivity.vStart / vDeliver.
+
 - 01-Nov-2026 · kids v26 · parent v19 · core v14: 🎤 THUMB BUTTON (user's photo: the hold button vanished after "I did not hear it" and
   came back seconds later; "put it down right for the thumb"; "not super active"). Log 19:50-19:52: " 7 * 4 =" marked ✗ 4; a 0.4 s TAP
   heard nothing. Now one big button fixed at the bottom right for the whole class: HOLD = listen while held, check on release; TAP = listen

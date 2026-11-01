@@ -33,6 +33,12 @@ Kids app prefs "spk" {mode phone|cast, name, host, port, model}. Cast = Google C
 widget's HomeCast), one TLS connection per class (reader thread answers PING, closed after 90 s idle), Google translate_tts MP3 first,
 phone TTS WAV served from the phone as backup. Fails -> phone voice (hcSpkErr). Latency ~0.5-1 s per sentence after the first.
 
+## 🗣️ Recite + offline engine (h16 / v27)
+Vosk (libs in davan-scraper widgets/homeclass/libs, README there) - model unzipped once to files/vosk; A.voskState(), A.setGrammar(json |
+'google'), listen / listenHold / endListen go to Vosk when ready; A.reciteStart / reciteStop -> hcRecite(id, p|r|f, text). C.parseRecite
+splits on ja / is / into, the line numbers in order decide where an answer ends. Learn style: st0 listen & repeat -> st1 recite (perfect =
+learnt, st3); without the engine (old app / TV / browser) st1 = the old in-order quiz.
+
 ## Data: DB3 (davan-student-news) `homeclass/<familyKey 28 chars>/`
 - `cfg` {kids:{k1,k2:{name,std,from,to,style learn|revise,min,time "HH:MM" IST,days [0-6],on,emoji,color}}, upto 10|12|20}
 - `sets/<id>` lessons {title,type oral|spell,who all|k1|k2,until YYYY-MM-DD,items[{q,a,k?,s?}],off}
