@@ -240,3 +240,10 @@ data DB3 `homeclass/<familyKey>`. Every change: entry in `CHANGELOG-homeclass.md
 a homeclass-core.js change also bumps `?v=` on its <script> tag in both pages. APK builds also raise kidApk / parApk there. Java changes: new APK version
 (source + keystore in davan-scraper widgets/homeclass), HomeClass.apk + homeclass-version.json (apkVersion + ?v=) - it installs itself.
 No login by design (the user: "no login, I want it open"). English only for now; Kannada / Hindi later.
+
+## Google Home = ONE package in every app (user, 01-Nov-2026 - rule)
+"It's all one package - once we add something, add it everywhere, all the time." The 🏠 Google Home voice (Google Cast to a speaker on the
+home Wi-Fi) lives in the staff widget (HomeCast.java + HomeActivity, davan-scraper widgets/staff) AND Gujjar Home Class (Cast.java +
+the kids 🔊 Speaker page + parent ⚙️ → Devices → 🔊). Every new Google Home option or fix (speed, volume, modes, TV words, warm-up,
+re-find by name, error handling ...) goes into BOTH in the same session, same names and same values (Slower 0.85 / Normal 1 /
+Faster 1.2 / Fastest 1.4; Auto / Always Google Home / Phone only). Staff widget still to get: class-style warm-up + volume (from Home Class h7).
