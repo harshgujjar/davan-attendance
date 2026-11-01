@@ -41,6 +41,10 @@ learnt, st3); without the engine (old app / TV / browser) st1 = the old in-order
 
 NEVER use org.vosk.android.SpeechService / StorageService (Java lambdas -> crash on Android with our dx build); VoskMic.java is the mic loop.
 
+## 📚 Practice modes (v30)
+practice(kid, {mode: show|app|answers|test, t}) via runClass(kid, why, opt); parent cmd {do:'test', kid, table}. The Indian-English model
+zip is in davan-scraper widgets/homeclass/libs (not in the app yet - compare on Vihaan's REAL recordings first; synthetic voices: US 98 %, IN 33 %).
+
 ## Data: DB3 (davan-student-news) `homeclass/<familyKey 28 chars>/`
 - `cfg` {kids:{k1,k2:{name,std,from,to,style learn|revise,min,time "HH:MM" IST,days [0-6],on,emoji,color}}, upto 10|12|20}
 - `sets/<id>` lessons {title,type oral|spell,who all|k1|k2,until YYYY-MM-DD,items[{q,a,k?,s?}],off}
