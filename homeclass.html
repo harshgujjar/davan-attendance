@@ -193,6 +193,12 @@ details summary::-webkit-details-marker{display:none}
       </details>
     </div>
     <div class="card">
+      <h3>🩺 Diagnostics</h3>
+      <p class="small mute" style="margin:0 0 10px">What every device (kids phone, TV, parent apps) did today - for finding problems. Kept 14 days.</p>
+      <div class="row"><button class="btn soft sm" id="dgLoad">🩺 Show today's log</button><button class="btn soft sm" id="dgY">Yesterday</button><button class="btn soft sm" id="dgCopy" style="display:none">📋 Copy</button></div>
+      <div id="dgBox" class="prev" style="display:none;margin-top:10px;max-height:420px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap"></div>
+    </div>
+    <div class="card">
       <h3>👨‍👩‍👦 Family</h3>
       <p class="small mute">The other parent: install this page on their phone, tap <b>Join</b> and type a code from <b>➕ Add a device</b>. No login needed - this phone keeps the family key.</p>
       <div class="row"><button class="btn soft sm" id="sChk">⟳ Check for updates</button><button class="btn soft sm" id="sLeave" style="color:var(--bad)">Leave family on this phone</button></div>
@@ -210,11 +216,11 @@ details summary::-webkit-details-marker{display:none}
 </nav>
 <div class="toast" id="toast"></div>
 
-<script src="homeclass-core.js?v=3"></script>
+<script src="homeclass-core.js?v=4"></script>
 <script>
 (function () {
 'use strict';
-var PAR_VER = 5;
+var PAR_VER = 6;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); }, E = C.esc;
 var APK = 'harshgujjar.github.io/davan-attendance/HomeClass.apk';
 var S = { cfg: null, live: {}, today: {}, dev: {}, sets: {}, cmd: null, prog: {}, rKid: null, rDay: null };
@@ -235,6 +241,7 @@ function strip(cfg) { var o = JSON.parse(JSON.stringify(cfg)); Object.keys(o.kid
 
 /* ================= welcome ================= */
 $('wNew').onclick = function () {
+  if (!confirm('Start a NEW Home Class family?\n\nIf Home Class is already set up on another phone, press Cancel and use 🔗 Join with a code instead - otherwise the phones will not see each other.')) return;
   C.setFam(C.newKey(28));
   var cfg = strip(C.DEFAULT_CFG);
   $('wMsg').textContent = 'Setting up…';
@@ -254,18 +261,19 @@ $('wJoin').onclick = function () {
 function mins(sec) { var m = Math.round((sec || 0) / 60); return m + ' min'; }
 function sendCmd(what, kid) {
   var c = { do: what, kid: kid || '', dev: 'any', at: Date.now(), id: C.newKey(8) };
+  C.diag('sent ' + what + ' ' + (kid || '') + ' · devices: ' + Object.keys(S.dev || {}).map(function (id) { var d = S.dev[id]; return (d.name || id) + (devOnline(d) ? ' online' : ' offline ' + C.ago(d.at)) + ' app ' + (d.app || '?'); }).join(', '));
   S.waitCmd = c.id;
   C.put('cmd', c);
   toast(what === 'stop' ? 'Stopping the class…' : what === 'call' ? '📣 Calling…' : '▶ Starting the class…');
   setTimeout(function () {
-    if (S.waitCmd !== c.id) return; S.waitCmd = null;
+    if (S.waitCmd !== c.id) return; S.waitCmd = null; C.diag('cmd ' + c.do + ': no kids device answered in 25 s', 'w');
     var dv = Object.keys(S.dev || {}).map(function (id) { return S.dev[id]; }).filter(function (d) { return d.auto; });
     var old = dv.some(function (d) { return d.app && +String(d.app).replace(/\D/g, '') < 4; });
     toast(old ? '⚠️ The kids phone did not answer. Open Home Class on it once - it updates itself, and then ▶ Start works even with its screen off.'
       : dv.length ? '⚠️ The kids phone did not answer. Check it has internet and Home Class was opened at least once.' : '⚠️ No kids device is set to start classes. On the kids phone: ⚙️ → tick "Starts classes by itself".', 8000);
   }, 25000);
 }
-function onCmd(c) { S.cmd = c; if (c && c.id === S.waitCmd && c.took) { S.waitCmd = null; toast('✅ ' + (c.tookName || 'Kids device') + ' got it'); } }
+function onCmd(c) { S.cmd = c; if (c && c.id === S.waitCmd && c.took) { S.waitCmd = null; C.diag('cmd taken by ' + (c.tookName || c.took) + ' in ' + Math.round((c.tookAt - c.at) / 1000) + ' s'); toast('✅ ' + (c.tookName || 'Kids device') + ' got it'); } }
 function devOnline(d) { return d && Date.now() - (d.at || 0) < 11 * 60000; }
 function drawHome() {
   if (S.page !== 'pHome') return;
@@ -544,6 +552,31 @@ function makeCode() {
   }).catch(function (e) { $('codeBox').innerHTML = '<p class="no small">⚠️ Could not make a code (' + E(e.message) + ').</p>'; });
 }
 $('sChk').onclick = function () { S.U.check(); };
+async function diagShow(day) {
+  var box = $('dgBox'); box.style.display = ''; box.textContent = 'Loading…'; C.diagFlush();
+  var out = ['Home Class log · ' + C.fmtDay(day) + ' (' + day + ') · family …' + C.fam().slice(-4)];
+  try {
+    var devs = Object.keys((await C.get('diag', 'shallow=true')) || {});
+    if (!devs.length) out.push('(no log yet - devices write it from screen v6 / parent v6)');
+    for (var i = 0; i < devs.length; i++) {
+      var r = await Promise.all([C.get('diag/' + devs[i] + '/info'), C.get('diag/' + devs[i] + '/' + day)]);
+      var info = r[0] || {}, lines = Object.keys(r[1] || {}).map(function (k) { return r[1][k]; }).sort(function (a, b) { return a.t - b.t; });
+      var nm = (S.dev[devs[i]] && S.dev[devs[i]].name) || (devs[i] === C.devId() ? 'This phone' : '');
+      out.push('', '■ ' + (info.kind || '?') + ' · ' + (nm || devs[i]) + ' · v' + (info.ver || '?') + (info.app ? ' · app ' + info.app : '') + ' · ' + C.plural(lines.length, 'line'));
+      lines.forEach(function (e) { out.push(new Date(e.t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }) + (e.l === 'e' ? ' ❌ ' : e.l === 'w' ? ' ⚠️ ' : '  ') + e.m); });
+    }
+  } catch (e) { out.push('⚠️ Could not load: ' + e.message); }
+  box.textContent = out.join('\n'); $('dgCopy').style.display = '';
+}
+$('dgLoad').onclick = function () { diagShow(C.day()); };
+$('dgY').onclick = function () { diagShow(C.day(Date.now() - 864e5)); };
+$('dgCopy').onclick = function () {
+  var t = $('dgBox').textContent, b = $('dgCopy');
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { b.textContent = '✅ Copied'; }).catch(function () {
+    var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); b.textContent = '✅ Copied'; } catch (e) {} ta.remove();
+  });
+  setTimeout(function () { b.textContent = '📋 Copy'; }, 2000);
+};
 $('sLeave').onclick = function () { if (confirm('Leave the family on THIS phone? (Data stays; you can join again with a code.)')) { C.setFam(''); location.reload(); } };
 
 window.hcBack = function () {                         /* Android Back: lesson editor -> lessons -> home -> leave the app */
@@ -580,7 +613,7 @@ function boot() {
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('app-sw.js', { scope: './homeclass.html' }).catch(function () {});
 S.U = C.watchUpdate('par', PAR_VER, { bridge: window.HCP, busy: function () { return S.page === 'pEd'; } });
 $('net').onclick = function () { S.U.check(); };
-if (C.fam()) boot(); else page('pWel');
+if (C.fam()) { C.checkMoved(); boot(); C.diagStart('parent', PAR_VER, { app: window.HCP && HCP.verName ? HCP.verName() : 'web' }); C.diagClean(); } else page('pWel');
 })();
 </script>
 </body>

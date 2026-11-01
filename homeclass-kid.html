@@ -237,11 +237,11 @@ body.tv .live-words{color:var(--gold)}
 <div class="confetti" id="conf"></div>
 <div class="toast" id="toast"></div>
 
-<script src="homeclass-core.js?v=3"></script>
+<script src="homeclass-core.js?v=4"></script>
 <script>
 (function () {
 'use strict';
-var KID_VER = 5;
+var KID_VER = 6;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -275,7 +275,7 @@ if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pic
 function rawSay(text) {
   return new Promise(function (res) {
     var id = ++nid, done = false, fin = function () { if (!done) { done = true; res(); } };
-    setTimeout(fin, 2500 + text.length * 110);                                /* never wait for ever */
+    setTimeout(function () { if (!done) C.diag('voice: no "done" from the speaker engine - went on after a wait', 'w'); fin(); }, 2500 + text.length * 110);   /* never wait for ever */
     if (A) { spokeCb[id] = fin; A.speak(text, String(id)); return; }
     if (!window.speechSynthesis) return fin();
     var u = new SpeechSynthesisUtterance(text); if (voice) u.voice = voice; u.lang = 'en-IN'; u.rate = 0.92; u.pitch = 1.08;
@@ -326,7 +326,8 @@ async function hear(opts) {
   if (!keys) {
     $('kOrb').classList.add('l');
     p.push(micListen(opts && opts.ms).then(function (r) {
-      if (r.err && /nomic|not-allowed|service|network|busy|7|9|5/.test(String(r.err)) && r.err !== 'timeout') micBroken++;
+      if (r.err && r.err !== 'silence' && r.err !== 'no-speech') C.diag('mic: ' + r.err, /nomic|not-allowed|audio|network|client/.test(String(r.err)) ? 'w' : '');
+      if (r.err && /nomic|not-allowed|service|network|busy|client|audio/.test(String(r.err)) && r.err !== 'timeout') micBroken++;
       else if (r.alts.length) micBroken = 0;
       return r;
     }));
@@ -738,6 +739,7 @@ async function runClass(kid, why) {
   var lv = S.live[kid.id];
   if (lv && lv.on && lv.dev !== C.devId() && Date.now() - lv.at < 90000) { toast(kid.name + "'s class is on " + (lv.devName || 'another device') + ' now'); return; }
   S.running = true; S.stop = false; S.pause = false; S.endWhy = '';
+  C.diag('class start ' + kid.name + ' (' + (why || '') + ') · ' + kid.style + ' ' + kid.from + '-' + kid.to + ' · ' + (kid.min || 15) + ' min · mic ' + (useKeys() ? 'off (keys)' : 'on'));
   if (A && A.setBusy) A.setBusy(true);
   if (A && A.keepOn) A.keepOn(true);
   var base = null; try { base = await C.get('days/' + C.day() + '/' + kid.id); } catch (e) {}
@@ -769,6 +771,7 @@ async function finish() {
   C.put('live/' + k.id, { on: false, at: Date.now(), dev: C.devId(), devName: S.devName, ended: S.endWhy || 'done', right: SES.right, wrong: SES.wrong, stars: SES.stars, t0: SES.t0 });
   hideFlash();
   var total = SES.right + SES.wrong;
+  C.diag('class end ' + k.name + ' · ' + (S.endWhy || 'done') + ' · right ' + SES.right + ' wrong ' + SES.wrong + ' · ' + Math.round((Date.now() - SES.t0) / 1000) + ' s · mic errors ' + micBroken);
   $('dE').textContent = SES.mastered.length ? '🏆' : (SES.stars >= 10 ? '🌟' : '👏');
   $('dT').textContent = (S.endWhy === 'nobody' ? 'See you soon, ' : 'Well done, ') + k.name + '!';
   $('dS').textContent = total ? (SES.right + ' right the first time out of ' + total + '.' + (SES.mastered.length ? ' New table mastered: ' + SES.mastered.join(', ') + '!' : '')) : 'Class ended.';
@@ -802,6 +805,7 @@ $('kType').onclick = function () { S.forceKeys = !S.forceKeys; $('kType').textCo
 /* ================= class-time call ================= */
 async function callKid(k, why) {
   if (S.running || S.calling) return;
+  C.diag('calling ' + k.name + ' (' + why + ')');
   S.calling = k.id;
   document.body.style.setProperty('--kc', k.color || '#5b4bff');
   $('cAv').textContent = k.emoji || '🙂'; $('cAv').style.background = k.color;
@@ -833,6 +837,7 @@ async function callKid(k, why) {
   if (ready) return runClass(k, why);
   C.put('live/' + k.id, { on: false, at: Date.now(), dev: C.devId(), devName: S.devName, ended: 'missed' });
   C.patch('days/' + C.day() + '/' + k.id, { missed: Date.now() });
+  C.diag(k.name + ' did not come in 10 min - missed');
   if (A && A.keepOn) A.keepOn(false);
   goHome();
 }
@@ -920,8 +925,10 @@ $('wHome').onclick = function () { var id = watchKid(); if (id) S.noWatch = id +
 /* ================= parents' commands + class-time timer ================= */
 function onCmd(c) {
   if (!c || !c.id || C.LS.get('hc_cmd', '') === c.id) return;
-  if (Date.now() - (c.at || 0) > 120000) return;
+  var age = Date.now() - (c.at || 0);
+  if (age > 120000) { if (!c.took) C.diag('cmd ' + c.do + ' ignored: ' + Math.round(age / 1000) + ' s old (phone clock?)'); return; }
   var forMe = c.dev === C.devId() || ((!c.dev || c.dev === 'any') && S.auto);
+  C.diag('cmd ' + c.do + ' ' + (c.kid || '') + ' age ' + Math.round(age / 1000) + ' s · for me ' + forMe + ' · auto ' + S.auto + ' · running ' + S.running + ' · screen ' + (document.hidden ? 'hidden' : 'visible'));
   if (!forMe) return;
   C.LS.set('hc_cmd', c.id);
   C.patch('cmd', { took: C.devId(), tookName: S.devName, tookAt: Date.now() });
@@ -1045,6 +1052,7 @@ window.hcBack = function () {                     /* Android Back / TV remote Ba
 var started = false;
 function start() {
   if (!C.fam()) { show('sPair'); return; }
+  C.checkMoved();
   if (started) return; started = true;
   S.devName = C.LS.get('hc_devname', IS_TV ? 'Google TV' : (A ? 'Kids phone' : 'Browser'));
   S.auto = C.LS.get('hc_auto', !IS_TV);
@@ -1056,7 +1064,8 @@ function start() {
   C.listen('sets', function (v) { S.sets = v || {}; C.LS.set('hc_sets', S.sets); if (S.screen === 'sHome') drawHome(); }, 60);
   C.listen('live', function (v) { S.live = v || {}; drawWatch(); });
   C.listen('cmd', onCmd);
-  loadProgAll(); heartbeat(); alarms(); cleanup(); famToApp();
+  loadProgAll(); heartbeat(); alarms(); cleanup(); famToApp(); C.diagClean();
+  C.diagStart(IS_TV ? 'tv' : (A ? 'kids phone' : 'kids web'), KID_VER, { app: A && A.verName ? A.verName() : '', dev: S.devName, auto: S.auto, mic: canMic, tv: IS_TV });
   setInterval(timer, 20000); setTimeout(timer, 3000);
   setInterval(heartbeat, 5 * 60000);
   setInterval(function () { if (S.screen === 'sHome') drawHome(); drawWatch(); }, 60000);
@@ -1064,7 +1073,8 @@ function start() {
   if (A && A.ready) A.ready();
   S.U = C.watchUpdate('kid', KID_VER, { bridge: A, busy: function () { return S.running || !!S.calling; } });
 }
-window.hcWake = function () { timer(); };          /* the Android alarm opened the app at class time */
+window.hcWake = function () { timer(); };
+window.hcLog = function (m) { C.diag('📱 ' + m); };         /* lines from the Android app */          /* the Android alarm opened the app at class time */
 start();
 })();
 </script>

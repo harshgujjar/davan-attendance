@@ -74,10 +74,11 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   settings + weekly graph. Release: copy APK to ClaudePulse.apk + raise apkVersion in claude-pulse-version.json. Keystore password: ask the user.
   v3.1 (22-Oct, IST everywhere, sound at fresh start; signed + LIVE, apkVersion 18; signing password: see davan-scraper claude-pulse/DAVAN-NOTES.md "SIGNING" line - never ask the user): LimitAlert.kt - countdown in bar when a limit is 100%, repeating chime when used up, exact-alarm buzz at reset.
 - **Meter Tracker widget** (meter.html's Electricity / Water / Chetak widget): w26 live 01-Nov (source davan-scraper widgets/meter, key meter.jks, no "next" channel - DavanMeterWidget.apk + meter-widget-version.json, installs itself). w26: no red pop-up any more - the Smart advice shows on the Start charging form and the button always starts (w25 tried a fix inside the box; user still blocked). Start charging from the red Smart advice ("Charge anyway" / "only to N%") always starts; a failure shows the reason with 📋 Copy. If the user still can't start, ask them to tap 📋 Copy and paste it.
-- **Gujjar Home Class** (kids' voice classes, 01-Nov-2026) - read HOMECLASS.md. Kids app h4 (HomeClass.apk, Listen service for parent Start, self-updating; source + key
-  davan-scraper widgets/homeclass), kids screen homeclass-kid.html v5 (table board, live words, auto-update via homeclass-ver.json), parent app homeclass.html v5 (also APK HomeClassParents.apk p2, source widgets/homeclass-parent),
+- **Gujjar Home Class** (kids' voice classes, 01-Nov-2026) - read HOMECLASS.md. Kids app h5 (HomeClass.apk, Listen service for parent Start, NLog; self-updating; source + key
+  davan-scraper widgets/homeclass), kids screen homeclass-kid.html v6 (table board, live words, auto-update via homeclass-ver.json), parent app homeclass.html v6 (also APK HomeClassParents.apk p2, source widgets/homeclass-parent),
   data DB3 homeclass/<familyKey> - DB3 rules job run 01-Nov (davan-student-news "DB3 rules - Home Class"), checked working.
-  Not tested on a real phone / TV / Google Home yet (headless browser with a fake DB + fake voice only).
+  LOGS: homeclass/<fam>/diag (HOMECLASS.md "Logs") - read them before asking the user. Families: main dKGA…SJZR? (phone "Vihaan Gujjar");
+  bMSA… (TV) and sDsd… (empty) have moved = main key (01-Nov). User tested on real phones 01-Nov (pairing + Start issues fixed).
 - Status Date app: PARKED (davan-scraper apps/statusdate/PLAN.md) - only when the user asks.
 
 ## ✅ BUILT 22-Oct-2026 (user: "go build all of it"): staff app v1938 / portal v11.94 / student widget 279 / staff w335 - on the "-next" channel (public 9:15 pm)

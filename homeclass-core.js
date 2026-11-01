@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 3;
+  C.VER = 4;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -42,7 +42,7 @@
     if (!C.fam()) return Promise.resolve(null);
     if (m === 'POST') { m = 'PUT'; p = p + '/' + pushId(); }   /* own ids so a queued write is never doubled */
     if (Q.length || !navigator.onLine) { Q.push([m, C.fam(), p, v]); qsave(); C.flush(); return Promise.resolve(null); }
-    return send(m, p, v).catch(function () { Q.push([m, C.fam(), p, v]); qsave(); return null; });
+    return send(m, p, v).catch(function (e) { C.diag('write ' + p.split('/')[0] + ' failed: ' + e.message + ' - queued', 'w'); Q.push([m, C.fam(), p, v]); qsave(); return null; });
   };
   C.put = function (p, v) { return C.write('PUT', p, v); };
   C.patch = function (p, v) { return C.write('PATCH', p, v); };
@@ -96,7 +96,8 @@
       es.addEventListener('patch', ev(true));
       es.addEventListener('cancel', function () { es.close(); later(); });
       es.addEventListener('auth_revoked', function () { es.close(); later(); });
-      es.onerror = function () { if (es.readyState === 2) later(); };
+      es.onerror = function () { if (es.readyState === 2) { C.diag('live ' + p + ' closed - retry'); later(); } };
+      es.onopen = function () { if (retry) C.diag('live ' + p + ' back'); };
     }
     function later() { if (dead) return; retry = Math.min(retry + 1, 6); setTimeout(open, 2000 * retry); }
     open();
@@ -297,6 +298,69 @@
   C.typeName = function (t) { return t === 'spell' ? 'Spelling' : 'Oral questions'; };
   C.esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
 
+  /* ---------- diagnostics log (user, 01-Nov-2026: "read the log from the TV, child and parent apps so you can decide the problem") ----------
+     Every app writes short lines to DB3 homeclass/<fam>/diag/<deviceId>/<YYYY-MM-DD>/<id> {t, m, l?} (+ diag/<dev>/info), in batches
+     every 15 s (errors at once), max 800 lines per device per day; the Android app adds its own lines (HCA.takeLog). Read them in the
+     parent app (Settings -> 🩺 Diagnostics, 📋 Copy) or with the davan-student-news "DB3 peek" job. Kept 14 days (C.diagClean). */
+  var DQ = [], dTimer = null;
+  C.diagInfo = {};
+  C.diag = function (msg, lvl) {
+    var e = { t: Date.now(), m: String(msg).slice(0, 500) }; if (lvl) e.l = lvl;
+    var ring = LS.get('hc_diag', []); ring.push(e); if (ring.length > 200) ring = ring.slice(-200); LS.set('hc_diag', ring);
+    var cnt = LS.get('hc_diagn', {}); if (cnt.d !== C.day()) cnt = { d: C.day(), n: 0 };
+    if (cnt.n >= 800 && lvl !== 'e') return;
+    cnt.n++; LS.set('hc_diagn', cnt);
+    DQ.push(e);
+    if (!dTimer) dTimer = setTimeout(C.diagFlush, lvl === 'e' ? 1500 : 15000);
+  };
+  C.diagFlush = function () {
+    dTimer = null;
+    if (window.HCA && window.HCA.takeLog) { try { JSON.parse(window.HCA.takeLog() || '[]').forEach(function (e) { e.m = '📱 ' + e.m; DQ.push(e); }); } catch (x) {} }
+    if (!DQ.length || !C.fam() || !navigator.onLine) { if (DQ.length) dTimer = setTimeout(C.diagFlush, 30000); return; }
+    var batch = {}, part = DQ.splice(0, 80);
+    part.forEach(function (e) { batch[pushId()] = e; });
+    fetch(C.DB + 'homeclass/' + C.fam() + '/diag/' + C.devId() + '/' + C.day() + '.json', { method: 'PATCH', body: JSON.stringify(batch) })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); }).catch(function () { DQ = part.concat(DQ); dTimer = setTimeout(C.diagFlush, 60000); });
+    if (DQ.length && !dTimer) dTimer = setTimeout(C.diagFlush, 4000);
+  };
+  C.diagStart = function (kind, ver, extra) {
+    C.diagInfo = { kind: kind, ver: ver, ua: navigator.userAgent.slice(0, 160), at: Date.now() };
+    for (var x in extra || {}) C.diagInfo[x] = extra[x];
+    C.diag('▶ open ' + kind + ' v' + ver + ' core v' + C.VER + ' · ' + JSON.stringify(extra || {}) + ' · online ' + navigator.onLine + ' · queued ' + Q.length);
+    if (C.fam()) fetch(C.DB + 'homeclass/' + C.fam() + '/diag/' + C.devId() + '/info.json', { method: 'PUT', body: JSON.stringify(C.diagInfo) }).catch(function () {});
+    window.addEventListener('error', function (e) { C.diag('JS error: ' + e.message + ' @' + String(e.filename || '').split('/').pop() + ':' + e.lineno, 'e'); });
+    window.addEventListener('unhandledrejection', function (e) { C.diag('Promise error: ' + ((e.reason && e.reason.message) || e.reason), 'e'); });
+    window.addEventListener('online', function () { C.diag('network: online'); });
+    window.addEventListener('offline', function () { C.diag('network: OFFLINE'); });
+    document.addEventListener('visibilitychange', function () { C.diag(document.hidden ? 'screen: hidden (app in background / screen off)' : 'screen: visible'); if (document.hidden) C.diagFlush(); });
+    setInterval(function () { if (DQ.length) C.diagFlush(); }, 60000);
+  };
+  /* family moved (user had made 3 families by tapping "Start" on several phones, 01-Nov-2026): homeclass/<old>/moved = <new key>
+     -> this device switches to the new family by itself and reloads. Returns true when it is switching. */
+  C.checkMoved = function () {
+    if (!C.fam()) return Promise.resolve(false);
+    return C.get('moved').then(function (to) {
+      if (typeof to === 'string' && to.length >= 24 && to !== C.fam()) {
+        C.diag('family moved -> …' + to.slice(-4)); C.setFam(to); LS.del('hc_cfg'); LS.del('hc_sets');
+        setTimeout(function () { location.reload(); }, 300); return true;
+      }
+      return false;
+    }).catch(function () { return false; });
+  };
+  C.diagClean = function () {
+    var d = C.day(); if (LS.get('hc_diagclean', '') === d) return; LS.set('hc_diagclean', d);
+    var cut = C.day(Date.now() - 14 * 864e5);
+    C.get('diag', 'shallow=true').then(function (devs) {
+      Object.keys(devs || {}).forEach(function (dv) {
+        C.get('diag/' + dv, 'shallow=true').then(function (days) {
+          var keys = Object.keys(days || {}).filter(function (k) { return k !== 'info'; });
+          keys.forEach(function (k) { if (k < cut) C.del('diag/' + dv + '/' + k); });
+          if (keys.length && !keys.some(function (k) { return k >= cut; })) C.del('diag/' + dv);
+        }).catch(function () {});
+      });
+    }).catch(function () {});
+  };
+
   /* ---------- auto-update (user, 01-Nov-2026: "as soon as you update, it should update by itself and show what is updating") ----------
      homeclass-ver.json on GitHub Pages {kid, par, kidApk, parApk, news:[{k:'kid'|'par'|'all', v, at, t}]} is checked every 60 s and when
      the app comes back to the screen. Newer page -> card "🆕 Updating…" with what changed -> reload (?v=new so no cache serves the old copy).
@@ -355,14 +419,15 @@
       fetch(VER_URL + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
         var apkKey = kind + 'Apk';
         if (bridge && bridge.ver && bridge.checkUpdate && v[apkKey] > bridge.ver() && Date.now() - apkAsked > 10 * 60000 && !(opt.busy && opt.busy())) {
-          apkAsked = Date.now(); bridge.checkUpdate();
+          apkAsked = Date.now(); bridge.checkUpdate(); C.diag('update: app ' + bridge.ver() + ' -> ' + v[apkKey]);
           upCard('<b>📦 New app version found (' + C.esc(v[apkKey + 'Name'] || ('#' + v[apkKey])) + ')</b><br>Downloading… it installs by itself.', 8000);
         }
-        if (v[kind] > myVer) go(v);
+        if (v[kind] > myVer) { C.diag('update: page v' + myVer + ' -> v' + v[kind]); go(v); }
         else if (force) upCard('<b>✅ Up to date</b> · v' + myVer, 3000);
       }).catch(function () { if (force) upCard('⚠️ Could not check for updates (offline?)', 4000); });
     }
     window.hcUpd = function (st, info) {        /* from the Android app while it installs a new APK */
+      C.diag('app update: ' + st + ' ' + (info || ''), st === 'failed' ? 'e' : '');
       var t = { downloading: '📥 Downloading the app update…', installing: '📦 Installing the app update… the app will restart by itself',
         tap: '👆 Android asks for one tap to allow the update (only the first time)',
         ready: kind === 'kid' ? '✅ App update downloaded - it installs after the class' : '✅ App update downloaded - it installs by itself when you leave the app', done: '✅ App updated', failed: '⚠️ App update failed - will try again later' }[st] || st;

@@ -23,6 +23,11 @@ HomeClass.apk, bump apkVersion + ?v= in homeclass-version.json. Keep the source 
 show "🆕 Updating" + news, reload with ?v=. APK: page calls bridge.checkUpdate() when kidApk / parApk is newer; Upd tells each step to
 window.hcUpd. Parent APK: homeclass-parent-version.json; kids APK: homeclass-version.json (both still checked every 6 h too).
 
+## Logs (01-Nov-2026) - read these FIRST for any problem
+DB3 homeclass/<fam>/diag/<deviceId>/<YYYY-MM-DD>/<id> {t, m, l e|w} + diag/<dev>/info {kind, ver, app}. Find the family keys with the
+davan-student-news "DB3 peek" job (paths `homeclass?shallow`), then read with curl `<DB3>/homeclass/<key>/diag.json` (the key opens it)
+or peek `homeclass/<key>/diag/<dev>/<day>`. The user's main family (01-Nov) = the one with dev "Vihaan Gujjar" (key ends …SJZR? check dev).
+
 ## Data: DB3 (davan-student-news) `homeclass/<familyKey 28 chars>/`
 - `cfg` {kids:{k1,k2:{name,std,from,to,style learn|revise,min,time "HH:MM" IST,days [0-6],on,emoji,color}}, upto 10|12|20}
 - `sets/<id>` lessons {title,type oral|spell,who all|k1|k2,until YYYY-MM-DD,items[{q,a,k?,s?}],off}
