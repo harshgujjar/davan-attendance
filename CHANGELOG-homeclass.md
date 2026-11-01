@@ -1,5 +1,14 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v30 · parent v23 · core v18: 📚 PRACTISE A TABLE 4 WAYS (user: "just show the table, he practises alone, then I test
+  him without seeing"): kids home → "📚 <name> · practise a table" → pick the table → 📖 just show (nothing listens, "I'm ready - test me"),
+  🗣️ say it with the app, 👀 with answers shown, 🙈 test without seeing; ▶ Start saying / ■ Done on the big button. Passing the test =
+  learnt ⭐. Parent Home → 🙈 Test a table → pick it → the kids phone starts the test (cmd do:test, table). Hearing: only the tested
+  table's words (+ usual wrong answers) are listened for; "starting again" is understood. Indian-English model downloaded (davan-scraper
+  workflow "Vosk model") and compared: 33 % vs American 98 % on synthetic voices (unfair - it is trained on real Indian voices); American
+  stays (proven 10/10 on Vihaan's real recitation, log 21:05) until a comparison on his real voice. Functions: practice, reciteTable (modes),
+  waitStart, openTab, openShow, C.grammar (one table), C.checkRecite (restart), parent drawHome (testpick) / sendCmd (extra).
+
 - 01-Nov-2026 · kids app h21: ROOT CAUSE of the crashes found by h19's crash report (log 20:54): "NoSuchMethodError LambdaMetafactory at
   org.vosk.android.SpeechService$RecognizerThread.run" - Vosk's ready-made microphone helper uses Java lambdas that our no-Gradle (dx)
   build leaves unconverted. VoskMic.java replaces it (AudioRecord loop, same callbacks, plain Java); build.sh refuses lambdas in our classes.

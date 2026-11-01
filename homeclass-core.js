@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 17;
+  C.VER = 18;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -306,6 +306,8 @@
   /* check a recitation of table t (1 .. up): {ok, wrong:[{b, said}], missing:[b], done:[b...], order} */
   C.checkRecite = function (text, t, up) {
     var facts = C.parseRecite(text, t, up), seen = {}, wrong = [], done = [];
+    /* he started again from the first line ("one one ja one ..." after a few lines): judge only the last full go (user log 01-Nov 21:04) */
+    for (var i = facts.length - 1; i > 0; i--) if (facts[i].b === 1 && facts[i - 1].b >= 2) { facts = facts.slice(i); break; }
     facts.forEach(function (f) {
       if (f.b < 1 || f.b > up) return;
       var right = f.said === t * f.b;
@@ -331,6 +333,11 @@
   /* the words the offline engine may hear: numbers up to 999 by parts + the ways children join a line; phrases of one table help it follow fast speech */
   C.grammar = function (t, up) {
     var g = 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred'.split(' ');
+    if (t) {   /* testing one table: only its words - fewer look-alikes (four / forty, two / into) - plus the usual wrong answers */
+      var nums = {}, add = function (n) { if (n >= 0 && n <= 999) C.numWord(n).split(' ').forEach(function (w) { nums[w] = 1; }); };
+      add(t); for (var b = 1; b <= up; b++) { add(b); add(t * b); add(t * b + t); add(t * b - t); add(t * b + 1); add(t * b - 1); add(t * b + 10); add(t * b - 10); }
+      g = Object.keys(nums);
+    }
     g = g.concat(['ja', 'za', 'into', 'times', 'is', 'equals', 'ready', 'yes', 'stop']);
     if (t) for (var b = 1; b <= up; b++) { g.push(C.numWord(t) + ' ' + C.numWord(b) + ' ja ' + C.numWord(t * b)); g.push(C.numWord(t) + ' ' + C.numWord(b) + ' into ' + C.numWord(t * b)); }
     g.push('[unk]');
