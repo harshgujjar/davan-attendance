@@ -38,5 +38,7 @@ Wrong answer: "Not quite. 7 times 8 is 56. Say it with me" -> child repeats -> t
 Answer = LAST number said ("7 into 8 is 56" -> 56; number words too). Silence: "Take your time" -> after 3: "Are you there?"
 (waits 5 min). Lessons after the tables (60% of the time is tables when there are lessons; lessons always finish, max +10 min).
 Oral: parent's key words after | must all be said, else 70% of the answer's main words. Spelling: letters one by one.
+Table board (v2): live/<kid>.board = {k t|o|s, title, rows [[a,b,state 0-4,shown]], cur | keys, res, a | w, got} + live.p (words
+while speaking, from h2 partial results); boardHTML draws it on the phone (kBoard) and the TV (wBoard, 2 columns).
 TV: no microphone (Google TV remotes send voice only to Google) -> answers with the on-screen number keys; also shows a class
 running on the phone big and live. Phone: ⌨️ Type is a fallback; after 3 mic failures it switches to typing by itself.
