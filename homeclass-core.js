@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 5;
+  C.VER = 6;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -438,10 +438,11 @@
     }
     window.hcUpd = function (st, info) {        /* from the Android app while it installs a new APK */
       C.diag('app update: ' + st + ' ' + (info || ''), st === 'failed' ? 'e' : '');
-      var t = { downloading: '📥 Downloading the app update…', installing: '📦 Installing the app update… the app will restart by itself',
+      var t = { downloading: '📥 Downloading the app update…', installing: '📦 Installing the app update now… the app restarts by itself in a few seconds',
+        'installing-tap': '📦 Installing the app update now… the app closes for a moment - tap the "✅ updated" notification (or the app icon) to open it again',
         tap: '👆 Android asks for one tap to allow the update (only the first time)',
-        ready: kind === 'kid' ? '✅ App update downloaded - it installs after the class' : '✅ App update downloaded - it installs by itself when you leave the app', done: '✅ App updated', failed: '⚠️ App update failed - will try again later' }[st] || st;
-      upCard('<b>' + t + '</b>' + (info ? '<div style="opacity:.7;font-size:13px">' + C.esc(info) + '</div>' : ''), st === 'installing' ? 0 : 9000);
+        ready: '✅ App update downloaded - it installs as soon as this class ends', done: '✅ App updated', failed: '⚠️ App update failed - will try again later' }[st] || st;
+      upCard('<b>' + t + '</b>' + (info ? '<div style="opacity:.7;font-size:13px">' + C.esc(info) + '</div>' : ''), /^installing/.test(st) ? 0 : 9000);
     };
     setInterval(function () { if (pending && !(opt.busy && opt.busy())) go(pending); else check(false); }, 60000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) check(false); });
