@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v16 · kids app h10: (1) SHORT ANSWERS (user's photo: "eight" shown live, then "Are you there, Vihaan?"): Google
+  showed the words but sent no final result; the page (hear / onPartial) and h10 (onError no-match -> last partial) now use the live
+  words; the 3 s minimum listening length is removed. (2) GOOGLE HOME (log 18:10, Home Mini: "the speaker did not open its player",
+  ~15 s wait per sentence): Cast.say falls back to the staff widget's one-shot way (sayOnce) and keeps it if it works; if both fail the
+  phone speaks at once for 2 min (downUntil); launch wait 10 s; the speaker's replies go to the 🩺 log. Functions: hear, onPartial, Cast.say / sayOnce / recvSync.
+
 - 01-Nov-2026 · kids v15: TV live view gets ⏹ Stop class (cmd stop to the device that runs it) - user: "I cancelled but it is still
   running" (TV 🏠 only hid the view; the class ran on the phone). ▶ on the TV no longer starts twice (live check + 15 s guard).
   Log also showed the TV still on app h5: its self-update stops at Android's install window (Home Class not allowed to install apps). Functions: wStop, startOnPhone.
