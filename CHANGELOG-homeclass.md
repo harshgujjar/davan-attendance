@@ -1,5 +1,12 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v33 · parent v25 · core v20 · app h23: tested on Vihaan's 3 real recordings (h22): table 1 ×2 PERFECT; table 2
+  "two six two twelve" (fast za heard as "two") now right, "two ten into ten" (fast twenty) = asked again, not wrong; an out-of-order
+  line whose answer is the next line's counts as that line. Word-by-word listening was tested and was much WORSE on his voice - kept the
+  phrase list. Lines the app missed / was unsure of are asked one by one; all right = table counts (a wrong answer still = whole table
+  again). h23: speech model downloaded once on Wi-Fi (homeclass-model-en-us-0.15.zip; link / sha in homeclass-version.json), APK 47 ->
+  6 MB, app updates on Wi-Fi only. Functions: C.parseRecite, C.checkRecite (fz), reciteTable, hcUpd (mprogress / model / wifi).
+
 - 01-Nov-2026 · kids app h22: fast recitation lost lines as [unk] (log 21:58) - user: "first save the live recording on the phone, use it,
   then test it". Every recite's sound is saved on the phone (newest 10) and sent to DB3 homeclass/<fam>/rec/<t> (what was heard) +
   recdata/<t> (WAV, ~0.85 MB per 20 s; newest 30 kept, older deleted by the app). Used to test the engine on Vihaan's real voice

@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 19;
+  C.VER = 20;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -284,7 +284,7 @@
   C.parseRecite = function (text, t, up) {
     var words = String(text || '').toLowerCase().replace(/\[unk\]/g, ' unk ').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean), at = [];
     words.forEach(function (w) {
-      if (SEP.test(w)) at.push({ sep: true }); else if (w === 'unk') at.push({ unk: true });
+      if (SEP.test(w)) at.push({ sep: true, w: w }); else if (w === 'unk') at.push({ unk: true });
       else if (/^\d+$/.test(w)) at.push({ v: +w, d: true }); else if (w === 'hundred') at.push({ v: 100, h: true }); else if (w in ATOM) at.push({ v: ATOM[w] });
     });
     var lineAt = function (i, b) {            /* does "t b" (b = the given line, or any line when b = 0) start at i? */
@@ -300,12 +300,23 @@
       var b = bHit.v, k = skipSep(at, bHit.j), hadUnk = false;
       for (var z = bHit.j; z < k; z++) if (at[z].unk) hadUnk = true;
       var best = null;
-      readNums(at, k).forEach(function (c) {
-        var nxt = lineAt(c.j, b + 1), any = nxt || lineAt(c.j, 0), end = skipSep(at, c.j) >= at.length;
-        var sc = (c.v === t * b ? 2 : 0) + (nxt ? 4 : any ? 2 : end ? 3 : 0) + (c.j - k) * 0.1;
-        if (!best || sc > best.sc) best = { v: c.v, j: c.j, sc: sc };
-      });
-      if (best && (best.sc >= 2 || !lineAt(k, 0))) { out.push({ b: b, said: best.v }); i = best.j; }
+      var cand = function (from, pen) {
+        readNums(at, from).forEach(function (c) {
+          var nxt = lineAt(c.j, b + 1), any = nxt || lineAt(c.j, 0), end = skipSep(at, c.j) >= at.length;
+          var sc = (c.v === t * b ? 2 : 0) + (nxt ? 4 : any ? 2 : end ? 3 : 0) + (c.j - k) * 0.1 - pen;
+          if (!best || sc > best.sc) best = { v: c.v, j: c.j, sc: sc };
+        });
+      };
+      cand(k, 0);
+      /* v33 (Vihaan's real recording 01-Nov 22:34: "two six two twelve"): a fast "za" is often heard as "two" / "to" - try the answer
+         after one such word too */
+      if (k < at.length && !at[k].sep && !at[k].unk && (at[k].v === 2 || at[k].v === t)) cand(skipSep(at, k + 1), 0.5);
+      if (best && (best.sc >= 2 || !lineAt(k, 0))) {
+        /* "twenty" said fast is heard as "into ten" / "into four" (22:35 "two ten into ten"): not wrong - ask that line again */
+        var fz = best.v !== t * b && k > 0 && at[k - 1].sep && at[k - 1].w === 'into' && t * b >= 20 && t * b < 30 && (best.v === 10 ? t * b === 20 : best.v === t * b - 20);
+        /* out of order + the answer is the NEXT line's (heard "one two into seven" where he said "one seven za seven"): the line number was misheard */
+        if (b !== prevB + 1 && prevB + 1 <= up && best.v !== t * b && best.v === t * (prevB + 1)) b = prevB + 1;
+        out.push(fz ? { b: b, said: best.v, fz: true } : { b: b, said: best.v }); i = best.j; }
       else { out.push({ b: b, said: null, unk: hadUnk }); i = k; }
       prevB = b;
     }
@@ -329,7 +340,8 @@
     var noAns = facts.filter(function (f) { return f.said === null && !seen[f.b]; }).map(function (f) { return f.b; });
     /* fifteen / fifty, thirteen / thirty ... : the engine can mix them up - ask him to say that line again instead of "wrong" */
     var mix = function (x, y) { for (var d = 3; d <= 9; d++) if ((x === 10 + d && y === 10 * d) || (y === 10 + d && x === 10 * d)) return true; return false; };
-    var unsure = wrong.filter(function (w) { return mix(w.said, t * w.b); }), sure = wrong.filter(function (w) { return !mix(w.said, t * w.b); });
+    var fzB = {}; facts.forEach(function (f) { if (f.fz) fzB[f.b] = 1; });
+    var unsure = wrong.filter(function (w) { return mix(w.said, t * w.b) || fzB[w.b]; }), sure = wrong.filter(function (w) { return !mix(w.said, t * w.b) && !fzB[w.b]; });
     return { ok: !wrong.length && !missing.length && !noAns.length, wrong: sure, unsure: unsure, missing: missing, unclear: noAns, done: done, facts: facts };
   };
   C.numWord = function (n) {
@@ -610,8 +622,19 @@
     }
     /* the app's update, step by step, on the screen (user, 01-Nov-2026: "show what is happening - downloading, installing ...") */
     window.hcUpd = function (st, info) {
-      if (st !== 'progress') C.diag('app update: ' + st + ' ' + (info || ''), st === 'failed' ? 'e' : '');
+      if (st !== 'progress' && st !== 'mprogress') C.diag('app update: ' + st + ' ' + (info || ''), st === 'failed' ? 'e' : '');
       var bar = function (pct) { return '<div style="height:8px;background:rgba(255,255,255,.2);border-radius:9px;margin-top:10px;overflow:hidden"><i style="display:block;height:100%;width:' + Math.max(3, pct) + '%;background:#ffb703;transition:width .6s"></i></div>'; };
+      /* h23: the speech model (41 MB) downloads once on Wi-Fi - same card */
+      if (st === 'mprogress') {
+        var q = String(info || '').split('|');
+        upCard('<b>🧠 Getting the listening (once)' + (+q[0] >= 0 ? ' · ' + q[0] + '%' : '') + '</b><div style="opacity:.75;font-size:13px">' + q[1] + (+q[2] ? ' of ' + q[2] : '') + ' MB · Google listens until it is ready</div>' + bar(+q[0] >= 0 ? +q[0] : 30), 0);
+        return;
+      }
+      if (st === 'model') {
+        var mt = { ready: '✅ Offline listening ready', wifi: '📶 The listening (41 MB, once) downloads when the phone is on Wi-Fi - Google listens until then', stopped: '⚠️ Listening download stopped - it continues by itself in 10 min', unpacking: '🧠 Unpacking the listening…' }[info];
+        if (mt) upCard('<b>' + mt + '</b>', info === 'unpacking' ? 0 : 8000);
+        return;
+      }
       if (st === 'progress') {
         var p = String(info || '').split('|'), pct = +p[0], mb = +p[1], tot = +p[2], nm = p[3] || '';
         upCard('<b>📥 Downloading app ' + C.esc(nm) + (pct >= 0 ? ' · ' + pct + '%' : '') + '</b><div style="opacity:.75;font-size:13px">' + mb + (tot ? ' of ' + tot : '') + ' MB · keep the app open</div>' + bar(pct >= 0 ? pct : 30), 0);
@@ -623,7 +646,7 @@
         'installing-tap': '📦 Installing the app update now… the app closes for a moment - tap the "✅ updated" notification (or the app icon) to open it again',
         tap: '👆 Android shows an "Update this app?" window - press UPDATE / INSTALL (only this first time). No window? Pull down the notifications → "Tap to install"',
         ready: (opt.busy && opt.busy()) ? '✅ App update downloaded - it installs as soon as this class ends' : '✅ App update downloaded - press the phone / TV HOME button once: it installs then',
-        done: '✅ App updated', failed: '⚠️ App update: ' + (info || 'failed') + '' }[st] || st;
+        done: '✅ App updated', wifi: '📶 App update ' + (info || '') + ' waits for Wi-Fi (no mobile data used)', failed: '⚠️ App update: ' + (info || 'failed') + '' }[st] || st;
       var stay = st === 'downloading' || st === 'checking' || /^installing/.test(st);
       upCard('<b>' + C.esc(t).replace(/&quot;/g, '"') + '</b>' + (st === 'downloading' ? bar(2) : '') + '<div style="opacity:.6;font-size:12px;margin-top:6px">Tap to close</div>', stay ? 0 : 15000);
     };
