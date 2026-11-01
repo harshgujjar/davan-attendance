@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 13;
+  C.VER = 14;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -236,6 +236,10 @@
     if (junk >= 2 && junk > w.length / 2 && nums.indexOf(ans) < 0) return { n: null, ok: false, junk: true };
     var last = nums[nums.length - 1];
     if (last === ans) return { n: ans, ok: true };
+    /* only the question's own numbers ("7 * 4 =", "4 7 ja ...") = the child is still saying the question, not an answer -> listen on
+       (log 01-Nov 19:50: " 7 * 4 =" was marked wrong as 4) */
+    if (nums.length <= 3 && nums.every(function (x) { return x === a || x === b; }) && String(text || '').replace(/\d/g, '').length < 40
+        && !/\b(\d+)\s*$/.test(String(text).replace(/[=\s]+$/, '') + ' x') ) return { n: null, ok: false, question: true };
     var digits = nums.join(''), pre = [String(a) + String(b), String(b) + String(a)];
     for (var i = 0; i < pre.length; i++) if (digits.length > pre[i].length && digits.indexOf(pre[i]) === 0 && digits.slice(pre[i].length) === String(ans)) return { n: ans, ok: true };
     return { n: last, ok: false };

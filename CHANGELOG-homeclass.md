@@ -1,5 +1,12 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v26 · parent v19 · core v14: 🎤 THUMB BUTTON (user's photo: the hold button vanished after "I did not hear it" and
+  came back seconds later; "put it down right for the thumb"; "not super active"). Log 19:50-19:52: " 7 * 4 =" marked ✗ 4; a 0.4 s TAP
+  heard nothing. Now one big button fixed at the bottom right for the whole class: HOLD = listen while held, check on release; TAP = listen
+  hands-free until he stops; pressing while the app talks stops the voice and listens (barge-in); an early answer is kept for that
+  question (S.curQ). Hearing only the question's numbers = listen on, never wrong (C.tableOne). Tested: hold / tap / barge-in 3/3.
+  Functions: hbDown / hbUp / hbListen / hbDeliver / holdListen, rawSay, C.tableOne.
+
 - 01-Nov-2026 · kids v25 · kids app h15: ✋ HOLD TO ANSWER (user: "can't it hear only me?" - log 19:20: other voices "Rekha", "for
   example", and a few seconds' wait for silence). The child holds a big button while answering; only that is listened to, and letting go
   checks at once (h15 listenHold / endListen = stopListening). Live words show while holding; an early stop while still holding listens
