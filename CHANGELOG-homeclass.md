@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v17 · parent v14 · kids app h11: user "no option to cancel Google and use only the phone" - the button is now
+  "📱 Phone only (Google Home off)" with a line saying what it does (kids 🔊 page + parent 🔊 panel). Log 18:17: the Home Mini connected
+  (284 ms) but never played Google's web voice ("no answer from the speaker"); h11 sends the phone's own voice as a WAV file first
+  (web voice as backup) and gives up after 6 s (phone speaks at once); the speaker's media replies go to the log. Functions: Cast.say / play, spkLine, spkText.
+
 - 01-Nov-2026 · kids v16 · kids app h10: (1) SHORT ANSWERS (user's photo: "eight" shown live, then "Are you there, Vihaan?"): Google
   showed the words but sent no final result; the page (hear / onPartial) and h10 (onError no-match -> last partial) now use the live
   words; the 3 s minimum listening length is removed. (2) GOOGLE HOME (log 18:10, Home Mini: "the speaker did not open its player",
