@@ -1,5 +1,12 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v31 · parent v24 · core v19: "it does not go with my speed" - log 21:46: fast speech drops "ja/za" ("one six six, one
+  seven seven"), and the checker needed the separator, so those lines counted as not said. C.parseRecite now follows the pattern table ·
+  line · answer with or without ja / za / into (the answer ends where the next "table · next line" starts); the LATEST version of a line
+  counts (he goes back); the engine word list also has the no-ja forms. Checked: the real 21:46 recording, fast synthetic tables with
+  and without ja through the real engine (mistake 5×7=30 caught every time). cfg.upto set to 10 (user: "1×1 to 1×10"; was 12).
+  Functions: C.parseRecite, readNums, C.checkRecite, C.grammar.
+
 - 01-Nov-2026 · kids v30 · parent v23 · core v18: 📚 PRACTISE A TABLE 4 WAYS (user: "just show the table, he practises alone, then I test
   him without seeing"): kids home → "📚 <name> · practise a table" → pick the table → 📖 just show (nothing listens, "I'm ready - test me"),
   🗣️ say it with the app, 👀 with answers shown, 🙈 test without seeing; ▶ Start saying / ■ Done on the big button. Passing the test =

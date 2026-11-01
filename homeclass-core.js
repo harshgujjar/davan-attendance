@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 18;
+  C.VER = 19;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -269,45 +269,54 @@
     }
     return cur;
   }
-  /* split atoms into [answer..., table, line]: returns {ans, b} candidates */
-  C.parseRecite = function (text, t, up) {
-    var words = String(text || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
-    var segs = [[]];
-    words.forEach(function (w) { if (SEP.test(w)) segs.push([]); else segs[segs.length - 1].push(w); });
-    if (segs.length < 2) return [];
-    var A = segs.map(atomsOf), out = [], prevB = 0;
-    for (var s = 0; s < A.length - 1; s++) {
-      var S = A[s], best = null;
-      /* the prefix (end of this segment) = [t, b] or just [b]; the start = previous line's answer */
-      for (var k = 0; k <= S.length; k++) {
-        var head = S.slice(0, k), tail = S.slice(k);
-        for (var m = 1; m <= tail.length; m++) {
-          var tw = tail.slice(0, m), bw = tail.slice(m), tv = oneNum(tw), bv = oneNum(bw);
-          var cands = [];
-          if (bw.length && tv === t && bv !== null && bv >= 1 && bv <= up) cands.push({ b: bv, sc: 3 });
-          if (!bw.length && tv !== null && tv >= 1 && tv <= up && s === 0 && k === 0) cands.push({ b: tv, sc: 1 });
-          cands.forEach(function (c) {
-            var ans = s === 0 ? null : oneNum(head);
-            var sc = c.sc + (c.b === prevB + 1 ? 3 : 0) + (s === 0 || head.length ? 1 : -2) + (s > 0 && ans === null && head.length ? -3 : 0);
-            if (!best || sc > best.sc) best = { b: c.b, ans: ans, sc: sc, k: k };
-          });
-        }
-        if (!tail.length && s > 0) { /* nothing left for a prefix: the table word was swallowed - take the last atom as the line */ }
-      }
-      if (!best && S.length) {   /* only "seven" before ja: the line number alone */
-        var lastV = S[S.length - 1].v; if (lastV >= 1 && lastV <= up) best = { b: lastV, ans: s === 0 ? null : oneNum(S.slice(0, -1)), sc: 0 };
-      }
-      if (s > 0 && out.length) out[out.length - 1].said = best ? best.ans : oneNum(S);
-      if (best) { out.push({ b: best.b, said: null }); prevB = best.b; }
+  /* v31 (user, 01-Nov-2026: "it does not go with my speed" - log 21:46: fast speech drops "ja": "one six six, one seven seven"):
+     follow the PATTERN table · line · answer, with or without ja / za / into. Words -> number atoms; at each step read the table
+     number, then the line number, then the answer - the answer ends where the next "table · next line" begins. */
+  function readNums(at, i) {               /* every way to read 1-4 atoms from i as one number: [{v, j}] */
+    var out = [];
+    for (var n = 1; n <= 4 && i + n <= at.length; n++) {
+      var part = at.slice(i, i + n); if (part.some(function (x) { return x.sep || x.unk; })) break;
+      var v = oneNum(part); if (v !== null) out.push({ v: v, j: i + n });
     }
-    if (out.length) out[out.length - 1].said = oneNum(A[A.length - 1]);
+    return out;
+  }
+  function skipSep(at, i) { while (i < at.length && (at[i].sep || at[i].unk)) i++; return i; }
+  C.parseRecite = function (text, t, up) {
+    var words = String(text || '').toLowerCase().replace(/\[unk\]/g, ' unk ').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean), at = [];
+    words.forEach(function (w) {
+      if (SEP.test(w)) at.push({ sep: true }); else if (w === 'unk') at.push({ unk: true });
+      else if (/^\d+$/.test(w)) at.push({ v: +w, d: true }); else if (w === 'hundred') at.push({ v: 100, h: true }); else if (w in ATOM) at.push({ v: ATOM[w] });
+    });
+    var lineAt = function (i, b) {            /* does "t b" (b = the given line, or any line when b = 0) start at i? */
+      i = skipSep(at, i); var ts = readNums(at, i).filter(function (x) { return x.v === t; });
+      for (var q = 0; q < ts.length; q++) { var bs = readNums(at, ts[q].j).filter(function (x) { return b ? x.v === b : x.v >= 1 && x.v <= up; }); if (bs.length) return bs[0]; }
+      return null;
+    };
+    var out = [], i = 0, prevB = 0, guard = 0;
+    while (i < at.length && guard++ < 400) {
+      i = skipSep(at, i);
+      var bHit = lineAt(i, prevB + 1) || lineAt(i, 0);
+      if (!bHit) { i++; continue; }
+      var b = bHit.v, k = skipSep(at, bHit.j), hadUnk = false;
+      for (var z = bHit.j; z < k; z++) if (at[z].unk) hadUnk = true;
+      var best = null;
+      readNums(at, k).forEach(function (c) {
+        var nxt = lineAt(c.j, b + 1), any = nxt || lineAt(c.j, 0), end = skipSep(at, c.j) >= at.length;
+        var sc = (c.v === t * b ? 2 : 0) + (nxt ? 4 : any ? 2 : end ? 3 : 0) + (c.j - k) * 0.1;
+        if (!best || sc > best.sc) best = { v: c.v, j: c.j, sc: sc };
+      });
+      if (best && (best.sc >= 2 || !lineAt(k, 0))) { out.push({ b: b, said: best.v }); i = best.j; }
+      else { out.push({ b: b, said: null, unk: hadUnk }); i = k; }
+      prevB = b;
+    }
     return out;
   };
   /* check a recitation of table t (1 .. up): {ok, wrong:[{b, said}], missing:[b], done:[b...], order} */
   C.checkRecite = function (text, t, up) {
     var facts = C.parseRecite(text, t, up), seen = {}, wrong = [], done = [];
-    /* he started again from the first line ("one one ja one ..." after a few lines): judge only the last full go (user log 01-Nov 21:04) */
-    for (var i = facts.length - 1; i > 0; i--) if (facts[i].b === 1 && facts[i - 1].b >= 2) { facts = facts.slice(i); break; }
+    /* he goes back and says lines again (log 21:46: ... one seven seven, one five za five, one six six ...): his LATEST version of each line counts */
+    var last = {}; facts.forEach(function (f) { if (f.said !== null || last[f.b] === undefined) last[f.b] = f; });
+    facts = Object.keys(last).map(function (b) { return last[b]; }).sort(function (a, b) { return a.b - b.b; });
     facts.forEach(function (f) {
       if (f.b < 1 || f.b > up) return;
       var right = f.said === t * f.b;
@@ -339,7 +348,7 @@
       g = Object.keys(nums);
     }
     g = g.concat(['ja', 'za', 'into', 'times', 'is', 'equals', 'ready', 'yes', 'stop']);
-    if (t) for (var b = 1; b <= up; b++) { g.push(C.numWord(t) + ' ' + C.numWord(b) + ' ja ' + C.numWord(t * b)); g.push(C.numWord(t) + ' ' + C.numWord(b) + ' into ' + C.numWord(t * b)); }
+    if (t) for (var b = 1; b <= up; b++) { var tb = C.numWord(t) + ' ' + C.numWord(b) + ' ', a = C.numWord(t * b); g.push(tb + 'ja ' + a); g.push(tb + 'into ' + a); g.push(tb + a); }   /* fast: no "ja" */
     g.push('[unk]');
     return JSON.stringify(g);
   };
