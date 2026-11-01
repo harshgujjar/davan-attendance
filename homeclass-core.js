@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 8;
+  C.VER = 9;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -466,7 +466,7 @@
         ready: (opt.busy && opt.busy()) ? '✅ App update downloaded - it installs as soon as this class ends' : '✅ App update downloaded - press the phone / TV HOME button once: it installs then (this older app version needs that, the new one installs by itself)', done: '✅ App updated', failed: '⚠️ App update failed - will try again later' }[st] || st;
       if (st === 'downloading' && Date.now() - C.LS.get('hc_upd_dl', 0) < 10 * 60000) return;   /* old apps download again and again - show it once */
       if (st === 'downloading') C.LS.set('hc_upd_dl', Date.now());
-      upCard('<b>' + t + '</b>' + (info ? '<div style="opacity:.7;font-size:13px">' + C.esc(info) + '</div>' : ''), /^installing|^tap|^ready/.test(st) ? 0 : 9000);
+      upCard('<b>' + t + '</b>' + (info ? '<div style="opacity:.7;font-size:13px">' + C.esc(info) + '</div>' : '') + '<div style="opacity:.6;font-size:12px;margin-top:6px">Tap to close</div>', /^installing/.test(st) ? 0 : 15000);
     };
     setInterval(function () { if (pending && !(opt.busy && opt.busy())) go(pending); else check(false); }, 60000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) check(false); });

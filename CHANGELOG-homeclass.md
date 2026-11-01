@@ -1,5 +1,8 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v14 · parent v13 · core v9: the app-update card ("downloaded - press HOME") stayed on screen over the settings
+  (user's photo); it now closes after 15 s and says "Tap to close" (only "installing" stays). Function: hcUpd.
+
 - 01-Nov-2026 · kids v13 · kids app h9: TV REMOTE MIC (user: "when I press the remote mic and answer it is not taken"). The remote's mic
   button goes to Google Assistant; the app now opens the remote's microphone itself during TV practice (tvListen: listens again after
   silence for 60 s, number keys shown at the same time, first answer wins) and h9 catches the search / voice / assistant key when the
