@@ -1,5 +1,9 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v19 · parent v15 · core v10: 🩺 LOG ON EVERY DEVICE (user: "keep the log on the phones and TV for 1 day, show only
+  when I tap"). Kids ⚙️ → 🩺 Log (phone + TV) and parent Settings → 🩺 → 📱 This phone: this device's last 24 h (its DB lines incl. the
+  Android "📱" lines + the local copy kept 24 h for offline), hidden until tapped, 📋 Copy / ✕ Hide. Functions: C.diagText, C.copyText, C.diag.
+
 - 01-Nov-2026 · kids v18 · kids app h12: MIC HEARD NOTHING (user's photo 6:21 pm "it does not listen, keeps saying are you there";
   log: a 75 s class with not one word heard). h12 makes a fresh SpeechRecognizer for every answer (Xiaomi's speech service can hang
   when one is reused), restarts it once if it is not ready in 4 s, uses the live words when the result is empty, and logs every listen

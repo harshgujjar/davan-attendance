@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 9;
+  C.VER = 10;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -338,7 +338,7 @@
   C.diagInfo = {};
   C.diag = function (msg, lvl) {
     var e = { t: Date.now(), m: String(msg).slice(0, 500) }; if (lvl) e.l = lvl;
-    var ring = LS.get('hc_diag', []); ring.push(e); if (ring.length > 200) ring = ring.slice(-200); LS.set('hc_diag', ring);
+    var ring = LS.get('hc_diag', []); ring.push(e); var cut = Date.now() - 864e5; ring = ring.filter(function (x) { return x.t > cut; }); if (ring.length > 1500) ring = ring.slice(-1500); LS.set('hc_diag', ring);
     var cnt = LS.get('hc_diagn', {}); if (cnt.d !== C.day()) cnt = { d: C.day(), n: 0 };
     if (cnt.n >= 800 && lvl !== 'e') return;
     cnt.n++; LS.set('hc_diagn', cnt);
@@ -378,6 +378,23 @@
       }
       return false;
     }).catch(function () { return false; });
+  };
+  /* 🩺 this device's log, last 24 h (user, 01-Nov-2026: "keep the log on the phones and TV for 1 day, show only when I tap") */
+  C.diagText = function () {
+    var cut = Date.now() - 864e5, rows = {}, add = function (e) { if (e && e.t > cut) rows[e.t + '|' + e.m] = e; };
+    LS.get('hc_diag', []).forEach(add);
+    var days = [C.day(Date.now() - 864e5), C.day()];
+    return Promise.all(days.map(function (d) { return C.get('diag/' + C.devId() + '/' + d).catch(function () { return null; }); })).then(function (r) {
+      r.forEach(function (o) { Object.keys(o || {}).forEach(function (k) { add(o[k]); }); });
+      var l = Object.keys(rows).map(function (k) { return rows[k]; }).sort(function (a, b) { return a.t - b.t; });
+      return 'Home Class log · ' + (C.diagInfo.kind || '') + ' v' + (C.diagInfo.ver || '') + (C.diagInfo.app ? ' · app ' + C.diagInfo.app : '') + ' · last 24 h · ' + l.length + ' lines\n' +
+        l.map(function (e) { var d = new Date(e.t + 5.5 * 36e5); return d.toISOString().slice(5, 10).replace('-', '/') + ' ' + d.toISOString().slice(11, 19) + (e.l === 'e' ? ' ❌ ' : e.l === 'w' ? ' ⚠️ ' : '  ') + e.m; }).join('\n');
+    });
+  };
+  C.copyText = function (t, btn) {
+    var ok = function () { if (btn) { var o = btn.textContent; btn.textContent = '✅ Copied'; setTimeout(function () { btn.textContent = o; }, 2000); } };
+    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(ok).catch(function () {
+      var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (e) {} ta.remove(); });
   };
   C.diagClean = function () {
     var d = C.day(); if (LS.get('hc_diagclean', '') === d) return; LS.set('hc_diagclean', d);
