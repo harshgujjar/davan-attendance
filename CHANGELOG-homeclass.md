@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v22 · kids app h13: (1) user's photo 7:01 pm "already correct but asks the same question": quick revision picked
+  8×9 twice in one round (weak facts are picked more often) - each fact now only once per round (wrong ones still come back to practise).
+  (2) "not hearing at all": log 19:00 - Google's online speech failed (error 2 network), then 8 listens "speech no". h13 switches to the
+  phone's OFFLINE speech after a network error or 3 empty listens (and back when offline is not available); log lines say "(offline)".
+  Functions: tablesRevise, MainActivity.listenNow.
+
 - 01-Nov-2026 · kids v21 · parent v16 · core v11: "4-5 times I answer, it does not hear" - log 18:52 (h12): no speech in the first listen
   (answer given before the mic opened), "52" for 72 (Google's first guess), then "72" taken. Now: the mic opens 120 ms after the voice
   (Wi-Fi speaker 350 ms) with a soft ding + "🎤 Your turn!"; the first silence just listens again (no talking); when another of Google's
