@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 10;
+  C.VER = 11;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -236,7 +236,8 @@
     if (first.ok) return { ok: true, n: first.n, s: alts[0] };
     for (var i = 1; i < alts.length; i++) { var r = C.tableOne(alts[i], a, b); if (r.ok && first.n === null) return { ok: true, n: r.n, s: alts[i] }; }
     if (first.n === null) for (var j = 1; j < alts.length; j++) { var r2 = C.tableOne(alts[j], a, b); if (r2.n !== null) return { ok: false, n: r2.n, s: alts[j] }; }
-    return { ok: false, n: first.n, s: alts[0] || '' };
+    var altOk = alts.slice(1).some(function (x) { return C.tableOne(x, a, b).ok; });   /* another guess was right: ask again ("Did you say 72?") */
+    return { ok: false, n: first.n, s: alts[0] || '', altOk: altOk };
   };
 
   var STOP = ' a an the is are was were be of to in on at for and or it its this that these those with by as from i we you he she they my our your his her their do does did has have had will can so but not no yes what which who whom why how when where there here '.split(' ');

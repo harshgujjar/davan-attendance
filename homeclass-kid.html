@@ -267,11 +267,11 @@ body.tv .live-words{color:var(--gold)}
 <div class="confetti" id="conf"></div>
 <div class="toast" id="toast"></div>
 
-<script src="homeclass-core.js?v=10"></script>
+<script src="homeclass-core.js?v=11"></script>
 <script>
 (function () {
 'use strict';
-var KID_VER = 20;
+var KID_VER = 21;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -318,7 +318,7 @@ async function say(text, capEl) {
   if (capEl !== false) $(capEl || 'kCap').textContent = text;
   await rawSay(text);
   chk();
-  await sleep(350);                                 /* Bluetooth speaker delay: let the voice finish before the mic opens */
+  await sleep(castOn() ? 350 : 120);               /* voice finished -> open the mic quickly (Wi-Fi speaker a bit later) */
 }
 var canMic = A ? (A.canListen ? A.canListen() : true) : !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 var micBroken = 0;
@@ -381,6 +381,7 @@ async function hear(opts) {
   p.push(kp);
   if (!keys) {
     $('kOrb').classList.add('l');
+    if (!tvBoth) { ding(); $('kHeard').innerHTML = '🎤 <b>Your turn!</b>'; }
     p.push((tvBoth ? tvListen(opts && opts.ms) : micListen(opts && opts.ms)).then(function (r) {
       /* fix 01-Nov (user: "we say it, it shows the answer but says 'are you there'"): Google showed the words live but sent no final
          result (short answers like "eight") - use the words it showed */
@@ -473,6 +474,17 @@ function onPartial(t) {
   if (Date.now() - pT > 500) send(); else if (!pTimer) pTimer = setTimeout(send, 500);
 }
 
+/* a short soft "ding" when the microphone opens, so the child knows when to speak (user, 01-Nov: answers were given too early) */
+var actx = null;
+function ding() {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    var o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.frequency.value = 880; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + 0.2);
+  } catch (e) {}
+}
+
 /* ================= feedback ================= */
 function flash(ok, head, line, ms) {
   var f = $('fb'); f.className = 'fb on ' + (ok ? 'ok' : 'no');
@@ -538,7 +550,7 @@ async function askTable(a, b, info) {
   if (info) $('kTag').textContent = info;
   bCur(a, b);
   setLive({ mode: 'tables', title: SES.title, q: q + ' = ?' });
-  var silent = 0, unclear = 0;
+  var silent = 0, unclear = 0, askedAgain = false;
   await say(spoken + '?');
   for (;;) {
     var r = await hear({ num: true });
@@ -546,8 +558,9 @@ async function askTable(a, b, info) {
     if (r.text) C.diag('heard ' + a + '×' + b + ': "' + (r.alts || [r.text]).slice(0, 3).join('" / "') + '" → ' + (jd.ok ? '✓' : (n === null ? '?' : '✗ ' + n)));
     if (!r.text) {
       silent++;
-      if (silent >= 3) { await sleepy(); silent = 0; await say(spoken + '?'); continue; }
-      await say(silent === 1 ? 'Take your time. ' + spoken + '?' : 'Say the answer. ' + spoken + '?');
+      if (silent === 1) continue;                     /* first silence: just listen again, no talking */
+      if (silent >= 4) { await sleepy(); silent = 0; await say(spoken + '?'); continue; }
+      await say(silent === 2 ? 'Take your time. ' + spoken + '?' : 'Say the answer. ' + spoken + '?');
       continue;
     }
     if (C.isStop(r.text) && n === null) { await askStop(); await say(spoken + '?'); continue; }
@@ -557,6 +570,10 @@ async function askTable(a, b, info) {
       n = -1;
     }
     var ok = jd.ok;
+    if (!ok && jd.altOk && !askedAgain) {               /* Google's first guess wrong, another guess right (52 / 72): ask once more */
+      askedAgain = true; C.diag('not sure: "' + r.text + '" or ' + ans + ' - asking again');
+      await say('Did you say ' + ans + '? Say it again.'); continue;
+    }
     var ri = bFind(a, b), prev = ri >= 0 ? SES.board.rows[ri][2] : 0;
     bSet(a, b, ok ? (prev === 2 ? 3 : 1) : 2, 1);
     if (ok) {
