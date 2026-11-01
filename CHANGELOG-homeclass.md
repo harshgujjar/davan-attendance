@@ -1,5 +1,9 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids app h19: h17 updated itself (log 20:46) and found NO Android crash report for h16's restarts - so most likely the
+  screen (WebView renderer) died, which takes the app down. onRenderProcessGone now rebuilds the screen and logs it; every unexpected
+  exit reason is logged. Comes by auto-update after h18. Functions: onRenderProcessGone, reportLastExit.
+
 - 01-Nov-2026 · kids app h18: user "auto update will not happen" - log: h16 started downloading h17 twice but crashed (engine) before
   the 47 MB download finished; the downloader also kept the whole APK in memory. h18 streams updates to a file (Net.toFile). One-time
   hand install of h18 needed (h16 cannot update itself). Same crash guard as h17.
