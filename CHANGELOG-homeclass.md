@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v20: FIX "it runs like a bullet, does not take what I say" - log 18:38 (app h12): "32" ✓, "18" ✓, then "mic: stop"
+  3-8 s into the next questions. micListen's 13 s safety timer called stopListen() even after its own listen had finished, so it cut the
+  NEXT question's listening; the class saw silence and hurried on. The timer now stops only its own still-open listen (19 s).
+  Also seen: "error 2" = Google speech network error (offline English (India) pack advised). Function: micListen.
+
 - 01-Nov-2026 · kids v19 · parent v15 · core v10: 🩺 LOG ON EVERY DEVICE (user: "keep the log on the phones and TV for 1 day, show only
   when I tap"). Kids ⚙️ → 🩺 Log (phone + TV) and parent Settings → 🩺 → 📱 This phone: this device's last 24 h (its DB lines incl. the
   Android "📱" lines + the local copy kept 24 h for offline), hidden until tapped, 📋 Copy / ✕ Hide. Functions: C.diagText, C.copyText, C.diag.
