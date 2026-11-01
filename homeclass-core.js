@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 11;
+  C.VER = 12;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -223,6 +223,10 @@
     var t = String(text || '').toLowerCase().replace(/\b(ja+|za+|jha|is|are|equals?|equal to|into|times|multiplied by|x)\b/g, ' , ').replace(/\bones\b/g, 'one');
     var ans = a * b, nums = C.numbers(t, true);
     if (!nums.length) return { n: null, ok: false };
+    /* mostly other words ("18 years pilot", "computer") = not an answer -> ask again, never mark wrong (log 01-Nov 19:08) */
+    var KNOWN = /^(\d+|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fourty|fifty|sixty|seventy|eighty|ninety|hundred|and|won|to|too|tu|for|fore|ate|tree|free|sex|sicks|nein|tin|tan|ja+|za+|jha|is|are|equals?|equal|into|times|multiplied|by|x|ones|the|a|its|it's|answer)$/;
+    var w = String(text || '').toLowerCase().replace(/[^a-z0-9' ]/g, ' ').split(/\s+/).filter(Boolean), junk = w.filter(function (x) { return !KNOWN.test(x); }).length;
+    if (junk >= 2 && junk > w.length / 2 && nums.indexOf(ans) < 0) return { n: null, ok: false, junk: true };
     var last = nums[nums.length - 1];
     if (last === ans) return { n: ans, ok: true };
     var digits = nums.join(''), pre = [String(a) + String(b), String(b) + String(a)];
