@@ -268,7 +268,7 @@ body.tv .live-words{color:var(--gold)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 12;
+var KID_VER = 13;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -340,19 +340,42 @@ function micListen(ms) {
 }
 /* one answer: voice and / or keypad / typing, whichever comes first */
 var typedRes = null;
-function useKeys() { return IS_TV || !canMic || micBroken >= 3 || S.forceKeys; }
+function useKeys() { return !canMic || micBroken >= 3 || S.forceKeys; }
+/* TV (user, 01-Nov-2026: "the remote mic does not take my answer"): the remote's mic BUTTON goes to Google Assistant, but the app can open the
+   remote's microphone itself (like in-app search). So on the TV the app listens through the remote AND shows the number keys; whichever
+   comes first counts. Silence on the TV just listens again (the child may be typing). Every try is logged (🩺) to learn what the TV supports. */
+var tvMicOk = 0, tvMicTries = 0;
+function tvListen(ms) {
+  return new Promise(function (res) {
+    var until = Date.now() + 60000, stop = false;
+    (function loop() {
+      if (stop || typedRes === null && false) return;
+      micListen(ms).then(function (r) {
+        tvMicTries++;
+        if (r.alts && r.alts.length) { tvMicOk++; C.diag('TV mic heard: "' + r.alts[0] + '" (' + tvMicOk + ' of ' + tvMicTries + ' tries)'); res(r); return; }
+        if (tvMicTries <= 3 || r.err !== 'silence') C.diag('TV mic: ' + (r.err || 'nothing') + ' (try ' + tvMicTries + ')', r.err && r.err !== 'silence' && r.err !== 'stop' ? 'w' : '');
+        if (r.err && /nomic|not-allowed|service|client|audio/.test(String(r.err))) micBroken++;
+        if (micBroken >= 3 || Date.now() > until || S.stop) { res({ alts: [], err: 'silence' }); return; }
+        setTimeout(loop, 300);
+      });
+    })();
+    tvListen.cancel = function () { stop = true; };
+  });
+}
+window.hcMicKey = function () { C.diag('TV remote mic button reached the app'); if (A && A.stopListen) A.stopListen(); };   /* h9: restart listening at once */
 async function hear(opts) {
   chk();
   while (S.pause) { await sleep(300); chk(); }
-  var keys = useKeys(), numeric = opts && opts.num;
-  $('kHeard').innerHTML = '';
-  showInput(keys ? (numeric ? 'pad' : 'txt') : null);
+  var keys = useKeys(), numeric = opts && opts.num, tvBoth = IS_TV && !keys;
+  $('kHeard').innerHTML = tvBoth ? '🎤 Speak into the remote - or type the answer' : '';
+  showInput(keys || tvBoth ? (numeric ? 'pad' : 'txt') : null);
+  if (tvBoth) $('kOrb').style.display = '';
   var p = [];
   var kp = new Promise(function (r) { typedRes = r; });
   p.push(kp);
   if (!keys) {
     $('kOrb').classList.add('l');
-    p.push(micListen(opts && opts.ms).then(function (r) {
+    p.push((tvBoth ? tvListen(opts && opts.ms) : micListen(opts && opts.ms)).then(function (r) {
       if (r.err && r.err !== 'silence' && r.err !== 'no-speech') C.diag('mic: ' + r.err, /nomic|not-allowed|audio|network|client/.test(String(r.err)) ? 'w' : '');
       if (r.err && /nomic|not-allowed|service|network|busy|client|audio/.test(String(r.err)) && r.err !== 'timeout') micBroken++;
       else if (r.alts.length) micBroken = 0;
@@ -362,7 +385,7 @@ async function hear(opts) {
   var r = await Promise.race(p);
   typedRes = null;
   $('kOrb').classList.remove('l');
-  if (A && A.stopListen && r.typed) A.stopListen();
+  if (A && A.stopListen && r.typed) { if (tvListen.cancel) tvListen.cancel(); A.stopListen(); }
   showInput(null);
   chk();
   r.text = r.typed != null ? r.typed : (r.alts[0] || '');

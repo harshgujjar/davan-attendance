@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v13 · kids app h9: TV REMOTE MIC (user: "when I press the remote mic and answer it is not taken"). The remote's mic
+  button goes to Google Assistant; the app now opens the remote's microphone itself during TV practice (tvListen: listens again after
+  silence for 60 s, number keys shown at the same time, first answer wins) and h9 catches the search / voice / assistant key when the
+  TV passes it on (hcMicKey). Every try is logged ("TV mic heard … N of M tries") to learn what this TV supports. Functions: tvListen, hcMicKey, useKeys.
+
 - 01-Nov-2026 · kids v12 · parent v12 · core v8: update messages (log: old apps h5 / h6 said "installs after the class" with no class
   on, and downloaded again every few seconds; Android's first "Update?" tap was missed). "ready" now says press HOME once (old app) or
   "after this class" only when one runs; the one-tap message says what window to press; "downloading" shows once per 10 min and the
