@@ -63,7 +63,7 @@ Learn style (Vihaan): warm-up from learnt tables, then the current table: listen
 2 perfect mixed rounds (+5 stars, confetti). Revise style (Aryan): mixed questions, wrong ones (weak) come back 40% of the time.
 Wrong answer: "Not quite. 7 times 8 is 56. Say it with me" -> child repeats -> the question comes back later in the round.
 Answer = LAST number said ("7 into 8 is 56" -> 56; number words too). Silence: "Take your time" -> after 3: "Are you there?"
-(waits 5 min). Lessons after the tables (60% of the time is tables when there are lessons; lessons always finish, max +10 min).
+(waits 5 min). Lessons are separate classes (v34): ▶ per lesson on both Homes, own time + days (alarm), 🔀 "mix" = also after the tables (60% tables then, max +10 min). Spoken table lines use "a b ja ans", never "times".
 Oral: parent's key words after | must all be said, else 70% of the answer's main words. Spelling: letters one by one.
 Table board (v2): live/<kid>.board = {k t|o|s, title, rows [[a,b,state 0-4,shown]], cur | keys, res, a | w, got} + live.p (words
 while speaking, from h2 partial results); boardHTML draws it on the phone (kBoard) and the TV (wBoard, 2 columns).

@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 20;
+  C.VER = 21;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -296,6 +296,11 @@
     while (i < at.length && guard++ < 400) {
       i = skipSep(at, i);
       var bHit = lineAt(i, prevB + 1) || lineAt(i, 0);
+      if (!bHit && prevB + 1 <= up) {   /* v34 (22:48 "two into two" = "2 one za 2": a fast "one" heard as "into"): table · ja · next line's answer */
+        var t0 = readNums(at, i).filter(function (x) { return x.v === t; })[0];
+        if (t0 && t0.j < at.length && at[t0.j].sep) { var nb = prevB + 1, an = readNums(at, skipSep(at, t0.j)).filter(function (x) { return x.v === t * nb; })[0];
+          if (an && (lineAt(an.j, nb + 1) || skipSep(at, an.j) >= at.length)) { out.push({ b: nb, said: an.v }); i = an.j; prevB = nb; continue; } }
+      }
       if (!bHit) { i++; continue; }
       var b = bHit.v, k = skipSep(at, bHit.j), hadUnk = false;
       for (var z = bHit.j; z < k; z++) if (at[z].unk) hadUnk = true;
@@ -352,6 +357,17 @@
     return C.numWord(Math.floor(n / 100)) + ' hundred' + (n % 100 ? ' ' + C.numWord(n % 100) : '');
   };
   /* the words the offline engine may hear: numbers up to 999 by parts + the ways children join a line; phrases of one table help it follow fast speech */
+  /* v34 (user, 01-Nov-2026: "while I was telling 12 the app was not able to recognise it at all" - 2×6 heard as "one" 3 times):
+     one question = only the answers that make sense for it (right one, near misses, neighbours in the table), the question said back
+     ("two six ja twelve") and the commands. With every number allowed, a fast "twelve" came out as "one" / "two" / nothing. */
+  C.qGrammar = function (a, b) {
+    var p = a * b, ns = {}, ph = [], W = C.numWord;
+    [p, p - a, p + a, p - b, p + b, p - 1, p + 1, p - 2, p + 2, p - 10, p + 10, a + b].forEach(function (n) { if (n >= 0 && n <= 999) ns[n] = 1; });
+    var q = W(a) + ' ' + W(b) + ' ';
+    Object.keys(ns).forEach(function (n) { var w = W(+n); ph.push(w, q + w, q + 'ja ' + w, q + 'into ' + w, 'ja ' + w, a + b === +n ? w : 'is ' + w); });
+    ph = ph.concat(W(a).split(' '), W(b).split(' '), ['ja', 'za', 'times', 'ready', 'yes', 'stop', 'repeat', '[unk]']);
+    return JSON.stringify(ph.filter(function (x, i) { return ph.indexOf(x) === i; }));
+  };
   C.grammar = function (t, up) {
     var g = 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred'.split(' ');
     if (t) {   /* testing one table: only its words - fewer look-alikes (four / forty, two / into) - plus the usual wrong answers */

@@ -1,5 +1,16 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids v34 · parent v26 · core v21 · app h24 (user: "build all 5 in one go"):
+  1. "12 not recognised" (2×6 heard as "one" ×3): each question listens only for the answers that make sense (C.qGrammar: right one,
+     near misses, the question said back, commands) - synthetic test 53/54 right heard (was 45/54), wrong answers caught 54/54.
+  2. "two into two" (fast "2 one za 2") read as line 1 (C.parseRecite).
+  3. Spoken table lines are "1 eight ja 8" everywhere (askTable question, hints, corrections) - never "times".
+  4. h24 saves single answers too: DB3 ans/<t> + ansdata/<t> (WAV ~0.1 MB, newest 60; whole tables stay in rec/recdata, newest 30).
+  5. Lessons are separate classes (user: "don't mix anything, all are individual - if we want we can mix"): ▶ per lesson on both
+     Homes (cmd "lesson"), own time + days (alarm + timer), 🔀 "Also after the tables" (sets/<id>.mix) to mix; default not mixed
+     (the existing Evs lesson is now its own class). Functions: mixedSets, runClass(opt.set), callKid(opt), timer, alarms, kidSets,
+     edit / eSave (time, days, mix).
+
 - 01-Nov-2026 · kids v33 · parent v25 · core v20 · app h23: tested on Vihaan's 3 real recordings (h22): table 1 ×2 PERFECT; table 2
   "two six two twelve" (fast za heard as "two") now right, "two ten into ten" (fast twenty) = asked again, not wrong; an out-of-order
   line whose answer is the next line's counts as that line. Word-by-word listening was tested and was much WORSE on his voice - kept the
