@@ -232,3 +232,9 @@ in test builds or the later public release, unless the user asks. The old icon o
 "Install without any tap, at once, no waiting." Never ask the user to install a Davan Caller APK by hand: publish it (DavanCaller.apk + caller-version.json
 apkVersion / name / ?v=) and the phones install it themselves within ~5 min when no call is on (c14+), silently - a hand-installed copy resets
 Android's installer of record and makes the next update ask for one tap. Send the APK only when the user asks for it (e.g. a new phone).
+
+## Gujjar Home Class (user's kids app, 01-Nov-2026) - read HOMECLASS.md first
+Kids screen = `homeclass-kid.html` (a change needs NO new APK - the app downloads it), parent app = `homeclass.html`, shared `homeclass-core.js`,
+data DB3 `homeclass/<familyKey>`. Every change: entry in `CHANGELOG-homeclass.md` + bump KID_VER / PAR_VER. Java changes: new APK version
+(source + keystore in davan-scraper widgets/homeclass), HomeClass.apk + homeclass-version.json (apkVersion + ?v=) - it installs itself.
+No login by design (the user: "no login, I want it open"). English only for now; Kannada / Hindi later.

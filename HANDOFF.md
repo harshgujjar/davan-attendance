@@ -1,6 +1,6 @@
 # Session handoff - read this first (short, current state only)
 
-Last updated: 31-Oct-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
+Last updated: 01-Nov-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
 Keep THIS file short: replace old lines, do not append history (history goes in the changelogs / commit messages).
 
 ## How the user works
@@ -73,6 +73,10 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   v2.7 (15-Oct, source pushed, compiled, signed v2.9 LIVE via ClaudePulse.apk + claude-pulse-version.json, self-updating): fixes repeated alerts (week-key jitter), alerts only while Claude is open, notification
   settings + weekly graph. Release: copy APK to ClaudePulse.apk + raise apkVersion in claude-pulse-version.json. Keystore password: ask the user.
   v3.1 (22-Oct, IST everywhere, sound at fresh start; signed + LIVE, apkVersion 18; signing password: see davan-scraper claude-pulse/DAVAN-NOTES.md "SIGNING" line - never ask the user): LimitAlert.kt - countdown in bar when a limit is 100%, repeating chime when used up, exact-alarm buzz at reset.
+- **Gujjar Home Class** (kids' voice classes, 01-Nov-2026) - read HOMECLASS.md. Kids app h1 (HomeClass.apk, self-updating; source + key
+  davan-scraper widgets/homeclass), kids screen homeclass-kid.html v1, parent app homeclass.html v1, data DB3 homeclass/<familyKey>.
+  OPEN: DB3 rules job (davan-student-news "DB3 rules - Home Class") was NOT pushed / run - the classifier blocked the push; until it
+  runs, both apps get "Permission denied". Not tested on a real phone / TV / Google Home yet (only headless browser with a fake DB + fake voice).
 - Status Date app: PARKED (davan-scraper apps/statusdate/PLAN.md) - only when the user asks.
 
 ## ✅ BUILT 22-Oct-2026 (user: "go build all of it"): staff app v1938 / portal v11.94 / student widget 279 / staff w335 - on the "-next" channel (public 9:15 pm)

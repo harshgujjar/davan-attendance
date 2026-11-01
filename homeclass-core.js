@@ -1,0 +1,281 @@
+/* Gujjar Home Class - shared code for the parent app (homeclass.html) and the kids app (homeclass-kid.html,
+   shown inside the Android app on the kids' phone and the Google TV). History: CHANGELOG-homeclass.md, plan: HOMECLASS.md.
+   Data = DB3 (davan-student-news) homeclass/<familyKey>/... over REST + live EventSource. No login: the 28-character
+   family key is the lock (rules: homeclass/$fam needs a key of 24+ characters; the root cannot be listed).
+   Pairing: hcpair/<6 digits> = {fam, exp} for 15 min. Writes made offline wait in localStorage and go out when online. */
+(function () {
+  'use strict';
+  var C = window.HCcore = {};
+  C.VER = 1;
+  C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
+  var LS = {
+    get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+    del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
+  };
+  C.LS = LS;
+
+  /* ---------- family key ---------- */
+  C.fam = function () { return LS.get('hc_fam', ''); };
+  C.setFam = function (k) { LS.set('hc_fam', k); };
+  C.newKey = function (n) {
+    var a = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', b = new Uint8Array(n || 28), s = '';
+    crypto.getRandomValues(b); for (var i = 0; i < b.length; i++) s += a[b[i] % a.length]; return s;
+  };
+  C.devId = function () { var d = LS.get('hc_dev', ''); if (!d) { d = C.newKey(10); LS.set('hc_dev', d); } return d; };
+
+  /* ---------- REST ---------- */
+  function url(p) { return C.DB + 'homeclass/' + C.fam() + (p ? '/' + p : '') + '.json'; }
+  C.url = url;
+  C.get = function (p, q) {
+    return fetch(url(p) + (q ? '?' + q : ''), { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('DB ' + r.status); return r.json(); });
+  };
+  function send(m, p, v) {
+    return fetch(url(p), { method: m, body: v === undefined ? undefined : JSON.stringify(v) }).then(function (r) {
+      if (!r.ok) throw new Error('DB ' + r.status); return r.json();
+    });
+  }
+  /* writes: tried at once; if offline they wait in the queue (kept across restarts) and go in order later */
+  var Q = LS.get('hc_q', []), flushing = false;
+  function qsave() { if (Q.length > 400) Q = Q.slice(-400); LS.set('hc_q', Q); }
+  C.write = function (m, p, v) {
+    if (!C.fam()) return Promise.resolve(null);
+    if (m === 'POST') { m = 'PUT'; p = p + '/' + pushId(); }   /* own ids so a queued write is never doubled */
+    if (Q.length || !navigator.onLine) { Q.push([m, C.fam(), p, v]); qsave(); C.flush(); return Promise.resolve(null); }
+    return send(m, p, v).catch(function () { Q.push([m, C.fam(), p, v]); qsave(); return null; });
+  };
+  C.put = function (p, v) { return C.write('PUT', p, v); };
+  C.patch = function (p, v) { return C.write('PATCH', p, v); };
+  C.push = function (p, v) { return C.write('POST', p, v); };
+  C.del = function (p) { return C.write('DELETE', p); };
+  C.pending = function () { return Q.length; };
+  C.flush = function () {
+    if (flushing || !Q.length || !navigator.onLine) return;
+    flushing = true;
+    (function next() {
+      if (!Q.length) { flushing = false; qsave(); return; }
+      var w = Q[0];
+      if (w[1] !== C.fam()) { Q.shift(); qsave(); return next(); }
+      send(w[0], w[2], w[3]).then(function () { Q.shift(); qsave(); next(); })
+        .catch(function () { flushing = false; });
+    })();
+  };
+  window.addEventListener('online', C.flush);
+  setInterval(C.flush, 20000);
+  var lastT = 0, seq = 0;
+  function pushId() { var t = Date.now(); seq = t === lastT ? seq + 1 : 0; lastT = t; return t.toString(36) + '-' + seq + C.newKey(4); }
+
+  /* ---------- live: EventSource keeps a local copy of a node and calls cb(value) on every change ---------- */
+  C.listen = function (p, cb) {
+    var data = null, es = null, dead = false, retry = 0;
+    function setAt(path, v, merge) {
+      if (path === '/' || path === '') {
+        if (merge) { data = data && typeof data === 'object' ? data : {}; for (var k in v) { if (v[k] === null) delete data[k]; else data[k] = v[k]; } }
+        else data = v;
+        return;
+      }
+      var parts = path.split('/').filter(Boolean);
+      if (!data || typeof data !== 'object') data = {};
+      var o = data;
+      for (var i = 0; i < parts.length - 1; i++) { if (!o[parts[i]] || typeof o[parts[i]] !== 'object') o[parts[i]] = {}; o = o[parts[i]]; }
+      var last = parts[parts.length - 1];
+      if (merge) { if (!o[last] || typeof o[last] !== 'object') o[last] = {}; for (var j in v) { if (v[j] === null) delete o[last][j]; else o[last][j] = v[j]; } }
+      else if (v === null) delete o[last]; else o[last] = v;
+    }
+    function open() {
+      if (dead || !C.fam()) return;
+      try { es = new EventSource(url(p)); } catch (e) { return later(); }
+      function ev(merge) { return function (e) { try { var m = JSON.parse(e.data); setAt(m.path, m.data, merge); retry = 0; cb(data); } catch (x) {} }; }
+      es.addEventListener('put', ev(false));
+      es.addEventListener('patch', ev(true));
+      es.addEventListener('cancel', function () { es.close(); later(); });
+      es.addEventListener('auth_revoked', function () { es.close(); later(); });
+      es.onerror = function () { if (es.readyState === 2) later(); };
+    }
+    function later() { if (dead) return; retry = Math.min(retry + 1, 6); setTimeout(open, 2000 * retry); }
+    open();
+    return { close: function () { dead = true; if (es) es.close(); }, value: function () { return data; } };
+  };
+
+  /* ---------- pairing (6-digit code, 15 minutes) ---------- */
+  C.makeCode = function () {
+    var code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    var body = { fam: C.fam(), exp: Date.now() + 15 * 60000 };
+    return fetch(C.DB + 'hcpair/' + code + '.json', { method: 'PUT', body: JSON.stringify(body) })
+      .then(function (r) { if (!r.ok) throw new Error('code ' + r.status); return { code: code, exp: body.exp }; });
+  };
+  C.useCode = function (code) {
+    return fetch(C.DB + 'hcpair/' + code + '.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
+      if (!v || !v.fam || v.exp < Date.now()) throw new Error('This code is wrong or too old. Make a new one in the parent app.');
+      C.setFam(v.fam);
+      return v.fam;
+    });
+  };
+
+  /* ---------- dates (IST) ---------- */
+  C.day = function (d) {
+    var x = new Date((d ? +d : Date.now()) + 5.5 * 3600000);
+    return x.toISOString().slice(0, 10);
+  };
+  C.istNow = function () { var x = new Date(Date.now() + 5.5 * 3600000); return { h: x.getUTCHours(), m: x.getUTCMinutes(), wd: x.getUTCDay() }; };
+  C.fmtDay = function (k) {
+    var t = C.day(), y = C.day(Date.now() - 864e5);
+    if (k === t) return 'Today'; if (k === y) return 'Yesterday';
+    var d = new Date(k + 'T00:00:00Z');
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  };
+  C.fmtTime = function (hhmm) {
+    if (!hhmm) return ''; var p = hhmm.split(':'), h = +p[0], m = p[1];
+    return (h % 12 || 12) + ':' + m + (h < 12 ? ' am' : ' pm');
+  };
+  C.ago = function (t) {
+    var s = Math.round((Date.now() - t) / 1000);
+    if (s < 60) return 'just now'; if (s < 3600) return Math.round(s / 60) + ' min ago';
+    if (s < 86400) return Math.round(s / 3600) + ' h ago'; return Math.round(s / 86400) + ' days ago';
+  };
+  C.plural = function (n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); };
+
+  /* ---------- default settings (parents change them in the parent app) ---------- */
+  C.DEFAULT_CFG = {
+    kids: {
+      k1: { name: 'Aryan', std: 7, from: 11, to: 30, style: 'revise', min: 15, time: '18:00', days: [1, 2, 3, 4, 5, 6], on: true, emoji: '🦁', color: '#6d5dfc' },
+      k2: { name: 'Vihaan', std: 2, from: 1, to: 10, style: 'learn', min: 15, time: '18:30', days: [1, 2, 3, 4, 5, 6], on: true, emoji: '🐯', color: '#ff7a45' }
+    },
+    upto: 10
+  };
+  C.kidList = function (cfg) {
+    var k = (cfg && cfg.kids) || C.DEFAULT_CFG.kids;
+    return Object.keys(k).sort().map(function (id) { var o = k[id]; o.id = id; return o; });
+  };
+  C.stdName = function (n) { n = +n; if (!n) return ''; var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]) + ' std'; };
+  C.styleName = function (s) { return s === 'learn' ? 'Learn step by step' : 'Quick revision (mixed)'; };
+  C.STAGES = ['Learning', 'In order', 'Mixed', 'Mastered'];
+
+  /* ---------- understanding what a child said ---------- */
+  var ONES = { zero: 0, oh: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11,
+    twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+  var TENS = { twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+  var SOUND = { won: 1, to: 2, too: 2, tu: 2, for: 4, fore: 4, ate: 8, tree: 3, free: 3, sex: 6, sicks: 6, nein: 9, tin: 10, tan: 10 };
+  /* all numbers in a sentence, in order: digits and number words ("fifty six", "one hundred and twelve") */
+  C.numbers = function (text, loose) {
+    var t = String(text || '').toLowerCase().replace(/(\d),(\d)/g, '$1$2').replace(/-/g, ' ').replace(/[^a-z0-9 ]/g, ' ');
+    var w = t.split(/\s+/).filter(Boolean), out = [], cur = null;
+    function end() { if (cur !== null) { out.push(cur); cur = null; } }
+    for (var i = 0; i < w.length; i++) {
+      var x = w[i];
+      if (/^\d+$/.test(x)) { end(); out.push(+x); continue; }
+      if (/^\d+(st|nd|rd|th)$/.test(x)) { end(); out.push(parseInt(x, 10)); continue; }
+      if (x in ONES) {
+        if (cur !== null && cur >= 20 && cur % 10 === 0 && cur % 100 !== 0 && ONES[x] < 10) cur += ONES[x];   /* fifty six */
+        else if (cur !== null && cur % 100 === 0 && cur > 0) cur += ONES[x];                      /* hundred and two */
+        else { end(); cur = ONES[x]; }
+        continue;
+      }
+      if (x in TENS) { if (cur !== null && cur % 100 === 0 && cur > 0) cur += TENS[x]; else { end(); cur = TENS[x]; } continue; }
+      if (x === 'hundred') { cur = (cur === null ? 1 : cur) * 100; continue; }
+      if (x === 'and' && cur !== null && cur % 100 === 0) continue;
+      if (loose && x in SOUND) { end(); out.push(SOUND[x]); continue; }
+      end();
+    }
+    end();
+    return out;
+  };
+  /* the child's answer = the LAST number said ("7 times 8 is 56" -> 56); sound-alikes ("for", "ate") only when no real number */
+  C.answerNum = function (text) {
+    var n = C.numbers(text, false);
+    if (!n.length) n = C.numbers(text, true);
+    return n.length ? n[n.length - 1] : null;
+  };
+  C.hasNum = function (text, want) { return C.numbers(text, true).indexOf(want) >= 0; };
+
+  var STOP = ' a an the is are was were be of to in on at for and or it its this that these those with by as from i we you he she they my our your his her their do does did has have had will can so but not no yes what which who whom why how when where there here '.split(' ');
+  function words(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean); }
+  C.words = words;
+  function lev(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 9;
+    var d = [], i, j; for (i = 0; i <= a.length; i++) d[i] = [i];
+    for (j = 1; j <= b.length; j++) d[0][j] = j;
+    for (i = 1; i <= a.length; i++) for (j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  }
+  function near(w, list) {
+    for (var i = 0; i < list.length; i++) {
+      var x = list[i];
+      if (x === w) return true;
+      if (w.length >= 4 && (x.indexOf(w) === 0 || w.indexOf(x) === 0) && Math.min(x.length, w.length) >= 4) return true;  /* plant / plants */
+      if (w.length >= 5 && lev(w, x) <= 1) return true;
+      if (w.length >= 8 && lev(w, x) <= 2) return true;
+    }
+    return false;
+  }
+  /* key words of an answer: the parent's keywords, else the answer's main words */
+  C.keysOf = function (item) {
+    if (item.k) return String(item.k).split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
+    var w = words(item.a).filter(function (x) { return STOP.indexOf(x) < 0; });
+    return w.length ? w : words(item.a);
+  };
+  /* oral answer check: parent's keywords -> every one must be said; else 70% of the main words */
+  C.checkOral = function (item, said) {
+    var got = words(said), keys = C.keysOf(item), hit = [], miss = [];
+    var nums = C.numbers(said, true);
+    keys.forEach(function (k) {
+      var ok = k.split(' ').every(function (p) { return /^\d+$/.test(p) ? nums.indexOf(+p) >= 0 || got.indexOf(p) >= 0 : near(p, got) || (ONES[p] !== undefined && nums.indexOf(ONES[p]) >= 0); });
+      (ok ? hit : miss).push(k);
+    });
+    var need = item.k ? keys.length : Math.max(1, Math.ceil(keys.length * 0.7));
+    return { ok: hit.length >= need, hit: hit, miss: miss };
+  };
+  /* spelling: "b e c a u s e" / "bee see ..." -> letters */
+  var LET = { ay: 'a', eh: 'a', bee: 'b', be: 'b', see: 'c', sea: 'c', she: 'c', dee: 'd', de: 'd', ee: 'e', ef: 'f', eff: 'f', gee: 'g', ji: 'g', jee: 'g',
+    aitch: 'h', edge: 'h', haitch: 'h', eye: 'i', aye: 'i', jay: 'j', kay: 'k', okay: 'k', el: 'l', elle: 'l', em: 'm', en: 'n', oh: 'o', owe: 'o',
+    pee: 'p', pea: 'p', cue: 'q', queue: 'q', are: 'r', ar: 'r', es: 's', ess: 's', tea: 't', tee: 't', you: 'u', yu: 'u', vee: 'v', why: 'y',
+    ex: 'x', zed: 'z', zee: 'z', zet: 'z' };
+  C.letters = function (said, word) {
+    word = String(word || '').toLowerCase().replace(/[^a-z]/g, '');
+    var w = String(said || '').toLowerCase().replace(/double u|double you/g, 'w').replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean);
+    var allOne = w.length > 1 && w.every(function (x) { return x.length === 1 || LET[x]; });
+    if (w.length === 1 && w[0] === word && word.length > 1) return { whole: true, text: w[0] };     /* said the word, not the letters */
+    var s = '';
+    w.forEach(function (x) { if (x.length === 1) s += x; else if (LET[x] && (allOne || w.length > 2)) s += LET[x]; else if (x === 'capital' || x === 'small') return; else s += x; });
+    return { whole: false, text: s };
+  };
+  C.checkSpell = function (word, said) {
+    var r = C.letters(said, word), want = String(word).toLowerCase().replace(/[^a-z]/g, '');
+    return { ok: !r.whole && r.text === want, whole: r.whole, got: r.text };
+  };
+  /* yes / ready / start words */
+  C.isReady = function (t) { return /\b(ready|yes|yeah|yup|start|ok|okay|i am here|i'm here|here|come|coming|let's go|lets go|go)\b/i.test(t || ''); };
+  C.isStop = function (t) { return /\b(stop|finish|end class|bye|goodbye|quit|enough)\b/i.test(t || ''); };
+  C.isRepeat = function (t) { return /\b(repeat|again|what|pardon|sorry|didn't hear|did not hear)\b/i.test(t || ''); };
+
+  /* ---------- lessons typed by parents ---------- */
+  /* oral: one per line "Question = Answer" (optional "| key, words"); spelling: one word per line (optional "= sentence") */
+  C.parseItems = function (type, text) {
+    return String(text || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean).map(function (l) {
+      var k = '', s = l, bar = l.indexOf('|');
+      if (bar >= 0) { k = l.slice(bar + 1).trim(); s = l.slice(0, bar).trim(); }
+      var eq = s.indexOf('=');
+      if (type === 'spell') {
+        var word = (eq >= 0 ? s.slice(0, eq) : s).trim(), sen = eq >= 0 ? s.slice(eq + 1).trim() : '';
+        return word ? { q: word, a: word.toLowerCase(), s: sen } : null;
+      }
+      if (eq < 0) { var qm = s.indexOf('?'); if (qm < 0 || qm === s.length - 1) return { q: s, a: '', bad: true }; eq = qm; return { q: s.slice(0, qm + 1).trim(), a: s.slice(qm + 1).trim(), k: k }; }
+      return { q: s.slice(0, eq).trim(), a: s.slice(eq + 1).trim(), k: k };
+    }).filter(function (x) { return x; });
+  };
+  C.itemsToText = function (type, items) {
+    return (items || []).map(function (it) {
+      if (type === 'spell') return it.q + (it.s ? ' = ' + it.s : '');
+      return it.q + ' = ' + it.a + (it.k ? ' | ' + it.k : '');
+    }).join('\n');
+  };
+  C.setActive = function (set, kidId, dayKey) {
+    if (!set || set.off) return false;
+    if (set.who && set.who !== 'all' && set.who !== kidId) return false;
+    if (set.until && dayKey > set.until) return false;
+    return true;
+  };
+  C.typeName = function (t) { return t === 'spell' ? 'Spelling' : 'Oral questions'; };
+  C.esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+})();
