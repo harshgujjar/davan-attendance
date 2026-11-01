@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 01-Nov-2026 · kids screen v7 · parent app v7 · core v5: FIX kids home screen crash (user: Back does nothing on Vihaan's phone; its
+  log showed it never checked in after 3:41 pm). Firebase stores prog/<kid>/t {"1":..} as a list [null, {..}]; drawHome read
+  .st of the null and start() stopped before the heartbeat, live listeners and the log. C.normProg turns it back into an object
+  everywhere (kids loadProg / loadProgAll, parent report); drawHome and start are guarded (error -> 🩺 log, never a dead screen);
+  the log and the self-updater start first. Found with the real family data (read-only test). Functions: C.normProg, drawHome, start.
+
 - 01-Nov-2026 · kids screen v6 · parent app v6 · core v4 · kids app h5: 🩺 LOG for every device (user: "read the log from TV,
   child and parent apps"). Pages write short lines (open, versions, live-stream drops, every Start / Call and why it was or was
   not run, class start / end, mic / voice problems, updates, JS errors) to DB3 homeclass/<fam>/diag/<dev>/<day> in batches

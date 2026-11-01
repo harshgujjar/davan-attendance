@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 4;
+  C.VER = 5;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -169,6 +169,16 @@
   C.stdName = function (n) { n = +n; if (!n) return ''; var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]) + ' std'; };
   C.styleName = function (s) { return s === 'learn' ? 'Learn step by step' : 'Quick revision (mixed)'; };
   C.STAGES = ['Learning', 'In order', 'Mixed', 'Mastered'];
+  /* progress as read from the database: Firebase turns {"1":{..},"2":{..}} into a list [null,{..},{..}] - make it an object again
+     (bug 01-Nov: the kids home screen crashed on the null and the phone stopped answering) */
+  C.normProg = function (p) {
+    p = p && typeof p === 'object' ? p : {};
+    var t = {}, src = p.t || {};
+    Object.keys(src).forEach(function (k) { var v = src[k]; if (v && typeof v === 'object') t[k] = { st: +v.st || 0, ok: +v.ok || 0, at: v.at }; });
+    p.t = t;
+    var w = {}; Object.keys(p.weak || {}).forEach(function (k) { if (p.weak[k]) w[k] = +p.weak[k]; }); p.weak = w;
+    return p;
+  };
 
   /* ---------- understanding what a child said ---------- */
   var ONES = { zero: 0, oh: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11,
