@@ -1,5 +1,9 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v44: a doubtful line ("unsure") is now a real question - "I am not sure I heard 3 4. Say that line again." with "= ?" on the
+  screen; the answer is said / shown only after he has tried (before the message gave the answer away). A real mistake one digit off (5 x 7 = 30)
+  is therefore asked again instead of corrected at once. Function: reciteTable.
+
 - 02-Nov-2026 · kids v43 · parent v35 · core v29: (1) STUCK on "Welcome Vihaan!" (photo 21:22, log 21:16 and 21:21 "Promise error: Cannot read properties of
   null (reading 'kid')"): finish() said "Class over!" for several seconds with S.running already false; a new class started in that time
   and then finish() ran `SES = null` - wiping the NEW class. Now it clears SES only when it is still its own, does not switch the busy /
