@@ -1,5 +1,12 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v38 · parent v30 · core v25: "for N it says 'en', all wrong" - 5 real recordings of "bones" (rec/ 08:19-08:40): N is said "en"
+  and the engine returned "e"+"en", [unk] or "i"; the letters list now also holds the target word spelled out (4 forms) - 3 of the 3
+  clear recordings came out exactly (bee oh n e s). The heard tokens are ALIGNED to the target word (C.spellJudge, edit cost: sound-alike
+  letter .5, [unk] = any letter .3, extra "e" before "en" .2, missing letter 1.2); said twice / talk before = the best stretch counts.
+  Not sure = ask again slowly (max 2), then show the word and move on ("We will try it again soon"), never "Not quite". On the 5
+  recordings: 4 accepted, 1 (b o e i r) asked again. Functions: C.spellGrammar(word), C.spellJudge, spellTokens, spellCost, askSpell.
+
 - 02-Nov-2026 · kids v37 · parent v29 · core v24: tested on his 2 real spelling recordings (rec/ in DB3, 08:20): free engine heard "b o n e s"
   as "b o in a yes" (n -> in, e -> a, s -> yes) and his talk as words; with a letters-only list (C.spellGrammar: a-z + letter names,
   everything else [unk]) it is "bee owe n e s" (right) / "bee owe n e f" (s -> f). ONE sound-alike letter (s / f, b / d ...) is now accepted
