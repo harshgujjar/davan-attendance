@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 28;
+  C.VER = 29;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -346,7 +346,16 @@
     /* fifteen / fifty, thirteen / thirty ... : the engine can mix them up - ask him to say that line again instead of "wrong" */
     var mix = function (x, y) { for (var d = 3; d <= 9; d++) if ((x === 10 + d && y === 10 * d) || (y === 10 + d && x === 10 * d)) return true; return false; };
     var fzB = {}; facts.forEach(function (f) { if (f.fz) fzB[f.b] = 1; });
-    var unsure = wrong.filter(function (w) { return mix(w.said, t * w.b) || fzB[w.b]; }), sure = wrong.filter(function (w) { return !mix(w.said, t * w.b) && !fzB[w.b]; });
+    /* v43 (his real table-3 recitation 02-Nov 21:18-21:20: "thirty three" for 3, "one" for twelve, "ten" for fifteen - he said it right):
+       an answer that is ONE digit away from the right one (3 / 33, 12 / 1, 15 / 10, 21 / 24 ...) cannot be told from a mishearing, so it is
+       "unsure" - that line is asked again alone - never "wrong" */
+    var alike = function (x, y) {
+      var a = String(x), b = String(y); if (a === b) return true; if (mix(x, y)) return true;
+      var d = []; for (var i = 0; i <= a.length; i++) d[i] = [i]; for (var j = 1; j <= b.length; j++) d[0][j] = j;
+      for (i = 1; i <= a.length; i++) for (j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      return d[a.length][b.length] <= 1 || (a.length > 1 && b.length > 1 && a.slice(0, -1) === b.slice(0, -1) && Math.abs(+a.slice(-1) - +b.slice(-1)) <= 3 && false);
+    };
+    var unsure = wrong.filter(function (w) { return alike(w.said, t * w.b) || fzB[w.b]; }), sure = wrong.filter(function (w) { return !alike(w.said, t * w.b) && !fzB[w.b]; });
     return { ok: !wrong.length && !missing.length && !noAns.length, wrong: sure, unsure: unsure, missing: missing, unclear: noAns, done: done, facts: facts };
   };
   C.numWord = function (n) {
