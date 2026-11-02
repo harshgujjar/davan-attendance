@@ -240,6 +240,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
   </div>
   <div class="cact">
     <button class="btn soft" id="kClear" style="display:none">⌫ Clear</button>
+    <button class="btn soft" id="kSkip" style="display:none">⏭ Skip</button>
     <button class="btn soft" id="kType">⌨️ Type</button>
     <button class="btn soft" id="kPause">⏸ Pause</button>
     <button class="btn soft" id="kStop">⏹ Stop</button>
@@ -339,11 +340,11 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <div class="confetti" id="conf"></div>
 <div class="toast" id="toast"></div>
 
-<script src="homeclass-core.js?v=25"></script>
+<script src="homeclass-core.js?v=26"></script>
 <script>
 (function () {
 'use strict';
-var KID_VER = 38;
+var KID_VER = 39;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -900,8 +901,8 @@ async function runSet(set, mode) {
     var e = queue.shift(), it = e.it;
     $('kTag').textContent = (set.type === 'spell' ? '✏️ ' : '🗣️ ') + set.title + ' · ' + Math.min(done + 1, items.length) + ' of ' + items.length;
     var ok = set.type === 'spell' ? await askSpell(it, e.tries === 0) : await askOral(it, e.tries === 0);
-    if (ok && e.tries === 0) res.ok++;
-    if (!ok && ++e.tries < 2) queue.splice(Math.min(2, queue.length), 0, e); else done++;
+    if (ok === true && e.tries === 0) res.ok++;
+    if (ok === false && ++e.tries < 2) queue.splice(Math.min(2, queue.length), 0, e); else done++;
   }
   SES.sets[set.id] = res;
   await say('You got ' + res.ok + ' out of ' + res.n + ' right the first time' + (res.ok === res.n ? '. Perfect!' : '. Well done!'));
@@ -934,55 +935,72 @@ async function askOral(it, first) {
     return false;
   }
 }
+/* v39 (user, 02-Nov-2026: "why can't it hear properly, why does it take me wrong, I can't skip"): the offline engine cannot always tell
+   letters (his real recordings: "en" -> "e"+"en", "em" -> "e"+"m", S -> F). So: it is NEVER "wrong" on a doubtful hearing - it asks again,
+   and each repeat accepts a little less perfect hearing (it heard most of the letters in order); after 3 tries it shows the word and
+   moves on. ⏭ Skip (or saying "skip" / "next") moves on at once; ⌫ Clear throws away what it heard. */
+function spellAccept(j, n) { return j.kind === 'ok' || (j.kind === 'unsure' && j.cost !== undefined && j.cost < 1.0 + 0.5 * (n - 1) * (n > 2 ? 1.6 : 1.2)); }
+function spellBtns(on) { $('kClear').style.display = on ? '' : 'none'; $('kSkip').style.display = on ? '' : 'none'; }
 async function askSpell(it, first, o) {
   o = o || {};
   var w = it.q, sen = it.s ? ' ' + it.s + '. ' + w + '.' : '', up = w.toUpperCase().split('').join(' ');
   if (!(reciteOk() && !useKeys())) return askSpellG(it, first);
-  S.curQ = 's' + w + '#' + (++S.qn);
+  S.curQ = 's' + w + '#' + (++S.qn); S.skipSpell = false; S.clearSpell = false;
   $('kQ').className = 'q txt'; $('kQ').textContent = '✏️ Spell the word';
   bNew('s', { title: SES.title, w: w });
   setLive({ mode: 'set', title: SES.title, q: 'Spell: ' + w });
-  if (!o.silentWord) await say('Spell the word: ' + w + '.' + sen + ' Say the letters one by one.');
-  for (var t = 0, unsure = 0, quietN = 0; ; t++) {
-    await sleep(500);                    /* the voice (Google Home) may still be finishing - never let the mic hear it */
-    S.reciting = true; hbShow(); ding(); SES.partial = ''; $('kHeard').innerHTML = '🎤 <b>Spell it</b> - say the letters one by one'; $('kClear').style.display = '';
-    var text = await spellListen(w, { wait: 14000 }), redo = S.clearSpell; S.clearSpell = false;
-    S.reciting = false; RC = null; hbShow(); chk(); SES.partial = ''; $('kClear').style.display = 'none'; drawBoard();
-    C.diag('spell ' + w + ': "' + text + '"' + (redo ? ' (cleared)' : ''));
-    if (redo) { await say('OK. Spell ' + w + ' again.', false); t--; continue; }
-    if (!text) { if (++quietN <= 2) { await say('Spell: ' + w + '.'); continue; } await sleepy(); quietN = 0; await say('Spell: ' + w + '.'); continue; }
-    if (C.isRepeat(text) && text.split(' ').length < 3) { await say(w + '.' + sen); continue; }
-    var j = C.spellJudge(w, [text]);
-    C.diag('spell ' + w + ' -> ' + j.kind + ' (' + (j.got || '') + ')' + (j.alike ? ' sound-alike letter accepted' : ''));
-    if (j.kind === 'whole') { await say('Good, that is the word! Now say the letters, one by one.'); continue; }
-    if (j.kind === 'none') { if (t < 3) { await say('I did not catch the letters. Spell: ' + w + '.'); continue; } j = { kind: 'wrong', got: '' }; }
-    SES.board.res = j.kind === 'ok' ? 1 : 2; SES.board.got = j.got;
-    /* v38: not sure what the engine heard = NEVER "wrong": ask again (twice), then show the word and go on (to practise, no "Not quite") */
-    if (j.kind === 'unsure' && unsure++ < 2) {
-      await say(unsure === 1 ? 'I did not hear all the letters. Say the letters of ' + w + ' again, slowly.' : 'One more time, slowly. Press clear if you want to start again.', false); SES.board.res = 0; continue;
+  spellBtns(true);
+  try {
+    if (!o.silentWord) await say('Spell the word: ' + w + '.' + sen + ' Say the letters one by one.');
+    for (var t = 0, n = 0, quietN = 0; ; t++) {
+      if (S.skipSpell) { S.skipSpell = false; return skipWord(w, first); }
+      await sleep(500);                    /* the voice (Google Home) may still be finishing - never let the mic hear it */
+      S.reciting = true; hbShow(); ding(); SES.partial = ''; $('kHeard').innerHTML = '🎤 <b>Spell it</b> - say the letters one by one'; spellBtns(true);
+      var text = await spellListen(w, { wait: 14000 }), redo = S.clearSpell, skip = S.skipSpell; S.clearSpell = false;
+      S.reciting = false; RC = null; hbShow(); chk(); SES.partial = ''; drawBoard();
+      C.diag('spell ' + w + ': "' + text + '"' + (redo ? ' (cleared)' : '') + (skip ? ' (skip)' : ''));
+      if (skip || C.isSkip(text)) { S.skipSpell = false; return skipWord(w, first); }
+      if (redo) { await say('OK. Spell ' + w + ' again.', false); t--; continue; }
+      if (!text) { if (++quietN <= 2) { await say('Spell: ' + w + '.'); continue; } await sleepy(); quietN = 0; await say('Spell: ' + w + '.'); continue; }
+      if (C.isRepeat(text) && text.split(' ').length < 3) { await say(w + '.' + sen); continue; }
+      var j = C.spellJudge(w, [text]);
+      if (j.kind === 'whole') { await say('Good, that is the word! Now say the letters, one by one.'); continue; }
+      if (j.kind === 'none') { if (t < 3) { await say('I did not catch the letters. Spell: ' + w + '.'); continue; } j = { kind: 'unsure', got: '', cost: 9 }; }
+      n++;
+      C.diag('spell ' + w + ' try ' + n + ' -> ' + j.kind + ' cost ' + j.cost + ' (' + (j.got || '') + ')');
+      if (spellAccept(j, n)) {
+        $('kQ').textContent = w; SES.board.res = 1; drawBoard();
+        flash(true, rnd(PRAISE), up.replace(/ /g, ' - '), 1800); logAns('s', 'Spell ' + w, w, w, true, first && n === 1);
+        await say(rnd(PRAISE) + ' ' + w + ' is spelt ' + up.split(' ').join(', ') + '.', false); hideFlash(); return true;
+      }
+      if (j.kind === 'unsure' && n < 3) {
+        await say(n === 1 ? 'I did not catch all the letters. Say ' + w + ' again, slowly.' : 'Once more, slowly. Or press skip.', false); SES.board.res = 0; continue;
+      }
+      if (j.kind === 'unsure') {          /* three doubtful hearings: show it, no "Not quite" */
+        $('kQ').textContent = w; SES.board.res = 2; SES.board.got = ''; drawBoard(); logAns('s', 'Spell ' + w, w, '(not heard)', false, first);
+        flash(true, 'Let us look at it', w + ' = ' + up.replace(/ /g, ' - '), 5000);
+        await say(w + ' is spelt ' + up.split(' ').join(', ') + '. We will try it again soon.', false); hideFlash(); return false;
+      }
+      /* really different letters, clearly heard */
+      SES.board.res = 2; SES.board.got = j.got; $('kQ').textContent = w; drawBoard();
+      logAns('s', 'Spell ' + w, w, (j.got || '').toUpperCase(), false, first);
+      flash(false, 'Not quite', w + ' = ' + up.replace(/ /g, ' - '), 6000);
+      await say('Not quite. ' + w + ' is spelt: ' + up.split(' ').join(', ') + '. Say it with me.', false);
+      hideFlash();
+      S.reciting = true; hbShow(); ding(); S.clearSpell = false; S.skipSpell = false;
+      var t2 = await spellListen(w, { wait: 10000 });
+      S.reciting = false; RC = null; hbShow(); chk(); S.clearSpell = false; S.skipSpell = false;
+      var c2 = C.spellJudge(w, [t2]);
+      await say(c2.kind === 'ok' || c2.kind === 'unsure' ? 'Yes! Remember it.' : 'Remember: ' + up.split(' ').join(', ') + '. We will try again.', false);
+      return false;
     }
-    if (j.kind === 'unsure') {
-      $('kQ').textContent = w; SES.board.res = 2; SES.board.got = ''; drawBoard(); logAns('s', 'Spell ' + w, w, '(not heard)', false, first);
-      flash(true, 'Let us look at it', w + ' = ' + up.replace(/ /g, ' - '), 5000);
-      await say(w + ' is spelt ' + up.split(' ').join(', ') + '. We will try it again soon.', false); hideFlash(); return false;
-    }
-    if (j.kind === 'ok') {
-      $('kQ').textContent = w; SES.board.res = 1; drawBoard();
-      flash(true, rnd(PRAISE), up.replace(/ /g, ' - '), 1800); logAns('s', 'Spell ' + w, w, j.got, true, first && unsure === 0);
-      await say(rnd(PRAISE) + ' ' + w + ' is spelt ' + up.split(' ').join(', ') + '.', false); hideFlash(); return true;
-    }
-    logAns('s', 'Spell ' + w, w, (j.got || '').toUpperCase(), false, first);
-    $('kQ').textContent = w; drawBoard();
-    flash(false, 'Not quite', w + ' = ' + up.replace(/ /g, ' - '), 6000);
-    await say('Not quite. ' + w + ' is spelt: ' + up.split(' ').join(', ') + '. Say it with me.', false);
-    hideFlash();
-    S.reciting = true; hbShow(); ding();
-    var t2 = await spellListen(w, { wait: 10000 });
-    S.reciting = false; RC = null; hbShow(); chk();
-    var c2 = C.spellJudge(w, [t2]);
-    await say(c2.kind === 'ok' || c2.kind === 'unsure' ? 'Yes! Remember it.' : 'Remember: ' + up.split(' ').join(', ') + '. We will try again.', false);
-    return false;
-  }
+  } finally { spellBtns(false); }
+}
+async function skipWord(w, first) {
+  C.diag('spell ' + w + ': skipped');
+  logAns('s', 'Spell ' + w, w, '(skipped)', false, first);
+  await say('OK, next.', false);
+  return 'skip';
 }
 /* the Google way (old phones / offline engine not ready) */
 async function askSpellG(it, first) {
@@ -1017,30 +1035,48 @@ async function askSpellG(it, first) {
     return false;
   }
 }
-/* 👨‍👩‍👦 the parent says a word (any word of the list, any order); the child spells it without looking (v35) */
+/* 👨‍👩‍👦 the parent says a word (any word of the list, any order); the child spells it without looking. The app does not need to
+   understand the parent: it finds which word of the list the LETTERS fit best (v39 - the word list grammar never worked on real speech). */
 async function parentSpell(set) {
-  var items = (set.items || []).filter(function (x) { return x && x.q; }), names = items.map(function (x) { return x.q; }), done = {}, res = { title: set.title, ok: 0, n: items.length }, miss = 0;
-  SES.title = set.title; SES.mode = 'set';
+  var items = (set.items || []).filter(function (x) { return x && x.q; }), names = items.map(function (x) { return x.q; }), done = {}, res = { title: set.title, ok: 0, n: items.length }, miss = 0, lastW = '', n = 0;
+  SES.title = set.title; SES.mode = 'set'; S.skipSpell = false; S.clearSpell = false;
   $('kTag').textContent = '✏️ ' + set.title + ' · 👨‍👩‍👦 say a word';
   await say('Mom or Dad says a word. Then spell it without looking.');
-  while (Object.keys(done).length < items.length) {
-    $('kQ').className = 'q txt'; $('kQ').textContent = '🎧 Say a word';
-    bNew('s', { title: SES.title, w: '' }); drawBoard();
-    $('kCap').textContent = Object.keys(done).length ? '✅ ' + Object.keys(done).join(' · ') : '';
-    S.reciting = true; hbShow(); ding(); $('kHeard').innerHTML = '🎧 <b>Mom / Dad: say a word</b> from the list';
-    var said = await spellListen('', { words: names.filter(function (n) { return !done[n]; }), wait: 30000 });
-    S.reciting = false; RC = null; hbShow(); chk();
-    if (!said) { if (++miss >= 3) { await say('Shall we stop? Press stop, or say a word.'); miss = 0; } continue; }
-    if (C.isStop(said)) break;
-    var w = C.pickWord(said, names.filter(function (n) { return !done[n]; }));
-    if (!w) { C.diag('parent word not matched: "' + said + '"'); toast('Did not catch the word - say it again', 2500); continue; }
-    miss = 0; var it = items.filter(function (x) { return x.q === w; })[0];
-    $('kCap').textContent = '🎧 heard a word - spell it!';
-    var ok = await askSpell(it, true, { silentWord: true });
-    done[w] = 1; if (ok) res.ok++;
-    $('kQ').className = 'q'; $('kQ').textContent = w; $('kCap').textContent = '✅ ' + Object.keys(done).join(' · ');
-    await sleep(900);
-  }
+  try {
+    while (Object.keys(done).length < items.length) {
+      var left = names.filter(function (x) { return !done[x]; });
+      $('kQ').className = 'q txt'; $('kQ').textContent = '🎧 Say a word, then spell it';
+      bNew('s', { title: SES.title, w: '' }); drawBoard();
+      $('kCap').textContent = Object.keys(done).length ? '✅ ' + Object.keys(done).join(' · ') : '';
+      S.reciting = true; hbShow(); ding(); spellBtns(true); $('kHeard').innerHTML = '🎧 <b>Mom / Dad says a word</b> - then spell it';
+      var text = await spellListen(left, { wait: 40000 }), redo = S.clearSpell, skip = S.skipSpell; S.clearSpell = false; S.skipSpell = false;
+      S.reciting = false; RC = null; hbShow(); chk(); SES.partial = ''; drawBoard();
+      C.diag('parent spell: "' + text + '"' + (redo ? ' (cleared)' : '') + (skip ? ' (skip)' : ''));
+      if (redo || skip) { lastW = ''; n = 0; continue; }
+      if (!text) { if (++miss >= 3) { toast('Say a word, then spell it - or press ⏹ Stop', 4000); miss = 0; } continue; }
+      var best = C.spellWhich(left, text);
+      if (!best) { toast('Did not catch the letters - say the word and spell it again', 3000); continue; }
+      miss = 0; var w = best.w, it = items.filter(function (x) { return x.q === w; })[0];
+      n = w === lastW ? n + 1 : 1; lastW = w;
+      C.diag('parent spell -> ' + w + ' ' + best.j.kind + ' cost ' + best.j.cost + ' try ' + n);
+      if (spellAccept(best.j, n)) {
+        done[w] = 1; res.ok += n === 1 ? 1 : 0; lastW = ''; n = 0;
+        $('kQ').className = 'q'; $('kQ').textContent = w; SES.board.res = 1; drawBoard();
+        flash(true, rnd(PRAISE), w.toUpperCase().split('').join(' - '), 1800); logAns('s', 'Spell ' + w, w, w, true, true);
+        await say(rnd(PRAISE) + ' ' + w + ' is spelt ' + w.toUpperCase().split('').join(', ') + '.', false); hideFlash();
+      } else if (n >= 3 || best.j.kind === 'wrong') {
+        done[w] = 1; lastW = ''; n = 0;
+        $('kQ').className = 'q'; $('kQ').textContent = w; SES.board.res = 2; SES.board.got = best.j.kind === 'wrong' ? best.j.got : ''; drawBoard();
+        logAns('s', 'Spell ' + w, w, best.j.kind === 'wrong' ? best.j.got.toUpperCase() : '(not heard)', false, true);
+        flash(best.j.kind !== 'wrong', best.j.kind === 'wrong' ? 'Not quite' : 'Let us look at it', w + ' = ' + w.toUpperCase().split('').join(' - '), 5000);
+        await say((best.j.kind === 'wrong' ? 'Not quite. ' : '') + w + ' is spelt ' + w.toUpperCase().split('').join(', ') + '. We will try it again soon.', false); hideFlash();
+      } else {
+        await say('I did not catch all the letters. Say the word and spell it again, slowly.', false);
+      }
+      $('kCap').textContent = '✅ ' + Object.keys(done).join(' · ');
+      await sleep(500);
+    }
+  } finally { spellBtns(false); }
   SES.sets[set.id] = res;
   await say('You got ' + res.ok + ' out of ' + res.n + ' right the first time' + (res.ok === res.n ? '. Perfect!' : '. Well done!'));
 }
@@ -1128,6 +1164,7 @@ $('kPause').onclick = function () {
   if (S.pause) { if (A) { try { A.stopListen(); } catch (e) {} } toast('Paused - press ▶ Go on'); setLive({ mode: 'paused', title: 'Paused' }); }
 };
 $('kClear').onclick = function () { S.clearSpell = true; SES.partial = ''; if (RC && !RC.stopping) { RC.stopping = true; RC.text = ''; A.reciteStop(); } };
+$('kSkip').onclick = function () { S.skipSpell = true; if (S.speaking) { try { A.stopSpeak(); } catch (x) {} if (S.sayId) window.hcSpoke(String(S.sayId)); } if (RC && !RC.stopping) { RC.stopping = true; A.reciteStop(); } };
 $('kType').onclick = function () { S.forceKeys = !S.forceKeys; $('kType').textContent = S.forceKeys ? '🎤 Speak' : '⌨️ Type'; if (A) { try { A.stopListen(); } catch (e) {} } };
 
 /* ================= 🗣️ RECITE THE WHOLE TABLE (v27, app h16+) =================
@@ -1160,13 +1197,13 @@ window.hcRecite = function (id, kind, text) {
 function spellListen(w, o) {
   o = o || {};
   return new Promise(function (res) {
-    var id = String(++nid), quiet = o.words ? 1400 : 2200;
-    RC = { id: id, spell: 1, w: w || '', text: '', at: Date.now(), t0: Date.now(), res: res, stopping: false };
-    A.setGrammar(o.words ? C.wordGrammar(o.words) : C.spellGrammar(w)); A.reciteStart(id);
+    var id = String(++nid), quiet = 2200;
+    RC = { id: id, spell: 1, w: Array.isArray(w) ? '' : (w || ''), text: '', at: Date.now(), t0: Date.now(), res: res, stopping: false };
+    A.setGrammar(C.spellGrammar(w)); A.reciteStart(id);
     var tk = setInterval(function () {
       if (!RC || RC.id !== id) return clearInterval(tk);
       var q = Date.now() - RC.at, total = Date.now() - RC.t0;
-      if (S.stop || (RC.text && q > quiet) || (!RC.text && total > (o.wait || 14000)) || total > 60000) { clearInterval(tk); if (!RC.stopping) { RC.stopping = true; A.reciteStop(); } }
+      if (S.stop || S.skipSpell || S.clearSpell || (RC.text && q > quiet) || (!RC.text && total > (o.wait || 14000)) || total > 60000) { clearInterval(tk); if (!RC.stopping) { RC.stopping = true; A.reciteStop(); } }
     }, 300);
   });
 }
