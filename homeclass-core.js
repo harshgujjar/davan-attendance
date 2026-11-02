@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 21;
+  C.VER = 22;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -434,7 +434,7 @@
   var LET = { ay: 'a', eh: 'a', bee: 'b', be: 'b', see: 'c', sea: 'c', she: 'c', dee: 'd', de: 'd', ee: 'e', ef: 'f', eff: 'f', gee: 'g', ji: 'g', jee: 'g',
     aitch: 'h', edge: 'h', haitch: 'h', eye: 'i', aye: 'i', jay: 'j', kay: 'k', okay: 'k', el: 'l', elle: 'l', em: 'm', en: 'n', oh: 'o', owe: 'o',
     pee: 'p', pea: 'p', cue: 'q', queue: 'q', are: 'r', ar: 'r', es: 's', ess: 's', tea: 't', tee: 't', you: 'u', yu: 'u', vee: 'v', why: 'y',
-    ex: 'x', zed: 'z', zee: 'z', zet: 'z' };
+    ex: 'x', zed: 'z', zee: 'z', zet: 'z', ah: 'a', hey: 'a', bi: 'b', si: 'c', pe: 'p', ti: 't', vi: 'v', ze: 'z', jai: 'j', kai: 'k', ell: 'l', double: 'w' };
   C.letters = function (said, word) {
     word = String(word || '').toLowerCase().replace(/[^a-z]/g, '');
     var w = String(said || '').toLowerCase().replace(/double u|double you/g, 'w').replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean);
@@ -448,6 +448,34 @@
     var r = C.letters(said, word), want = String(word).toLowerCase().replace(/[^a-z]/g, '');
     return { ok: !r.whole && r.text === want, whole: r.whole, got: r.text };
   };
+  /* v35 (user, 01-Nov-2026: "when I spell it takes 'you' ... so much misunderstanding in the Evs class"): spelling is judged here.
+     Letters that SOUND alike (b d p t v c e g z / m n / f s x / a j k / i y / u q) cannot be told apart safely by any engine: if every
+     difference is such a pair the answer is "unsure" (ask him to say it again), never "wrong". */
+  var SIM = ['bdptvcegz', 'mn', 'fsx', 'ajk', 'iy', 'uq'];
+  function simL(a, b) { for (var i = 0; i < SIM.length; i++) if (SIM[i].indexOf(a) >= 0 && SIM[i].indexOf(b) >= 0) return true; return false; }
+  C.spellJudge = function (word, alts) {
+    var want = String(word).toLowerCase().replace(/[^a-z]/g, ''), best = null;
+    (alts || []).forEach(function (said) {
+      var r = C.letters(said, want), got = r.text;
+      if (r.whole) { if (!best) best = { kind: 'whole', got: got }; return; }
+      if (!got) return;
+      var kind = 'wrong', bad = [];
+      if (got === want) kind = 'ok';
+      else if (got.length === want.length) { bad = []; for (var i = 0; i < want.length; i++) if (got[i] !== want[i]) bad.push(i); if (bad.every(function (i) { return simL(got[i], want[i]); })) kind = 'unsure'; }
+      var rank = { ok: 3, unsure: 2, wrong: 1, whole: 0 };
+      if (!best || rank[kind] > rank[best.kind]) best = { kind: kind, got: got, bad: bad };
+    });
+    return best || { kind: 'none', got: '' };
+  };
+  /* the parent says a word from the list (any order): which one? exact, else nearest (1 letter off) */
+  C.pickWord = function (said, words) {
+    var toks = String(said || '').toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean), best = null;
+    function ed(a, b) { var d = []; for (var i = 0; i <= a.length; i++) { d[i] = [i]; } for (var j = 1; j <= b.length; j++) d[0][j] = j;
+      for (i = 1; i <= a.length; i++) for (j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; }
+    words.forEach(function (w) { var lw = String(w).toLowerCase(); toks.forEach(function (t) { var e = t === lw ? 0 : (t.length > 3 && ed(t, lw) <= 1 ? 1 : 9); if (e < 9 && (!best || e < best.e)) best = { w: w, e: e }; }); });
+    return best ? best.w : null;
+  };
+  C.wordGrammar = function (words) { return JSON.stringify(words.map(function (w) { return String(w).toLowerCase(); }).concat(['stop', 'finish', '[unk]'])); };
   /* yes / ready / start words */
   C.isReady = function (t) { return /\b(ready|yes|yeah|yup|start|ok|okay|i am here|i'm here|here|come|coming|let's go|lets go|go)\b/i.test(t || ''); };
   C.isStop = function (t) { return /\b(stop|finish|end class|bye|goodbye|quit|enough)\b/i.test(t || ''); };

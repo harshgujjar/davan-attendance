@@ -1,5 +1,13 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v35 · parent v27 · core v22 (no new APK): spelling in the Evs class "took 'you' / 'ka b' for letters" (log 02-Nov
+  08:08: spelling used Google speech, which does not hear letters). Spelling now uses the offline engine (free recognition, letters shown
+  live, ■ Done or 2.2 s quiet ends it). Letters that sound alike (b d p t v c e g z, m n, f s x, a j k, i y, u q) = "unsure" -> "say it
+  again", never "wrong" (C.spellJudge). A spelling lesson opens 3 ways: 📖 show the words (nothing listens, then "test me"), 🙈 app says
+  the word, 👨‍👩‍👦 Mom / Dad says any word of the list in any order (C.pickWord + word list grammar), the child spells it; the word shows when
+  done. Every spelling is saved as a recording (rec/). Old phones / engine not ready keep the Google way. Functions: askSpell,
+  askSpellG, parentSpell, spellListen, openSpellMenu, C.spellJudge, C.pickWord, C.wordGrammar.
+
 - 01-Nov-2026 · kids v34 · parent v26 · core v21 · app h24 (user: "build all 5 in one go"):
   1. "12 not recognised" (2×6 heard as "one" ×3): each question listens only for the answers that make sense (C.qGrammar: right one,
      near misses, the question said back, commands) - synthetic test 53/54 right heard (was 45/54), wrong answers caught 54/54.
