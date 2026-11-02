@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v37 · parent v29 · core v24: tested on his 2 real spelling recordings (rec/ in DB3, 08:20): free engine heard "b o n e s"
+  as "b o in a yes" (n -> in, e -> a, s -> yes) and his talk as words; with a letters-only list (C.spellGrammar: a-z + letter names,
+  everything else [unk]) it is "bee owe n e s" (right) / "bee owe n e f" (s -> f). ONE sound-alike letter (s / f, b / d ...) is now accepted
+  (the engine cannot tell them), two or more = "say it again". Both recordings now judged right. Functions: C.spellGrammar, C.spellJudge, spellListen.
+
 - 02-Nov-2026 · kids v36 · parent v28 · core v23: spelling "takes so many wrong words, they stay in the block, no way to delete" (log 02-Nov
   08:20: "we were in yes b o n e s" counted as wrong - the free engine also hears room talk). Only LETTERS count now (C.letterSeq; the target
   word inside extra letters = right), the live letters / board show letters only, a short pause before listening (the speaker may still be

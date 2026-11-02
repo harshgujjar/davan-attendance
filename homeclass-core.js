@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 23;
+  C.VER = 24;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -466,11 +466,12 @@
       var r = C.letters(said, want), got = C.letterSeq(said);
       if (r.whole || (!got && String(said || '').toLowerCase().split(/\s+/).indexOf(want) >= 0)) { if (!best) best = { kind: 'whole', got: want }; return; }
       if (!got) return;
-      var kind = 'wrong', bad = [];
+      var kind = 'wrong', bad = [], r1 = false;
       if (got === want || (got.length > want.length && got.indexOf(want) >= 0)) { kind = 'ok'; got = want; }
       else if (got.length === want.length) { bad = []; for (var i = 0; i < want.length; i++) if (got[i] !== want[i]) bad.push(i); if (bad.every(function (i) { return simL(got[i], want[i]); })) kind = 'unsure'; }
+      if (kind === 'unsure' && bad.length === 1) { kind = 'ok'; r1 = true; }     /* ONE sound-alike letter (s / f ...): the engine cannot tell - accepted */
       var rank = { ok: 3, unsure: 2, wrong: 1, whole: 0 };
-      if (!best || rank[kind] > rank[best.kind]) best = { kind: kind, got: got, bad: bad };
+      if (!best || rank[kind] > rank[best.kind]) best = { kind: kind, got: got, bad: bad, alike: r1 };
     });
     return best || { kind: 'none', got: '' };
   };
@@ -481,6 +482,11 @@
       for (i = 1; i <= a.length; i++) for (j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; }
     words.forEach(function (w) { var lw = String(w).toLowerCase(); toks.forEach(function (t) { var e = t === lw ? 0 : (t.length > 3 && ed(t, lw) <= 1 ? 1 : 9); if (e < 9 && (!best || e < best.e)) best = { w: w, e: e }; }); });
     return best ? best.w : null;
+  };
+  /* v37 (his real recordings 02-Nov): with the free engine "b o n e s" came out "b o in a yes" (n -> "in", e -> "a", s -> "yes") and the
+     room talk came out as words; with ONLY letter names allowed it is "bee owe n e s" and the talk becomes [unk]. */
+  C.spellGrammar = function () {
+    return JSON.stringify('a b c d e f g h i j k l m n o p q r s t u v w x y z bee see sea dee gee jay kay oh pee queue are tea you vee why ex zee zed eh eye aye owe okay ay ess em en el ef double ah [unk]'.split(' ').filter(function (x, i, a) { return a.indexOf(x) === i; }));
   };
   C.wordGrammar = function (words) { return JSON.stringify(words.map(function (w) { return String(w).toLowerCase(); }).concat(['stop', 'finish', '[unk]'])); };
   /* yes / ready / start words */
