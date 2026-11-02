@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 22;
+  C.VER = 23;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -451,16 +451,23 @@
   /* v35 (user, 01-Nov-2026: "when I spell it takes 'you' ... so much misunderstanding in the Evs class"): spelling is judged here.
      Letters that SOUND alike (b d p t v c e g z / m n / f s x / a j k / i y / u q) cannot be told apart safely by any engine: if every
      difference is such a pair the answer is "unsure" (ask him to say it again), never "wrong". */
+  /* v36 (log 02-Nov 08:20: "we were in yes b o n e s" counted as wrong): when spelling, ONLY letters count - every other word the engine
+     hears (room talk, "yes", "huh", the speaker's own voice) is dropped */
+  C.letterSeq = function (said) {
+    var w = String(said || '').toLowerCase().replace(/double u|double you/g, 'w').replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean), s = '';
+    w.forEach(function (x) { if (x.length === 1) s += x; else if (LET[x]) s += LET[x]; });
+    return s;
+  };
   var SIM = ['bdptvcegz', 'mn', 'fsx', 'ajk', 'iy', 'uq'];
   function simL(a, b) { for (var i = 0; i < SIM.length; i++) if (SIM[i].indexOf(a) >= 0 && SIM[i].indexOf(b) >= 0) return true; return false; }
   C.spellJudge = function (word, alts) {
     var want = String(word).toLowerCase().replace(/[^a-z]/g, ''), best = null;
     (alts || []).forEach(function (said) {
-      var r = C.letters(said, want), got = r.text;
-      if (r.whole) { if (!best) best = { kind: 'whole', got: got }; return; }
+      var r = C.letters(said, want), got = C.letterSeq(said);
+      if (r.whole || (!got && String(said || '').toLowerCase().split(/\s+/).indexOf(want) >= 0)) { if (!best) best = { kind: 'whole', got: want }; return; }
       if (!got) return;
       var kind = 'wrong', bad = [];
-      if (got === want) kind = 'ok';
+      if (got === want || (got.length > want.length && got.indexOf(want) >= 0)) { kind = 'ok'; got = want; }
       else if (got.length === want.length) { bad = []; for (var i = 0; i < want.length; i++) if (got[i] !== want[i]) bad.push(i); if (bad.every(function (i) { return simL(got[i], want[i]); })) kind = 'unsure'; }
       var rank = { ok: 3, unsure: 2, wrong: 1, whole: 0 };
       if (!best || rank[kind] > rank[best.kind]) best = { kind: kind, got: got, bad: bad };

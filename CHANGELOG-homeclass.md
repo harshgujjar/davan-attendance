@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v36 · parent v28 · core v23: spelling "takes so many wrong words, they stay in the block, no way to delete" (log 02-Nov
+  08:20: "we were in yes b o n e s" counted as wrong - the free engine also hears room talk). Only LETTERS count now (C.letterSeq; the target
+  word inside extra letters = right), the live letters / board show letters only, a short pause before listening (the speaker may still be
+  talking), and a ⌫ Clear button during spelling: throws away what was heard and listens again ("OK. Spell again"). Functions: C.letterSeq,
+  C.spellJudge, askSpell (kClear).
+
 - 02-Nov-2026 · kids v35 · parent v27 · core v22 (no new APK): spelling in the Evs class "took 'you' / 'ka b' for letters" (log 02-Nov
   08:08: spelling used Google speech, which does not hear letters). Spelling now uses the offline engine (free recognition, letters shown
   live, ■ Done or 2.2 s quiet ends it). Letters that sound alike (b d p t v c e g z, m n, f s x, a j k, i y, u q) = "unsure" -> "say it
