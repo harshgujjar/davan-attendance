@@ -1,5 +1,14 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v43 · parent v35 · core v29: (1) STUCK on "Welcome Vihaan!" (photo 21:22, log 21:16 and 21:21 "Promise error: Cannot read properties of
+  null (reading 'kid')"): finish() said "Class over!" for several seconds with S.running already false; a new class started in that time
+  and then finish() ran `SES = null` - wiping the NEW class. Now it clears SES only when it is still its own, does not switch the busy /
+  keep-awake flags off under a new class, a new class silences the old goodbye, and runClass survives a failing finish(). Reproduced and
+  fixed in a browser test (before: that error; after: the class runs). (2) His real table-3 recitations (21:18, 21:20; rec/): the engine
+  returned "thirty three" for 3, "one" for twelve, "ten" for fifteen, "ready" for eighteen - he said it right and got "wrong". An answer one
+  digit away from the right one is now "unsure" (that line asked again alone), up to 6 lines (was 2); "wrong" only when clearly different.
+  Both recitations: no wrong lines (4 and 1 lines asked again). Functions: finish, runClass, C.checkRecite (alike), reciteTable.
+
 - 02-Nov-2026 · kids v42 · parent v34: user photo 10:05 (Mom / Dad mode showed only dots, no letters) + "the pop-up I want is when all is correct and
   the app repeats the word - at that time". (1) Mom / Dad mode: while he spells, the word the letters fit best (C.spellWhich) is used for the
   boxes and the marked chips, so the letters appear live. (2) Right answer: the app says its praise, THEN the word pops up and stays while the app
