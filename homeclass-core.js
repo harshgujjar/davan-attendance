@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 24;
+  C.VER = 25;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -460,18 +460,38 @@
   };
   var SIM = ['bdptvcegz', 'mn', 'fsx', 'ajk', 'iy', 'uq'];
   function simL(a, b) { for (var i = 0; i < SIM.length; i++) if (SIM[i].indexOf(a) >= 0 && SIM[i].indexOf(b) >= 0) return true; return false; }
+  /* v38 (his real recordings 02-Nov 08:39-08:40, "for n it tells 'en', all wrong"): N is said "en" and the engine returns "e" + "en", or
+     [unk], or "i". So the heard tokens are ALIGNED to the target word: a letter token that matches costs 0, a sound-alike 0.5, [unk]
+     can be any one letter (0.3), an extra "e" before "en" 0.2, other extra tokens 0.6, a missing letter 1, a clearly different letter 1.5.
+     total <= 1: right; <= 2.6 (or anything with [unk]): unsure -> say it again; else wrong. */
+  function spellTokens(said) {
+    var w = String(said || '').toLowerCase().replace(/double u|double you/g, 'w').replace(/\[unk\]/g, ' ? ').replace(/[^a-z? ]/g, ' ').split(/\s+/).filter(Boolean), t = [];
+    w.forEach(function (x) { if (x === '?') t.push({ u: 1 }); else if (x.length === 1) t.push({ c: x }); else if (LET[x]) t.push({ c: LET[x] }); });
+    return t;
+  }
+  function spellCost(t, want) {
+    var n = t.length, m = want.length, D = [], i, j;
+    function extra(k) { var x = t[k]; if (x.u) return 0.2; if (x.c === 'e' && t[k + 1] && t[k + 1].c === 'n') return 0.2; return 0.6; }
+    function sub(k, c) { var x = t[k]; if (x.u) return 0.3; if (x.c === c) return 0; if (simL(x.c, c)) return 0.5; return 1.5; }
+    for (i = 0; i <= n; i++) { D[i] = []; for (j = 0; j <= m; j++) D[i][j] = 0; }
+    for (j = 1; j <= m; j++) D[0][j] = j * 1.2;
+    for (i = 1; i <= n; i++) D[i][0] = D[i - 1][0] + extra(i - 1);
+    for (i = 1; i <= n; i++) for (j = 1; j <= m; j++) D[i][j] = Math.min(D[i - 1][j - 1] + sub(i - 1, want[j - 1]), D[i - 1][j] + extra(i - 1), D[i][j - 1] + 1.2);
+    return D[n][m];
+  }
   C.spellJudge = function (word, alts) {
     var want = String(word).toLowerCase().replace(/[^a-z]/g, ''), best = null;
     (alts || []).forEach(function (said) {
-      var r = C.letters(said, want), got = C.letterSeq(said);
-      if (r.whole || (!got && String(said || '').toLowerCase().split(/\s+/).indexOf(want) >= 0)) { if (!best) best = { kind: 'whole', got: want }; return; }
-      if (!got) return;
-      var kind = 'wrong', bad = [], r1 = false;
-      if (got === want || (got.length > want.length && got.indexOf(want) >= 0)) { kind = 'ok'; got = want; }
-      else if (got.length === want.length) { bad = []; for (var i = 0; i < want.length; i++) if (got[i] !== want[i]) bad.push(i); if (bad.every(function (i) { return simL(got[i], want[i]); })) kind = 'unsure'; }
-      if (kind === 'unsure' && bad.length === 1) { kind = 'ok'; r1 = true; }     /* ONE sound-alike letter (s / f ...): the engine cannot tell - accepted */
+      var low = String(said || '').toLowerCase();
+      if (C.letters(said, want).whole || (!/[a-z]/.test(low.replace(/\[unk\]/g, '')) ? false : low.replace(/\[unk\]/g, ' ').split(/\s+/).indexOf(want) >= 0 && !spellTokens(said).length)) { if (!best) best = { kind: 'whole', got: want }; return; }
+      var t = spellTokens(said); if (!t.length) return;
+      var cost = spellCost(t, want);
+      /* he may say it twice or talk before / after: the best stretch of about the word's length counts (small price for the rest) */
+      for (var lo = 0; lo < t.length; lo++) for (var ln = Math.max(1, want.length - 2); ln <= want.length + 2 && lo + ln <= t.length; ln++) if (ln < t.length) cost = Math.min(cost, spellCost(t.slice(lo, lo + ln), want) + 0.3);
+      var hasU = t.some(function (x) { return x.u; }), got = t.map(function (x) { return x.u ? '?' : x.c; }).join('');
+      var kind = cost < 1.0 ? 'ok' : (cost <= 2.6 || hasU) ? 'unsure' : 'wrong';
       var rank = { ok: 3, unsure: 2, wrong: 1, whole: 0 };
-      if (!best || rank[kind] > rank[best.kind]) best = { kind: kind, got: got, bad: bad, alike: r1 };
+      if (!best || rank[kind] > rank[best.kind] || (kind === best.kind && cost < best.cost)) best = { kind: kind, got: kind === 'ok' ? want : got, cost: Math.round(cost * 10) / 10, alike: kind === 'ok' && got !== want };
     });
     return best || { kind: 'none', got: '' };
   };
@@ -485,8 +505,12 @@
   };
   /* v37 (his real recordings 02-Nov): with the free engine "b o n e s" came out "b o in a yes" (n -> "in", e -> "a", s -> "yes") and the
      room talk came out as words; with ONLY letter names allowed it is "bee owe n e s" and the talk becomes [unk]. */
-  C.spellGrammar = function () {
-    return JSON.stringify('a b c d e f g h i j k l m n o p q r s t u v w x y z bee see sea dee gee jay kay oh pee queue are tea you vee why ex zee zed eh eye aye owe okay ay ess em en el ef double ah [unk]'.split(' ').filter(function (x, i, a) { return a.indexOf(x) === i; }));
+  var LNAME = { a: 'ay', b: 'bee', c: 'see', d: 'dee', e: 'e', f: 'ef', g: 'gee', h: 'aitch', i: 'eye', j: 'jay', k: 'kay', l: 'el', m: 'em', n: 'en', o: 'oh', p: 'pee', q: 'queue', r: 'are', s: 'ess', t: 'tea', u: 'you', v: 'vee', w: 'double', x: 'ex', y: 'why', z: 'zee' };
+  C.spellGrammar = function (word) {
+    var g = 'a b c d e f g h i j k l m n o p q r s t u v w x y z bee see sea dee gee jay kay oh pee queue are tea you vee why ex zee zed eh eye aye owe okay ay ess em en el ef double ah'.split(' '), L = String(word || '').toLowerCase().replace(/[^a-z]/g, '').split('');
+    if (L.length) { g.push(L.join(' ')); g.push(L.map(function (c) { return LNAME[c]; }).join(' ')); g.push(L.map(function (c, i) { return i % 2 ? c : LNAME[c]; }).join(' ')); g.push(L.map(function (c, i) { return i % 2 ? LNAME[c] : c; }).join(' ')); }   /* the spelled word itself helps the engine hold on to the letters */
+    g.push('[unk]');
+    return JSON.stringify(g.filter(function (x, i, a) { return a.indexOf(x) === i; }));
   };
   C.wordGrammar = function (words) { return JSON.stringify(words.map(function (w) { return String(w).toLowerCase(); }).concat(['stop', 'finish', '[unk]'])); };
   /* yes / ready / start words */
