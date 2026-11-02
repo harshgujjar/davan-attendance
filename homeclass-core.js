@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 26;
+  C.VER = 27;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -519,6 +519,21 @@
   C.spellWhich = function (words, said) {
     var best = null; words.forEach(function (w) { var j = C.spellJudge(w, [said]); if (j.kind === 'none' || j.kind === 'whole') return; if (!best || j.cost < best.j.cost) best = { w: w, j: j }; });
     return best;
+  };
+  /* v40 (his 09:15 recordings: the live letters showed "e s" / "e m" for S / M, he thought it was wrong, pressed Clear in the middle of the
+     word): while he spells, only letters that FIT the target word are shown (a dot for the rest) - raw engine noise is never shown */
+  C.liveLetters = function (said, word) {
+    var want = String(word || '').toLowerCase().replace(/[^a-z]/g, ''), t = spellTokens(said), out = [], p = 0, i;
+    if (!want) return t.filter(function (x) { return !(x.c === 'e'); }).map(function () { return '.'; }).join('');
+    for (i = 0; i < want.length; i++) out.push('.');
+    for (i = 0; i < t.length && p < want.length; i++) {
+      var x = t[i];
+      if (x.u) { p++; continue; }
+      if (x.c === want[p] || simL(x.c, want[p])) { out[p] = want[p]; p++; }
+      else if (x.c === 'e' && t[i + 1] && t[i + 1].c && 'mnflsx'.indexOf(t[i + 1].c) >= 0) continue;
+      else if (p + 1 < want.length && (x.c === want[p + 1] || simL(x.c, want[p + 1]))) { out[p + 1] = want[p + 1]; p += 2; }
+    }
+    return out.join('');
   };
   C.isSkip = function (said) { return /\b(skip|next|pass)\b/.test(String(said || '').toLowerCase()); };
   C.wordGrammar = function (words) { return JSON.stringify(words.map(function (w) { return String(w).toLowerCase(); }).concat(['stop', 'finish', '[unk]'])); };

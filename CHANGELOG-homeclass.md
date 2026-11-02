@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v40 · parent v32 · core v27: "when I say S it takes something else" - his 09:15 recordings: S / M came back as "e s" / "e m" and the
+  live letters showed them raw, so it looked wrong and he pressed Clear in the middle of the word (the next listen caught the rest of the
+  word). The live boxes now show only letters that FIT the target (C.liveLetters: sound-alike counts, extra "e" before m n f l s x skipped),
+  a dot for the rest; the line under the orb no longer prints raw letters. Real recordings of 9 words: 4 accepted at once, 3 more after
+  one repeat. Functions: C.liveLetters, boardHTML (s).
+
 - 02-Nov-2026 · kids v39 · parent v31 · core v26: from 10 real spelling recordings (bones / muscles, rec/): the engine splits "em" / "en" / "es"
   into "e" + letter (muscles: "e m you ess see l e ess"), loses letters, and the word list for "Mom / Dad says the word" never matched real
   speech ("we will any is"). Fixes: (1) an extra "e" before m n f l s x costs .2 and a heard "e" may stand for those letters; (2) Mom / Dad
