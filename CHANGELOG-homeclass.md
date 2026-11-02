@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v42 · parent v34: user photo 10:05 (Mom / Dad mode showed only dots, no letters) + "the pop-up I want is when all is correct and
+  the app repeats the word - at that time". (1) Mom / Dad mode: while he spells, the word the letters fit best (C.spellWhich) is used for the
+  boxes and the marked chips, so the letters appear live. (2) Right answer: the app says its praise, THEN the word pops up and stays while the app
+  says "bones is spelt B, O, N, E, S" (popWord now stays until hideFlash; before it vanished after 2.6 s, in the middle of the speech).
+  Same for "Let us look at it" / "Not quite". Functions: hcRecite (RC.list), popWord, askSpell, parentSpell.
+
 - 02-Nov-2026 · kids v41 · parent v33 · core v28: user: "pop up what it is reading, marked". While spelling, the line under the mic shows each heard
   letter as a chip that pops in (C.heardView: green = fits the word, amber = sound-alike, red = a different / extra letter, grey ? = not
   understood; the "e"+letter splits are hidden); when the word is finished a big pop-up shows the word with "I heard: ..." chips (right, doubtful
