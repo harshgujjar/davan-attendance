@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 25;
+  C.VER = 26;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -471,8 +471,8 @@
   }
   function spellCost(t, want) {
     var n = t.length, m = want.length, D = [], i, j;
-    function extra(k) { var x = t[k]; if (x.u) return 0.2; if (x.c === 'e' && t[k + 1] && t[k + 1].c === 'n') return 0.2; return 0.6; }
-    function sub(k, c) { var x = t[k]; if (x.u) return 0.3; if (x.c === c) return 0; if (simL(x.c, c)) return 0.5; return 1.5; }
+    function extra(k) { var x = t[k]; if (x.u) return 0.2; if (x.c === 'e' && t[k + 1] && t[k + 1].c && 'mnflsx'.indexOf(t[k + 1].c) >= 0) return 0.2; return 0.6; }   /* em / en / ef / el / es / ex come back as "e" + the letter */
+    function sub(k, c) { var x = t[k]; if (x.u) return 0.3; if (x.c === c) return 0; if (simL(x.c, c) || (x.c === 'e' && 'mnflsx'.indexOf(c) >= 0)) return 0.5; return 1.5; }
     for (i = 0; i <= n; i++) { D[i] = []; for (j = 0; j <= m; j++) D[i][j] = 0; }
     for (j = 1; j <= m; j++) D[0][j] = j * 1.2;
     for (i = 1; i <= n; i++) D[i][0] = D[i - 1][0] + extra(i - 1);
@@ -489,7 +489,7 @@
       /* he may say it twice or talk before / after: the best stretch of about the word's length counts (small price for the rest) */
       for (var lo = 0; lo < t.length; lo++) for (var ln = Math.max(1, want.length - 2); ln <= want.length + 2 && lo + ln <= t.length; ln++) if (ln < t.length) cost = Math.min(cost, spellCost(t.slice(lo, lo + ln), want) + 0.3);
       var hasU = t.some(function (x) { return x.u; }), got = t.map(function (x) { return x.u ? '?' : x.c; }).join('');
-      var kind = cost < 1.0 ? 'ok' : (cost <= 2.6 || hasU) ? 'unsure' : 'wrong';
+      var kind = cost < 1.0 ? 'ok' : (cost <= 3.4 || hasU || t.length < want.length * 0.6) ? 'unsure' : 'wrong';
       var rank = { ok: 3, unsure: 2, wrong: 1, whole: 0 };
       if (!best || rank[kind] > rank[best.kind] || (kind === best.kind && cost < best.cost)) best = { kind: kind, got: kind === 'ok' ? want : got, cost: Math.round(cost * 10) / 10, alike: kind === 'ok' && got !== want };
     });
@@ -507,11 +507,20 @@
      room talk came out as words; with ONLY letter names allowed it is "bee owe n e s" and the talk becomes [unk]. */
   var LNAME = { a: 'ay', b: 'bee', c: 'see', d: 'dee', e: 'e', f: 'ef', g: 'gee', h: 'aitch', i: 'eye', j: 'jay', k: 'kay', l: 'el', m: 'em', n: 'en', o: 'oh', p: 'pee', q: 'queue', r: 'are', s: 'ess', t: 'tea', u: 'you', v: 'vee', w: 'double', x: 'ex', y: 'why', z: 'zee' };
   C.spellGrammar = function (word) {
-    var g = 'a b c d e f g h i j k l m n o p q r s t u v w x y z bee see sea dee gee jay kay oh pee queue are tea you vee why ex zee zed eh eye aye owe okay ay ess em en el ef double ah'.split(' '), L = String(word || '').toLowerCase().replace(/[^a-z]/g, '').split('');
-    if (L.length) { g.push(L.join(' ')); g.push(L.map(function (c) { return LNAME[c]; }).join(' ')); g.push(L.map(function (c, i) { return i % 2 ? c : LNAME[c]; }).join(' ')); g.push(L.map(function (c, i) { return i % 2 ? LNAME[c] : c; }).join(' ')); }   /* the spelled word itself helps the engine hold on to the letters */
+    var g = 'a b c d e f g h i j k l m n o p q r s t u v w x y z bee see sea dee gee jay kay oh pee queue are tea you vee why ex zee zed eh eye aye owe okay ay ess em en el ef double ah skip next'.split(' ');
+    (Array.isArray(word) ? word : [word]).forEach(function (wd) {
+      var L = String(wd || '').toLowerCase().replace(/[^a-z]/g, '').split(''); if (L.length < 2) return;
+      g.push(L.join(' ')); g.push(L.map(function (c) { return LNAME[c]; }).join(' ')); g.push(L.map(function (c, i) { return i % 2 ? c : LNAME[c]; }).join(' ')); g.push(L.map(function (c, i) { return i % 2 ? LNAME[c] : c; }).join(' '));   /* the spelled word itself helps the engine hold on to the letters */
+    });
     g.push('[unk]');
     return JSON.stringify(g.filter(function (x, i, a) { return a.indexOf(x) === i; }));
   };
+  /* parent says a word, the child spells: which word of the list was it? the one the letters fit best */
+  C.spellWhich = function (words, said) {
+    var best = null; words.forEach(function (w) { var j = C.spellJudge(w, [said]); if (j.kind === 'none' || j.kind === 'whole') return; if (!best || j.cost < best.j.cost) best = { w: w, j: j }; });
+    return best;
+  };
+  C.isSkip = function (said) { return /\b(skip|next|pass)\b/.test(String(said || '').toLowerCase()); };
   C.wordGrammar = function (words) { return JSON.stringify(words.map(function (w) { return String(w).toLowerCase(); }).concat(['stop', 'finish', '[unk]'])); };
   /* yes / ready / start words */
   C.isReady = function (t) { return /\b(ready|yes|yeah|yup|start|ok|okay|i am here|i'm here|here|come|coming|let's go|lets go|go)\b/i.test(t || ''); };

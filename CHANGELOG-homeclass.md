@@ -1,5 +1,14 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v39 · parent v31 · core v26: from 10 real spelling recordings (bones / muscles, rec/): the engine splits "em" / "en" / "es"
+  into "e" + letter (muscles: "e m you ess see l e ess"), loses letters, and the word list for "Mom / Dad says the word" never matched real
+  speech ("we will any is"). Fixes: (1) an extra "e" before m n f l s x costs .2 and a heard "e" may stand for those letters; (2) Mom / Dad
+  mode no longer listens for the spoken word - the child's LETTERS are matched against every word left in the list (C.spellWhich, grammar holds
+  all words spelled out); (3) a doubtful hearing is never "wrong": ask again, each try accepts a little less perfect hearing (try 2: cost
+  < 1.6, try 3: < 2.6), then the word is shown and it moves on; "Not quite" only for clearly different letters (cost > 3.4); (4) ⏭ Skip
+  button + saying skip / next; skipped = no re-ask. Gain / loudness tests on the recordings changed nothing (engine limit, not volume).
+  Functions: spellAccept, askSpell, skipWord, parentSpell, C.spellWhich, C.isSkip, C.spellGrammar(list).
+
 - 02-Nov-2026 · kids v38 · parent v30 · core v25: "for N it says 'en', all wrong" - 5 real recordings of "bones" (rec/ 08:19-08:40): N is said "en"
   and the engine returned "e"+"en", [unk] or "i"; the letters list now also holds the target word spelled out (4 forms) - 3 of the 3
   clear recordings came out exactly (bee oh n e s). The heard tokens are ALIGNED to the target word (C.spellJudge, edit cost: sound-alike
