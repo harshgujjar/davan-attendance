@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 02-Nov-2026 · kids v41 · parent v33 · core v28: user: "pop up what it is reading, marked". While spelling, the line under the mic shows each heard
+  letter as a chip that pops in (C.heardView: green = fits the word, amber = sound-alike, red = a different / extra letter, grey ? = not
+  understood; the "e"+letter splits are hidden); when the word is finished a big pop-up shows the word with "I heard: ..." chips (right, doubtful
+  and wrong). Log 09:50-09:56 (before this): 10 of 12 words accepted on the first try, the other 2 on the second. Functions: C.heardView,
+  chipsHTML, popWord (askSpell, parentSpell).
+
 - 02-Nov-2026 · kids v40 · parent v32 · core v27: "when I say S it takes something else" - his 09:15 recordings: S / M came back as "e s" / "e m" and the
   live letters showed them raw, so it looked wrong and he pressed Clear in the middle of the word (the next listen caught the rest of the
   word). The live boxes now show only letters that FIT the target (C.liveLetters: sound-alike counts, extra "e" before m n f l s x skipped),

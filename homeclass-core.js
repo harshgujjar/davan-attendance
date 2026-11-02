@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 27;
+  C.VER = 28;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -534,6 +534,22 @@
       else if (p + 1 < want.length && (x.c === want[p + 1] || simL(x.c, want[p + 1]))) { out[p + 1] = want[p + 1]; p += 2; }
     }
     return out.join('');
+  };
+  /* v41 (user, 02-Nov-2026: "pop up what it is reading, marked"): what the engine heard, cleaned of the "e" + letter splits and marked against
+     the target: st 'g' = the letter fits, 'a' = sound-alike (accepted), 'x' = a different letter, 'u' = not understood, 'n' = no target */
+  C.heardView = function (said, word) {
+    var want = String(word || '').toLowerCase().replace(/[^a-z]/g, ''), t = spellTokens(said), out = [], p = 0;
+    for (var i = 0; i < t.length; i++) {
+      var x = t[i];
+      if (x.u) { out.push({ c: '?', st: 'u' }); p++; continue; }
+      if (!want) { if (x.c === 'e' && t[i + 1] && t[i + 1].c && 'mnflsx'.indexOf(t[i + 1].c) >= 0) continue; out.push({ c: x.c, st: 'n' }); continue; }
+      if (p < want.length && x.c === want[p]) { out.push({ c: x.c, st: 'g' }); p++; }
+      else if (p < want.length && simL(x.c, want[p])) { out.push({ c: x.c, st: 'a' }); p++; }
+      else if (x.c === 'e' && t[i + 1] && t[i + 1].c && 'mnflsx'.indexOf(t[i + 1].c) >= 0) continue;
+      else if (p + 1 < want.length && (x.c === want[p + 1] || simL(x.c, want[p + 1]))) { out.push({ c: x.c, st: x.c === want[p + 1] ? 'g' : 'a' }); p += 2; }
+      else { out.push({ c: x.c, st: 'x' }); if (t[i + 1] && !t[i + 1].u && p + 1 < want.length && t[i + 1].c === want[p + 1]) p++; }
+    }
+    return out;
   };
   C.isSkip = function (said) { return /\b(skip|next|pass)\b/.test(String(said || '').toLowerCase()); };
   C.wordGrammar = function (words) { return JSON.stringify(words.map(function (w) { return String(w).toLowerCase(); }).concat(['stop', 'finish', '[unk]'])); };
