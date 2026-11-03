@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1989 · 03-Nov-2026 IST
+User (screenshot): "how to go back" + students showed 0 old widgets. ← Global Switches button on the report; when DB2 davan_pub/wupd_idx is empty (the Cloudflare worker makes it at its evening run, today's ran before the deploy) the report builds it from student_widget_report + student_widget_active (2 reads, about 70 KB, only then) and saves it - the student app uses it too. Functions: wurInit, wurBuildIdx (new).
+
 ## v1988 · 03-Nov-2026 IST
 User (screenshot): "how do I know which one is on" - only the text turned green on the orange buttons. The ON button is now green-filled with ✅, the others dimmed, and a "Now: ..." line names the mode (red for Hard / Auto). No new reads. Functions: gswStuMinShow, gswMinShow.
 
