@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · parent v43 (user: "why hear in the kids phone - I want to hear it on the parent's phone"): 🔊 Hear it (how to say the name, ja / za word) plays with the parent app's own voice
+  (HCP.speak, the same TTS the lesson editor uses; a browser uses speechSynthesis); only a phone with neither voice falls back to the kids phone. The sample text goes through
+  C.speakNums like the kids app (words, pause between table and line). No new APK needed. Tested with a mock HCP: the parent phone said "five one za five. five two za ten.
+  twenty one, three za sixty three." and "Hello Aar yun! Ready to shine?", no command to the kids phone. Functions: hearHere, playJoin, data-hear.
+
 - 03-Nov-2026 · kids v53 · parent v42 (user: "how about testing za then ja - give option in the parents app to set and check"): Settings -> "The word between the line and the answer":
   ja / za / jha / jaa / zaa / is, saved as cfg/joiner; tapping one saves it and the kids phone plays "five one <word> five. five two <word> ten. twenty one,
   three <word> sixty three." (cmd say, raw) so the parent hears the real voice; 🔊 repeats it. The kids app replaces "ja" in every spoken line with the chosen word
