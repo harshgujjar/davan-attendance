@@ -1,5 +1,14 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · kids v46 (user photos 9:19 / 9:24: "skip the warm-up; test me while learning the table; the screen shows the old data"): (1) ⏭ Skip warm-up
+  (this class only) ends the whole warm-up; (2) 🙈 Test me now while "say it after me" - the table goes to the test without seeing (also in "Say it
+  with the app" practice); (3) buttons by section (S.sect): Skip + Skip warm-up in the warm-up; Skip, Test me now, Next table, Go to table while
+  learning; Next table / Go to table in the test and table questions; "⏭ Skip word" + Clear in spelling; Pause / Stop / Type always. (4) stage(): at
+  every change of part (warm-up, table, round end, lesson, next word / question) the old question, board, heard line and pop-up are cleared and a title
+  card ("📚 Table of 3") shows while the app talks - tested: during "Let's learn the table of 3" the screen shows the card, not the last warm-up
+  question. Skip lesson was NOT added (user: skip the word, not the lesson). Functions: setSect, stage, chk (WARMX / TESTN), tablesLearn, practice,
+  runSet, askSpell, askOral, hbShow.
+
 - 03-Nov-2026 · kids v45 · parent v36 · core v30 ("Build 1", user: "it is the software not hearing, not the child's mistake"): (1) answer finds its line: log 08:37
   "three ONE twenty four" / "three za into twenty four" - the line number is what the engine loses; an answer above the table's range (12, 15, 18 ...) is
   unique to one line, so it is read as that line when it fits between the neighbouring lines in the order spoken (3 x 8 = 24 now counts). (2) the long
