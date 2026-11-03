@@ -359,6 +359,7 @@ async function coachRun(env) {
   if (n) { const day = istDate(Date.now()), use = (await db2('GET', 'davan_pub/ai_use/' + day)) || {}; await db2('PATCH', 'davan_pub/ai_use/' + day, { n: (use.n || 0) + n, 'p/coach': (((use.p || {}).coach) || 0) + n }); }
 }
 
+// v17 (user, 03-Nov-2026): the AI prompt says "in the last 7 days" / "in the last 30 days" (rolling windows), not "this week" / "this month".
 // v15 (user, 31-Oct-2026: "add AI paragraph with ✨ in the gold / silver analysis"): after the news job (fetch_news v1.9.0) writes the numbers to DB3
 // widgetConfig/newsSourceConfig/ratesInsight, the worker writes ONE short paragraph about them to .../ratesInsight/ai {k, d, text, prov, at}; rates.html shows it
 // under "✨ AI · College AI" only when ai.k matches (the news job drops `ai` each time the rates change). Runs on the existing daily timer at 12:15 / 12:45 / 15:00 UTC
@@ -371,7 +372,7 @@ async function ratesAiRun(env) {
   if (cfg.on === false || (use.n || 0) >= (+cfg.max || 300)) return;
   const R = n => '₹' + Math.round(Math.abs(n)).toLocaleString('en-IN');
   const ch = (o, w) => o && typeof o.d === 'number' ? w + ' ' + (o.d < 0 ? 'down ' : 'up ') + R(o.d) + ' (' + Math.abs(o.p) + '%)' : '';
-  const line = (A, nm, u) => !A ? '' : nm + ' per ' + u + ': ' + R(A.cur) + '; ' + [ch(A.ch.day, 'since yesterday'), ch(A.ch.week, 'this week'), ch(A.ch.month, 'this month')].filter(Boolean).join(', ') +
+  const line = (A, nm, u) => !A ? '' : nm + ' per ' + u + ': ' + R(A.cur) + '; ' + [ch(A.ch.day, 'since yesterday'), ch(A.ch.week, 'in the last 7 days'), ch(A.ch.month, 'in the last 30 days')].filter(Boolean).join(', ') +
     '; highest of the year ' + R(A.hi.v) + ', lowest ' + R(A.lo.v) + '; buy zone up to ' + R(A.buyBelow) + ', sell zone from ' + R(A.sellFrom) + '; app signal: ' + A.verdict + '.';
   const prompt = ['IBJA rates of ' + I.asOf + ' (before 3% GST and making):', line(I.silver, 'Silver', 'kg'), line(I.gold24, 'Gold 24K', '10 g'), line(I.gold22, 'Gold 22K', '10 g')].filter(Boolean).join('\n');
   const messages = [{ role: 'system', content: 'You write for the students and staff of Davan College, Davangere (India). Using ONLY the numbers given, write ONE paragraph of 70 to 90 words in simple English: what silver and gold did (use rupee amounts and %), whether it looks sensible to start buying in small parts or to wait, and when to think about selling a part. No markdown, no emoji, no promises about the future. End with: General guidance, not financial advice.' }, { role: 'user', content: prompt }];
@@ -449,6 +450,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 16, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 17, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
   },
 };
