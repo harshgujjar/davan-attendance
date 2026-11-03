@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 35;
+  C.VER = 36;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -454,6 +454,9 @@
     for (i = 1; i <= a.length; i++) for (j = 1; j <= b.length; j++) m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
     return m[a.length][b.length] <= 1;
   };
+  /* v54 (Aryan's log 21:41-21:44: "nine" for 88, "sixty" for 161, "seventy" for 170): a heard answer far smaller than the right one is the engine dropping
+     the first words ("eighty", "one hundred"), not a mistake -> asked once more */
+  C.numTruncated = function (n, ans) { return n !== null && n < ans && ((ans >= 100 && n < 100) || (ans >= 20 && n < 10) || (ans >= 30 && n <= ans / 4)); };
   C.tableJudge = function (alts, a, b) {
     alts = (alts || []).filter(Boolean);
     var first = alts.length ? C.tableOne(alts[0], a, b) : { n: null, ok: false };
