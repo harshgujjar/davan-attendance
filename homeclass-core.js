@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 29;
+  C.VER = 30;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -281,6 +281,23 @@
     return out;
   }
   function skipSep(at, i) { while (i < at.length && (at[i].sep || at[i].unk)) i++; return i; }
+  /* every number spoken in the text, in order (answers are found even when the line number next to them was misheard) */
+  C.numsIn = function (text) {
+    var words = String(text || '').toLowerCase().replace(/\[unk\]/g, ' unk ').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean), at = [], out = [];
+    words.forEach(function (w) {
+      if (SEP.test(w)) at.push({ sep: true }); else if (w === 'unk') at.push({ unk: true });
+      else if (/^\d+$/.test(w)) at.push({ v: +w, d: true }); else if (w === 'hundred') at.push({ v: 100, h: true }); else if (w in ATOM) at.push({ v: ATOM[w] });
+    });
+    for (var i = 0; i < at.length;) {
+      var done = false;
+      for (var n = Math.min(4, at.length - i); n >= 1 && !done; n--) {
+        var part = at.slice(i, i + n); if (part.some(function (x) { return x.sep || x.unk; })) continue;
+        var v = oneNum(part); if (v !== null) { out.push(v); i += n; done = true; }
+      }
+      if (!done) i++;
+    }
+    return out;
+  };
   C.parseRecite = function (text, t, up) {
     var words = String(text || '').toLowerCase().replace(/\[unk\]/g, ' unk ').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean), at = [];
     words.forEach(function (w) {
@@ -331,6 +348,18 @@
   C.checkRecite = function (text, t, up) {
     var facts = C.parseRecite(text, t, up), seen = {}, wrong = [], done = [];
     /* he goes back and says lines again (log 21:46: ... one seven seven, one five za five, one six six ...): his LATEST version of each line counts */
+    /* v45 (user, 03-Nov: "3 x 8 = 24, he says it, it is not taken" - the engine heard "three ONE twenty four", "three za into twenty four"): the line
+       number is the part it loses; an answer above the table's range (12, 15, 18 ... in table 3) is unique to ONE line, so a heard answer
+       that belongs to another line is that line's answer, and a line whose answer is heard anywhere counts */
+    var big = {}; for (var bb = 1; bb <= up; bb++) { var vv = t * bb; if (vv > up && vv !== t) big[vv] = bb; }
+    var raw = facts; facts = [];
+    raw.forEach(function (f, k) {
+      if (f.said !== null && f.said !== t * f.b && big[f.said]) {          /* "three ONE twenty four": the answer belongs to line 8, between its neighbours in the order he said them */
+        var b2 = big[f.said], pb = facts.length ? facts[facts.length - 1].b : 0, nb = raw[k + 1] ? raw[k + 1].b : up + 1;
+        if (pb < b2 && b2 < nb) { facts.push({ b: b2, said: f.said, re: 1 }); return; }
+      }
+      facts.push(f);
+    });
     var last = {}; facts.forEach(function (f) { if (f.said !== null || last[f.b] === undefined) last[f.b] = f; });
     facts = Object.keys(last).map(function (b) { return last[b]; }).sort(function (a, b) { return a.b - b.b; });
     facts.forEach(function (f) {
@@ -355,7 +384,10 @@
       for (i = 1; i <= a.length; i++) for (j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
       return d[a.length][b.length] <= 1 || (a.length > 1 && b.length > 1 && a.slice(0, -1) === b.slice(0, -1) && Math.abs(+a.slice(-1) - +b.slice(-1)) <= 3 && false);
     };
-    var unsure = wrong.filter(function (w) { return alike(w.said, t * w.b) || fzB[w.b]; }), sure = wrong.filter(function (w) { return !alike(w.said, t * w.b) && !fzB[w.b]; });
+    /* v45 (user, 03-Nov: "it is the software not hearing, not his mistake"): the long recitation is the LEAST reliable listening (slow speech, pauses,
+       misheard numbers, lines said twice). It never says "wrong" any more: every doubtful line is asked again alone - a short question with only
+       the right answers allowed, where the hearing is good - and THAT decides. */
+    var unsure = wrong.slice(), sure = [];
     return { ok: !wrong.length && !missing.length && !noAns.length, wrong: sure, unsure: unsure, missing: missing, unclear: noAns, done: done, facts: facts };
   };
   C.numWord = function (n) {
