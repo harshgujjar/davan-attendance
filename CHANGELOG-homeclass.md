@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · kids v52 · parent v41 · core v35 (user: "it says 2 one 3 za but it is 21 3 za - check the sounds and log"): Aryan's class (tables 11-30): the voice read "21 3 ja" digit
+  by digit ("two one three ja") and the log shows the child answering what he heard ("one three za sixty three", "four six za one forty four", "one" for 21 x 3).
+  Every number in a spoken line now goes to the voice as WORDS, two numbers side by side are split by a comma (a pause): "21 3 ja 63" -> "twenty one, three ja
+  sixty three" (C.speakNums, applied in rawSay for the phone voice and Google Home; the screen keeps digits). Tested on the lines of the app (questions, corrections,
+  "table of 5", scores, "tables 11 to 30"). Functions: C.speakNums, rawSay.
+
 - 03-Nov-2026 · kids v51 · parent v40 · core v34 (user screenshot 9:19: "This phone cannot play a test voice here" - "I can't hear"): the parent app has no voice, so 🔊 Hear it now sends
   cmd {do: "say", text: "Hello <how to say>! Ready to shine?"} (DB3 homeclass/<fam>/cmd, a few bytes) and the kids phone says it with its real voice (phone or
   Google Home); ignored while a class runs. The field showed "Aryan" - typing the name itself is the same as not setting it, so the built-in "Aar yun" is

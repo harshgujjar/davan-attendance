@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 34;
+  C.VER = 35;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -439,6 +439,13 @@
       if (say) t = t.replace(new RegExp('\\b' + String(k.name).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), say);
     });
     return t;
+  };
+  /* v52 (Aryan's class, 03-Nov: "it says 2 one 3 za but it is 21 3 za"): the voice read "21 3 ja" digit by digit, the child answered what he heard ("one three ja
+     sixty three"). Every number in a spoken line goes out as WORDS, and the table number and the line number are split by a comma (a short pause):
+     "21 3 ja 63" -> "twenty one, three ja sixty three" */
+  C.speakNums = function (text) {
+    var t = String(text || '').replace(/(\d+) (\d+)/g, '$1, $2');     /* two numbers side by side = a table line: pause between them */
+    return t.replace(/(^|[^\w.])(\d{1,3})(?![\w])/g, function (m, pre, n) { return pre + C.numWord(+n); });
   };
   C.numAlike = function (x, y) {
     var a = String(x), b = String(y); if (a === b) return true;
