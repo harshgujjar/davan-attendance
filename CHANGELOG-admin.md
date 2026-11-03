@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1988 · 03-Nov-2026 IST
+User (screenshot): "how do I know which one is on" - only the text turned green on the orange buttons. The ON button is now green-filled with ✅, the others dimmed, and a "Now: ..." line names the mode (red for Hard / Auto). No new reads. Functions: gswStuMinShow, gswMinShow.
+
 ## v1987 · 03-Nov-2026 IST
 User: "students on old widgets must update at once - soft / hard / auto; a full report by name of who saw, tapped, updated; can't fix -> meet the Director (Office 12:30-4:30 pm)". New side-menu page 📲 Widget update report (Super Admin): summary, filters (Stuck / Can't / Director / Updated / No widget), every step per student with IST times, ✔ Resolved by Director, Excel / PDF / Copy, staff on old widgets, and "No widget / PWA (7 days)" (reads 7 days of davan_pub/usage only on tap). Global Switches -> ⛔ Student widget update = DB2 davan_pub/wupd_cfg {mode test|soft|hard|auto|off, getMode, testUrns, softDays, dirDays, passH, office, from, to}. Report reads davan_pub/wupd, wupd_idx, wupd_sum, staff_widget_report (on open only). The 6:05 pm alert moved to the Cloudflare worker (v18: wupdDaily, wupdCant). Pairs with portal v11.104, student widget w311. Functions: gswStuMinShow / gswStuMin, wurInit / wurList / wurSteps / wurResolved / wurExcel / wurPdf / wurCopy / wurNoWidget (new), gswRelShow.
 
