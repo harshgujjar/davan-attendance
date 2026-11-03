@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 33;
+  C.VER = 34;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -435,7 +435,7 @@
     var t = String(text || '');
     (kids || []).forEach(function (k) {
       if (!k || !k.name) return;
-      var say = (k.say && String(k.say).trim()) || C.NAME_SAY[String(k.name).trim().toLowerCase()];
+      var nm = String(k.name).trim(), say = (k.say && String(k.say).trim().toLowerCase() !== nm.toLowerCase()) ? String(k.say).trim() : C.NAME_SAY[nm.toLowerCase()];   /* typing the name itself = not set */
       if (say) t = t.replace(new RegExp('\\b' + String(k.name).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), say);
     });
     return t;

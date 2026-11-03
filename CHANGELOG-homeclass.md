@@ -1,5 +1,10 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · kids v51 · parent v40 · core v34 (user screenshot 9:19: "This phone cannot play a test voice here" - "I can't hear"): the parent app has no voice, so 🔊 Hear it now sends
+  cmd {do: "say", text: "Hello <how to say>! Ready to shine?"} (DB3 homeclass/<fam>/cmd, a few bytes) and the kids phone says it with its real voice (phone or
+  Google Home); ignored while a class runs. The field showed "Aryan" - typing the name itself is the same as not setting it, so the built-in "Aar yun" is
+  kept (C.sayName). Tested: parent sends the command, the kids page speaks "Hello Aar yun! Ready to shine?". Functions: parent data-hear, kids onCmd ('say'), C.sayName.
+
 - 03-Nov-2026 · kids v50 · parent v39 · core v33 (user: "I want it to say Aryan properly - it sounds 'Arien'"): the voice reads the child's name from a respelling - built-in
   default "Aryan" -> "Aar yun" (C.NAME_SAY), changeable per child in the parent app (Settings -> child -> "How to say the name", saved as cfg/kids/<id>/say,
   + 🔊 Hear it plays "Hello <name>! Ready to shine?" with the phone's voice to test a spelling). Applied in rawSay for every spoken line (phone voice and
