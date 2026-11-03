@@ -1,5 +1,15 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · kids v45 · parent v36 · core v30 ("Build 1", user: "it is the software not hearing, not the child's mistake"): (1) answer finds its line: log 08:37
+  "three ONE twenty four" / "three za into twenty four" - the line number is what the engine loses; an answer above the table's range (12, 15, 18 ...) is
+  unique to one line, so it is read as that line when it fits between the neighbouring lines in the order spoken (3 x 8 = 24 now counts). (2) the long
+  recitation never says "wrong": every doubtful line is asked again alone (short question, only fitting answers allowed), and that decides; the
+  asked line shows "= ?" and does not give the answer away. (3) ⏭ Skip button for the whole class: cuts the app's voice, skips the current
+  question (no right, no wrong); ⏭ Next table (⏭ Stop this table in table practice) and 🔢 Go to table (jump 4 -> 6: skipped tables come back at the
+  end). (4) the app could not hear twice in a row: it says "Sorry, it is my fault" and shows ✅ Yes, I said it / 🔁 Say again / ⏭ Skip instead of asking
+  again and again (counted in the log as "not heard (app)"). Tested on his 08:36 table-3 recitation (no wrong lines) + browser tests for skip / next /
+  jump / sheet. Functions: inQ, chk (SKIPQ / NEXTT), releaseWaits, notHeard, confirmSheet, tablesLearn (skipT, jumpTo), practice, C.checkRecite.
+
 - 02-Nov-2026 · kids v44: a doubtful line ("unsure") is now a real question - "I am not sure I heard 3 4. Say that line again." with "= ?" on the
   screen; the answer is said / shown only after he has tried (before the message gave the answer away). A real mistake one digit off (5 x 7 = 30)
   is therefore asked again instead of corrected at once. Function: reciteTable.
