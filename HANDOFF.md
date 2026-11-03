@@ -56,6 +56,16 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   Almas Banu T 352, Sumithra K T 358, Rangaswammy Gs 359, Roopa M C 354 (battery), Smitha 352 / 301 (install permission off), Kotrappa K 250,
   Kiran Kumar G K 242, Veeresh Patil 225. Not phone-tested: the red update screen.
 
+## 📲 Student widget forced update + report - PLANNED, not built (user, 03-Nov-2026)
+- Survey (davan-scraper Actions -> Widget stats, read only: tools/widget_stats.py, widget_survey.py, nowidget_survey.py): 60 of 121 active
+  student widgets old (34 downloaded waiting for a tap, 27 hand-installed = tap every update); 39 of 60 opened the web app since the release
+  (30 same phone). Staff: 2 of 9 old opened the staff app. No widget: 274 students used the web app in 14 days, only 45 with the PWA.
+- Agreed plan: w311 link web app -> widget install + 🧪 test button + in-widget red card; web app red card (modes 🧪 Test / Soft / Hard /
+  🤖 Auto 2 days soft then hard / Off, staff-app switch); download steps only for builds <= 125; "My phone can't update" -> 24 h pass + alert;
+  Director meeting = "Office, 12:30 - 4:30 pm" (from a setting) after can't-update / 3 fails / 5 days; full "📲 Widget update report" in the
+  staff app (every step per student by name + summary, Excel / PDF / copy, also the no-widget / PWA numbers); 6:05 pm summary alert.
+- User: NO class-teacher option - "we do it by our own only". No-widget students: plan not decided yet (user to choose).
+
 ## 🔐 Native widget login + queued widget builds - PLAN ONLY (user, 24-Oct-2026: "keep it .md, we ll discuss later") - read ROADMAP-native-login.md
 - Built this session: portal v11.99 only (admin-view popup: Cancel = link as that student). Everything else in the roadmap waits for the user.
 - 30-Oct-2026: staff widget native login DEFERRED by the user (plan + options in ROADMAP-native-login.md section 5). Do not build until asked.
