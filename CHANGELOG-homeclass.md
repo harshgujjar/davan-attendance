@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · kids v53 · parent v42 (user: "how about testing za then ja - give option in the parents app to set and check"): Settings -> "The word between the line and the answer":
+  ja / za / jha / jaa / zaa / is, saved as cfg/joiner; tapping one saves it and the kids phone plays "five one <word> five. five two <word> ten. twenty one,
+  three <word> sixty three." (cmd say, raw) so the parent hears the real voice; 🔊 repeats it. The kids app replaces "ja" in every spoken line with the chosen word
+  from the next class on (rawSay); the screen and the listening (ja / za / jha all accepted) are unchanged. Tested: parent saves "za" + sends the sample, the
+  kids page then says "one, two za two". Functions: parent sJoin / playJoin, kids rawSay (keep), onCmd say.
+
 - 03-Nov-2026 · kids v52 · parent v41 · core v35 (user: "it says 2 one 3 za but it is 21 3 za - check the sounds and log"): Aryan's class (tables 11-30): the voice read "21 3 ja" digit
   by digit ("two one three ja") and the log shows the child answering what he heard ("one three za sixty three", "four six za one forty four", "one" for 21 x 3).
   Every number in a spoken line now goes to the voice as WORDS, two numbers side by side are split by a comma (a pause): "21 3 ja 63" -> "twenty one, three ja
