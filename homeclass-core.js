@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 30;
+  C.VER = 31;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -370,6 +370,8 @@
       if (right) done.push(f.b);
     });
     wrong = wrong.filter(function (w) { return !seen[w.b]; });
+    /* v48: line 1 (table x 1 = the table) is the one everybody knows - never asked about, whatever the engine heard */
+    if (seen[1] === undefined || seen[1] === false) { seen[1] = true; wrong = wrong.filter(function (w) { return w.b !== 1; }); done.push(1); }
     var missing = []; for (var b = 1; b <= up; b++) if (seen[b] === undefined) missing.push(b);
     var noAns = facts.filter(function (f) { return f.said === null && !seen[f.b]; }).map(function (f) { return f.b; });
     /* fifteen / fifty, thirteen / thirty ... : the engine can mix them up - ask him to say that line again instead of "wrong" */

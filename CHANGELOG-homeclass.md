@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · kids v48 · parent v37 · core v31 (user: "it always says 5 one ja 5 - I did not hear that - it is not important, we skip it"): table x 1 (= the table
+  itself) is only SAID in "say it after me" - no listening, no "Your turn", straight to x 2; in table questions an unheard x 1 is accepted (no "I could not
+  hear"); in the whole-table recitation line 1 is never missing / unsure (C.checkRecite). Learning is not a test: a line that cannot be heard is listened
+  to once more quietly, then the app goes on after 2 tries (was 3, with talking) and logs nothing as wrong when nothing was heard. Functions: learnFact,
+  askTable, C.checkRecite.
+
 - 03-Nov-2026 · kids v47 (user photo 9:45 + "why are practise a table / Evs separate - keep them inside the child's block"): (1) spelling finishes by itself: when the
   letters heard are EXACTLY the word (and in Mom / Dad mode exactly one of the words) and have not changed for 0.9 s, the listen ends - no ■ Done; a
   sound-alike / doubtful spelling still waits the normal 2.2 s; "quiet" now means the letters stopped changing (repeated partials are not activity).
