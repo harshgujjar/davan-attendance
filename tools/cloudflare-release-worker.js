@@ -186,6 +186,7 @@ async function saIncoming(env, b) {
     const name = clip(b.name, 60).trim(); if (!name) return { ok: false, msg: 'no name' };
     return saEvent({ kind: 'login', color: 'blue', who: name, title: '🔑 ' + name + ' logged in', body: (ROLE_LABEL[b.role] || clip(b.role, 30)) + (b.how ? ' · ' + clip(b.how, 40) : ''), by: 'staff app' });
   }
+  if (b.kind === 'wupd') return wupdCant(b);   // v18: student "My phone can't update"
   if (b.kind === 'test') return saEvent({ kind: 'test', color: b.color, title: '🧪 Test alert (' + (SA_COLORS.indexOf(b.color) >= 0 ? b.color : 'green') + ')',
     body: 'Super Admin alerts work on this device.', by: 'staff app' });
   const repo = [REPO, SCR_REPO].indexOf(b.repo) >= 0 ? b.repo : '', run = String(b.run || '').replace(/\D/g, '');
@@ -209,6 +210,68 @@ async function saUsage() {
     body: parts.slice(0, 4).map(([a, v]) => a + ' ' + (v / 1e6).toFixed(0) + ' MB').join(' · ') || 'no numbers yet', by: 'Cloudflare 9:30 pm' });
   const old = await db2('GET', 'davan_pub/sa_ev', undefined, 'orderBy=%22%24key%22&endAt=%22e' + (now - 30 * 86400000) + '%22');
   if (old && Object.keys(old).length) { const z = {}; for (const k of Object.keys(old)) z[k] = null; await db2('PATCH', 'davan_pub/sa_ev', z); }
+}
+
+/* v18 (user, 03-Nov-2026: "6:05 alert - don't depend on GitHub, use Cloudflare"): the daily 📲 widget update alert, made here.
+   Reads DB2 student_widget_report / student_widget_active / staff_widget_report / wupd (the steps the student app and widgets write) and the
+   public version jsons; writes davan_pub/wupd_idx/<URN> {code, model, v, at} (the student app finds a student's widget even on a new browser)
+   and davan_pub/wupd_sum/<IST date> (the report page's daily numbers); deletes wupd entries untouched for 60 days. One alert, nothing new = none. */
+const RAW = 'https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/';
+function dueBuild(pub) {   // newest public build out for more than 24 h (a phone gets one night to update by itself)
+  let best = 0;
+  for (const [b, t] of Object.entries((pub && pub.times) || {})) {
+    const at = Date.parse(String(t).replace(/(\d+) (\w+) (\d+), (.*)/, '$2 $1 $3 $4') + ' GMT+0530');
+    if (at && Date.now() - at > 864e5 && +b > best) best = +b;
+  }
+  return best;
+}
+function wName(pub, b) { const n = (pub && pub.names) || {}; const ks = Object.keys(n).map(Number).filter(k => k <= b); return ks.length ? 'w' + n[Math.max(...ks)] : 'build ' + b; }
+async function wupdDaily() {
+  const now = Date.now(), cut7 = now - 7 * 864e5, today = istDate(now);
+  const get = f => fetch(RAW + f + '?t=' + now).then(r => r.ok ? r.json() : null).catch(() => null);
+  const [sp, tp, srep, sact, trep, wl] = await Promise.all([get('student-widget-version.json'), get('davan-widget-version.json'),
+    db2('GET', 'davan_pub/student_widget_report'), db2('GET', 'davan_pub/student_widget_active'), db2('GET', 'davan_pub/staff_widget_report'), db2('GET', 'davan_pub/wupd')]);
+  // 1. index URN -> newest widget
+  const idx = {};
+  for (const [code, a] of Object.entries(sact || {})) {
+    const r = (srep || {})[code]; if (!a || !a.urn || !r) continue;
+    const at = Math.max(+r.ts || 0, +r.workerLastRunAt || 0), k = String(a.urn).toUpperCase().replace(/[.#$\[\]\/]/g, '_');
+    if (!idx[k] || idx[k].at < at) idx[k] = { code, model: clip(r.model, 30), v: +r.apkVersion || 0, at, name: clip(a.name, 40), cls: clip(a.class, 30) };
+  }
+  if (Object.keys(idx).length) await db2('PUT', 'davan_pub/wupd_idx', idx);
+  // 2. who is behind
+  const sd = dueBuild(sp), td = dueBuild(tp);
+  const stuOld = Object.values(idx).filter(x => x.at >= cut7 && sd && x.v < sd);
+  const staffOld = Object.values(trep || {}).filter(r => r && r.linked && String(r.name || '').trim() && (+r.at || 0) >= cut7 && td && (+r.v || 0) < td);
+  // 3. what students did today (steps written by the student app / widget)
+  const c = { saw: 0, upd: 0, dl: 0, ok: 0, cant: 0, dir: 0, later: 0 }, cant = [], dir = [], z = {};
+  for (const [k, w] of Object.entries(wl || {})) {
+    if (!w) continue; const s = w.s || {};
+    for (const e of Object.keys(c)) if (s[e] && istDate(s[e]) === today) c[e]++;
+    if (s.cant && istDate(s.cant) === today) cant.push(w.name || k);
+    if (s.dir && istDate(s.dir) === today) dir.push(w.name || k);
+    if ((+w.last || 0) < now - 60 * 864e5 && !(w.w && Object.values(w.w).some(t => t > now - 60 * 864e5))) z[k] = null;   // clean-up
+  }
+  if (Object.keys(z).length) await db2('PATCH', 'davan_pub/wupd', z);
+  await db2('PUT', 'davan_pub/wupd_sum/' + today, { at: now, stuOld: stuOld.length, staffOld: staffOld.length, ...c });
+  if (!stuOld.length && !staffOld.length && !c.saw && !c.ok) return;
+  const st = staffOld.sort((a, b) => a.v - b.v).map(r => '• ' + clip(r.name, 30) + ' - ' + wName(tp, +r.v) + ((r.perm || []).includes('install') ? ' (install permission OFF)' : '')).join('\n');
+  await saEvent({ kind: 'widgets', color: c.cant || dir.length ? 'red' : 'amber',
+    title: '📲 Widgets today: ' + c.ok + ' updated · ' + stuOld.length + ' student + ' + staffOld.length + ' staff still old',
+    body: 'Students: saw ' + c.saw + ' · tapped Update ' + c.upd + ' · downloaded ' + c.dl + ' · updated ' + c.ok + ' · later ' + c.later
+      + (cant.length ? '\n🆘 Can\'t update: ' + cant.slice(0, 8).join(', ') : '') + (dir.length ? '\n🏢 To meet the Director: ' + dir.slice(0, 8).join(', ') : '')
+      + (st ? '\nStaff not updated:\n' + st : '') + '\nDetails: staff app → 📲 Widget update report.',
+    by: 'Cloudflare 6:05 pm', link: 'https://harshgujjar.github.io/davan-attendance/index.html?go=wupd' });
+}
+/** POST /sa {kind: 'wupd'} from the student app's "My phone can't update" - one alert per student per day. */
+async function wupdCant(b) {
+  const urn = clip(b.urn, 20).toUpperCase().replace(/[^A-Z0-9]/g, ''); if (!urn) return { ok: false, msg: 'no urn' };
+  const w = await db2('GET', 'davan_pub/wupd/' + urn); if (!w || !w.s || !w.s.cant || Date.now() - w.s.cant > 10 * 60000) return { ok: false, msg: 'no fresh step' };
+  if (w.alertDay === istDate(Date.now())) return { ok: true, msg: 'already told today' };
+  await db2('PATCH', 'davan_pub/wupd/' + urn, { alertDay: istDate(Date.now()) });
+  return saEvent({ kind: 'widgets', color: 'red', who: clip(w.name, 60), title: '🆘 ' + clip(w.name || urn, 60) + ' can\'t update the widget',
+    body: clip(w.cls, 30) + ' · ' + urn + ' · build ' + (+w.v || '?') + (w.model ? ' · ' + clip(w.model, 30) : '') + (w.cantWhy ? '\n"' + clip(w.cantWhy, 120) + '"' : '') + '\nAsked to meet the Director.',
+    by: 'student app', link: 'https://harshgujjar.github.io/davan-attendance/index.html?go=wupd' });
 }
 /** A timer that could not start its job tells the Super Admin at once. */
 async function startOrAlert(p, what) {
@@ -406,7 +469,7 @@ export default {
     // times do anything: 12:05 UTC = 6:05 pm IST Placement usage alert (davan-scraper learn-usage.yml), 15:45 = 9:15 pm release,
     // 16:00 = 9:30 pm usage alert, 16:15 = 9:45 pm backup release; the other minutes of the cross product (12:00 / 12:15 / 12:45 ...) are ignored
     if (c === '0,5,15,45 12,15,16 * * *') {
-      if (hm === '12:05') ctx.waitUntil(startOrAlert(startPlacement(env), 'The 6:05 pm Placement usage'));
+      if (hm === '12:05') { ctx.waitUntil(startOrAlert(startPlacement(env), 'The 6:05 pm Placement usage')); ctx.waitUntil(wupdDaily().catch(e => saEvent({ kind: 'widgets', color: 'red', title: '❌ 6:05 pm widget alert failed', body: String(e.message || e), by: 'Cloudflare' }))); }
       else if (d.getUTCDay() === 0 && ['12:15', '12:45', '15:00', '15:15'].includes(hm)) ctx.waitUntil(coachRun(env).catch(() => {}));   // v13: Sunday coach notes
       else if (d.getUTCDay() !== 0 && ['12:15', '12:45', '15:00'].includes(hm)) ctx.waitUntil(ratesAiRun(env).catch(() => {}));   // v15: ✨ gold / silver paragraph
       else if (hm === '16:00') ctx.waitUntil(saUsage());
