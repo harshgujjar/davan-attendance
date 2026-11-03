@@ -154,6 +154,10 @@ body.tv .live-words{color:var(--gold)}
 .wgrid{flex:1;display:flex;flex-direction:column;gap:16px}
 @media (min-width:900px){.wgrid.hasb{flex-direction:row;align-items:center}.wgrid.hasb>.board{flex:0 0 40%;max-width:none}.wgrid.hasb>.stage{flex:1}}
 .study.two{grid-template-columns:1fr 1fr}
+.cdn{display:none;font:800 74px/1 'Baloo 2',sans-serif;color:#ff4d6d;min-height:74px}.cdn.on{display:block;animation:cdpulse 1s ease-in-out infinite}
+@keyframes cdpulse{0%{transform:scale(1.25);opacity:.6}60%{transform:scale(1);opacity:1}100%{transform:scale(.95);opacity:1}}
+body.bOn:not(.tv) #sClass .cdn{font-size:52px;min-height:52px}
+.pwc{font:800 clamp(80px,26vw,170px)/1 'Baloo 2',sans-serif;min-height:1.1em;animation:plpop .3s ease-out}.pwrow{font:800 30px 'Baloo 2',sans-serif;letter-spacing:6px;opacity:.85;margin:4px 0;min-height:36px}
 .cfm{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(20,18,50,.55);z-index:30;padding:20px}.cfm.on{display:flex}
 .cfmc{background:var(--card);border-radius:24px;padding:20px;max-width:420px;width:100%;text-align:center;box-shadow:var(--shadow);font-size:18px}
 .cfmb{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:14px}.cfmc .q2{font:800 38px 'Baloo 2',sans-serif;margin:8px 0}
@@ -240,6 +244,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
     <div class="q" id="kQ"></div>
     <div class="cap" id="kCap"></div>
     <div class="orb" id="kOrb">🎤</div>
+    <div class="cdn" id="kCdn"></div>
 
     <div class="heard" id="kHeard"></div>
     <div class="board" id="kBoard"></div>
@@ -355,11 +360,11 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <div class="confetti" id="conf"></div>
 <div class="toast" id="toast"></div>
 
-<script src="homeclass-core.js?v=35"></script>
+<script src="homeclass-core.js?v=36"></script>
 <script>
 (function () {
 'use strict';
-var KID_VER = 53;
+var KID_VER = 54;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -468,6 +473,10 @@ function micListen(ms) {
 /* one answer: voice and / or keypad / typing, whichever comes first */
 var typedRes = null;
 function useKeys() { return !canMic || micBroken >= 3 || S.forceKeys; }
+/* v54 (photo 9:51, log 21:51 "mic off (keys)"): after 3 listening errors the app switched to typing for good (typing never listens, so the count never
+   reset) and the Type button only flipped a flag the count overrode. Now: the count is reset at every class start and by the button, the button always
+   shows the state it will switch TO, and the parent's choice wins. */
+function syncType() { var b = $('kType'); if (b) b.textContent = useKeys() ? '🎤 Speak' : '⌨️ Type'; }
 /* TV (user, 01-Nov-2026: "the remote mic does not take my answer"): the remote's mic BUTTON goes to Google Assistant, but the app can open the
    remote's microphone itself (like in-app search). So on the TV the app listens through the remote AND shows the number keys; whichever
    comes first counts. Silence on the TV just listens again (the child may be typing). Every try is logged (🩺) to learn what the TV supports. */
@@ -490,6 +499,9 @@ function tvListen(ms) {
   });
 }
 window.hcMicKey = function () { C.diag('TV remote mic button reached the app'); if (A && A.stopListen) A.stopListen(); };   /* h9: restart listening at once */
+function showCdn(n) { var el = $('kCdn'); el.textContent = n > 0 ? n : ''; el.className = 'cdn' + (n > 0 ? ' on' : ''); }
+function ansLimit() { var c = S.cfg || {}; var t = c.ansTime === undefined ? 20 : +c.ansTime; return t > 0 ? t * 1000 : 0; }
+function ansCount() { var n = +((S.cfg || {}).ansCount || 5); return Math.max(1, n) * 1000; }
 async function hear(opts) {
   chk();
   while (S.pause) { await sleep(300); chk(); }
@@ -501,6 +513,19 @@ async function hear(opts) {
   var p = [];
   var kp = new Promise(function (r) { typedRes = r; });
   p.push(kp);
+  /* v54 (user, 03-Nov: "a countdown near the END of the answer time - 3 / 5 / 10 s, chosen in the parent app"): quiet until the last seconds, then 5-4-3-2-1;
+     it waits while the engine is hearing him speak; at zero the question times out */
+  var tmr = null, timedOut = false, clk = opts && opts.clock;       /* one clock for the whole question (it runs across several listens) */
+  if (clk && !keys && !tvBoth && !holdMode()) {
+    var cnt = ansCount();
+    tmr = setInterval(function () {
+      if (S.pause) { clk.dl += 250; return; }
+      if (Date.now() - (S.lastPartAt || 0) < 1300) clk.dl += 250;      /* he is speaking: the clock waits */
+      var left = clk.dl - Date.now();
+      if (left <= cnt) showCdn(Math.ceil(left / 1000));
+      if (left <= 0) { clearInterval(tmr); tmr = null; timedOut = true; showCdn(0); try { if (A && A.stopListen) A.stopListen(); } catch (x) {} if (typedRes) { try { typedRes({ typed: '', alts: [], timeout: true }); } catch (x) {} } }
+    }, 250);
+  }
   if (!keys) {
     $('kOrb').classList.add('l');
     if (!tvBoth && !holdMode()) { ding(); $('kHeard').innerHTML = '🎤 <b>Your turn!</b>'; }
@@ -516,6 +541,7 @@ async function hear(opts) {
     }));
   }
   var r = await Promise.race(p);
+  if (tmr) { clearInterval(tmr); tmr = null; } showCdn(0); if (timedOut) r.timeout = true;
   typedRes = null;
   $('kOrb').classList.remove('l');
   if (A && A.stopListen && r.typed) { if (tvListen.cancel) tvListen.cancel(); if (holdListen.cancel) holdListen.cancel(); A.stopListen(); }
@@ -531,7 +557,7 @@ async function hear(opts) {
    Pressing while the app is still talking stops the voice at once and listens - an early answer is kept for that question. */
 function holdMode() { return !IS_TV && !!(A && A.listenHold) && C.LS.get('hc_ans', 'hold') === 'hold'; }
 var HB = { pressed: false, id: null, t0: 0, pending: null, waiter: null, tap: false };
-function hbShow() { var inC = S.screen === 'sClass' && S.running, sc = S.sect || '', inT = sc === 'learn' || sc === 'recite' || sc === 'q';
+function hbShow() { syncType(); var inC = S.screen === 'sClass' && S.running, sc = S.sect || '', inT = sc === 'learn' || sc === 'recite' || sc === 'q';
   $('kSkip').style.display = inC ? '' : 'none'; $('kSkip').textContent = sc === 'spell' ? '⏭ Skip word' : '⏭ Skip';
   $('kWarm').style.display = inC && sc === 'warm' && S.warmOK ? '' : 'none';
   $('kTestNow').style.display = inC && sc === 'learn' && S.testOK ? '' : 'none';
@@ -753,13 +779,23 @@ async function askTable(a, b, info) {
   setLive({ mode: 'tables', title: SES.title, q: q + ' = ?' });
   var silent = 0, unclear = 0, askedAgain = false;
   await say(spoken + '?');
+  var clk = ansLimit() ? { dl: Date.now() + ansLimit() } : null;
   for (;;) {
-    var r = await hear({ num: true });
+    var r = await hear({ num: true, clock: clk });
+    if (r.switched) continue;
+    if (r.timeout && !r.text) {
+      C.diag('time up: ' + q); SES.to = (SES.to || 0) + 1;
+      bSet(a, b, 2, 1); logAns('t', q, ans, '(time up)', false, true);
+      flash(false, "Time's up", a + ' × ' + b + ' = ' + ans, 3500);
+      await say("Time's up. " + spoken + ' ' + ans + '.', false); hideFlash();
+      return false;
+    }
     var jd = C.tableJudge(r.alts || [], a, b), n = jd.n;
     if (r.text) C.diag('heard ' + a + '×' + b + ': "' + (r.alts || [r.text]).slice(0, 3).join('" / "') + '" → ' + (jd.ok ? '✓' : (n === null ? '?' : '✗ ' + n)));
     if (!r.text) {
       silent++;
       if (b === 1 && silent >= 1) return true;                    /* v48: x 1 is not worth a "I could not hear" - accepted */
+      if (clk) continue;                                          /* v54: with an answer time, silence is handled by the clock (countdown -> "Time's up"), not by the sorry sheet */
       if (silent === 1) continue;                     /* first silence: just listen again, no talking */
       if (silent === 2) { var cv = await notHeard(a, b, ans, q); if (cv === 'yes') return true; if (cv === 'skip') throw SKIPQ; await say(spoken + '?'); continue; }
       if (silent >= 5) { await sleepy(); silent = 0; await say(spoken + '?'); continue; }
@@ -777,7 +813,7 @@ async function askTable(a, b, info) {
     }
     var ok = jd.ok;
     /* v49: a doubtful hearing (70 for 170, 43 for 63) is asked once more, never "Not quite" at the first try */
-    if (!ok && !askedAgain && n !== -1 && n !== null && C.numAlike(n, ans)) { askedAgain = true; C.diag('not sure: heard ' + n + ', expected ' + ans + ' - asking once more'); await say('I am not sure I heard that. Say it again.'); continue; }
+    if (!ok && !askedAgain && n !== -1 && n !== null && (C.numAlike(n, ans) || C.numTruncated(n, ans))) { askedAgain = true; C.diag('not sure: heard ' + n + ', expected ' + ans + ' - asking once more'); await say('I am not sure I heard that. Say it again.'); continue; }
     if (!ok && jd.altOk && !askedAgain) {               /* Google's first guess wrong, another guess right (52 / 72): ask once more */
       askedAgain = true; C.diag('not sure: "' + r.text + '" or ' + ans + ' - asking again');
       await say('Did you say ' + ans + '? Say it again.'); continue;
@@ -1076,7 +1112,7 @@ async function askSpell(it, first, o) {
     if (!o.silentWord) await say('Spell the word: ' + w + '.' + sen + ' Say the letters one by one.');
     for (var t = 0, n = 0, quietN = 0; ; t++) {
       if (S.skipSpell) { S.skipSpell = false; return skipWord(w, first); }
-      await sleep(500);                    /* the voice (Google Home) may still be finishing - never let the mic hear it */
+      await sleep(castOn() ? 1500 : 900);   /* the voice (Google Home) may still be finishing - never let the mic hear it (photo 9:52: extra "E S" before BONES) */
       S.reciting = true; hbShow(); ding(); SES.partial = ''; $('kHeard').innerHTML = '🎤 <b>Spell it</b> - say the letters one by one'; spellBtns(true);
       var text = await spellListen(w, { wait: 14000 }), redo = S.clearSpell, skip = S.skipSpell; S.clearSpell = false;
       S.reciting = false; RC = null; hbShow(); chk(); SES.partial = ''; drawBoard();
@@ -1094,22 +1130,22 @@ async function askSpell(it, first, o) {
         $('kQ').textContent = w; SES.board.res = 1; drawBoard();
         logAns('s', 'Spell ' + w, w, w, true, first && n === 1);
         await say(rnd(PRAISE), false);
-        popWord(true, '✅ ' + w, w, C.heardView(text, w));                 /* the word pops up exactly while the app says it (user, 02-Nov) */
-        await say(w + ' is spelt ' + up.split(' ').join(', ') + '.', false); hideFlash(); return true;
+        await spellOut(true, '✅ ' + w, w, C.heardView(text, w)); hideFlash(); return true;
       }
       if (j.kind === 'unsure' && n < 3) {
         await say(n === 1 ? 'I did not catch all the letters. Say ' + w + ' again, slowly.' : 'Once more, slowly. Or press skip.', false); SES.board.res = 0; continue;
       }
       if (j.kind === 'unsure') {          /* three doubtful hearings: show it, no "Not quite" */
         $('kQ').textContent = w; SES.board.res = 2; SES.board.got = ''; drawBoard(); logAns('s', 'Spell ' + w, w, '(not heard)', false, first);
-        popWord(true, 'Let us look at it', w, C.heardView(text, w));
-        await say(w + ' is spelt ' + up.split(' ').join(', ') + '. We will try it again soon.', false); hideFlash(); return false;
+        await spellOut(true, 'Let us look at it', w, C.heardView(text, w));
+        await say('We will try it again soon.', false); hideFlash(); return false;
       }
       /* really different letters, clearly heard */
       SES.board.res = 2; SES.board.got = j.got; $('kQ').textContent = w; drawBoard();
       logAns('s', 'Spell ' + w, w, (j.got || '').toUpperCase(), false, first);
-      popWord(false, 'Not quite', w, C.heardView(text, w));
-      await say('Not quite. ' + w + ' is spelt: ' + up.split(' ').join(', ') + '. Say it with me.', false);
+      await say('Not quite.', false);
+      await spellOut(false, 'Not quite', w, C.heardView(text, w));
+      await say('Say it with me.', false);
       hideFlash();
       S.reciting = true; hbShow(); ding(); S.clearSpell = false; S.skipSpell = false;
       var t2 = await spellListen(w, { wait: 10000 });
@@ -1125,6 +1161,27 @@ async function skipWord(w, first) {
   logAns('s', 'Spell ' + w, w, '(skipped)', false, first);
   await say('OK, next.', false);
   return 'skip';
+}
+/* v54 (user, 03-Nov: "as the app says B that letter pops up, when the next comes the previous goes down"): the app says the word letter by letter; each
+   letter pops up big, the ones before it go down into a row; at the end the whole word shows. On a Wi-Fi speaker (each call is slow) the letters come on a timer. */
+async function spellOut(ok, head, w, view) {
+  var f = $('fb'); f.className = 'fb on ' + (ok ? 'ok' : 'no');
+  $('fbE').textContent = ok ? rnd(['🌟', '🎉', '👏', '💪', '🚀', '😃']) : '💡';
+  $('fbH').textContent = head;
+  var L = String(w).toUpperCase().split(''), row = [];
+  var draw = function (cur) { $('fbP').innerHTML = '<div class="pwc" id="pwCur">' + C.esc(cur) + '</div><div class="pwrow">' + C.esc(row.join(' ')) + '</div>' + (view && view.length ? '<div class="pr">I heard: ' + chipsHTML(view) + '</div>' : ''); };
+  clearTimeout(f._t); f._t = setTimeout(function () { f.className = 'fb'; }, 60000);
+  draw('');
+  await say(w + ' is spelt', false);
+  if (castOn()) {
+    var all = rawSay(L.join(', ') + '.');
+    for (var i = 0; i < L.length; i++) { draw(L[i]); await sleep(650); row.push(L[i]); chk(); }
+    await all;
+  } else {
+    for (var j = 0; j < L.length; j++) { draw(L[j]); await rawSay(L[j] === 'A' ? 'ay' : L[j]); chk(); row.push(L[j]); }
+  }
+  $('fbP').innerHTML = '<div class="pw">' + C.esc(L.join(' ')) + '</div>' + (view && view.length ? '<div class="pr">I heard: ' + chipsHTML(view) + '</div>' : '');
+  await say(w + '.', false);
 }
 /* the Google way (old phones / offline engine not ready) */
 async function askSpellG(it, first) {
@@ -1189,14 +1246,14 @@ async function parentSpell(set) {
         $('kQ').className = 'q'; $('kQ').textContent = w; SES.board.res = 1; drawBoard();
         logAns('s', 'Spell ' + w, w, w, true, true);
         await say(rnd(PRAISE), false);
-        popWord(true, '✅ ' + w, w, C.heardView(text, w));
-        await say(w + ' is spelt ' + w.toUpperCase().split('').join(', ') + '.', false); hideFlash();
+        await spellOut(true, '✅ ' + w, w, C.heardView(text, w)); hideFlash();
       } else if (n >= 3 || best.j.kind === 'wrong') {
         done[w] = 1; lastW = ''; n = 0;
         $('kQ').className = 'q'; $('kQ').textContent = w; SES.board.res = 2; SES.board.got = best.j.kind === 'wrong' ? best.j.got : ''; drawBoard();
         logAns('s', 'Spell ' + w, w, best.j.kind === 'wrong' ? best.j.got.toUpperCase() : '(not heard)', false, true);
-        popWord(best.j.kind !== 'wrong', best.j.kind === 'wrong' ? 'Not quite' : 'Let us look at it', w, C.heardView(text, w));
-        await say((best.j.kind === 'wrong' ? 'Not quite. ' : '') + w + ' is spelt ' + w.toUpperCase().split('').join(', ') + '. We will try it again soon.', false); hideFlash();
+        if (best.j.kind === 'wrong') await say('Not quite.', false);
+        await spellOut(best.j.kind !== 'wrong', best.j.kind === 'wrong' ? 'Not quite' : 'Let us look at it', w, C.heardView(text, w));
+        await say('We will try it again soon.', false); hideFlash();
       } else {
         await say('I did not catch all the letters. Say the word and spell it again, slowly.', false);
       }
@@ -1222,7 +1279,7 @@ async function runClass(kid, why, opt) {
   if (S.running) return;
   var lv = S.live[kid.id];
   if (lv && lv.on && lv.dev !== C.devId() && Date.now() - lv.at < 90000) { toast(kid.name + "'s class is on " + (lv.devName || 'another device') + ' now'); return; }
-  S.running = true; S.stop = false; S.pause = false; S.endWhy = ''; S.nextT = false; S.skipQ = false; S.qOK = false; S.nextOK = false; S.jumpOK = false; S.jumpTo = null; S.warmX = false; S.warmOK = false; S.testNow = false; S.testOK = false; S.sect = ''; warm();
+  S.running = true; S.stop = false; S.pause = false; S.endWhy = ''; S.nextT = false; S.skipQ = false; S.qOK = false; S.nextOK = false; S.jumpOK = false; S.jumpTo = null; S.warmX = false; S.warmOK = false; S.testNow = false; S.testOK = false; S.sect = ''; micBroken = 0; S.forceKeys = false; warm();
   if (S.speaking) { try { A.stopSpeak(); } catch (x) {} if (S.sayId) window.hcSpoke(String(S.sayId)); }   /* the old class's goodbye must not talk over the new one */
   C.diag('class start ' + kid.name + ' (' + (why || '') + ')' + (opt && opt.set ? ' · lesson ' + ((S.sets[opt.set] || {}).title || opt.set) : '') + ' · ' + kid.style + ' ' + kid.from + '-' + kid.to + ' · ' + (kid.min || 15) + ' min · mic ' + (useKeys() ? 'off (keys)' : 'on'));
   if (A && A.setBusy) A.setBusy(true);
@@ -1306,7 +1363,8 @@ $('kJump').onclick = function () {
 $('jumpX').onclick = function () { $('jumpSheet').className = 'cfm'; };
 $('jumpPick').onclick = function (e) { var b = e.target.closest('[data-t]'); if (!b) return; S.jumpTo = +b.getAttribute('data-t'); $('jumpSheet').className = 'cfm'; S.nextT = true; releaseWaits(); };
 $('cfm').onclick = function (e) { var b = e.target.closest('[data-v]'); if (b && S.cfmRes) S.cfmRes(b.getAttribute('data-v')); };
-$('kType').onclick = function () { S.forceKeys = !S.forceKeys; $('kType').textContent = S.forceKeys ? '🎤 Speak' : '⌨️ Type'; if (A) { try { A.stopListen(); } catch (e) {} } };
+$('kType').onclick = function () { if (useKeys()) { S.forceKeys = false; micBroken = 0; C.diag('back to speaking'); } else { S.forceKeys = true; C.diag('typing on'); } syncType(); if (A) { try { A.stopListen(); } catch (e) {} }
+  if (typedRes) { try { typedRes({ typed: '', alts: [], switched: true }); } catch (e) {} } };     /* wake the question that waits for typing, so it listens (or shows the keys) again at once */
 
 /* ================= 🗣️ RECITE THE WHOLE TABLE (v27, app h16+) =================
    User, 01-Nov-2026: "what parents do - tell me the 5 table: 5 one ja 5, 5 two ja 10 ... - the app hears it, notes every mistake, tells

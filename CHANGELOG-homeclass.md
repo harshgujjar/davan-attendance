@@ -1,5 +1,16 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 04-Nov-2026 · kids v54 · parent v44 · core v36 (user photos 9:47 / 9:51 / 9:52 + "check the log, fix the problems"): (1) ANSWER COUNTDOWN: Settings -> "Time to answer a question" (Off / 10 / 15 / 20 / 30 s, default 20)
+  and "Countdown in the last" (3 / 5 / 10 s, default 5; cfg/ansTime, cfg/ansCount). One clock per table question (warm-up, revision, in-order, mixed), quiet until the last
+  seconds, then a big 5-4-3-2-1 near the mic; it waits while he is speaking (partials) and while paused; at zero: "Time's up" + the answer, counted "to practise", then
+  the next question; with a clock, plain silence is handled by it (no "sorry" sheet). Tested: only 3-2-1 shown, "Time's up. twenty two, four ja eighty eight." (2)
+  LETTERS POP UP: the app says the word letter by letter - each letter pops up big, the earlier ones go down in a row, then the whole word (on a Wi-Fi speaker the
+  letters come on a timer); used for right / "let us look" / "not quite", app and Mom-Dad mode (spellOut). (3) TYPE / SPEAK STUCK (log 21:51 "mic off (keys)"): 3 listening
+  errors switched to typing for good (typing never listens, so the count never reset; the button only flipped a flag the count overrode, and the question waiting
+  for typing never woke). Now: count + typing reset at every class start, the button shows what it switches TO (🎤 Speak / ⌨️ Type), pressing it resets the count and wakes
+  the waiting question. (4) LOG: a heard answer far smaller than the right one (nine for 88, sixty for 161) is asked once more (C.numTruncated); the spelling mic opens
+  0.9 s (1.5 s on a Wi-Fi speaker) after the app's voice (extra "E S" before BONES in photo 3). Functions: hear (clock), askTable, spellOut, syncType, kType, C.numTruncated.
+
 - 03-Nov-2026 · parent v43 (user: "why hear in the kids phone - I want to hear it on the parent's phone"): 🔊 Hear it (how to say the name, ja / za word) plays with the parent app's own voice
   (HCP.speak, the same TTS the lesson editor uses; a browser uses speechSynthesis); only a phone with neither voice falls back to the kids phone. The sample text goes through
   C.speakNums like the kids app (words, pause between table and line). No new APK needed. Tested with a mock HCP: the parent phone said "five one za five. five two za ten.
