@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 31;
+  C.VER = 32;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -236,6 +236,8 @@
     if (junk >= 2 && junk > w.length / 2 && nums.indexOf(ans) < 0) return { n: null, ok: false, junk: true };
     var last = nums[nums.length - 1];
     if (last === ans) return { n: ans, ok: true };
+    /* v49 (Aryan, log 03-Nov 21:01: 17 x 10 - "one seventy" was marked 70): in India "one seventy" = 170, "two forty" = 240 (no "hundred") */
+    if (ans >= 100) for (var q = 0; q + 1 < nums.length; q++) if (nums[q] >= 1 && nums[q] <= 9 && nums[q + 1] >= 10 && nums[q + 1] <= 99 && nums[q] * 100 + nums[q + 1] === ans) return { n: ans, ok: true };
     /* only the question's own numbers ("7 * 4 =", "4 7 ja ...") = the child is still saying the question, not an answer -> listen on
        (log 01-Nov 19:50: " 7 * 4 =" was marked wrong as 4) */
     if (nums.length <= 3 && nums.every(function (x) { return x === a || x === b; }) && String(text || '').replace(/\d/g, '').length < 40
@@ -425,6 +427,14 @@
   };
 
   /* all of Google's guesses: right when the best guess is right, or when the best guess had no clear number and another guess is right */
+  /* an answer one digit away from the right one (70 / 170, 43 / 63, 15 / 10, 33 / 3) cannot be told from a mishearing */
+  C.numAlike = function (x, y) {
+    var a = String(x), b = String(y); if (a === b) return true;
+    for (var d = 3; d <= 9; d++) if ((x === 10 + d && y === 10 * d) || (y === 10 + d && x === 10 * d)) return true;
+    var m = []; for (var i = 0; i <= a.length; i++) m[i] = [i]; for (var j = 1; j <= b.length; j++) m[0][j] = j;
+    for (i = 1; i <= a.length; i++) for (j = 1; j <= b.length; j++) m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return m[a.length][b.length] <= 1;
+  };
   C.tableJudge = function (alts, a, b) {
     alts = (alts || []).filter(Boolean);
     var first = alts.length ? C.tableOne(alts[0], a, b) : { n: null, ok: false };
