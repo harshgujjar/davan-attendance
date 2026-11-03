@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1986 · 03-Nov-2026 IST
+User: "BCA classes ended but BCA faculty get the voice that they have classes" - Vijayalakshmi P S (w358) and other phones on widgets before w360 never read calo. stwPublish now moves a course's periods on its own exam / holiday days (this weekday's next date, today .. 6 days) out of staff_pub/fac/<name>/tt into tto, so every widget version stays quiet; w362 merges tto back and checks calo itself. New Global Switches -> Widget updates "⛔ Force old staff widgets to update" (Everyone to the public version now / 🤖 Automatic 2 days behind / Off) = DB2 davan_pub/staff_widget_min {v, auto, days}, read hourly by staff widgets w362+ (1 tiny read per phone per hour). Same publish, no other new reads. davan-scraper learn-usage.yml gains a 6:05 pm ☁️ alert "📲 staff widgets not updated" (tools/widgets_behind.py, read only). Pairs with staff widget w362. Functions: stwNextDate (new), stwPublish (tt / tto), gswRelShow, gswMinShow / gswMin (new).
+
 ## v1985 · 31-Oct-2026 IST
 Shortage summary card (IA Raw / Final Shortage): PER CLASS list gets serial numbers, and the per-class and "faculty with most shortage" rows are capped at 440px so on desktop the counts sit beside the names, not at the far right (user request). No data change. Functions: the summary card builder (perClassHtml / rankingHtml), the IA eligibility detail ranking.
 
