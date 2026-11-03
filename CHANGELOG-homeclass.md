@@ -1,5 +1,12 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · kids v49 · parent v38 · core v32 (user: "check the log, it is not working properly still"): log 20:53-21:02. Tables of Vihaan worked (table 5 / 6 counted after
+  the single lines, warm-up skipped, test me now, next table). Found: (1) Aryan 17 x 10: "one seventy" (= 170 the Indian way) was marked 70 -> a number
+  with no "hundred" (one seventy, two forty, one twenty six) now counts as hundreds (tableOne); (2) a doubtful single answer (70 for 170, 43 for 63) was
+  "Not quite" at once -> asked once more first (C.numAlike, askTable); (3) Evs "handkerchief" (12 letters): three tries all "unsure" - he pauses between
+  letter groups, so while fewer than 75 % of the letters were heard the app now waits 3.8 s of quiet (was 2.2 s), and long words are more forgiving
+  (limit grows 12 % per letter above 6, from the 2nd try). Functions: C.tableOne, C.numAlike, askTable, spellAccept, spellListen.
+
 - 03-Nov-2026 · kids v48 · parent v37 · core v31 (user: "it always says 5 one ja 5 - I did not hear that - it is not important, we skip it"): table x 1 (= the table
   itself) is only SAID in "say it after me" - no listening, no "Your turn", straight to x 2; in table questions an unheard x 1 is accepted (no "I could not
   hear"); in the whole-table recitation line 1 is never missing / unsure (C.checkRecite). Learning is not a test: a line that cannot be heard is listened
