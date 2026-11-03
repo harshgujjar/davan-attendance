@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1990 · 03-Nov-2026 IST
+The report names the student app's new step fin = "📥 Told to finish" (portal v11.106 shows downloaded students a finish-now box). No new reads. Functions: WUR_STEP.
+
 ## v1989 · 03-Nov-2026 IST
 User (screenshot): "how to go back" + students showed 0 old widgets. ← Global Switches button on the report; when DB2 davan_pub/wupd_idx is empty (the Cloudflare worker makes it at its evening run, today's ran before the deploy) the report builds it from student_widget_report + student_widget_active (2 reads, about 70 KB, only then) and saves it - the student app uses it too. Functions: wurInit, wurBuildIdx (new).
 
