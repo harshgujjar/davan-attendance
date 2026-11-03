@@ -1,5 +1,11 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · kids v50 · parent v39 · core v33 (user: "I want it to say Aryan properly - it sounds 'Arien'"): the voice reads the child's name from a respelling - built-in
+  default "Aryan" -> "Aar yun" (C.NAME_SAY), changeable per child in the parent app (Settings -> child -> "How to say the name", saved as cfg/kids/<id>/say,
+  + 🔊 Hear it plays "Hello <name>! Ready to shine?" with the phone's voice to test a spelling). Applied in rawSay for every spoken line (phone voice and
+  Google Home); the screen keeps the normal spelling. Works for any name, no new build needed to change one. Tested: the voice receives "Hi Aar yun!",
+  the caption shows "Aryan". Functions: C.sayName, rawSay, parent saveKid / data-hear.
+
 - 03-Nov-2026 · kids v49 · parent v38 · core v32 (user: "check the log, it is not working properly still"): log 20:53-21:02. Tables of Vihaan worked (table 5 / 6 counted after
   the single lines, warm-up skipped, test me now, next table). Found: (1) Aryan 17 x 10: "one seventy" (= 170 the Indian way) was marked 70 -> a number
   with no "hundred" (one seventy, two forty, one twenty six) now counts as hundreds (tableOne); (2) a doubtful single answer (70 for 170, 43 for 63) was
