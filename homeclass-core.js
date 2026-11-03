@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 32;
+  C.VER = 33;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -428,6 +428,18 @@
 
   /* all of Google's guesses: right when the best guess is right, or when the best guess had no clear number and another guess is right */
   /* an answer one digit away from the right one (70 / 170, 43 / 63, 15 / 10, 33 / 3) cannot be told from a mishearing */
+  /* v50 (user, 03-Nov: "I want it to say Aryan properly - it sounds 'Arien'"): how the voice should SAY a name. A parent can set it per child
+     (settings -> "How to say the name"); these are the built-in defaults (spelling the voice reads right, shown on screen as normal) */
+  C.NAME_SAY = { aryan: 'Aar yun' };
+  C.sayName = function (text, kids) {
+    var t = String(text || '');
+    (kids || []).forEach(function (k) {
+      if (!k || !k.name) return;
+      var say = (k.say && String(k.say).trim()) || C.NAME_SAY[String(k.name).trim().toLowerCase()];
+      if (say) t = t.replace(new RegExp('\\b' + String(k.name).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), say);
+    });
+    return t;
+  };
   C.numAlike = function (x, y) {
     var a = String(x), b = String(y); if (a === b) return true;
     for (var d = 3; d <= 9; d++) if ((x === 10 + d && y === 10 * d) || (y === 10 + d && x === 10 * d)) return true;
