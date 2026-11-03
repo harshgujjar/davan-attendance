@@ -1,5 +1,15 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 04-Nov-2026 · kids v55 · parent v45 · app h25 (user: "when I say call it must call ONE specific phone - show the phone make; name each phone at the start and use it as the base"): the cause - a call (cmd dev
+  "any") went to EVERY phone that starts classes. Now: (1) each phone asks "Name this phone" once (suggestion from the model; two phones with one name get the model added; after a
+  re-install "↩︎ same as <old entry>" takes the old entry over and deletes it); the heartbeat carries dev/<id>/{name, model, named}; h25 gives the make + model (HCA.model()). (2) parent
+  Home: when 2+ phones start classes each child shows "📱 On which phone?" (name · model · online / last seen); every Start / Call / Test / Lesson goes to that one phone (cmd dev = its id);
+  Stop goes to the phone that runs the class; the last choice is remembered; a warning when the phone has been offline. (3) Settings -> child -> "Class phone": only that phone rings at
+  class time (timer + alarm); if it has been offline 3 min after the class time another phone that starts classes takes over (its alarm wakes 4 min later). The TV starts on the class
+  phone. (4) Settings -> Devices: name + model, "needs a name" tag, ✏️ rename (devcfg/<id>/ren), 🔔 test (the phone says "Hello! This is <name>"). Tested: parent call -> dev = chosen
+  phone; class-phone rules at 18:31 (other phone online: no call, this phone: call, class phone offline at 18:35: takes over, none set: call); name screen + adopt + rename.
+  Functions: openNameScreen, isClassPhone, devModel, parent targetDev / phonesList / sendCmd, data-ren / data-tst, saveKid dev.
+
 - 04-Nov-2026 · kids v54 · parent v44 · core v36 (user photos 9:47 / 9:51 / 9:52 + "check the log, fix the problems"): (1) ANSWER COUNTDOWN: Settings -> "Time to answer a question" (Off / 10 / 15 / 20 / 30 s, default 20)
   and "Countdown in the last" (3 / 5 / 10 s, default 5; cfg/ansTime, cfg/ansCount). One clock per table question (warm-up, revision, in-order, mixed), quiet until the last
   seconds, then a big 5-4-3-2-1 near the mic; it waits while he is speaking (partials) and while paused; at zero: "Time's up" + the answer, counted "to practise", then
