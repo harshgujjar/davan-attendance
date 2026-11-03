@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1991 · 03-Nov-2026 IST
+User (screenshot): only "Updated (1)" could be seen - Noor / Roopa / Amulya were inside "Stuck (115)" with 112 who never opened the app; no sorting. Report filters now: 👀 Saw, not updated (default) / 💤 Not seen yet / Can't / Director / Updated / No widget / All; sort menu Latest activity (default) / Name / Class / Oldest widget; a repeated step within 5 min shows once (✅ Updated was doubled); staff old = below the public build out for a full day (Karthik / Anitha / Kotrappa on w256 the night of the release are not old). No new reads. Functions: wurInit, wurView, wurSteps, wurList, wurTable.
+
 ## v1990 · 03-Nov-2026 IST
 The report names the student app's new step fin = "📥 Told to finish" (portal v11.106 shows downloaded students a finish-now box). No new reads. Functions: WUR_STEP.
 
