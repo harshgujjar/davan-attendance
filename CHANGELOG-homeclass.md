@@ -1,5 +1,12 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 03-Nov-2026 · kids v47 (user photo 9:45 + "why are practise a table / Evs separate - keep them inside the child's block"): (1) spelling finishes by itself: when the
+  letters heard are EXACTLY the word (and in Mom / Dad mode exactly one of the words) and have not changed for 0.9 s, the listen ends - no ■ Done; a
+  sound-alike / doubtful spelling still waits the normal 2.2 s; "quiet" now means the letters stopped changing (repeated partials are not activity).
+  Tested: exact word answered 1.4 s after the letters, sound-alike 2.9 s. (2) Home: each child's card holds ▶ Start class, 📚 Practise a table and
+  his lessons (✏️ Evs) - the old row of separate buttons under the cards is gone; the card is a div, ▶ Start class is its own button (TV remote focus
+  keeps working). Functions: spellListen (RC.chg), drawHome2, kids click handler.
+
 - 03-Nov-2026 · kids v46 (user photos 9:19 / 9:24: "skip the warm-up; test me while learning the table; the screen shows the old data"): (1) ⏭ Skip warm-up
   (this class only) ends the whole warm-up; (2) 🙈 Test me now while "say it after me" - the table goes to the test without seeing (also in "Say it
   with the app" practice); (3) buttons by section (S.sect): Skip + Skip warm-up in the warm-up; Skip, Test me now, Next table, Go to table while
