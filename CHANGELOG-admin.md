@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1993 · 04-Nov-2026 IST
+User: "how to test - tell me properly and keep it there, I can't ask every time". Global Switches -> Student widget update has a fold-out ℹ️ How to test (7 steps: add test student, 🧪 Test, sign in as that student on Android, Test preview / Update now / Later / Copy / Can't, no-widget card, the report, then Soft -> Auto). Pairs with portal v11.107 (test preview). No new reads. Functions: gswStuMinShow.
+
 ## v1992 · 04-Nov-2026 IST
 User (screenshot): "Test URN - what does it do; search by name with photo and class / section, I don't know URNs". The Test URNs box is now 🧪 Test students: a name / URN search over the dashboard's student list (photo, class, section, URN; no reads), chips with photo + ✕, saved at once to DB2 davan_pub/wupd_cfg.testUrns; a line explains it only works while a switch is on 🧪 Test. Functions: gswStuMinShow, gswStuMin, wuStu / wuCls / wuTestChips / wuTestSearch / wuTestAdd / wuTestDel (new).
 
