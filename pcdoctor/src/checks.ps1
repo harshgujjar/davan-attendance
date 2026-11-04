@@ -116,24 +116,34 @@ function PD-ReadEvents([datetime]$Since, [int]$Max = 60) {
 
 # ---------- SMART (full) - storage reliability counters + raw attributes where Windows gives them ----------
 function PD-Smart {
-  $out = @()
-  foreach ($pd in @(Get-PhysicalDisk -ErrorAction SilentlyContinue)) {
+  # 1.4 (04-Nov-2026, first real PC): a plugged-in pendrive came first as "the disk" - USB / SD / virtual disks are left out, and the
+  # Windows (system) disk is always first, so a pendrive never looks like a "disk replaced"
+  $out = @(); $sysN = ''
+  try { $sysN = [string](Get-Partition -DriveLetter ($env:SystemDrive.TrimEnd(':')) -ErrorAction Stop).DiskNumber } catch {}
+  $skip = @('USB', 'SD', 'MMC', 'Virtual', 'File Backed Virtual')
+  foreach ($pd in @(Get-PhysicalDisk -ErrorAction SilentlyContinue | Where-Object { $skip -notcontains [string]$_.BusType } |
+                    Sort-Object { if ([string]$_.DeviceId -eq $sysN) { 0 } else { 1 } }, { [int]$_.DeviceId })) {
     $rc = $pd | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue
     $o = @{ model = $pd.FriendlyName; serial = ([string]$pd.SerialNumber).Trim(); media = [string]$pd.MediaType; bus = [string]$pd.BusType; sizeGB = [math]::Round($pd.Size / 1GB);
             health = [string]$pd.HealthStatus; op = [string]($pd.OperationalStatus -join ',');
             hours = $rc.PowerOnHours; temp = $rc.Temperature; tempMax = $rc.TemperatureMax; wear = $rc.Wear; readErr = $rc.ReadErrorsTotal; writeErr = $rc.WriteErrorsTotal;
-            readLatMax = $rc.ReadLatencyMax; starts = $rc.StartStopCycleCount; realloc = $null; pending = $null; uncorr = $null; crc = $null; predict = $false }
+            readLatMax = $rc.ReadLatencyMax; starts = $rc.StartStopCycleCount; realloc = $null; pending = $null; uncorr = $null; crc = $null; predict = $false;
+            n = [string]$pd.DeviceId; sys = ([string]$pd.DeviceId -eq $sysN) }
     $out += $o
   }
   # raw ATA attributes (5 reallocated, 197 pending, 198 uncorrectable, 199 CRC) + predicted failure
   try {
     $fail = @(Get-CimInstance -Namespace root/wmi MSStorageDriver_FailurePredictStatus -ErrorAction Stop)
     $data = @(Get-CimInstance -Namespace root/wmi MSStorageDriver_FailurePredictData -ErrorAction Stop)
+    $ddAll = @(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue)
     for ($i = 0; $i -lt $data.Count; $i++) {
       $b = $data[$i].VendorSpecific; $a = @{}
       for ($j = 2; $j -lt $b.Length - 11; $j += 12) { if ($b[$j]) { $a[[int]$b[$j]] = [int64]$b[$j + 5] + 256 * [int64]$b[$j + 6] + 65536 * [int64]$b[$j + 7] } }
-      if ($i -lt $out.Count) { $o = $out[$i]; $o.realloc = $a[5]; $o.pending = $a[197]; $o.uncorr = $a[198]; $o.crc = $a[199]; if (!$o.hours) { $o.hours = $a[9] }
-        if ($i -lt $fail.Count) { $o.predict = [bool]$fail[$i].PredictFailure } }
+      # match the raw SMART row to its disk by the device path (InstanceName = PNPDeviceID + _0), not by position
+      $pn = ([string]$data[$i].InstanceName) -replace '_\d+$', ''; $dd = @($ddAll | Where-Object { [string]$_.PNPDeviceID -eq $pn }) | Select-Object -First 1
+      $o = if ($dd) { $out | Where-Object { $_.n -eq [string]$dd.Index } | Select-Object -First 1 } elseif ($out.Count -eq 1 -and $data.Count -eq 1) { $out[0] } else { $null }
+      if ($o) { $o.realloc = $a[5]; $o.pending = $a[197]; $o.uncorr = $a[198]; $o.crc = $a[199]; if (!$o.hours) { $o.hours = $a[9] }
+        $f = @($fail | Where-Object { [string]$_.InstanceName -eq [string]$data[$i].InstanceName }) | Select-Object -First 1; if ($f) { $o.predict = [bool]$f.PredictFailure } }
     }
   } catch {}
   $out
