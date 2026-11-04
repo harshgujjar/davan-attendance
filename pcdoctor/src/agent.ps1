@@ -118,14 +118,15 @@ function A-FreezeMark($e) {
 # ---------- verdict: 7 days of events from DB5 (Deep Freeze cannot wipe them) + today's checks ----------
 function A-Metrics {
   $h = A-Hwid; $since = (PD-NowMs) - 7 * 86400000
-  $ev = PD-Db GET ('lab/events/' + $h) $null ('orderBy="$key"&startAt="e' + $since + '"')
-  $list = @(); if ($ev) { $list = @($ev.PSObject.Properties | ForEach-Object { $_.Value }) }
-  $S.ev7 = $list
+  if ($S.test) { $list = @($S.ev7) } else {   # test mode (Windows runner): no DB5 at all
+    $ev = PD-Db GET ('lab/events/' + $h) $null ('orderBy="$key"&startAt="e' + $since + '"')
+    $list = @(); if ($ev) { $list = @($ev.PSObject.Properties | ForEach-Object { $_.Value }) }
+    $S.ev7 = $list }
   $cnt = { param($k) @($list | Where-Object { $_.k -eq $k }).Count }
   $hang = $list | Where-Object { $_.k -eq 'hang' -and $_.prog } | Group-Object prog | Sort-Object Count -Descending | Select-Object -First 1
   $inv = $S.inv; $sm = @(); if ($inv) { $sm = @($inv.disks) }
   $sysDisk = $sm | Select-Object -First 1
-  $perf = @($S.ring); $live = PD-Db GET ('lab/live/' + $h) $null 'orderBy="$key"&limitToLast=600'
+  $perf = @($S.ring); $live = if ($S.test) { $null } else { PD-Db GET ('lab/live/' + $h) $null 'orderBy="$key"&limitToLast=600' }
   if ($live) { $perf = @($live.PSObject.Properties | ForEach-Object { $_.Value }) }
   $p95 = { param($xs) $a = @($xs | Where-Object { $null -ne $_ } | Sort-Object); if (!$a.Count) { return $null }; $a[[math]::Min($a.Count - 1, [int]($a.Count * 0.95))] }
   $c = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
@@ -162,7 +163,7 @@ function A-Daily([switch]$Force) {
   $d = PD-ISTDate; if (!$Force -and $S.lastDay -eq $d) { return }
   $S.lastDay = $d; $h = A-Hwid
   PD-Log 'daily inventory'
-  $inv = PD-Inventory; $S.inv = $inv
+  $inv = PD-Inventory | ConvertTo-Json -Depth 8 -Compress | ConvertFrom-Json; $S.inv = $inv   # objects, not hashtables: Measure-Object / Group-Object need properties (PS 5.1)
   $old = PD-ReadJson (Join-Path $PD.Root 'state\inv.json')
   if ($old) { A-InvDiff $old $inv }
   PD-WriteJson (Join-Path $PD.Root 'state\inv.json') $inv
@@ -360,13 +361,16 @@ function A-Laptop {
 if ($Mode -eq 'mesh') { PD-LoadId | Out-Null; A-MeshInstall; exit 0 }
 if ($Mode -eq 'once') { PD-Token | Out-Null; A-SyncPc; A-Daily -Force; A-Events; A-Verdict; A-Minute; A-Peers; exit 0 }
 if ($Mode -eq 'test') {
+  $S.test = $true
   # used by the Windows runner check: everything that reads the PC, no DB5
   $r = @{ sample = (PD-Sample); inv = (PD-Inventory); startup = (PD-Startup); net = (PD-NetCheck); prn = (PD-PrintCheck); sfc = (PD-SfcState); bsod = (PD-Bsod); events = @(PD-ReadEvents (Get-Date).AddDays(-2) 5).Count; plan = (PD-AndroidPlan).gb }
-  $S.inv = $r.inv; $PD.Cfg = (Get-Content "$here\..\cfg-default.json" -Raw -Encoding UTF8 | ConvertFrom-Json); $PD.CfgAt = (Get-Date).AddYears(1)
+  $S.inv = ($r.inv | ConvertTo-Json -Depth 8 -Compress | ConvertFrom-Json); $PD.Cfg = (Get-Content "$here\..\cfg-default.json" -Raw -Encoding UTF8 | ConvertFrom-Json); $PD.CfgAt = (Get-Date).AddYears(1)
   $v = PD-Verdict @{ smart = @{ realloc = 3 }; disk = @{ cFreePct = 50 } }
   $r.verdictTest = $v.v + ' | ' + $v.why
+  $S.ev7 = @(PD-ReadEvents (Get-Date).AddDays(-7) 20 | ConvertTo-Json -Depth 4 | ConvertFrom-Json); $S.startup = $r.startup; $S.net = $r.net; $S.prn = $r.prn; $S.sfc = $r.sfc
+  $mm = A-Metrics; $r.metricsTest = 'C: free ' + $mm.disk.cFreePct + '% · RAM sticks ' + $mm.inv.ramSticks + ' · hang top ' + $mm.ev.hangTop; $r.verdictNow = (PD-Verdict $mm).v
   $r | ConvertTo-Json -Depth 6 | Set-Content "$env:TEMP\pd_test.json" -Encoding UTF8
-  "sample cpu=$($r.sample.cpu) ram=$($r.sample.ram) busy=$($r.sample.busy) | inv model=$($r.inv.model) disks=$(@($r.inv.disks).Count) sw=$(@($r.inv.software).Count) | events=$($r.events) | verdict test: $($r.verdictTest)"
+  "sample cpu=$($r.sample.cpu) ram=$($r.sample.ram) busy=$($r.sample.busy) | inv model=$($r.inv.model) disks=$(@($r.inv.disks).Count) sw=$(@($r.inv.software).Count) | events=$($r.events) | verdict test: $($r.verdictTest) | metrics: $($r.metricsTest) | this PC: $($r.verdictNow)"
   exit 0
 }
 
