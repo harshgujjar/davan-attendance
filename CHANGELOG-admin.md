@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1994 · 04-Nov-2026 IST
+User: "tell them before the lock with a countdown; those with no widget must install, else no student app after Thu 9 pm". Students with no widget: new 🔴 Required from + date-time (DB2 davan_pub/wupd_cfg.getMode req, getBy; default Thu 5 Nov 9:15 pm), with a confirm. Pairs with portal v11.108 (countdown banner, lock, I installed it - check). Functions: gswStuMinShow, gswStuMin.
+
 ## v1993 · 04-Nov-2026 IST
 User: "how to test - tell me properly and keep it there, I can't ask every time". Global Switches -> Student widget update has a fold-out ℹ️ How to test (7 steps: add test student, 🧪 Test, sign in as that student on Android, Test preview / Update now / Later / Copy / Can't, no-widget card, the report, then Soft -> Auto). Pairs with portal v11.107 (test preview). No new reads. Functions: gswStuMinShow.
 
