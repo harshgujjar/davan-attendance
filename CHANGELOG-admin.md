@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1999 · 04-Nov-2026 IST
+User: "one notification only for the Super Admin - who updated the widget, today's totals one line each, voice note; hourly, 24 h; switches Quiet (no notification / voice, message with ▶) and Off". Cloudflare worker v20: 5th timer "35 * * * *" (WUPD_CRON, :05 IST every hour) = wupdHourly - compares DB2 student_widget_report / staff_widget_report with davan_pub/wupd_snap, keeps davan_pub/wupd_day/<date>, sends one ☁️ alert kind wupd_hr (mode + say) only when someone updated; Quiet = no laptop push. Switch = DB2 davan_pub/wupd_cfg.alert on / quiet / off - staff app Global Switches (here) and the staff widget's 🛠 Super Admin page (sa-screens.json screen wupd, no APK). Staff widget w364 speaks it (not 9 pm - 7 am) or keeps it in Today's messages with ▶ (Quiet). Reads per hour: the two widget reports, active list, wupd, wupd_cfg, wupd_snap, today's usage keys (shallow). Functions: gswStuMinShow, gswStuMin; worker wupdHourly (new), saEvent.
+
 ## v1998 · 04-Nov-2026 IST
 User: "Vijayalakshmi's update was downloaded, all permissions on, but waited for a tap - students and staff too". Report staff line adds · downloaded and · Android: <answer> from the new staff_widget_report upd (w363); the Cloudflare worker v19 evening alert adds the same. Pairs with staff widget w363, student widget w312 (both retry the silent install hourly). Functions: wurInit; worker wupdDaily.
 

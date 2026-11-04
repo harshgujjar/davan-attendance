@@ -158,12 +158,13 @@ const istDate = ms => new Date(ms + 5.5 * 3600000).toISOString().slice(0, 10);
 /** Saves one event to DB2 (the phone app reads it) and pushes it to the Super Admin's laptops. */
 async function saEvent(ev) {
   const at = Date.now(), color = SA_COLORS.indexOf(ev.color) >= 0 ? ev.color : 'green';
-  const e = { at, kind: clip(ev.kind || 'job', 20), color, title: clip(ev.title, 120), body: clip(ev.body, 500), by: clip(ev.by, 60), link: clip(ev.link, 200), who: clip(ev.who, 60) };
+  const e = { at, kind: clip(ev.kind || 'job', 20), color, title: clip(ev.title, 120), body: clip(ev.body, ev.kind === 'wupd_hr' ? 1500 : 500), by: clip(ev.by, 60), link: clip(ev.link, 200), who: clip(ev.who, 60) };
+  if (ev.mode) e.mode = clip(ev.mode, 10); if (ev.say) e.say = clip(ev.say, 900);   // v20: wupd_hr - On / Quiet + the spoken text
   const key = 'e' + at + String(Math.floor(Math.random() * 90) + 10);
   await db2('PUT', 'davan_pub/sa_ev/' + key, e);
   await db2('PUT', 'davan_pub/sa_ev_at', at);
   const subs = (await db2('GET', 'davan_pub/sa_push')) || {};
-  const list = Object.entries(subs).filter(([, s]) => s && s.endpoint && s.keys);
+  const list = e.mode === 'quiet' ? [] : Object.entries(subs).filter(([, s]) => s && s.endpoint && s.keys);   // v20: Quiet = no push
   const res = { ok: true, key, subs: list.length, sent: 0, failed: 0 };
   if (list.length) try {
     const r = await fetch(PUSH_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
@@ -272,6 +273,66 @@ async function wupdCant(b) {
   return saEvent({ kind: 'widgets', color: 'red', who: clip(w.name, 60), title: '🆘 ' + clip(w.name || urn, 60) + ' can\'t update the widget',
     body: clip(w.cls, 30) + ' · ' + urn + ' · build ' + (+w.v || '?') + (w.model ? ' · ' + clip(w.model, 30) : '') + (w.cantWhy ? '\n"' + clip(w.cantWhy, 120) + '"' : '') + '\nAsked to meet the Director.',
     by: 'student app', link: 'https://harshgujjar.github.io/davan-attendance/index.html?go=wupd' });
+}
+
+/* v20 (user, 04-Nov-2026: "one notification only for the Super Admin - which student / staff updated the widget in this new process, and today's
+   numbers, one line each, with a voice note; every hour, 24 hours; switches On / Quiet / Off"): WUPD_CRON every hour at :35 UTC (= :05 IST).
+   Compares the widget reports with the last snapshot (davan_pub/wupd_snap) - who moved to a newer build, who installed a widget for the first time -
+   keeps today's counts (davan_pub/wupd_day/<IST date>) and sends ONE ☁️ alert kind wupd_hr with the summary + a spoken text (say / sayKn).
+   davan_pub/wupd_cfg.alert: on (default) = notification + voice (night 9 pm - 7 am: no voice, ▶ in the widget), quiet = only the widget's
+   messages box with ▶, off = nothing sent (counts still kept). Nobody updated in the hour = no alert. */
+const WUPD_CRON = '35 * * * *';
+async function wupdHourly() {
+  const now = Date.now(), today = istDate(now);
+  const get = f => fetch(RAW + f + '?t=' + now).then(r => r.ok ? r.json() : null).catch(() => null);
+  const [sp, tp, srep, sact, trep, wl, snap, cfg, day, use] = await Promise.all([get('student-widget-version.json'), get('davan-widget-version.json'),
+    db2('GET', 'davan_pub/student_widget_report'), db2('GET', 'davan_pub/student_widget_active'), db2('GET', 'davan_pub/staff_widget_report'),
+    db2('GET', 'davan_pub/wupd'), db2('GET', 'davan_pub/wupd_snap'), db2('GET', 'davan_pub/wupd_cfg'), db2('GET', 'davan_pub/wupd_day/' + today), db2('GET', 'davan_pub/usage/' + today, undefined, 'shallow=true')]);
+  if (!srep || !trep) return;
+  const cut7 = now - 7 * 864e5, pv = sp ? +sp.apkVersion : 0, tv = tp ? +tp.apkVersion : 0;
+  const nowS = {}, nowT = {}, ups = [], d = Object.assign({ stu: 0, stf: 0, inst: 0 }, day || {});
+  const urnOf = code => { const a = (sact || {})[code]; return a && a.urn ? String(a.urn).toUpperCase() : ''; };
+  for (const [code, r] of Object.entries(srep)) { if (!r || !urnOf(code)) continue; const v = +r.apkVersion || 0; nowS[code] = v;
+    const was = snap && snap.s ? snap.s[code] : undefined, a = sact[code];
+    if (snap && was === undefined && v) { ups.push({ n: a.name || urnOf(code), c: String(a.class || '').replace('Davan-', '').replace(/-Sem(\d)-Sec(\w)/, ' $1 sem $2'), to: v, inst: 1 }); d.inst++; }
+    else if (snap && was && v > was) { const w = (wl || {})[urnOf(code)] || {}, st = w.s || {}, via = st.upd > now - 3 * 3600e3 ? 'via the update card' : st.dl > now - 3 * 864e5 ? 'via Download' : 'by itself';
+      ups.push({ n: a.name || urnOf(code), c: String(a.class || '').replace('Davan-', '').replace(/-Sem(\d)-Sec(\w)/, ' $1 sem $2'), from: was, to: v, via }); d.stu++; } }
+  for (const [code, r] of Object.entries(trep)) { if (!r || !r.linked || !String(r.name || '').trim()) continue; const v = +r.v || 0; nowT[code] = v;
+    const was = snap && snap.t ? snap.t[code] : undefined;
+    if (snap && was && v > was) { ups.push({ n: String(r.name).trim(), c: 'Staff', from: was, to: v, via: r.upd && r.upd.res === 'tap' ? 'with a tap' : 'by itself', staff: 1 }); d.stf++; } }
+  await db2('PUT', 'davan_pub/wupd_snap', { at: now, s: nowS, t: nowT });
+  await db2('PUT', 'davan_pub/wupd_day/' + today, d);
+  if (!snap || !ups.length) return;
+  const mode = (cfg && cfg.alert) || 'on'; if (mode === 'off') return;
+  const actS = Object.entries(srep).filter(([code, r]) => r && urnOf(code) && Math.max(+r.ts || 0, +r.workerLastRunAt || 0) >= cut7);
+  const oldS = actS.filter(([, r]) => (+r.apkVersion || 0) < pv), oldT = Object.values(trep).filter(r => r && r.linked && String(r.name || '').trim() && (+r.at || 0) >= cut7 && (+r.v || 0) < tv);
+  const dlS = oldS.filter(([, r]) => r.upd && r.upd.ready).length, dlT = oldT.filter(r => r.upd && r.upd.ready).length;
+  const withW = new Set(actS.map(([code]) => urnOf(code))), noW = Object.keys(use || {}).filter(u => !withW.has(String(u).toUpperCase())).length;
+  let cant = 0, dir = 0; for (const w of Object.values(wl || {})) { const st = (w && w.s) || {}; if (st.ok) continue; if (st.cant) cant++; if (st.dir) dir++; }
+  const W = (pub, b) => wName(pub, b), when = ms => new Date(ms).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).replace(/\s?(am|pm)$/i, m => ' ' + m.trim().toLowerCase());
+  const left = ms => { const x = Math.max(0, ms - now), dd = Math.floor(x / 864e5), h = Math.floor(x % 864e5 / 3600e3); return (dd ? dd + ' day' + (dd > 1 ? 's' : '') + ' ' : '') + h + ' h left'; };
+  const relAt = sp && sp.times && sp.times[pv] ? Date.parse(String(sp.times[pv]).replace(/(\d+) (\w+) (\d+), (.*)/, '$2 $1 $3 $4') + ' GMT+0530') : 0;
+  const lockS = cfg && cfg.mode === 'auto' && relAt ? relAt + (+cfg.softDays || 2) * 864e5 : 0, lockN = cfg && cfg.getMode === 'req' ? +cfg.getBy || 0 : 0;
+  const lines = ups.slice(0, 5).map(u => (u.inst ? '🆕 ' : '✅ ') + u.n + ' · ' + u.c + ' · ' + (u.inst ? 'new widget installed (' + W(sp, u.to) + ')' : W(u.staff ? tp : sp, u.from) + ' → ' + W(u.staff ? tp : sp, u.to) + ' · ' + u.via));
+  if (ups.length > 5) lines.push('+ ' + (ups.length - 5) + ' more');
+  const hr = new Date(now + 5.5 * 3600e3), h1 = hr.getUTCHours(), fmtH = h => ((h % 12) || 12) + (h < 12 ? ' am' : ' pm');
+  const body = lines.join('\n') + '\n── Summary today ──'
+    + '\n🔄 Updated today: ' + d.stu + ' student' + (d.stu === 1 ? '' : 's') + ' · ' + d.stf + ' staff'
+    + '\n🆕 New installs today: ' + d.inst + ' student' + (d.inst === 1 ? '' : 's')
+    + '\n⬇ Downloaded, not installed yet: ' + dlS + ' student' + (dlS === 1 ? '' : 's') + ' · ' + dlT + ' staff'
+    + '\n⏳ Still on an old widget: ' + oldS.length + ' student' + (oldS.length === 1 ? '' : 's') + ' · ' + oldT.length + ' staff'
+    + '\n📲 No widget yet (opened the app today): ' + noW + ' student' + (noW === 1 ? '' : 's')
+    + '\n🆘 Can\'t update: ' + cant + ' · 🏢 To meet the Director: ' + dir
+    + (lockS > now ? '\n⏰ Student lock: ' + when(lockS) + ' (' + left(lockS) + ')' : '')
+    + (lockN > now ? '\n⏰ No-widget lock: ' + when(lockN) + ' (' + left(lockN) + ')' : '');
+  const nm = ups.slice(0, 3).map(u => u.n.split(' ').slice(0, 2).join(' ').toLowerCase().replace(/\b\w/g, x => x.toUpperCase()));
+  const say = (ups.length === 1 ? 'One widget' : ups.length + ' widgets') + ' updated in the last hour: ' + nm.join(', ') + (ups.length > 3 ? ' and ' + (ups.length - 3) + ' more' : '') + '. '
+    + 'Summary for today: ' + d.stu + ' students and ' + d.stf + ' staff updated. ' + d.inst + ' new widget installs. '
+    + dlS + ' students and ' + dlT + ' staff have downloaded but not installed yet. ' + oldS.length + ' students and ' + oldT.length + ' staff are still on an old widget. '
+    + noW + ' students have no widget yet. ' + (cant === 1 ? 'One student cannot update' : cant + ' students cannot update') + ', ' + (dir ? dir + ' to meet the Director.' : 'nobody to meet the Director.')
+    + (lockS > now ? ' The student lock is on ' + when(lockS).replace(/^(\w+), \d+ \w+, /, '$1 at ') + '.' : '') + (lockN > now ? ' The no-widget lock is on ' + when(lockN).replace(/^(\w+), \d+ \w+, /, '$1 at ') + '.' : '');
+  await saEvent({ kind: 'wupd_hr', color: 'green', title: '📲 ' + (ups.length === 1 ? '1 widget' : ups.length + ' widgets') + ' updated in the last hour (' + fmtH((h1 + 23) % 24) + ' – ' + fmtH(h1) + ')',
+    body, by: 'Cloudflare hourly', link: 'https://harshgujjar.github.io/davan-attendance/index.html?go=wupd', mode, say });
 }
 /** A timer that could not start its job tells the Super Admin at once. */
 async function startOrAlert(p, what) {
@@ -476,6 +537,7 @@ export default {
       else if (hm === '15:45' || hm === '16:15') ctx.waitUntil(startOrAlert(startRelease(env, 'Cloudflare timer ' + (hm === '15:45' ? '45 15' : '15 16')), 'The 9:15 pm widget release'));
       return;
     }
+    if (c === WUPD_CRON) { ctx.waitUntil(wupdHourly().catch(e => console.log('wupd hourly', e && e.message))); return; }   // v20
     if (c === IG_CRON) { ctx.waitUntil(igTimer(env).catch(() => {})); return; }   // v16: hourly Instagram, every day incl. Sunday
     if (d.getUTCDay() === 0) return;
     const puc = c.split(' ')[0].split(',').indexOf('4') >= 0;   // the PUC timer's minutes are 0,4,18,30,34,48; the college one's 0,15,30,45
