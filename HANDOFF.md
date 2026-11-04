@@ -95,6 +95,18 @@ Console says "worker has no DB5 key" and PCs cannot register; 2) run PCDoctor-Se
 A1.. B1.. PUC1.. D1..; 3) MeshCentral: first login (admin + the first password) -> set own password + 2-step; 4) Console Settings: type the Deep Freeze
 password once; set test PCs on Versions. Not tested on a real lab PC yet (only GitHub's Windows runner).
 
+### PC Doctor after the first real install (04-Nov evening, session 01BVkXcMKr6HK7qa23dAP4ee)
+- First PC = the user's laptop 1DAVAN (hwid 90e4cc49c04fec48, ASUS TUF A15, grp SA). Worker DB5_SA secret set + working (Console "No PCs yet" then 1DAVAN).
+- Fixed: Agent 1.5-1.12 ($s/$S same variable = no minute rows; Get-WinEvent per source; pendrive taken as disk; update-loop only with Deep Freeze;
+  test mode never touches DB5 - 4 RUNNERVM fake PCs were removed from DB5; tray password to OPEN the window; tray TopMost twice; laptop gets new
+  builds at once (state\laptop.flag) + tray restarts itself; ⬆️ Updates tab: Update now (skips the 2-h wait), version + date, What's new 5 + Show all).
+- STRICT RULE (CLAUDE.md "Never delete without asking"): deleting fixes (del = $true) only suggested, run when tapped; laptop never auto-fixes;
+  DB5 lab/cfg/fix auto = false (Action "DB5 auto-fix OFF"). Fix log was empty - nothing was ever deleted.
+- Worker v21: MeshCentral hourly check https then http (it said down while the VM answered 200) - check lab/wstate.mesh after 15:05 UTC.
+- davan-scraper Actions added: PC Doctor - infra check (SSH + MeshCentral from outside), DB5 remove test PCs, DB5 auto-fix OFF.
+- tools/pcdoctor_version.py refuses: a function using both $s and $S, a key twice in one @{...}.
+- The laptop runs an OLD loader until PCDoctor-Setup.cmd is run again (or a restart) - after that updates are automatic.
+
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
   v1.6.1 SUBMITTED to addons.mozilla.org 15-Oct (slug usage-meter-for-claude) - waiting for approval. Heartbeat -> DB4
