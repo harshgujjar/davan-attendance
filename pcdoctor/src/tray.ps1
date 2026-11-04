@@ -1,6 +1,6 @@
 ﻿# PC Doctor (tray window) - tray.ps1 (ROADMAP-pcdoctor.md 8). Runs for every user (HKLM Run). Closing the window never stops the
 # PC Doctor Agent (that is the SYSTEM service). Reads the agent's state files, sends requests through req\ (the agent does the work).
-# Password 2531 (hashed in lab/cfg/trayPw, changeable on the Console) for ⚙️ / 🔧. Laptop = Super Admin mode: all-PCs grid + popups.
+# Password 2531 (hashed in lab/cfg/trayPw, changeable on the Console) to OPEN the window (and Copy report). Laptop = Super Admin mode: all-PCs grid + popups.
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
 $Root = "$env:ProgramData\DavanPCDoctor"; $St = "$Root\state"; $Rq = "$Root\req"
@@ -15,7 +15,7 @@ $C = @{ bg = [Drawing.Color]::FromArgb(11,13,17); card = [Drawing.Color]::FromAr
 $LV = @{ green = @('🟢', $C.ok); yellow = @('🟡', $C.ye); orange = @('🟠', $C.wa); red = @('🔴', $C.er); purple = @('🟣', $C.pu); off = @('⚫', $C.off) }
 $F = @{ big = New-Object Drawing.Font('Segoe UI Semibold', 13); n = New-Object Drawing.Font('Segoe UI', 9.5); s = New-Object Drawing.Font('Segoe UI', 8.5); m = New-Object Drawing.Font('Consolas', 9); e = New-Object Drawing.Font('Segoe UI Emoji', 10) }
 function Pw([string]$why) {
-  $f = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor'; Width = 300; Height = 150; StartPosition = 'CenterScreen'; BackColor = $C.bg; ForeColor = $C.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
+  $f = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor'; Width = 300; Height = 150; StartPosition = 'CenterScreen'; TopMost = $true; ShowInTaskbar = $true; BackColor = $C.bg; ForeColor = $C.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
   $l = New-Object Windows.Forms.Label -Property @{ Text = "🔒 Password for $why"; Left = 14; Top = 12; Width = 260; Font = $F.n }
   $t = New-Object Windows.Forms.TextBox -Property @{ Left = 14; Top = 40; Width = 255; UseSystemPasswordChar = $true; Font = $F.n }
   $b = New-Object Windows.Forms.Button -Property @{ Text = 'OK'; Left = 194; Top = 72; Width = 75; DialogResult = 'OK'; FlatStyle = 'Flat'; BackColor = $C.ac; ForeColor = [Drawing.Color]::Black }
@@ -60,8 +60,8 @@ Btn '📤 Send report now' 12 $by 136 { Set-Content "$Rq\now.flag" '1'; $msg.Tex
 Btn '🔍 Check now' 152 $by 136 { Set-Content "$Rq\now.flag" '1'; $msg.Text = '🔍 Checking - the verdict updates in about a minute.' } | Out-Null
 Btn '📋 Copy' 292 $by 140 { [Windows.Forms.Clipboard]::SetText((Report)); $msg.Text = '📋 Report copied - paste it in WhatsApp / chat.' } | Out-Null
 Btn '💾 Save report to pendrive' 12 ($by + 36) 200 { Set-Content "$Rq\usb.flag" '1'; $msg.Text = '💾 Saving to the pendrive ...' } | Out-Null
-Btn '🔧 Fix from pendrive' 216 ($by + 36) 216 { if (Pw 'Fix from pendrive') { Set-Content "$Rq\usbfix.flag" '1'; $msg.Text = '🔧 Running the approved fixes from the pendrive ...' } } | Out-Null
-Btn '⚙️ Name / group / notes' 12 ($by + 72) 420 { if (Pw 'changing this PC') { Edit } } | Out-Null
+Btn '🔧 Fix from pendrive' 216 ($by + 36) 216 { if ($script:unlocked -or (Pw 'Fix from pendrive')) { Set-Content "$Rq\usbfix.flag" '1'; $msg.Text = '🔧 Running the approved fixes from the pendrive ...' } } | Out-Null
+Btn '⚙️ Name / group / notes' 12 ($by + 72) 420 { if ($script:unlocked -or (Pw 'changing this PC')) { Edit } } | Out-Null
 function Edit {
   $p = J 'pc.json'; $cfg = J 'cfg.json'
   $f = New-Object Windows.Forms.Form -Property @{ Text = '⚙️ This PC'; Width = 360; Height = 330; BackColor = $C.bg; ForeColor = $C.tx; StartPosition = 'CenterScreen'; FormBorderStyle = 'FixedDialog'; TopMost = $true }
@@ -104,12 +104,18 @@ function Ico($col) { $b = New-Object Drawing.Bitmap 16, 16; $g = [Drawing.Graphi
   $g.FillRectangle((New-Object Drawing.SolidBrush $C.tx), 6, 12, 4, 2); $g.FillEllipse((New-Object Drawing.SolidBrush $col), 9, 8, 7, 7); $g.Dispose(); [Drawing.Icon]::FromHandle($b.GetHicon()) }
 $ni.Icon = Ico $C.ok
 $menu = New-Object Windows.Forms.ContextMenuStrip
-[void]$menu.Items.Add('Open PC Doctor', $null, { $form.Show(); $form.Activate() })
+# 1.2 (user, 04-Nov-2026: "we planned a password to open it, but it opens without"): the window opens only with the password (2531,
+# changeable on the Console); while it stays open ⚙️ / 🔧 don't ask again; hiding it locks it again
+$script:unlocked = $false
+function OpenWin { if ($form.Visible -and $script:unlocked) { $form.WindowState = 'Normal'; $form.Activate(); return }
+  if (!$script:unlocked -and !(Pw 'opening PC Doctor')) { return }
+  $script:unlocked = $true; $form.Show(); $form.WindowState = 'Normal'; $form.Activate() }
+[void]$menu.Items.Add('Open PC Doctor', $null, { OpenWin })
 [void]$menu.Items.Add('🔍 Check now', $null, { Set-Content "$Rq\now.flag" '1' })
-[void]$menu.Items.Add('📋 Copy report', $null, { [Windows.Forms.Clipboard]::SetText((Report)) })
+[void]$menu.Items.Add('📋 Copy report', $null, { if ($script:unlocked -or (Pw 'copying the report')) { [Windows.Forms.Clipboard]::SetText((Report)) } })
 $ni.ContextMenuStrip = $menu
-$ni.Add_MouseClick({ if ($_.Button -eq 'Left') { $form.Show(); $form.WindowState = 'Normal'; $form.Activate() } })
-$form.Add_FormClosing({ if ($_.CloseReason -eq 'UserClosing') { $_.Cancel = $true; $form.Hide() } })   # closing never stops anything
+$ni.Add_MouseClick({ if ($_.Button -eq 'Left') { OpenWin } })
+$form.Add_FormClosing({ if ($_.CloseReason -eq 'UserClosing') { $_.Cancel = $true; $form.Hide(); $script:unlocked = $false } })   # closing never stops anything
 $seen = @{}; $lastLv = ''
 function Refresh {
   $n = J 'now.json'; $v = J 'verdict.json'
@@ -150,5 +156,5 @@ function Refresh {
 }
 $tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {} }); $tm.Start()
 try { Refresh } catch {}
-if ($args -contains '-show') { $form.Show() }
+if ($args -contains '-show') { OpenWin }
 [Windows.Forms.Application]::Run()

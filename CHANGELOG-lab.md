@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 04-Nov-2026 · tray 1.2 -- The user: "we planned a password to open it, but it opens without". The PC Doctor window now asks for the password
+  (2531, hashed in lab/cfg/trayPw, changeable on the Console) every time it opens from the tray icon or menu, also for 📋 Copy report; while
+  it is open ⚙️ / 🔧 don't ask again; closing it locks it. The password box stays on top. No new reads / writes. OpenWin, Pw.
 - 04-Nov-2026 · Agent 1.7 -- The Windows test (GitHub runner) registered itself as a PC in DB5 once the worker had its DB5 key: test mode
   now never registers, never reads / writes DB5 and sends no alerts ($PD.Test in PD-Register / PD-Token / PD-Db / PD-Alert). The fake PC entry is removed.
 - 04-Nov-2026 · Agent 1.5 / checks 1.3 -- First real PC (the user's laptop): (1) every minute failed with "$S.ring is null" - PowerShell
