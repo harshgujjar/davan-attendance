@@ -5,18 +5,18 @@
 
 $PD_FIX = [ordered]@{
   # name            kind      label (Console button / log)               switch in lab/cfg/fix/sw
-  'clean_temp'    = @{ k = 'light';   l = 'Clean temp + crash dumps';       sw = 'clean_temp' }
+  'clean_temp'    = @{ k = 'light';   l = 'Clean temp + crash dumps';       sw = 'clean_temp'; del = $true }
   'stop_program'  = @{ k = 'light';   l = 'Stop a program';                 sw = 'stop_hung' }
-  'spooler'       = @{ k = 'light';   l = 'Restart print spooler + clear stuck jobs'; sw = 'spooler' }
+  'spooler'       = @{ k = 'light';   l = 'Restart print spooler + clear stuck jobs'; sw = 'spooler'; del = $true }
   'net_private'   = @{ k = 'light';   l = 'Network Private + discovery + File & Printer Sharing'; sw = 'net_private'; perm = $true }
   'rpc_print'     = @{ k = 'light';   l = 'Printer RPC settings (0x11b / 0x709 / 0xbcb)'; sw = 'rpc_print'; perm = $true }
   'printer_driver'= @{ k = 'light';   l = 'Install printer driver';         sw = 'printer_driver'; perm = $true }
   'printer_ip'    = @{ k = 'light';   l = 'Add printer by IP';              sw = 'printer_driver'; perm = $true }
   'smb_share'     = @{ k = 'light';   l = 'Shared folder / printer (SMB 24H2) + saved login'; sw = 'smb_share'; perm = $true }
-  'startup_off'   = @{ k = 'light';   l = 'Turn off a startup item';        sw = 'startup_off'; perm = $true }
+  'startup_off'   = @{ k = 'light';   l = 'Turn off a startup item';        sw = 'startup_off'; perm = $true; del = $true }
   'repair_windows'= @{ k = 'heavy';   l = 'Repair Windows (sfc / DISM)';    sw = 'sfc_dism'; perm = $true }
-  'android_clean' = @{ k = 'heavy';   l = 'Android clean';                  sw = 'android_clean' }
-  'clean'         = @{ k = 'heavy';   l = 'Clean now';                      sw = 'android_clean' }
+  'android_clean' = @{ k = 'heavy';   l = 'Android clean';                  sw = 'android_clean'; del = $true }
+  'clean'         = @{ k = 'heavy';   l = 'Clean now';                      sw = 'android_clean'; del = $true }
   'winget'        = @{ k = 'heavy';   l = 'Software updates (winget)';      sw = 'winget'; perm = $true }
   'win_update_dl' = @{ k = 'heavy';   l = 'Download Windows updates';       sw = 'win_update_dl' }
   'check_disk'    = @{ k = 'restart'; l = 'Check disk (chkdsk at restart)'; sw = 'chkdsk'; perm = $true }
@@ -24,8 +24,8 @@ $PD_FIX = [ordered]@{
   'update_install'= @{ k = 'restart'; l = 'Install Windows updates';        sw = 'update_install'; perm = $true }
   'rename'        = @{ k = 'restart'; l = 'Rename this PC';                 sw = 'rename'; perm = $true }
   'restart'       = @{ k = 'restart'; l = 'Restart';                        sw = $null }
-  'rollback_driver'=@{ k = 'restart'; l = 'Roll back driver';               sw = $null; perm = $true }
-  'uninstall_update'=@{ k = 'restart'; l = 'Uninstall update + block it';   sw = $null; perm = $true }
+  'rollback_driver'=@{ k = 'restart'; l = 'Roll back driver';               sw = $null; perm = $true; del = $true }
+  'uninstall_update'=@{ k = 'restart'; l = 'Uninstall update + block it';   sw = $null; perm = $true; del = $true }
   'crash_reader'  = @{ k = 'heavy';   l = 'Install the crash reader (cdb)'; sw = $null }
 }
 function PD-FixLog([string]$fix, $res, [string]$by, [string]$cid = '') {
@@ -37,6 +37,11 @@ function PD-FixLog([string]$fix, $res, [string]$by, [string]$cid = '') {
 function PD-FixAllowed([string]$fix, [switch]$Auto) {
   $c = PD-Cfg; $f = $c.fix
   if ($Auto) {
+    # STRICT RULE (user, 04-Nov-2026): "never delete anything from a PC - especially my laptop - tell me what you want to delete and delete only
+    # if I say yes". A fix that deletes or removes anything (del = $true) never runs by itself: it is offered on the Console and runs only
+    # after the Super Admin taps it. The Super Admin laptop never runs any fix by itself.
+    if ($PD_FIX[$fix].del) { return 'deletes files - waits for the Super Admin''s OK' }
+    if (Test-Path (Join-Path $PD.Root 'state\laptop.flag')) { return 'Super Admin laptop - no automatic fixes' }
     if ($f.auto -eq $false) { return 'Auto-fix is switched off' }
     $sw = $PD_FIX[$fix].sw; if ($sw -and $f.sw -and $f.sw.$sw -eq $false) { return "switch '$sw' is off" }
     $hist = PD-ReadJson (Join-Path $PD.Root 'state\fixhist.json')
@@ -80,6 +85,7 @@ function PD-ThawQueue([string]$fix, $fargs, [string]$by) {
 function PD-Fix([string]$fix, $a, [string]$by = 'auto', [string]$cid = '') {
   if (!$PD_FIX.Contains($fix)) { return @{ ok = $false; txt = 'unknown fix ' + $fix } }
   $meta = $PD_FIX[$fix]
+  if ($meta.del -and $by -eq 'auto') { return @{ ok = $false; txt = 'not run: it deletes files - only after the Super Admin''s OK' } }   # strict rule, 2nd lock
   if ($meta.perm -and $meta.k -ne 'light' -and (PD-Frozen) -and !$a.now) { $r = PD-ThawQueue $fix $a $by; PD-FixLog $fix $r $by $cid; return $r }
   PD-Log "fix $fix by $by"
   $r = try { & ('Fix-' + $fix) $a } catch { @{ ok = $false; txt = 'error: ' + $_.Exception.Message } }

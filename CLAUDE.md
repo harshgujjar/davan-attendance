@@ -149,6 +149,13 @@ rebuilt with it are identical to the released APKs). Never put android.jar on ma
 write W<nn>_CHANGES.md, build, then release as above. Do NOT send the user the APK (user, 21-Oct-2026: "auto update happens, no need to waste tokens") - only when the user asks for it. Send the source zip ONLY when the user asks for it
 (user, 04-Oct-2026: it wastes tokens otherwise) - and always before a session is about to end so the next session can build.
 
+## Never delete without asking (user, 04-Nov-2026 - STRICT rule, every app / script / cloud job)
+"Never delete anything from a PC - especially my laptop. If you want to delete something, tell me what and delete only if I say yes."
+- Claude: before ANY delete (files on a PC, DB entries, repo files the user made, PCs in DB5, Firebase nodes, branches) list exactly what and
+  wait for the user's yes. Clean-up jobs that delete must show the list first and run only after the user's OK.
+- PC Doctor: fixes that delete or remove anything (`del = $true` in pcdoctor/src/fixes.ps1) never run by themselves - they are suggested and run
+  only when the Super Admin taps them; the Super Admin laptop runs no fix by itself. Never weaken PD-FixAllowed / PD-Fix's locks.
+
 ## Faculty without classes (user, 03-Oct-2026)
 
 A faculty member (full-time / visiting / VP) with **no subject allocated** this semester is left out of every list, count and report

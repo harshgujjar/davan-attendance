@@ -263,7 +263,13 @@ function A-AutoFix {
   $max = if ($c.fix.maxPcs) { [int]$c.fix.maxPcs } else { 5 }
   $try = {
     param($fx, $a)
-    $why = PD-FixAllowed $fx -Auto; if ($why) { return }
+    $why = PD-FixAllowed $fx -Auto
+    if ($why -like 'deletes files*') {   # strict rule: ask, never delete by itself - one note a day per fix on the Console (+ laptop toast)
+      $dk = 'ask_' + $fx + '_' + (PD-ISTDate); if (!$S.asked) { $S.asked = @{} }
+      if (!$S.asked[$dk]) { $S.asked[$dk] = 1; $t = '🧹 ' + $env:COMPUTERNAME + ': ' + $PD_FIX[$fx].l + ' suggested - ' + $(if ($m.disk.cleanGB) { 'would free about ' + $m.disk.cleanGB + ' GB. ' } else { '' }) + 'Nothing is deleted until you tap it on the Console.'
+        PD-Event 'ask' '🧹' $t @{ fix = $fx } | Out-Null; PD-Alert ('ask_' + $fx) $t 'Open the PC on the PC Doctor Console to see exactly what would be deleted, then tap the fix if you agree.' 'amber' }
+      return }
+    if ($why) { return }
     if ($PD_FIX[$fx].k -ne 'light' -and (A-FixingCount) -ge $max) { PD-Log "auto $fx waits: $max PCs already fixing"; return }
     $S.fixing = $fx; A-Peers; $r = PD-Fix $fx $a 'auto'; $S.fixing = $null; $r
   }
