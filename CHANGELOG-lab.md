@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 04-Nov-2026 · Agent 1.10 / tray 1.4 -- tray 1.2-1.3 would not start (the password box set TopMost twice - PowerShell refuses the whole
+  script); caught by the Windows test before any PC took it. Fixed, and tools/pcdoctor_version.py now refuses a key written twice in one @{...}. Pw.
 - 04-Nov-2026 · Agent 1.9 / tray 1.3 -- The user: "it's not auto update". Every PC checks GitHub at start + every hour, but only test PCs took a
   new build at once (others wait 2 h, and each new build restarted the wait), and a running tray kept its old copy until sign-in. Now the Super
   Admin laptop (state\laptop.flag, set by A-Laptop) always takes a new build at once, and the tray restarts itself with the new copy when the

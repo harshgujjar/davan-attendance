@@ -15,7 +15,7 @@ $C = @{ bg = [Drawing.Color]::FromArgb(11,13,17); card = [Drawing.Color]::FromAr
 $LV = @{ green = @('🟢', $C.ok); yellow = @('🟡', $C.ye); orange = @('🟠', $C.wa); red = @('🔴', $C.er); purple = @('🟣', $C.pu); off = @('⚫', $C.off) }
 $F = @{ big = New-Object Drawing.Font('Segoe UI Semibold', 13); n = New-Object Drawing.Font('Segoe UI', 9.5); s = New-Object Drawing.Font('Segoe UI', 8.5); m = New-Object Drawing.Font('Consolas', 9); e = New-Object Drawing.Font('Segoe UI Emoji', 10) }
 function Pw([string]$why) {
-  $f = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor'; Width = 300; Height = 150; StartPosition = 'CenterScreen'; TopMost = $true; ShowInTaskbar = $true; BackColor = $C.bg; ForeColor = $C.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
+  $f = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor'; Width = 300; Height = 150; StartPosition = 'CenterScreen'; ShowInTaskbar = $true; BackColor = $C.bg; ForeColor = $C.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
   $l = New-Object Windows.Forms.Label -Property @{ Text = "🔒 Password for $why"; Left = 14; Top = 12; Width = 260; Font = $F.n }
   $t = New-Object Windows.Forms.TextBox -Property @{ Left = 14; Top = 40; Width = 255; UseSystemPasswordChar = $true; Font = $F.n }
   $b = New-Object Windows.Forms.Button -Property @{ Text = 'OK'; Left = 194; Top = 72; Width = 75; DialogResult = 'OK'; FlatStyle = 'Flat'; BackColor = $C.ac; ForeColor = [Drawing.Color]::Black }

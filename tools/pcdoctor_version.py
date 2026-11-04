@@ -25,7 +25,15 @@ for f in sorted(os.listdir(os.path.join(R, "src"))):
     for n, a in enumerate(st):
         body = "\n".join(l.split("#")[0] for l in L[a:(st[n + 1] if n + 1 < len(st) else len(L))])
         if re.search(r"\$s\b", body) and re.search(r"\$S\b", body): bad.append("%s:%d %s" % (f, a + 1, L[a].strip()[:60]))
-if bad: sys.exit("STOP - these functions use both $s and $S (same variable in PowerShell), rename $s:\n  " + "\n  ".join(bad))
+# 04-Nov-2026: a key twice in one @{ ... } on one line (TopMost twice broke tray.ps1) - PowerShell refuses the whole script
+for f in sorted(os.listdir(os.path.join(R, "src"))):
+    if not f.endswith(".ps1"): continue
+    for n, l in enumerate(open(os.path.join(R, "src", f), encoding="utf-8-sig").read().split("\n"), 1):
+        for m in re.finditer(r"@\{([^{}]*)\}", l):
+            ks = [k.lower() for k in re.findall(r"(?:^|;)\s*([A-Za-z_]\w*)\s*=(?!=)", m.group(1))]
+            d = sorted({k for k in ks if ks.count(k) > 1})
+            if d: bad.append("%s:%d duplicate key %s in @{...}" % (f, n, ", ".join(d)))
+if bad: sys.exit("STOP - fix these first ($s + $S in one function = same variable; a key twice in @{...}):\n  " + "\n  ".join(bad))
 sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
 old = json.load(open(P)) if os.path.exists(P) else {}
 files = {f: sha(os.path.join(R, "src", f)) for f in sorted(os.listdir(os.path.join(R, "src"))) if f.endswith(".ps1")}
