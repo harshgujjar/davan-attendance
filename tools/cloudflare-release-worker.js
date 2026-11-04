@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v21 (04-Nov-2026): PC Doctor hourly MeshCentral check tries https then http (302 = alive) and saves the error text (no false "offline" alert).
  *  - v18 (04-Nov-2026): 🖥️ Davan PC Doctor - POST /lab/tok, /lab/pc, /lab/alert, /lab/ai + the hourly lab check (secret DB5_SA).
  *  - v14 (23-Oct-2026): POST /ai also answers widgets for ONE task (fb_reply), checked by the widget code.
  *  - v13 (23-Oct-2026): Sunday 🤖 coach notes for Placement learners with Ready 70+ (coachRun -> DB4 learn/coach).
@@ -777,8 +778,16 @@ async function labHourly(env) {
   const nm = h => ((pcs[h] || {}).name || (pcs[h] || {}).win || h);
   const patch = { at: now }, alerts = [];
   // MeshCentral (remote screen) - 2 failed checks in a row = offline alert, once, then "back online"
-  let up = false; try { const r = await fetch(cfg.meshUrl || MESH_URL, { method: 'GET', cf: { cacheTtl: 0 }, signal: AbortSignal.timeout(15000) }); up = r.status < 500; } catch (e) {}
-  patch.mesh = { up, t: now, fails: up ? 0 : ((st.mesh || {}).fails || 0) + 1, told: up ? false : !!(st.mesh || {}).told };
+  // v21 (04-Nov-2026): the 1st hourly check said "down" while MeshCentral answered HTTPS 200 from outside - try https, then http (manual
+  // redirect, a 302 = alive), keep the error text in lab/wstate.mesh.err so the Console / Claude can see why
+  let up = false, err = '', how = '';
+  const mu = String(cfg.meshUrl || MESH_URL);
+  for (const url of [mu, mu.replace(/^https:/, 'http:')]) {
+    try { const r = await fetch(url, { method: 'GET', redirect: 'manual', cf: { cacheTtl: 0 }, signal: AbortSignal.timeout(15000) });
+      if (r.status < 500) { up = true; how = url.slice(0, 5) + ' ' + r.status; break; } err += url.slice(0, 5) + ' ' + r.status + '; ';
+    } catch (e) { err += url.slice(0, 5) + ' ' + String(e.message || e).slice(0, 80) + '; '; }
+  }
+  patch.mesh = { up, t: now, fails: up ? 0 : ((st.mesh || {}).fails || 0) + 1, told: up ? false : !!(st.mesh || {}).told, how, err: up ? '' : err };
   if (!up && patch.mesh.fails >= 2 && !patch.mesh.told) { patch.mesh.told = true; alerts.push({ h: 'lab', kind: 'mesh', color: 'red', title: '🖥️ Remote server offline', body: 'MeshCentral (' + (cfg.meshUrl || MESH_URL) + ') did not answer twice. Run the davan-scraper Action "Mesh setup" to rebuild it.' }); }
   if (up && (st.mesh || {}).told) alerts.push({ h: 'lab', kind: 'mesh_up', color: 'green', title: '🖥️ Remote server back online', body: 'MeshCentral answers again.' });
   // Thawed too long, 🔴 PCs, lab-wide (many PCs with the same problem within the hour)
