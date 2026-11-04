@@ -658,7 +658,7 @@ async function labPc(env, b) {
 // the staff app's 🔔 page switches (NOTIF_REGISTRY a:'stf' lab_*): DB2 davan_pub/notif_off/stf/<key> = true -> not sent
 const labNotifKey = k => /^(wide_)/.test(k) ? 'lab_wide' : /^(thaw)/.test(k) ? 'lab_thaw' : /^mesh/.test(k) ? 'lab_mesh' : k === 'rollback' ? 'lab_update' : k === 'sum' ? 'lab_sum' : 'lab_red';
 async function labNotifOff(k) { try { return (await db2('GET', 'davan_pub/notif_off/stf/' + labNotifKey(k))) === true; } catch (e) { return false; } }
-async function labAlertSend(env, hwid, a, cfg) {
+async function labAlertSend(env, hwid, a, cfg, noGrid) {
   if (await labNotifOff(String(a.kind || ''))) return { ok: true, skipped: 'switched off on the 🔔 page' };
   const now = Date.now(), gap = (+cfg.alertGapH || 6) * 3600000, kind = clip(String(a.kind || 'pc').replace(/[^a-z0-9_]/gi, ''), 30) || 'pc';
   const last = (await db5(env, 'GET', 'lab/alerts/last/' + hwid + '/' + kind)) || 0;
@@ -668,6 +668,7 @@ async function labAlertSend(env, hwid, a, cfg) {
   await db5(env, 'PUT', 'lab/alerts/last/' + hwid + '/' + kind, now);
   await db5(env, 'PUT', 'lab/alerts/day/' + day, n + 1);
   await db5(env, 'POST', 'lab/alerts/log', { t: now, h: hwid, kind, title: clip(a.title, 120), body: clip(a.body, 400) });
+  if (!noGrid) try { await labGridPublish(env); } catch (e) {}
   return saEvent({ kind: 'lab', color: a.color || 'red', title: clip(a.title, 120), body: clip(a.body, 400), by: 'PC Doctor', link: 'lab.html' + (hwid !== 'lab' ? '#pc=' + hwid : '') });
 }
 async function labAlert(env, b) {
@@ -751,6 +752,22 @@ async function labSecret(env, b) {
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: Uint8Array.from(atob(v.iv), c => c.charCodeAt(0)) }, await secretKey(env), Uint8Array.from(atob(v.ct), c => c.charCodeAt(0)));
   return { ok: true, has: true, text: new TextDecoder().decode(pt), at: v.at };
 }
+// ---- 15: the Super Admin's staff widget 🖥️ Lab page reads a SMALL copy of the grid from DB2 davan_pub/lab_grid (widgets cannot log in to DB5):
+// {at, cnt, g: [{k, n, pcs: ["A1|red|Disk failing", ...]}], sum, alerts}. Written hourly and after every PC Doctor alert. PC names + states only.
+async function labGridPublish(env, pre) {
+  const [nowRows, pcs, cfg, sum] = pre || await Promise.all([db5(env, 'GET', 'lab/now'), db5(env, 'GET', 'lab/pcs'), db5(env, 'GET', 'lab/cfg'), db5(env, 'GET', 'lab/sum/' + istDate(Date.now()))]);
+  const now = Date.now(), groups = (cfg || {}).groups || {}, by = {}, cnt = { green: 0, yellow: 0, orange: 0, red: 0, purple: 0, off: 0 };
+  const grpOf = (h, p) => { if (p.grp && groups[p.grp]) return p.grp; const n = String(p.name || p.win || ''); let b = '';
+    for (const k of Object.keys(groups)) if (n.toUpperCase().startsWith(k) && /^\d+$/.test(n.slice(k.length)) && k.length > b.length) b = k; return b; };
+  for (const h of new Set([...Object.keys(pcs || {}), ...Object.keys(nowRows || {})])) {
+    const p = (pcs || {})[h] || {}, n = (nowRows || {})[h] || {}; if (p.old || p.mergedInto) continue;
+    const lv = n.t && now - n.t < (+((cfg || {}).thr || {}).offMin || 30) * 60000 ? (n.lv || 'green') : 'off'; cnt[lv] = (cnt[lv] || 0) + 1;
+    const k = grpOf(h, p); (by[k] = by[k] || []).push(String(p.name || p.win || n.name || h).slice(0, 15) + '|' + lv + '|' + clip(lv === 'off' ? 'Off / not reporting' : (n.v || 'Healthy'), 40) + (n.df === 'thawed' ? '|T' : ''));
+  }
+  const g = Object.keys(by).sort((a, b) => Object.keys(groups).indexOf(a) - Object.keys(groups).indexOf(b)).map(k => ({ k: k || 'NEW', n: k ? ((groups[k].icon ? groups[k].icon + ' ' : '') + groups[k].name) : '📥 New PCs',
+    pcs: by[k].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })) }));
+  await db2('PUT', 'davan_pub/lab_grid', { at: now, cnt, g, sum: sum ? clip(sum.base, 300) : '', ai: sum && sum.ai ? clip(sum.ai, 500) : '' });
+}
 // ---- hourly (12): MeshCentral health, PCs left Thawed, 🔴 PCs, lab-wide problems, the morning summary ----
 const LEVEL = { red: 4, orange: 3, yellow: 2, purple: 3, off: 1, green: 0 };
 async function labHourly(env) {
@@ -775,7 +792,7 @@ async function labHourly(env) {
   }
   for (const [vk, list] of Object.entries(same)) if (list.length >= labN)
     alerts.push({ h: 'lab', kind: 'wide_' + vk.slice(0, 20), color: 'purple', title: '🟣 Lab-wide: ' + list.length + ' PCs - ' + vk.replace(/_/g, ' '), body: list.slice(0, 15).join(', ') + ' - check the network, server or a Windows update.' });
-  if (cfg.alertsOn !== false) for (const a of alerts.slice(0, 8)) await labAlertSend(env, a.h, a, cfg).catch(() => {});
+  if (cfg.alertsOn !== false) for (const a of alerts.slice(0, 3)) await labAlertSend(env, a.h, a, cfg, true).catch(() => {});   // free plan: 50 calls a run - at most 3 new alerts an hour (the rest come next hour)
   // morning summary at lab/cfg sumHour (IST, default 9 -> the :35 tick = 9:35 am), once a day: counts + fixes of the last 24 h + ✨ AI paragraph
   const ist = new Date(now + 5.5 * 3600000), day = istDate(now);
   if (ist.getUTCHours() === (+cfg.sumHour || 9) && st.sumDay !== day) {
@@ -814,6 +831,7 @@ async function labHourly(env) {
       if (okAll) { await db5(env, 'PATCH', 'lab/cfg', { relOk: lv.agent.build }); patch.rel = { build: lv.agent.build, t: now }; }
     }
   } catch (e) { patch.relErr = String(e.message || e).slice(0, 120); }
+  try { await labGridPublish(env, [nowRows, pcs, cfg, null]); } catch (e) { patch.gridErr = String(e.message || e).slice(0, 120); }
   await db5(env, 'PATCH', 'lab/wstate', patch);
 }
 
