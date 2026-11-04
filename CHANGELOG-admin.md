@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1998 · 04-Nov-2026 IST
+User: "Vijayalakshmi's update was downloaded, all permissions on, but waited for a tap - students and staff too". Report staff line adds · downloaded and · Android: <answer> from the new staff_widget_report upd (w363); the Cloudflare worker v19 evening alert adds the same. Pairs with staff widget w363, student widget w312 (both retry the silent install hourly). Functions: wurInit; worker wupdDaily.
+
 ## v1997 · 04-Nov-2026 IST
 Report: 📵 Phone can't shows the automatic ones (portal v11.112: Android below 7 / 1 GB RAM) with the reason. Functions: wurList.
 

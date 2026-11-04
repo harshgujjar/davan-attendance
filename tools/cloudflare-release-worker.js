@@ -255,7 +255,7 @@ async function wupdDaily() {
   if (Object.keys(z).length) await db2('PATCH', 'davan_pub/wupd', z);
   await db2('PUT', 'davan_pub/wupd_sum/' + today, { at: now, stuOld: stuOld.length, staffOld: staffOld.length, ...c });
   if (!stuOld.length && !staffOld.length && !c.saw && !c.ok) return;
-  const st = staffOld.sort((a, b) => a.v - b.v).map(r => '• ' + clip(r.name, 30) + ' - ' + wName(tp, +r.v) + ((r.perm || []).includes('install') ? ' (install permission OFF)' : '')).join('\n');
+  const st = staffOld.sort((a, b) => a.v - b.v).map(r => '• ' + clip(r.name, 30) + ' - ' + wName(tp, +r.v) + ((r.perm || []).includes('install') ? ' (install permission OFF)' : '') + (r.upd && r.upd.res && r.upd.res !== 'ok' ? ' · Android: ' + clip(r.upd.res, 40) : '')).join('\n');   // v19: w363 reports Android's answer
   await saEvent({ kind: 'widgets', color: c.cant || dir.length ? 'red' : 'amber',
     title: '📲 Widgets today: ' + c.ok + ' updated · ' + stuOld.length + ' student + ' + staffOld.length + ' staff still old',
     body: 'Students: saw ' + c.saw + ' · tapped Update ' + c.upd + ' · downloaded ' + c.dl + ' · updated ' + c.ok + ' · later ' + c.later
