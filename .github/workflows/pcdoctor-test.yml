@@ -1,0 +1,51 @@
+# 🖥️ PC Doctor (04-Nov-2026): tests the PC Doctor Agent on a real Windows PC (GitHub's Windows runner, Windows PowerShell 5.1)
+# whenever pcdoctor/ changes: every script parses, lab-version.json SHA-256 list matches, every read-only check runs, the Safe-Mode
+# service compiles, a pendrive report (.dlh) can be made. Nothing is sent to DB5.
+name: PC Doctor test (Windows)
+on:
+  push:
+    paths: ['pcdoctor/**', '.github/workflows/pcdoctor-test.yml']
+  workflow_dispatch:
+jobs:
+  win:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults: { run: { shell: powershell } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse every script (PowerShell 5.1)
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem pcdoctor\src\*.ps1) { $t = $null; $e = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$t, [ref]$e)
+            if ($e.Count) { $bad++; $e | ForEach-Object { Write-Host "::error file=$($f.Name),line=$($_.Extent.StartLineNumber)::$($_.Message)" } } else { Write-Host "OK $($f.Name)" }
+            $b = [IO.File]::ReadAllBytes($f.FullName); if (!($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)) { $bad++; Write-Host "::error file=$($f.Name)::no UTF-8 BOM (run tools/pcdoctor_version.py)" } }
+          $PSVersionTable.PSVersion.ToString(); if ($bad) { exit 1 }
+      - name: SHA-256 list matches the files
+        run: |
+          $v = Get-Content pcdoctor\lab-version.json -Raw | ConvertFrom-Json; $bad = 0
+          foreach ($p in $v.files.PSObject.Properties) { $h = (Get-FileHash -Algorithm SHA256 "pcdoctor\src\$($p.Name)").Hash.ToLower(); if ($h -ne $p.Value) { $bad++; Write-Host "::error::$($p.Name) SHA differs - run tools/pcdoctor_version.py" } }
+          "agent $($v.agent.ver) build $($v.agent.build)"; if ($bad) { exit 1 }
+      - name: Run every read-only check (agent -Mode test)
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File pcdoctor\src\agent.ps1 -Mode test
+          if (!(Test-Path "$env:TEMP\pd_test.json")) { exit 1 }
+          $r = Get-Content "$env:TEMP\pd_test.json" -Raw | ConvertFrom-Json
+          "startup: $($r.startup.sec) s | net gw $($r.net.gwMs) ms dns $($r.net.dnsMs) ms | printers spooler $($r.prn.spooler) | sfc bad $($r.sfc.bad) | bsod $($r.bsod.n7) | android clean ≈ $($r.plan) GB"
+          "drivers $(@($r.inv.drivers).Count), startup items $(@($r.inv.startup).Count), cpu $($r.inv.cpu.n), ram $($r.inv.ramGB) GB, win $($r.inv.win.build)"
+          if ($r.verdictTest -notmatch 'Disk failing') { Write-Host "::error::verdict engine did not find 'Disk failing'"; exit 1 }
+      - name: Fingerprint + events + pendrive report (.dlh)
+        run: |
+          . .\pcdoctor\src\common.ps1; . .\pcdoctor\src\checks.ps1; . .\pcdoctor\src\fixes.ps1; . .\pcdoctor\src\dlh.ps1
+          $fp = PD-Fingerprint; "fingerprint: bu=$([bool]$fp.bu) bb=$([bool]$fp.bb) mac=$([bool]$fp.mac) disks=$(@($fp.disks).Count)"
+          $e = @(PD-ReadEvents (Get-Date).AddDays(-3) 3); "events (3 days): $($e.Count) " + (($e | Group-Object k | ForEach-Object { $_.Name + '=' + $_.Count }) -join ' ')
+          "deep freeze: $((PD-DeepFreeze).state) | sample: $((PD-Sample).cpu)% cpu"
+          $f = PD-MakeDlh "$env:TEMP\usb\DavanLab"; Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $z = [IO.Compression.ZipFile]::OpenRead($f); "dlh: $([IO.Path]::GetFileName($f)) $([math]::Round((Get-Item $f).Length/1KB)) KB, files: " + (($z.Entries | ForEach-Object FullName | Select-Object -First 12) -join ', '); $z.Dispose()
+          $plan = PD-AndroidPlan; "android plan: $($plan.items.Count) items"
+      - name: Safe-Mode service compiles
+        run: |
+          $s = Get-Content pcdoctor\src\install.ps1 -Raw; $cs = [regex]::Match($s, "(?s)\`$cs = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
+          if (!$cs) { Write-Host "::error::service source not found"; exit 1 }
+          Add-Type -TypeDefinition $cs -ReferencedAssemblies System.ServiceProcess -OutputAssembly "$env:TEMP\PCDoctorSvc.exe" -OutputType ConsoleApplication
+          "service exe: $((Get-Item "$env:TEMP\PCDoctorSvc.exe").Length) bytes"

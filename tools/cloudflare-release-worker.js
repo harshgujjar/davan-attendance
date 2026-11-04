@@ -680,7 +680,7 @@ async function labAi(env, b) {
   if (st) ok = await staffIsSuper(b.token, st);
   if (!ok) { const t = await idTokBody(b.token, DB5_PROJECT).catch(() => null);
     if (t && (t.sa === true)) ok = true;
-    else if (t && String(t.sub).startsWith('pc_')) { ok = (await db5(env, 'GET', 'lab/salap/' + t.sub.slice(3))) === true; who = 'laptop'; } }
+    else if (t && String(t.sub).startsWith('pc_')) { ok = (await db5(env, 'GET', 'lab/salap/' + t.sub)) === true; who = 'laptop'; } }
   if (!ok) return { ok: false, msg: 'PC Doctor AI is for the Super Admin only.' };
   const cfg = (await db5(env, 'GET', 'lab/cfg')) || {}, day = istDate(Date.now()), max = +cfg.aiMax || 50;
   const used = (await db5(env, 'GET', 'lab/ai_use/' + day)) || 0;
@@ -772,6 +772,19 @@ async function labHourly(env) {
     await db5(env, 'PUT', 'lab/sum/' + day, { at: now, base, ai, cnt, fixes: fixes.length, bad: bad.slice(0, 30) });
     if (cfg.alertsOn !== false && total) await saEvent({ kind: 'lab', color: cnt.red ? 'red' : 'blue', title: '🖥️ PC Doctor morning summary', body: base + (ai ? '\n✨ ' + ai : ''), by: 'PC Doctor', link: 'lab.html' });
   }
+  // 6 / 13: release channel - when every test PC (lab/cfg/test) runs the newest agent build and reports within 15 min for testHoldH hours,
+  // lab/cfg/relOk = that build and every other PC takes it at its next hourly check (no test PCs = the loader's own 2 h wait)
+  try {
+    const lv = await fetch(RAW + 'pcdoctor/lab-version.json?t=' + now).then(r => r.ok ? r.json() : null).catch(() => null);
+    const tests = (cfg.test || []).map(x => String(x).toUpperCase());
+    if (lv && lv.agent && tests.length && (cfg.relOk || 0) < lv.agent.build) {
+      const ver = (await db5(env, 'GET', 'lab/ver')) || {};
+      const tp = Object.keys(pcs).filter(h => tests.includes(h.toUpperCase()) || tests.includes(String(nm(h)).toUpperCase()));
+      const hold = (+cfg.testHoldH || 2) * 3600000;
+      const okAll = tp.length && tp.every(h => (ver[h] || {}).build >= lv.agent.build && now - ((ver[h] || {}).at || now) >= hold && now - ((nowRows[h] || {}).t || 0) < 15 * 60000 && !((ver[h] || {}).rolledBack && ver[h].rolledBack.build === lv.agent.build));
+      if (okAll) { await db5(env, 'PATCH', 'lab/cfg', { relOk: lv.agent.build }); patch.rel = { build: lv.agent.build, t: now }; }
+    }
+  } catch (e) { patch.relErr = String(e.message || e).slice(0, 120); }
   await db5(env, 'PATCH', 'lab/wstate', patch);
 }
 
