@@ -1,5 +1,12 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 04-Nov-2026 · kids v56 · parent v46 · app h26 (user photo 11:48: "sound is not coming - Hello ... on my phone where the child app is installed"): the log of that phone (Motorola edge 50 pro, Android 16, h25 freshly installed)
+  shows "voice: no 'done' from the speaker engine" after EVERY sentence from 11:43 - the phone's text-to-speech never started or never spoke (it spoke fine on 3 Nov, no such lines). I cannot see the
+  phone's voice settings, so h26 makes it self-diagnosing and self-repairing: the engine start is checked after 6 s and retried (1st with Google's speech services by name, then the default), the log
+  names the default engine and every installed engine, a voice that never starts speaking is logged / reported (HCA.voiceState ok / loading / failed / silent), onError codes are logged. Page: after 2
+  sentences in a row without "done" a help bar shows - ⚙️ Open voice settings (the phone's Text-to-speech screen) / 🔊 Try again; the heartbeat carries voice, the parent app's device list shows
+  "🔇 no voice". Tested in a browser with a silent voice: bar shows, the settings button calls the app, a working voice hides it. Functions: initTts, speakNow, voiceHelp, rawSay.
+
 - 04-Nov-2026 · kids v55 · parent v45 · app h25 (user: "when I say call it must call ONE specific phone - show the phone make; name each phone at the start and use it as the base"): the cause - a call (cmd dev
   "any") went to EVERY phone that starts classes. Now: (1) each phone asks "Name this phone" once (suggestion from the model; two phones with one name get the model added; after a
   re-install "↩︎ same as <old entry>" takes the old entry over and deletes it); the heartbeat carries dev/<id>/{name, model, named}; h25 gives the make + model (HCA.model()). (2) parent
