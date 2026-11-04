@@ -362,7 +362,7 @@ function A-Laptop {
 if ($Mode -eq 'mesh') { PD-LoadId | Out-Null; A-MeshInstall; exit 0 }
 if ($Mode -eq 'once') { PD-Token | Out-Null; A-SyncPc; A-Daily -Force; A-Events; A-Verdict; A-Minute; A-Peers; exit 0 }
 if ($Mode -eq 'test') {
-  $S.test = $true
+  $S.test = $true; $PD.Test = $true
   # used by the Windows runner check: everything that reads the PC, no DB5
   $r = @{ sample = (PD-Sample); inv = (PD-Inventory); startup = (PD-Startup); net = (PD-NetCheck); prn = (PD-PrintCheck); sfc = (PD-SfcState); bsod = (PD-Bsod); events = @(PD-ReadEvents (Get-Date).AddDays(-2) 5).Count; plan = (PD-AndroidPlan).gb }
   $S.inv = ($r.inv | ConvertTo-Json -Depth 8 -Compress | ConvertFrom-Json); $PD.Cfg = (Get-Content "$here\..\cfg-default.json" -Raw -Encoding UTF8 | ConvertFrom-Json); $PD.CfgAt = (Get-Date).AddYears(1)

@@ -67,6 +67,7 @@ function PD-Fingerprint {
      model = ([string]$cs.Vendor + ' ' + [string]$cs.Name).Trim() }
 }
 function PD-Register([switch]$New) {
+  if ($PD.Test) { throw 'test mode never registers' }   # 1.6: the GitHub test machine registered itself as a PC
   $fp = PD-Fingerprint
   $body = @{ fp = $fp; name = $env:COMPUTERNAME; inst = $fp.inst; ver = (PD-AgentVer) }
   if (!$New -and $PD.Id) { $body.hwid = $PD.Id.hwid; $body.key = $PD.Id.key }
@@ -79,6 +80,7 @@ function PD-Register([switch]$New) {
   PD-SaveId; $r
 }
 function PD-Token {
+  if ($PD.Test) { return $null }
   if ($PD.Tok -and (Get-Date) -lt $PD.TokExp) { return $PD.Tok }
   if (!$PD.Id) { PD-LoadId | Out-Null }
   if ($PD.Id -and $PD.Id.refresh) {
@@ -93,6 +95,7 @@ function PD-Hwid { if (!$PD.Id) { PD-LoadId | Out-Null }; if ($PD.Id) { $PD.Id.h
 
 # ---- DB5 REST; a failed write goes to the queue (ThawSpace file if present, else memory) and is sent later ----
 function PD-Db([string]$Method, [string]$Path, $Body = $null, [string]$Query = '', [switch]$NoQueue) {
+  if ($PD.Test) { return $null }   # test mode (Windows runner) never touches DB5
   try {
     $u = $PD.Db + '/' + $Path + '.json?auth=' + (PD-Token) + $(if ($Query) { '&' + $Query } else { '' })
     $p = @{ Method = $Method; Uri = $u; TimeoutSec = 30; ContentType = 'application/json; charset=utf-8' }
@@ -149,6 +152,7 @@ function PD-Group([string]$name) {
 }
 function PD-AgentVer { $v = PD-ReadJson (Join-Path $PD.Root 'state\running.json'); if ($v) { [string]$v.ver } else { '0' } }
 function PD-Alert([string]$kind, [string]$title, [string]$body, [string]$color = 'red') {
+  if ($PD.Test) { return }
   try { Invoke-RestMethod -Method Post -Uri ($PD.Worker + '/lab/alert') -Body (PD-Json @{ idToken = (PD-Token); kind = $kind; title = $title; body = $body; color = $color }) -ContentType 'text/plain' -TimeoutSec 30 | Out-Null } catch { PD-Log ('alert not sent: ' + $_.Exception.Message) }
 }
 function PD-Event([string]$k, [string]$icon, [string]$txt, $extra = $null) {
