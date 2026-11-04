@@ -82,8 +82,18 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - 28-Oct-2026 (later): BUILT student w296 (native login LoginActivity/NLogin/Vault, option A #wl= + portal v11.101, Log out, link retry + 60 s wait) and staff w354 (retry + wait + Log out; NO native login for staff) -> -next channel, public 9:15 pm. Source in davan-scraper widgets/student + staff (student build.sh now compiles stubs/ for javax.crypto). Not phone-tested. Open: DB2 rule for an anonymous write to student_widget_active (if the first login says 'Could not save the link', read the rule). Old line: widget link retry built (staff v1955 / portal v11.100, DONE). Still open for the widget APKs (source in davan-scraper): poll for the link for ~1 min after linking + 📋 Copy failure detail. Roadmap I = this native login plan: it removes the 'tap the link, wait' step; waits for the user's go.
 - Open: admin sign-in secret sits in the public portal file (rotate + remove, needs the user's go).
 
-## 🖥️ Davan PC Doctor - FULL CHECKLIST in ROADMAP-pcdoctor.md (04-Nov-2026), infra ready, nothing built - build EVERY line, no skipping
-DB5 = Firebase davan-lab (config + DB5_SA secret done), Oracle VM davan-mesh 144.24.111.207 (sslip.io) for MeshCentral. Next: name + "build it".
+## 🖥️ Davan PC Doctor - BUILT 04-Nov-2026 (ROADMAP-pcdoctor.md: every line [x] except 16 = user's test + roll-out)
+Read CHANGELOG-lab.md + ROADMAP-pcdoctor.md. Pieces: worker davan-release v18 (/lab/tok /lab/pc /lab/alert /lab/ai /lab/mesh /lab/secret, hourly
+labHourly + labGridPublish -> DB2 davan_pub/lab_grid); DB5 rules davan-scraper tools/db5_rules.json (Action "DB5 rules"); Actions DB5 peek / DB5 cmd /
+PC Doctor daily (lab_daily.py) / Mesh setup / Mesh backup; MeshCentral LIVE https://144-24-111-207.sslip.io/ (cert ok, device group + login key in
+DB5 lab/secret, first admin password = lab/secret/meshPass, 📋 on Console Settings). Agent: pcdoctor/src/*.ps1 + PCDoctor-Setup.cmd + DavanRescue.cmd;
+after ANY change run `python3 tools/pcdoctor_version.py "note"` (BOM + SHA-256 + builds) - the PCs refuse files whose SHA differs. Windows test Action
+pcdoctor-test.yml runs every check on a real Windows runner on each push to main. Console lab.html (LAB_BUILD = console build; bump it per change),
+staff app v2000 menu 🖥️ PC Doctor (pcdInit). Staff widget w365 (LabPage) on -next.
+OPEN (user): 1) worker secret DB5_SA (Cloudflare -> davan-release -> Settings -> Variables and Secrets, paste the davan-lab JSON) - until then the
+Console says "worker has no DB5 key" and PCs cannot register; 2) run PCDoctor-Setup.cmd on 2 lab PCs + 1 office PC (Thawed, as admin), name PCs
+A1.. B1.. PUC1.. D1..; 3) MeshCentral: first login (admin + the first password) -> set own password + 2-step; 4) Console Settings: type the Deep Freeze
+password once; set test PCs on Versions. Not tested on a real lab PC yet (only GitHub's Windows runner).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

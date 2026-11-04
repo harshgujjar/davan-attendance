@@ -177,7 +177,7 @@ changelog + version in the same commit, commit + merge main). Keep the user info
       ~17 MB/day live for 40 PCs. Console reads summaries, not raw rows.
 
 ## 15. Staff widget
-- [ ] 🖥️ Lab page in the staff widget (grid at a glance, tap opens the Console) - Super Admin only; BuildInfo.NEWS line; next channel.
+- [x] 🖥️ Lab page in the staff widget (grid at a glance, tap opens the Console) - Super Admin only; BuildInfo.NEWS line; next channel. (w365, DB2 davan_pub/lab_grid)
 
 ## 16. Test + roll-out
 - [ ] Test on 2 lab PCs + 1 office PC for one day (user installs, Thawed, admin login); check every screen as the user would; fix mismatches.
