@@ -2,6 +2,11 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2000 · 04-Nov-2026 IST
+User: "build Davan PC Doctor (ROADMAP-pcdoctor.md)". New Super Admin side-menu item 🖥️ PC Doctor opens the PC Doctor Console (lab.html?embed=1) with the
+same staff login; 6 new 🔔 registry rows (lab_red / lab_wide / lab_thaw / lab_mesh / lab_update / lab_sum, ON by default, DB2 davan_pub/notif_off/stf/<key>,
+read by worker v18). No new DB1/DB2 reads (the Console reads DB5). Pairs with worker davan-release v18, Console 1.1, Agent 1.2. Functions: pcdInit, NOTIF_REGISTRY.
+
 ## v1999 · 04-Nov-2026 IST
 User: "one notification only for the Super Admin - who updated the widget, today's totals one line each, voice note; hourly, 24 h; switches Quiet (no notification / voice, message with ▶) and Off". Cloudflare worker v20: the hourly Instagram timer IG_CRON, now "5 * * * *" (24 h, :35 IST; Instagram still 00-18 UTC) - a 5th timer was refused (free plan: 5 per account) = wupdHourly - compares DB2 student_widget_report / staff_widget_report with davan_pub/wupd_snap, keeps davan_pub/wupd_day/<date>, sends one ☁️ alert kind wupd_hr (mode + say) only when someone updated; Quiet = no laptop push. Switch = DB2 davan_pub/wupd_cfg.alert on / quiet / off - staff app Global Switches (here) and the staff widget's 🛠 Super Admin page (sa-screens.json screen wupd, no APK). Staff widget w364 speaks it (not 9 pm - 7 am) or keeps it in Today's messages with ▶ (Quiet). Reads per hour: the two widget reports, active list, wupd, wupd_cfg, wupd_snap, today's usage keys (shallow). Functions: gswStuMinShow, gswStuMin; worker wupdHourly (new), saEvent.
 

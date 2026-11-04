@@ -28,6 +28,10 @@ for part, fl in PARTS.items():
     if o.get("h") != h:
         b = int(o.get("build") or 0) + 1; changed_any = True
         o = {"build": b, "ver": "1.%d" % b if part != "console" else o.get("ver", "1.%d" % b), "h": h, "at": ms, "ist": now.strftime("%d %b %Y, %I:%M %p IST").replace(" 0", " "), "notes": note or o.get("notes", "")}
+    if part == "console":   # the Console's own LAB_BUILD (open Consoles reload when lab-version.json shows a higher one)
+        import re
+        lb = int(re.search(r"const LAB_BUILD = (\d+)", open(os.path.join(R, "..", "lab.html"), encoding="utf-8").read()).group(1))
+        if o.get("build") != lb: o = dict(o, build=lb, ver="1.%d" % lb, at=ms, ist=now.strftime("%d %b %Y, %I:%M %p IST").replace(" 0", " "), notes=note or o.get("notes", ""))
     out[part] = o
 # the agent build moves when ANY downloaded file changed (the loader compares agent.build)
 fh = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()[:16]

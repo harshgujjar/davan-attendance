@@ -522,6 +522,7 @@ async function ratesAiRun(env) {
 //  POST /lab/pc    {hwid, key, fp, name, inst, ver}    -> a PC's DB5 custom token (uid pc_<hwid>); a new install is matched to a known PC by
 //                                                         its hardware fingerprint (survives an OS reinstall), else gets a new hwid + key
 //  POST /lab/alert {idToken (DB5, a PC), kind, title, body, color} -> ☁️ Super Admin alert, at most once per PC + kind per lab/cfg alertGapH
+//  POST /lab/secret {token, name, set?} -> the Deep Freeze password (stored encrypted) / MeshCentral first password, Super Admin only
 //  POST /lab/mesh  {token} -> a MeshCentral login cookie for the 🖥️ Remote screen (Super Admin)
 //  POST /lab/ai    {token = staff or DB5 ID token, prompt, history, system} -> ✨ AI with the lab's own daily limit (lab/cfg aiMax)
 //  hourly (IG_CRON): MeshCentral health, PCs left Thawed, PCs turned 🔴, lab-wide problems, the morning summary (lab/cfg sumHour IST).
@@ -654,7 +655,11 @@ async function labPc(env, b) {
   const pcs = known ? ((await db5(env, 'GET', 'lab/pcs/' + hwid)) || {}) : {};
   return { ok: true, hwid, key, known, name: pcs.name || name, merge, token: await mint5(env, 'pc_' + hwid, { pc: hwid }) };
 }
+// the staff app's 🔔 page switches (NOTIF_REGISTRY a:'stf' lab_*): DB2 davan_pub/notif_off/stf/<key> = true -> not sent
+const labNotifKey = k => /^(wide_)/.test(k) ? 'lab_wide' : /^(thaw)/.test(k) ? 'lab_thaw' : /^mesh/.test(k) ? 'lab_mesh' : k === 'rollback' ? 'lab_update' : k === 'sum' ? 'lab_sum' : 'lab_red';
+async function labNotifOff(k) { try { return (await db2('GET', 'davan_pub/notif_off/stf/' + labNotifKey(k))) === true; } catch (e) { return false; } }
 async function labAlertSend(env, hwid, a, cfg) {
+  if (await labNotifOff(String(a.kind || ''))) return { ok: true, skipped: 'switched off on the 🔔 page' };
   const now = Date.now(), gap = (+cfg.alertGapH || 6) * 3600000, kind = clip(String(a.kind || 'pc').replace(/[^a-z0-9_]/gi, ''), 30) || 'pc';
   const last = (await db5(env, 'GET', 'lab/alerts/last/' + hwid + '/' + kind)) || 0;
   if (now - last < gap) return { ok: true, skipped: 'sent ' + Math.round((now - last) / 60000) + ' min ago' };
@@ -722,6 +727,30 @@ async function labMesh(env, b) {
   const out = new Uint8Array(12 + enc.length); out.set(iv, 0); out.set(enc.slice(enc.length - 16), 12); out.set(enc.slice(0, enc.length - 16), 28);
   return { ok: true, url, login: btoa(String.fromCharCode(...out)).replace(/\+/g, '@').replace(/\//g, '$') };
 }
+// ---- 🔒 passwords on ⚙️ Settings (7 / 16): the Deep Freeze password is stored ENCRYPTED in DB5 lab/secret (AES-GCM, key made from the
+// worker's DB5 key, never in the page); the Console only copies it (📋), never shows it. meshPass = MeshCentral's first password (Mesh setup).
+async function secretKey(env) { const j = await sa5(env); return crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', new TextEncoder().encode('lab-secret:' + j.private_key)), 'AES-GCM', false, ['encrypt', 'decrypt']); }
+async function labSecret(env, b) {
+  let ok = false;
+  const st = await staffFromToken(b.token).catch(() => null);
+  if (st) ok = await staffIsSuper(b.token, st);
+  if (!ok) { const t = await idTokBody(b.token, DB5_PROJECT).catch(() => null); ok = !!(t && t.sa === true); }
+  if (!ok) return { ok: false, msg: 'Super Admin only.' };
+  const name = ['dfPw', 'meshPass'].includes(b.name) ? b.name : '';
+  if (!name) return { ok: false, msg: 'unknown secret' };
+  if (typeof b.set === 'string' && name === 'dfPw') {
+    if (!b.set) { await db5(env, 'PUT', 'lab/secret/dfPw', null); return { ok: true, saved: false }; }
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await secretKey(env), new TextEncoder().encode(clip(b.set, 200))));
+    await db5(env, 'PUT', 'lab/secret/dfPw', { iv: btoa(String.fromCharCode(...iv)), ct: btoa(String.fromCharCode(...ct)), at: Date.now(), n: b.set.length });
+    return { ok: true, saved: true };
+  }
+  const v = await db5(env, 'GET', 'lab/secret/' + name);
+  if (!v) return { ok: true, has: false };
+  if (name === 'meshPass') return { ok: true, has: true, text: String(v) };
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: Uint8Array.from(atob(v.iv), c => c.charCodeAt(0)) }, await secretKey(env), Uint8Array.from(atob(v.ct), c => c.charCodeAt(0)));
+  return { ok: true, has: true, text: new TextDecoder().decode(pt), at: v.at };
+}
 // ---- hourly (12): MeshCentral health, PCs left Thawed, 🔴 PCs, lab-wide problems, the morning summary ----
 const LEVEL = { red: 4, orange: 3, yellow: 2, purple: 3, off: 1, green: 0 };
 async function labHourly(env) {
@@ -770,7 +799,7 @@ async function labHourly(env) {
       }
     }
     await db5(env, 'PUT', 'lab/sum/' + day, { at: now, base, ai, cnt, fixes: fixes.length, bad: bad.slice(0, 30) });
-    if (cfg.alertsOn !== false && total) await saEvent({ kind: 'lab', color: cnt.red ? 'red' : 'blue', title: '🖥️ PC Doctor morning summary', body: base + (ai ? '\n✨ ' + ai : ''), by: 'PC Doctor', link: 'lab.html' });
+    if (cfg.alertsOn !== false && total && !(await labNotifOff('sum'))) await saEvent({ kind: 'lab', color: cnt.red ? 'red' : 'blue', title: '🖥️ PC Doctor morning summary', body: base + (ai ? '\n✨ ' + ai : ''), by: 'PC Doctor', link: 'lab.html' });
   }
   // 6 / 13: release channel - when every test PC (lab/cfg/test) runs the newest agent build and reports within 15 min for testHoldH hours,
   // lab/cfg/relOk = that build and every other PC takes it at its next hourly check (no test PCs = the loader's own 2 h wait)
@@ -834,7 +863,7 @@ export default {
     }
     if (request.method === 'POST' && u.pathname.startsWith('/lab/')) {   // v18: 🖥️ PC Doctor (DB5)
       let b = {}; try { b = JSON.parse(await request.text()); } catch (e) {}
-      const fn = { '/lab/tok': labTok, '/lab/pc': labPc, '/lab/alert': labAlert, '/lab/ai': labAi, '/lab/mesh': labMesh }[u.pathname];
+      const fn = { '/lab/tok': labTok, '/lab/pc': labPc, '/lab/alert': labAlert, '/lab/ai': labAi, '/lab/mesh': labMesh, '/lab/secret': labSecret }[u.pathname];
       let r; try { r = fn ? await fn(env, b) : { ok: false, msg: 'unknown /lab route' }; } catch (e) { r = { ok: false, msg: String(e.message || e) }; }
       return new Response(JSON.stringify(r), { headers: CORS });
     }

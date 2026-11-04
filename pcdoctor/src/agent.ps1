@@ -341,6 +341,11 @@ function A-Minute {
   PD-Db PUT ('lab/live/' + $h + '/m' + [int64]([math]::Floor($s.t / 60000))) (A-Live $s) | Out-Null
   PD-Db PUT ('lab/now/' + $h) $now | Out-Null
   PD-WriteJson (Join-Path $PD.Root 'state\now.json') $now
+  # hourly lab load (lab/load/<IST date>/<HH>/<hwid> = running averages of this hour) - the Console's load chart reads this, not raw rows
+  $ist = [DateTime]::UtcNow.AddHours(5.5); $hk = $ist.ToString('yyyy-MM-dd') + '/' + $ist.ToString('HH')
+  if ($S.hk -ne $hk) { $S.hk = $hk; $S.hn = 0; $S.hc = 0; $S.hr = 0; $S.hb = 0; $S.hu = 0 }
+  $S.hn++; $S.hc += $s.cpu; $S.hr += $s.ram; $S.hb += $s.busy; if ($s.user) { $S.hu++ }
+  PD-Db PUT ('lab/load/' + $hk + '/' + $h) @{ c = [math]::Round($S.hc / $S.hn); r = [math]::Round($S.hr / $S.hn); b = [math]::Round($S.hb / $S.hn); n = $S.hn; u = $S.hu } | Out-Null
   PD-WriteJson (Join-Path $PD.Root 'state\lastrow.json') @{ t = $s.t }
   $tp = PD-ThawPath; if ($tp) { PD-WriteJson "$tp\lastrow.json" @{ t = $s.t } }
   Set-Content (Join-Path $PD.Root 'state\hb.txt') (PD-NowMs)
