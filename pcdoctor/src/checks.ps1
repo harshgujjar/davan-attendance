@@ -96,7 +96,12 @@ function PD-ReadEvents([datetime]$Since, [int]$Max = 60) {
   foreach ($d in $PD_EVENTS) {
     $f = @{ LogName = $d.L; StartTime = $Since }
     if ($d.P) { $f.ProviderName = $d.P }; if ($d.I) { $f.Id = $d.I }
-    $evs = @(Get-WinEvent -FilterHashtable $f -MaxEvents $Max -ErrorAction SilentlyContinue)
+    # 1.4: "The parameter is incorrect" (an EventLogException) is not stopped by -ErrorAction - read each source on its own; with 2
+    # provider names try them one by one; a source that still fails is logged and skipped, the others go on
+    $evs = @(); try { $evs = @(Get-WinEvent -FilterHashtable $f -MaxEvents $Max -ErrorAction Stop) } catch {
+      if ($_.Exception.Message -notmatch 'No events were found') {
+        if (@($d.P).Count -gt 1) { foreach ($p1 in @($d.P)) { $f.ProviderName = $p1; try { $evs += @(Get-WinEvent -FilterHashtable $f -MaxEvents $Max -ErrorAction Stop) } catch {} } }
+        else { try { PD-Log ('events ' + $d.L + ' ' + $d.k + ': ' + $_.Exception.Message) } catch {} } } }
     if ($d.L -like '*PrintService/Admin') { $evs = @($evs | Where-Object { $_.Level -le 3 }) }
     foreach ($e in $evs) {
       $msg = ''; try { $msg = ($e.Message -split "`n")[0..2] -join ' ' } catch {}

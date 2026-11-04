@@ -14,6 +14,18 @@ for f in os.listdir(os.path.join(R, "src")):
     if f.endswith(".ps1"):
         p = os.path.join(R, "src", f); b = open(p, "rb").read()
         if not b.startswith(b"\xef\xbb\xbf"): open(p, "wb").write(b"\xef\xbb\xbf" + b)
+# 04-Nov-2026: PowerShell names are case-blind - a function that uses $s (a sample / loop item) AND the agent state $S silently
+# overwrites the state (first real PC: $S.ring null, no minute rows). Refuse to publish until it is renamed.
+import re
+bad = []
+for f in sorted(os.listdir(os.path.join(R, "src"))):
+    if not f.endswith(".ps1"): continue
+    L = open(os.path.join(R, "src", f), encoding="utf-8-sig").read().split("\n")
+    st = [i for i, l in enumerate(L) if re.match(r"\s*function\s", l)]
+    for n, a in enumerate(st):
+        body = "\n".join(l.split("#")[0] for l in L[a:(st[n + 1] if n + 1 < len(st) else len(L))])
+        if re.search(r"\$s\b", body) and re.search(r"\$S\b", body): bad.append("%s:%d %s" % (f, a + 1, L[a].strip()[:60]))
+if bad: sys.exit("STOP - these functions use both $s and $S (same variable in PowerShell), rename $s:\n  " + "\n  ".join(bad))
 sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
 old = json.load(open(P)) if os.path.exists(P) else {}
 files = {f: sha(os.path.join(R, "src", f)) for f in sorted(os.listdir(os.path.join(R, "src"))) if f.endswith(".ps1")}

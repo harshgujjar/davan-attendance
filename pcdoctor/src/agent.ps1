@@ -14,21 +14,21 @@ $S = @{ ring = New-Object System.Collections.ArrayList; lastEv = $null; lastMin 
 function A-Hwid { PD-Hwid }
 function A-Ver { PD-AgentVer }
 
-function A-Now([hashtable]$s) {
+function A-Now([hashtable]$smp) {
   $v = $S.verdict; $df = PD-DeepFreeze
   if ($df.state -eq 'thawed' -and !$S.dfSince) { $S.dfSince = PD-NowMs } elseif ($df.state -ne 'thawed') { $S.dfSince = 0 }
   $tq = @(PD-ReadJson (Join-Path $PD.Root 'state\thawq.json')).Count
   $ip = ''; try { $ip = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).IPv4Address.IPAddress } catch {}
-  @{ t = $s.t; cpu = $s.cpu; ram = $s.ram; busy = $s.busy; lat = $s.lat; cfree = $s.cfree; cfreeGB = $s.cfreeGB; temp = $(if ($s.temp) { $s.temp.cpu } else { $null })
-     freq = $s.freq; net = $s.net; user = $s.user; top = @($s.top | Select-Object -First 3)
+  @{ t = $smp.t; cpu = $smp.cpu; ram = $smp.ram; busy = $smp.busy; lat = $smp.lat; cfree = $smp.cfree; cfreeGB = $smp.cfreeGB; temp = $(if ($smp.temp) { $smp.temp.cpu } else { $null })
+     freq = $smp.freq; net = $smp.net; user = $smp.user; top = @($smp.top | Select-Object -First 3)
      lv = $v.lv; v = $v.v; vk = $v.vk; why = $v.why; conf = $v.conf; fix = $v.fix
      df = $df.state; dfSince = $S.dfSince; thaw = [bool]$df.thaw; thawQ = $tq; boot = [int64](([datetimeoffset]$S.boot).ToUnixTimeMilliseconds())
      ver = (A-Ver); name = $env:COMPUTERNAME; ip = $ip; q = (PD-QueueCount); online = $PD.Online; pp = $S.pp; fixing = $S.fixing }
 }
-function A-Live([hashtable]$s) {
-  @{ t = $s.t; c = $s.cpu; r = $s.ram; b = $s.busy; l = $s.lat; q = $s.q; h = $s.hf; f = $s.cfree; n = $s.net; fr = $s.freq; u = $s.user
-     tc = $(if ($s.temp) { $s.temp.cpu } else { $null }); td = $(if ($s.temp) { $s.temp.disk } else { $null })
-     p = @($s.top | ForEach-Object { $_.n + '|' + $_.c + '|' + $_.m + '|' + $_.io }); pr = @($s.ramTop | ForEach-Object { $_.n + '|' + $_.m }); pi = @($s.ioTop | ForEach-Object { $_.n + '|' + $_.io }) }
+function A-Live([hashtable]$smp) {
+  @{ t = $smp.t; c = $smp.cpu; r = $smp.ram; b = $smp.busy; l = $smp.lat; q = $smp.q; h = $smp.hf; f = $smp.cfree; n = $smp.net; fr = $smp.freq; u = $smp.user
+     tc = $(if ($smp.temp) { $smp.temp.cpu } else { $null }); td = $(if ($smp.temp) { $smp.temp.disk } else { $null })
+     p = @($smp.top | ForEach-Object { $_.n + '|' + $_.c + '|' + $_.m + '|' + $_.io }); pr = @($smp.ramTop | ForEach-Object { $_.n + '|' + $_.m }); pi = @($smp.ioTop | ForEach-Object { $_.n + '|' + $_.io }) }
 }
 
 # ---------- the PC's own record: name / group / notes both ways (5) ----------
@@ -334,21 +334,22 @@ function A-MeshInstall {
 
 # ---------- main ----------
 function A-Minute {
-  $s = PD-Sample
-  [void]$S.ring.Add($s); while ($S.ring.Count -gt 10) { $S.ring.RemoveAt(0) }
+  # 1.4: the sample is $smp - PowerShell names are case-blind, "$s =" here replaced the agent state $S (ring null, no minute rows)
+  $smp = PD-Sample
+  [void]$S.ring.Add($smp); while ($S.ring.Count -gt 10) { $S.ring.RemoveAt(0) }
   PD-WriteJson (Join-Path $PD.Root 'state\ring.json') @($S.ring)
   if (!$S.verdict) { A-Verdict }
-  $h = A-Hwid; $now = A-Now $s
-  PD-Db PUT ('lab/live/' + $h + '/m' + [int64]([math]::Floor($s.t / 60000))) (A-Live $s) | Out-Null
+  $h = A-Hwid; $now = A-Now $smp
+  PD-Db PUT ('lab/live/' + $h + '/m' + [int64]([math]::Floor($smp.t / 60000))) (A-Live $smp) | Out-Null
   PD-Db PUT ('lab/now/' + $h) $now | Out-Null
   PD-WriteJson (Join-Path $PD.Root 'state\now.json') $now
   # hourly lab load (lab/load/<IST date>/<HH>/<hwid> = running averages of this hour) - the Console's load chart reads this, not raw rows
   $ist = [DateTime]::UtcNow.AddHours(5.5); $hk = $ist.ToString('yyyy-MM-dd') + '/' + $ist.ToString('HH')
   if ($S.hk -ne $hk) { $S.hk = $hk; $S.hn = 0; $S.hc = 0; $S.hr = 0; $S.hb = 0; $S.hu = 0 }
-  $S.hn++; $S.hc += $s.cpu; $S.hr += $s.ram; $S.hb += $s.busy; if ($s.user) { $S.hu++ }
+  $S.hn++; $S.hc += $smp.cpu; $S.hr += $smp.ram; $S.hb += $smp.busy; if ($smp.user) { $S.hu++ }
   PD-Db PUT ('lab/load/' + $hk + '/' + $h) @{ c = [math]::Round($S.hc / $S.hn); r = [math]::Round($S.hr / $S.hn); b = [math]::Round($S.hb / $S.hn); n = $S.hn; u = $S.hu } | Out-Null
-  PD-WriteJson (Join-Path $PD.Root 'state\lastrow.json') @{ t = $s.t }
-  $tp = PD-ThawPath; if ($tp) { PD-WriteJson "$tp\lastrow.json" @{ t = $s.t } }
+  PD-WriteJson (Join-Path $PD.Root 'state\lastrow.json') @{ t = $smp.t }
+  $tp = PD-ThawPath; if ($tp) { PD-WriteJson "$tp\lastrow.json" @{ t = $smp.t } }
   Set-Content (Join-Path $PD.Root 'state\hb.txt') (PD-NowMs)
 }
 function A-Laptop {
