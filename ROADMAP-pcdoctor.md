@@ -1,6 +1,6 @@
 # 🖥️ PC Doctor (Lab Health) - agreed plan (user, 04-Nov-2026) - NOTHING BUILT YET
 
-Name not final: "Davan PC Doctor" suggested (Agent / PC Doctor tray app / PC Doctor Console = lab.html / PC Doctor Rescue USB) - ask the user.
+Name FINAL (user, 04-Nov): "Davan PC Doctor" (Agent / PC Doctor tray app / PC Doctor Console = lab.html / PC Doctor Rescue USB) - ask the user.
 Mockup (sample data, 8 screens) was sent as a file in session 01BVkXcMKr6HK7qa23dAP4ee - user had not approved / commented yet.
 
 ## Infra - DONE by the user 04-Nov-2026
@@ -17,7 +17,7 @@ Mockup (sample data, 8 screens) was sent as a file in session 01BVkXcMKr6HK7qa23
 - Add swap on the VM (1 GB RAM). Keep-alive against Oracle idle reclaim. Nightly MeshCentral config backup to davan-scraper.
 
 ## PCs
-30 lab PCs (Win 10/11, Deep Freeze - Standard or Enterprise: user to check) + Degree office 5 + PUC office 4 + the user's laptop.
+30 lab PCs (Win 10/11, Deep Freeze STANDARD edition (user, 04-Nov) - no DFC.exe command line (Enterprise only), so automatic Thaw/Freeze is NOT possible: agent queues "needs Thawed" fixes, Super Admin sets Boot Thawed / Boot Frozen through MeshCentral remote screen, agent runs the queued fixes while Thawed and reminds to refreeze; ThawSpace only if made at DF install - agent detects) + Degree office 5 + PUC office 4 + the user's laptop.
 Names = Windows computer name, group by prefix from DB5 lab/cfg/groups (A* Lab 1, B* Lab 2, PUC* PUC office, D* Degree office; longest prefix
 wins; ➕ Add group on the page = new lab / office with no build). Unknown names -> 📥 New PCs (Assign / Rename). Silent 30 days -> 🗄️ Old PCs.
 Identity = HARDWARE fingerprint (board serial, BIOS UUID, MAC, CPU id, disk + RAM serials, scored) - an OS reinstall keeps name + full history
