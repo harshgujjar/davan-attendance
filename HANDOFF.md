@@ -82,7 +82,7 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - 28-Oct-2026 (later): BUILT student w296 (native login LoginActivity/NLogin/Vault, option A #wl= + portal v11.101, Log out, link retry + 60 s wait) and staff w354 (retry + wait + Log out; NO native login for staff) -> -next channel, public 9:15 pm. Source in davan-scraper widgets/student + staff (student build.sh now compiles stubs/ for javax.crypto). Not phone-tested. Open: DB2 rule for an anonymous write to student_widget_active (if the first login says 'Could not save the link', read the rule). Old line: widget link retry built (staff v1955 / portal v11.100, DONE). Still open for the widget APKs (source in davan-scraper): poll for the link for ~1 min after linking + 📋 Copy failure detail. Roadmap I = this native login plan: it removes the 'tap the link, wait' step; waits for the user's go.
 - Open: admin sign-in secret sits in the public portal file (rotate + remove, needs the user's go).
 
-## 🖥️ PC Doctor / Lab Health - PLAN + infra ready (04-Nov-2026), nothing built - read ROADMAP-pcdoctor.md
+## 🖥️ Davan PC Doctor - FULL CHECKLIST in ROADMAP-pcdoctor.md (04-Nov-2026), infra ready, nothing built - build EVERY line, no skipping
 DB5 = Firebase davan-lab (config + DB5_SA secret done), Oracle VM davan-mesh 144.24.111.207 (sslip.io) for MeshCentral. Next: name + "build it".
 
 ## Side projects (user's own)
