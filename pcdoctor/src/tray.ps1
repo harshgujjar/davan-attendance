@@ -31,6 +31,38 @@ $wa = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $form.Left = $wa.Right 
 $tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $F.n }
 $tMe = New-Object Windows.Forms.TabPage -Property @{ Text = 'This PC'; BackColor = $C.bg }
 $tabs.TabPages.Add($tMe); $form.Controls.Add($tabs)
+# ---------- ⬆️ Updates tab (user, 04-Nov-2026): Update now + this PC's version, when it came, what's new (5 newest, Show all / Hide) ----------
+$tUp = New-Object Windows.Forms.TabPage -Property @{ Text = '⬆️ Updates'; BackColor = $C.bg }; $tabs.TabPages.Add($tUp)
+$uVer = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 10; Width = 420; Height = 26; Font = $F.big; ForeColor = $C.ac; Text = 'PC Doctor' }
+$uWhen = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 40; Width = 420; Height = 40; Font = $F.s; ForeColor = $C.mu }
+$uRes = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 122; Width = 420; Height = 36; Font = $F.s; ForeColor = $C.ac }
+$uBtn = New-Object Windows.Forms.Button -Property @{ Text = '⬆️ Update now'; Left = 12; Top = 84; Width = 200; Height = 32; FlatStyle = 'Flat'; BackColor = $C.ac; ForeColor = [Drawing.Color]::Black; Font = $F.n }
+$uNewT = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 162; Width = 260; Height = 22; Font = $F.n; Text = "🆕 What's new" }
+$uAll = New-Object Windows.Forms.Button -Property @{ Text = 'Show all ▾'; Left = 312; Top = 158; Width = 120; Height = 26; FlatStyle = 'Flat'; BackColor = $C.card; ForeColor = $C.tx; Font = $F.s }
+$uNews = New-Object Windows.Forms.TextBox -Property @{ Left = 12; Top = 188; Width = 420; Height = 360; Multiline = $true; ReadOnly = $true; ScrollBars = 'Vertical'; BackColor = $C.card; ForeColor = $C.tx; Font = $F.s; BorderStyle = 'None' }
+$uBtn.FlatAppearance.BorderColor = $C.ac; $uAll.FlatAppearance.BorderColor = $C.bd
+$tUp.Controls.AddRange(@($uVer, $uWhen, $uBtn, $uRes, $uNewT, $uAll, $uNews))
+$script:showAll = $false; $script:askedAt = 0
+function UpdNow { try { Set-Content "$Rq\update.flag" '1' } catch { $uRes.Text = '❌ Could not ask the updater: ' + $_.Exception.Message; return }
+  $script:askedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $uRes.Text = '⏳ Checking for an update - about a minute ...'; $uBtn.Enabled = $false }
+$uBtn.Add_Click({ UpdNow })
+$uAll.Add_Click({ $script:showAll = !$script:showAll; UpdRefresh })
+function UpdRefresh {
+  $r = J 'running.json'; $lv = J 'labver.json'; $u = J 'upd.json'
+  $uVer.Text = if ($r) { 'PC Doctor ' + $r.ver + '  ·  build ' + $r.build } else { 'PC Doctor (first start)' }
+  $newest = if ($lv -and $lv.agent) { [string]$lv.agent.ver + ' (build ' + $lv.agent.build + ', ' + $lv.agent.ist + ')' } else { '' }
+  $uWhen.Text = $(if ($r -and $r.at) { 'This version came on ' + (IST $r.at) + ' IST' } else { '' }) + $(if ($newest) { "`r`nNewest published: " + $newest } else { '' })
+  if ($u -and $u.res) {
+    $fresh = $script:askedAt -and [int64]$u.at -ge $script:askedAt
+    if (!$script:askedAt -or $fresh) { $uRes.Text = $(if ($fresh) { '✅ ' } else { 'Last check ' + (IST $u.at) + ': ' }) + $u.res; $uBtn.Enabled = $true; if ($fresh) { $script:askedAt = 0 } }
+  } elseif (!$script:askedAt) { $uRes.Text = 'Checks by itself at every start and every hour.' }
+  if ($script:askedAt -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $script:askedAt) -gt 180000) { $uRes.Text = '⌛ No answer yet - the updater runs again within the hour (or restart the PC).'; $uBtn.Enabled = $true; $script:askedAt = 0 }
+  $news = @(); if ($lv -and $lv.news) { $news = @($lv.news) }
+  if (!$news.Count) { $uNews.Text = "The list appears after the next update check (tap Update now)."; $uAll.Visible = $false; return }
+  $show = if ($script:showAll) { $news } else { $news | Select-Object -First 5 }
+  $uNews.Text = ($show | ForEach-Object { '1.' + $_.build + '  ·  ' + ([string]$_.ist -replace ' IST$', '') + "`r`n   " + $_.text + "`r`n" }) -join "`r`n"
+  $uAll.Visible = $news.Count -gt 5; $uAll.Text = if ($script:showAll) { 'Hide ▴' } else { 'Show all (' + $news.Count + ') ▾' }
+}
 $head = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 10; Width = 420; Height = 26; Font = $F.big; ForeColor = $C.ac; Text = 'PC Doctor' }
 $verd = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 40; Width = 420; Height = 62; Font = $F.n }
 $tMe.Controls.AddRange(@($head, $verd))
@@ -112,6 +144,7 @@ function OpenWin { if ($form.Visible -and $script:unlocked) { $form.WindowState 
   $script:unlocked = $true; $form.Show(); $form.WindowState = 'Normal'; $form.Activate() }
 [void]$menu.Items.Add('Open PC Doctor', $null, { OpenWin })
 [void]$menu.Items.Add('🔍 Check now', $null, { Set-Content "$Rq\now.flag" '1' })
+[void]$menu.Items.Add('⬆️ Update now', $null, { UpdNow; OpenWin; $tabs.SelectedTab = $tUp })
 [void]$menu.Items.Add('📋 Copy report', $null, { if ($script:unlocked -or (Pw 'copying the report')) { [Windows.Forms.Clipboard]::SetText((Report)) } })
 $ni.ContextMenuStrip = $menu
 $ni.Add_MouseClick({ if ($_.Button -eq 'Left') { OpenWin } })
@@ -162,7 +195,7 @@ function SelfUpdate { $b = try { [int](J 'running.json').build } catch { 0 }
     $ni.Visible = $false; try { $mtx.ReleaseMutex(); $mtx.Dispose() } catch {}
     Start-Process powershell.exe -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`""
     [Environment]::Exit(0) } }
-$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
-try { Refresh } catch {}
+$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
+try { Refresh } catch {}; try { UpdRefresh } catch {}
 if ($args -contains '-show') { OpenWin }
 [Windows.Forms.Application]::Run()

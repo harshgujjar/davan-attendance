@@ -2,6 +2,11 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 04-Nov-2026 · Agent 1.12 / tray 1.5 -- The user: "if I want to update manually within the hour, give an option in the tray, and show which version,
+  when it came and what's new - latest 5, rest Show / Hide". Tray: new ⬆️ Updates tab (also in the right-click menu) - ⬆️ Update now (the
+  updater checks within a minute and skips the 2-h test wait, since it was asked by hand), this PC's version + build + IST date-time it came,
+  the newest published one, the result of the last check, 🆕 What's new (5 newest, Show all (N) / Hide). Loader saves state\labver.json +
+  state\upd.json. No DB5 reads / writes. L-Fetch, L-Res, UpdNow, UpdRefresh.
 - 04-Nov-2026 · Agent 1.11 / Console 1.2 -- STRICT RULE (user: "never delete anything from a PC, especially my laptop - tell me what you want to
   delete and delete only if I say yes"). Fixes that delete or remove anything (temp / Android clean, spooler jobs, startup item, roll back driver,
   uninstall update) never run by themselves: the PC posts "🧹 ... suggested - nothing is deleted until you tap it" (event + one amber alert a day)

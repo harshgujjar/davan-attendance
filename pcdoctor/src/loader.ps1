@@ -13,29 +13,34 @@ function L-Log($m) { Add-Content "$Root\log\loader.log" ((Get-Date).ToString('dd
 function L-Json($f) { try { Get-Content $f -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $null } }
 function L-Sha($f) { (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower() }
 function L-Safe { (Get-CimInstance Win32_ComputerSystem).BootupState -ne 'Normal boot' }
-function L-Fetch {
-  try { $v = Invoke-RestMethod -Uri ($Raw + 'lab-version.json?t=' + [DateTime]::UtcNow.Ticks) -TimeoutSec 30 } catch { L-Log ('version file not reached: ' + $_.Exception.Message); return $null }
+# 04-Nov-2026 (user: "Update now in the tray + which version, when, what's new"): every check saves the version list (state\labver.json, the
+# tray's What's new) and its result (state\upd.json); a check asked from the tray (req\update.flag) skips the 2-h wait for the test PCs
+function L-Res([string]$t, [bool]$m) { @{ at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); res = $t; manual = $m } | ConvertTo-Json | Set-Content "$Root\state\upd.json" -Encoding UTF8 }
+function L-Fetch([switch]$Manual) {
+  try { $v = Invoke-RestMethod -Uri ($Raw + 'lab-version.json?t=' + [DateTime]::UtcNow.Ticks) -TimeoutSec 30 } catch { L-Log ('version file not reached: ' + $_.Exception.Message); L-Res 'No internet - could not reach the update server' $Manual; return $null }
+  try { $v | ConvertTo-Json -Depth 6 | Set-Content "$Root\state\labver.json" -Encoding UTF8 } catch {}
   $run = L-Json "$Root\state\running.json"
-  if ($run -and $run.build -ge $v.agent.build) { return $null }
-  $bad = @(L-Json "$Root\state\bad.json"); if ($bad -contains $v.agent.build) { return $null }
+  if ($run -and $run.build -ge $v.agent.build) { L-Res ('Already the newest: ' + $run.ver + ' (build ' + $run.build + ')') $Manual; return $null }
+  $bad = @(L-Json "$Root\state\bad.json"); if ($bad -contains $v.agent.build) { L-Res ('Build ' + $v.agent.build + ' was rolled back on this PC - waiting for a newer one') $Manual; return $null }
   # channel: test PCs at once; others after relOk / testHoldH
   $cfg = L-Json "$Root\state\cfg.json"; $id = L-Json "$Root\id.json"
   $test = $cfg -and (@($cfg.test) -contains $env:COMPUTERNAME -or ($id -and @($cfg.test) -contains $id.hwid))
-  if (Test-Path "$Root\state\laptop.flag") { $test = $true }   # 04-Nov: the Super Admin laptop always gets a new build at once
+  if (Test-Path "$Root\state\laptop.flag") { $test = $true }
+  if ($Manual) { $test = $true }   # asked from the tray: no waiting   # 04-Nov: the Super Admin laptop always gets a new build at once
   $hold = if ($cfg -and $cfg.testHoldH) { [double]$cfg.testHoldH } else { 2 }
   $age = ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$v.agent.at) / 3600000
-  if (!$test -and $run -and !($cfg -and $cfg.relOk -ge $v.agent.build) -and $age -lt $hold) { L-Log "build $($v.agent.build) waits for the test PCs ($([math]::Round($age,1)) h of $hold h)"; return $null }
+  if (!$test -and $run -and !($cfg -and $cfg.relOk -ge $v.agent.build) -and $age -lt $hold) { L-Log "build $($v.agent.build) waits for the test PCs ($([math]::Round($age,1)) h of $hold h)"; L-Res ('Build ' + $v.agent.build + ' comes here in ' + [math]::Ceiling($hold - $age) + ' h (after the test PCs) - or tap Update now') $false; return $null }
   $tmp = "$Root\dl\new"; Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force $tmp | Out-Null
   foreach ($f in $v.files.PSObject.Properties) {
     $o = Join-Path $tmp $f.Name
-    try { Invoke-WebRequest -UseBasicParsing -Uri ($Raw + 'src/' + $f.Name + '?v=' + $f.Value) -OutFile $o -TimeoutSec 120 } catch { L-Log "download $($f.Name) failed"; return $null }
-    if ((L-Sha $o) -ne $f.Value) { L-Log "REFUSED $($f.Name): SHA-256 does not match lab-version.json"; return $null }
+    try { Invoke-WebRequest -UseBasicParsing -Uri ($Raw + 'src/' + $f.Name + '?v=' + $f.Value) -OutFile $o -TimeoutSec 120 } catch { L-Log "download $($f.Name) failed"; L-Res 'Download failed - will try again in an hour' $Manual; return $null }
+    if ((L-Sha $o) -ne $f.Value) { L-Log "REFUSED $($f.Name): SHA-256 does not match lab-version.json"; L-Res 'Update refused: a file did not match its fingerprint (safety check)' $Manual; return $null }
   }
   if (Test-Path "$Bin\agent.ps1") { Remove-Item "$Good\*" -Force -ErrorAction SilentlyContinue; Copy-Item "$Bin\*" $Good -Force; Copy-Item "$Root\state\running.json" "$Good\running.json" -ErrorAction SilentlyContinue }
   Copy-Item "$tmp\*" $Bin -Force
   @{ ver = $v.agent.ver; build = $v.agent.build; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); prev = $(if ($run) { $run.build } else { 0 }) } | ConvertTo-Json | Set-Content "$Root\state\running.json" -Encoding UTF8
   if (Test-Path "$Bin\loader.ps1") { Copy-Item "$Bin\loader.ps1" "$Root\loader.ps1" -Force }   # the loader updates itself (used from the next start)
-  L-Log "updated to $($v.agent.ver) (build $($v.agent.build))"
+  L-Log "updated to $($v.agent.ver) (build $($v.agent.build))"; L-Res ('Updated to ' + $v.agent.ver + ' (build ' + $v.agent.build + ')') $Manual
   $v
 }
 function L-Start {
@@ -56,8 +61,8 @@ $p = $null; $lastCheck = [datetime]::MinValue; $newAt = $null
 while ($true) {
   try {
     if (((Get-Date) - $lastCheck).TotalMinutes -ge 60 -or (Test-Path "$Root\req\update.flag")) {
-      Remove-Item "$Root\req\update.flag" -Force -ErrorAction SilentlyContinue; $lastCheck = Get-Date
-      $nv = L-Fetch
+      $man = Test-Path "$Root\req\update.flag"; Remove-Item "$Root\req\update.flag" -Force -ErrorAction SilentlyContinue; $lastCheck = Get-Date
+      $nv = L-Fetch -Manual:$man
       if ($nv) { if ($p -and !$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }; $p = $null; $newAt = Get-Date }
     }
     if (!$p -or $p.HasExited) { $p = L-Start; if (!$newAt) { $newAt = Get-Date } }
