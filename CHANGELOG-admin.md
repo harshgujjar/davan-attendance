@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1996 · 04-Nov-2026 IST
+Report: new status / filter 📵 Phone can't (davan_pub/wupd/<URN>/noapp from portal v11.111) with phone model, Android version and ↩ Undo (removes noapp). Functions: wurInit, wurList, wurTable, WUR_STEP, wurNoAppUndo (new).
+
 ## v1995 · 04-Nov-2026 IST
 User (screenshot): "what do these saved numbers mean; after an update it changes to Off - that should not happen". gswStuMinShow: a failed read of DB2 davan_pub/wupd_cfg showed the switches as Off with an empty copy, and the next Save / test-student change wrote it back. Now a failed read shows ⟳ Retry and blocks saving; gswStuMin PATCHes only what changed (a switch tap only its own field). Settings have plain words (days with Later in Auto, days still old -> Director, hours free use after can't update, Director place + time). The no-widget text explains Once a day vs Required from. Functions: gswStuMinShow, gswStuMin.
 
