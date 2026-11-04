@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1992 · 04-Nov-2026 IST
+User (screenshot): "Test URN - what does it do; search by name with photo and class / section, I don't know URNs". The Test URNs box is now 🧪 Test students: a name / URN search over the dashboard's student list (photo, class, section, URN; no reads), chips with photo + ✕, saved at once to DB2 davan_pub/wupd_cfg.testUrns; a line explains it only works while a switch is on 🧪 Test. Functions: gswStuMinShow, gswStuMin, wuStu / wuCls / wuTestChips / wuTestSearch / wuTestAdd / wuTestDel (new).
+
 ## v1991 · 03-Nov-2026 IST
 User (screenshot): only "Updated (1)" could be seen - Noor / Roopa / Amulya were inside "Stuck (115)" with 112 who never opened the app; no sorting. Report filters now: 👀 Saw, not updated (default) / 💤 Not seen yet / Can't / Director / Updated / No widget / All; sort menu Latest activity (default) / Name / Class / Oldest widget; a repeated step within 5 min shows once (✅ Updated was doubled); staff old = below the public build out for a full day (Karthik / Anitha / Kotrappa on w256 the night of the release are not old). No new reads. Functions: wurInit, wurView, wurSteps, wurList, wurTable.
 
