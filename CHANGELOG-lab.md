@@ -7,7 +7,8 @@ Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
   renamed in A-Minute / A-Now / A-Live, and tools/pcdoctor_version.py now refuses to publish a function that uses both $s and $S.
   (2) Get-WinEvent "The parameter is incorrect" stopped the event reading - each source is read on its own (2 provider names one by one),
   a failing source is logged and skipped. (3) A plugged-in pendrive was listed as "the disk" (false "Disk replaced") - USB / SD / virtual disks
-  left out, Windows disk first, SMART matched by device path. No new reads / writes. A-Minute, A-Now, A-Live, PD-ReadEvents, PD-Smart.
+  left out, Windows disk first, SMART matched by device path. (4) "Update loop (Deep Freeze)" was shown on a laptop without Deep
+  Freeze - only PCs with Deep Freeze are checked now. No new reads / writes. A-Minute, A-Now, A-Live, PD-ReadEvents, PD-Smart, PD-UpdateLoop.
 - 04-Nov-2026 · worker v21 -- The hourly check said MeshCentral was down although it answered HTTPS 200 from outside (would have sent a false
   "Remote server offline" alert). It now tries https, then http (a 302 counts as alive) and keeps the error text in DB5 lab/wstate.mesh.err. No new reads. labHourly.
 - 04-Nov-2026 · staff widget w365 -- Step 15: 🖥️ PC Doctor page on the Super Admin's staff widget (grid at a glance, problems, morning

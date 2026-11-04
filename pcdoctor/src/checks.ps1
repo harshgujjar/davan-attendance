@@ -284,6 +284,8 @@ function PD-SfcState {
 }
 # Deep Freeze update loop (6): the same update downloaded again after every restart
 function PD-UpdateLoop([object[]]$ev7) {
+  # 1.4: only a PC with Deep Freeze can loop (first real PC, a laptop without it, was called "Update loop (Deep Freeze)")
+  if (([string]$PD.DfState) -eq 'none' -or (!$PD.DfState -and (PD-DeepFreeze).state -eq 'none')) { return @{ loop = 0; loopN = 0; what = '' } }
   $dl = @($ev7 | Where-Object { $_.k -eq 'upd' -and $_.id -eq 44 })
   $g = $dl | Group-Object { if ($_.msg -match '(KB\d+)') { $Matches[1] } else { $_.msg.Substring(0, [math]::Min(60, $_.msg.Length)) } } | Where-Object Count -ge 3 | Sort-Object Count -Descending | Select-Object -First 1
   if ($g) { @{ loop = 1; loopN = $g.Count; what = $g.Name } } else { @{ loop = 0; loopN = 0; what = '' } }
