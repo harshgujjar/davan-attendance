@@ -154,7 +154,15 @@ function Refresh {
     $a = J 'ai.json'; if ($a -and $a.t -gt $seen.ai -and $script:aiBox) { $seen.ai = $a.t; $script:aiBox.Text = $(if ($a.ok) { "✨ AI`r`n`r`n" + $a.text + "`r`n`r`n($($a.left) answers left today)" } else { [string]$a.msg }) }
   }
 }
-$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {} }); $tm.Start()
+# 1.3 (user, 04-Nov-2026: "it's not auto update"): the loader updates the files, but a running tray kept its old copy until the next sign-in -
+# when state\running.json shows a new build and the window is closed, the tray starts its new copy and quits (no click, no sign-out)
+$script:myBuild = try { [int](J 'running.json').build } catch { 0 }
+function SelfUpdate { $b = try { [int](J 'running.json').build } catch { 0 }
+  if ($b -and $script:myBuild -and $b -ne $script:myBuild -and !$form.Visible -and (Test-Path "$Root\bin\tray.ps1")) {
+    $ni.Visible = $false; try { $mtx.ReleaseMutex(); $mtx.Dispose() } catch {}
+    Start-Process powershell.exe -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`""
+    [Environment]::Exit(0) } }
+$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
 try { Refresh } catch {}
 if ($args -contains '-show') { OpenWin }
 [Windows.Forms.Application]::Run()

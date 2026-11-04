@@ -354,8 +354,8 @@ function A-Minute {
 }
 function A-Laptop {
   # 8: the Super Admin laptop reads the whole grid (DB5 rules allow it only for lab/salap PCs)
-  $g = PD-Db GET 'lab/now'; if (!$g) { $S.laptop = $false; return }
-  $S.laptop = $true; $pcs = PD-Db GET 'lab/pcs'
+  $g = PD-Db GET 'lab/now'; if (!$g) { $S.laptop = $false; Remove-Item (Join-Path $PD.Root 'state\laptop.flag') -ErrorAction SilentlyContinue; return }
+  $S.laptop = $true; try { Set-Content (Join-Path $PD.Root 'state\laptop.flag') '1' } catch {}; $pcs = PD-Db GET 'lab/pcs'
   PD-WriteJson (Join-Path $PD.Root 'state\grid.json') @{ t = (PD-NowMs); now = $g; pcs = $pcs; sum = (PD-Db GET ('lab/sum/' + (PD-ISTDate))); fix = (PD-Db GET ('lab/fixlog/' + (PD-ISTDate))) }
 }
 

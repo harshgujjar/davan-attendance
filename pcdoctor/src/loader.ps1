@@ -21,6 +21,7 @@ function L-Fetch {
   # channel: test PCs at once; others after relOk / testHoldH
   $cfg = L-Json "$Root\state\cfg.json"; $id = L-Json "$Root\id.json"
   $test = $cfg -and (@($cfg.test) -contains $env:COMPUTERNAME -or ($id -and @($cfg.test) -contains $id.hwid))
+  if (Test-Path "$Root\state\laptop.flag") { $test = $true }   # 04-Nov: the Super Admin laptop always gets a new build at once
   $hold = if ($cfg -and $cfg.testHoldH) { [double]$cfg.testHoldH } else { 2 }
   $age = ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$v.agent.at) / 3600000
   if (!$test -and $run -and !($cfg -and $cfg.relOk -ge $v.agent.build) -and $age -lt $hold) { L-Log "build $($v.agent.build) waits for the test PCs ($([math]::Round($age,1)) h of $hold h)"; return $null }
