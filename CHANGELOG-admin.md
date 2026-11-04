@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1995 · 04-Nov-2026 IST
+User (screenshot): "what do these saved numbers mean; after an update it changes to Off - that should not happen". gswStuMinShow: a failed read of DB2 davan_pub/wupd_cfg showed the switches as Off with an empty copy, and the next Save / test-student change wrote it back. Now a failed read shows ⟳ Retry and blocks saving; gswStuMin PATCHes only what changed (a switch tap only its own field). Settings have plain words (days with Later in Auto, days still old -> Director, hours free use after can't update, Director place + time). The no-widget text explains Once a day vs Required from. Functions: gswStuMinShow, gswStuMin.
+
 ## v1994 · 04-Nov-2026 IST
 User: "tell them before the lock with a countdown; those with no widget must install, else no student app after Thu 9 pm". Students with no widget: new 🔴 Required from + date-time (DB2 davan_pub/wupd_cfg.getMode req, getBy; default Thu 5 Nov 9:15 pm), with a confirm. Pairs with portal v11.108 (countdown banner, lock, I installed it - check). Functions: gswStuMinShow, gswStuMin.
 
