@@ -13,7 +13,7 @@ Mockup (sample data, 8 screens) was sent as a file in session 01BVkXcMKr6HK7qa23
 - The cloud session's proxy BLOCKS *.firebasedatabase.app for this new project -> Claude reads DB5 through a davan-scraper Action ("DB5 peek").
 - **Oracle Cloud** Always Free, India West (Mumbai): VM `davan-mesh`, VM.Standard.E2.1.Micro (1 OCPU, 1 GB - Ampere A1 was "out of capacity"),
   Ubuntu 26.04, ingress TCP 22, 80, 443 open. **Reserved public IP 144.24.111.207** -> address `144-24-111-207.sslip.io`
-  (DuckDNS is blocked by the user's ISP DNS; sslip.io tested OK on his network). Secrets ORACLE_IP + ORACLE_SSH_KEY: user adding (check).
+  (DuckDNS is blocked by the user's ISP DNS; sslip.io tested OK on his network). Secrets ORACLE_IP + ORACLE_SSH_KEY added; davan-scraper Action "PC Doctor - infra check" (pcdoctor-check.yml) passed 04-Nov: DB5 read 200, SSH ubuntu@VM OK (Ubuntu 26.04.1, 951 MB RAM, 45 GB disk, internet OK).
 - Add swap on the VM (1 GB RAM). Keep-alive against Oracle idle reclaim. Nightly MeshCentral config backup to davan-scraper.
 
 ## PCs
