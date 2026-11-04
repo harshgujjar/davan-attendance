@@ -72,7 +72,7 @@ async function startIg(env) {
 // v16 (user, 31-Oct-2026: "new post is on Instagram but not showing"): GitHub ran the hourly ig-posts.yml only ~3 times a day, so a new post
 // waited up to 7 h. The worker's own timer IG_CRON now starts it every hour, 5:35 am - 11:35 pm IST (00:05-18:05 UTC); GitHub's own
 // schedule stays as a backup (the job's concurrency group queues a double start). A failed start alerts the Super Admin once a day only.
-const IG_CRON = '5 0-18 * * *';
+const IG_CRON = '5 * * * *';   // v20: every hour, 24 h (the free plan allows only 5 timers per ACCOUNT) - Instagram still only 00-18 UTC, below
 let _igAlertDay = '';
 async function igTimer(env) {
   const r = await startIg(env), day = new Date().toISOString().slice(0, 10);
@@ -276,12 +276,11 @@ async function wupdCant(b) {
 }
 
 /* v20 (user, 04-Nov-2026: "one notification only for the Super Admin - which student / staff updated the widget in this new process, and today's
-   numbers, one line each, with a voice note; every hour, 24 hours; switches On / Quiet / Off"): WUPD_CRON every hour at :35 UTC (= :05 IST).
+   numbers, one line each, with a voice note; every hour, 24 hours; switches On / Quiet / Off"): runs on IG_CRON, every hour at :05 UTC (= :35 IST).
    Compares the widget reports with the last snapshot (davan_pub/wupd_snap) - who moved to a newer build, who installed a widget for the first time -
    keeps today's counts (davan_pub/wupd_day/<IST date>) and sends ONE ☁️ alert kind wupd_hr with the summary + a spoken text (say / sayKn).
    davan_pub/wupd_cfg.alert: on (default) = notification + voice (night 9 pm - 7 am: no voice, ▶ in the widget), quiet = only the widget's
    messages box with ▶, off = nothing sent (counts still kept). Nobody updated in the hour = no alert. */
-const WUPD_CRON = '35 * * * *';
 async function wupdHourly() {
   const now = Date.now(), today = istDate(now);
   const get = f => fetch(RAW + f + '?t=' + now).then(r => r.ok ? r.json() : null).catch(() => null);
@@ -537,8 +536,10 @@ export default {
       else if (hm === '15:45' || hm === '16:15') ctx.waitUntil(startOrAlert(startRelease(env, 'Cloudflare timer ' + (hm === '15:45' ? '45 15' : '15 16')), 'The 9:15 pm widget release'));
       return;
     }
-    if (c === WUPD_CRON) { ctx.waitUntil(wupdHourly().catch(e => console.log('wupd hourly', e && e.message))); return; }   // v20
-    if (c === IG_CRON) { ctx.waitUntil(igTimer(env).catch(() => {})); return; }   // v16: hourly Instagram, every day incl. Sunday
+    if (c === IG_CRON) {   // v20: the same hourly timer - 📲 widget-update alert every hour, Instagram 5:35 am - 11:35 pm IST as before
+      ctx.waitUntil(wupdHourly().catch(e => console.log('wupd hourly', e && e.message)));
+      if (d.getUTCHours() <= 18) ctx.waitUntil(igTimer(env).catch(() => {}));
+      return; }   // v16: hourly Instagram, every day incl. Sunday
     if (d.getUTCDay() === 0) return;
     const puc = c.split(' ')[0].split(',').indexOf('4') >= 0;   // the PUC timer's minutes are 0,4,18,30,34,48; the college one's 0,15,30,45
     if (puc) { if (PUC_TIMES.indexOf(hm) >= 0) ctx.waitUntil(startOrAlert(startScrape(env, 'Cloudflare timer ' + hm + ' UTC', PUC_WORKFLOW), 'The PUC scrape')); return; }
