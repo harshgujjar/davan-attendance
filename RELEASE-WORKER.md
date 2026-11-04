@@ -117,3 +117,9 @@ text MON-SAT), so the days can be typed or stored either way. Steps (phone works
 3. **Add** again → Cron Trigger: `0,4,18,30,34,48 5,7,8,9,10,12 * * MON-SAT` → Add (PUC: 10:34 am, 1:00, 3:18, 5:34 pm + backups).
 4. Settings → Trigger events must list 4 timers. The worker URL shows `"ver":6`. Next college day the Cron events log shows the
    `0,15,30,45 ...` timer at 07:30 UTC and davan-scraper → Actions shows "Scrape (run once)" started at 1:00 pm.
+
+## 🖥️ PC Doctor (worker v18, 04-Nov-2026)
+The /lab routes need ONE more worker secret: **DB5_SA** = the whole davan-lab service-account JSON (the same text as the davan-scraper secret DB5_SA).
+Either Cloudflare -> davan-release -> Settings -> Variables and Secrets -> Add -> Secret, name `DB5_SA`, paste the JSON -> Deploy;
+or add a repository secret `DB5_SA` here (davan-attendance -> Settings -> Secrets -> Actions) and run "Deploy Cloudflare worker" - it copies it.
+`https://davan-release.harshgujjar.workers.dev/` then shows `"ver":18 ... "lab":true`.

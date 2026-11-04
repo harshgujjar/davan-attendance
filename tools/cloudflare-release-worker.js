@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v18 (04-Nov-2026): 🖥️ Davan PC Doctor - POST /lab/tok, /lab/pc, /lab/alert, /lab/ai + the hourly lab check (secret DB5_SA).
  *  - v14 (23-Oct-2026): POST /ai also answers widgets for ONE task (fb_reply), checked by the widget code.
  *  - v13 (23-Oct-2026): Sunday 🤖 coach notes for Placement learners with Ready 70+ (coachRun -> DB4 learn/coach).
  *  - v11 (23-Oct-2026): POST /ai - AI for the staff app (Workers AI binding AI; Gemini / a 2nd account later), daily limits in DB2.
@@ -513,6 +514,267 @@ async function ratesAiRun(env) {
   }
 }
 
+// ============================================================================================================================================
+// v18 (user, 04-Nov-2026 - ROADMAP-pcdoctor.md 2): 🖥️ Davan PC Doctor. DB5 = Firebase davan-lab. Worker secret DB5_SA = the davan-lab
+// service-account JSON (Cloudflare -> davan-release -> Settings -> Variables and Secrets). Without it every /lab route answers
+// "DB5 key not set" and the Console shows a clear box - nothing else breaks.
+//  POST /lab/tok   {token = staff ID token}            -> DB5 custom token {sa:true} for the Super Admin (Console / staff app)
+//  POST /lab/pc    {hwid, key, fp, name, inst, ver}    -> a PC's DB5 custom token (uid pc_<hwid>); a new install is matched to a known PC by
+//                                                         its hardware fingerprint (survives an OS reinstall), else gets a new hwid + key
+//  POST /lab/alert {idToken (DB5, a PC), kind, title, body, color} -> ☁️ Super Admin alert, at most once per PC + kind per lab/cfg alertGapH
+//  POST /lab/mesh  {token} -> a MeshCentral login cookie for the 🖥️ Remote screen (Super Admin)
+//  POST /lab/ai    {token = staff or DB5 ID token, prompt, history, system} -> ✨ AI with the lab's own daily limit (lab/cfg aiMax)
+//  hourly (IG_CRON): MeshCentral health, PCs left Thawed, PCs turned 🔴, lab-wide problems, the morning summary (lab/cfg sumHour IST).
+// ============================================================================================================================================
+const DB5 = 'https://davan-lab-default-rtdb.asia-southeast1.firebasedatabase.app';
+const DB5_PROJECT = 'davan-lab';
+const MESH_URL = 'https://144-24-111-207.sslip.io/';   // overridden by lab/cfg meshUrl (a new VM = a data change, no deploy)
+let _sa5 = null, _sa5Key = null, _db5Tok = '', _db5Exp = 0;
+const b64uEnc = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64uStr = s => b64uEnc(new TextEncoder().encode(s));
+const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+const sha256 = async s => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(s))));
+async function sa5(env) {
+  if (_sa5) return _sa5;
+  if (!env.DB5_SA) throw new Error('DB5 key not set on the worker (secret DB5_SA)');
+  const j = JSON.parse(env.DB5_SA), pem = String(j.private_key || '').replace(/-----[^-]+-----|\s/g, '');
+  _sa5Key = await crypto.subtle.importKey('pkcs8', Uint8Array.from(atob(pem), c => c.charCodeAt(0)), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  _sa5 = j; return j;
+}
+async function jwt5(env, claims) {
+  await sa5(env);
+  const h = b64uStr(JSON.stringify({ alg: 'RS256', typ: 'JWT' })), p = b64uStr(JSON.stringify(claims));
+  return h + '.' + p + '.' + b64uEnc(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', _sa5Key, new TextEncoder().encode(h + '.' + p)));
+}
+async function db5Tok(env) {
+  if (_db5Tok && Date.now() < _db5Exp) return _db5Tok;
+  const j = await sa5(env), now = Math.floor(Date.now() / 1000);
+  const a = await jwt5(env, { iss: j.client_email, scope: 'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
+    aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 });
+  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=' + a });
+  const t = await r.json(); if (!t.access_token) throw new Error('DB5 key refused by Google: ' + JSON.stringify(t).slice(0, 160));
+  _db5Tok = t.access_token; _db5Exp = Date.now() + 50 * 60000; return _db5Tok;
+}
+async function db5(env, method, path, body, q) {
+  const r = await fetch(DB5 + '/' + path + '.json?access_token=' + (await db5Tok(env)) + (q ? '&' + q : ''), { method,
+    headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!r.ok) throw new Error('DB5 ' + method + ' ' + path + ': ' + r.status);
+  return r.json();
+}
+async function mint5(env, uid, claims) {
+  const j = await sa5(env), now = Math.floor(Date.now() / 1000);
+  return jwt5(env, { iss: j.client_email, sub: j.client_email, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
+    iat: now, exp: now + 3600, uid, claims });
+}
+/** Verifies a Firebase ID token of a project (staff project or DB5); returns its body or null. */
+async function idTokBody(tok, project) {
+  const p = String(tok || '').split('.'); if (p.length !== 3) return null;
+  const head = JSON.parse(new TextDecoder().decode(b64u(p[0]))), body = JSON.parse(new TextDecoder().decode(b64u(p[1])));
+  if (!_jwk || Date.now() - _jwkAt > 6 * 3600000) {
+    const r = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'); _jwk = (await r.json()).keys || []; _jwkAt = Date.now(); }
+  const k = _jwk.find(x => x.kid === head.kid); if (!k) return null;
+  const key = await crypto.subtle.importKey('jwk', k, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64u(p[2]), new TextEncoder().encode(p[0] + '.' + p[1]));
+  if (!ok || body.aud !== project || body.iss !== 'https://securetoken.google.com/' + project || body.exp < Date.now() / 1000 || !body.sub) return null;
+  return body;
+}
+/** The staff login is the Super Admin (same test as the staff app's umMeSuper): its own users/<uid> doc, read with its own token. */
+async function staffIsSuper(tok, who) {
+  if (String(who.email || '').toLowerCase() === 'admin@davan.local') return true;
+  try {
+    const r = await fetch('https://firestore.googleapis.com/v1/projects/' + STAFF_PROJECT + '/databases/(default)/documents/users/' + who.uid, { headers: { Authorization: 'Bearer ' + tok } });
+    if (!r.ok) return false;
+    const f = (await r.json()).fields || {}, sv = k => String((f[k] || {}).stringValue || '');
+    return sv('role') === 'admin' && (sv('username').toLowerCase() === 'admin' || (f.superAdmin || {}).booleanValue === true);
+  } catch (e) { return false; }
+}
+async function labTok(env, b) {
+  const who = await staffFromToken(b.token).catch(() => null);
+  if (!who) return { ok: false, msg: 'Please log in to the staff app again.' };
+  if (!(await staffIsSuper(b.token, who))) return { ok: false, msg: 'PC Doctor is for the Super Admin only.' };
+  return { ok: true, token: await mint5(env, 'sa_' + who.uid, { sa: true }), apiKey: 'AIzaSyAdebhgQpyjd3ZQgUl_UNhLXYUDRJK1C1s', db: DB5 };
+}
+// ---- PC identity: scored hardware fingerprint (5. identity survives an OS reinstall) ----
+const BLANK_SERIAL = /^(|0+|f+|none|null|default string|to be filled by o\.?e\.?m\.?|system serial number|not specified|not applicable|n\/a|base board serial number|chassis serial number|123456789|0{8}-0{4}-0{4}-0{4}-0{12}|f{8}-f{4}-f{4}-f{4}-f{12})$/i;
+const fpClean = v => { v = String(v == null ? '' : v).trim(); return BLANK_SERIAL.test(v) ? '' : v.toUpperCase(); };
+const fpList = a => (Array.isArray(a) ? a : []).map(fpClean).filter(Boolean);
+function fpScore(a, b) {
+  // BIOS UUID 40, board serial 30, onboard MAC 15, CPU id 5, each disk serial 10 (max 20), each RAM serial 5 (max 10) - blank OEM values never count
+  let s = 0; const m = { bu: 0, bb: 0, mac: 0, cpu: 0, disk: 0, ram: 0 };
+  const eq = (k, w) => { const x = fpClean(a[k]), y = fpClean(b[k]); if (x && x === y) { s += w; m[k] = 1; } };
+  eq('bu', 40); eq('bb', 30); eq('mac', 15); eq('cpu', 5);
+  const da = fpList(a.disks), db = fpList(b.disks), ra = fpList(a.ram), rb = fpList(b.ram);
+  m.disk = da.filter(x => db.includes(x)).length; m.ram = ra.filter(x => rb.includes(x)).length;
+  s += Math.min(20, m.disk * 10) + Math.min(10, m.ram * 5);
+  return { s, m };
+}
+const rid = n => hex(crypto.getRandomValues(new Uint8Array(n)));
+async function labPc(env, b) {
+  const fp = b.fp || {}, name = clip(String(b.name || '').toUpperCase().replace(/[^A-Z0-9-]/g, ''), 20), now = Date.now();
+  let hwid = String(b.hwid || '').replace(/[^a-f0-9]/g, '').slice(0, 16), key = String(b.key || '');
+  if (hwid && key) {
+    const k = await db5(env, 'GET', 'lab/pckey/' + hwid);
+    if (k && k.h === await sha256(key)) {
+      await db5(env, 'PATCH', 'lab/pckey/' + hwid, { seen: now });
+      return { ok: true, hwid, token: await mint5(env, 'pc_' + hwid, { pc: hwid }) };
+    }
+    if (k) return { ok: false, msg: 'This PC\'s key does not match - run PCDoctor-Setup.cmd again (as admin, Thawed).' };
+  }
+  // a new install (or a lost key): at most cfg.regMax registrations a day (default 60) so nobody can fill DB5 with fake PCs
+  const day = istDate(now), reg = (await db5(env, 'GET', 'lab/reg/' + day)) || 0, cfg = (await db5(env, 'GET', 'lab/cfg')) || {};
+  if (reg >= (+cfg.regMax || 60)) return { ok: false, msg: 'Too many new PCs today - try again tomorrow.' };
+  const all = (await db5(env, 'GET', 'lab/fp')) || {};
+  let best = null;
+  for (const [h, f] of Object.entries(all)) { const sc = fpScore(fp, f || {}); if (!best || sc.s > best.sc.s) best = { h, f, sc }; }
+  let known = false, merge = '', ev = null;
+  if (best && best.sc.s >= 45 && (best.sc.m.bu || best.sc.m.bb)) {
+    const k = (await db5(env, 'GET', 'lab/pckey/' + best.h)) || {};
+    const live = (await db5(env, 'GET', 'lab/now/' + best.h + '/t')) || 0;
+    const sameInst = String(best.f.inst || '') === String(b.inst || '');
+    if (live && now - live < 15 * 60000 && sameInst && k.h) return { ok: false, msg: 'Another running PC already has this hardware - check for a cloned disk.' };
+    hwid = best.h; known = true;
+    const pcs = (await db5(env, 'GET', 'lab/pcs/' + hwid)) || {};
+    ev = { t: now, k: sameInst ? 'rekey' : 'reinstall', icon: sameInst ? '🔑' : '🔄', txt: sameInst ? 'PC Doctor installed again (same Windows)' : 'OS reinstalled ' + stampIST(now).split(' ·')[0], name: pcs.name || name };
+    // parts that changed on a known board (5. part swap): one event per part, the old serial kept for that part's history
+    const da = fpList(best.f.disks), dn = fpList(fp.disks), ra = fpList(best.f.ram), rn = fpList(fp.ram), parts = [];
+    da.filter(x => !dn.includes(x)).forEach(x => parts.push({ t: now, k: 'part', part: 'disk', icon: '💾', old: x, txt: 'Disk replaced (old disk ' + x + ')' }));
+    ra.filter(x => !rn.includes(x)).forEach(x => parts.push({ t: now, k: 'part', part: 'ram', icon: '🧠', old: x, txt: 'RAM changed (old stick ' + x + ')' }));
+    for (const p of parts) await db5(env, 'POST', 'lab/events/' + hwid, p);
+  } else {
+    hwid = rid(8);
+    if (best && best.sc.s >= 20) merge = best.h;   // disk + RAM match a known PC on a new board -> "Looks like PUC2 -> Merge?"
+  }
+  key = rid(24);
+  await db5(env, 'PUT', 'lab/pckey/' + hwid, { h: await sha256(key), at: now, seen: now });
+  await db5(env, 'PUT', 'lab/fp/' + hwid, Object.assign({}, fp, { inst: String(b.inst || ''), at: now }));
+  await db5(env, 'PUT', 'lab/reg/' + day, reg + 1);
+  if (ev) await db5(env, 'POST', 'lab/events/' + hwid, ev);
+  if (!known) await db5(env, 'PATCH', 'lab/pcs/' + hwid, { win: name, first: now, merge: merge || null, isNew: true });
+  const pcs = known ? ((await db5(env, 'GET', 'lab/pcs/' + hwid)) || {}) : {};
+  return { ok: true, hwid, key, known, name: pcs.name || name, merge, token: await mint5(env, 'pc_' + hwid, { pc: hwid }) };
+}
+async function labAlertSend(env, hwid, a, cfg) {
+  const now = Date.now(), gap = (+cfg.alertGapH || 6) * 3600000, kind = clip(String(a.kind || 'pc').replace(/[^a-z0-9_]/gi, ''), 30) || 'pc';
+  const last = (await db5(env, 'GET', 'lab/alerts/last/' + hwid + '/' + kind)) || 0;
+  if (now - last < gap) return { ok: true, skipped: 'sent ' + Math.round((now - last) / 60000) + ' min ago' };
+  const day = istDate(now), n = (await db5(env, 'GET', 'lab/alerts/day/' + day)) || 0;
+  if (n >= (+cfg.alertMax || 40)) return { ok: true, skipped: 'daily alert limit' };
+  await db5(env, 'PUT', 'lab/alerts/last/' + hwid + '/' + kind, now);
+  await db5(env, 'PUT', 'lab/alerts/day/' + day, n + 1);
+  await db5(env, 'POST', 'lab/alerts/log', { t: now, h: hwid, kind, title: clip(a.title, 120), body: clip(a.body, 400) });
+  return saEvent({ kind: 'lab', color: a.color || 'red', title: clip(a.title, 120), body: clip(a.body, 400), by: 'PC Doctor', link: 'lab.html' + (hwid !== 'lab' ? '#pc=' + hwid : '') });
+}
+async function labAlert(env, b) {
+  const t = await idTokBody(b.idToken, DB5_PROJECT).catch(() => null);
+  const hwid = t && String(t.sub || '').startsWith('pc_') ? t.sub.slice(3) : '';
+  if (!hwid) return { ok: false, msg: 'not a PC Doctor login' };
+  const cfg = (await db5(env, 'GET', 'lab/cfg')) || {};
+  if (cfg.alertsOn === false) return { ok: true, skipped: 'alerts switched off' };
+  return labAlertSend(env, hwid, b, cfg);
+}
+// ---- ✨ AI for the Console + the Super Admin laptop's tray (11): the lab's own daily limit, follow-ups in history ----
+async function labAi(env, b) {
+  let ok = false, who = 'sa';
+  const st = await staffFromToken(b.token).catch(() => null);
+  if (st) ok = await staffIsSuper(b.token, st);
+  if (!ok) { const t = await idTokBody(b.token, DB5_PROJECT).catch(() => null);
+    if (t && (t.sa === true)) ok = true;
+    else if (t && String(t.sub).startsWith('pc_')) { ok = (await db5(env, 'GET', 'lab/salap/' + t.sub.slice(3))) === true; who = 'laptop'; } }
+  if (!ok) return { ok: false, msg: 'PC Doctor AI is for the Super Admin only.' };
+  const cfg = (await db5(env, 'GET', 'lab/cfg')) || {}, day = istDate(Date.now()), max = +cfg.aiMax || 50;
+  const used = (await db5(env, 'GET', 'lab/ai_use/' + day)) || 0;
+  if (used >= max) return { ok: false, limit: true, msg: 'AI limit used today (' + max + ') - back tomorrow. The rule verdicts keep working.' };
+  const sys = clip(b.system, 6000) || 'You are PC Doctor, the computer-lab helper of Davan College, Davangere (India). You get measured data from Windows PCs. Answer in short, plain English for a non-expert: what is wrong, how sure you are, and what to do first. Use only the data given; if it is not enough, say what to check. When a fix button fits, name it exactly (Check now, Clean now, Stop a program, Restart, Repair Windows, Check disk, RAM test, Printer fixes, Roll back driver). Never claim you ran anything.';
+  const messages = [{ role: 'system', content: sys }];
+  (Array.isArray(b.history) ? b.history.slice(-6) : []).forEach(m => messages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: clip(m.content, 2000) }));
+  messages.push({ role: 'user', content: clip(b.prompt, 6000) });
+  const out = await aiRun(env, messages, Math.min(Math.max(+b.max || 500, 80), 900), (await db2('GET', 'davan_pub/ai_cfg/model')) || '');
+  if (!out.text) return { ok: false, msg: out.msg };
+  await db5(env, 'PUT', 'lab/ai_use/' + day, used + 1);
+  return { ok: true, text: out.text, provider: out.provider, left: max - used - 1, who };
+}
+/** One AI answer through the provider list (Workers AI -> Gemini -> 2nd account), skipping providers used up today. */
+async function aiRun(env, messages, max, model) {
+  const tried = [];
+  for (const prov of aiProviders(env)) {
+    const r = await aiCall(env, prov, messages, max, model).catch(e => ({ err: String(e.message || e) }));
+    if (r.text) return { text: r.text, provider: prov + (r.model ? ' · ' + r.model.split('/').pop() : '') };
+    tried.push(prov + ': ' + clip(r.err, 120));
+  }
+  return { msg: 'AI is resting - back tomorrow. (' + tried.join(' | ') + ')' };
+}
+// ---- 🖥️ Remote screen (10): a MeshCentral login cookie for the Super Admin, made with the server's login-token key (DB5 lab/secret/meshKey,
+// saved by the davan-scraper Action "Mesh setup") - same format as MeshCentral's encodeCookie: AES-256-GCM, iv + tag + text, base64 with @ and $.
+async function labMesh(env, b) {
+  let ok = false;
+  const st = await staffFromToken(b.token).catch(() => null);
+  if (st) ok = await staffIsSuper(b.token, st);
+  if (!ok) { const t = await idTokBody(b.token, DB5_PROJECT).catch(() => null); ok = !!(t && t.sa === true); }
+  if (!ok) return { ok: false, msg: 'Remote screen is for the Super Admin only.' };
+  const [k, cfg] = await Promise.all([db5(env, 'GET', 'lab/secret/meshKey'), db5(env, 'GET', 'lab/cfg/meshUrl')]);
+  const url = cfg || MESH_URL;
+  if (!k) return { ok: false, url, msg: 'Remote server not set up yet - run the davan-scraper Action "Mesh setup".' };
+  const raw = Uint8Array.from(String(k).match(/../g).map(x => parseInt(x, 16))).slice(0, 32);
+  const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const enc = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify({ u: 'user//admin', a: 3, time: Math.floor(Date.now() / 1000) }))));
+  const out = new Uint8Array(12 + enc.length); out.set(iv, 0); out.set(enc.slice(enc.length - 16), 12); out.set(enc.slice(0, enc.length - 16), 28);
+  return { ok: true, url, login: btoa(String.fromCharCode(...out)).replace(/\+/g, '@').replace(/\//g, '$') };
+}
+// ---- hourly (12): MeshCentral health, PCs left Thawed, 🔴 PCs, lab-wide problems, the morning summary ----
+const LEVEL = { red: 4, orange: 3, yellow: 2, purple: 3, off: 1, green: 0 };
+async function labHourly(env) {
+  if (!env.DB5_SA) return;
+  const now = Date.now(), cfg = (await db5(env, 'GET', 'lab/cfg')) || {}, st = (await db5(env, 'GET', 'lab/wstate')) || {};
+  const nowRows = (await db5(env, 'GET', 'lab/now')) || {}, pcs = (await db5(env, 'GET', 'lab/pcs')) || {};
+  const nm = h => ((pcs[h] || {}).name || (pcs[h] || {}).win || h);
+  const patch = { at: now }, alerts = [];
+  // MeshCentral (remote screen) - 2 failed checks in a row = offline alert, once, then "back online"
+  let up = false; try { const r = await fetch(cfg.meshUrl || MESH_URL, { method: 'GET', cf: { cacheTtl: 0 }, signal: AbortSignal.timeout(15000) }); up = r.status < 500; } catch (e) {}
+  patch.mesh = { up, t: now, fails: up ? 0 : ((st.mesh || {}).fails || 0) + 1, told: up ? false : !!(st.mesh || {}).told };
+  if (!up && patch.mesh.fails >= 2 && !patch.mesh.told) { patch.mesh.told = true; alerts.push({ h: 'lab', kind: 'mesh', color: 'red', title: '🖥️ Remote server offline', body: 'MeshCentral (' + (cfg.meshUrl || MESH_URL) + ') did not answer twice. Run the davan-scraper Action "Mesh setup" to rebuild it.' }); }
+  if (up && (st.mesh || {}).told) alerts.push({ h: 'lab', kind: 'mesh_up', color: 'green', title: '🖥️ Remote server back online', body: 'MeshCentral answers again.' });
+  // Thawed too long, 🔴 PCs, lab-wide (many PCs with the same problem within the hour)
+  const thawH = +cfg.thawRemindH || 3, labN = +cfg.labWideN || 5, recent = now - 70 * 60000, same = {};
+  for (const [h, n] of Object.entries(nowRows)) {
+    if (!n || (pcs[h] || {}).old) continue;
+    if (n.df === 'thawed' && n.dfSince && now - n.dfSince > thawH * 3600000 && n.t > recent)
+      alerts.push({ h, kind: 'thawed', color: 'amber', title: '🔥 ' + nm(h) + ' left Thawed', body: 'Thawed for ' + Math.round((now - n.dfSince) / 3600000) + ' h. ' + (n.thawQ ? 'Queued fixes are done - ' : '') + 'set Boot Frozen in Deep Freeze.' });
+    if (n.lv === 'red' && n.t > recent) alerts.push({ h, kind: 'red_' + String(n.vk || 'pc').slice(0, 20), color: 'red', title: '🔴 ' + nm(h) + ': ' + clip(n.v, 80), body: clip(n.why, 300) });
+    if (n.vk && n.t > recent && LEVEL[n.lv] >= 2) (same[n.vk] = same[n.vk] || []).push(nm(h));
+  }
+  for (const [vk, list] of Object.entries(same)) if (list.length >= labN)
+    alerts.push({ h: 'lab', kind: 'wide_' + vk.slice(0, 20), color: 'purple', title: '🟣 Lab-wide: ' + list.length + ' PCs - ' + vk.replace(/_/g, ' '), body: list.slice(0, 15).join(', ') + ' - check the network, server or a Windows update.' });
+  if (cfg.alertsOn !== false) for (const a of alerts.slice(0, 8)) await labAlertSend(env, a.h, a, cfg).catch(() => {});
+  // morning summary at lab/cfg sumHour (IST, default 9 -> the :35 tick = 9:35 am), once a day: counts + fixes of the last 24 h + ✨ AI paragraph
+  const ist = new Date(now + 5.5 * 3600000), day = istDate(now);
+  if (ist.getUTCHours() === (+cfg.sumHour || 9) && st.sumDay !== day) {
+    patch.sumDay = day;
+    const cnt = { green: 0, yellow: 0, orange: 0, red: 0, purple: 0, off: 0 }, bad = [];
+    for (const [h, n] of Object.entries(nowRows)) { if ((pcs[h] || {}).old) continue;
+      const lv = n && n.t > now - 30 * 60000 ? (n.lv || 'green') : 'off'; cnt[lv] = (cnt[lv] || 0) + 1; if (LEVEL[lv] >= 2) bad.push(nm(h) + ': ' + clip(n.v, 60)); }
+    const fixes = [];   // lab/fixlog/<IST date>/<hwid>/<id> - today + yesterday only
+    for (const d of [day, istDate(now - 86400000)]) { const fl = (await db5(env, 'GET', 'lab/fixlog/' + d)) || {};
+      for (const [h, x] of Object.entries(fl)) for (const f of Object.values(x || {})) if (f && f.t > now - 86400000) fixes.push(Object.assign({ h, name: nm(h) }, f)); }
+    const fixTxt = fixes.length ? fixes.length + ' fix' + (fixes.length === 1 ? '' : 'es') + ' in the last 24 h (' + fixes.filter(f => f.ok).length + ' worked)' : 'No fixes in the last 24 h';
+    const total = Object.values(cnt).reduce((a, x) => a + x, 0);
+    const base = total ? '🟢 ' + cnt.green + ' healthy · 🟡 ' + cnt.yellow + ' · 🟠 ' + (cnt.orange + cnt.purple) + ' · 🔴 ' + cnt.red + ' · ⚫ ' + cnt.off + ' off. ' + fixTxt + '.' : 'No PCs have reported yet.';
+    let ai = '';
+    if (total && cfg.aiSummary !== false) {
+      const used = (await db5(env, 'GET', 'lab/ai_use/' + day)) || 0;
+      if (used < (+cfg.aiMax || 50)) {
+        const r = await aiRun(env, [{ role: 'system', content: 'You write a 2-3 sentence morning note about a college computer lab for its admin, plain simple English, no lists, no greetings. Mention what needs attention first. Use only the data.' },
+          { role: 'user', content: base + '\nProblems: ' + (bad.slice(0, 20).join('; ') || 'none') + '\nFixes: ' + fixes.slice(-15).map(f => f.name + ' ' + f.fix + (f.ok ? ' ok' : ' failed')).join('; ') }], 220, '').catch(() => ({}));
+        if (r.text) { ai = r.text; await db5(env, 'PUT', 'lab/ai_use/' + day, used + 1); }
+      }
+    }
+    await db5(env, 'PUT', 'lab/sum/' + day, { at: now, base, ai, cnt, fixes: fixes.length, bad: bad.slice(0, 30) });
+    if (cfg.alertsOn !== false && total) await saEvent({ kind: 'lab', color: cnt.red ? 'red' : 'blue', title: '🖥️ PC Doctor morning summary', body: base + (ai ? '\n✨ ' + ai : ''), by: 'PC Doctor', link: 'lab.html' });
+  }
+  await db5(env, 'PATCH', 'lab/wstate', patch);
+}
+
 export default {
   // the timers: 9:15 pm IST + 9:45 pm backup (release); v4: SCR_CRON -> the college scraper at SCR_TIMES only; v5: PUC_CRON -> PUC at PUC_TIMES
   async scheduled(event, env, ctx) {
@@ -538,6 +800,7 @@ export default {
     }
     if (c === IG_CRON) {   // v20: the same hourly timer - 📲 widget-update alert every hour, Instagram 5:35 am - 11:35 pm IST as before
       ctx.waitUntil(wupdHourly().catch(e => console.log('wupd hourly', e && e.message)));
+      ctx.waitUntil(labHourly(env).catch(e => console.log('lab hourly', e && e.message)));   // v18: 🖥️ PC Doctor
       if (d.getUTCHours() <= 18) ctx.waitUntil(igTimer(env).catch(() => {}));
       return; }   // v16: hourly Instagram, every day incl. Sunday
     if (d.getUTCDay() === 0) return;
@@ -554,6 +817,12 @@ export default {
     if (request.method === 'POST' && u.pathname === '/sa') {   // v9: Super Admin alert
       let b = {}; try { b = JSON.parse(await request.text()); } catch (e) {}
       let r; try { r = await saIncoming(env, b); } catch (e) { r = { ok: false, msg: String(e.message || e) }; }
+      return new Response(JSON.stringify(r), { headers: CORS });
+    }
+    if (request.method === 'POST' && u.pathname.startsWith('/lab/')) {   // v18: 🖥️ PC Doctor (DB5)
+      let b = {}; try { b = JSON.parse(await request.text()); } catch (e) {}
+      const fn = { '/lab/tok': labTok, '/lab/pc': labPc, '/lab/alert': labAlert, '/lab/ai': labAi, '/lab/mesh': labMesh }[u.pathname];
+      let r; try { r = fn ? await fn(env, b) : { ok: false, msg: 'unknown /lab route' }; } catch (e) { r = { ok: false, msg: String(e.message || e) }; }
       return new Response(JSON.stringify(r), { headers: CORS });
     }
     if (request.method === 'POST' && u.pathname === '/ai') {   // v11: AI for the staff app (Super Admin test box first)
@@ -576,6 +845,6 @@ export default {
       const r2 = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + SCR_WORKFLOW, { headers: GH_HDR(env) });
       scr = r2.status === 200; scrMsg = scr ? 'scraper timer works' : 'GitHub said ' + r2.status + (r2.status === 404 ? ' - add davan-scraper to the key (Actions: read and write)' : '');
     } catch (e) { ghMsg = 'GitHub not reachable: ' + e.message; }
-    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 17, sa: true, ai: aiProviders(env), now: Date.now() }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, msg: env.GH_TOKEN ? 'ok: key set' : 'GH_TOKEN secret is NOT set yet', gh, ghMsg, scr, scrMsg, ver: 18, sa: true, ai: aiProviders(env), lab: !!env.DB5_SA, now: Date.now() }), { headers: CORS });
   },
 };

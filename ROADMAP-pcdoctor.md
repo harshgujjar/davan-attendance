@@ -25,24 +25,24 @@ changelog + version in the same commit, commit + merge main). Keep the user info
 - Deep Freeze **Standard** (no DFC.exe command line) -> no automatic Thaw / Freeze (see 7).
 - Classroom Spy stays for in-lab screens (no change). MeshCentral = remote screen from anywhere (in the build).
 
-## 2. Cloud jobs (davan-scraper, every one sends a ☁️ alert on failure)
-- [ ] `DB5 rules` Action (writes the rules in 3; re-runnable).
-- [ ] `DB5 peek` Action (path + filter + maxc, like DB2 peek) - how Claude reads live data.
-- [ ] `DB5 cmd` Action - Claude QUEUES a read-only check freely, or a change as "waiting for OK" (never runs a change itself).
-- [ ] Daily history export DB5 -> davan-scraper `lab/` (small json per PC per day; kept for years).
-- [ ] Daily cleanup job (retention in 14).
-- [ ] `Mesh setup` Action over SSH: swap 2 GB, MeshCentral (Node LTS) as a service, HTTPS Let's Encrypt on the sslip.io name, allowFraming +
+## 2. Cloud jobs (davan-scraper, every one sends a ☁️ alert on failure) - DONE 04-Nov: worker v18 + tools/db5*.py, lab_daily.py, mesh/setup.sh
+- [x] `DB5 rules` Action (writes the rules in 3; re-runnable).
+- [x] `DB5 peek` Action (path + filter + maxc, like DB2 peek) - how Claude reads live data.
+- [x] `DB5 cmd` Action - Claude QUEUES a read-only check freely, or a change as "waiting for OK" (never runs a change itself).
+- [x] Daily history export DB5 -> davan-scraper `lab/` (small json per PC per day; kept for years).
+- [x] Daily cleanup job (retention in 14).
+- [x] `Mesh setup` Action over SSH: swap 2 GB, MeshCentral (Node LTS) as a service, HTTPS Let's Encrypt on the sslip.io name, allowFraming +
       login tokens for lab.html, 2-step login, auto-update ON, unattended-upgrades, weekly reboot, nightly config backup to davan-scraper
       (encrypted), keep-alive against Oracle idle reclaim, hourly health check -> ☁️ "Remote server offline". Rebuild = one Action run if the
       VM is ever lost. Agents keep the server cert hash so they connect even by bare IP.
-- [ ] Worker davan-release: route that mints a DB5 custom token for a logged-in Super Admin (verifies the staff ID token; DB5 service account as
+- [x] Worker davan-release: route that mints a DB5 custom token for a logged-in Super Admin (verifies the staff ID token; DB5 service account as
       a worker secret) = Console / staff app login to DB5. Fallback: clear "can't reach DB5" box.
 
-## 3. DB5 data + rules
-- [ ] Paths: `lab/pcs/<hwid>` (info, name, group, notes, parts, history marks), `lab/live/<hwid>` (minute rows), `lab/events/<hwid>`,
+## 3. DB5 data + rules - DONE 04-Nov: davan-scraper tools/db5_rules.json (+ lab/now, lab/inv, lab/fp, lab/pckey, lab/secret, lab/salap, lab/tt, lab/sum, lab/peers); lab/fixlog/<date>/<hwid>
+- [x] Paths: `lab/pcs/<hwid>` (info, name, group, notes, parts, history marks), `lab/live/<hwid>` (minute rows), `lab/events/<hwid>`,
       `lab/daily/<hwid>/<date>`, `lab/cmd/<hwid>`, `lab/res/<hwid>`, `lab/fixlog`, `lab/cfg` (groups, rules, BSOD words, thresholds, switches,
       timetable link, keep-version list, AI limit, passwords hashed / encrypted), `lab/kb` (solved cases), `lab/ver` (per-PC versions), `lab/alerts`.
-- [ ] Rules: each PC writes only its own nodes with its per-PC key (made at install while Thawed, so it is part of the frozen image); reads only
+- [x] Rules: each PC writes only its own nodes with its per-PC key (made at install while Thawed, so it is part of the frozen image); reads only
       its own `cmd` + `cfg`; Super Admin (custom token claim) reads / writes all; everything else denied.
 
 ## 4. Groups + names (user, 04-Nov)
