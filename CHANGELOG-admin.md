@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v1997 · 04-Nov-2026 IST
+Report: 📵 Phone can't shows the automatic ones (portal v11.112: Android below 7 / 1 GB RAM) with the reason. Functions: wurList.
+
 ## v1996 · 04-Nov-2026 IST
 Report: new status / filter 📵 Phone can't (davan_pub/wupd/<URN>/noapp from portal v11.111) with phone model, Android version and ↩ Undo (removes noapp). Functions: wurInit, wurList, wurTable, WUR_STEP, wurNoAppUndo (new).
 
