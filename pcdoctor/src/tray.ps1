@@ -367,7 +367,7 @@ function Refresh {
   FactSafe { FactRow 'Deep Freeze' ($dfT + $(if ($dfW) { "  -  Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' }) } else { '' })) $(if ($dfW) { $CL.wa } else { $null }) }
   # 1.36 (user, 05-Nov-2026: "Internet OK - show Wi-Fi or LAN and the download speed"): connection type, Wi-Fi name + signal, link speed, measured download speed
   $nt = $n.nt
-  FactSafe { FactRow 'Internet' ($(if ($n.online) { 'OK' } else { 'No internet - saved, sends later' }) + $(if ($nt -and $nt.type) { '   ·   ' + [string]$nt.type + $(if ($nt.ssid) { ' "' + [string]$nt.ssid + '"' } else { '' }) + $(if ($nt.sig) { ' ' + [string]$nt.sig + '%' } else { '' }) + $(if ($nt.link) { '   ·   link ' + [string]$nt.link } else { '' }) } else { '' })) $(if ($n.online) { $CL.ok } else { $CL.wa }) }
+  FactSafe { FactRow 'Internet' ($(if ($n.online) { 'OK' } else { 'No internet - saved, sends later' }) + $(if ($nt -and $nt.type) { '   ·   ' + [string]$nt.type + $(if ($nt.ssid) { ' "' + [string]$nt.ssid + '"' } else { '' }) + $(if ($nt.sig) { ' ' + [string]$nt.sig + '%' } else { '' }) + $(if ($nt.link) { '   ·   link ' + [string]$nt.link } else { '' }) + $(if ($nt.also) { '   (' + [string]$nt.also + ' also on)' } else { '' }) } else { '' })) $(if ($n.online) { $CL.ok } else { $CL.wa }) }
   FactSafe { if ($nt -and ($nt.dl -or $nt.dlErr)) { FactRow 'Download' $(if ($nt.dl) { [string]$nt.dl + ' Mbps   (tested ' + (IST $nt.dlAt) + ')' } else { 'test failed: ' + [string]$nt.dlErr }) $(if ($nt.dl -and $nt.dl -lt 2) { $CL.wa } else { $null }) } }
   FactSafe { FactRow 'Last sent' ((IST $n.t) + $(if ($n.q) { "   ($($n.q) waiting)" } else { '' })) }
   FactSafe { FactRow 'C: drive' "$($n.cfreeGB) GB free   ·   answers in $($n.lat) ms" }

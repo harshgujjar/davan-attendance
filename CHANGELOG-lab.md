@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.62 / tray 1.38 -- The user moved to Ethernet and the tray still said Wi-Fi: PC Doctor took the first network with a gateway (Wi-Fi stayed connected) and
+  looked only every 5 minutes. Now the connection Windows really uses (default route with the lowest metric), the other one shown as "(Wi-Fi also on)", read every minute. A-NetInfo.
 - 05-Nov-2026 · tray 1.37 -- The Sony's list stopped at Temperature with "Error: Cannot compare "" to "0"": its empty fan list came back as an object. Every row of the list now runs on
   its own (FactSafe - first named R, which is PowerShell's alias for Invoke-History; the tray pictures caught it) so one bad value spoils only its own row, and temperature / fans / 12 V are used only when they really are numbers ("fans: not reported"). Refresh, FactSafe.
 - 05-Nov-2026 · Agent 1.59 / tray 1.36 -- From the PCs' own checks: (1) the Sony's list went blank - one failing row left BeginUpdate open; the list now always finishes and a

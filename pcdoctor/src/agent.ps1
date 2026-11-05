@@ -220,8 +220,11 @@ function A-TrayFresh {
 # a 1 MB download test every speedH hours (lab/cfg, default 3) and on Check now - a lab of 30 PCs uses about 240 MB a day. Test address: lab/cfg speedUrl.
 function A-NetInfo([switch]$Speed) {
   $old = $S.net2; $n2 = @{}
-  try { $ipc = Get-NetIPConfiguration -ErrorAction Stop | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1
-    $ad = Get-NetAdapter -InterfaceIndex $ipc.InterfaceIndex -ErrorAction Stop
+  # 1.62 (user, 05-Nov-2026: "I moved to Ethernet but it still shows Wi-Fi"): the connection Windows REALLY uses = the default route with the lowest metric
+  # (Wi-Fi often stays connected next to the cable); the other one is named as "also on". Read every minute (cheap), the speed test stays every 3 h.
+  try { $rts = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Where-Object { (Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue).Status -eq 'Up' } | Sort-Object { [int]$_.RouteMetric + [int]$_.InterfaceMetric })
+    $ad = Get-NetAdapter -InterfaceIndex $rts[0].InterfaceIndex -ErrorAction Stop
+    if ($rts.Count -gt 1) { $a2 = Get-NetAdapter -InterfaceIndex $rts[1].InterfaceIndex -ErrorAction SilentlyContinue; if ($a2) { $n2.also = $(if ([string]$a2.PhysicalMediaType -match '802\.11|Wireless' -or [string]$a2.InterfaceDescription -match 'Wi-?Fi|Wireless|802\.11|WLAN') { 'Wi-Fi' } else { 'LAN' }) } }
     $n2.type = $(if ([string]$ad.PhysicalMediaType -match '802\.11|Wireless' -or [string]$ad.InterfaceDescription -match 'Wi-?Fi|Wireless|802\.11|WLAN') { 'Wi-Fi' } else { 'LAN' })
     $n2.link = [string]$ad.LinkSpeed
     if ($n2.type -eq 'Wi-Fi') { $wl = (netsh wlan show interfaces) -join "`n"; if ($wl -match '(?m)^\s*SSID\s*:\s*(.+)$') { $n2.ssid = $Matches[1].Trim() }; if ($wl -match '(?m)^\s*Signal\s*:\s*(\d+)\s*%') { $n2.sig = [int]$Matches[1] } }
@@ -668,8 +671,8 @@ while ($true) {
       # inventory, which runs BEFORE the agent installs it (and a Frozen PC installs it again, with a new id, at every start) - now sent every hour
       $mn = PD-MeshNode; if ($mn -and $mn -ne [string]$S.meshSent) { PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn; PD-Log 'remote agent id sent' }
     }
-    A-Events; A-Minute; A-Cmds; A-TrayEdits; A-TrayReq
-    if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-TrayFresh; A-NetInfo; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
+    A-Events; try { A-NetInfo } catch {}; A-Minute; A-Cmds; A-TrayEdits; A-TrayReq
+    if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-TrayFresh; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
     $first = $false
     foreach ($i in 1..4) { Start-Sleep -Seconds 14; if (Test-Path (Join-Path $PD.Root 'req\now.flag')) { Remove-Item (Join-Path $PD.Root 'req\now.flag') -Force; A-NetInfo -Speed; A-Daily -Force; A-Verdict; A-Minute }; A-TrayEdits; A-TrayReq; A-Cmds; A-LabPoll }   # 1.36: commands are picked up every 14 s (was once a minute)
   } catch { PD-Log ('loop error: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber); Start-Sleep 30 }
