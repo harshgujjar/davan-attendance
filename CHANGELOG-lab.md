@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.69 -- GUJJARHOME showed "driver install failed (exit 50)" and no temperature / fan: exit 50 = "not supported" - that desktop runs the very first Windows 10 (build 10240), too old for the
+  signed temperature driver. The tray now says so ("this Windows (build N) is too old ... update Windows 10 to 22H2") instead of a code. No DB reads. PD-PawnIO.
 - 05-Nov-2026 · tray 1.44 -- The PC Doctor version is now shown without the password: in the tray icon's tooltip ("PC Doctor v1.67 - Windows damaged"), in a pop-up on left click (version + verdict)
   and in the password box title. Read from state\running.json, no DB reads. VerTxt, Refresh, the icon's MouseClick.
 - 05-Nov-2026 · Agent 1.67 -- The tray's Refresh now checks every area, not only the readings: settings from DB5, new Windows events, the other PCs, rows not yet sent, and the verdict

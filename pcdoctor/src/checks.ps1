@@ -50,7 +50,7 @@ function PD-PawnIO {
     $p = Start-Process $f -ArgumentList '-install -silent' -PassThru -WindowStyle Hidden
     if (!$p.WaitForExit(120000)) { try { $p.Kill() } catch {}; $script:PawnNote = 'driver install timed out'; return $false }
     $ok = [bool](Get-ItemProperty $k -ErrorAction SilentlyContinue).DisplayVersion; PD-Log ('PawnIO install exit ' + $p.ExitCode + ', installed ' + $ok)
-    if ($ok) { PD-Event 'install' 'T' 'Temperature driver PawnIO (signed) installed - CPU temperature, fans and 12 V are read from now on' | Out-Null } else { $script:PawnNote = 'driver install failed (exit ' + $p.ExitCode + ')' }
+    if ($ok) { PD-Event 'install' 'T' 'Temperature driver PawnIO (signed) installed - CPU temperature, fans and 12 V are read from now on' | Out-Null } else { $bn = [Environment]::OSVersion.Version.Build; $script:PawnNote = $(if ($p.ExitCode -eq 50 -or $bn -lt 17763) { 'this Windows (build ' + $bn + ') is too old for the temperature driver - update Windows 10 to 22H2' } else { 'driver install failed (exit ' + $p.ExitCode + ')' }) }   # 1.69 (user, 05-Nov-2026: GUJJARHOME "driver install failed" = exit 50, not supported, Windows 10 build 10240)
     return $ok } catch { $script:PawnNote = 'driver download failed: ' + $_.Exception.Message; PD-Log ('PawnIO: ' + $_.Exception.Message); return $false }
 }
 function PD-Temp {

@@ -295,3 +295,4 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - 05-Nov: tray 1.43 - tray restarted (password again) on every AGENT build; now only when bin\tray.ps1 itself changes.
 - 05-Nov: Agent 1.67 - tray Refresh = readings + settings + events + peers + queue + verdict + update check (Check now still does the daily inventory).
 - 05-Nov: tray 1.44 - version (running.json ver) in the icon tooltip, a left-click pop-up before the password, and the password box title.
+- 05-Nov: Agent 1.69 - GUJJARHOME temp driver exit 50 = Windows 10 build 10240 too old (note now says so). Same PC: 8 unexpected power-offs in 7 days; its Windows needs updating to 22H2.
