@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v22 (04-Nov-2026): PC Doctor Console has its OWN password (POST /lab/tok {pw}, /lab/setpw) - opening it never logs in to the staff app.
  *  - v21 (04-Nov-2026): PC Doctor hourly MeshCentral check tries https then http (302 = alive) and saves the error text (no false "offline" alert).
  *  - v18 (04-Nov-2026): 🖥️ Davan PC Doctor - POST /lab/tok, /lab/pc, /lab/alert, /lab/ai + the hourly lab check (secret DB5_SA).
  *  - v14 (23-Oct-2026): POST /ai also answers widgets for ONE task (fb_reply), checked by the widget code.
@@ -591,7 +592,22 @@ async function staffIsSuper(tok, who) {
     return sv('role') === 'admin' && (sv('username').toLowerCase() === 'admin' || (f.superAdmin || {}).booleanValue === true);
   } catch (e) { return false; }
 }
+// v22 (user, 04-Nov-2026: "my staff login and the lab.html login are the same - logging in to lab.html logs in the staff app and makes its sound;
+// they must be different"): the Console opened on its own logs in with its OWN PC Doctor password (b.pw), checked here against the salted hash in
+// DB5 lab/secret/consolePw - the staff login is never touched. 10 wrong tries -> locked 1 h. Inside the staff app (?embed=1) the staff token still works.
 async function labTok(env, b) {
+  if (b.pw != null) {
+    const now = Date.now(), pf = (await db5(env, 'GET', 'lab/secret/pwFail')) || { n: 0, t: 0 };
+    if (pf.n >= 10 && now - pf.t < 3600000) return { ok: false, msg: 'Too many wrong passwords - locked for ' + Math.ceil((3600000 - (now - pf.t)) / 60000) + ' min.' };
+    const cp = await db5(env, 'GET', 'lab/secret/consolePw');
+    if (!cp || !cp.h) return { ok: false, msg: 'No PC Doctor password yet. Open PC Doctor once from the staff app (☰ → 🖥️ PC Doctor) → 🔧 Settings → Set PC Doctor password.' };
+    if ((await sha256(cp.salt + ':' + String(b.pw))) !== cp.h) {
+      await db5(env, 'PUT', 'lab/secret/pwFail', { n: (now - pf.t < 3600000 ? pf.n : 0) + 1, t: now });
+      return { ok: false, msg: 'Wrong PC Doctor password.' };
+    }
+    if (pf.n) await db5(env, 'PUT', 'lab/secret/pwFail', null);
+    return { ok: true, token: await mint5(env, 'sa_console', { sa: true }), apiKey: 'AIzaSyAdebhgQpyjd3ZQgUl_UNhLXYUDRJK1C1s', db: DB5 };
+  }
   const who = await staffFromToken(b.token).catch(() => null);
   if (!who) return { ok: false, msg: 'Please log in to the staff app again.' };
   if (!(await staffIsSuper(b.token, who))) return { ok: false, msg: 'PC Doctor is for the Super Admin only.' };
@@ -713,6 +729,17 @@ async function aiRun(env, messages, max, model) {
 }
 // ---- 🖥️ Remote screen (10): a MeshCentral login cookie for the Super Admin, made with the server's login-token key (DB5 lab/secret/meshKey,
 // saved by the davan-scraper Action "Mesh setup") - same format as MeshCentral's encodeCookie: AES-256-GCM, iv + tag + text, base64 with @ and $.
+// v22: set / change the PC Doctor (Console) password - only a Super Admin who is already in (DB5 token with sa, or the staff Super Admin)
+async function labSetPw(env, b) {
+  let ok = false; const st = await staffFromToken(b.token).catch(() => null);
+  if (st) ok = await staffIsSuper(b.token, st);
+  if (!ok) { const t = await idTokBody(b.token, DB5_PROJECT).catch(() => null); ok = !!(t && t.sa === true); }
+  if (!ok) return { ok: false, msg: 'Super Admin only.' };
+  const pw = String(b.pw || ''); if (pw.length < 6) return { ok: false, msg: 'Use at least 6 characters.' };
+  const salt = crypto.randomUUID(); await db5(env, 'PUT', 'lab/secret/consolePw', { salt, h: await sha256(salt + ':' + pw), at: Date.now() });
+  await db5(env, 'PUT', 'lab/secret/pwFail', null);
+  return { ok: true };
+}
 async function labMesh(env, b) {
   let ok = false;
   const st = await staffFromToken(b.token).catch(() => null);
@@ -890,7 +917,7 @@ export default {
     }
     if (request.method === 'POST' && u.pathname.startsWith('/lab/')) {   // v18: 🖥️ PC Doctor (DB5)
       let b = {}; try { b = JSON.parse(await request.text()); } catch (e) {}
-      const fn = { '/lab/tok': labTok, '/lab/pc': labPc, '/lab/alert': labAlert, '/lab/ai': labAi, '/lab/mesh': labMesh, '/lab/secret': labSecret }[u.pathname];
+      const fn = { '/lab/tok': labTok, '/lab/pc': labPc, '/lab/alert': labAlert, '/lab/ai': labAi, '/lab/mesh': labMesh, '/lab/secret': labSecret, '/lab/setpw': labSetPw }[u.pathname];
       let r; try { r = fn ? await fn(env, b) : { ok: false, msg: 'unknown /lab route' }; } catch (e) { r = { ok: false, msg: String(e.message || e) }; }
       return new Response(JSON.stringify(r), { headers: CORS });
     }

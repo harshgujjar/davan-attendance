@@ -2,6 +2,16 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.13 / tray 1.6 / Console 1.3 / worker v22 / DB5 rules -- The user's list: (1) the daily job failed "Index not defined" -
+  DB5 rules: lab/events/$h .indexOn t. (2) + (5) setup was slow and silent - PCDoctor-Setup.cmd says it is starting, install.ps1 shows 7 numbered
+  steps with the time so far, each downloaded file, the total; the deep first check and the MeshCentral agent run in the background afterwards;
+  a re-run stops the old loader / agent / tray first so the new ones really start. (3) tray bars were empty - the agent's minute step crashed
+  before writing now.json (fixed in 1.5; reaches the PC with this setup). (4) blurry tray text on the laptop - DPI-aware + every form scales its
+  layout (Sharp). Console: its OWN PC Doctor password (worker /lab/tok {pw} + /lab/setpw, salted hash in DB5 lab/secret/consolePw, 10 wrong = 1 h
+  lock) - opening lab.html never logs in to the staff app any more (that login made the staff app's sound); inside the staff app it still uses
+  the Super Admin who is logged in. 🚪 Log out. New 📊 Dashboard (first page: 8 tiles, health per group, Needs you now, Today, lab load,
+  Add a PC), ⬇️ Add a PC always in the header + menu. DB5: reads already loaded by the Console, no new ones. pageDash, setupCard, customLogin,
+  labTok, labSetPw, Step, Sharp.
 - 04-Nov-2026 · Agent 1.12 / tray 1.5 -- The user: "if I want to update manually within the hour, give an option in the tray, and show which version,
   when it came and what's new - latest 5, rest Show / Hide". Tray: new ⬆️ Updates tab (also in the right-click menu) - ⬆️ Update now (the
   updater checks within a minute and skips the 2-h test wait, since it was asked by hand), this PC's version + build + IST date-time it came,

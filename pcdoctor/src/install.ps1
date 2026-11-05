@@ -5,17 +5,24 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Root = "$env:ProgramData\DavanPCDoctor"; $Raw = 'https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/pcdoctor/'
 function Say($t, $c = 'Gray') { Write-Host ('  ' + $t) -ForegroundColor $c }
-Write-Host ''; Write-Host '  Davan PC Doctor - setup' -ForegroundColor Yellow; Write-Host ''
+# 05-Nov-2026 (user: "setup takes long and does not show what it is doing"): numbered steps with the time so far; the deep first check and the
+# MeshCentral agent are no longer inside the setup - the agent does both by itself in the background right after (about 2 minutes)
+$T0 = Get-Date; $NS = 7
+function Step($n, $t, $est) { Write-Host ''; Write-Host ("  [$n/$NS] $t") -ForegroundColor Cyan -NoNewline; Write-Host ("   (" + $est + ', ' + [int]((Get-Date) - $T0).TotalSeconds + ' s so far)') -ForegroundColor DarkGray }
+Write-Host ''; Write-Host '  Davan PC Doctor - setup  (7 steps, usually under 1 minute)' -ForegroundColor Yellow
+Step 1 'Checking Windows' 'a second'
 $os = Get-CimInstance Win32_OperatingSystem
 if ([int]$os.BuildNumber -lt 10240) { Say 'Windows 10 or 11 is needed.' Red; exit 1 }
 if ($PSVersionTable.PSVersion.Major -lt 5) { Say 'PowerShell 5.1 is needed (Windows Update).' Red; exit 1 }
 if (Get-Service DFServ -ErrorAction SilentlyContinue) { Say 'Deep Freeze found - this PC must be THAWED now, or the install is lost at the next restart.' Yellow }
 New-Item -ItemType Directory -Force $Root, "$Root\bin", "$Root\setup", "$Root\state", "$Root\req", "$Root\log", "$Root\dl", "$Root\out", "$Root\good" | Out-Null
 # files: newest from GitHub, SHA-256 checked against lab-version.json (offline: the src folder next to the installer)
-Say 'Downloading PC Doctor ...'
+Step 2 'Downloading PC Doctor' 'about 10-30 s'
 $v = $null; try { $v = Invoke-RestMethod ($Raw + 'lab-version.json?t=' + [DateTime]::UtcNow.Ticks) -TimeoutSec 40 } catch {}
 if ($v) {
-  foreach ($f in $v.files.PSObject.Properties) { $o = "$Root\setup\" + $f.Name
+  $fl = @($v.files.PSObject.Properties); $fi = 0
+  Say ('version ' + $v.agent.ver + ' (build ' + $v.agent.build + ', ' + $v.agent.ist + ')')
+  foreach ($f in $fl) { $o = "$Root\setup\" + $f.Name; $fi++; Say ("  ($fi/" + $fl.Count + ') ' + $f.Name)
     Invoke-WebRequest -UseBasicParsing ($Raw + 'src/' + $f.Name + '?v=' + $f.Value) -OutFile $o -TimeoutSec 120
     if ((Get-FileHash -Algorithm SHA256 $o).Hash.ToLower() -ne $f.Value) { Say "REFUSED $($f.Name) - its SHA-256 does not match" Red; exit 1 } }
   @{ ver = $v.agent.ver; build = $v.agent.build; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); prev = 0 } | ConvertTo-Json | Set-Content "$Root\state\running.json" -Encoding UTF8
@@ -26,7 +33,7 @@ Copy-Item "$Root\setup\*.ps1" "$Root\bin" -Force; Copy-Item "$Root\setup\loader.
 icacls $Root /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' 'Users:(OI)(CI)RX' /Q | Out-Null
 icacls "$Root\req" /grant 'Users:(OI)(CI)M' /Q | Out-Null
 . "$Root\bin\common.ps1"
-Say 'Registering this PC with DB5 ...'
+Step 3 'Registering this PC with DB5' 'about 5 s'
 $old = PD-LoadId
 $r = PD-Register
 if ($r.known) { Say ("♻️ Known PC: " + $r.name + ' - its name, group, notes and history are kept') Green }
@@ -36,7 +43,10 @@ icacls "$Root\id.json" /inheritance:r /grant:r 'SYSTEM:F' 'Administrators:F' /Q 
 # a known PC whose Windows name differs -> give Windows its old name back (at the next restart)
 if ($r.known -and $r.name -and $r.name -ne $env:COMPUTERNAME -and $r.name -match '^[A-Z0-9-]{1,15}$') { try { Rename-Computer -NewName $r.name -Force; Say ("Windows will be named " + $r.name + ' after the restart') Green } catch {} }
 # service (Safe Mode too): a tiny service built HERE from C# source (no downloaded .exe) that keeps loader.ps1 running
-Say 'Service (also runs in Safe Mode) ...'
+Step 4 'Building the PC Doctor service (also runs in Safe Mode)' 'about 10 s'
+# a re-run must not leave the OLD copies running (they hold their locks, so the new loader / tray would quit at once): stop them first
+foreach ($pp in @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'DavanPCDoctor\\(loader|bin\\agent|bin\\tray)\.ps1' -and $_.ProcessId -ne $PID })) {
+  try { Invoke-CimMethod -InputObject $pp -MethodName Terminate | Out-Null } catch {} }
 $svcExe = "$Root\PCDoctorSvc.exe"
 $cs = @'
 using System; using System.Diagnostics; using System.ServiceProcess; using System.Threading;
@@ -60,18 +70,17 @@ sc.exe description PCDoctorSvc "Davan PC Doctor Agent - lab health checks (davan
 sc.exe failure PCDoctorSvc reset= 86400 actions= restart/30000/restart/60000/restart/120000 | Out-Null
 foreach ($m in 'Minimal','Network') { New-Item "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\$m\PCDoctorSvc" -Force | Out-Null; Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\$m\PCDoctorSvc" '(default)' 'Service' }
 # boot task (SYSTEM, before login) - a second way in; the loader's lock keeps one copy running
-Say 'Boot task ...'
+Step 5 'Boot task (starts PC Doctor before anyone logs in)' 'a second'
 $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\loader.ps1`""
 $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable -Priority 7
 Register-ScheduledTask -TaskName 'Davan PC Doctor' -Action $act -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $set -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
 # tray app for every user
-Say 'Tray app ...'
+Step 6 'Tray app (the 🖥️ icon, password 2531)' 'a second'
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'DavanPCDoctor' "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`""
-# first full check + MeshCentral agent (remote screen)
-Say 'First check (inventory, deep checks) - about a minute ...'
-& powershell -NoProfile -ExecutionPolicy Bypass -File "$Root\bin\agent.ps1" -Mode once
-Say 'Remote screen (MeshCentral agent) ...'
-$m = & powershell -NoProfile -ExecutionPolicy Bypass -File "$Root\bin\agent.ps1" -Mode mesh; Say ([string]$m)
+Step 7 'Starting PC Doctor' 'a few seconds'
 Start-Service PCDoctorSvc
+Start-ScheduledTask -TaskName 'Davan PC Doctor' -ErrorAction SilentlyContinue   # same loader (its lock keeps one copy)
+Say 'The first full check (inventory + deep checks) and the remote-screen agent now run by themselves in the background.' DarkGray
+Say 'This PC shows on the Console in about 2 minutes. Tray -> 🔍 Check now runs a deep check any time.' DarkGray
 Start-Process powershell.exe -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`""
-Write-Host ''; Say ('✅ Davan PC Doctor is installed on ' + $env:COMPUTERNAME + '. Now set the PC back to Boot Frozen (if it has Deep Freeze).') Green; Write-Host ''
+Write-Host ''; Say ('✅ Davan PC Doctor is installed on ' + $env:COMPUTERNAME + ' in ' + [int]((Get-Date) - $T0).TotalSeconds + ' s.' + $(if (Get-Service DFServ -ErrorAction SilentlyContinue) { ' Now set the PC back to Boot Frozen.' } else { '' })) Green; Write-Host ''

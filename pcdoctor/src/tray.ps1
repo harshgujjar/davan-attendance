@@ -2,7 +2,11 @@
 # PC Doctor Agent (that is the SYSTEM service). Reads the agent's state files, sends requests through req\ (the agent does the work).
 # Password 2531 (hashed in lab/cfg/trayPw, changeable on the Console) to OPEN the window (and Copy report). Laptop = Super Admin mode: all-PCs grid + popups.
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+# 1.6 (user, 05-Nov-2026: "on my laptop the tray text looks very low resolution"): without this Windows draws the window at 96 dpi and
+# stretches it on a 125-200% screen (blurry). DPI-aware + every form scales its own layout (Sharp) = sharp text at any scaling.
+try { Add-Type -Namespace PDT -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();' -ErrorAction Stop; [void][PDT.Dpi]::SetProcessDPIAware() } catch {}
 [Windows.Forms.Application]::EnableVisualStyles()
+function Sharp($f) { $f.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96); $f.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi }
 $Root = "$env:ProgramData\DavanPCDoctor"; $St = "$Root\state"; $Rq = "$Root\req"
 $mtx = New-Object Threading.Mutex($false, 'Local\DavanPCDoctorTray'); if (!$mtx.WaitOne(0)) { exit 0 }
 function J($f) { try { Get-Content "$St\$f" -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $null } }
@@ -15,7 +19,7 @@ $C = @{ bg = [Drawing.Color]::FromArgb(11,13,17); card = [Drawing.Color]::FromAr
 $LV = @{ green = @('🟢', $C.ok); yellow = @('🟡', $C.ye); orange = @('🟠', $C.wa); red = @('🔴', $C.er); purple = @('🟣', $C.pu); off = @('⚫', $C.off) }
 $F = @{ big = New-Object Drawing.Font('Segoe UI Semibold', 13); n = New-Object Drawing.Font('Segoe UI', 9.5); s = New-Object Drawing.Font('Segoe UI', 8.5); m = New-Object Drawing.Font('Consolas', 9); e = New-Object Drawing.Font('Segoe UI Emoji', 10) }
 function Pw([string]$why) {
-  $f = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor'; Width = 300; Height = 150; StartPosition = 'CenterScreen'; ShowInTaskbar = $true; BackColor = $C.bg; ForeColor = $C.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
+  $f = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor'; Width = 300; Height = 150; StartPosition = 'CenterScreen'; ShowInTaskbar = $true; BackColor = $C.bg; ForeColor = $C.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }; Sharp $f
   $l = New-Object Windows.Forms.Label -Property @{ Text = "🔒 Password for $why"; Left = 14; Top = 12; Width = 260; Font = $F.n }
   $t = New-Object Windows.Forms.TextBox -Property @{ Left = 14; Top = 40; Width = 255; UseSystemPasswordChar = $true; Font = $F.n }
   $b = New-Object Windows.Forms.Button -Property @{ Text = 'OK'; Left = 194; Top = 72; Width = 75; DialogResult = 'OK'; FlatStyle = 'Flat'; BackColor = $C.ac; ForeColor = [Drawing.Color]::Black }
@@ -27,7 +31,9 @@ function Pw([string]$why) {
 }
 # ---------- the window ----------
 $form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 640; BackColor = $C.bg; ForeColor = $C.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
-$wa = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $form.Left = $wa.Right - $form.Width - 12; $form.Top = $wa.Bottom - $form.Height - 12
+Sharp $form
+function Corner { $wa = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $form.Left = $wa.Right - $form.Width - 12; $form.Top = [math]::Max($wa.Top, $wa.Bottom - $form.Height - 12) }
+Corner; $form.Add_Shown({ Corner })   # after the DPI scaling the window is bigger - keep it in the corner, fully on screen
 $tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $F.n }
 $tMe = New-Object Windows.Forms.TabPage -Property @{ Text = 'This PC'; BackColor = $C.bg }
 $tabs.TabPages.Add($tMe); $form.Controls.Add($tabs)
@@ -96,7 +102,7 @@ Btn '🔧 Fix from pendrive' 216 ($by + 36) 216 { if ($script:unlocked -or (Pw '
 Btn '⚙️ Name / group / notes' 12 ($by + 72) 420 { if ($script:unlocked -or (Pw 'changing this PC')) { Edit } } | Out-Null
 function Edit {
   $p = J 'pc.json'; $cfg = J 'cfg.json'
-  $f = New-Object Windows.Forms.Form -Property @{ Text = '⚙️ This PC'; Width = 360; Height = 330; BackColor = $C.bg; ForeColor = $C.tx; StartPosition = 'CenterScreen'; FormBorderStyle = 'FixedDialog'; TopMost = $true }
+  $f = New-Object Windows.Forms.Form -Property @{ Text = '⚙️ This PC'; Width = 360; Height = 330; BackColor = $C.bg; ForeColor = $C.tx; StartPosition = 'CenterScreen'; FormBorderStyle = 'FixedDialog'; TopMost = $true }; Sharp $f
   $fields = @(@('name','Name (= Windows name)'), @('grp','Group'), @('place','Place'), @('user','Usual user'), @('notes','Notes')); $box = @{}; $yy = 12
   foreach ($x in $fields) { $f.Controls.Add((New-Object Windows.Forms.Label -Property @{ Text = $x[1]; Left = 12; Top = $yy + 3; Width = 130; Font = $F.s; ForeColor = $C.mu }))
     if ($x[0] -eq 'grp') { $c = New-Object Windows.Forms.ComboBox -Property @{ Left = 146; Top = $yy; Width = 185; DropDownStyle = 'DropDownList' }

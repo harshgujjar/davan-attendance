@@ -47,7 +47,7 @@ for part, fl in PARTS.items():
     o = old.get(part) or {}
     if o.get("h") != h:
         b = int(o.get("build") or 0) + 1; changed_any = True
-        o = {"build": b, "ver": "1.%d" % b if part != "console" else o.get("ver", "1.%d" % b), "h": h, "at": ms, "ist": now.strftime("%d %b %Y, %I:%M %p IST").replace(" 0", " "), "notes": note or o.get("notes", "")}
+        o = {"build": b, "ver": "1.%d" % b, "h": h, "at": ms, "ist": now.strftime("%d %b %Y, %I:%M %p IST").replace(" 0", " "), "notes": note or o.get("notes", "")}
     if part == "console":   # the Console's own LAB_BUILD (open Consoles reload when lab-version.json shows a higher one)
         import re
         lb = int(re.search(r"const LAB_BUILD = (\d+)", open(os.path.join(R, "..", "lab.html"), encoding="utf-8").read()).group(1))

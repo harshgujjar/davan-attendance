@@ -81,6 +81,7 @@ body.embed header.top{position:static}
 <header class="top"><div class="wrap">
   <div class="brand">PC DOCTOR<small>Console · Davan College</small></div>
   <div class="sp"></div>
+  <a class="chip tiny" href="pcdoctor/PCDoctor-Setup.cmd" download title="Add a PC: run it on the PC as administrator">⬇️ Add a PC</a>
   <span id="live" class="chip tiny">…</span>
   <button class="chip" onclick="labMenu(true)" aria-label="Menu">☰</button>
 </div></header>
@@ -97,7 +98,7 @@ body.embed header.top{position:static}
    token from the worker davan-release /lab/tok (staff login -> Super Admin check). Opens inside the staff app (?embed=1) or on its own
    (installable, same staff login). Reads summaries (lab/now, lab/pcs, lab/load), never raw minute rows except "just before the freeze".
    Changelog: CHANGELOG-lab.md. Versions: pcdoctor/lab-version.json (console.build = LAB_BUILD below). */
-const LAB_BUILD = 2, LAB_VER = '1.' + LAB_BUILD;
+const LAB_BUILD = 3, LAB_VER = '1.' + LAB_BUILD;
 const DEL_SW = ['clean_temp', 'spooler', 'startup_off', 'android_clean'];   // fixes that delete: never automatic (strict rule 04-Nov)
 const WK = 'https://davan-release.harshgujjar.workers.dev', DB5 = 'https://davan-lab-default-rtdb.asia-southeast1.firebasedatabase.app', K5 = 'AIzaSyAdebhgQpyjd3ZQgUl_UNhLXYUDRJK1C1s';
 const RAW = 'https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/pcdoctor/';
@@ -120,24 +121,31 @@ async function copyText(t, btn) {   // 📋 Copy on every report / log / list (d
 const cpBtn = (id, label) => '<button class="btn sm" onclick="copyText(window.__cp[\'' + id + '\'],this)">📋 ' + (label || 'Copy') + '</button>';
 window.__cp = {};
 
-/* ---------- login: staff login -> worker /lab/tok -> DB5 ID token (1 h) ---------- */
-let _staff = null;
+/* ---------- login (1.3, user 04-Nov-2026: "the staff login and the lab.html login must be different - logging in here logged in the staff app
+   and made its sound"): on its own the Console uses its OWN PC Doctor password (worker /lab/tok {pw}) and never touches the staff login;
+   inside the staff app (?embed=1) it uses the Super Admin who is already logged in there (no new login, no sound). The DB5 session is kept
+   on this device (localStorage lab_rt) until 🚪 Log out. ---------- */
 async function staffToken() {
   try { if (EMBED && parent.auth && parent.auth.currentUser) return await parent.auth.currentUser.getIdToken(); } catch (e) {}
-  if (!_staff) { _staff = firebase.initializeApp(STAFF_CFG, 'staff').auth(); }
-  const u = _staff.currentUser || await new Promise(r => { const off = _staff.onAuthStateChanged(x => { off(); r(x); }); setTimeout(() => r(null), 6000); });
-  return u ? u.getIdToken() : null;
+  return null;
 }
+try { L.rt = localStorage.getItem('lab_rt') || ''; } catch (e) {}
+function saveRt(rt) { L.rt = rt || ''; try { rt ? localStorage.setItem('lab_rt', rt) : localStorage.removeItem('lab_rt'); } catch (e) {} }
+async function customLogin(tok) {
+  const t = await (await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=' + K5, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: tok, returnSecureToken: true }) })).json();
+  if (!t.idToken) throw new Error('DB5 login refused: ' + JSON.stringify(t.error || t).slice(0, 120));
+  L.tok = t.idToken; L.exp = Date.now() + (+t.expiresIn - 300) * 1000; saveRt(t.refreshToken); return L.tok;
+}
+function logout() { saveRt(''); L.tok = ''; L.exp = 0; location.hash = ''; loginBox('Logged out.'); }
 async function db5Tok() {
   if (L.tok && Date.now() < L.exp) return L.tok;
   if (L.rt) { try { const r = await (await fetch('https://securetoken.googleapis.com/v1/token?key=' + K5, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=refresh_token&refresh_token=' + L.rt })).json();
-    if (r.id_token) { L.tok = r.id_token; L.exp = Date.now() + (+r.expires_in - 300) * 1000; return L.tok; } } catch (e) {} }
+    if (r.id_token) { L.tok = r.id_token; L.exp = Date.now() + (+r.expires_in - 300) * 1000; if (r.refresh_token) saveRt(r.refresh_token); return L.tok; } } catch (e) {}
+    saveRt(''); }
   const st = await staffToken(); if (!st) throw new Error('LOGIN');
   let r; try { r = await (await fetch(WK + '/lab/tok', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ token: st }) })).json(); } catch (e) { throw new Error('WORKER: ' + e.message); }
   if (!r.ok) throw new Error(/DB5 key/.test(r.msg) ? 'NOKEY' : r.msg);
-  const t = await (await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=' + K5, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: r.token, returnSecureToken: true }) })).json();
-  if (!t.idToken) throw new Error('DB5 login refused: ' + JSON.stringify(t.error || t).slice(0, 120));
-  L.tok = t.idToken; L.rt = t.refreshToken; L.exp = Date.now() + (+t.expiresIn - 300) * 1000; return L.tok;
+  return customLogin(r.token);
 }
 async function db(method, path, body, q) {
   const r = await fetch(DB5 + '/' + path + '.json?auth=' + await db5Tok() + (q ? '&' + q : ''), { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -158,7 +166,7 @@ async function loadAll(quiet) {
   L.fix.sort((a, b) => b.t - a.t);
   if (!quiet) render();
 }
-async function loadNow() { try { L.now = (await g('lab/now')) || {}; L.at = Date.now(); if (['lab', 'office', 'disk'].includes(L.page)) render(true); } catch (e) {} }
+async function loadNow() { try { L.now = (await g('lab/now')) || {}; L.at = Date.now(); if (['dash', 'lab', 'office', 'disk'].includes(L.page)) render(true); } catch (e) {} }
 const cfgThr = (k, d) => ((L.cfg.thr || {})[k] != null ? +L.cfg.thr[k] : d);
 const pcName = h => { const p = L.pcs[h] || {}; return p.name || p.win || (L.now[h] || {}).name || h; };
 const natural = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true });
@@ -233,14 +241,14 @@ async function fixBtn(h, fx, args) {
 </script>
 <script>
 /* ---------- pages + navigation (a refresh reopens the last page) ---------- */
-const PAGES = [['lab', '🏠', 'Lab'], ['disk', '💽', 'Disk'], ['autofix', '🛠️', 'Auto-fix'], ['ai', '✨', 'Ask AI'], ['office', '🏢', 'Office'], ['printers', '🖨️', 'Printers'],
+const PAGES = [['dash', '📊', 'Dashboard'], ['lab', '🏠', 'Lab'], ['disk', '💽', 'Disk'], ['autofix', '🛠️', 'Auto-fix'], ['ai', '✨', 'Ask AI'], ['office', '🏢', 'Office'], ['printers', '🖨️', 'Printers'],
   ['versions', '📦', 'Versions & updates'], ['remote', '🖥️', 'Remote screen'], ['newpcs', '📥', 'New PCs'], ['oldpcs', '🗄️', 'Old PCs'], ['groups', '⚙️', 'Groups'],
   ['import', '📥', 'Import from pendrive'], ['rescue', '💾', 'Rescue + pendrive tools'], ['settings', '🔧', 'Settings']];
-const BOTTOM = ['lab', 'disk', 'autofix', 'ai', 'office'];
+const BOTTOM = ['dash', 'lab', 'autofix', 'ai', 'office'];   // 1.3: 📊 Dashboard first (💽 Disk in ☰)
 function go(p, h) { L.page = p; if (h) L.pc = h; try { localStorage.setItem('lab_page', p); if (h) localStorage.setItem('lab_pc', h); } catch (e) {}
   history.replaceState(null, '', location.pathname + location.search + (p === 'pc' && L.pc ? '#pc=' + L.pc : '#' + p)); labMenu(false); window.scrollTo(0, 0); render(); }
 function labMenu(open) { $('menu').classList.toggle('open', !!open); if (open) $('menuPane').innerHTML = '<div class="brand" style="margin:4px 8px 12px">MENU</div>' + PAGES.map(([k, i, t]) =>
-  '<button class="' + (L.page === k ? 'on' : '') + '" onclick="go(\'' + k + '\')">' + i + ' ' + t + badge(k) + '</button>').join('') + '<div class="tiny dim" style="padding:12px 8px">PC Doctor Console v' + LAB_VER + '</div>'; }
+  '<button class="' + (L.page === k ? 'on' : '') + '" onclick="go(\'' + k + '\')">' + i + ' ' + t + badge(k) + '</button>').join('') + SETUP_BTN('margin:10px 8px 0;width:calc(100% - 16px)') + (EMBED ? '' : '<button onclick="logout()">🚪 Log out</button>') + '<div class="tiny dim" style="padding:12px 8px">PC Doctor Console v' + LAB_VER + '</div>'; }
 function badge(k) { let n = 0; if (k === 'newpcs') n = newPcs().length; if (k === 'autofix') n = waitingOk().length + thawNeeded().length; if (k === 'oldpcs') n = Object.values(L.pcs).filter(p => p && p.old).length;
   return n ? ' <span class="chip tiny" style="padding:1px 7px;margin-left:4px">' + n + '</span>' : ''; }
 function nav() { $('bot').innerHTML = BOTTOM.map(k => { const p = PAGES.find(x => x[0] === k); return '<button class="' + (L.page === k ? 'on' : '') + '" onclick="go(\'' + k + '\')"><span>' + p[1] + '</span>' + p[2] + badge(k) + '</button>'; }).join(''); }
@@ -248,13 +256,63 @@ function render(soft) {
   nav();
   const live = $('live'); live.textContent = L.at ? '● ' + ago(L.at).replace(' ago', '') : '…'; live.style.color = L.at && Date.now() - L.at < 180000 ? 'var(--ok)' : 'var(--muted)';
   foot();
-  const f = { lab: pageLab, pc: () => pcDetail(L.pc), disk: pageDisk, autofix: pageAutofix, ai: pageAi, office: pageOffice, printers: pagePrinters, versions: pageVersions, remote: pageRemote,
-    newpcs: pageNewPcs, oldpcs: pageOldPcs, groups: pageGroups, import: pageImport, rescue: pageRescue, settings: pageSettings }[L.page] || pageLab;
+  const f = { dash: pageDash, lab: pageLab, pc: () => pcDetail(L.pc), disk: pageDisk, autofix: pageAutofix, ai: pageAi, office: pageOffice, printers: pagePrinters, versions: pageVersions, remote: pageRemote,
+    newpcs: pageNewPcs, oldpcs: pageOldPcs, groups: pageGroups, import: pageImport, rescue: pageRescue, settings: pageSettings }[L.page] || pageDash;
   if (soft && (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) return;   // never redraw while typing
   f();
 }
 function foot() { $('foot').innerHTML = 'PC Doctor Console v' + LAB_VER + ' · build ' + LAB_BUILD + ' · opened ' + ist(L.t0) + (L.lv && L.lv.agent ? ' · Agent v' + esc(L.lv.agent.ver) + ' (' + esc(L.lv.agent.ist || '') + ')' : ''); }
 function set(html) { $('main').innerHTML = html; }
+
+/* ---------- ⬇️ setup file - always reachable (user, 05-Nov-2026: "the download showed only while there was no PC") ---------- */
+const SETUP_BTN = st => '<a class="btn ac" style="' + (st || '') + '" href="pcdoctor/PCDoctor-Setup.cmd" download>⬇️ PCDoctor-Setup.cmd</a>';
+function setupCard() { return '<div class="card"><h3>⬇️ Add or repair a PC</h3><div class="small muted">Copy <b>PCDoctor-Setup.cmd</b> to the PC, right-click → <b>Run as administrator</b> (Deep Freeze PCs: Boot Thawed first). Under a minute; it asks nothing. Running it again on a PC repairs / refreshes it and keeps its name and history.</div><div style="margin-top:8px">' + SETUP_BTN() + '</div></div>'; }
+
+/* ---------- 📊 Dashboard (user, 05-Nov-2026: "make a dashboard for lab.html") - the whole college at a glance ---------- */
+function kpi(icon, val, label, tone, go) {
+  return '<div class="card" style="margin:0;padding:12px;cursor:' + (go ? 'pointer' : 'default') + '"' + (go ? ' onclick="go(\'' + go + '\')"' : '') + '><div class="tiny dim">' + icon + ' ' + esc(label) + '</div>' +
+    '<div style="font:700 26px var(--head,inherit);color:var(--' + (tone || 'text') + ');margin-top:2px">' + val + '</div></div>';
+}
+function pageDash() {
+  const all = activePcs();
+  if (!all.length) return set(alertsHtml() + emptyNoPcs());
+  const st = {}; all.forEach(h => st[h] = pcState(h));
+  const n = k => all.filter(h => st[h].lv === k).length, on = all.filter(h => !['off', 'never'].includes(st[h].lv)).length;
+  const bad = n('red') + n('orange') + n('stuck'), thawed = all.filter(h => (L.now[h] || {}).df === 'thawed').length;
+  const nb = L.lv && L.lv.agent ? L.lv.agent.build : 0, upd = all.filter(h => (L.ver[h] || {}).build >= nb).length;
+  const ask = waitingOk().length + thawNeeded().length, mesh = (L.ws.mesh || {});
+  let h = alertsHtml();
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px">' +
+    kpi('🖥️', all.length, (all.length === 1 ? 'PC' : 'PCs') + ' in PC Doctor', 'text', 'lab') +
+    kpi('🟢', on + '<span class="small muted"> / ' + all.length + '</span>', 'Online now', on === all.length ? 'ok' : 'warn', 'lab') +
+    kpi('🚨', bad, bad === 1 ? 'PC needs a look' : 'PCs need a look', bad ? 'danger' : 'ok', 'lab') +
+    kpi('✅', ask, ask === 1 ? 'Fix waiting for your OK' : 'Fixes waiting for your OK', ask ? 'warn' : 'ok', 'autofix') +
+    kpi('🔥', thawed, 'Thawed (Deep Freeze)', thawed ? 'warn' : 'ok', 'lab') +
+    kpi('📦', upd + '<span class="small muted"> / ' + all.length + '</span>', 'On the newest version' + (nb ? ' (1.' + nb + ')' : ''), upd === all.length ? 'ok' : 'warn', 'versions') +
+    kpi('🖥️', mesh.up === false ? 'Down' : mesh.up ? 'Up' : '…', 'Remote screen server', mesh.up === false ? 'danger' : 'ok', 'remote') +
+    kpi('⏱️', L.at ? ago(L.at).replace(' ago', '') : '…', 'Data refreshed', 'text') + '</div>';
+  // health donut for everything + groups side by side
+  const cnt = { green: 0, yellow: 0, orange: 0, red: 0, purple: 0, off: 0, stuck: 0, never: 0 }; all.forEach(x => cnt[st[x].lv]++);
+  const gks = [...new Set(all.map(grpOf))];
+  const COL = { green: 'var(--g)', yellow: 'var(--y)', orange: 'var(--o)', stuck: 'var(--o)', red: 'var(--danger)', purple: '#a855f7', off: '#4b5563', never: '#4b5563' };
+  h += '<div class="card"><h3>Health of every group</h3><div class="row" style="align-items:center;gap:14px;flex-wrap:wrap">' + donut(score(all), cnt) + '<div style="flex:1;min-width:200px">' +
+    gks.map(k => { const hs = all.filter(x => grpOf(x) === k), sc = score(hs);
+      return '<div style="margin:8px 0;cursor:pointer" onclick="L.grp=\'' + k + '\';go(\'lab\')"><div class="row small"><span style="flex:1">' + esc(grpName(k)) + ' <span class="muted">· ' + plural(hs.length, 'PC') + '</span></span><b class="mono">' + (sc == null ? '-' : sc) + '</b></div>' +
+        '<div style="display:flex;height:9px;border-radius:5px;overflow:hidden;background:var(--border);margin-top:3px">' +
+        ['green', 'yellow', 'orange', 'stuck', 'red', 'purple', 'off', 'never'].map(l => { const c = hs.filter(x => st[x].lv === l).length; return c ? '<i style="width:' + (100 * c / hs.length) + '%;background:' + COL[l] + '"></i>' : ''; }).join('') + '</div></div>'; }).join('') +
+    '</div></div></div>';
+  // what needs you now
+  const need = all.filter(x => ['red', 'orange', 'stuck', 'purple'].includes(st[x].lv)).sort((a, b) => ({ red: 0, purple: 1, stuck: 2, orange: 3 }[st[a].lv] - { red: 0, purple: 1, stuck: 2, orange: 3 }[st[b].lv]));
+  h += '<div class="card"><h3>Needs you now <span class="small muted">' + need.length + '</span></h3>' + (need.length ? need.slice(0, 8).map(x => '<div class="row small" style="margin:7px 0;cursor:pointer" onclick="go(\'pc\',\'' + x + '\')"><span>' + ({ red: '🔴', orange: '🟠', stuck: '🟠', purple: '🟣' }[st[x].lv]) + '</span><b>' + esc(pcName(x)) + '</b><span class="muted" style="flex:1">' + esc(st[x].v || '') + '</span><span>›</span></div>').join('') + (need.length > 8 ? '<button class="btn sm" onclick="go(\'lab\')">All ' + need.length + ' ›</button>' : '') : '<div class="small muted">Nothing - every PC is fine. 🎉</div>') + '</div>';
+  // today: fixes done + suggestions, newest updates
+  const today = L.fix.filter(f => f.d === istDay());
+  h += '<div class="card"><h3>Today</h3><div class="kv"><div>🛠️ Fixes run</div><div class="mono">' + today.filter(f => f.ok).length + ' ok · ' + today.filter(f => !f.ok).length + ' failed</div>' +
+    '<div>✅ Waiting for your OK</div><div class="mono">' + ask + '</div><div>📦 Newest PC Doctor</div><div>' + (L.lv && L.lv.agent ? '1.' + esc(L.lv.agent.build) + ' · ' + esc(L.lv.agent.ist || '') : '-') + '</div></div>' +
+    (today.length ? '<div style="margin-top:8px">' + today.slice(0, 5).map(f => '<div class="small" style="margin:4px 0">' + (f.ok ? '✅' : '❌') + ' <b>' + esc(pcName(f.h)) + '</b> ' + esc(f.label || f.fix) + ' <span class="muted">' + esc(ist(f.t)) + '</span></div>').join('') + '</div>' : '') + '</div>';
+  h += loadChart(all);
+  h += setupCard();
+  set(h);
+}
 
 /* ---------- 🏠 Lab ---------- */
 function newPcs() { const d = dupNames(); return activePcs().filter(h => { const p = L.pcs[h] || {}; return p.isNew || !grpOf(h) || d[pcName(h).toUpperCase()] > 1 || p.merge; }); }
@@ -770,6 +828,7 @@ async function makeRescue() { const z = new JSZip(); const r = await fetch(RAW +
 async function pageSettings() {
   const c = L.cfg, je = (id, v) => '<textarea id="' + id + '" spellcheck="false">' + esc(JSON.stringify(v == null ? {} : v, null, 1)) + '</textarea>';
   set('<div class="card"><h3>🔒 Passwords</h3><div class="kv" style="align-items:center"><div>Tray password</div><div>••••• <button class="btn sm" onclick="setTrayPw()">Change</button></div>' +
+    '<div>PC Doctor password</div><div>(this Console, not the staff login) <button class="btn sm" onclick="setConsolePw()">Set / change</button>' + (EMBED ? '' : ' <button class="btn sm" onclick="logout()">🚪 Log out</button>') + '</div>' +
     '<div>Deep Freeze</div><div id="dfpw">…</div><div>MeshCentral (first)</div><div><span>•••••</span> <button class="btn sm" onclick="copySecret(\'meshPass\',this)">📋 Copy</button> <span class="tiny dim">change it in MeshCentral after the first login</span></div></div></div>' +
     '<div class="card"><h3>Alerts + ✨ AI</h3><div class="kv" style="align-items:center"><div>☁️ Alerts</div><div><label class="sw"><input type="checkbox" ' + (c.alertsOn !== false ? 'checked' : '') + ' onchange="patch(\'lab/cfg\',{alertsOn:this.checked})"><i></i></label></div>' +
     '<div>Same alert again after</div><div><input type="number" value="' + (c.alertGapH || 6) + '" style="width:70px" onchange="patch(\'lab/cfg\',{alertGapH:+this.value})"> h</div><div>Thawed reminder after</div><div><input type="number" value="' + (c.thawRemindH || 3) + '" style="width:70px" onchange="patch(\'lab/cfg\',{thawRemindH:+this.value})"> h</div>' +
@@ -791,6 +850,8 @@ async function pageSettings() {
 async function sha256t(t) { return sha(new TextEncoder().encode(t)); }
 async function setTrayPw() { const a = prompt('New tray password (digits or letters, 4+):'); if (!a) return; if (a.length < 4) return toast('At least 4 characters'); if (prompt('Type it again:') !== a) return toast('Did not match');
   await patch('lab/cfg', { trayPw: await sha256t('davanlab:' + a) }); toast('🔒 Tray password changed - every PC uses it within the hour'); }
+async function setConsolePw() { const a = prompt('New PC Doctor password for this Console (6+ characters, not your staff password):'); if (!a) return; if (a.length < 6) return toast('At least 6 characters'); if (prompt('Type it again:') !== a) return toast('The two did not match');
+  const r = await wk('/lab/setpw', { pw: a }); toast(r.ok ? '🔒 PC Doctor password saved - use it to open lab.html on any device' : (r.msg || 'Not saved'), 5000); }
 async function setDfPw() { const a = prompt('Deep Freeze password (stored encrypted; never shown again, only 📋 copied):'); if (a === null) return; const r = await wk('/lab/secret', { name: 'dfPw', set: a }); toast(r.ok ? '🔒 Saved encrypted' : r.msg); pageSettings(); }
 async function copySecret(name, btn) { const r = await wk('/lab/secret', { name }); if (!r.ok || !r.has) return toast(r.msg || 'Not saved yet'); copyText(r.text, btn); }
 async function saveJson(key, id) { let v; try { v = JSON.parse($(id).value); } catch (e) { return toast('Not valid JSON: ' + e.message); } await put('lab/cfg/' + key, v); toast('💾 Saved - every PC uses it within the hour'); loadAll(true); }
@@ -800,12 +861,16 @@ async function saveRules() { let v; try { v = JSON.parse($('s-rules').value); } 
 
 /* ---------- start ---------- */
 function loginBox(msg) {
-  set('<div class="card" style="max-width:380px;margin:30px auto"><h3>🔒 PC Doctor</h3><div class="small muted">' + esc(msg || 'Log in with the Super Admin staff login.') + '</div>' +
-    '<input id="lu" placeholder="User name" style="width:100%;margin-top:10px" autocomplete="username"><input id="lp" type="password" placeholder="Password" style="width:100%;margin-top:8px" autocomplete="current-password" onkeydown="if(event.key===\'Enter\')doLogin()">' +
-    '<button class="btn ac" style="width:100%;margin-top:10px" onclick="doLogin()">Log in</button><div class="tiny dim" style="margin-top:8px">Or open it from the staff app: ☰ → 🖥️ PC Doctor.</div></div>');
+  set('<div class="card" style="max-width:380px;margin:30px auto"><h3>🔒 PC Doctor</h3><div class="small muted">' + esc(msg || 'Enter the PC Doctor password.') + '</div>' +
+    '<input id="lp" type="password" placeholder="PC Doctor password" style="width:100%;margin-top:10px" autocomplete="current-password" onkeydown="if(event.key===\'Enter\')doLogin()">' +
+    '<button class="btn ac" style="width:100%;margin-top:10px" onclick="doLogin()">Log in</button>' +
+    '<div class="tiny dim" style="margin-top:8px">This is PC Doctor\'s own password - not your staff login. First time: open PC Doctor from the staff app (☰ → 🖥️ PC Doctor) → 🔧 Settings → Set PC Doctor password.</div></div>');
+  setTimeout(() => { const e = $('lp'); if (e) e.focus(); }, 50);
 }
-async function doLogin() { const u = $('lu').value.trim(), p = $('lp').value; if (!u || !p) return; try { if (!_staff) _staff = firebase.initializeApp(STAFF_CFG, 'staff').auth();
-  await _staff.signInWithEmailAndPassword(u.includes('@') ? u : u.toLowerCase() + '@davan.local', p); start(); } catch (e) { toast('Login failed: ' + (e.code || e.message)); } }
+async function doLogin() { const p = $('lp').value; if (!p) return;
+  try { const r = await (await fetch(WK + '/lab/tok', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ pw: p }) })).json();
+    if (!r.ok) return toast(r.msg || 'Login failed', 5000);
+    await customLogin(r.token); start(); } catch (e) { toast('Login failed: ' + (e.message || e)); } }
 async function start() {
   try { await loadAll(); }
   catch (e) {
