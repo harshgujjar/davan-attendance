@@ -42,7 +42,10 @@ function A-SyncPc {
       PD-Db PUT ('lab/edits/' + $h + '/e' + (PD-NowMs)) @{ t = (PD-NowMs); who = 'Windows (on the PC)'; where = 'PC'; field = 'win'; old = $pc.win; new = $env:COMPUTERNAME } | Out-Null }
     $up.win = $env:COMPUTERNAME }
   if (!$pc.name) { $up.name = $env:COMPUTERNAME }
-  if (!$pc.grp) { $g = PD-Group ([string]$(if ($pc.name) { $pc.name } else { $env:COMPUTERNAME })); if ($g) { $up.grp = $g } }
+  # 05-Nov-2026 (user: two laptops both listed as "GUJJAR (duplicate)"): the Console name stayed the FIRST Windows name after a Windows
+  # rename - now it follows the new Windows name when nobody set it by hand on the Console (name = the old Windows name)
+  elseif ($pc.win -and $pc.win -ne $env:COMPUTERNAME -and [string]$pc.name -eq [string]$pc.win) { $up.name = $env:COMPUTERNAME }
+  if (!$pc.grp) { $g = PD-Group ([string]$(if ($up.name) { $up.name } elseif ($pc.name) { $pc.name } else { $env:COMPUTERNAME })); if ($g) { $up.grp = $g } }
   $model = (Get-CimInstance Win32_ComputerSystem); $up.model = ($model.Manufacturer + ' ' + $model.Model).Trim(); $up.seen = PD-NowMs; $up.ver = A-Ver
   # Console renamed the PC (name != Windows name) -> rename Windows (a Frozen PC: at a Thawed restart)
   $want = [string]$(if ($pc.name) { $pc.name } else { '' })

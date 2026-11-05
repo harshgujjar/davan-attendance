@@ -2,6 +2,12 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.15 / tray 1.8 -- The user: tray bars were plain white lines, nothing worked, buttons showed boxes, small items in a big
+  window. Cause: PowerShell names are case-blind - Refresh's $lv overwrote the colour table $LV (and $c / $f overwrote $C / $F in Edit / Pw /
+  All PCs), so every refresh crashed silently. Globals renamed ($LVL, $CL, $FT); WinForms buttons / labels without colour emoji (drawn as boxes),
+  level dots = coloured ●; every form scaled by hand by the real DPI after its controls are in (Sharp), buttons right under the 7-day line.
+  pcdoctor_version.py now refuses any name used in two spellings in one function. Agent: the Console name follows a Windows rename when it
+  was never set by hand (two laptops were both "GUJJAR (duplicate)"). Refresh, Sharp, LaptopTabs, A-SyncPc.
 - 05-Nov-2026 · Agent 1.14 / tray 1.7 / Console 1.4 -- The user: the new Console password did not work, wants it fixed as given + 👁 show password.
   Password set by the private Action "DB5 set Console password" (lab/secret/consolePw, same salted hash as the worker; lock cleared).
   Console login box + Settings (now an inline New / Again form instead of pop-ups) and the tray password box get 👁 Show. saveConsolePw, Pw.

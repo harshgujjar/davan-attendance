@@ -110,6 +110,9 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   set from Settings inside the staff app; standalone lab.html never touches the staff login), 📊 Dashboard first page, ⬇️ Add a PC always.
   Setup = 7 numbered steps, no deep check inside (background after). Tray DPI-sharp. DB5 lab/events/$h .indexOn t (daily job green again).
   Laptop self-updated to 1.12 overnight; MeshCentral check "https 200" up. A 2nd PC fc7e898392f38675 (Win 10) registered 05-Nov - ask the user its name.
+- 05-Nov (later): Agent 1.15 / tray 1.8 - tray bars empty = $lv/$LV case clash (fixed + pcdoctor_version.py now refuses two spellings of a
+  name in one function); emoji removed from WinForms text (boxes); manual DPI scale (Sharp after controls). Console "GUJJAR (duplicate)" x2 =
+  the ASUS (now Windows name 1DAVAN) and a Sony SVF15218SNW both registered as GUJJAR - user to Assign name + group on 📥 New PCs.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
