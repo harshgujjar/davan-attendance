@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.21 / tray 1.13 -- The user: "PC Doctor got uninstalled on 1DAVAN, I pressed nothing". DB5: it was NOT uninstalled
+  (agent reporting every minute, no uninstalled mark) - only the tray was gone, closed together with the PowerShell window it ran in.
+  The launcher now starts the tray only when it is not running, and a task "Davan PC Doctor Tray" runs it for every user at sign-in and
+  every 10 minutes - a closed or crashed tray comes back by itself. Uninstall removes that task too. PD-TrayLauncher, SelfUpdate, A-Uninstall.
 - 05-Nov-2026 · Agent 1.20 / tray 1.12 -- The user: "at start a PowerShell window opens with red Get-Content errors". Windows 11 opens
   "powershell -WindowStyle Hidden" in Windows Terminal, which ignores Hidden. The tray now starts through wscript (tray-start.vbs, window
   style 0); the agent (SYSTEM) rewrites the launcher + HKLM Run key at every start, so installed PCs fix themselves; install.ps1 and the

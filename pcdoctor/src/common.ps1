@@ -166,10 +166,26 @@ function PD-Event([string]$k, [string]$icon, [string]$txt, $extra = $null) {
 # Windows Terminal, which ignores Hidden - so the tray showed a console. The tray now starts through wscript (window style 0 = never shown).
 # Run as SYSTEM by the agent at every start (old installs fix themselves) and by install.ps1.
 function PD-TrayLauncher {
-  $v = Join-Path $PD.Root 'tray-start.vbs'
-  $body = 'CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + (Join-Path $PD.Root 'bin\tray.ps1') + '""", 0, False'
+  # 1.21 (user, 05-Nov-2026: "PC Doctor got uninstalled, I pressed nothing" - the agent was running; the tray had been closed with its
+  # console window): the launcher starts the tray only when it is not running, and a task runs it for every signed-in user at sign-in
+  # and every 10 minutes, so a closed / crashed tray comes back by itself (the tray's own lock keeps one copy)
+  $v = Join-Path $PD.Root 'tray-start.vbs'; $tp = Join-Path $PD.Root 'bin\tray.ps1'
+  $body = (@(
+    'On Error Resume Next',
+    'Set w = GetObject("winmgmts:\\.\root\cimv2")',
+    'If WScript.Arguments.Count = 0 Then',
+    '  For Each p In w.ExecQuery("SELECT CommandLine FROM Win32_Process WHERE Name=''powershell.exe''")',
+    '    If InStr(LCase(p.CommandLine & ""), "davanpcdoctor\bin\tray.ps1") > 0 Then WScript.Quit',
+    '  Next',
+    'End If',
+    'CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + $tp + '""", 0, False') -join "`r`n")
   try { if (!(Test-Path $v) -or (Get-Content $v -Raw -ErrorAction Stop).Trim() -ne $body) { [IO.File]::WriteAllText($v, $body, [Text.Encoding]::ASCII) } } catch {}
   $run = 'wscript.exe "' + $v + '"'; $k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
   try { if ((Get-ItemProperty $k -Name DavanPCDoctor -ErrorAction SilentlyContinue).DavanPCDoctor -ne $run) { Set-ItemProperty $k 'DavanPCDoctor' $run } } catch {}
+  try { if (!(Get-ScheduledTask -TaskName 'Davan PC Doctor Tray' -ErrorAction SilentlyContinue)) {
+      $tg = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 10)
+      Register-ScheduledTask -TaskName 'Davan PC Doctor Tray' -Action (New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $v + '"')) `
+        -Trigger @((New-ScheduledTaskTrigger -AtLogOn), $tg) -Principal (New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited) `
+        -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -MultipleInstances IgnoreNew) -Force | Out-Null } } catch {}
   $v
 }

@@ -234,7 +234,7 @@ $script:myBuild = try { [int](J 'running.json').build } catch { 0 }
 function SelfUpdate { $b = try { [int](J 'running.json').build } catch { 0 }
   if ($b -and $script:myBuild -and $b -ne $script:myBuild -and !$form.Visible -and (Test-Path "$Root\bin\tray.ps1")) {
     $ni.Visible = $false; try { $mtx.ReleaseMutex(); $mtx.Dispose() } catch {}
-    if (Test-Path "$Root\tray-start.vbs") { Start-Process wscript.exe -ArgumentList "`"$Root\tray-start.vbs`"" } else { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`"" }
+    if (Test-Path "$Root\tray-start.vbs") { Start-Process wscript.exe -ArgumentList "`"$Root\tray-start.vbs`" /now" } else { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`"" }
     [Environment]::Exit(0) } }
 $tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
 try { Refresh } catch {}; try { UpdRefresh } catch {}

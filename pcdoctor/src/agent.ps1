@@ -111,6 +111,7 @@ function A-Uninstall($u) {
 Start-Sleep 3
 Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'DavanPCDoctor'
 Unregister-ScheduledTask -TaskName 'Davan PC Doctor' -Confirm:`$false
+Unregister-ScheduledTask -TaskName 'Davan PC Doctor Tray' -Confirm:`$false
 Stop-Service PCDoctorSvc -Force; sc.exe delete PCDoctorSvc | Out-Null
 foreach (`$m in 'Minimal','Network') { Remove-Item "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\`$m\PCDoctorSvc" -Recurse -Force }
 foreach (`$p in @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { `$_.CommandLine -match 'DavanPCDoctor\\(loader|bin\\agent|bin\\tray)\.ps1' })) { Invoke-CimMethod -InputObject `$p -MethodName Terminate | Out-Null }
