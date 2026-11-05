@@ -36,7 +36,7 @@ function Pw([string]$why) {
   [Windows.Forms.MessageBox]::Show('Wrong password.', 'PC Doctor') | Out-Null; $false
 }
 # ---------- the window ----------
-$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 644; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
+$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 700; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
 function Corner { $wa = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $form.Left = $wa.Right - $form.Width - 12; $form.Top = [math]::Max($wa.Top, $wa.Bottom - $form.Height - 12) }
 Corner; $form.Add_Shown({ Corner })   # after the DPI scaling the window is bigger - keep it in the corner, fully on screen
 $tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $FT.n }
@@ -46,6 +46,8 @@ $tabs.TabPages.Add($tMe); $form.Controls.Add($tabs)
 $tUp = New-Object Windows.Forms.TabPage -Property @{ Text = '⬆ Updates'; BackColor = $CL.bg }; $tabs.TabPages.Add($tUp)
 $uVer = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 10; Width = 420; Height = 26; Font = $FT.big; ForeColor = $CL.ac; Text = 'PC Doctor' }
 $uWhen = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 40; Width = 420; Height = 40; Font = $FT.s; ForeColor = $CL.mu }
+$uUsb = New-Object Windows.Forms.Button -Property @{ Text = 'Update from pendrive'; Left = 220; Top = 84; Width = 212; Height = 32; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.n }
+$uUsb.FlatAppearance.BorderColor = $CL.bd
 $uBar = New-Object Windows.Forms.ProgressBar -Property @{ Left = 12; Top = 122; Width = 420; Height = 14; Maximum = 100; Style = 'Continuous'; Visible = $false }
 $uRes = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 140; Width = 420; Height = 38; Font = $FT.s; ForeColor = $CL.ac }
 $uBtn = New-Object Windows.Forms.Button -Property @{ Text = '⬆ Update now'; Left = 12; Top = 84; Width = 200; Height = 32; FlatStyle = 'Flat'; BackColor = $CL.ac; ForeColor = [Drawing.Color]::Black; Font = $FT.n }
@@ -53,7 +55,7 @@ $uNewT = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 184; Width
 $uAll = New-Object Windows.Forms.Button -Property @{ Text = 'Show all ▾'; Left = 312; Top = 180; Width = 120; Height = 26; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
 $uNews = New-Object Windows.Forms.TextBox -Property @{ Left = 12; Top = 210; Width = 420; Height = 338; Multiline = $true; ReadOnly = $true; ScrollBars = 'Vertical'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None' }
 $uBtn.FlatAppearance.BorderColor = $CL.ac; $uAll.FlatAppearance.BorderColor = $CL.bd
-$tUp.Controls.AddRange(@($uVer, $uWhen, $uBtn, $uBar, $uRes, $uNewT, $uAll, $uNews))
+$tUp.Controls.AddRange(@($uVer, $uWhen, $uBtn, $uUsb, $uBar, $uRes, $uNewT, $uAll, $uNews))
 $script:showAll = $false; $script:askedAt = 0
 # 1.14 (user, 05-Nov-2026: "when downloading a new update show the progress in the tray so I know what is happening"): the updater
 # (loader) writes every step to state\updp.json; while an update runs the tray reads it every second: bar + step + file, the tray
@@ -73,6 +75,8 @@ function UpdProgress {
     'download' { $pc = 10 + [int](70 * $pp.i / [math]::Max(1, $pp.n)); $tx = "Step 3/5 · Downloading $to - file $($pp.i) of $($pp.n): $($pp.file)" }
     'install'  { $pc = 85; $tx = "Step 4/5 · Installing $to (checked: every file matches its fingerprint) ..." }
     'restart'  { if ($hb -gt [int64]$pp.t) { $pc = 100; $tx = "Done - PC Doctor $to is running." } else { $pc = 95; $tx = "Step 5/5 · Starting PC Doctor $to - about a minute ..." } }
+    'usb'      { $pc = 10 + [int](70 * $pp.i / [math]::Max(1, $pp.n)); $tx = "Copying $to from the pendrive - file $($pp.i) of $($pp.n): $($pp.file)" }
+    'usbdone'  { $pc = 100; $tx = "PC Doctor $to installed from the pendrive - it restarts in a few seconds." }
     default    { $pc = 5; $tx = 'Updating ...' }
   }
   $uBar.Visible = $true; $uBar.Value = [math]::Min(100, [math]::Max(0, $pc)); $uRes.Text = $(if ($pc -ge 100) { '✅ ' } else { '⏳ ' }) + $tx
@@ -81,12 +85,24 @@ function UpdProgress {
   if ($pc -ge 100) { $uBtn.Enabled = $true; $script:askedAt = 0; if ($script:upKey -ne ('d' + $to)) { $script:upKey = 'd' + $to; $ni.ShowBalloonTip(5000, 'PC Doctor', "Updated - PC Doctor $to is running.", 'Info') }; $tp.Stop() }
 }
 $tp = New-Object Windows.Forms.Timer -Property @{ Interval = 1000 }; $tp.Add_Tick({ try { UpdProgress } catch {} })
+# 1.17 (user, 05-Nov-2026: "yes, build with pendrive also"): no internet / GitHub blocked -> a pendrive made on the Console (Rescue page ->
+# "Make PC Doctor update pendrive", folder DavanUpdate). The password goes WITH the request: the agent (SYSTEM) checks it again and
+# every file's fingerprint, so nobody can slip a changed file in from a stick.
+$script:usbAt = 0
+function UsbUpdate {
+  if (!($script:unlocked -or (Pw 'updating from the pendrive'))) { return }
+  $pw = $script:lastPw; if ($script:unlocked -and !$pw) { $pw = PwText 'updating from the pendrive'; if ($null -eq $pw) { return } }
+  W 'usbupd.json' @{ pw = $pw; who = $env:USERNAME; t = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+  $script:usbAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $uRes.Text = 'Looking for the update pendrive (a DavanUpdate folder) ...'; $uBar.Visible = $true; $uBar.Value = 5; $tp.Start()
+}
+$uUsb.Add_Click({ UsbUpdate })
 function UpdNow { try { Set-Content "$Rq\update.flag" '1' } catch { $uRes.Text = '❌ Could not ask the updater: ' + $_.Exception.Message; return }
   $script:askedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $uRes.Text = '⏳ Step 1/5 · Asked the updater - it starts within a few seconds ...'; $uBtn.Enabled = $false; $uBar.Visible = $true; $uBar.Value = 5; $tp.Start() }
 $uBtn.Add_Click({ UpdNow })
 $uAll.Add_Click({ $script:showAll = !$script:showAll; UpdRefresh })
 function UpdRefresh {
   $r = J 'running.json'; $lv = J 'labver.json'; $u = J 'upd.json'
+  $ux = J 'usbupd.json'; if ($ux -and $script:usbAt -and [int64]$ux.t -ge $script:usbAt) { $script:usbAt = 0; $uRes.Text = $(if ($ux.ok) { '✅ ' } else { '❌ ' }) + [string]$ux.msg; $msg.Text = [string]$ux.msg; if (!$ux.ok) { $uBar.Visible = $false; $tp.Stop() } }
   $form.Text = 'PC Doctor' + $(if ($r -and $r.ver) { ' v' + $r.ver } else { '' }) + ' - ' + $env:COMPUTERNAME   # 1.15 (user, 05-Nov-2026): version always in the title
   $uVer.Text = if ($r) { 'PC Doctor ' + $r.ver + '  ·  build ' + $r.build } else { 'PC Doctor (first start)' }
   $newest = if ($lv -and $lv.agent) { [string]$lv.agent.ver + ' (build ' + $lv.agent.build + ', ' + $lv.agent.ist + ')' } else { '' }
@@ -111,12 +127,16 @@ foreach ($k in @(@('cpu','CPU'), @('ram','RAM'), @('busy','Disk busy'), @('cfree
   $p = New-Object Windows.Forms.ProgressBar -Property @{ Left = 104; Top = $y; Width = 250; Height = 14; Maximum = 100; Style = 'Continuous' }
   $v = New-Object Windows.Forms.Label -Property @{ Left = 360; Top = $y - 2; Width = 70; Font = $FT.m }
   $tMe.Controls.AddRange(@($l, $p, $v)); $bars[$k[0]] = @($p, $v); $y += 24 }
-$info = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $y + 4; Width = 420; Height = 110; Font = $FT.s; ForeColor = $CL.mu }
-$week = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $y + 116; Width = 420; Height = 60; Font = $FT.s }
-$tMe.Controls.AddRange(@($info, $week))
+# 1.17 (user, 05-Nov-2026: "make it properly aligned so the points look neat, I do not want to miss any point"): a two-column list -
+# what on the left (grey), the value on the right, one fact per row, RAM programs and the last-7-days findings one per row (coloured)
+$facts = New-Object Windows.Forms.ListView -Property @{ Left = 12; Top = $y + 4; Width = 420; Height = 250; View = 'Details'; HeaderStyle = 'None'; FullRowSelect = $false; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None'; Scrollable = $true; MultiSelect = $false; HideSelection = $true }
+[void]$facts.Columns.Add('', [int](104 * $DPIK)); [void]$facts.Columns.Add('', [int](296 * $DPIK))
+$tMe.Controls.Add($facts)
+function FactRow([string]$lab, [string]$val, $col) { $it = New-Object Windows.Forms.ListViewItem($lab); $it.UseItemStyleForSubItems = $false; $it.ForeColor = $CL.mu
+  [void]$it.SubItems.Add($val); $it.SubItems[1].ForeColor = $(if ($col) { $col } else { $CL.tx }); [void]$facts.Items.Add($it) }
 function Btn($t, $x, $yy, $w, $on) { $b = New-Object Windows.Forms.Button -Property @{ Text = $t; Left = $x; Top = $yy; Width = $w; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
   $b.FlatAppearance.BorderColor = $CL.bd; $b.Add_Click($on); $tMe.Controls.Add($b); $b }
-$by = $y + 184   # 1.8: buttons right under the 7-day line (no big empty gap)
+$by = $y + 262   # 1.17: buttons right under the facts list
 $msg = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $by + 144; Width = 420; Height = 36; Font = $FT.s; ForeColor = $CL.ac }; $tMe.Controls.Add($msg)
 function Report {
   $n = J 'now.json'; $v = J 'verdict.json'; $p = J 'pc.json'
@@ -233,13 +253,21 @@ function Refresh {
   $head.Text = $e[0] + ' ' + $env:COMPUTERNAME + ' - ' + $(if ($v) { $v.v } else { 'checking' }); $head.ForeColor = $e[1]
   $verd.Text = $(if ($v) { $v.why + "  (" + $v.conf + "% sure)" } else { '' })
   foreach ($k in 'cpu','ram','busy','cfree') { $x = [int]$n.$k; $bars[$k][0].Value = [math]::Max(0, [math]::Min(100, $x)); $bars[$k][1].Text = "$x%" }
-  $tq = if ($n.thawQ) { "  ·  Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' }) } else { '' }
-  $info.Text = "CPU $(if ($n.temp) { [string]$n.temp + ' °C' } else { '-' })   ·   " + $(if ($n.df -eq 'thawed') { 'Thawed' } elseif ($n.df -eq 'frozen') { 'Frozen' } else { 'No Deep Freeze' }) + $tq + "`r`n" +
-    $(if ($n.online) { 'Internet OK' } else { 'No internet - saved, sends later' }) + "   ·   Last sent $(IST $n.t)" + $(if ($n.q) { "   ·   $($n.q) waiting" } else { '' }) + "`r`n" +
-    $(if (@($n.rtop).Count) { 'RAM used by: ' + ((@($n.rtop) | ForEach-Object { [string]$_.n + ' ' + $(if ($_.m -ge 1024) { [string][math]::Round($_.m / 1024, 1) + ' GB' } else { [string]$_.m + ' MB' }) }) -join ', ') + "`r`n" } else { '' }) +
-    "C: $($n.cfreeGB) GB free   ·   disk answers in $($n.lat) ms   ·   Agent $($n.ver)" + $(if ($n.user) { "`r`n$($n.user)" } else { '' })
-  $iv = J 'inv.json'; if ($iv -and $iv.battery) { $info.Text += "`r`nBattery health $($iv.battery.health)% ($($iv.battery.cycles) cycles)   ·   " + ((@($iv.disks) | ForEach-Object { $_.model + ' ' + $_.health }) -join ', ') }
-  $week.Text = 'Last 7 days: ' + $(if ($v -and $v.all) { (@($v.all) | ForEach-Object { $LVL[[string]$_.lv][0] + ' ' + $_.v }) -join '   ' } else { 'nothing found' })
+  $run = J 'running.json'; $iv = J 'inv.json'
+  $facts.BeginUpdate(); $facts.Items.Clear()
+  FactRow 'Temperature' $(if ($n.temp) { 'CPU ' + [string]$n.temp + ' °C' } else { 'not available' })
+  FactRow 'Deep Freeze' $(if ($n.df -eq 'thawed') { 'Thawed' } elseif ($n.df -eq 'frozen') { 'Frozen' } else { 'No Deep Freeze on this PC' }) $null
+  if ($n.thawQ -and $n.df -ne 'none') { FactRow '' ("Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' })) $CL.wa }
+  FactRow 'Internet' $(if ($n.online) { 'OK' } else { 'No internet - saved, sends later' }) $(if ($n.online) { $CL.ok } else { $CL.wa })
+  FactRow 'Last sent' ((IST $n.t) + $(if ($n.q) { "   ($($n.q) waiting)" } else { '' }))
+  FactRow 'C: drive' "$($n.cfreeGB) GB free   ·   answers in $($n.lat) ms"
+  $rt = @($n.rtop); for ($k = 0; $k -lt $rt.Count; $k++) { FactRow $(if ($k -eq 0) { 'RAM used by' } else { '' }) ([string]$rt[$k].n + '   ' + $(if ($rt[$k].m -ge 1024) { [string][math]::Round($rt[$k].m / 1024, 1) + ' GB' } else { [string]$rt[$k].m + ' MB' }) + $(if ($rt[$k].k -gt 1) { '   (' + $rt[$k].k + ' copies)' } else { '' })) }
+  FactRow 'PC Doctor' (($(if ($run -and $run.ver) { 'v' + $run.ver + ' (build ' + $run.build + ')' } else { 'v' + $n.ver })) + $(if ($n.user) { '   ·   user ' + $n.user } else { '' }))
+  if ($iv -and $iv.battery) { FactRow 'Battery' "health $($iv.battery.health)%   ($($iv.battery.cycles) cycles)" }
+  if ($iv -and $iv.disks) { $dk = @($iv.disks); for ($k = 0; $k -lt $dk.Count; $k++) { FactRow $(if ($k -eq 0) { 'Disk health' } else { '' }) ($dk[$k].model + '   ' + $dk[$k].health) } }
+  $wk = if ($v -and $v.all) { @($v.all) } else { @() }
+  if (!$wk.Count) { FactRow 'Last 7 days' 'Nothing found' $CL.ok } else { for ($k = 0; $k -lt $wk.Count; $k++) { $wl = $LVL[[string]$wk[$k].lv]; if (!$wl) { $wl = $LVL.green }; FactRow $(if ($k -eq 0) { 'Last 7 days' } else { '' }) ($wl[0] + ' ' + $wk[$k].v) $wl[1] } }
+  $facts.EndUpdate()
   $ni.Text = ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Substring(0, [math]::Min(63, ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Length))
   if ($lv -ne $lastLv) { $ni.Icon = Ico $e[1]; $script:lastLv = $lv }
   $un = J 'uninst.json'; if ($un -and $script:unAsked -and [int64]$un.t -ge $script:unAsked) { $script:unAsked = 0; $msg.Text = [string]$un.msg }

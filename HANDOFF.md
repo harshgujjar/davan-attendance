@@ -127,6 +127,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov 10:40: 1DAVAN updater says "no internet" (stuck on 1.19, agent online). Agent 1.25 loader has retries + api.github.com fallback, but the OLD
   loader must fetch it first. Asked the user to open raw.githubusercontent.com/.../pcdoctor/lab-version.json in a browser (ISP block?).
 - 05-Nov: tray 1.16 - "Open Console" button + menu item on every PC (tray password, then the Console login; URL = cfg.consoleUrl).
+- 05-Nov: Agent 1.29 / tray 1.17 / Console 1.10 - tray facts as a 2-column list; offline update pendrive (Console Rescue page + tray "Update from pendrive").
+  Agent 1.28 fixed tray-start.vbs (comma vs + precedence: "Unterminated string constant" popup every 10 min on old launcher until the agent rewrites it).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

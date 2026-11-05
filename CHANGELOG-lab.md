@@ -2,6 +2,12 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.29 / tray 1.17 / Console 1.10 -- The user: neat, aligned tray facts + "build the update pendrive". Tray This PC: the facts are
+  now a two-column list (what | value), one fact per row, RAM programs and the last-7-days findings one per row, coloured, PC Doctor version
+  from the running build. Offline update: Console Rescue page -> "Make PC Doctor update pendrive" (DavanUpdate folder: lab-version.json +
+  src files, each checked against its fingerprint); tray Updates -> "Update from pendrive" (password goes with the request, the SYSTEM agent
+  checks it again + every fingerprint + a newer build; old copy kept for the 10-min rollback; progress bar). Needs 1.29 already installed.
+  FactRow, UsbUpdate, A-UsbUpdate, A-PwOk, makeUpdatePen.
 - 05-Nov-2026 · Agent 1.28 -- The user: Windows Script Host "tray-start.vbs line 8 Unterminated string constant" (shown at each tray start / 10-min
   check). In PD-TrayLauncher the comma bound tighter than + so the tray path landed on a line of its own; the Run line is now one bracketed string.
   The agent rewrites the launcher by itself at its next start (new text differs).

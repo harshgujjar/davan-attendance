@@ -85,6 +85,7 @@ function A-TrayReq {
   if (Test-Path "$r\usbfix.flag") { Remove-Item "$r\usbfix.flag" -Force; $d = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2' | Where-Object { Test-Path ($_.DeviceID + '\DavanFix\fix.json') }) | Select-Object -First 1
     $o = if ($d) { PD-RunUsbFix $d.DeviceID -Asked } else { $null }; PD-WriteJson (Join-Path $PD.Root 'state\usbfix.json') @{ t = (PD-NowMs); done = @($o); ok = [bool]$d }
     if ($o) { foreach ($x in $o) { PD-FixLog 'clean_temp' @{ ok = $x.ok; txt = ('pendrive: ' + $x.file + ' ' + $x.txt) } 'pendrive' } } }
+  $uu = PD-ReadJson "$r\usbupd.json"; if ($uu) { Remove-Item "$r\usbupd.json" -Force; A-UsbUpdate $uu; return }
   $un = PD-ReadJson "$r\uninstall.json"; if ($un) { Remove-Item "$r\uninstall.json" -Force; A-Uninstall $un; return }
   $q = PD-ReadJson "$r\ai.json"
   if ($q) { Remove-Item "$r\ai.json" -Force
@@ -125,6 +126,44 @@ Remove-Item `$PSCommandPath -Force
   $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$f`""
   Register-ScheduledTask -TaskName 'Davan PC Doctor Uninstall' -Action $act -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
   Start-ScheduledTask -TaskName 'Davan PC Doctor Uninstall'
+}
+# 1.29 (user, 05-Nov-2026: "build with pendrive also"): offline update. The tray sends req\usbupd.json {pw}; the password is checked HERE again
+# (as the Uninstall does), then every file of DavanUpdate\src on the pendrive must match the fingerprint in the pendrive's lab-version.json
+# and the build must be newer. Old copy -> good\ (the loader rolls back a version that stays silent), new copy -> bin\, then this agent
+# ends and the loader starts the new one.
+function A-PwOk([string]$pw) {
+  $c = PD-Cfg; $want = if ($c -and $c.trayPw) { [string]$c.trayPw } else { '' }
+  $hp = -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes('davanlab:' + $pw)) | ForEach-Object { $_.ToString('x2') })
+  $def = -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes('davanlab:2531')) | ForEach-Object { $_.ToString('x2') })
+  ($want -and $hp -eq $want) -or (!$want -and $hp -eq $def)
+}
+function A-UsbRes([bool]$ok, [string]$msg) { PD-WriteJson (Join-Path $PD.Root 'state\usbupd.json') @{ t = (PD-NowMs); ok = $ok; msg = $msg } }
+function A-UsbProg([string]$ph, [int]$i, [int]$n, [string]$file, [string]$to) { PD-WriteJson (Join-Path $PD.Root 'state\updp.json') @{ t = (PD-NowMs); ph = $ph; i = $i; n = $n; file = $file; to = $to } }
+function A-UsbUpdate($rq) {
+  if (!(A-PwOk ([string]$rq.pw))) { A-UsbRes $false 'Wrong password - nothing installed.'; return }
+  $d = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2' | Where-Object { Test-Path ($_.DeviceID + '\DavanUpdate\lab-version.json') }) | Select-Object -First 1
+  if (!$d) { A-UsbRes $false 'No update pendrive found (it needs a DavanUpdate folder). Plug it in and try again.'; return }
+  $dir = $d.DeviceID + '\DavanUpdate'; $v = PD-ReadJson "$dir\lab-version.json"
+  if (!$v -or !$v.agent -or !$v.files) { A-UsbRes $false 'The lab-version.json on the pendrive cannot be read - make the pendrive again.'; return }
+  $run = PD-ReadJson (Join-Path $PD.Root 'state\running.json')
+  if ($run -and [int]$run.build -ge [int]$v.agent.build) { A-UsbRes $true ('This PC already has ' + $run.ver + ' (build ' + $run.build + '); the pendrive has ' + $v.agent.ver + '. Nothing to install.'); return }
+  $tmp = Join-Path $PD.Root 'dl\usb'; Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force $tmp | Out-Null
+  $props = @($v.files.PSObject.Properties); $n = $props.Count; $k = 0; $to = [string]$v.agent.ver
+  foreach ($f in $props) { $k++; A-UsbProg 'usb' $k $n $f.Name $to
+    $src = Join-Path "$dir\src" $f.Name
+    if (!(Test-Path $src)) { A-UsbRes $false ('A file is missing on the pendrive: ' + $f.Name + ' - make the pendrive again.'); return }
+    Copy-Item $src (Join-Path $tmp $f.Name) -Force
+    if ((PD-Sha256File (Join-Path $tmp $f.Name)) -ne [string]$f.Value) { A-UsbRes $false ('Refused: ' + $f.Name + ' does not match its fingerprint (the pendrive is damaged or was changed).'); return } }
+  $bin = Join-Path $PD.Root 'bin'; $good = Join-Path $PD.Root 'good'
+  Remove-Item "$good\*" -Force -ErrorAction SilentlyContinue; Copy-Item "$bin\*" $good -Force; Copy-Item (Join-Path $PD.Root 'state\running.json') "$good\running.json" -ErrorAction SilentlyContinue
+  Copy-Item "$tmp\*" $bin -Force
+  PD-WriteJson (Join-Path $PD.Root 'state\running.json') @{ ver = [string]$v.agent.ver; build = [int]$v.agent.build; at = (PD-NowMs); prev = $(if ($run) { [int]$run.build } else { 0 }) }
+  if (Test-Path "$bin\loader.ps1") { Copy-Item "$bin\loader.ps1" (Join-Path $PD.Root 'loader.ps1') -Force }
+  try { $v | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $PD.Root 'state\labver.json') -Encoding UTF8 } catch {}
+  PD-WriteJson (Join-Path $PD.Root 'state\upd.json') @{ at = (PD-NowMs); res = ('Updated to ' + $to + ' (build ' + $v.agent.build + ') from the pendrive'); manual = $true }
+  PD-Event 'update' '💾' ('PC Doctor updated to ' + $to + ' from a pendrive by ' + [string]$rq.who) | Out-Null
+  A-UsbProg 'usbdone' $n $n '' $to; A-UsbRes $true ('Installed ' + $to + ' from the pendrive - PC Doctor restarts in a few seconds.')
+  Start-Sleep 4; exit 0
 }
 function A-TrayEdits {
   foreach ($f in @(Get-ChildItem (Join-Path $PD.Root 'req') -Filter 'edit*.json' -ErrorAction SilentlyContinue)) {
