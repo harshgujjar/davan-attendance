@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.67 -- The tray's Refresh now checks every area, not only the readings: settings from DB5, new Windows events, the other PCs, rows not yet sent, and the verdict
+  (so the report and "Other findings" are redone at once), together with the update check it already did. A few extra DB reads per tap only; the heavy daily inventory stays with "Check now". A-Do refresh loop.
 - 05-Nov-2026 · tray 1.43 -- "Every few minutes PC Doctor restarts and asks for the password": the open window restarted itself (password asked again) on EVERY agent build, and
   several agent builds came out that day. The tray now restarts only when its own file changed. No DB reads. TrayId, SelfUpdate.
 - 05-Nov-2026 · Agent 1.65 -- The Sony showed "Windows damaged 70%: sfc found ? damaged files; 23 service start failures": sfc found none - the 23 failures were the boot right after
