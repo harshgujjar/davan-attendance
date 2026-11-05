@@ -9,7 +9,7 @@ P = os.path.join(R, "lab-version.json")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 note = (sys.argv[1] if len(sys.argv) > 1 else "").strip()
 PARTS = {"agent": ["agent.ps1", "common.ps1", "loader.ps1", "install.ps1", "dlh.ps1"], "checks": ["checks.ps1"], "fixes": ["fixes.ps1"],
-         "tray": ["tray.ps1"], "rescue": ["../DavanRescue.cmd"], "console": ["../../lab.html"]}
+         "tray": ["tray.ps1", "notes.txt"], "rescue": ["../DavanRescue.cmd"], "console": ["../../lab.html"]}
 for f in os.listdir(os.path.join(R, "src")):
     if f.endswith(".ps1"):
         p = os.path.join(R, "src", f); b = open(p, "rb").read()
@@ -42,7 +42,7 @@ for f in sorted(os.listdir(os.path.join(R, "src"))):
 if bad: sys.exit("STOP - fix these first (same name in two spellings in one function = same variable; a key twice in @{...}):\n  " + "\n  ".join(bad))
 sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
 old = json.load(open(P)) if os.path.exists(P) else {}
-files = {f: sha(os.path.join(R, "src", f)) for f in sorted(os.listdir(os.path.join(R, "src"))) if f.endswith(".ps1")}
+files = {f: sha(os.path.join(R, "src", f)) for f in sorted(os.listdir(os.path.join(R, "src"))) if f.endswith(".ps1") or f == "notes.txt"}
 now = dt.datetime.now(IST); ms = int(now.timestamp() * 1000)
 out = {"_about": "Davan PC Doctor versions (pcdoctor/lab-version.json). The loader on every PC reads this; files = SHA-256 of src/*. Made by tools/pcdoctor_version.py.",
        "files": files, "rescue": sha(os.path.join(R, "DavanRescue.cmd")), "setup": sha(os.path.join(R, "PCDoctor-Setup.cmd")), "news": old.get("news", [])}

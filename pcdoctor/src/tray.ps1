@@ -42,8 +42,21 @@ Corner; $form.Add_Shown({ Corner })   # after the DPI scaling the window is bigg
 $tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $FT.n }
 $tMe = New-Object Windows.Forms.TabPage -Property @{ Text = 'This PC'; BackColor = $CL.bg }
 $tabs.TabPages.Add($tMe); $form.Controls.Add($tabs)
+# ---------- Notes tab (user, 05-Nov-2026: "keep all these steps in new notes in the tray icon so I know how it works after some days") ----------
+# the text is the file notes.txt (pcdoctor/src/notes.txt on GitHub), downloaded like every other PC Doctor file, so it reads offline and
+# a change to the notes never needs a new tray
+$tNote = New-Object Windows.Forms.TabPage -Property @{ Text = 'Notes'; BackColor = $CL.bg }
+$nTxt = New-Object Windows.Forms.TextBox -Property @{ Left = 12; Top = 10; Width = 420; Height = 500; Multiline = $true; ReadOnly = $true; ScrollBars = 'Vertical'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None' }
+$nCopy = New-Object Windows.Forms.Button -Property @{ Text = 'Copy notes'; Left = 12; Top = 516; Width = 140; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
+$nCopy.FlatAppearance.BorderColor = $CL.bd; $nCopy.Add_Click({ try { [Windows.Forms.Clipboard]::SetText($nTxt.Text) } catch {} })
+$tNote.Controls.AddRange(@($nTxt, $nCopy))
+$script:notesAt = [datetime]::MinValue
+function NotesLoad { $f = "$Root\bin\notes.txt"
+  if (!(Test-Path $f)) { if (!$nTxt.Text) { $nTxt.Text = 'The notes arrive with the next PC Doctor update (Updates tab -> Update now).' }; return }
+  $w = (Get-Item $f).LastWriteTime; if ($w -eq $script:notesAt) { return }; $script:notesAt = $w
+  try { $nTxt.Text = ((Get-Content $f -Raw -Encoding UTF8) -replace "`r?`n", "`r`n"); $nTxt.SelectionStart = 0; $nTxt.SelectionLength = 0 } catch {} }
 # ---------- ⬆️ Updates tab (user, 04-Nov-2026): Update now + this PC's version, when it came, what's new (5 newest, Show all / Hide) ----------
-$tUp = New-Object Windows.Forms.TabPage -Property @{ Text = '⬆ Updates'; BackColor = $CL.bg }; $tabs.TabPages.Add($tUp)
+$tUp = New-Object Windows.Forms.TabPage -Property @{ Text = '⬆ Updates'; BackColor = $CL.bg }; $tabs.TabPages.Add($tUp); $tabs.TabPages.Add($tNote)
 $uVer = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 10; Width = 420; Height = 26; Font = $FT.big; ForeColor = $CL.ac; Text = 'PC Doctor' }
 $uWhen = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 40; Width = 420; Height = 40; Font = $FT.s; ForeColor = $CL.mu }
 $uUsb = New-Object Windows.Forms.Button -Property @{ Text = 'Update from pendrive'; Left = 220; Top = 84; Width = 212; Height = 32; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.n }
@@ -304,8 +317,8 @@ function SelfUpdate { $b = try { [int](J 'running.json').build } catch { 0 }
     $ni.Visible = $false; try { $mtx.ReleaseMutex(); $mtx.Dispose() } catch {}
     if (Test-Path "$Root\tray-start.vbs") { Start-Process wscript.exe -ArgumentList "`"$Root\tray-start.vbs`" /now" } else { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`"" }
     [Environment]::Exit(0) } }
-$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { if (!$tp.Enabled) { $pp = J 'updp.json'; if ($pp -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$pp.t) -lt 300000) { $tp.Start() } } } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
-try { Refresh } catch {}; try { UpdRefresh } catch {}
+$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}; try { if (!$tp.Enabled) { $pp = J 'updp.json'; if ($pp -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$pp.t) -lt 300000) { $tp.Start() } } } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
+try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}
 Sharp $form; Corner
 if ($args -contains '-show') { OpenWin }
 [Windows.Forms.Application]::Run()

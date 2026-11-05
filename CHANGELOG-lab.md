@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · tray 1.19 -- The user: "keep all these steps in new notes in the tray so I know how it works after some days". New Notes tab
+  (copy button) showing src/notes.txt - install, passwords, Command Prompt steps, tray / agent not working, updates + update pendrive, Deep Freeze
+  behaviour, the DFC.exe test for an automatic Thaw / Freeze in lab hours (planned, not built), buttons, who to ask. notes.txt is downloaded
+  with the other files (pcdoctor_version.py lists it), so the notes are editable on GitHub and read offline. NotesLoad.
 - 05-Nov-2026 · tray 1.18 -- The user: "give every point a serial number" - the This PC facts list has a No. column (1, 2, 3 ...), then what | value.
   FactRow.
 - 05-Nov-2026 · Agent 1.29 / tray 1.17 / Console 1.10 -- The user: neat, aligned tray facts + "build the update pendrive". Tray This PC: the facts are
