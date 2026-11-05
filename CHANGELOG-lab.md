@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.63 / tray 1.39 -- The user: "give a Refresh option so any new change shows". This PC tab: Refresh (next to Open Console) - the agent takes fresh readings at once
+  (req/refresh.flag: network + the minute reading) and the updater looks for a newer PC Doctor; the window re-reads every 3 s for 30 s. RefreshNow, agent 14-s loop.
 - 05-Nov-2026 · Agent 1.62 / tray 1.38 -- The user moved to Ethernet and the tray still said Wi-Fi: PC Doctor took the first network with a gateway (Wi-Fi stayed connected) and
   looked only every 5 minutes. Now the connection Windows really uses (default route with the lowest metric), the other one shown as "(Wi-Fi also on)", read every minute. A-NetInfo.
 - 05-Nov-2026 · tray 1.37 -- The Sony's list stopped at Temperature with "Error: Cannot compare "" to "0"": its empty fan list came back as an object. Every row of the list now runs on

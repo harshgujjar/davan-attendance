@@ -181,7 +181,14 @@ Btn 'Check now' 152 $by 136 { Set-Content "$Rq\now.flag" '1'; $msg.Text = 'Check
 Btn 'Copy' 292 $by 140 { [Windows.Forms.Clipboard]::SetText((Report)); $msg.Text = 'Report copied - paste it in WhatsApp / chat.' } | Out-Null
 Btn 'Save report to pendrive' 12 ($by + 36) 200 { Set-Content "$Rq\usb.flag" '1'; $msg.Text = 'Saving to the pendrive ...' } | Out-Null
 Btn 'Fix from pendrive' 216 ($by + 36) 216 { if ($script:unlocked -or (Pw 'Fix from pendrive')) { Set-Content "$Rq\usbfix.flag" '1'; $msg.Text = 'Running the approved fixes from the pendrive ...' } } | Out-Null
-Btn 'Open Console' 12 ($by + 108) 420 { OpenConsole } | Out-Null
+# 1.39 (user, 05-Nov-2026: "give a Refresh option so any new change shows with that refresh"): fresh readings now (network, temperature, the whole list)
+# within ~15 s + a check for a newer PC Doctor (installs by itself, progress on the Updates tab); the window re-reads every 3 s for 30 s
+$script:rfUntil = [datetime]::MinValue
+$trf = New-Object Windows.Forms.Timer -Property @{ Interval = 3000 }; $trf.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; if ((Get-Date) -gt $script:rfUntil) { $trf.Stop(); $msg.Text = 'Refreshed ' + (Get-Date).ToString('h:mm:ss tt') + '.' } })
+function RefreshNow { try { Set-Content "$Rq\refresh.flag" '1'; Set-Content "$Rq\update.flag" '1' } catch {}
+  $script:rfUntil = (Get-Date).AddSeconds(30); $msg.Text = 'Refreshing - new readings within about 15 s; a newer PC Doctor (if any) installs by itself.'; $trf.Start() }
+Btn 'Refresh' 12 ($by + 108) 206 { RefreshNow } | Out-Null
+Btn 'Open Console' 222 ($by + 108) 210 { OpenConsole } | Out-Null
 Btn '⚙ Name / group / notes' 12 ($by + 72) 316 { if ($script:unlocked -or (Pw 'changing this PC')) { Edit } } | Out-Null
 # 1.11 (user, 05-Nov-2026): Uninstall with the password - shows exactly what is removed, the agent (SYSTEM) does it and checks the password again
 Btn 'Uninstall' 332 ($by + 72) 100 { Uninstall } | Out-Null
