@@ -375,6 +375,26 @@ function A-Cmds {
 function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   $h = A-Hwid
   switch -regex ($kind) {
+    '^(crash_info)$' {   # 1.54 read-only (user, 05-Nov-2026: "Gujjar home restarts by itself - learn it so we can fix others too"): every sudden power-off of the last 14 days
+      $o = @(); $from = (Get-Date).AddDays(-14)
+      try { $os = Get-CimInstance Win32_OperatingSystem; $o += 'windows: ' + $os.Caption + ' build ' + $os.BuildNumber + ' | up since ' + $os.LastBootUpTime.ToString('dd MMM HH:mm') } catch {}
+      try { $bb = Get-CimInstance Win32_BaseBoard; $bi = Get-CimInstance Win32_BIOS; $o += 'board: ' + $bb.Manufacturer + ' ' + $bb.Product + ' | BIOS ' + $bi.SMBIOSBIOSVersion + ' ' + $(if ($bi.ReleaseDate) { $bi.ReleaseDate.ToString('yyyy') }) } catch {}
+      try { $tz = @(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop | ForEach-Object { [math]::Round($_.CurrentTemperature / 10 - 273.15) }); $o += 'board temperature now: ' + ($tz -join ', ') + ' C' } catch { $o += 'board temperature: not reported by this board' }
+      try { $pp = (powercfg /getactivescheme) -join ' '; $o += 'power plan: ' + ($pp -replace '.*\(', '(') } catch {}
+      $o += 'minidumps: ' + @(Get-ChildItem "$env:windir\Minidump" -ErrorAction SilentlyContinue).Count
+      $kp = @(); try { $kp = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-Power'; Id = 41; StartTime = $from } -ErrorAction Stop) } catch {}
+      $o += 'sudden power-offs (14 days): ' + $kp.Count
+      foreach ($e in ($kp | Select-Object -First 12)) {
+        $d = @{}; try { foreach ($x in ([xml]$e.ToXml()).Event.EventData.Data) { $d[[string]$x.Name] = [string]$x.'#text' } } catch {}
+        $pb = $(if ($d.PowerButtonTimestamp -and $d.PowerButtonTimestamp -ne '0') { 'POWER BUTTON pressed/held' } else { 'no button' })
+        $last = ''; try { $u = Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 6008; StartTime = $e.TimeCreated; EndTime = $e.TimeCreated.AddMinutes(5) } -MaxEvents 1 -ErrorAction Stop; $last = ' | last alive ' + (($u.Message -replace '.*shutdown at ', '') -replace ' was unexpected.*', '') } catch {}
+        $pre = ''; try { $pre = (@(Get-WinEvent -FilterHashtable @{ LogName = 'System'; StartTime = $e.TimeCreated.AddMinutes(-20); EndTime = $e.TimeCreated.AddSeconds(-5) } -MaxEvents 6 -ErrorAction Stop | ForEach-Object { $_.TimeCreated.ToString('HH:mm') + ' ' + ($_.ProviderName -replace 'Microsoft-Windows-', '') + '/' + $_.Id }) -join ', ') } catch {}
+        $o += ' - ' + $e.TimeCreated.ToString('dd MMM HH:mm') + ' | code ' + $d.BugcheckCode + ' | ' + $pb + ' | sleep ' + $d.SleepInProgress + $last + ' | before: ' + $(if ($pre) { $pre } else { 'nothing logged' })
+      }
+      foreach ($w in @(@('WHEA-Logger (hardware errors)', 'Microsoft-Windows-WHEA-Logger'), @('Kernel-Processor-Power (CPU limited)', 'Microsoft-Windows-Kernel-Processor-Power'), @('disk errors', 'disk'), @('Kernel-Power other', 'Microsoft-Windows-Kernel-Power'))) {
+        try { $n = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = $w[1]; StartTime = $from } -ErrorAction Stop | Where-Object { $_.Id -ne 41 }); $o += $w[0] + ': ' + $n.Count + $(if ($n.Count) { ' (last ' + $n[0].TimeCreated.ToString('dd MMM HH:mm') + ' id ' + $n[0].Id + ')' } else { '' }) } catch { $o += $w[0] + ': 0' } }
+      try { $pl = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 1074; StartTime = $from } -MaxEvents 5 -ErrorAction Stop | ForEach-Object { $_.TimeCreated.ToString('dd MMM HH:mm') + ' ' + $(($m1 = (($_.Message -split "`n")[0] -replace '\s+', ' ')).Substring(0, [math]::Min(110, $m1.Length))) }); $o += 'planned restarts (by a program/user): ' + $(if ($pl.Count) { $pl -join ' || ' } else { 'none' }) } catch { $o += 'planned restarts: none' }
+      @{ ok = $true; txt = ($o -join "`n") } }
     '^(mesh_check)$' {   # 1.52 read-only (user, 05-Nov-2026: Remote screen never connects - the server shows every PC registered but NOT connected): why is this PC's remote agent offline?
       $o = @(); $svc = Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue
       $o += 'service: ' + $(if ($svc) { [string]$svc.Status + ' / start ' + [string]$svc.StartType } else { 'NOT INSTALLED' })
