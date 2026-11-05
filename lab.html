@@ -98,7 +98,7 @@ body.embed header.top{position:static}
    token from the worker davan-release /lab/tok (staff login -> Super Admin check). Opens inside the staff app (?embed=1) or on its own
    (installable, same staff login). Reads summaries (lab/now, lab/pcs, lab/load), never raw minute rows except "just before the freeze".
    Changelog: CHANGELOG-lab.md. Versions: pcdoctor/lab-version.json (console.build = LAB_BUILD below). */
-const LAB_BUILD = 16, LAB_VER = '1.' + LAB_BUILD;
+const LAB_BUILD = 17, LAB_VER = '1.' + LAB_BUILD;
 try { document.getElementById('brandVer').textContent = 'v' + LAB_VER; } catch (e) {}   // 1.6 (user, 05-Nov-2026): version always under the name
 const DEL_SW = ['clean_temp', 'spooler', 'startup_off', 'android_clean'];   // fixes that delete: never automatic (strict rule 04-Nov)
 const WK = 'https://davan-release.harshgujjar.workers.dev', DB5 = 'https://davan-lab-default-rtdb.asia-southeast1.firebasedatabase.app', K5 = 'AIzaSyAdebhgQpyjd3ZQgUl_UNhLXYUDRJK1C1s';
@@ -702,11 +702,46 @@ function pageRemote() {
     '<div class="tiny dim" style="margin-top:6px">Wake-on-LAN: All devices → the PC → Actions → Wake-up (works where the BIOS allows). The first login in MeshCentral asks you to set its password + 2-step code (🔧 Settings has the first password).</div></div>' +
     '<div id="meshBox"></div><div id="meshLog"></div>');
 }
+// 1.17 (user, 05-Nov-2026: "still not able to connect - show the progress here, what is happening, make a log"): installing the remote agent
+// shows every step live (agent 1.47 writes lab/res/<h>/<id>.steps), with 📋 Copy; old agents only answer at the end
+async function meshInstall(h) {
+  L.pc = h;
+  const n = L.now[h] || {}, on = n.t && Date.now() - n.t < 3 * 60000, lines = [];
+  const box = () => { const t = lines.join('\n'); window.__cp.minst = pcName(h) + ' - remote agent install\n' + t;
+    $('meshBox').innerHTML = '<div class="card"><h3>🖥️ Remote agent on ' + esc(pcName(h)) + '</h3><pre class="small" style="white-space:pre-wrap;margin:0">' + esc(t) + '</pre><div class="row" style="margin-top:6px">' + cpBtn('minst') + '<button class="btn sm" onclick="meshInstall(\'' + h + '\')">🔁 Try again</button></div></div>'; };
+  const add = x => { lines.push(new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(11, 19) + ' ' + x); box(); };
+  add('Console: ' + pcName(h) + ' has no remote id yet. PC Doctor agent ' + (n.ver || '?') + ', Deep Freeze ' + (n.df || '?') + ', last seen ' + ago(n.t) + '.');
+  if (!on) return add('❌ ' + pcName(h) + ' is not online (last seen ' + ago(n.t) + '). Switch it on / check its network, then 🔁 Try again.');
+  const vOk = v => { const m = String(v || '').split('.'); return +m[0] > 1 || (+m[0] === 1 && +m[1] >= 47); };
+  if (!vOk(n.ver)) {
+    add('PC Doctor agent ' + (n.ver || '?') + ' is older than 1.47 (it cannot read the remote id) - asking it to update first…');
+    const uid = 'c' + Date.now() + '11'; await put('lab/cmd/' + h + '/' + uid, { kind: 'update_now', args: {}, by: 'Super Admin', why: 'Remote screen needs agent 1.47', at: Date.now(), ro: false, ok: true, st: 'queued' });
+    let v = n.ver; for (let i = 0; i < 40 && !vOk(v); i++) { await new Promise(r => setTimeout(r, 6000)); v = await g('lab/now/' + h + '/ver').catch(() => v); if (i % 5 === 4) add('⏳ waiting for the update… agent is ' + (v || '?')); }
+    if (vOk(v)) { add('✅ Agent updated to ' + v); L.now[h] = Object.assign(L.now[h] || {}, { ver: v }); } else add('⚠️ Agent still ' + (v || '?') + ' after 4 min - trying anyway (Versions page shows why it does not update).');
+  }
+  const id = 'c' + Date.now() + String(Math.floor(Math.random() * 90) + 10);
+  await put('lab/cmd/' + h + '/' + id, { kind: 'mesh_install', args: {}, by: 'Super Admin', why: 'Remote screen: install the remote agent', at: Date.now(), ro: false, ok: true, st: 'queued' });
+  add('Sent "install remote agent" to ' + pcName(h) + ' - it picks it up within 15 s.');
+  let seen = 0;
+  for (let i = 0; i < 80; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    const r = await g('lab/res/' + h + '/' + id).catch(() => null); if (!r) { if (i === 10) add('⏳ No answer after 30 s - the PC Doctor agent on ' + pcName(h) + ' may be busy or stopped.'); continue; }
+    const st = (r.steps || (r.data || {}).steps || []); for (; seen < st.length; seen++) add('PC: ' + st[seen]);
+    if (seen === 0 && r.st === 'running' && i === 2) add('PC started the install (an agent older than 1.47 shows the steps only at the end).');
+    if (r.st === 'done' || r.st === 'failed') {
+      if (!st.length) add('PC: ' + (r.txt || r.st));
+      const pc = await g('lab/pcs/' + h).catch(() => null); if (pc) L.pcs[h] = pc;
+      if ((pc || {}).meshId) { add('✅ Remote id received - opening the screen…'); pageRemote(); return openMesh(11); }
+      return add((r.st === 'failed' || r.txt && /fail|error/i.test(r.txt) ? '❌ ' : '⚠️ ') + 'Finished without a remote id: ' + (r.txt || r.st) + '. 📋 Copy this and send it to Claude.');
+    }
+  }
+  add('⏳ Still no final answer after 4 min. 📋 Copy this and send it to Claude.');
+}
 let _meshScale = 1;
 async function openMesh(view) {
   const h = $('r-pc') ? $('r-pc').value : L.pc; if (view && !h) return toast('Choose a PC first');
   if (view && h) cmd(h, 'identify', {}, { wait: false, why: 'remote screen opened' }).catch(() => {});   // 1.13: the PC shows its name on its own screen
-  const id = h ? meshNode((L.pcs[h] || {}).meshId) : ''; if (view && !id) { cmd(h, 'mesh_install', {}, { why: 'Remote screen opened, no remote agent yet' }).catch(() => {}); return toast(pcName(h) + ' has no remote agent yet - installing it now (1-2 min), then tap 🖥️ Screen again', 8000); }   // 1.16 (user, 05-Nov-2026: "can't connect B1"): install at once instead of waiting an hour
+  const id = h ? meshNode((L.pcs[h] || {}).meshId) : ''; if (view && !id) return meshInstall(h);   // 1.16 (user, 05-Nov-2026: "can't connect B1"): install at once instead of waiting an hour
   const r = await wk('/lab/mesh').catch(e => ({ ok: false, msg: e.message })); if (!r.ok) return $('meshBox').innerHTML = '<div class="alert red">' + esc(r.msg) + '</div>';
   const u = r.url.replace(/\/?$/, '/') + '?login=' + encodeURIComponent(r.login) + (view ? '&gotonode=' + encodeURIComponent(id) + '&viewmode=' + view : '') + '&hide=1';
   $('meshBox').innerHTML = '<div class="frame" id="meshFrame"><iframe src="' + u + '" allow="clipboard-read; clipboard-write; fullscreen" title="Remote screen"></iframe></div><div class="row" style="margin-top:6px"><a class="btn sm" href="' + esc(u) + '" target="_blank">↗ Open full screen</a></div>';

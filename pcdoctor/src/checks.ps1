@@ -198,7 +198,14 @@ function PD-Inventory {
     mesh = (PD-MeshNode)
   }
 }
-function PD-MeshNode { try { $k = Get-ItemProperty 'HKLM:\SOFTWARE\Open Source\MeshAgent2' -ErrorAction Stop; [string]$k.NodeId } catch { '' } }
+# 1.47 (user, 05-Nov-2026: B1 "MeshCentral agent already installed" but no remote id): the agent's registry key is named after its service
+# ("Mesh Agent", older "MeshAgent2", 32-bit WOW6432Node) - look in every key under Open Source for NodeId
+function PD-MeshNode {
+  foreach ($root in 'HKLM:\SOFTWARE\Open Source', 'HKLM:\SOFTWARE\WOW6432Node\Open Source') {
+    foreach ($k in @(Get-ChildItem $root -ErrorAction SilentlyContinue)) {
+      try { $v = (Get-ItemProperty $k.PSPath -ErrorAction Stop).NodeId; if ($v) { return ([string]$v).Trim() } } catch {} } }
+  ''
+}
 # where Windows, Android Studio, SDK, emulators, Gradle and student projects are, and how big (6: drive map; 7: Android clean)
 function PD-DirGB([string]$p) { try { if (Test-Path $p) { [math]::Round(((Get-ChildItem $p -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum) / 1GB, 2) } else { $null } } catch { $null } }
 function PD-UserDirs { @(Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin 'Public','Default','Default User','All Users' }) }

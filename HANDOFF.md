@@ -148,6 +148,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   (checks.ps1 why-format: 0 -eq '' is true in PowerShell) and 1 pending sector alone = red 90% (suggested orange 'Disk warning - watch').
 - 05-Nov 14:50: Agent 1.46 / Console 1.16 - Remote screen: no PC had meshId (sent only by daily inventory, before mesh install) -> sent hourly on change;
   Screen on a PC without one sends mesh_install. MeshCentral server checked OK (infra check). B1's Thaw queue = rename only (Check disk went to B6, ran there).
+- 05-Nov 15:00: Agent 1.47 / Console 1.17 - B1 mesh installed but meshId empty: PD-MeshNode now scans all HKLM Open Source keys for NodeId; Remote screen
+  shows a live install log (lab/res steps). B1/B3/B6 were still on agent 1.39 at 14:50 (hourly loader) - the log asks update_now first. If still no id: read the log's registry line.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

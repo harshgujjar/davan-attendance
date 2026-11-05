@@ -385,7 +385,7 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
     '^(save_usb)$'   { $u = A-Usb -Force; @{ ok = [bool]$u; txt = $(if ($u) { "Saved to $u" } else { 'No pendrive' }) } }
     '^(loader_log)$' { $lf = Join-Path $PD.Root 'log\loader.log'; @{ ok = $true; txt = 'Last updater log lines'; data = @($(if (Test-Path $lf) { Get-Content $lf -Tail 30 } else { 'no log' })) } }   # 1.25 read-only
     '^(update_now)$' { Set-Content (Join-Path $PD.Root 'req\update.flag') '1'; @{ ok = $true; txt = 'Update check asked' } }
-    '^(mesh_install)$' { $t = A-MeshInstall; $mn = PD-MeshNode; if ($mn) { PD-Db PATCH ('lab/pcs/' + $h) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn }; @{ ok = $true; txt = $t + $(if ($mn) { ' - remote screen ready' } else { ' - no remote agent id yet' }) } }
+    '^(mesh_install)$' { $r = A-MeshInstall $id; @{ ok = $r.ok; txt = $r.txt; data = @{ steps = @($r.steps) } } }
     '^(laptop)$'     { $S.laptop = $true; @{ ok = $true; txt = 'Super Admin laptop mode on' } }
     default {
       $fx = $kind -replace '^fix:',''
@@ -473,14 +473,40 @@ function A-Usb([switch]$Force) {
   }
   $null
 }
-function A-MeshInstall {
-  if (Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue) { return 'MeshCentral agent already installed' }
-  $c = PD-Cfg -Force; if (!$c.meshGroup) { return 'Remote server not set up yet (no device group)' }
-  $u = ([string]$c.meshUrl).TrimEnd('/') + '/meshagents?id=4&meshid=' + ($c.meshGroup -replace '^mesh//','') + '&installflags=0'
-  $x = Join-Path $PD.Root 'dl\meshagent.exe'
-  Invoke-WebRequest -UseBasicParsing $u -OutFile $x -TimeoutSec 300
-  Start-Process $x -ArgumentList '-fullinstall' -Wait -WindowStyle Hidden
-  if (Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue) { 'MeshCentral agent installed' } else { 'MeshCentral agent did not install' }
+function A-MeshInstall([string]$cid = '') {
+  # 1.47 (user, 05-Nov-2026: "show the progress here, what is happening, make a log"): every step goes to the agent log and, for a Console
+  # command, to lab/res/<h>/<cid>.steps so the Remote screen page shows it live (📋 Copy); a failure says which step and why
+  $h = A-Hwid; $st = New-Object System.Collections.ArrayList
+  $step = { param($txt) [void]$st.Add(((Get-Date).ToString('HH:mm:ss') + ' ' + $txt)); PD-Log ('remote agent: ' + $txt)
+    if ($cid) { PD-Db PATCH ('lab/res/' + $h + '/' + $cid) @{ st = 'running'; t = (PD-NowMs); kind = 'mesh_install'; steps = @($st) } | Out-Null } }
+  try {
+    & $step ('Agent ' + (A-Ver) + ', Deep Freeze: ' + (PD-DeepFreeze).state + ', Windows ' + $env:COMPUTERNAME)
+    $svc = Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue
+    if ($svc) { & $step ('Remote agent already installed - service ' + $svc.Status)
+      if ($svc.Status -ne 'Running') { Start-Service 'Mesh Agent' -ErrorAction SilentlyContinue; Start-Sleep 5; & $step ('Service started: ' + (Get-Service 'Mesh Agent').Status) } }
+    else {
+      $c = PD-Cfg -Force; if (!$c.meshGroup) { & $step 'FAILED: remote server not set up yet (no device group in lab/cfg)'; return @{ ok = $false; txt = 'No device group'; steps = @($st) } }
+      $u = ([string]$c.meshUrl).TrimEnd('/') + '/meshagents?id=4&meshid=' + ($c.meshGroup -replace '^mesh//','') + '&installflags=0'
+      $x = Join-Path $PD.Root 'dl\meshagent.exe'; New-Item -ItemType Directory -Force (Split-Path $x) | Out-Null
+      & $step ('1/4 Downloading the remote agent from ' + ([string]$c.meshUrl))
+      try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing $u -OutFile $x -TimeoutSec 300 }
+      catch { & $step ('FAILED at download: ' + $_.Exception.Message); return @{ ok = $false; txt = 'Download failed: ' + $_.Exception.Message; steps = @($st) } }
+      $kb = [math]::Round((Get-Item $x).Length / 1KB); & $step ("2/4 Downloaded $kb KB")
+      if ($kb -lt 500) { & $step 'FAILED: the file is too small - the server sent an error page, not the agent'; return @{ ok = $false; txt = 'Bad download'; steps = @($st) } }
+      & $step '3/4 Installing (meshagent -fullinstall)'
+      $pr = Start-Process $x -ArgumentList '-fullinstall' -Wait -WindowStyle Hidden -PassThru
+      & $step ('Installer finished, exit code ' + $pr.ExitCode)
+    }
+    $id = ''; foreach ($i in 1..12) { $svc = Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue; $id = PD-MeshNode; if ($svc -and $svc.Status -eq 'Running' -and $id) { break }; Start-Sleep 5 }
+    if (!$svc) { & $step 'FAILED: no "Mesh Agent" service after the install (antivirus may have blocked meshagent.exe)'; return @{ ok = $false; txt = 'Service missing'; steps = @($st) } }
+    & $step ('4/4 Service ' + $svc.Status + ', remote id ' + $(if ($id) { $id.Substring(0, [math]::Min(12, $id.Length)) + '…' } else { 'NOT found yet (registry Open Source\MeshAgent2 NodeId)' }))
+    if ($id) { PD-Db PATCH ('lab/pcs/' + $h) @{ meshId = $id } | Out-Null; $S.meshSent = $id; & $step 'Remote id sent to the Console - tap 🖥️ Screen'
+      if ((PD-DeepFreeze).state -eq 'frozen') { & $step 'Note: this PC reads Frozen - Deep Freeze removes the remote agent at the next restart (it installs again by itself)' }
+      return @{ ok = $true; txt = 'Remote screen ready'; steps = @($st) } }
+    $rk = @(foreach ($root in 'HKLM:\SOFTWARE\Open Source', 'HKLM:\SOFTWARE\WOW6432Node\Open Source') { foreach ($k in @(Get-ChildItem $root -ErrorAction SilentlyContinue)) { $pn = @((Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue).PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { $_.Name }); ($k.PSChildName + ' [' + ($pn -join ',') + ']') } })
+    & $step ('Registry Open Source keys: ' + $(if ($rk.Count) { $rk -join '; ' } else { 'none' }))
+    @{ ok = $false; txt = 'Installed, but no remote id found'; steps = @($st) }
+  } catch { & $step ('FAILED: ' + $_.Exception.Message); @{ ok = $false; txt = 'error: ' + $_.Exception.Message; steps = @($st) } }
 }
 
 # ---------- main ----------
@@ -544,7 +570,7 @@ while ($true) {
       if (!$first) { A-AutoFix }
       # 7: restart-needing work (chkdsk / RAM test / updates / rename) waits for a free period with nobody logged in - never a PC in use
       if (!$first -and (PD-ReadJson (Join-Path $PD.Root 'state\fixhist.json')) -and [string]$S.pc.autoRst -ne (PD-ISTDate) -and (A-NeedRestart) -and (A-FreePeriod)) { PD-Log 'free period, nobody logged in - restart for the waiting fixes'; PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ autoRst = (PD-ISTDate) } | Out-Null; Fix-restart @{} | Out-Null }   # once a day at most (a Frozen PC can never clear its flags)
-      if ($S.pc.mesh -ne $false -and !(Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue)) { PD-Log (A-MeshInstall) }
+      if ($S.pc.mesh -ne $false -and !(Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue)) { $r = A-MeshInstall; PD-Log ('remote agent: ' + $r.txt) }
       # 1.46 (user, 05-Nov-2026: "can't connect B1 Remote screen" - no PC had a meshId): the remote agent's id was sent only with the daily
       # inventory, which runs BEFORE the agent installs it (and a Frozen PC installs it again, with a new id, at every start) - now sent every hour
       $mn = PD-MeshNode; if ($mn -and $mn -ne [string]$S.meshSent) { PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn; PD-Log 'remote agent id sent' }
