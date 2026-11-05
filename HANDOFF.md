@@ -127,7 +127,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
-  v1.6.1 SUBMITTED to addons.mozilla.org 15-Oct (slug usage-meter-for-claude) - waiting for approval. Heartbeat -> DB4
+  v1.6.1 APPROVED + listed on addons.mozilla.org (slug usage-meter-for-claude; user checked 05-Nov) - install from the store page. 05-Nov: user's "Claude Counter" (someone else's extension, v0.4.2, Feb 2026) showed no bar - told to switch to ours. Heartbeat -> DB4
   claude_meter/users, shown on the staff app 🧮 Claude Meter page (v1852). Updates: raise version, user uploads "Upload New Version".
 - **Claude Pulse** (Android usage widget, upstream G-biggy/claude-pulse-android): source davan-scraper `claude-pulse/` (DAVAN-NOTES.md,
   build.sh). v2.6 sent 15-Oct: pace advice + notifications, floating bar over the Claude app, bigger text, usage details. Key
