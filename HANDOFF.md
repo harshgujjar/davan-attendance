@@ -294,3 +294,4 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - 05-Nov: Agent 1.65 - GUJJARSONY "Windows damaged" was a false alarm (crash-restart service failures + 0 printed as ?); 1.64 = one RAM-type blue screen is only orange. Blue screen 4 Nov 0x50 with Roblox + IOBit Driver Booster open - told the user to remove Driver Booster (not done by us).
 - 05-Nov: tray 1.43 - tray restarted (password again) on every AGENT build; now only when bin\tray.ps1 itself changes.
 - 05-Nov: Agent 1.67 - tray Refresh = readings + settings + events + peers + queue + verdict + update check (Check now still does the daily inventory).
+- 05-Nov: tray 1.44 - version (running.json ver) in the icon tooltip, a left-click pop-up before the password, and the password box title.

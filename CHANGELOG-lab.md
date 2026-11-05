@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · tray 1.44 -- The PC Doctor version is now shown without the password: in the tray icon's tooltip ("PC Doctor v1.67 - Windows damaged"), in a pop-up on left click (version + verdict)
+  and in the password box title. Read from state\running.json, no DB reads. VerTxt, Refresh, the icon's MouseClick.
 - 05-Nov-2026 · Agent 1.67 -- The tray's Refresh now checks every area, not only the readings: settings from DB5, new Windows events, the other PCs, rows not yet sent, and the verdict
   (so the report and "Other findings" are redone at once), together with the update check it already did. A few extra DB reads per tap only; the heavy daily inventory stays with "Check now". A-Do refresh loop.
 - 05-Nov-2026 · tray 1.43 -- "Every few minutes PC Doctor restarts and asks for the password": the open window restarted itself (password asked again) on EVERY agent build, and

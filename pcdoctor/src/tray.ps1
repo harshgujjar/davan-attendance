@@ -25,9 +25,11 @@ $CL = @{ bg = [Drawing.Color]::FromArgb(11,13,17); card = [Drawing.Color]::FromA
         er = [Drawing.Color]::FromArgb(248,113,113); ye = [Drawing.Color]::FromArgb(250,204,21); pu = [Drawing.Color]::FromArgb(167,139,250); off = [Drawing.Color]::FromArgb(75,85,99) }
 $LVL = @{ green = @('●', $CL.ok); yellow = @('●', $CL.ye); orange = @('●', $CL.wa); red = @('●', $CL.er); purple = @('●', $CL.pu); off = @('○', $CL.off) }
 $FT = @{ big = New-Object Drawing.Font('Segoe UI Semibold', 13); n = New-Object Drawing.Font('Segoe UI', 9.5); s = New-Object Drawing.Font('Segoe UI', 8.5); m = New-Object Drawing.Font('Consolas', 9); e = New-Object Drawing.Font('Segoe UI Emoji', 10) }
+# 1.44 (user, 05-Nov-2026: "show the version in the tooltip and on left click, without the password"): the running PC Doctor version (state\running.json)
+function VerTxt { try { $x = [string](J 'running.json').ver; if ($x) { 'v' + $x } else { '' } } catch { '' } }
 function PwText([string]$why) { $script:lastPw = $null; if (Pw $why) { return $script:lastPw }; return $null }
 function Pw([string]$why) {
-  $f = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor'; Width = 300; Height = 150; StartPosition = 'CenterScreen'; ShowInTaskbar = $true; BackColor = $CL.bg; ForeColor = $CL.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
+  $f = New-Object Windows.Forms.Form -Property @{ Text = ('PC Doctor ' + (VerTxt)); Width = 300; Height = 150; StartPosition = 'CenterScreen'; ShowInTaskbar = $true; BackColor = $CL.bg; ForeColor = $CL.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
   $l = New-Object Windows.Forms.Label -Property @{ Text = "Password for $why"; Left = 14; Top = 12; Width = 260; Font = $FT.n }
   $t = New-Object Windows.Forms.TextBox -Property @{ Left = 14; Top = 40; Width = 255; UseSystemPasswordChar = $true; Font = $FT.n }
   $b = New-Object Windows.Forms.Button -Property @{ Text = 'OK'; Left = 194; Top = 72; Width = 75; DialogResult = 'OK'; FlatStyle = 'Flat'; BackColor = $CL.ac; ForeColor = [Drawing.Color]::Black }
@@ -348,7 +350,7 @@ function OpenWin { if ($form.Visible -and $script:unlocked) { $form.WindowState 
 [void]$menu.Items.Add('⬆ Update now', $null, { UpdNow; OpenWin; $tabs.SelectedTab = $tUp })
 [void]$menu.Items.Add('Copy report', $null, { if ($script:unlocked -or (Pw 'copying the report')) { [Windows.Forms.Clipboard]::SetText((Report)) } })
 $ni.ContextMenuStrip = $menu
-$ni.Add_MouseClick({ if ($_.Button -eq 'Left') { OpenWin } })
+$ni.Add_MouseClick({ if ($_.Button -eq 'Left') { try { if (!$script:unlocked) { $ni.ShowBalloonTip(4000, ('PC Doctor ' + (VerTxt)), [string]$script:verdictTxt, 'Info') } } catch {}; OpenWin } })
 $form.Add_FormClosing({ if ($_.CloseReason -eq 'UserClosing') { $_.Cancel = $true; $form.Hide(); $script:unlocked = $false } })   # closing never stops anything
 $seen = @{}; $lastLv = ''
 function Refresh {
@@ -385,7 +387,7 @@ function Refresh {
   $wk = if ($v -and $v.all) { @($v.all) } else { @() }
   FactSafe { if (!$wk.Count) { FactRow 'Last 7 days' 'Nothing found' $CL.ok } else { for ($k = 0; $k -lt $wk.Count; $k++) { $wl = $LVL[[string]$wk[$k].lv]; if (!$wl) { $wl = $LVL.green }; FactRow $(if ($k -eq 0) { 'Last 7 days' } else { '' }) ($wl[0] + ' ' + $wk[$k].v) $wl[1] } } }
   } catch { try { FactRow 'Error' ([string]$_.Exception.Message) $CL.er } catch {} } finally { $facts.EndUpdate() }
-  $ni.Text = ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Substring(0, [math]::Min(63, ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Length))
+  $tt = ('PC Doctor ' + (VerTxt) + ' - ' + $(if ($v) { $v.v } else { '' })); $ni.Text = $tt.Substring(0, [math]::Min(63, $tt.Length)); $script:verdictTxt = $(if ($v) { [string]$v.v } else { '' })
   if ($lv -ne $lastLv) { $ni.Icon = Ico $e[1]; $script:lastLv = $lv }
   $un = J 'uninst.json'; if ($un -and $script:unAsked -and [int64]$un.t -ge $script:unAsked) { $script:unAsked = 0; $msg.Text = [string]$un.msg }
   $u = J 'usb.json'; if ($u -and $u.t -gt $seen.usb) { $seen.usb = $u.t; $msg.Text = $(if ($u.ok) { 'Saved: ' + $u.file } else { 'No pendrive found - plug one in and try again.' }) }
