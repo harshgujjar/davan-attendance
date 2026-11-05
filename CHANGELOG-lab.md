@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · tray 1.9 -- The user: ✨ Ask AI on the laptop did nothing (no answer, no "Asking"). The Ask click ran after LaptopTabs had
+  ended, when its own question / answer boxes were gone (PowerShell event blocks do not keep a function's variables). Boxes now at script
+  level, AskAi does the work, Enter asks, "Asking ..." shows, a 2-minute "no answer" message, and the question carries this PC's top
+  programs + RAM size (so "why is RAM 95%" gets a real answer). AskAi, LaptopTabs, Refresh.
 - 05-Nov-2026 · Console 1.6 -- The user: "show the version number always" - the side bar title now reads "Console · Davan College · v1.6"
   on every page (brandVer, set from LAB_VER, so it follows every build by itself).
 - 05-Nov-2026 · Agent 1.16 / Console 1.5 -- The user: "duplicate PCs are still showing". DB5 lab/pcs: both laptops (ASUS, Windows 1DAVAN;

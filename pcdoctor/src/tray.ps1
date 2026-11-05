@@ -134,11 +134,22 @@ function LaptopTabs {
   $q = New-Object Windows.Forms.TextBox -Property @{ Left = 10; Top = 10; Width = 330; Font = $FT.n }
   $ans = New-Object Windows.Forms.TextBox -Property @{ Left = 10; Top = 46; Width = 422; Height = 470; Multiline = $true; ReadOnly = $true; ScrollBars = 'Vertical'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.n }
   $go = New-Object Windows.Forms.Button -Property @{ Text = 'Ask'; Left = 346; Top = 8; Width = 86; FlatStyle = 'Flat'; BackColor = $CL.ac; ForeColor = [Drawing.Color]::Black }
-  $go.Add_Click({ $g = J 'grid.json'; $ctx = ''
-    if ($g) { $ctx = (@($g.now.PSObject.Properties) | ForEach-Object { $n = $_.Value; ([string]$g.pcs.($_.Name).name) + ': ' + $n.lv + ' ' + $n.v + ' cpu ' + $n.cpu + ' ram ' + $n.ram + ' C free ' + $n.cfree + '%' }) -join "`n" }
-    W 'ai.json' @{ prompt = ('Lab now:' + "`n" + $ctx.Substring(0, [math]::Min(2800, $ctx.Length)) + "`n`nQuestion: " + $q.Text); history = @() }
-    $ans.Text = '✨ Asking ...'; $script:aiAsked = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() })
-  $tAi.Controls.AddRange(@($q, $go, $ans)); foreach ($x in $q, $go, $ans) { $x.Scale((New-Object Drawing.SizeF($DPIK, $DPIK))) }; foreach ($x in $grid.Columns) { $x.Width = [int]($x.Width * $DPIK) }; $tabs.TabPages.Add($tAi); $script:aiBox = $ans
+  # 1.9 (user, 05-Nov-2026: "I asked, it did not answer nor show anything"): the click ran after LaptopTabs ended, when its own
+  # $q / $ans were gone - the boxes now live at script level (aiQ / aiBox) and AskAi does the work; Enter asks too
+  $script:aiQ = $q; $script:aiBox = $ans; $go.Add_Click({ AskAi }); $q.Add_KeyDown({ if ($_.KeyCode -eq 'Enter') { $_.SuppressKeyPress = $true; AskAi } })
+  $tAi.Controls.AddRange(@($q, $go, $ans)); foreach ($x in $q, $go, $ans) { $x.Scale((New-Object Drawing.SizeF($DPIK, $DPIK))) }; foreach ($x in $grid.Columns) { $x.Width = [int]($x.Width * $DPIK) }; $tabs.TabPages.Add($tAi)
+}
+function AskAi {
+  $qq = [string]$script:aiQ.Text; if (!$qq.Trim()) { $script:aiBox.Text = 'Type a question first, then tap Ask.'; return }
+  $g = J 'grid.json'; $ctx = ''
+  if ($g -and $g.now) { $ctx = (@($g.now.PSObject.Properties) | ForEach-Object { $n = $_.Value; $pn = [string]$g.pcs.($_.Name).name; if (!$pn) { $pn = [string]$n.name }
+      $pn + ' (Windows ' + [string]$n.name + '): ' + $n.lv + ' ' + $n.v + ', cpu ' + $n.cpu + '%, ram ' + $n.ram + '%, C free ' + $n.cfree + '%' }) -join "`n" }
+  # this PC's own details: top programs + RAM, so "why is RAM 95%" can be answered
+  $me = J 'now.json'; $iv = J 'inv.json'
+  if ($me) { $ctx += "`n`nThis PC " + $env:COMPUTERNAME + ': cpu ' + $me.cpu + '%, ram ' + $me.ram + '%' + $(if ($iv -and $iv.ramGB) { ' of ' + $iv.ramGB + ' GB' } else { '' }) +
+      ', top programs: ' + ((@($me.top) | ForEach-Object { [string]$_.n + ' ' + $_.c + '% cpu ' + $_.m + ' MB' }) -join ', ') }
+  W 'ai.json' @{ prompt = ('Lab now:' + "`n" + $ctx.Substring(0, [math]::Min(3500, $ctx.Length)) + "`n`nQuestion: " + $qq); history = @() }
+  $script:aiBox.Text = '✨ Asking ... (about 10-30 seconds)'; $script:aiAsked = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 }
 # ---------- tray icon + refresh ----------
 $ni = New-Object Windows.Forms.NotifyIcon -Property @{ Visible = $true; Text = 'PC Doctor' }
@@ -195,7 +206,8 @@ function Refresh {
       if ($seen['fx' + $fx.k] -or $fx.f.fix -ne 'stop_program' -or !$fx.f.ok) { $seen['fx' + $fx.k] = 1; continue }
       $seen['fx' + $fx.k] = 1; if ($seen.init2) { $ni.ShowBalloonTip(6000, ('🛠️ Hang fixed on ' + [string]$g.pcs.($fx.h).name), [string]$fx.f.txt, 'Info') } }
     $seen.init2 = 1
-    $a = J 'ai.json'; if ($a -and $a.t -gt $seen.ai -and $script:aiBox) { $seen.ai = $a.t; $script:aiBox.Text = $(if ($a.ok) { "✨ AI`r`n`r`n" + $a.text + "`r`n`r`n($($a.left) answers left today)" } else { [string]$a.msg }) }
+    if ($script:aiAsked -and $script:aiBox -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $script:aiAsked) -gt 120000) { $script:aiAsked = 0; $script:aiBox.Text = 'No answer in 2 minutes - the PC Doctor Agent may be busy or offline. Tap Ask again; if it keeps failing, tap Copy report on This PC and send it to Claude.' }
+    $a = J 'ai.json'; if ($a -and $a.t -gt $seen.ai -and $script:aiBox) { $seen.ai = $a.t; $script:aiAsked = 0; $script:aiBox.Text = $(if ($a.ok) { "✨ AI`r`n`r`n" + $a.text + "`r`n`r`n($($a.left) answers left today)" } else { [string]$a.msg }) }
   }
 }
 # 1.3 (user, 04-Nov-2026: "it's not auto update"): the loader updates the files, but a running tray kept its old copy until the next sign-in -
