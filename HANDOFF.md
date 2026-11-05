@@ -142,6 +142,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov 13:40: Deep Freeze state detection rewritten (Agent 1.35, DB5 lab/pcs/<h>/dfBoot + state\df_state.json); DF Standard 8.60 has NO DFC.exe (confirmed on the PC) - no automatic Thaw/Freeze possible.
 - 05-Nov: Agent 1.36 / tray 1.21 / worker v24 - tray All PCs tab: How much it frees / Clean now / Delete old history (via worker /lab/cmd, /lab/cmdres, /lab/purge); PCs poll lab/cmd every 14 s.
 - 05-Nov: Agent 1.37 / tray 1.22 / Console 1.13 - "Show me this PC": big name pop-up on the PC (also when Remote screen is opened). Needs someone signed in (the tray is a user app).
+- 05-Nov 13:39: DFC.exe FINAL: not on C: at all (DF Standard 8.60) -> automatic Thaw/Freeze is NOT possible. Do not build it; Thawed round by hand.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
