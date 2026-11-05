@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.42 / worker v25 -- The user's laptop tray: "Last check 2.12 PM: No internet - could not reach the update server" - stuck on 1.29 for 3 h while online
+  (agent reporting). Its running (old) loader tried only raw.githubusercontent.com. New loader: third road through the worker (GET /lab/raw, files still
+  checked by SHA-256) after raw and api.github.com. A running old loader needs one service restart (net stop / start PCDoctorSvc) or the update pendrive.
 - 05-Nov-2026 · Agent 1.40 / tray 1.23 -- The user: "Show me this PC is not working". DB5: the PC got the command and answered "done" within seconds - the pop-up
   is shown by the tray, and a tray whose window had been left open since before the update never replaced itself (it waited for the window to close). Now
   it tells the user in the message line, waits about 45 s and restarts itself with the window open again (the launcher takes /show). SelfUpdate, PD-TrayLauncher.

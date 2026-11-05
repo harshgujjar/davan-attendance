@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v25 (05-Nov-2026): GET /lab/raw?p=lab-version.json | src/<file> - PC Doctor files through the worker for PCs that cannot reach raw.githubusercontent.com (the loader's 3rd road).
  *  - v24 (05-Nov-2026): POST /lab/cmd, /lab/cmdres, /lab/purge - the Super Admin laptop's tray sends clean / how-much / delete-old-history to lab PCs (laptop key + salap checked).
  *  - v23 (05-Nov-2026): PC identity - the placeholder BIOS UUIDs of cheap boards never count, and different MAC + different disks = a different PC (two identical lab PCs were merged).
  *  - v22 (04-Nov-2026): PC Doctor Console has its OWN password (POST /lab/tok {pw}, /lab/setpw) - opening it never logs in to the staff app.
@@ -964,6 +965,11 @@ export default {
   async fetch(request, env) {
     const u = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response('', { headers: CORS });
+    if (request.method === 'GET' && u.pathname === '/lab/raw') {   // v25: PC Doctor files through our own server when a PC cannot reach raw.githubusercontent.com (each file is still checked against its SHA-256 on the PC)
+      const p = String(u.searchParams.get('p') || ''); if (!/^(lab-version\.json|src\/[A-Za-z0-9._-]{1,40})$/.test(p)) return new Response('not allowed', { status: 400, headers: CORS });
+      const r = await fetch('https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/pcdoctor/' + p + '?t=' + Date.now());
+      return new Response(await r.arrayBuffer(), { status: r.status, headers: Object.assign({}, CORS, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }) });
+    }
     if (request.method === 'POST' && u.pathname === '/sa') {   // v9: Super Admin alert
       let b = {}; try { b = JSON.parse(await request.text()); } catch (e) {}
       let r; try { r = await saIncoming(env, b); } catch (e) { r = { ok: false, msg: String(e.message || e) }; }

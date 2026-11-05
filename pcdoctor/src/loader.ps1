@@ -22,7 +22,9 @@ function L-P([string]$ph, [int]$i = 0, [int]$n = 0, [string]$file = '', [string]
 # 1.25 (user, 05-Nov-2026: "Update now says no internet" while the PC was online): one try at one address was all - now 3 tries, then
 # GitHub's API as a second road (another server), the real reason in the message, and a failed check tries again in 5 minutes
 function L-Get([string]$path, [string]$out = '') {
-  $urls = @(($Raw + $path), ('https://api.github.com/repos/harshgujjar/davan-attendance/contents/pcdoctor/' + ($path -replace '\?.*$', '') + '?ref=main')); $err = ''
+  # 1.42 (user, 05-Nov-2026: the laptop's tray said "No internet - could not reach the update server" while it was online): a THIRD road - our own worker
+  $pq = $path -replace '\?.*$', ''
+  $urls = @(($Raw + $path), ('https://api.github.com/repos/harshgujjar/davan-attendance/contents/pcdoctor/' + $pq + '?ref=main'), ('https://davan-release.harshgujjar.workers.dev/lab/raw?p=' + [uri]::EscapeDataString($pq) + '&t=' + [DateTime]::UtcNow.Ticks)); $err = ''
   foreach ($n in 1..3) { foreach ($u in $urls) {
     try { $h = @{ 'User-Agent' = 'DavanPCDoctor'; 'Cache-Control' = 'no-cache' }; if ($u -like '*api.github.com*') { $h.Accept = 'application/vnd.github.raw' }
       if ($out) { Invoke-WebRequest -UseBasicParsing -Uri $u -Headers $h -OutFile $out -TimeoutSec 120; return $true }
