@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.40 / tray 1.23 -- The user: "Show me this PC is not working". DB5: the PC got the command and answered "done" within seconds - the pop-up
+  is shown by the tray, and a tray whose window had been left open since before the update never replaced itself (it waited for the window to close). Now
+  it tells the user in the message line, waits about 45 s and restarts itself with the window open again (the launcher takes /show). SelfUpdate, PD-TrayLauncher.
 - 05-Nov-2026 · Console 1.14 -- The user: "keep the same notes in lab.html also" - side menu 📒 Notes (how it works) shows pcdoctor/src/notes.txt (the very same file as the tray's
   Notes tab; Copy button), so the two never differ. pageNotes.
 - 05-Nov-2026 · Agent 1.37 / tray 1.22 / Console 1.13 -- The user: from the web app with 30 PCs, "which PC am I working on" - a pop-up on the PC. Console PC page

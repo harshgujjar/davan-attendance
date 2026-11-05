@@ -386,9 +386,13 @@ function Refresh {
 # when state\running.json shows a new build and the window is closed, the tray starts its new copy and quits (no click, no sign-out)
 $script:myBuild = try { [int](J 'running.json').build } catch { 0 }
 function SelfUpdate { $b = try { [int](J 'running.json').build } catch { 0 }
-  if ($b -and $script:myBuild -and $b -ne $script:myBuild -and !$form.Visible -and (Test-Path "$Root\bin\tray.ps1")) {
+  # 1.23 (user, 05-Nov-2026: "Show me this PC is not working" - this window had been open since before the update, so the OLD tray was still running):
+  # a tray with its window open used to wait for the window to be closed, for ever. Now it says so, waits about 45 s and restarts itself, window open again
+  $show = $false
+  if ($b -and $script:myBuild -and $b -ne $script:myBuild -and $form.Visible) { $script:selfWait++; $msg.Text = 'A new PC Doctor tray is ready - this window restarts in about ' + [math]::Max(0, 45 - 15 * $script:selfWait) + ' s (the password is asked again).'; if ($script:selfWait -ge 3) { $show = $true } } else { $script:selfWait = 0 }
+  if ($b -and $script:myBuild -and $b -ne $script:myBuild -and (!$form.Visible -or $show) -and (Test-Path "$Root\bin\tray.ps1")) {
     $ni.Visible = $false; try { $mtx.ReleaseMutex(); $mtx.Dispose() } catch {}
-    if (Test-Path "$Root\tray-start.vbs") { Start-Process wscript.exe -ArgumentList "`"$Root\tray-start.vbs`" /now" } else { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`"" }
+    if (Test-Path "$Root\tray-start.vbs") { Start-Process wscript.exe -ArgumentList ("`"$Root\tray-start.vbs`" " + $(if ($show) { '/show' } else { '/now' })) } else { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`"" }
     [Environment]::Exit(0) } }
 $tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}; try { if (!$tp.Enabled) { $pp = J 'updp.json'; if ($pp -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$pp.t) -lt 300000) { $tp.Start() } } } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
 try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}
