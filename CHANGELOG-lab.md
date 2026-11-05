@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Console 1.6 -- The user: "show the version number always" - the side bar title now reads "Console · Davan College · v1.6"
+  on every page (brandVer, set from LAB_VER, so it follows every build by itself).
 - 05-Nov-2026 · Agent 1.16 / Console 1.5 -- The user: "duplicate PCs are still showing". DB5 lab/pcs: both laptops (ASUS, Windows 1DAVAN;
   Sony, Windows GUJJARSONY) were Assigned with an empty name box, which kept "GUJJAR" on both and asked Windows to rename both to GUJJAR.
   Console: 📥 New PCs shows the Windows name, the box starts with it (when free), Assign refuses a name another PC already has (nameFree,
