@@ -117,7 +117,7 @@ $tMe.Controls.AddRange(@($info, $week))
 function Btn($t, $x, $yy, $w, $on) { $b = New-Object Windows.Forms.Button -Property @{ Text = $t; Left = $x; Top = $yy; Width = $w; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
   $b.FlatAppearance.BorderColor = $CL.bd; $b.Add_Click($on); $tMe.Controls.Add($b); $b }
 $by = $y + 184   # 1.8: buttons right under the 7-day line (no big empty gap)
-$msg = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $by + 108; Width = 420; Height = 36; Font = $FT.s; ForeColor = $CL.ac }; $tMe.Controls.Add($msg)
+$msg = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $by + 144; Width = 420; Height = 36; Font = $FT.s; ForeColor = $CL.ac }; $tMe.Controls.Add($msg)
 function Report {
   $n = J 'now.json'; $v = J 'verdict.json'; $p = J 'pc.json'
   "PC Doctor report - $env:COMPUTERNAME ($(IST ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())))`r`n" +
@@ -133,9 +133,18 @@ Btn 'Check now' 152 $by 136 { Set-Content "$Rq\now.flag" '1'; $msg.Text = 'Check
 Btn 'Copy' 292 $by 140 { [Windows.Forms.Clipboard]::SetText((Report)); $msg.Text = 'Report copied - paste it in WhatsApp / chat.' } | Out-Null
 Btn 'Save report to pendrive' 12 ($by + 36) 200 { Set-Content "$Rq\usb.flag" '1'; $msg.Text = 'Saving to the pendrive ...' } | Out-Null
 Btn 'Fix from pendrive' 216 ($by + 36) 216 { if ($script:unlocked -or (Pw 'Fix from pendrive')) { Set-Content "$Rq\usbfix.flag" '1'; $msg.Text = 'Running the approved fixes from the pendrive ...' } } | Out-Null
+Btn '🖥 Open Console' 12 ($by + 108) 420 { OpenConsole } | Out-Null
 Btn '⚙ Name / group / notes' 12 ($by + 72) 316 { if ($script:unlocked -or (Pw 'changing this PC')) { Edit } } | Out-Null
 # 1.11 (user, 05-Nov-2026): Uninstall with the password - shows exactly what is removed, the agent (SYSTEM) does it and checks the password again
 Btn 'Uninstall' 332 ($by + 72) 100 { Uninstall } | Out-Null
+# 1.16 (user, 05-Nov-2026: "Open Console button on every tray"): opens the Console (lab.html) in the browser - on every PC. The tray password
+# is asked first (unless the window is already unlocked) and the Console has its OWN login + lock-out, so a student gets nowhere.
+# The address is data: DB5 lab/cfg consoleUrl (fallback below), so a moved site needs no new build.
+function OpenConsole {
+  if (!($script:unlocked -or (Pw 'opening the Console'))) { return }
+  $cfg = J 'cfg.json'; $u = if ($cfg -and $cfg.consoleUrl) { [string]$cfg.consoleUrl } else { 'https://harshgujjar.github.io/davan-attendance/lab.html' }
+  try { Start-Process $u; $msg.Text = 'Console opened in your browser - it asks for the Console password.' } catch { $msg.Text = 'Could not open the browser: ' + $_.Exception.Message + ' - address: ' + $u }
+}
 function Uninstall {
   $n = J 'now.json'
   if ($n -and $n.df -eq 'frozen') { [Windows.Forms.MessageBox]::Show("This PC is Frozen (Deep Freeze).`r`nBoot Thawed first, then uninstall - otherwise PC Doctor comes back at the restart.", 'PC Doctor') | Out-Null; return }
