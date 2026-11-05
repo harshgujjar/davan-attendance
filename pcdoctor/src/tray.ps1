@@ -35,7 +35,7 @@ function Pw([string]$why) {
   [Windows.Forms.MessageBox]::Show('Wrong password.', 'PC Doctor') | Out-Null; $false
 }
 # ---------- the window ----------
-$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 590; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
+$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 608; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
 function Corner { $wa = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $form.Left = $wa.Right - $form.Width - 12; $form.Top = [math]::Max($wa.Top, $wa.Bottom - $form.Height - 12) }
 Corner; $form.Add_Shown({ Corner })   # after the DPI scaling the window is bigger - keep it in the corner, fully on screen
 $tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $FT.n }
@@ -82,12 +82,12 @@ foreach ($k in @(@('cpu','CPU'), @('ram','RAM'), @('busy','Disk busy'), @('cfree
   $p = New-Object Windows.Forms.ProgressBar -Property @{ Left = 104; Top = $y; Width = 250; Height = 14; Maximum = 100; Style = 'Continuous' }
   $v = New-Object Windows.Forms.Label -Property @{ Left = 360; Top = $y - 2; Width = 70; Font = $FT.m }
   $tMe.Controls.AddRange(@($l, $p, $v)); $bars[$k[0]] = @($p, $v); $y += 24 }
-$info = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $y + 4; Width = 420; Height = 92; Font = $FT.s; ForeColor = $CL.mu }
-$week = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $y + 98; Width = 420; Height = 60; Font = $FT.s }
+$info = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $y + 4; Width = 420; Height = 110; Font = $FT.s; ForeColor = $CL.mu }
+$week = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $y + 116; Width = 420; Height = 60; Font = $FT.s }
 $tMe.Controls.AddRange(@($info, $week))
 function Btn($t, $x, $yy, $w, $on) { $b = New-Object Windows.Forms.Button -Property @{ Text = $t; Left = $x; Top = $yy; Width = $w; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
   $b.FlatAppearance.BorderColor = $CL.bd; $b.Add_Click($on); $tMe.Controls.Add($b); $b }
-$by = $y + 166   # 1.8: buttons right under the 7-day line (no big empty gap)
+$by = $y + 184   # 1.8: buttons right under the 7-day line (no big empty gap)
 $msg = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $by + 108; Width = 420; Height = 36; Font = $FT.s; ForeColor = $CL.ac }; $tMe.Controls.Add($msg)
 function Report {
   $n = J 'now.json'; $v = J 'verdict.json'; $p = J 'pc.json'
@@ -95,6 +95,7 @@ function Report {
   "Verdict: $($v.v) ($($v.conf)% sure) - $($v.why)`r`n" + "Group: $($p.grp)  Place: $($p.place)  Notes: $($p.notes)`r`n" +
   "CPU $($n.cpu)%  RAM $($n.ram)%  Disk busy $($n.busy)%  latency $($n.lat) ms  C: free $($n.cfree)% ($($n.cfreeGB) GB)  Temp $($n.temp) °C`r`n" +
   "Deep Freeze: $($n.df)  Internet: $(if ($n.online) { 'yes' } else { 'no' })  Not sent yet: $($n.q)  Agent: $($n.ver)`r`n" +
+  "Using RAM: " + ((@($n.rtop) | ForEach-Object { "$($_.n) $($_.m) MB" }) -join ', ') + "`r`n" +
   "Top programs: " + ((@($n.top) | ForEach-Object { "$($_.n) $($_.c)% $($_.m) MB" }) -join ', ') + "`r`n" +
   "Other findings: " + ((@($v.all) | Select-Object -Skip 1 | ForEach-Object { $_.v }) -join ', ')
 }
@@ -147,6 +148,7 @@ function AskAi {
   # this PC's own details: top programs + RAM, so "why is RAM 95%" can be answered
   $me = J 'now.json'; $iv = J 'inv.json'
   if ($me) { $ctx += "`n`nThis PC " + $env:COMPUTERNAME + ': cpu ' + $me.cpu + '%, ram ' + $me.ram + '%' + $(if ($iv -and $iv.ramGB) { ' of ' + $iv.ramGB + ' GB' } else { '' }) +
+      ', RAM used by: ' + ((@($me.rtop) | ForEach-Object { [string]$_.n + ' ' + $_.m + ' MB' + $(if ($_.k -gt 1) { ' (' + $_.k + ' copies)' }) }) -join ', ') +
       ', top programs: ' + ((@($me.top) | ForEach-Object { [string]$_.n + ' ' + $_.c + '% cpu ' + $_.m + ' MB' }) -join ', ') }
   W 'ai.json' @{ prompt = ('Lab now:' + "`n" + $ctx.Substring(0, [math]::Min(3500, $ctx.Length)) + "`n`nQuestion: " + $qq); history = @() }
   $script:aiBox.Text = '✨ Asking ... (about 10-30 seconds)'; $script:aiAsked = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -182,6 +184,7 @@ function Refresh {
   $tq = if ($n.thawQ) { "  ·  Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' }) } else { '' }
   $info.Text = "CPU $(if ($n.temp) { [string]$n.temp + ' °C' } else { '-' })   ·   " + $(if ($n.df -eq 'thawed') { 'Thawed' } elseif ($n.df -eq 'frozen') { 'Frozen' } else { 'No Deep Freeze' }) + $tq + "`r`n" +
     $(if ($n.online) { 'Internet OK' } else { 'No internet - saved, sends later' }) + "   ·   Last sent $(IST $n.t)" + $(if ($n.q) { "   ·   $($n.q) waiting" } else { '' }) + "`r`n" +
+    $(if (@($n.rtop).Count) { 'RAM used by: ' + ((@($n.rtop) | ForEach-Object { [string]$_.n + ' ' + $(if ($_.m -ge 1024) { [string][math]::Round($_.m / 1024, 1) + ' GB' } else { [string]$_.m + ' MB' }) }) -join ', ') + "`r`n" } else { '' }) +
     "C: $($n.cfreeGB) GB free   ·   disk answers in $($n.lat) ms   ·   Agent $($n.ver)" + $(if ($n.user) { "`r`n$($n.user)" } else { '' })
   $iv = J 'inv.json'; if ($iv -and $iv.battery) { $info.Text += "`r`nBattery health $($iv.battery.health)% ($($iv.battery.cycles) cycles)   ·   " + ((@($iv.disks) | ForEach-Object { $_.model + ' ' + $_.health }) -join ', ') }
   $week.Text = 'Last 7 days: ' + $(if ($v -and $v.all) { (@($v.all) | ForEach-Object { $LVL[[string]$_.lv][0] + ' ' + $_.v }) -join '   ' } else { 'nothing found' })

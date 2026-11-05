@@ -20,7 +20,7 @@ function A-Now([hashtable]$smp) {
   $tq = @(PD-ReadJson (Join-Path $PD.Root 'state\thawq.json')).Count
   $ip = ''; try { $ip = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).IPv4Address.IPAddress } catch {}
   @{ t = $smp.t; cpu = $smp.cpu; ram = $smp.ram; busy = $smp.busy; lat = $smp.lat; cfree = $smp.cfree; cfreeGB = $smp.cfreeGB; temp = $(if ($smp.temp) { $smp.temp.cpu } else { $null })
-     freq = $smp.freq; net = $smp.net; user = $smp.user; top = @($smp.top | Select-Object -First 3)
+     freq = $smp.freq; net = $smp.net; user = $smp.user; top = @($smp.top | Select-Object -First 3); rtop = @($smp.ramTop | Select-Object -First 3)
      lv = $v.lv; v = $v.v; vk = $v.vk; why = $v.why; conf = $v.conf; fix = $v.fix
      df = $df.state; dfSince = $S.dfSince; thaw = [bool]$df.thaw; thawQ = $tq; boot = [int64](([datetimeoffset]$S.boot).ToUnixTimeMilliseconds())
      ver = (A-Ver); name = $env:COMPUTERNAME; ip = $ip; q = (PD-QueueCount); online = $PD.Online; pp = $S.pp; fixing = $S.fixing }

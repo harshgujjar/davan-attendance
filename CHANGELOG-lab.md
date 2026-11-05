@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.18 / tray 1.10 / Console 1.7 -- The user asked "why is 1DAVAN on 95% RAM" - the PC only reported the top programs by
+  CPU. checks.ps1 now adds RAM per program (all copies summed, e.g. Firefox's many), lab/now gets rtop (3 items, ~100 bytes a minute, no new
+  writes); tray This PC, Copy report, Ask AI and the Console PC page show "RAM used by". PD-Sample, A-Now, Refresh, Report, AskAi, pcPage.
 - 05-Nov-2026 · tray 1.9 -- The user: ✨ Ask AI on the laptop did nothing (no answer, no "Asking"). The Ask click ran after LaptopTabs had
   ended, when its own question / answer boxes were gone (PowerShell event blocks do not keep a function's variables). Boxes now at script
   level, AskAi does the work, Enter asks, "Asking ..." shows, a 2-minute "no answer" message, and the question carries this PC's top

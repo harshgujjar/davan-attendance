@@ -12,7 +12,9 @@ function PD-Sample {
   $ncpu = [Environment]::ProcessorCount
   $top = @()
   $top += $procs | Sort-Object PercentProcessorTime -Descending | Select-Object -First 5 | ForEach-Object { @{ n = ($_.Name -replace '#\d+$',''); c = [math]::Round($_.PercentProcessorTime / $ncpu, 1); m = [math]::Round($_.WorkingSetPrivate / 1MB); io = [math]::Round($_.IODataBytesPersec / 1KB) } }
-  $ramTop = $procs | Sort-Object WorkingSetPrivate -Descending | Select-Object -First 5 | ForEach-Object { @{ n = ($_.Name -replace '#\d+$',''); m = [math]::Round($_.WorkingSetPrivate / 1MB) } }
+  # 05-Nov-2026 (user: "why is 1DAVAN on 95% RAM"): RAM per PROGRAM (all its copies added: Firefox / Chrome run many) - not per copy
+  $ramTop = $procs | Group-Object { $_.Name -replace '#\d+$','' } | ForEach-Object { @{ n = $_.Name; m = [math]::Round(($_.Group | Measure-Object WorkingSetPrivate -Sum).Sum / 1MB); k = $_.Count } } |
+    Sort-Object { $_.m } -Descending | Select-Object -First 5
   $ioTop = $procs | Sort-Object IODataBytesPersec -Descending | Select-Object -First 5 | Where-Object { $_.IODataBytesPersec -gt 0 } | ForEach-Object { @{ n = ($_.Name -replace '#\d+$',''); io = [math]::Round($_.IODataBytesPersec / 1KB) } }
   $c = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
   $net = Get-CimInstance Win32_PerfFormattedData_Tcpip_NetworkInterface | Measure-Object -Property BytesTotalPersec -Sum
