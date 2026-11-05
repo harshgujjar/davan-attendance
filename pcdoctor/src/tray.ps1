@@ -10,7 +10,7 @@ try { Add-Type -Namespace PDT -Name Dpi -MemberDefinition '[DllImport("user32.dl
 # its buttons / bars. Now every form is scaled by hand ONCE, after all its controls are in (Sharp), by the real screen DPI.
 $DPIK = try { $g0 = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $d = $g0.DpiX / 96; $g0.Dispose(); [math]::Max(1, [math]::Min(3, $d)) } catch { 1 }
 function Sharp($f) { $f.AutoScaleMode = [Windows.Forms.AutoScaleMode]::None; if ($DPIK -gt 1.01) { $f.Scale((New-Object Drawing.SizeF($DPIK, $DPIK))) } }
-$Root = "$env:ProgramData\DavanPCDoctor"; $St = "$Root\state"; $Rq = "$Root\req"
+$Root = if ($env:PDT_ROOT) { $env:PDT_ROOT } else { "$env:ProgramData\DavanPCDoctor" }; $St = "$Root\state"; $Rq = "$Root\req"   # PDT_ROOT: only the Windows test (screenshots) sets it
 $mtx = New-Object Threading.Mutex($false, 'Local\DavanPCDoctorTray'); if (!$mtx.WaitOne(0)) { exit 0 }
 function J($f) { $p = "$St\$f"; if (!(Test-Path $p)) { return $null }; try { Get-Content $p -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { $null } }   # 1.12: a missing file = quiet null (no red errors)
 function W($f, $o) { try { [IO.File]::WriteAllText("$Rq\$f", ($o | ConvertTo-Json -Depth 6 -Compress), (New-Object Text.UTF8Encoding($false))) } catch {} }
@@ -405,4 +405,14 @@ $tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Ti
 try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}
 Sharp $form; Corner
 if ($args -contains '-show') { OpenWin }
+# Windows test (GitHub runner): draw every tab + the "Show me this PC" pop-up into PNG files (PDT_OUT) so the layout can be LOOKED AT before a release
+if ($args -contains '-selftest') {
+  $out = $env:PDT_OUT; New-Item -ItemType Directory -Force $out | Out-Null; $script:unlocked = $true
+  $form.StartPosition = 'Manual'; $form.Left = 10; $form.Top = 10; $form.Show(); [Windows.Forms.Application]::DoEvents()
+  try { Refresh } catch { Set-Content "$out\error-refresh.txt" ($_ | Out-String) }; try { UpdRefresh } catch { Set-Content "$out\error-upd.txt" ($_ | Out-String) }; [Windows.Forms.Application]::DoEvents()
+  function Shot([Windows.Forms.Control]$c, [string]$name) { try { $b = New-Object Drawing.Bitmap $c.Width, $c.Height; $c.DrawToBitmap($b, (New-Object Drawing.Rectangle 0, 0, $c.Width, $c.Height)); $b.Save("$out\$name.png", [Drawing.Imaging.ImageFormat]::Png); $b.Dispose() } catch { Set-Content "$out\error-$name.txt" ($_ | Out-String) } }
+  foreach ($tp0 in @($tabs.TabPages)) { $tabs.SelectedTab = $tp0; [Windows.Forms.Application]::DoEvents(); Shot $form ('tab-' + ($tp0.Text -replace '[^A-Za-z0-9]', '')) }
+  try { IdentifyShow 'B1' 'Super Admin'; [Windows.Forms.Application]::DoEvents(); Shot $script:idForm 'identify-popup' } catch { Set-Content "$out\error-identify.txt" ($_ | Out-String) }
+  [Environment]::Exit(0)
+}
 [Windows.Forms.Application]::Run()
