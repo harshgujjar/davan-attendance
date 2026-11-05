@@ -378,7 +378,7 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
     '^(mesh_check)$' {   # 1.52 read-only (user, 05-Nov-2026: Remote screen never connects - the server shows every PC registered but NOT connected): why is this PC's remote agent offline?
       $o = @(); $svc = Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue
       $o += 'service: ' + $(if ($svc) { [string]$svc.Status + ' / start ' + [string]$svc.StartType } else { 'NOT INSTALLED' })
-      $md = Join-Path $env:ProgramFiles 'Mesh Agent'; $msh = Get-ChildItem $md -Filter *.msh -ErrorAction SilentlyContinue | Select-Object -First 1
+      $md = Join-Path $env:ProgramFiles 'Mesh Agent'; $msh = $null; try { $msh = Get-ChildItem $md -Filter *.msh -ErrorAction Stop | Select-Object -First 1 } catch {}
       $o += 'msh: ' + $(if ($msh) { ((Get-Content $msh.FullName -ErrorAction SilentlyContinue | Where-Object { $_ -match '^(MeshServer|ServerID|MeshName)=' }) -join ' | ') } else { 'none in ' + $md })
       $o += 'files: ' + ((Get-ChildItem $md -ErrorAction SilentlyContinue | ForEach-Object { $_.Name + ' ' + $_.Length + ' ' + $_.LastWriteTime.ToString('dd MMM HH:mm') }) -join ', ')
       $mp = @(Get-Process MeshAgent -ErrorAction SilentlyContinue); $o += 'process: ' + $(if ($mp.Count) { 'running since ' + $mp[0].StartTime.ToString('dd MMM HH:mm') } else { 'NOT running' })
@@ -387,10 +387,10 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
         try { $tc = New-Object Net.Sockets.TcpClient; $ar = $tc.BeginConnect($mh, 443, $null, $null); $okc = $ar.AsyncWaitHandle.WaitOne(8000); $o += "tcp ${mh}:443 " + $(if ($okc -and $tc.Connected) { 'OK' } else { 'FAILED (blocked or no route)' }); $tc.Close() } catch { $o += 'tcp error: ' + $_.Exception.Message }
         try { $wr = Invoke-WebRequest -UseBasicParsing ('https://' + $mh + '/agent.ashx') -TimeoutSec 15; $o += 'https agent.ashx: ' + $wr.StatusCode } catch { $o += 'https agent.ashx: ' + $_.Exception.Message }
       } else { $o += 'no meshUrl in the settings' }
-      $ev = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Mesh Agent'; StartTime = (Get-Date).AddDays(-2) } -MaxEvents 8 -ErrorAction SilentlyContinue | ForEach-Object { $_.TimeCreated.ToString('dd HH:mm') + ' ' + (([string]$_.Message) -replace '\s+', ' ').Substring(0, [math]::Min(140, ([string]$_.Message).Length)) })
-      $o += 'agent events (2 days): ' + $(if ($ev.Count) { $ev -join ' || ' } else { 'none' })
+      # 1.53: every step on its own - Get-WinEvent throws 'The parameter is incorrect' when the Mesh Agent never wrote an event (stopped the whole check on GUJJARHOME)
+      try { $ev = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Mesh Agent'; StartTime = (Get-Date).AddDays(-2) } -MaxEvents 8 -ErrorAction Stop | ForEach-Object { $_.TimeCreated.ToString('dd HH:mm') + ' ' + (([string]$_.Message) -replace '\s+', ' ').Substring(0, [math]::Min(140, ([string]$_.Message).Length)) }); $o += 'agent events (2 days): ' + ($ev -join ' || ') } catch { $o += 'agent events (2 days): none' }
       try { $th = @(Get-MpThreatDetection -ErrorAction Stop | Where-Object { ($_.Resources -join ';') -match 'mesh' } | Select-Object -First 3 | ForEach-Object { $_.InitialDetectionTime.ToString('dd MMM HH:mm') + ' ' + ($_.Resources -join ';') }); $o += 'antivirus: ' + $(if ($th.Count) { 'BLOCKED ' + ($th -join ' | ') } else { 'no Mesh detections' }) } catch { $o += 'antivirus: not readable' }
-      $o += 'deep freeze: ' + (PD-DeepFreeze).state
+      try { $o += 'deep freeze: ' + (PD-DeepFreeze).state } catch {}
       @{ ok = $true; txt = ($o -join "`n") } }
     '^(agent_log)$'  { $lf = Join-Path $PD.Root 'log\agent.log'; $rq = @(Get-ChildItem (Join-Path $PD.Root 'req') -ErrorAction SilentlyContinue | ForEach-Object { $_.Name + ' ' + $_.Length + ' bytes ' + $_.LastWriteTime.ToString('HH:mm:ss') })
                        $trs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'DavanPCDoctor\\bin\\tray\.ps1' } | ForEach-Object { 'tray pid ' + $_.ProcessId + ' since ' + $_.CreationDate.ToString('HH:mm:ss') }); $trj = PD-ReadJson (Join-Path $PD.Root 'req\tray_run.json')
