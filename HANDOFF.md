@@ -162,6 +162,11 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   two-factor authentication is enabled"). User chose OFF: davan-scraper Action "PC Doctor - Mesh 2-step" (mode off/on) set it false on the live server (backup config.json.bak-*),
   tools/mesh/setup.sh now writes false too. Facts that led there (Action "PC Doctor - Mesh diag", node = end of device id): agent connected, whoami answered, relay download OK.
   Lab PCs' agents were simply not connected (PCs off) - re-check with Mesh diag when they are on.
+- 05-Nov 22:40: TEMPERATURE: old LHM 0.9.4 WinRing0 driver is blocked by Defender ("R0powershell ... potentially unwanted"). User approved option 1: Agent 1.57 installs
+  PawnIO 2.2.0 (signed namazso.eu, "-install -silent", tested on the runner) + LHM 0.9.6 .NET Framework zip; Frozen PCs install it only while Thawed. Rows now carry fa (fans) + v12.
+  Read-only checks added: temp_check, crash_info (now with last reading before each cut + .NET crash text), mesh_check (db5_cmd READ_ONLY list in davan-scraper).
+  GUJJARHOME: 13 power-offs in 14 days, 3-10 min after start under load, no BSOD/WHEA -> cooling or PSU; run crash_info after its next cut to see CPU C / fans / 12 V.
+  Open: "PowerShell has stopped working" on the Sony (fc7e8983...) at 21:16/21:58/22:19 - crash_info prints the .NET text; fix that program.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
