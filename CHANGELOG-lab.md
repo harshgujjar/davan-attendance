@@ -2,6 +2,11 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.16 / Console 1.5 -- The user: "duplicate PCs are still showing". DB5 lab/pcs: both laptops (ASUS, Windows 1DAVAN;
+  Sony, Windows GUJJARSONY) were Assigned with an empty name box, which kept "GUJJAR" on both and asked Windows to rename both to GUJJAR.
+  Console: 📥 New PCs shows the Windows name, the box starts with it (when free), Assign refuses a name another PC already has (nameFree,
+  assignPc). Agent: compares with the name Windows gets after the restart and cancels a waiting rename when the Console name is the current
+  name again (registry ComputerName + NV Hostname, event ↩). A-SyncPc.
 - 05-Nov-2026 · Agent 1.15 / tray 1.8 -- The user: tray bars were plain white lines, nothing worked, buttons showed boxes, small items in a big
   window. Cause: PowerShell names are case-blind - Refresh's $lv overwrote the colour table $LV (and $c / $f overwrote $C / $F in Edit / Pw /
   All PCs), so every refresh crashed silently. Globals renamed ($LVL, $CL, $FT); WinForms buttons / labels without colour emoji (drawn as boxes),

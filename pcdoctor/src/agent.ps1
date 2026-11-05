@@ -49,7 +49,15 @@ function A-SyncPc {
   $model = (Get-CimInstance Win32_ComputerSystem); $up.model = ($model.Manufacturer + ' ' + $model.Model).Trim(); $up.seen = PD-NowMs; $up.ver = A-Ver
   # Console renamed the PC (name != Windows name) -> rename Windows (a Frozen PC: at a Thawed restart)
   $want = [string]$(if ($pc.name) { $pc.name } else { '' })
-  if ($want -and $want -ne $env:COMPUTERNAME -and $pc.renameReq -and $want -ne $S.renamed) { $r = PD-Fix 'rename' @{ name = $want } 'Console'; $S.renamed = $want }
+  # 1.16 (05-Nov-2026: two laptops were Assigned "GUJJAR" by mistake and a rename was waiting for the restart): compare with the name Windows
+  # will have AFTER the restart; when the Console name is the current name again, the waiting rename is cancelled (no restart, nothing deleted)
+  $pend = try { [string](Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName' -ErrorAction Stop).ComputerName } catch { $env:COMPUTERNAME }
+  if ($want -and $pc.renameReq -and $want -ne $pend) {
+    if ($want -eq $env:COMPUTERNAME) {
+      try { Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName' ComputerName $want -ErrorAction Stop
+        Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' 'NV Hostname' $want -ErrorAction Stop
+        PD-Event 'rename' '↩' ("Waiting Windows rename to $pend cancelled - the name stays $want") @{ old = $pend; new = $want } | Out-Null; $S.renamed = $want } catch {} }
+    elseif ($want -ne $S.renamed) { $r = PD-Fix 'rename' @{ name = $want } 'Console'; $S.renamed = $want } }
   if ($pc.winChangeBack -and $pc.winChanged) { PD-Fix 'rename' @{ name = $pc.winChanged.old } 'Console (change back)' | Out-Null; $up.winChangeBack = $null; $up.winChanged = $null }
   PD-Db PATCH ('lab/pcs/' + $h) $up | Out-Null
   foreach ($k in $up.Keys) { $pc | Add-Member -NotePropertyName $k -NotePropertyValue $up[$k] -Force }

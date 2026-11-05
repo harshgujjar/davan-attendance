@@ -113,6 +113,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov (later): Agent 1.15 / tray 1.8 - tray bars empty = $lv/$LV case clash (fixed + pcdoctor_version.py now refuses two spellings of a
   name in one function); emoji removed from WinForms text (boxes); manual DPI scale (Sharp after controls). Console "GUJJAR (duplicate)" x2 =
   the ASUS (now Windows name 1DAVAN) and a Sony SVF15218SNW both registered as GUJJAR - user to Assign name + group on 📥 New PCs.
+- 05-Nov: Agent 1.16 / Console 1.5 - both laptops were Assigned "GUJJAR" (empty name box) + renameReq. User must Assign 1DAVAN (ASUS 90e4cc..)
+  and GUJJARSONY (Sony fc7e89..) on 📥 New PCs (box now pre-filled); agent then cancels the waiting Windows rename. Check with DB5 peek lab/pcs.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
