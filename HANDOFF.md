@@ -106,6 +106,10 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - davan-scraper Actions added: PC Doctor - infra check (SSH + MeshCentral from outside), DB5 remove test PCs, DB5 auto-fix OFF.
 - tools/pcdoctor_version.py refuses: a function using both $s and $S, a key twice in one @{...}.
 - The laptop runs an OLD loader until PCDoctor-Setup.cmd is run again (or a restart) - after that updates are automatic.
+- 05-Nov: Agent 1.13 / tray 1.6 / Console 1.3 / worker v22 (all tests + deploy green). Console = OWN PC Doctor password (lab/secret/consolePw,
+  set from Settings inside the staff app; standalone lab.html never touches the staff login), 📊 Dashboard first page, ⬇️ Add a PC always.
+  Setup = 7 numbered steps, no deep check inside (background after). Tray DPI-sharp. DB5 lab/events/$h .indexOn t (daily job green again).
+  Laptop self-updated to 1.12 overnight; MeshCentral check "https 200" up. A 2nd PC fc7e898392f38675 (Win 10) registered 05-Nov - ask the user its name.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
