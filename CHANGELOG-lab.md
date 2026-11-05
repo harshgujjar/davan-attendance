@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · tray 1.15 -- The user: "show the version here always" - the tray window title reads "PC Doctor v1.24 - GUJJAR" and follows
+  every update by itself (state/running.json). UpdRefresh.
 - 05-Nov-2026 · Agent 1.23 / tray 1.14 -- The user: "when downloading a new update show the progress in the tray so I know what is happening".
   The updater (loader) writes each step to state/updp.json (looking, downloading file i of n, installing, starting); the tray's Updates tab
   shows a bar + the step every second while it runs, also on This PC's message line and the icon's text, with a notification when an update

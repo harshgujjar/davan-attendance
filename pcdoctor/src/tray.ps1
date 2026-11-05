@@ -87,6 +87,7 @@ $uBtn.Add_Click({ UpdNow })
 $uAll.Add_Click({ $script:showAll = !$script:showAll; UpdRefresh })
 function UpdRefresh {
   $r = J 'running.json'; $lv = J 'labver.json'; $u = J 'upd.json'
+  $form.Text = 'PC Doctor' + $(if ($r -and $r.ver) { ' v' + $r.ver } else { '' }) + ' - ' + $env:COMPUTERNAME   # 1.15 (user, 05-Nov-2026): version always in the title
   $uVer.Text = if ($r) { 'PC Doctor ' + $r.ver + '  ·  build ' + $r.build } else { 'PC Doctor (first start)' }
   $newest = if ($lv -and $lv.agent) { [string]$lv.agent.ver + ' (build ' + $lv.agent.build + ', ' + $lv.agent.ist + ')' } else { '' }
   $uWhen.Text = $(if ($r -and $r.at) { 'This version came on ' + (IST $r.at) + ' IST' } else { '' }) + $(if ($newest) { "`r`nNewest published: " + $newest } else { '' })
