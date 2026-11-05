@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 05-Nov-2026 · kids v57 (user: the voice says "7 7 how much" instead of "7 7 zaa"): the question line "a b ja?" ended with a question mark right after the joiner, which the speech engine turned into a question phrase. rawSay now replaces "<joiner>?" with "<joiner> ..." before speaking (screen text unchanged). No data/cost change. Phone logs could not be read in this session (Firebase blocked) - listening complaints need the log copy (⚙️ → 🩺 Log → 📋 Copy). Functions: rawSay.
+
 - 04-Nov-2026 · kids v56 · parent v46 · app h26 (user photo 11:48: "sound is not coming - Hello ... on my phone where the child app is installed"): the log of that phone (Motorola edge 50 pro, Android 16, h25 freshly installed)
   shows "voice: no 'done' from the speaker engine" after EVERY sentence from 11:43 - the phone's text-to-speech never started or never spoke (it spoke fine on 3 Nov, no such lines). I cannot see the
   phone's voice settings, so h26 makes it self-diagnosing and self-repairing: the engine start is checked after 6 s and retried (1st with Google's speech services by name, then the default), the log
