@@ -302,7 +302,7 @@ function A-Metrics {
     ev = @{ disk7 = @($list | Where-Object { $_.k -eq 'disk' -and $_.id -eq 7 }).Count; whea = (& $cnt 'whea'); scm = (& $cnt 'scm'); apperr = (& $cnt 'apperr'); throttle = $(if ($tmax -ge 80) { & $cnt 'throttle' } else { 0 })
             hangTop = [string]$hang.Name; hangTopN = [int]$hang.Count; kp41nob = @($list | Where-Object { $_.k -eq 'kp41' -and $_.nobsod }).Count; clockJump = @($list | Where-Object { $_.k -eq 'clock' -and $_.jump -lt -60 }).Count }
     mdiag = @{ fail = @($list | Where-Object { $_.k -eq 'mdiag' -and $_.id -in 1202,1102 }).Count }
-    bsod = @{ n7 = $bs.Count; ram = [int]$bsk['ram']; windows = [int]$bsk['windows']; last = $(if ($bs.Count) { ($bs | Select-Object -Last 1).code } else { '' }) }
+    bsod = @{ n7 = $bs.Count; ram = $(if ([int]$bsk['ram'] -ge 2) { [int]$bsk['ram'] } else { 0 }); ram1 = $(if ([int]$bsk['ram'] -eq 1) { 1 } else { 0 }); windows = [int]$bsk['windows']; last = $(if ($bs.Count) { ($bs | Select-Object -Last 1).code } else { '' }) }
     perf = @{ latP95 = (& $p95 ($perf | ForEach-Object { if ($_.l -ne $null) { $_.l } else { $_.lat } })); busyP95 = (& $p95 ($perf | ForEach-Object { if ($_.b -ne $null) { $_.b } else { $_.busy } }))
               ramP95 = (& $p95 ($perf | ForEach-Object { if ($_.r -ne $null) { $_.r } else { $_.ram } })); faultsP95 = (& $p95 ($perf | ForEach-Object { if ($_.h -ne $null) { $_.h } else { $_.hf } }))
               tempMax = ($perf | ForEach-Object { $_.tc } | Measure-Object -Maximum).Maximum; freqMin = ($perf | Where-Object { ($_.c -ge 50) -or ($_.cpu -ge 50) } | ForEach-Object { $_.fr } | Where-Object { $_ } | Measure-Object -Minimum).Minimum }

@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.64 -- GUJJARSONY (the Sony) showed a red "RAM error": the DB5 data shows WHEA and memory-test counts empty, only ONE blue screen in 7 days whose code is
+  memory-type (these are often a driver, not a bad stick). One such blue screen now gives an orange "Watch RAM" (new rule ram_bsod1); the red RAM error needs WHEA, a failed memory test, or 2+ of them. No extra DB reads. A-Health (bsod.ram / bsod.ram1).
 - 05-Nov-2026 · Agent 1.63 / tray 1.39 -- The user: "give a Refresh option so any new change shows". This PC tab: Refresh (next to Open Console) - the agent takes fresh readings at once
   (req/refresh.flag: network + the minute reading) and the updater looks for a newer PC Doctor; the window re-reads every 3 s for 30 s. RefreshNow, agent 14-s loop.
 - 05-Nov-2026 · Agent 1.62 / tray 1.38 -- The user moved to Ethernet and the tray still said Wi-Fi: PC Doctor took the first network with a gateway (Wi-Fi stayed connected) and
