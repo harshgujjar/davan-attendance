@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Console 1.14 -- The user: "keep the same notes in lab.html also" - side menu 📒 Notes (how it works) shows pcdoctor/src/notes.txt (the very same file as the tray's
+  Notes tab; Copy button), so the two never differ. pageNotes.
 - 05-Nov-2026 · Agent 1.37 / tray 1.22 / Console 1.13 -- The user: from the web app with 30 PCs, "which PC am I working on" - a pop-up on the PC. Console PC page
   "📍 Show me this PC" (and automatically when Remote screen is opened) sends the read-only command identify; the agent writes state/identify.json and
   the tray shows the PC's Console name (B6 ...) BIG on its own screen for 10 s with a sound (click closes). Picked up within ~14 s. identify, IdentifyShow, openMesh.
