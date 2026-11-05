@@ -178,7 +178,7 @@ function PD-TrayLauncher {
     '    If InStr(LCase(p.CommandLine & ""), "davanpcdoctor\bin\tray.ps1") > 0 Then WScript.Quit',
     '  Next',
     'End If',
-    'CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + $tp + '""", 0, False') -join "`r`n")
+    ('CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + $tp + '""", 0, False')) -join "`r`n")   # 1.28: own brackets - the comma bound tighter than + and put the path on its own line
   try { if (!(Test-Path $v) -or (Get-Content $v -Raw -ErrorAction Stop).Trim() -ne $body) { [IO.File]::WriteAllText($v, $body, [Text.Encoding]::ASCII) } } catch {}
   $run = 'wscript.exe "' + $v + '"'; $k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
   try { if ((Get-ItemProperty $k -Name DavanPCDoctor -ErrorAction SilentlyContinue).DavanPCDoctor -ne $run) { Set-ItemProperty $k 'DavanPCDoctor' $run } } catch {}
