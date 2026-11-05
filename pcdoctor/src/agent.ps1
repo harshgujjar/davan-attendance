@@ -360,6 +360,8 @@ function A-Cmds {
 function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   $h = A-Hwid
   switch -regex ($kind) {
+    '^(agent_log)$'  { $lf = Join-Path $PD.Root 'log\agent.log'; $rq = @(Get-ChildItem (Join-Path $PD.Root 'req') -ErrorAction SilentlyContinue | ForEach-Object { $_.Name + ' ' + $_.Length + ' bytes ' + $_.LastWriteTime.ToString('HH:mm:ss') })
+                       @{ ok = $true; txt = ('Agent ' + (A-Ver) + ', laptop mode ' + [bool]$S.laptop + ', req folder: ' + ($rq -join '; ')); data = @($(if (Test-Path $lf) { Get-Content $lf -Tail 40 } else { 'no log' })) } }   # 1.43 read-only: Claude reads a PC's own log (no screenshot needed)
     '^(identify)$'   { PD-WriteJson (Join-Path $PD.Root 'state\identify.json') @{ t = (PD-NowMs); by = $by; name = $(if ($S.pc -and $S.pc.name) { [string]$S.pc.name } else { $env:COMPUTERNAME }) }; @{ ok = $true; txt = 'Name shown on the PC screen' } }   # 1.37 read-only
     '^(check)$'      { A-Verdict; @{ ok = $true; txt = $S.verdict.v + ' - ' + $S.verdict.why } }
     '^(report|send|inventory|deep)$' { A-Daily -Force; A-Verdict; @{ ok = $true; txt = 'Full report sent (inventory, deep checks, verdict)' } }
