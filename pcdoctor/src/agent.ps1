@@ -221,15 +221,19 @@ function A-Metrics {
   $bs = @($list | Where-Object { $_.k -eq 'bsod' })
   $bsk = @{}; $cb = PD-Cfg; foreach ($b in $bs) { $w = if ($b.code) { $cb.bsod.($b.code) } else { $null }; if ($w) { $bsk[$w.vk] = 1 + [int]$bsk[$w.vk] } }
   $pr = $S.prn; $ul = PD-UpdateLoop $list; $st = $S.startup; $nc = $S.net
+  # 1.33 (user, 05-Nov-2026: new lab PC B1 at 41-45 C was called "Overheating"): a low CPU speed while the PC is IDLE is normal power saving, and
+  # Windows logs "speed limited" (Kernel-Processor-Power 37) on healthy PCs - so a slow-down only counts as heat when the CPU was really hot (80 C+)
+  # and the speed drop only when the CPU was busy (50%+)
+  $tmax = ($perf | ForEach-Object { $_.tc } | Where-Object { $_ } | Measure-Object -Maximum).Maximum
   @{
     smart = @{ realloc = [int]($sm | Measure-Object realloc -Sum).Sum; pending = [int]($sm | Measure-Object pending -Sum).Sum; uncorr = [int]($sm | Measure-Object uncorr -Sum).Sum; crc = [int]($sm | Measure-Object crc -Maximum).Maximum; wear = [int]($sm | Measure-Object wear -Maximum).Maximum }
-    ev = @{ disk7 = @($list | Where-Object { $_.k -eq 'disk' -and $_.id -eq 7 }).Count; whea = (& $cnt 'whea'); scm = (& $cnt 'scm'); apperr = (& $cnt 'apperr'); throttle = (& $cnt 'throttle')
+    ev = @{ disk7 = @($list | Where-Object { $_.k -eq 'disk' -and $_.id -eq 7 }).Count; whea = (& $cnt 'whea'); scm = (& $cnt 'scm'); apperr = (& $cnt 'apperr'); throttle = $(if ($tmax -ge 80) { & $cnt 'throttle' } else { 0 })
             hangTop = [string]$hang.Name; hangTopN = [int]$hang.Count; kp41nob = @($list | Where-Object { $_.k -eq 'kp41' -and $_.nobsod }).Count; clockJump = @($list | Where-Object { $_.k -eq 'clock' -and $_.jump -lt -60 }).Count }
     mdiag = @{ fail = @($list | Where-Object { $_.k -eq 'mdiag' -and $_.id -in 1202,1102 }).Count }
     bsod = @{ n7 = $bs.Count; ram = [int]$bsk['ram']; windows = [int]$bsk['windows']; last = $(if ($bs.Count) { ($bs | Select-Object -Last 1).code } else { '' }) }
     perf = @{ latP95 = (& $p95 ($perf | ForEach-Object { if ($_.l -ne $null) { $_.l } else { $_.lat } })); busyP95 = (& $p95 ($perf | ForEach-Object { if ($_.b -ne $null) { $_.b } else { $_.busy } }))
               ramP95 = (& $p95 ($perf | ForEach-Object { if ($_.r -ne $null) { $_.r } else { $_.ram } })); faultsP95 = (& $p95 ($perf | ForEach-Object { if ($_.h -ne $null) { $_.h } else { $_.hf } }))
-              tempMax = ($perf | ForEach-Object { $_.tc } | Measure-Object -Maximum).Maximum; freqMin = ($perf | ForEach-Object { $_.fr } | Where-Object { $_ } | Measure-Object -Minimum).Minimum }
+              tempMax = ($perf | ForEach-Object { $_.tc } | Measure-Object -Maximum).Maximum; freqMin = ($perf | Where-Object { ($_.c -ge 50) -or ($_.cpu -ge 50) } | ForEach-Object { $_.fr } | Where-Object { $_ } | Measure-Object -Minimum).Minimum }
     inv = @{ ramGB = $(if ($inv) { $inv.ramGB }); ramMismatch = $(if ($inv -and $inv.ramMismatch) { 1 } else { 0 }); ramSticks = $(if ($inv) { (@($inv.ram) | ForEach-Object { "$($_.gb) GB $($_.mhz) MHz" }) -join ', ' }) }
     top = @{ ram = $(if ($S.ring.Count) { (@($S.ring[-1].ramTop) | Select-Object -First 2 | ForEach-Object { $_.n }) -join ' + ' }) }
     disk = @{ cFreePct = [math]::Round(100 * $c.FreeSpace / $c.Size, 1); cFreeGB = [math]::Round($c.FreeSpace / 1GB, 1); androidGB = [math]::Round($andGB, 1); cleanGB = $S.cleanGB }

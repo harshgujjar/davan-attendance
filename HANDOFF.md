@@ -134,6 +134,9 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   signed in, inside lab hours - the 30 lab PCs are off at night, so NOT a night job). Lab PCs not installed yet (test 2 lab + 1 office PC first).
 - 05-Nov: Agent 1.32 / tray 1.20 / Console 1.11 - laptop + test PCs check updates every 5 min (cfg fastMin), tray footer (cfg footer), offline INSTALL pendrive
   (Console Rescue page; install.ps1 offline branch; agent registers later when internet comes - Deep Freeze PC must stay Thawed until it shows on the Console).
+- 05-Nov 12:50: DFC.exe NOT found on lab PC B1 (Deep Freeze frozen, hwid 7b4bff0d83c3c5f1, Win name DESKTOP-H25PRDD, rename queued) -> automatic Thaw/Freeze via
+  DFC.exe is NOT possible on this Deep Freeze (maybe another path: user to run `where /r C:\ DFC.exe` + `sc query DFServ`). Fallback = Thawed maintenance by hand.
+  Agent 1.33: heat rule fixed (false "Overheating" on cool PCs). User must set B1's group to Lab 2 (Console 1.12 does it by the name).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

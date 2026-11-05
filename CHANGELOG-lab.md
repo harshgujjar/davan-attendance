@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.33 / Console 1.12 -- The user ran the DFC.exe test on new lab PC B1 (not found) and showed "Overheating" at 41-45 C + "Thaw needed" +
+  B1 in Lab 1. Overheating: an idle CPU's low speed (power saving) and Windows' "speed limited" events counted as heat - now speed counts only while
+  the CPU is busy (50%+) and the slow-down events only when the CPU reached 80 C. Thaw needed: the Windows rename to B1 (a Frozen PC waits for Thawed -
+  as designed). Group: Assign kept the first group (Lab 1) - typing a name now picks its group (B1 -> Lab 2). A-Verdict inputs, pickGrp.
 - 05-Nov-2026 · Agent 1.32 / tray 1.20 / Console 1.11 -- The user: (1) update reach the laptop + test PCs in 5 min not 1 h; (2) a footer so everybody
   knows who built it; (3) install on a lab PC with no internet. (1) loader: Super Admin laptop + lab/cfg test PCs look every 5 min (cfg fastMin);
   the agent restarts a loader that is older than loader.ps1 (service starts it again in ~30 s) so the new loader needs no PC restart. (2) tray footer
