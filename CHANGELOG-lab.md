@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · tray 1.16 -- The user: "Open Console button on every tray". This PC tab + the tray icon's right-click menu get "Open Console" on
+  every PC: asks the tray password (unless unlocked), then opens lab.html in the browser, which has its own login + lock-out. Address from DB5
+  lab/cfg consoleUrl (fallback harshgujjar.github.io/davan-attendance/lab.html). OpenConsole.
 - 05-Nov-2026 · Agent 1.25 -- The user: "Update now says no internet" - 1DAVAN online (agent reporting) but its updater could not reach
   raw.githubusercontent.com (stuck on 1.19). The loader now tries 3 times, then GitHub's API as a second road, says the real reason, and a failed
   check retries in 5 minutes (was 1 hour). New read-only command loader_log (last 30 updater log lines). L-Get, L-Fetch, A-Cmd.

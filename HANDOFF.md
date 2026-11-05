@@ -126,6 +126,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov: Agent 1.23 / tray 1.14 - update progress in the tray (loader state/updp.json; new loader active after the next PC start).
 - 05-Nov 10:40: 1DAVAN updater says "no internet" (stuck on 1.19, agent online). Agent 1.25 loader has retries + api.github.com fallback, but the OLD
   loader must fetch it first. Asked the user to open raw.githubusercontent.com/.../pcdoctor/lab-version.json in a browser (ISP block?).
+- 05-Nov: tray 1.16 - "Open Console" button + menu item on every PC (tray password, then the Console login; URL = cfg.consoleUrl).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

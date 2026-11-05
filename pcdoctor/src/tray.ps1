@@ -36,7 +36,7 @@ function Pw([string]$why) {
   [Windows.Forms.MessageBox]::Show('Wrong password.', 'PC Doctor') | Out-Null; $false
 }
 # ---------- the window ----------
-$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 608; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
+$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 644; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
 function Corner { $wa = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $form.Left = $wa.Right - $form.Width - 12; $form.Top = [math]::Max($wa.Top, $wa.Bottom - $form.Height - 12) }
 Corner; $form.Add_Shown({ Corner })   # after the DPI scaling the window is bigger - keep it in the corner, fully on screen
 $tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $FT.n }
@@ -218,6 +218,7 @@ function OpenWin { if ($form.Visible -and $script:unlocked) { $form.WindowState 
   if (!$script:unlocked -and !(Pw 'opening PC Doctor')) { return }
   $script:unlocked = $true; $form.Show(); $form.WindowState = 'Normal'; $form.Activate() }
 [void]$menu.Items.Add('Open PC Doctor', $null, { OpenWin })
+[void]$menu.Items.Add('Open Console', $null, { OpenConsole })
 [void]$menu.Items.Add('Check now', $null, { Set-Content "$Rq\now.flag" '1' })
 [void]$menu.Items.Add('⬆ Update now', $null, { UpdNow; OpenWin; $tabs.SelectedTab = $tUp })
 [void]$menu.Items.Add('Copy report', $null, { if ($script:unlocked -or (Pw 'copying the report')) { [Windows.Forms.Clipboard]::SetText((Report)) } })
