@@ -41,6 +41,7 @@ function A-SyncPc {
       $up.winChanged = @{ old = $pc.win; new = $env:COMPUTERNAME; t = (PD-NowMs) }
       PD-Db PUT ('lab/edits/' + $h + '/e' + (PD-NowMs)) @{ t = (PD-NowMs); who = 'Windows (on the PC)'; where = 'PC'; field = 'win'; old = $pc.win; new = $env:COMPUTERNAME } | Out-Null }
     $up.win = $env:COMPUTERNAME }
+  if ($pc.uninstalled) { $up.old = $null; $up.oldAt = $null; $up.uninstalled = $null; PD-Event 'install' '♻️' 'PC Doctor installed again - back from Old PCs' | Out-Null }   # 1.19
   if (!$pc.name) { $up.name = $env:COMPUTERNAME }
   # 05-Nov-2026 (user: two laptops both listed as "GUJJAR (duplicate)"): the Console name stayed the FIRST Windows name after a Windows
   # rename - now it follows the new Windows name when nobody set it by hand on the Console (name = the old Windows name)
@@ -84,10 +85,45 @@ function A-TrayReq {
   if (Test-Path "$r\usbfix.flag") { Remove-Item "$r\usbfix.flag" -Force; $d = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2' | Where-Object { Test-Path ($_.DeviceID + '\DavanFix\fix.json') }) | Select-Object -First 1
     $o = if ($d) { PD-RunUsbFix $d.DeviceID -Asked } else { $null }; PD-WriteJson (Join-Path $PD.Root 'state\usbfix.json') @{ t = (PD-NowMs); done = @($o); ok = [bool]$d }
     if ($o) { foreach ($x in $o) { PD-FixLog 'clean_temp' @{ ok = $x.ok; txt = ('pendrive: ' + $x.file + ' ' + $x.txt) } 'pendrive' } } }
+  $un = PD-ReadJson "$r\uninstall.json"; if ($un) { Remove-Item "$r\uninstall.json" -Force; A-Uninstall $un; return }
   $q = PD-ReadJson "$r\ai.json"
   if ($q) { Remove-Item "$r\ai.json" -Force
     $a = try { Invoke-RestMethod -Method Post -Uri ($PD.Worker + '/lab/ai') -Body (PD-Json @{ token = (PD-Token); prompt = [string]$q.prompt; history = @($q.history) }) -ContentType 'text/plain' -TimeoutSec 60 } catch { @{ ok = $false; msg = $_.Exception.Message } }
     PD-WriteJson (Join-Path $PD.Root 'state\ai.json') @{ t = (PD-NowMs); ok = $a.ok; text = $a.text; msg = $a.msg; left = $a.left } }
+}
+# 1.19 (user, 05-Nov-2026: "an option with password to uninstall the tray software on a laptop or desktop"): the tray asks the password
+# and shows the list; the agent (SYSTEM - the user cannot remove a service) checks the password AGAIN here, marks the PC "uninstalled"
+# in DB5 (moves to Old PCs, history kept) and hands over to a one-time SYSTEM task, because removing the service also stops this agent.
+function A-Uninstall($u) {
+  $c = PD-Cfg; $want = if ($c -and $c.trayPw) { [string]$c.trayPw } else { '' }
+  $hp = -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes('davanlab:' + [string]$u.pw)) | ForEach-Object { $_.ToString('x2') })
+  $def = -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes('davanlab:2531')) | ForEach-Object { $_.ToString('x2') })
+  if (!(($want -and $hp -eq $want) -or (!$want -and $hp -eq $def))) { PD-WriteJson (Join-Path $PD.Root 'state\uninst.json') @{ t = (PD-NowMs); ok = $false; msg = 'Wrong password - nothing removed.' }; return }
+  if ((PD-DeepFreeze).state -eq 'frozen') { PD-WriteJson (Join-Path $PD.Root 'state\uninst.json') @{ t = (PD-NowMs); ok = $false; msg = 'This PC is Frozen - Deep Freeze would put PC Doctor back at the restart. Boot Thawed first, then uninstall.' }; return }
+  $h = A-Hwid; $who = [string]$u.who
+  PD-Event 'uninstall' '🗑️' ("PC Doctor uninstalled on the PC by " + $who) @{ who = $who; mesh = [bool]$u.mesh } | Out-Null
+  PD-Db PATCH ('lab/pcs/' + $h) @{ old = $true; oldAt = (PD-NowMs); uninstalled = @{ t = (PD-NowMs); who = $who; mesh = [bool]$u.mesh } } | Out-Null
+  PD-Alert 'uninstall' ("🗑️ " + $env:COMPUTERNAME + ': PC Doctor uninstalled') ("By " + $who + ' on the PC (password given). Moved to Old PCs; history kept.') 'amber'
+  PD-WriteJson (Join-Path $PD.Root 'state\uninst.json') @{ t = (PD-NowMs); ok = $true; msg = 'Uninstalling - PC Doctor closes in about a minute.' }
+  $mesh = if ($u.mesh) { '$true' } else { '$false' }
+  $us = @"
+`$ErrorActionPreference = 'SilentlyContinue'; `$R = "`$env:ProgramData\DavanPCDoctor"
+Start-Sleep 3
+Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'DavanPCDoctor'
+Unregister-ScheduledTask -TaskName 'Davan PC Doctor' -Confirm:`$false
+Stop-Service PCDoctorSvc -Force; sc.exe delete PCDoctorSvc | Out-Null
+foreach (`$m in 'Minimal','Network') { Remove-Item "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\`$m\PCDoctorSvc" -Recurse -Force }
+foreach (`$p in @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { `$_.CommandLine -match 'DavanPCDoctor\\(loader|bin\\agent|bin\\tray)\.ps1' })) { Invoke-CimMethod -InputObject `$p -MethodName Terminate | Out-Null }
+if ($mesh) { `$x = "`$env:ProgramFiles\Mesh Agent\MeshAgent.exe"; if (Test-Path `$x) { Start-Process `$x -ArgumentList '-fulluninstall' -Wait -WindowStyle Hidden } }
+Start-Sleep 3; Remove-Item `$R -Recurse -Force
+Unregister-ScheduledTask -TaskName 'Davan PC Doctor Uninstall' -Confirm:`$false
+Remove-Item `$PSCommandPath -Force
+"@
+  $f = Join-Path $env:windir 'Temp\DavanPCDoctor-uninstall.ps1'
+  [IO.File]::WriteAllText($f, $us, (New-Object Text.UTF8Encoding($true)))
+  $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$f`""
+  Register-ScheduledTask -TaskName 'Davan PC Doctor Uninstall' -Action $act -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
+  Start-ScheduledTask -TaskName 'Davan PC Doctor Uninstall'
 }
 function A-TrayEdits {
   foreach ($f in @(Get-ChildItem (Join-Path $PD.Root 'req') -Filter 'edit*.json' -ErrorAction SilentlyContinue)) {

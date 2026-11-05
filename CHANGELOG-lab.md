@@ -2,6 +2,11 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.19 / tray 1.11 / Console 1.8 -- The user: "an option with a password to uninstall the tray software on a laptop or
+  desktop". Tray This PC -> Uninstall: password, "also remove MeshCentral?", then the exact list of what goes (service + boot task, tray for
+  every user, the ProgramData folder, MeshCentral if chosen); a Frozen PC is refused (Deep Freeze would bring it back). The agent (SYSTEM)
+  checks the password again, marks DB5 lab/pcs/<hwid> old + uninstalled {t, who, mesh} (Old PCs, history kept), sends a Super Admin alert and
+  hands over to a one-time SYSTEM task that removes everything. Setup again = back from Old PCs. Uninstall, PwText, A-Uninstall, A-SyncPc, pageOldPcs.
 - 05-Nov-2026 · Agent 1.18 / tray 1.10 / Console 1.7 -- The user asked "why is 1DAVAN on 95% RAM" - the PC only reported the top programs by
   CPU. checks.ps1 now adds RAM per program (all copies summed, e.g. Firefox's many), lab/now gets rtop (3 items, ~100 bytes a minute, no new
   writes); tray This PC, Copy report, Ask AI and the Console PC page show "RAM used by". PD-Sample, A-Now, Refresh, Report, AskAi, pcPage.

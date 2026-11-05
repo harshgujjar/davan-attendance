@@ -21,6 +21,7 @@ $CL = @{ bg = [Drawing.Color]::FromArgb(11,13,17); card = [Drawing.Color]::FromA
         er = [Drawing.Color]::FromArgb(248,113,113); ye = [Drawing.Color]::FromArgb(250,204,21); pu = [Drawing.Color]::FromArgb(167,139,250); off = [Drawing.Color]::FromArgb(75,85,99) }
 $LVL = @{ green = @('●', $CL.ok); yellow = @('●', $CL.ye); orange = @('●', $CL.wa); red = @('●', $CL.er); purple = @('●', $CL.pu); off = @('○', $CL.off) }
 $FT = @{ big = New-Object Drawing.Font('Segoe UI Semibold', 13); n = New-Object Drawing.Font('Segoe UI', 9.5); s = New-Object Drawing.Font('Segoe UI', 8.5); m = New-Object Drawing.Font('Consolas', 9); e = New-Object Drawing.Font('Segoe UI Emoji', 10) }
+function PwText([string]$why) { $script:lastPw = $null; if (Pw $why) { return $script:lastPw }; return $null }
 function Pw([string]$why) {
   $f = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor'; Width = 300; Height = 150; StartPosition = 'CenterScreen'; ShowInTaskbar = $true; BackColor = $CL.bg; ForeColor = $CL.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
   $l = New-Object Windows.Forms.Label -Property @{ Text = "Password for $why"; Left = 14; Top = 12; Width = 260; Font = $FT.n }
@@ -31,7 +32,7 @@ function Pw([string]$why) {
   $f.Controls.AddRange(@($l, $t, $b, $sh)); $f.AcceptButton = $b; Sharp $f
   if ($f.ShowDialog() -ne 'OK') { return $false }
   $cfg = J 'cfg.json'; $want = if ($cfg -and $cfg.trayPw) { [string]$cfg.trayPw } else { Hash '2531' }
-  if ((Hash $t.Text) -eq $want) { return $true }
+  if ((Hash $t.Text) -eq $want) { $script:lastPw = $t.Text; return $true }
   [Windows.Forms.MessageBox]::Show('Wrong password.', 'PC Doctor') | Out-Null; $false
 }
 # ---------- the window ----------
@@ -104,7 +105,20 @@ Btn 'Check now' 152 $by 136 { Set-Content "$Rq\now.flag" '1'; $msg.Text = 'Check
 Btn 'Copy' 292 $by 140 { [Windows.Forms.Clipboard]::SetText((Report)); $msg.Text = 'Report copied - paste it in WhatsApp / chat.' } | Out-Null
 Btn 'Save report to pendrive' 12 ($by + 36) 200 { Set-Content "$Rq\usb.flag" '1'; $msg.Text = 'Saving to the pendrive ...' } | Out-Null
 Btn 'Fix from pendrive' 216 ($by + 36) 216 { if ($script:unlocked -or (Pw 'Fix from pendrive')) { Set-Content "$Rq\usbfix.flag" '1'; $msg.Text = 'Running the approved fixes from the pendrive ...' } } | Out-Null
-Btn '⚙ Name / group / notes' 12 ($by + 72) 420 { if ($script:unlocked -or (Pw 'changing this PC')) { Edit } } | Out-Null
+Btn '⚙ Name / group / notes' 12 ($by + 72) 316 { if ($script:unlocked -or (Pw 'changing this PC')) { Edit } } | Out-Null
+# 1.11 (user, 05-Nov-2026): Uninstall with the password - shows exactly what is removed, the agent (SYSTEM) does it and checks the password again
+Btn 'Uninstall' 332 ($by + 72) 100 { Uninstall } | Out-Null
+function Uninstall {
+  $n = J 'now.json'
+  if ($n -and $n.df -eq 'frozen') { [Windows.Forms.MessageBox]::Show("This PC is Frozen (Deep Freeze).`r`nBoot Thawed first, then uninstall - otherwise PC Doctor comes back at the restart.", 'PC Doctor') | Out-Null; return }
+  $pw = PwText 'uninstalling PC Doctor'; if ($null -eq $pw) { return }
+  $mesh = [Windows.Forms.MessageBox]::Show("Also remove the remote-screen agent (MeshCentral)?`r`n`r`nYes = remove it too    No = keep it", 'PC Doctor - uninstall', 'YesNoCancel', 'Question')
+  if ($mesh -eq 'Cancel') { return }
+  $ok = [Windows.Forms.MessageBox]::Show("Uninstall PC Doctor from " + $env:COMPUTERNAME + "?`r`n`r`nThis removes:`r`n - the PC Doctor Agent service and its boot task`r`n - this tray app (for every user)`r`n - the folder " + $Root + " (settings, reports not yet sent)" + $(if ($mesh -eq 'Yes') { "`r`n - the remote-screen agent (MeshCentral)" } else { '' }) + "`r`n`r`nThe PC moves to Old PCs on the Console - its history is kept there. Running PCDoctor-Setup.cmd again brings it back.", 'PC Doctor - uninstall', 'YesNo', 'Warning')
+  if ($ok -ne 'Yes') { return }
+  W 'uninstall.json' @{ pw = $pw; mesh = ($mesh -eq 'Yes'); who = $env:USERNAME; t = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+  $script:unAsked = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $msg.Text = 'Uninstall asked - checking the password (about a minute) ...'
+}
 function Edit {
   $p = J 'pc.json'; $cfg = J 'cfg.json'
   $f = New-Object Windows.Forms.Form -Property @{ Text = '⚙ This PC'; Width = 360; Height = 330; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'CenterScreen'; FormBorderStyle = 'FixedDialog'; TopMost = $true }
@@ -190,6 +204,7 @@ function Refresh {
   $week.Text = 'Last 7 days: ' + $(if ($v -and $v.all) { (@($v.all) | ForEach-Object { $LVL[[string]$_.lv][0] + ' ' + $_.v }) -join '   ' } else { 'nothing found' })
   $ni.Text = ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Substring(0, [math]::Min(63, ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Length))
   if ($lv -ne $lastLv) { $ni.Icon = Ico $e[1]; $script:lastLv = $lv }
+  $un = J 'uninst.json'; if ($un -and $script:unAsked -and [int64]$un.t -ge $script:unAsked) { $script:unAsked = 0; $msg.Text = [string]$un.msg }
   $u = J 'usb.json'; if ($u -and $u.t -gt $seen.usb) { $seen.usb = $u.t; $msg.Text = $(if ($u.ok) { 'Saved: ' + $u.file } else { 'No pendrive found - plug one in and try again.' }) }
   $x = J 'usbfix.json'; if ($x -and $x.t -gt $seen.fix) { $seen.fix = $x.t; $msg.Text = $(if ($x.ok) { 'Done: ' + ((@($x.done) | ForEach-Object { $_.file + $(if ($_.ok) { ' ✅' } else { ' ❌' }) }) -join ', ') + ' - result saved on the pendrive' } else { 'No fix pendrive (DavanFix\fix.json) found.' }) }
   # Super Admin laptop
