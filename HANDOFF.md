@@ -155,6 +155,9 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   Plan agreed with the user (go): 1 remote screen, 2 trustworthy findings (two signals before red, "Wrong" button, "What to do this week" page), 3 Thawed clean round (Android SDK/AVD,
   WU cleanup, install updates once to end the update loop). Tray pictures: Windows test prints PNGs into its log (PNGBEGIN..PNGEND) - read them before shipping tray changes.
   User is short on weekly tokens: facts first, one complete pass, short answers.
+- 05-Nov 21:15: GUJJARHOME (hwid 9038219e70ef45ca, user's home PC, ASRock "To Be Filled" board, grp SA) powers off by itself: Kernel-Power 41 code 0x0 (no blue screen)
+  on 29 Oct, 31 Oct x3 and 5 Nov x4 - BEFORE PC Doctor (installed 20:48) -> hardware / power (PSU, cable, socket, UPS, heat trip), not PC Doctor. CPU 0-58%, no temp sensor.
+  mesh_check failed twice on it ("The parameter is incorrect", fixed in 1.53) - re-queue mesh_check once it runs 1.53 (it was still 1.52 at 21:15).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
