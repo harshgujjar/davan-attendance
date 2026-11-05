@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.22 / Console 1.9 -- The user's Dashboard: "Thaw needed: GUJJAR, GUJJAR" and "2 PCs on an old version". Both laptops
+  have no Deep Freeze; a thaw queue from an early wrong Frozen reading waited forever - the agent now clears it on a PC without Deep Freeze
+  (logged 🧹, nothing run by itself) and the Console never says Thaw needed for such a PC. "Old version" counts only after the missing
+  build has been out 3 hours (PCs update within the hour). A-ThawRun, thawNeeded, oldAgent.
 - 05-Nov-2026 · Agent 1.21 / tray 1.13 -- The user: "PC Doctor got uninstalled on 1DAVAN, I pressed nothing". DB5: it was NOT uninstalled
   (agent reporting every minute, no uninstalled mark) - only the tray was gone, closed together with the PowerShell window it ran in.
   The launcher now starts the tray only when it is not running, and a task "Davan PC Doctor Tray" runs it for every user at sign-in and

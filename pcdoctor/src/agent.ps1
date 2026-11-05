@@ -352,7 +352,13 @@ function A-NeedRestart { $r = PD-SfcState; $mem = (& bcdedit /enum '{bootmgr}' 2
 function A-ThawRun {
   $q = @(PD-ReadJson (Join-Path $PD.Root 'state\thawq.json') | Where-Object { $_ })
   if (!$q.Count) { $dbq = PD-Db GET ('lab/pcs/' + (A-Hwid) + '/thawq'); if ($dbq) { $q = @($dbq) } }
-  if (!$q.Count -or (PD-DeepFreeze).state -ne 'thawed') { return }
+  if (!$q.Count) { return }
+  # 1.22 (user, 05-Nov-2026: "Thaw needed: GUJJAR, GUJJAR" on two laptops WITHOUT Deep Freeze): a queue left from an early wrong Frozen
+  # reading waited forever - a PC with no Deep Freeze needs no Thaw: the queue is cleared (nothing is run by itself) and logged
+  $dfs = (PD-DeepFreeze).state
+  if ($dfs -eq 'none') { PD-WriteJson (Join-Path $PD.Root 'state\thawq.json') @(); PD-Db PUT ('lab/pcs/' + (A-Hwid) + '/thawq') $null | Out-Null
+    PD-Event 'thaw' '🧹' ('No Deep Freeze on this PC - "Thaw needed" cleared (' + (@($q | ForEach-Object { [string]$_.fix }) -join ', ') + ' not run; run it from the Console if still needed)') | Out-Null; return }
+  if ($dfs -ne 'thawed') { return }
   $done = @(); $restart = $false
   foreach ($x in $q) { $a = if ($x.args) { $x.args } else { @{} }; $a | Add-Member -NotePropertyName now -NotePropertyValue $true -Force -ErrorAction SilentlyContinue; if ($a -is [hashtable]) { $a.now = $true }
     $r = PD-Fix ([string]$x.fix) $a ([string]$x.by + ' (Thawed)'); $done += ($PD_FIX[[string]$x.fix].l + $(if ($r.ok) { ' ✅' } else { ' ❌' })); if ($r.restart) { $restart = $true } }

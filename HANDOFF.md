@@ -121,6 +121,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov: Agent 1.20 / tray 1.12 - tray starts via wscript tray-start.vbs (no console window on Win 11). Laptop restarted and Windows is now
   GUJJAR (the waiting rename ran before 1.16). rtop: firefox 31 copies 5.5 GB; AddInProcess 39% CPU - asked the user to check its path.
 - 05-Nov: Agent 1.21 / tray 1.13 - task "Davan PC Doctor Tray" (Users, logon + every 10 min) restarts a closed tray (1DAVAN tray was closed with its console, agent fine).
+- 05-Nov: Agent 1.22 / Console 1.9 - stale thaw queue cleared on PCs without Deep Freeze; "old version" after 3 h. ASUS Windows name is now GUJJAR;
+  user still to Assign 1DAVAN (ASUS) + GUJJARSONY (Sony) on 📥 New PCs.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
