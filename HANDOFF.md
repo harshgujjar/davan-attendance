@@ -292,3 +292,4 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - Not done: student portal has no rates page of its own (students reach rates.html from the widget only).
 - 03-Nov-2026: rates.html rows renamed "Last 7 days" / "Last 30 days" / "Last 12 months" (rolling windows, were "This week / month / year"); worker v17 prompt says the same. The `sig` one-liner from fetch_news (davan-student-news) not checked.
 - 05-Nov: Agent 1.65 - GUJJARSONY "Windows damaged" was a false alarm (crash-restart service failures + 0 printed as ?); 1.64 = one RAM-type blue screen is only orange. Blue screen 4 Nov 0x50 with Roblox + IOBit Driver Booster open - told the user to remove Driver Booster (not done by us).
+- 05-Nov: tray 1.43 - tray restarted (password again) on every AGENT build; now only when bin\tray.ps1 itself changes.

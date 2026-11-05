@@ -413,8 +413,11 @@ function Refresh {
 }
 # 1.3 (user, 04-Nov-2026: "it's not auto update"): the loader updates the files, but a running tray kept its old copy until the next sign-in -
 # when state\running.json shows a new build and the window is closed, the tray starts its new copy and quits (no click, no sign-out)
-$script:myBuild = try { [int](J 'running.json').build } catch { 0 }
-function SelfUpdate { $b = try { [int](J 'running.json').build } catch { 0 }
+# 1.43 (user, 05-Nov-2026: "every few minutes PC Doctor restarts and asks for the password"): the tray restarted on EVERY agent build (running.json build = agent build),
+# and there were several that day. Now it restarts only when ITS OWN file (bin\tray.ps1) changed.
+function TrayId { try { (Get-FileHash "$Root\bin\tray.ps1" -Algorithm SHA1 -ErrorAction Stop).Hash } catch { '' } }
+$script:myBuild = TrayId
+function SelfUpdate { $b = TrayId
   # 1.23 (user, 05-Nov-2026: "Show me this PC is not working" - this window had been open since before the update, so the OLD tray was still running):
   # a tray with its window open used to wait for the window to be closed, for ever. Now it says so, waits about 45 s and restarts itself, window open again
   $show = $false

@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · tray 1.43 -- "Every few minutes PC Doctor restarts and asks for the password": the open window restarted itself (password asked again) on EVERY agent build, and
+  several agent builds came out that day. The tray now restarts only when its own file changed. No DB reads. TrayId, SelfUpdate.
 - 05-Nov-2026 · Agent 1.65 -- The Sony showed "Windows damaged 70%: sfc found ? damaged files; 23 service start failures": sfc found none - the 23 failures were the boot right after
   the 4 Nov blue screen (services starting before the network), and "?" was a bug that printed every 0 as "?" (PowerShell: 0 -eq ''). Service failures in the 10 minutes after a crash restart are no longer
   counted, and 0 is shown as 0 (WHEA ?, sfc ? ...). No extra DB reads. A-Health (ev.scm), PD-Verdict text.
