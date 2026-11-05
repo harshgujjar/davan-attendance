@@ -158,6 +158,10 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov 21:15: GUJJARHOME (hwid 9038219e70ef45ca, user's home PC, ASRock "To Be Filled" board, grp SA) powers off by itself: Kernel-Power 41 code 0x0 (no blue screen)
   on 29 Oct, 31 Oct x3 and 5 Nov x4 - BEFORE PC Doctor (installed 20:48) -> hardware / power (PSU, cable, socket, UPS, heat trip), not PC Doctor. CPU 0-58%, no temp sensor.
   mesh_check failed twice on it ("The parameter is incorrect", fixed in 1.53) - re-queue mesh_check once it runs 1.53 (it was still 1.52 at 21:15).
+- 05-Nov 21:50 REMOTE SCREEN ROOT CAUSE FOUND + FIXED: MeshCentral forced 2-step (force2factor) blocked Desktop/Files/Terminal ("Unable to access this feature until
+  two-factor authentication is enabled"). User chose OFF: davan-scraper Action "PC Doctor - Mesh 2-step" (mode off/on) set it false on the live server (backup config.json.bak-*),
+  tools/mesh/setup.sh now writes false too. Facts that led there (Action "PC Doctor - Mesh diag", node = end of device id): agent connected, whoami answered, relay download OK.
+  Lab PCs' agents were simply not connected (PCs off) - re-check with Mesh diag when they are on.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

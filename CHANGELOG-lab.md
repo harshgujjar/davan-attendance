@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · remote server -- Remote screen root cause: MeshCentral's forced 2-step login (force2factor) blocked Desktop / Files / Terminal for an admin without 2-step
+  ("Unable to access this feature until two-factor authentication is enabled"). The user chose to switch it off: davan-scraper Action "PC Doctor - Mesh 2-step" (off / on)
+  changed the live server (config backup kept), tools/mesh/setup.sh writes false. Found with the read-only Action "PC Doctor - Mesh diag" (agent connected, command answered, relay OK).
 - 05-Nov-2026 · Agent 1.53 -- mesh_check stopped with "The parameter is incorrect" on GUJJARHOME (Get-WinEvent throws when the Mesh Agent never wrote an event) - each step now runs on its own. A-Do mesh_check.
 - 05-Nov-2026 · Agent 1.52 -- Remote screen diagnosis (user: "Remote screen still does not connect"). New read-only Action "PC Doctor - Mesh diag" (davan-scraper) read the server: MeshCentral 1.3.1 up,
   no errors, all 8 PCs REGISTERED but NONE connected - so the screen had nothing to connect to. New read-only command mesh_check: the PC's remote agent service, its settings (server
