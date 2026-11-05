@@ -360,6 +360,7 @@ function A-Cmds {
 function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   $h = A-Hwid
   switch -regex ($kind) {
+    '^(identify)$'   { PD-WriteJson (Join-Path $PD.Root 'state\identify.json') @{ t = (PD-NowMs); by = $by; name = $(if ($S.pc -and $S.pc.name) { [string]$S.pc.name } else { $env:COMPUTERNAME }) }; @{ ok = $true; txt = 'Name shown on the PC screen' } }   # 1.37 read-only
     '^(check)$'      { A-Verdict; @{ ok = $true; txt = $S.verdict.v + ' - ' + $S.verdict.why } }
     '^(report|send|inventory|deep)$' { A-Daily -Force; A-Verdict; @{ ok = $true; txt = 'Full report sent (inventory, deep checks, verdict)' } }
     '^(events)$'     { $S.lastEv = (Get-Date).AddDays(-7); A-Events; @{ ok = $true; txt = 'Events of the last 7 days sent again' } }

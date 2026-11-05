@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.37 / tray 1.22 / Console 1.13 -- The user: from the web app with 30 PCs, "which PC am I working on" - a pop-up on the PC. Console PC page
+  "📍 Show me this PC" (and automatically when Remote screen is opened) sends the read-only command identify; the agent writes state/identify.json and
+  the tray shows the PC's Console name (B6 ...) BIG on its own screen for 10 s with a sound (click closes). Picked up within ~14 s. identify, IdentifyShow, openMesh.
 - 05-Nov-2026 · Agent 1.36 / tray 1.21 / worker v24 -- The user: the web app is slow to check and reply; give the Super Admin laptop's tray the options.
   Tray All PCs tab (laptop only): pick PCs, "How much it frees" (read-only), "Clean now" (deletes: list + password), "Delete old history" (count, then
   list + password) with the answer in a box within seconds (Copy). The laptop agent sends through the worker (POST /lab/cmd, /lab/cmdres, /lab/purge;
