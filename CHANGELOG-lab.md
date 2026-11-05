@@ -2,6 +2,7 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · tray 1.24 -- The user renamed a lab PC to B1 and the tray still showed DESKTOP-H25PRDD (the Windows name, changed only at a Thawed restart). Title + headline now show the Console name; facts list gets Name + Windows name rows. PcNames.
 - 05-Nov-2026 · Agent 1.42 / worker v25 -- The user's laptop tray: "Last check 2.12 PM: No internet - could not reach the update server" - stuck on 1.29 for 3 h while online
   (agent reporting). Its running (old) loader tried only raw.githubusercontent.com. New loader: third road through the worker (GET /lab/raw, files still
   checked by SHA-256) after raw and api.github.com. A running old loader needs one service restart (net stop / start PCDoctorSvc) or the update pendrive.

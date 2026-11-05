@@ -121,7 +121,7 @@ function UpdRefresh {
   $ux = J 'usbupd.json'; if ($ux -and $script:usbAt -and [int64]$ux.t -ge $script:usbAt) { $script:usbAt = 0; $uRes.Text = $(if ($ux.ok) { '✅ ' } else { '❌ ' }) + [string]$ux.msg; $msg.Text = [string]$ux.msg; if (!$ux.ok) { $uBar.Visible = $false; $tp.Stop() } }
   $fc = J 'cfg.json'; $ft2 = if ($fc -and $fc.footer) { [string]$fc.footer } else { 'Built by Harsh Gujjar for Davan College, Davangere  -  built with Claude' }
   $foot.Text = 'Davan PC Doctor' + $(if ($r -and $r.ver) { ' v' + $r.ver } else { '' }) + "`r`n" + $ft2
-  $form.Text = 'PC Doctor' + $(if ($r -and $r.ver) { ' v' + $r.ver } else { '' }) + ' - ' + $env:COMPUTERNAME   # 1.15 (user, 05-Nov-2026): version always in the title
+  $pn = PcNames; $form.Text = 'PC Doctor' + $(if ($r -and $r.ver) { ' v' + $r.ver } else { '' }) + ' - ' + $pn.con   # 1.15 (user, 05-Nov-2026): version always in the title
   $uVer.Text = if ($r) { 'PC Doctor ' + $r.ver + '  ·  build ' + $r.build } else { 'PC Doctor (first start)' }
   $newest = if ($lv -and $lv.agent) { [string]$lv.agent.ver + ' (build ' + $lv.agent.build + ', ' + $lv.agent.ist + ')' } else { '' }
   $uWhen.Text = $(if ($r -and $r.at) { 'This version came on ' + (IST $r.at) + ' IST' } else { '' }) + $(if ($newest) { "`r`nNewest published: " + $newest } else { '' })
@@ -152,6 +152,9 @@ $facts = New-Object Windows.Forms.ListView -Property @{ Left = 12; Top = $y + 4;
 $script:factNo = 0
 $tMe.Controls.Add($facts)
 # 1.18 (user, 05-Nov-2026: "give every point a serial number"): No. | what | value - every row numbered 1, 2, 3 ...
+# 1.24 (user, 05-Nov-2026: "I renamed the PC to B1 but it still shows the other name"): the tray showed only the WINDOWS name (changes at a Thawed restart).
+# Now the Console name (what you typed) comes first, the Windows name next to it, and a line says when Windows will change
+function PcNames { $p = J 'pc.json'; $cn = if ($p -and $p.name) { [string]$p.name } else { $env:COMPUTERNAME }; @{ con = $cn; win = $env:COMPUTERNAME; same = ($cn -eq $env:COMPUTERNAME) } }
 function FactRow([string]$lab, [string]$val, $col) { $script:factNo++; $it = New-Object Windows.Forms.ListViewItem([string]$script:factNo); $it.UseItemStyleForSubItems = $false; $it.ForeColor = $CL.ac
   [void]$it.SubItems.Add($lab); [void]$it.SubItems.Add($val); $it.SubItems[1].ForeColor = $CL.mu; $it.SubItems[2].ForeColor = $(if ($col) { $col } else { $CL.tx }); [void]$facts.Items.Add($it) }
 function Btn($t, $x, $yy, $w, $on) { $b = New-Object Windows.Forms.Button -Property @{ Text = $t; Left = $x; Top = $yy; Width = $w; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
@@ -338,11 +341,13 @@ function Refresh {
   $n = J 'now.json'; $v = J 'verdict.json'
   if (!$n) { $head.Text = 'PC Doctor - starting'; $verd.Text = 'The PC Doctor Agent has not written its first check yet (about a minute after start).'; return }
   $lv = if ($v) { [string]$v.lv } else { 'green' }; $e = $LVL[$lv]; if (!$e) { $e = $LVL.green }
-  $head.Text = $e[0] + ' ' + $env:COMPUTERNAME + ' - ' + $(if ($v) { $v.v } else { 'checking' }); $head.ForeColor = $e[1]
+  $pn = PcNames; $head.Text = $e[0] + ' ' + $pn.con + ' - ' + $(if ($v) { $v.v } else { 'checking' }); $head.ForeColor = $e[1]
   $verd.Text = $(if ($v) { $v.why + "  (" + $v.conf + "% sure)" } else { '' })
   foreach ($k in 'cpu','ram','busy','cfree') { $x = [int]$n.$k; $bars[$k][0].Value = [math]::Max(0, [math]::Min(100, $x)); $bars[$k][1].Text = "$x%" }
   $run = J 'running.json'; $iv = J 'inv.json'
   $facts.BeginUpdate(); $facts.Items.Clear(); $script:factNo = 0
+  FactRow 'Name' $(if ($pn.same) { $pn.con } else { $pn.con + '   (Console name)' }) $CL.ac
+  if (!$pn.same) { FactRow 'Windows name' ($pn.win + '   - becomes ' + $pn.con + ' at the next Thawed restart') $CL.wa }
   FactRow 'Temperature' $(if ($n.temp) { 'CPU ' + [string]$n.temp + ' °C' } else { 'not available' })
   FactRow 'Deep Freeze' $(if ($n.df -eq 'thawed') { 'Thawed' } elseif ($n.df -eq 'frozen') { 'Frozen' } else { 'No Deep Freeze on this PC' }) $null
   if ($n.thawQ -and $n.df -ne 'none') { FactRow '' ("Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' })) $CL.wa }
