@@ -50,6 +50,27 @@ jobs:
           if (!$cs) { Write-Host "::error::service source not found"; exit 1 }
           Add-Type -TypeDefinition $cs -ReferencedAssemblies System.ServiceProcess -OutputAssembly "$env:TEMP\PCDoctorSvc.exe" -OutputType ConsoleApplication
           "service exe: $((Get-Item "$env:TEMP\PCDoctorSvc.exe").Length) bytes"
+      - name: Sensor reader experiment (PawnIO driver + LibreHardwareMonitor newest; user OK 05-Nov-2026) - facts before building it into PC Doctor
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'; $d = "$env:RUNNER_TEMP\sens"; New-Item -ItemType Directory -Force $d | Out-Null
+          $h = @{ 'User-Agent' = 'DavanPCDoctor' }
+          $pr = Invoke-RestMethod -Headers $h 'https://api.github.com/repos/namazso/PawnIO.Setup/releases/latest'; "PawnIO release: $($pr.tag_name) assets: $(($pr.assets | ForEach-Object name) -join ', ')"
+          $pa = $pr.assets | Where-Object { $_.name -match '\.exe$' } | Select-Object -First 1
+          Invoke-WebRequest -UseBasicParsing -Headers $h $pa.browser_download_url -OutFile "$d\pawnio.exe"; $sg = Get-AuthenticodeSignature "$d\pawnio.exe"; "pawnio.exe $((Get-Item "$d\pawnio.exe").Length) bytes, signature $($sg.Status) by $($sg.SignerCertificate.Subject)"
+          foreach ($a0 in @('-install -silent', '/S', '-silent -install')) {
+            $p = Start-Process "$d\pawnio.exe" -ArgumentList $a0 -PassThru -WindowStyle Hidden; if (!$p.WaitForExit(90000)) { "install with '$a0': still running after 90 s (waits for a click?) - stopped"; $p.Kill(); continue }
+            $v = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO' -ErrorAction SilentlyContinue).DisplayVersion
+            "install with '$a0': exit $($p.ExitCode), installed version: $v"; if ($v) { break } }
+          $lr = Invoke-RestMethod -Headers $h 'https://api.github.com/repos/LibreHardwareMonitor/LibreHardwareMonitor/releases/latest'; "LHM release: $($lr.tag_name) assets: $(($lr.assets | ForEach-Object name) -join ', ')"
+          $la = $lr.assets | Where-Object { $_.name -match '\.zip$' -and $_.name -match 'net4|Framework|472' } | Select-Object -First 1; if (!$la) { $la = $lr.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1 }
+          Invoke-WebRequest -UseBasicParsing -Headers $h $la.browser_download_url -OutFile "$d\lhm.zip"; Expand-Archive "$d\lhm.zip" "$d\lhm" -Force
+          $dll = Get-ChildItem "$d\lhm" -Recurse -Filter LibreHardwareMonitorLib.dll | Select-Object -First 1; "LHM dll: $($dll.FullName.Replace($d,'')) $($dll.VersionInfo.FileVersion) | files: $((Get-ChildItem $dll.DirectoryName -Filter *.dll | ForEach-Object Name) -join ', ')"
+          try { Add-Type -Path $dll.FullName; $c = New-Object LibreHardwareMonitor.Hardware.Computer; $c.IsCpuEnabled = $true; $c.IsMotherboardEnabled = $true; $c.Open()
+            foreach ($x in $c.Hardware) { $x.Update(); "hw $($x.HardwareType) $($x.Name): " + ((@($x.Sensors) | Where-Object { [string]$_.SensorType -in 'Temperature','Fan','Voltage','Load' } | Select-Object -First 8 | ForEach-Object { "$($_.SensorType) $($_.Name)=$($_.Value)" }) -join ' | ') }
+            $c.Close() } catch { "LHM load error: $($_.Exception.Message) | $($_.Exception.InnerException.Message) | $(($_.Exception.LoaderExceptions | Select-Object -First 2 | ForEach-Object Message) -join ' ; ')" }
+          try { $t = @(Get-MpThreatDetection -ErrorAction Stop); "Defender detections: $($t.Count) $(($t | ForEach-Object { $_.Resources -join ';' }) -join ' || ')" } catch { "Defender: n/a" }
+          Get-Service | Where-Object { $_.Name -match 'Pawn|R0' } | ForEach-Object { "service $($_.Name) $($_.Status)" }
       - name: Tray screenshots (every tab + the Show-me-this-PC pop-up)
         continue-on-error: true
         run: |
