@@ -85,6 +85,7 @@ function A-TrayReq {
   if (Test-Path "$r\usbfix.flag") { Remove-Item "$r\usbfix.flag" -Force; $d = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2' | Where-Object { Test-Path ($_.DeviceID + '\DavanFix\fix.json') }) | Select-Object -First 1
     $o = if ($d) { PD-RunUsbFix $d.DeviceID -Asked } else { $null }; PD-WriteJson (Join-Path $PD.Root 'state\usbfix.json') @{ t = (PD-NowMs); done = @($o); ok = [bool]$d }
     if ($o) { foreach ($x in $o) { PD-FixLog 'clean_temp' @{ ok = $x.ok; txt = ('pendrive: ' + $x.file + ' ' + $x.txt) } 'pendrive' } } }
+  $lc = PD-ReadJson "$r\labcmd.json"; if ($lc) { Remove-Item "$r\labcmd.json" -Force; A-LabCmd $lc; return }
   $uu = PD-ReadJson "$r\usbupd.json"; if ($uu) { Remove-Item "$r\usbupd.json" -Force; A-UsbUpdate $uu; return }
   $un = PD-ReadJson "$r\uninstall.json"; if ($un) { Remove-Item "$r\uninstall.json" -Force; A-Uninstall $un; return }
   $q = PD-ReadJson "$r\ai.json"
@@ -164,6 +165,41 @@ function A-UsbUpdate($rq) {
   PD-Event 'update' '💾' ('PC Doctor updated to ' + $to + ' from a pendrive by ' + [string]$rq.who) | Out-Null
   A-UsbProg 'usbdone' $n $n '' $to; A-UsbRes $true ('Installed ' + $to + ' from the pendrive - PC Doctor restarts in a few seconds.')
   Start-Sleep 4; exit 0
+}
+# 1.36 (user, 05-Nov-2026: "the web app takes time to check and reply - give the tray these options"): on the Super Admin laptop the tray sends
+# req\labcmd.json {op: send|purge, pcs: [hwid], kind, days, dry, pw}. Deleting steps (Clean now, purge) check the password HERE again.
+# The worker (POST /lab/cmd, /lab/cmdres, /lab/purge) does the DB5 side; the answers come back into state\labres.json for the tray.
+$script:LabPend = @(); $script:LabRows = @{}
+function A-LabOut($o) { $o.t = (PD-NowMs); PD-WriteJson (Join-Path $PD.Root 'state\labres.json') $o }
+function A-LabPost([string]$route, $body) { $body.token = (PD-Token); Invoke-RestMethod -Method Post -Uri ($PD.Worker + $route) -Body (PD-Json $body) -ContentType 'text/plain' -TimeoutSec 60 }
+function A-LabCmd($rq) {
+  if (!$S.laptop) { A-LabOut @{ op = [string]$rq.op; ok = $false; msg = 'Only the Super Admin laptop can do this.' }; return }
+  $del = (([string]$rq.op -eq 'purge') -and !$rq.dry) -or (([string]$rq.op -eq 'send') -and ([string]$rq.kind -eq 'clean'))
+  if ($del -and !(A-PwOk ([string]$rq.pw))) { A-LabOut @{ op = [string]$rq.op; ok = $false; msg = 'Wrong password - nothing deleted.' }; return }
+  try {
+    if ([string]$rq.op -eq 'purge') {
+      $x = A-LabPost '/lab/purge' @{ pcs = @($rq.pcs); days = [int]$rq.days; dry = [bool]$rq.dry; confirm = $del }
+      if (!$x.ok) { A-LabOut @{ op = 'purge'; ok = $false; msg = [string]$x.msg }; return }
+      A-LabOut @{ op = 'purge'; ok = $true; dry = [bool]$x.dry; days = $x.days; rows = @($x.rows); done = $true }
+    } else {
+      $x = A-LabPost '/lab/cmd' @{ pcs = @($rq.pcs); kind = [string]$rq.kind; confirm = $del; why = 'laptop tray' }
+      if (!$x.ok) { A-LabOut @{ op = 'send'; ok = $false; msg = [string]$x.msg }; return }
+      $script:LabPend = @($x.ids); $script:LabRows = @{}; foreach ($i in $x.ids) { $script:LabRows[[string]$i.id] = @{ pc = [string]$i.pc; st = 'sent'; txt = '' } }
+      $script:LabKind = [string]$rq.kind; $script:LabAt = Get-Date
+      A-LabOut @{ op = 'send'; ok = $true; kind = [string]$rq.kind; rows = @($script:LabRows.Values); done = (!$x.ids.Count) }
+    }
+  } catch { A-LabOut @{ op = [string]$rq.op; ok = $false; msg = 'Could not reach the server: ' + $_.Exception.Message } }
+}
+function A-LabPoll {
+  if (!$script:LabPend.Count) { return }
+  try {
+    $x = A-LabPost '/lab/cmdres' @{ ids = @($script:LabPend | ForEach-Object { @{ h = $_.h; id = $_.id } }) }
+    foreach ($i in @($x.res)) { if ($script:LabRows.ContainsKey([string]$i.id)) { $script:LabRows[[string]$i.id].st = [string]$i.st; $script:LabRows[[string]$i.id].txt = [string]$i.txt } }
+    $left = @($script:LabPend | Where-Object { $script:LabRows[[string]$_.id].st -notin 'done', 'failed' })
+    $over = ((Get-Date) - $script:LabAt).TotalMinutes -gt 5
+    if (!$left.Count -or $over) { $script:LabPend = @() }
+    A-LabOut @{ op = 'send'; ok = $true; kind = $script:LabKind; rows = @($script:LabRows.Values); done = (!$left.Count -or $over) }
+  } catch {}
 }
 function A-TrayEdits {
   foreach ($f in @(Get-ChildItem (Join-Path $PD.Root 'req') -Filter 'edit*.json' -ErrorAction SilentlyContinue)) {
@@ -502,6 +538,6 @@ while ($true) {
     A-Events; A-Minute; A-Cmds; A-TrayEdits; A-TrayReq
     if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
     $first = $false
-    foreach ($i in 1..4) { Start-Sleep -Seconds 14; if (Test-Path (Join-Path $PD.Root 'req\now.flag')) { Remove-Item (Join-Path $PD.Root 'req\now.flag') -Force; A-Daily -Force; A-Verdict; A-Minute }; A-TrayEdits; A-TrayReq; if ($i -eq 2) { A-Cmds } }
+    foreach ($i in 1..4) { Start-Sleep -Seconds 14; if (Test-Path (Join-Path $PD.Root 'req\now.flag')) { Remove-Item (Join-Path $PD.Root 'req\now.flag') -Force; A-Daily -Force; A-Verdict; A-Minute }; A-TrayEdits; A-TrayReq; A-Cmds; A-LabPoll }   # 1.36: commands are picked up every 14 s (was once a minute)
   } catch { PD-Log ('loop error: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber); Start-Sleep 30 }
 }

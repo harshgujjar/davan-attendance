@@ -216,12 +216,60 @@ function Edit {
 }
 # ---------- Super Admin laptop: all PCs grid + ✨ Ask AI ----------
 $tGrid = $null; $grid = $null; $tAi = $null
+# 1.21 (user, 05-Nov-2026: "the web app takes time to check and reply - if I have this option in the tray it is super easy"): Super Admin laptop,
+# All PCs tab: pick one or more PCs, then "How much it frees" (read-only), "Clean now" (deletes - list + password), "Delete old history"
+# (count first, then list + password). The agent does the sending (worker /lab/cmd, /lab/purge); the answer comes back here within seconds.
+$script:labAt = 0; $script:purgeAsk = $null
+function LabSel { @($grid.SelectedItems | ForEach-Object { [string]$_.Tag } | Where-Object { $_ }) }
+function LabNames { @($grid.SelectedItems | ForEach-Object { ([string]$_.Text -replace '^\S+\s+', '') }) }
+function LabSend([string]$kind) {
+  $sel = @(LabSel); if (!$sel.Count) { $script:labBox.Text = 'Tap a PC in the list first (Ctrl or Shift for several).'; return }
+  $pw = ''
+  if ($kind -eq 'clean') {
+    $ok = [Windows.Forms.MessageBox]::Show("Run Clean now on: " + ((LabNames) -join ', ') + " ?`r`n`r`nIt deletes: caches, old Android Studio settings folders (the newest stays), project build folders, emulator images no virtual phone uses, extra virtual phones. It never touches your source code or the SDK.`r`n`r`nTip: tap 'How much it frees' first.", 'PC Doctor - Clean now', 'YesNo', 'Warning')
+    if ($ok -ne 'Yes') { return }
+    $pw = PwText 'cleaning the PCs'; if ($null -eq $pw) { return }
+  }
+  W 'labcmd.json' @{ op = 'send'; kind = $kind; pcs = $sel; pw = $pw; who = $env:USERNAME }
+  $script:labAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $script:labBox.Text = 'Sent to ' + $sel.Count + ' PC(s) - waiting for the answer ...'; $tl.Start()
+}
+function LabPurge {
+  $sel = @(LabSel); if (!$sel.Count) { $script:labBox.Text = 'Tap a PC in the list first (Ctrl or Shift for several).'; return }
+  $script:purgeAsk = @{ pcs = $sel; days = 30 }
+  W 'labcmd.json' @{ op = 'purge'; dry = $true; days = 30; pcs = $sel; who = $env:USERNAME }
+  $script:labAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $script:labBox.Text = 'Counting old history (older than 30 days) ...'; $tl.Start()
+}
+function LabUi {
+  $x = J 'labres.json'; $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  if (!$x -or !$script:labAt -or [int64]$x.t -lt $script:labAt) { if ($script:labAt -and ($now - $script:labAt) -gt 120000) { $script:labBox.Text = 'No answer in 2 minutes - the laptop agent may be busy. Tap again.'; $script:labAt = 0; $tl.Stop() }; return }
+  if (!$x.ok) { $script:labBox.Text = [string]$x.msg; $script:labAt = 0; $tl.Stop(); return }
+  if ([string]$x.op -eq 'purge') {
+    $ev = 0; $rs = 0; $ln = @(); foreach ($w in @($x.rows)) { $ev += [int]$w.events; $rs += [int]$w.res; $ln += ([string]$w.pc + ':  ' + $w.events + ' old reports/events,  ' + $w.res + ' old answers') }
+    $script:labBox.Text = $(if ($x.dry) { 'Older than ' + $x.days + ' days:' } else { 'Deleted (older than ' + $x.days + ' days):' }) + "`r`n" + ($ln -join "`r`n"); $script:labAt = 0; $tl.Stop()
+    if ($x.dry -and $script:purgeAsk) { $pa = $script:purgeAsk; $script:purgeAsk = $null
+      if (($ev + $rs) -eq 0) { $script:labBox.Text += "`r`n`r`nNothing old enough to delete."; return }
+      $ok = [Windows.Forms.MessageBox]::Show("Delete $ev old reports/events and $rs old answers (older than $($x.days) days) of the chosen PC(s)?`r`n`r`nThe PCs' current data and the last $($x.days) days stay. This cannot be undone.", 'PC Doctor - delete old history', 'YesNo', 'Warning')
+      if ($ok -eq 'Yes') { $pw = PwText 'deleting old history'; if ($null -ne $pw) { W 'labcmd.json' @{ op = 'purge'; dry = $false; days = $pa.days; pcs = $pa.pcs; pw = $pw; who = $env:USERNAME }
+          $script:labAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $script:labBox.Text = 'Deleting ...'; $tl.Start() } } }
+    return }
+  $lines = @(@($x.rows) | ForEach-Object { [string]$_.pc + '  -  ' + $(switch ([string]$_.st) { 'done' { 'done' } 'failed' { 'FAILED' } 'running' { 'running on the PC ...' } default { 'waiting for the PC (it looks every 14 s) ...' } }) + $(if ($_.txt) { "`r`n      " + $_.txt } else { '' }) })
+  $script:labBox.Text = ($lines -join "`r`n"); if ($x.done) { $script:labAt = 0; $tl.Stop() }
+}
+$tl = New-Object Windows.Forms.Timer -Property @{ Interval = 2000 }; $tl.Add_Tick({ try { LabUi } catch {} })
 function LaptopTabs {
   if ($tGrid) { return }
   $script:tGrid = New-Object Windows.Forms.TabPage -Property @{ Text = 'All PCs'; BackColor = $CL.bg }
-  $script:grid = New-Object Windows.Forms.ListView -Property @{ Dock = 'Fill'; View = 'Details'; FullRowSelect = $true; BackColor = $CL.bg; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None' }
+  $script:grid = New-Object Windows.Forms.ListView -Property @{ Left = 10; Top = 8; Width = 422; Height = 290; MultiSelect = $true; HideSelection = $false; View = 'Details'; FullRowSelect = $true; BackColor = $CL.bg; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None' }
   foreach ($c in @(@('PC', 70), @('Group', 90), @('State', 230))) { [void]$grid.Columns.Add($c[0], $c[1]) }
-  $tGrid.Controls.Add($grid); $tabs.TabPages.Add($tGrid)
+  $bHow = New-Object Windows.Forms.Button -Property @{ Text = 'How much it frees'; Left = 10; Top = 304; Width = 136; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
+  $bCl = New-Object Windows.Forms.Button -Property @{ Text = 'Clean now'; Left = 150; Top = 304; Width = 120; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
+  $bPu = New-Object Windows.Forms.Button -Property @{ Text = 'Delete old history'; Left = 274; Top = 304; Width = 158; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
+  $script:labBox = New-Object Windows.Forms.TextBox -Property @{ Left = 10; Top = 340; Width = 422; Height = 150; Multiline = $true; ReadOnly = $true; ScrollBars = 'Vertical'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None'; Text = 'Tap a PC above (Ctrl / Shift for several), then a button. The answer shows here within seconds.' }
+  $bCp = New-Object Windows.Forms.Button -Property @{ Text = 'Copy'; Left = 10; Top = 496; Width = 100; Height = 28; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
+  foreach ($bb in $bHow, $bCl, $bPu, $bCp) { $bb.FlatAppearance.BorderColor = $CL.bd }
+  $bHow.Add_Click({ LabSend 'clean_plan' }); $bCl.Add_Click({ LabSend 'clean' }); $bPu.Add_Click({ LabPurge }); $bCp.Add_Click({ try { [Windows.Forms.Clipboard]::SetText($script:labBox.Text) } catch {} })
+  $tGrid.Controls.AddRange(@($grid, $bHow, $bCl, $bPu, $script:labBox, $bCp)); $tabs.TabPages.Add($tGrid)
+  foreach ($x in $grid, $bHow, $bCl, $bPu, $script:labBox, $bCp) { $x.Scale((New-Object Drawing.SizeF($DPIK, $DPIK))) }
   $script:tAi = New-Object Windows.Forms.TabPage -Property @{ Text = '✨ Ask AI'; BackColor = $CL.bg }
   $q = New-Object Windows.Forms.TextBox -Property @{ Left = 10; Top = 10; Width = 330; Font = $FT.n }
   $ans = New-Object Windows.Forms.TextBox -Property @{ Left = 10; Top = 46; Width = 422; Height = 470; Multiline = $true; ReadOnly = $true; ScrollBars = 'Vertical'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.n }
@@ -296,12 +344,12 @@ function Refresh {
   # Super Admin laptop
   $g = J 'grid.json'
   if ($g -and $g.now) {
-    LaptopTabs; $grid.BeginUpdate(); $grid.Items.Clear(); $cfg = J 'cfg.json'; $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    LaptopTabs; $selH = @($grid.SelectedItems | ForEach-Object { [string]$_.Tag }); $grid.BeginUpdate(); $grid.Items.Clear(); $cfg = J 'cfg.json'; $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $rows = foreach ($p in $g.now.PSObject.Properties) { $pc = $g.pcs.($p.Name); if ($pc.old) { continue }; $r = $p.Value
       $l = if (($nowMs - [int64]$r.t) -gt 30 * 60000) { 'off' } else { [string]$r.lv }; [pscustomobject]@{ h = $p.Name; n = [string]$(if ($pc.name) { $pc.name } else { $r.name }); g = [string]$pc.grp; lv = $l; v = [string]$r.v } }
     foreach ($r in ($rows | Sort-Object g, @{ e = { [regex]::Replace($_.n, '\d+', { $args[0].Value.PadLeft(4, '0') }) } })) {
       $gn = if ($cfg -and $cfg.groups.($r.g)) { $cfg.groups.($r.g).name } else { $r.g }
-      $it = New-Object Windows.Forms.ListViewItem(($LVL[$r.lv][0] + ' ' + $r.n)); [void]$it.SubItems.Add($gn); [void]$it.SubItems.Add($(if ($r.lv -eq 'off') { 'off / not reporting' } else { $r.v })); $it.ForeColor = $LVL[$r.lv][1]; [void]$grid.Items.Add($it)
+      $it = New-Object Windows.Forms.ListViewItem(($LVL[$r.lv][0] + ' ' + $r.n)); [void]$it.SubItems.Add($gn); [void]$it.SubItems.Add($(if ($r.lv -eq 'off') { 'off / not reporting' } else { $r.v })); $it.ForeColor = $LVL[$r.lv][1]; $it.Tag = $r.h; if ($selH -contains [string]$r.h) { $it.Selected = $true }; [void]$grid.Items.Add($it)
       # popups: a PC turned 🔴 / lab-wide
       $key = $r.h + $r.lv + $r.v; if ($r.lv -in 'red','purple' -and !$seen[$key]) { $seen[$key] = 1; if ($seen.init) { $ni.ShowBalloonTip(8000, ($LVL[$r.lv][0] + ' ' + $r.n), $r.v, 'Warning') } } }
     $grid.EndUpdate(); $seen.init = 1

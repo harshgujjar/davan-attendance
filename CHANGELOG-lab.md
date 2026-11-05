@@ -2,6 +2,11 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.36 / tray 1.21 / worker v24 -- The user: the web app is slow to check and reply; give the Super Admin laptop's tray the options.
+  Tray All PCs tab (laptop only): pick PCs, "How much it frees" (read-only), "Clean now" (deletes: list + password), "Delete old history" (count, then
+  list + password) with the answer in a box within seconds (Copy). The laptop agent sends through the worker (POST /lab/cmd, /lab/cmdres, /lab/purge;
+  the laptop key + salap are checked there) and re-checks the password for the deleting steps. All PCs now look for commands every 14 s (was every
+  minute) - also faster for the web app. Data: lab/cmd, lab/res, lab/events (purge keeps the last 30 days). A-LabCmd, A-LabPoll, LabSend, LabPurge, LabUi.
 - 05-Nov-2026 · Agent 1.35 -- The user: a lab PC set to Boot Thawed (Deep Freeze Standard 8.60 dialog) was shown "Frozen". PD-DeepFreeze guessed from a marker
   file and only counted the first minute after a boot. Now once per boot: the boot id written to a local file last session is compared with the one kept in DB5
   (lab/pcs/<h>/dfBoot): same = the write survived the restart = Thawed, different = Frozen; kept for the whole boot. The Boot Control tab in the Deep Freeze

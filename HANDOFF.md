@@ -140,6 +140,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov 13:10: 2 identical lab PCs (H610M, UUID 03000200-0400-0500-0006-000700080009) merged into hwid 7b4bff0d83c3c5f1 (B1) - fixed in worker v23 + Agent 1.34;
   user to run Setup again on both Thawed. Deep Freeze service DFServ is RUNNING on the lab PC; DFC.exe still not found (user typed `where /r C:\DFC.exe` wrongly).
 - 05-Nov 13:40: Deep Freeze state detection rewritten (Agent 1.35, DB5 lab/pcs/<h>/dfBoot + state\df_state.json); DF Standard 8.60 has NO DFC.exe (confirmed on the PC) - no automatic Thaw/Freeze possible.
+- 05-Nov: Agent 1.36 / tray 1.21 / worker v24 - tray All PCs tab: How much it frees / Clean now / Delete old history (via worker /lab/cmd, /lab/cmdres, /lab/purge); PCs poll lab/cmd every 14 s.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

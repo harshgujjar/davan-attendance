@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v24 (05-Nov-2026): POST /lab/cmd, /lab/cmdres, /lab/purge - the Super Admin laptop's tray sends clean / how-much / delete-old-history to lab PCs (laptop key + salap checked).
  *  - v23 (05-Nov-2026): PC identity - the placeholder BIOS UUIDs of cheap boards never count, and different MAC + different disks = a different PC (two identical lab PCs were merged).
  *  - v22 (04-Nov-2026): PC Doctor Console has its OWN password (POST /lab/tok {pw}, /lab/setpw) - opening it never logs in to the staff app.
  *  - v21 (04-Nov-2026): PC Doctor hourly MeshCentral check tries https then http (302 = alive) and saves the error text (no false "offline" alert).
@@ -702,6 +703,54 @@ async function labAlert(env, b) {
   return labAlertSend(env, hwid, b, cfg);
 }
 // ---- ✨ AI for the Console + the Super Admin laptop's tray (11): the lab's own daily limit, follow-ups in history ----
+// v24 (user, 05-Nov-2026: "the web app takes time to check and reply - give the Super Admin laptop's tray the clean / how-much / delete options"):
+// the Super Admin laptop's PC Doctor agent sends commands to lab PCs and asks the answers through the worker (its own DB5 key may not write other PCs' nodes).
+// POST /lab/cmd {token, pcs:[hwid], kind, confirm}  -> writes lab/cmd/<hwid>/<id> (clean_plan / check / report = read-only; clean = deletes, needs confirm:true)
+// POST /lab/cmdres {token, ids:[{h,id}]}            -> the answers from lab/res/<hwid>/<id>
+// POST /lab/purge {token, pcs, days, dry, confirm}  -> counts (dry) or deletes events + answers older than N days (min 7) of those PCs
+async function labSaAuth(env, b) {
+  const st = await staffFromToken(b.token).catch(() => null);
+  if (st && await staffIsSuper(b.token, st)) return 'sa';
+  const t = await idTokBody(b.token, DB5_PROJECT).catch(() => null);
+  if (t && t.sa === true) return 'sa';
+  if (t && String(t.sub).startsWith('pc_') && (await db5(env, 'GET', 'lab/salap/' + t.sub)) === true) return 'laptop';
+  return '';
+}
+const TRAY_CMDS = { clean_plan: 1, check: 1, report: 1, clean: 0 };   // 1 = read-only
+const labHw = a => (Array.isArray(a) ? a : []).map(x => String(x).replace(/[^a-f0-9]/g, '').slice(0, 16)).filter(Boolean).slice(0, 40);
+async function labCmd(env, b) {
+  if (!(await labSaAuth(env, b))) return { ok: false, msg: 'Only the Super Admin laptop can send PC commands.' };
+  const kind = String(b.kind || ''); if (!(kind in TRAY_CMDS)) return { ok: false, msg: 'That command cannot be sent from the tray.' };
+  const ro = TRAY_CMDS[kind] === 1; if (!ro && b.confirm !== true) return { ok: false, msg: 'This deletes files - it needs the confirmation.' };
+  const hs = labHw(b.pcs); if (!hs.length) return { ok: false, msg: 'No PC chosen.' };
+  const now = Date.now(), ids = [];
+  for (const h of hs) { const nm = await db5(env, 'GET', 'lab/pcs/' + h + '/name'); if (nm == null) continue;
+    const id = 'c' + now + String(Math.floor(Math.random() * 90) + 10);
+    await db5(env, 'PUT', 'lab/cmd/' + h + '/' + id, { kind, args: {}, by: 'Super Admin (laptop tray)', why: String(b.why || 'tray').slice(0, 80), at: now, ro, ok: true, st: 'queued' });
+    ids.push({ h, id, pc: String(nm) }); }
+  return { ok: true, ids };
+}
+async function labCmdRes(env, b) {
+  if (!(await labSaAuth(env, b))) return { ok: false, msg: 'Only the Super Admin laptop can read the answers.' };
+  const out = []; for (const x of (Array.isArray(b.ids) ? b.ids : []).slice(0, 40)) { const h = labHw([x.h])[0], id = String(x.id || '').replace(/[^a-z0-9]/gi, '').slice(0, 24); if (!h || !id) continue;
+    const r = (await db5(env, 'GET', 'lab/res/' + h + '/' + id)) || {}; out.push({ h, id, st: r.st || 'queued', txt: r.txt ? String(r.txt).slice(0, 300) : '' }); }
+  return { ok: true, res: out };
+}
+async function labPurge(env, b) {
+  if (!(await labSaAuth(env, b))) return { ok: false, msg: 'Only the Super Admin laptop can do this.' };
+  const hs = labHw(b.pcs); if (!hs.length) return { ok: false, msg: 'No PC chosen.' };
+  const days = Math.max(7, Math.min(3650, +b.days || 30)), cut = Date.now() - days * 864e5, dry = b.dry !== false; if (!dry && b.confirm !== true) return { ok: false, msg: 'Deleting needs the confirmation.' };
+  const rows = [];
+  for (const h of hs) {
+    const nm = (await db5(env, 'GET', 'lab/pcs/' + h + '/name')) || h;
+    const ev = (await db5(env, 'GET', 'lab/events/' + h, undefined, 'orderBy=%22t%22&endAt=' + cut)) || {}, rs = (await db5(env, 'GET', 'lab/res/' + h, undefined, 'orderBy=%22%24key%22&endAt=%22c' + cut + '%22')) || {};
+    const ek = Object.keys(ev), rk = Object.keys(rs);
+    if (!dry) { for (let i = 0; i < ek.length; i += 400) { const p = {}; ek.slice(i, i + 400).forEach(k => p[k] = null); await db5(env, 'PATCH', 'lab/events/' + h, p); }
+      for (let i = 0; i < rk.length; i += 400) { const p = {}; rk.slice(i, i + 400).forEach(k => p[k] = null); await db5(env, 'PATCH', 'lab/res/' + h, p); } }
+    rows.push({ h, pc: String(nm), events: ek.length, res: rk.length });
+  }
+  return { ok: true, dry, days, rows };
+}
 async function labAi(env, b) {
   let ok = false, who = 'sa';
   const st = await staffFromToken(b.token).catch(() => null);
@@ -922,7 +971,7 @@ export default {
     }
     if (request.method === 'POST' && u.pathname.startsWith('/lab/')) {   // v18: 🖥️ PC Doctor (DB5)
       let b = {}; try { b = JSON.parse(await request.text()); } catch (e) {}
-      const fn = { '/lab/tok': labTok, '/lab/pc': labPc, '/lab/alert': labAlert, '/lab/ai': labAi, '/lab/mesh': labMesh, '/lab/secret': labSecret, '/lab/setpw': labSetPw }[u.pathname];
+      const fn = { '/lab/tok': labTok, '/lab/pc': labPc, '/lab/alert': labAlert, '/lab/ai': labAi, '/lab/cmd': labCmd, '/lab/cmdres': labCmdRes, '/lab/purge': labPurge, '/lab/mesh': labMesh, '/lab/secret': labSecret, '/lab/setpw': labSetPw }[u.pathname];
       let r; try { r = fn ? await fn(env, b) : { ok: false, msg: 'unknown /lab route' }; } catch (e) { r = { ok: false, msg: String(e.message || e) }; }
       return new Response(JSON.stringify(r), { headers: CORS });
     }
