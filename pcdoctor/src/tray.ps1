@@ -159,6 +159,7 @@ $tMe.Controls.Add($facts)
 # 1.24 (user, 05-Nov-2026: "I renamed the PC to B1 but it still shows the other name"): the tray showed only the WINDOWS name (changes at a Thawed restart).
 # Now the Console name (what you typed) comes first, the Windows name next to it, and a line says when Windows will change
 function PcNames { $p = J 'pc.json'; $cn = if ($p -and $p.name) { [string]$p.name } else { $env:COMPUTERNAME }; @{ con = $cn; win = $env:COMPUTERNAME; same = ($cn -eq $env:COMPUTERNAME) } }
+function R([scriptblock]$b) { try { . $b } catch { try { FactRow 'Error' ([string]$_.Exception.Message) $CL.er } catch {} } }   # 1.37: one row, its own error
 function FactRow([string]$lab, [string]$val, $col) { $script:factNo++; $it = New-Object Windows.Forms.ListViewItem([string]$script:factNo); $it.UseItemStyleForSubItems = $false; $it.ForeColor = $CL.ac
   [void]$it.SubItems.Add($lab); [void]$it.SubItems.Add($val); $it.SubItems[1].ForeColor = $CL.mu; $it.SubItems[2].ForeColor = $(if ($col) { $col } else { $CL.tx }); [void]$facts.Items.Add($it) }
 function Btn($t, $x, $yy, $w, $on) { $b = New-Object Windows.Forms.Button -Property @{ Text = $t; Left = $x; Top = $yy; Width = $w; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
@@ -353,27 +354,30 @@ function Refresh {
   $run = J 'running.json'; $iv = J 'inv.json'
   # 1.36 (user, 05-Nov-2026: "no data is showing now" - one failing row left the WHOLE list blank: BeginUpdate without EndUpdate): the list is always finished,
   # and a row that fails shows its error text in red instead of hiding everything
+  # 1.37 (user, 05-Nov-2026: the Sony showed 'Error: Cannot compare "" to "0"' after Temperature and nothing else): EVERY row runs on its own (R) - a bad
+  # value breaks only its own row; numbers from now.json are taken only when they really are numbers (an empty list came back as an object)
   $facts.BeginUpdate(); try { $facts.Items.Clear(); $script:factNo = 0
-  FactRow 'Name' $(if ($pn.same) { $pn.con } else { $pn.con + '  (Console name)' }) $CL.ac
-  if (!$pn.same) { FactRow 'Windows name' ($pn.win + '  ->  ' + $pn.con + ' after a Thawed restart') $CL.wa }
+  $tmpC = $(if ($n.temp -is [ValueType]) { [double]$n.temp } else { $null }); $v12n = $(if ($n.v12 -is [ValueType]) { [double]$n.v12 } else { $null }); $fl = @(@($n.fans) | Where-Object { $_ -is [ValueType] } | ForEach-Object { [int]$_ })
+  R { FactRow 'Name' $(if ($pn.same) { $pn.con } else { $pn.con + '  (Console name)' }) $CL.ac }
+  R { if (!$pn.same) { FactRow 'Windows name' ($pn.win + '  ->  ' + $pn.con + ' after a Thawed restart') $CL.wa } }
   # 1.35 (user, 05-Nov-2026): CPU temperature + fan speed + 12 V (the three that tell overheating from a weak power supply), or WHY they are missing
-  FactRow 'Temperature' $(if ($n.temp) { 'CPU ' + [string]$n.temp + ' °C' } elseif ($n.tnote) { 'not yet - ' + [string]$n.tnote } else { 'not available (the board gives no reading)' }) $(if ($n.temp -ge 85) { $CL.er } elseif ($n.temp -ge 75) { $CL.wa } else { $null })
-  if (@($n.fans | Where-Object { $_ -ne $null }).Count -or $n.v12) { FactRow 'Fan / power' ($(if (@($n.fans).Count) { 'fans ' + ((@($n.fans) | ForEach-Object { [string]$_ }) -join ' / ') + ' rpm' } else { 'fans -' }) + '   ·   12 V line ' + $(if ($n.v12) { [string]$n.v12 + ' V' } else { '-' })) $(if (($n.v12 -and $n.v12 -lt 11.4) -or (@($n.fans).Count -and !(@($n.fans) | Where-Object { $_ -gt 0 }))) { $CL.wa } else { $null }) }
+  R { FactRow 'Temperature' $(if ($tmpC) { 'CPU ' + [string]$tmpC + ' °C' } elseif ($n.tnote) { 'not yet - ' + [string]$n.tnote } else { 'not available (the board gives no reading)' }) $(if ($tmpC -ge 85) { $CL.er } elseif ($tmpC -ge 75) { $CL.wa } else { $null }) }
+  R { if ($fl.Count -or $v12n) { FactRow 'Fan / power' ($(if ($fl.Count) { 'fans ' + ($fl -join ' / ') + ' rpm' } else { 'fans: not reported' }) + '   ·   12 V line ' + $(if ($v12n) { [string]$v12n + ' V' } else { 'not reported' })) $(if (($v12n -and $v12n -lt 11.4) -or ($fl.Count -and !($fl | Where-Object { $_ -gt 0 }))) { $CL.wa } else { $null }) } }
   $dfT = $(if ($n.df -eq 'thawed') { 'Thawed' } elseif ($n.df -eq 'frozen') { 'Frozen' } else { 'No Deep Freeze on this PC' }); $dfW = ($n.thawQ -and $n.df -ne 'none')
-  FactRow 'Deep Freeze' ($dfT + $(if ($dfW) { "  -  Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' }) } else { '' })) $(if ($dfW) { $CL.wa } else { $null })
+  R { FactRow 'Deep Freeze' ($dfT + $(if ($dfW) { "  -  Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' }) } else { '' })) $(if ($dfW) { $CL.wa } else { $null }) }
   # 1.36 (user, 05-Nov-2026: "Internet OK - show Wi-Fi or LAN and the download speed"): connection type, Wi-Fi name + signal, link speed, measured download speed
   $nt = $n.nt
-  FactRow 'Internet' ($(if ($n.online) { 'OK' } else { 'No internet - saved, sends later' }) + $(if ($nt -and $nt.type) { '   ·   ' + [string]$nt.type + $(if ($nt.ssid) { ' "' + [string]$nt.ssid + '"' } else { '' }) + $(if ($nt.sig) { ' ' + [string]$nt.sig + '%' } else { '' }) + $(if ($nt.link) { '   ·   link ' + [string]$nt.link } else { '' }) } else { '' })) $(if ($n.online) { $CL.ok } else { $CL.wa })
-  if ($nt -and ($nt.dl -or $nt.dlErr)) { FactRow 'Download' $(if ($nt.dl) { [string]$nt.dl + ' Mbps   (tested ' + (IST $nt.dlAt) + ')' } else { 'test failed: ' + [string]$nt.dlErr }) $(if ($nt.dl -and $nt.dl -lt 2) { $CL.wa } else { $null }) }
-  FactRow 'Last sent' ((IST $n.t) + $(if ($n.q) { "   ($($n.q) waiting)" } else { '' }))
-  FactRow 'C: drive' "$($n.cfreeGB) GB free   ·   answers in $($n.lat) ms"
-  $rt = @($n.rtop); for ($k = 0; $k -lt $rt.Count; $k++) { FactRow $(if ($k -eq 0) { 'RAM used by' } else { '' }) ([string]$rt[$k].n + '   ' + $(if ($rt[$k].m -ge 1024) { [string][math]::Round($rt[$k].m / 1024, 1) + ' GB' } else { [string]$rt[$k].m + ' MB' }) + $(if ($rt[$k].k -gt 1) { '   (' + $rt[$k].k + ' copies)' } else { '' })) }
-  FactRow 'PC Doctor' (($(if ($run -and $run.ver) { 'v' + $run.ver + ' (build ' + $run.build + ')' } else { 'v' + $n.ver })) + $(if ($n.user) { '   ·   user ' + $n.user } else { '' }))
-  if ($iv -and $iv.battery) { FactRow 'Battery' "health $($iv.battery.health)%   ($($iv.battery.cycles) cycles)" }
-  if ($iv -and $iv.disks) { $dk = @($iv.disks); for ($k = 0; $k -lt $dk.Count; $k++) { FactRow $(if ($k -eq 0) { 'Disk health' } else { '' }) ($dk[$k].model + '   ' + $dk[$k].health) } }
+  R { FactRow 'Internet' ($(if ($n.online) { 'OK' } else { 'No internet - saved, sends later' }) + $(if ($nt -and $nt.type) { '   ·   ' + [string]$nt.type + $(if ($nt.ssid) { ' "' + [string]$nt.ssid + '"' } else { '' }) + $(if ($nt.sig) { ' ' + [string]$nt.sig + '%' } else { '' }) + $(if ($nt.link) { '   ·   link ' + [string]$nt.link } else { '' }) } else { '' })) $(if ($n.online) { $CL.ok } else { $CL.wa }) }
+  R { if ($nt -and ($nt.dl -or $nt.dlErr)) { FactRow 'Download' $(if ($nt.dl) { [string]$nt.dl + ' Mbps   (tested ' + (IST $nt.dlAt) + ')' } else { 'test failed: ' + [string]$nt.dlErr }) $(if ($nt.dl -and $nt.dl -lt 2) { $CL.wa } else { $null }) } }
+  R { FactRow 'Last sent' ((IST $n.t) + $(if ($n.q) { "   ($($n.q) waiting)" } else { '' })) }
+  R { FactRow 'C: drive' "$($n.cfreeGB) GB free   ·   answers in $($n.lat) ms" }
+  R { $rt = @($n.rtop); for ($k = 0; $k -lt $rt.Count; $k++) { FactRow $(if ($k -eq 0) { 'RAM used by' } else { '' }) ([string]$rt[$k].n + '   ' + $(if ($rt[$k].m -ge 1024) { [string][math]::Round($rt[$k].m / 1024, 1) + ' GB' } else { [string]$rt[$k].m + ' MB' }) + $(if ($rt[$k].k -gt 1) { '   (' + $rt[$k].k + ' copies)' } else { '' })) } }
+  R { FactRow 'PC Doctor' (($(if ($run -and $run.ver) { 'v' + $run.ver + ' (build ' + $run.build + ')' } else { 'v' + $n.ver })) + $(if ($n.user) { '   ·   user ' + $n.user } else { '' })) }
+  R { if ($iv -and $iv.battery) { FactRow 'Battery' "health $($iv.battery.health)%   ($($iv.battery.cycles) cycles)" } }
+  R { if ($iv -and $iv.disks) { $dk = @($iv.disks); for ($k = 0; $k -lt $dk.Count; $k++) { FactRow $(if ($k -eq 0) { 'Disk health' } else { '' }) ($dk[$k].model + '   ' + $dk[$k].health) } } }
   $wk = if ($v -and $v.all) { @($v.all) } else { @() }
-  if (!$wk.Count) { FactRow 'Last 7 days' 'Nothing found' $CL.ok } else { for ($k = 0; $k -lt $wk.Count; $k++) { $wl = $LVL[[string]$wk[$k].lv]; if (!$wl) { $wl = $LVL.green }; FactRow $(if ($k -eq 0) { 'Last 7 days' } else { '' }) ($wl[0] + ' ' + $wk[$k].v) $wl[1] } }
-  } catch { try { FactRow 'Error' ([string]$_.Exception.Message + '  (line ' + $_.InvocationInfo.ScriptLineNumber + ')') $CL.er } catch {} } finally { $facts.EndUpdate() }
+  R { if (!$wk.Count) { FactRow 'Last 7 days' 'Nothing found' $CL.ok } else { for ($k = 0; $k -lt $wk.Count; $k++) { $wl = $LVL[[string]$wk[$k].lv]; if (!$wl) { $wl = $LVL.green }; FactRow $(if ($k -eq 0) { 'Last 7 days' } else { '' }) ($wl[0] + ' ' + $wk[$k].v) $wl[1] } } }
+  } catch { try { FactRow 'Error' ([string]$_.Exception.Message) $CL.er } catch {} } finally { $facts.EndUpdate() }
   $ni.Text = ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Substring(0, [math]::Min(63, ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Length))
   if ($lv -ne $lastLv) { $ni.Icon = Ico $e[1]; $script:lastLv = $lv }
   $un = J 'uninst.json'; if ($un -and $script:unAsked -and [int64]$un.t -ge $script:unAsked) { $script:unAsked = 0; $msg.Text = [string]$un.msg }
