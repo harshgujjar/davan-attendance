@@ -28,6 +28,26 @@ DB3 homeclass/<fam>/diag/<deviceId>/<YYYY-MM-DD>/<id> {t, m, l e|w} + diag/<dev>
 davan-student-news "DB3 peek" job (paths `homeclass?shallow`), then read with curl `<DB3>/homeclass/<key>/diag.json` (the key opens it)
 or peek `homeclass/<key>/diag/<dev>/<day>`. The user's main family (01-Nov) = the one with dev "Vihaan Gujjar" (key ends …SJZR? check dev).
 
+
+## ▶▶ A problem is reported ("check the log", "no sound", "not recognising", "stuck") - DO THIS FIRST (user, 05-Nov-2026)
+"When I start a new session it should read the log and the sound properly and fix it." Never say you cannot read the phone's log and never ask the user for a
+screenshot first: the app UPLOADS its own log, the phone list and the child's recordings to DB3, and you read them with curl. You do NOT read the phone itself
+(no Android log / settings / screen) - only what the app uploads (so a new thing to see = add a log line to the app).
+1. **Get the family key** (a secret - it is in no repo; never ask the user for it): run the davan-student-news Action "DB3 peek" (paths `homeclass?shallow`, via the
+   GitHub MCP actions_run_trigger + get_job_logs); the user's main family is the one whose `dev` list has "Vihaan Gujjar" / "Kids phone". Then `export FAM=<key>`.
+2. **Read the log** (private repo davan-scraper, widgets/homeclass/tools - attach it with add_repo): `bash hc-log.sh [day] [deviceId|all] [grep-word]` prints the phones
+   (name | make+model | app | screen version | voice engine | last seen) and each phone's log lines (IST). Today = default. `TAIL=200 bash hc-log.sh ...` for more.
+3. **Read the sound**: `bash hc-rec.sh <dir> rec|ans [since-epoch-ms]` downloads the saved WAVs (rec = whole tables / spellings, ans = single answers) + what the app heard;
+   `python3 -I hc-test.py <wav> spell <word> | table <t> | ans <a> <b>` runs the app's own listening (same grammar + judge from homeclass-core.js) on a recording
+   (needs `pip install vosk`, VOSK_MODEL = unzipped homeclass-model-en-us-0.15.zip from this repo, node). Test every fix on the real recordings BEFORE publishing.
+4. **What the log lines mean**:
+   - `voice engine ready · default X · installed: ...` = the phone's speech engines; `voice: no "done" ...` / `did not start speaking` = NO SOUND (h27 asks for Google's engine by name, then switches engine);
+     the phone list shows voice ok / silent / failed and the engine.
+   - `listen (offline engine): "..." / alt` = what the offline engine heard; `heard AxB: "..." → ✓ / ✗ n / ?`; `recite N (try k): "..." -> wrong / unsure / missing`; `spell <word>: "..." -> ok|unsure|wrong cost`.
+   - `Promise error` / `screen crashed` / `mic off (keys)` / `cmd ... ignored: N s old` = a bug / memory kill / typing mode / a command that arrived late.
+   - `class start/end ... right N wrong N`, `warm-up skipped`, `table N skipped`, `question skipped`, `not heard (app)` / `confirmed` = what the family did.
+5. Then fix, test (browser tests with a mock window.HCA, Vosk on the real WAVs), publish (see the rules above), and tell the user what the log showed in plain words.
+
 ## 🔊 Speaker (h6)
 Kids app prefs "spk" {mode phone|cast, name, host, port, model}. Cast = Google Cast v2 to the Default Media Receiver (from the staff
 widget's HomeCast), one TLS connection per class (reader thread answers PING, closed after 90 s idle), Google translate_tts MP3 first,
