@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.52 -- Remote screen diagnosis (user: "Remote screen still does not connect"). New read-only Action "PC Doctor - Mesh diag" (davan-scraper) read the server: MeshCentral 1.3.1 up,
+  no errors, all 8 PCs REGISTERED but NONE connected - so the screen had nothing to connect to. New read-only command mesh_check: the PC's remote agent service, its settings (server
+  address only), process, TCP + HTTPS to the server, its own events, antivirus detections, Deep Freeze state - to find why the agents are offline. A-Do mesh_check.
 - 05-Nov-2026 · tray 1.34 -- First look at the tray's real pictures (Windows test now draws every tab): the This PC list was cut off (Last 7 days hidden), the Windows-name row was truncated
   and Open Console showed an empty box instead of an icon. List taller (292), top block tighter, Thaw needed merged into the Deep Freeze row, shorter Windows-name text, no icon on Open Console.
 - 05-Nov-2026 · Console 1.19 -- The user still could not connect the remote desktop ("unable to perform authentication", then a login box). The remote screen was drawn INSIDE the
