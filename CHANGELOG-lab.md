@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.14 / tray 1.7 / Console 1.4 -- The user: the new Console password did not work, wants it fixed as given + 👁 show password.
+  Password set by the private Action "DB5 set Console password" (lab/secret/consolePw, same salted hash as the worker; lock cleared).
+  Console login box + Settings (now an inline New / Again form instead of pop-ups) and the tray password box get 👁 Show. saveConsolePw, Pw.
 - 05-Nov-2026 · Agent 1.13 / tray 1.6 / Console 1.3 / worker v22 / DB5 rules -- The user's list: (1) the daily job failed "Index not defined" -
   DB5 rules: lab/events/$h .indexOn t. (2) + (5) setup was slow and silent - PCDoctor-Setup.cmd says it is starting, install.ps1 shows 7 numbered
   steps with the time so far, each downloaded file, the total; the deep first check and the MeshCentral agent run in the background afterwards;

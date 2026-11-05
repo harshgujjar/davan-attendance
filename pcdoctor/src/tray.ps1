@@ -23,7 +23,9 @@ function Pw([string]$why) {
   $l = New-Object Windows.Forms.Label -Property @{ Text = "🔒 Password for $why"; Left = 14; Top = 12; Width = 260; Font = $F.n }
   $t = New-Object Windows.Forms.TextBox -Property @{ Left = 14; Top = 40; Width = 255; UseSystemPasswordChar = $true; Font = $F.n }
   $b = New-Object Windows.Forms.Button -Property @{ Text = 'OK'; Left = 194; Top = 72; Width = 75; DialogResult = 'OK'; FlatStyle = 'Flat'; BackColor = $C.ac; ForeColor = [Drawing.Color]::Black }
-  $f.Controls.AddRange(@($l, $t, $b)); $f.AcceptButton = $b
+  $sh = New-Object Windows.Forms.CheckBox -Property @{ Text = '👁 Show'; Left = 14; Top = 74; Width = 120; Font = $F.s; ForeColor = $C.tx }   # 1.7 (user, 05-Nov-2026)
+  $sh.Add_CheckedChanged({ $t.UseSystemPasswordChar = !$sh.Checked })
+  $f.Controls.AddRange(@($l, $t, $b, $sh)); $f.AcceptButton = $b
   if ($f.ShowDialog() -ne 'OK') { return $false }
   $cfg = J 'cfg.json'; $want = if ($cfg -and $cfg.trayPw) { [string]$cfg.trayPw } else { Hash '2531' }
   if ((Hash $t.Text) -eq $want) { return $true }
