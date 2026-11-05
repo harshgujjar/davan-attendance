@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.28 -- The user: Windows Script Host "tray-start.vbs line 8 Unterminated string constant" (shown at each tray start / 10-min
+  check). In PD-TrayLauncher the comma bound tighter than + so the tray path landed on a line of its own; the Run line is now one bracketed string.
+  The agent rewrites the launcher by itself at its next start (new text differs).
 - 05-Nov-2026 · tray 1.16 -- The user: "Open Console button on every tray". This PC tab + the tray icon's right-click menu get "Open Console" on
   every PC: asks the tray password (unless unlocked), then opens lab.html in the browser, which has its own login + lock-out. Address from DB5
   lab/cfg consoleUrl (fallback harshgujjar.github.io/davan-attendance/lab.html). OpenConsole.
