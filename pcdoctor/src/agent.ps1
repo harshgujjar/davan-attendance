@@ -375,6 +375,21 @@ function A-Cmds {
 function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   $h = A-Hwid
   switch -regex ($kind) {
+    '^(temp_check)$' {   # 1.56 read-only (user, 05-Nov-2026: "build CPU temperature, fan, 12 V so it tells why GUJJARHOME switches off"): why the built-in sensor reader gives nothing
+      $o = @(); $ld = Join-Path $PD.Root 'dl\lhm'; $ll = Join-Path $ld 'LibreHardwareMonitorLib.dll'
+      $o += 'reader file: ' + $(if (Test-Path $ll) { 'present, version ' + (Get-Item $ll).VersionInfo.FileVersion } else { 'MISSING (download failed or removed)' })
+      $o += 'reader folder: ' + ((Get-ChildItem $ld -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ', ')
+      $o += 'reader in the running agent: ' + $(if ($script:Lhm -eq $false) { 'FAILED earlier' } elseif ($script:Lhm) { 'loaded' } else { 'not tried yet' })
+      try { if (!(Test-Path $ll)) { throw 'no reader file' }; Add-Type -Path $ll -ErrorAction Stop
+        $cmp = New-Object LibreHardwareMonitor.Hardware.Computer; $cmp.IsCpuEnabled = $true; $cmp.IsMotherboardEnabled = $true; $cmp.Open()
+        foreach ($hx in $cmp.Hardware) { $hx.Update(); foreach ($sx in $hx.SubHardware) { $sx.Update() }
+          $ss = @(@($hx.Sensors) + @($hx.SubHardware | ForEach-Object { $_.Sensors }) | Where-Object { $_ -and [string]$_.SensorType -in 'Temperature', 'Fan', 'Voltage' })
+          $o += [string]$hx.HardwareType + ' "' + $hx.Name + '": ' + $(if ($ss.Count) { ($ss | ForEach-Object { [string]$_.SensorType + ' ' + $_.Name + ' = ' + $(if ($null -ne $_.Value) { [math]::Round($_.Value, 1) } else { '-' }) }) -join ' | ' } else { 'no temperature / fan / voltage sensors' }) }
+        $cmp.Close()
+      } catch { $o += 'reader ERROR: ' + $_.Exception.Message + $(if ($_.Exception.InnerException) { ' | ' + $_.Exception.InnerException.Message } else { '' }) }
+      try { $tz = @(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop | ForEach-Object { [math]::Round($_.CurrentTemperature / 10 - 273.15) }); $o += 'Windows thermal zone: ' + ($tz -join ', ') + ' C' } catch { $o += 'Windows thermal zone: not reported' }
+      try { $th = @(Get-MpThreatDetection -ErrorAction Stop | Where-Object { ($_.Resources -join ';') -match 'WinRing|lhm|LibreHardware|DavanPCDoctor' } | Select-Object -First 3 | ForEach-Object { $_.InitialDetectionTime.ToString('dd MMM HH:mm') + ' ' + ($_.Resources -join ';') }); $o += 'antivirus: ' + $(if ($th.Count) { 'BLOCKED ' + ($th -join ' | ') } else { 'nothing blocked' }) } catch { $o += 'antivirus: not readable' }
+      @{ ok = $true; txt = ($o -join "`n") } }
     '^(crash_info)$' {   # 1.54 read-only (user, 05-Nov-2026: "Gujjar home restarts by itself - learn it so we can fix others too"): every sudden power-off of the last 14 days
       $o = @(); $from = (Get-Date).AddDays(-14)
       try { $os = Get-CimInstance Win32_OperatingSystem; $o += 'windows: ' + $os.Caption + ' build ' + $os.BuildNumber + ' | up since ' + $os.LastBootUpTime.ToString('dd MMM HH:mm') } catch {}

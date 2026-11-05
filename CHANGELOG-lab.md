@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.56 -- The user wants CPU temperature, fan speed and the 12 V line to tell why GUJJARHOME switches off (the tray says "not available"). Step 1, read-only command
+  temp_check: is the built-in sensor reader (LibreHardwareMonitor) there, did it fail and why, every temperature / fan / voltage sensor the board gives, Windows thermal zone, antivirus blocks.
 - 05-Nov-2026 · Agent 1.54 -- The user: GUJJARHOME switches off by itself - "learn it so we can fix the others too". New read-only command crash_info: every sudden power-off of 14 days with
   the crash code, POWER BUTTON pressed or not, sleep, last-alive time and the System events of the 20 minutes before; hardware-error (WHEA), CPU-limited and disk-error counts, planned
   restarts and who did them, board / BIOS / Windows build / temperature / power plan / minidumps. A-Do crash_info.
