@@ -19,7 +19,7 @@ function A-Now([hashtable]$smp) {
   if ($df.state -eq 'thawed' -and !$S.dfSince) { $S.dfSince = PD-NowMs } elseif ($df.state -ne 'thawed') { $S.dfSince = 0 }
   $tq = @(PD-ReadJson (Join-Path $PD.Root 'state\thawq.json')).Count
   $ip = ''; try { $ip = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).IPv4Address.IPAddress } catch {}
-  @{ t = $smp.t; cpu = $smp.cpu; ram = $smp.ram; busy = $smp.busy; lat = $smp.lat; cfree = $smp.cfree; cfreeGB = $smp.cfreeGB; temp = $(if ($smp.temp) { $smp.temp.cpu } else { $null })
+  @{ t = $smp.t; cpu = $smp.cpu; ram = $smp.ram; busy = $smp.busy; lat = $smp.lat; cfree = $smp.cfree; cfreeGB = $smp.cfreeGB; temp = $(if ($smp.temp) { $smp.temp.cpu } else { $null }); fans = $(if ($smp.temp) { @($smp.temp.fans | Select-Object -First 3) } else { @() }); v12 = $(if ($smp.temp) { $smp.temp.v12 } else { $null }); tnote = [string]$script:PawnNote
      freq = $smp.freq; net = $smp.net; user = $smp.user; top = @($smp.top | Select-Object -First 3); rtop = @($smp.ramTop | Select-Object -First 3)
      lv = $v.lv; v = $v.v; vk = $v.vk; why = $v.why; conf = $v.conf; fix = $v.fix
      df = $df.state; dfSince = $S.dfSince; thaw = [bool]$df.thaw; thawQ = $tq; boot = [int64](([datetimeoffset]$S.boot).ToUnixTimeMilliseconds())
@@ -27,7 +27,7 @@ function A-Now([hashtable]$smp) {
 }
 function A-Live([hashtable]$smp) {
   @{ t = $smp.t; c = $smp.cpu; r = $smp.ram; b = $smp.busy; l = $smp.lat; q = $smp.q; h = $smp.hf; f = $smp.cfree; n = $smp.net; fr = $smp.freq; u = $smp.user
-     tc = $(if ($smp.temp) { $smp.temp.cpu } else { $null }); td = $(if ($smp.temp) { $smp.temp.disk } else { $null })
+     tc = $(if ($smp.temp) { $smp.temp.cpu } else { $null }); td = $(if ($smp.temp) { $smp.temp.disk } else { $null }); fa = $(if ($smp.temp -and @($smp.temp.fans).Count) { @($smp.temp.fans | Select-Object -First 3) } else { $null }); v12 = $(if ($smp.temp) { $smp.temp.v12 } else { $null })
      p = @($smp.top | ForEach-Object { $_.n + '|' + $_.c + '|' + $_.m + '|' + $_.io }); pr = @($smp.ramTop | ForEach-Object { $_.n + '|' + $_.m }); pi = @($smp.ioTop | ForEach-Object { $_.n + '|' + $_.io }) }
 }
 
@@ -404,11 +404,16 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
         $pb = $(if ($d.PowerButtonTimestamp -and $d.PowerButtonTimestamp -ne '0') { 'POWER BUTTON pressed/held' } else { 'no button' })
         $last = ''; try { $u = Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 6008; StartTime = $e.TimeCreated; EndTime = $e.TimeCreated.AddMinutes(5) } -MaxEvents 1 -ErrorAction Stop; $last = ' | last alive ' + (($u.Message -replace '.*shutdown at ', '') -replace ' was unexpected.*', '') } catch {}
         $pre = ''; try { $pre = (@(Get-WinEvent -FilterHashtable @{ LogName = 'System'; StartTime = $e.TimeCreated.AddMinutes(-20); EndTime = $e.TimeCreated.AddSeconds(-5) } -MaxEvents 6 -ErrorAction Stop | ForEach-Object { $_.TimeCreated.ToString('HH:mm') + ' ' + ($_.ProviderName -replace 'Microsoft-Windows-', '') + '/' + $_.Id }) -join ', ') } catch {}
-        $o += ' - ' + $e.TimeCreated.ToString('dd MMM HH:mm') + ' | code ' + $d.BugcheckCode + ' | ' + $pb + ' | sleep ' + $d.SleepInProgress + $last + ' | before: ' + $(if ($pre) { $pre } else { 'nothing logged' })
+        # 1.57: the last minute reading before the cut (CPU temperature, fans, 12 V - minute rows are kept 2 days in DB5)
+        $lr = ''; try { $mk = 'm' + [int64][math]::Floor(([DateTimeOffset]$e.TimeCreated).ToUnixTimeMilliseconds() / 60000); $rows = PD-Db GET ('lab/live/' + (A-Hwid)) $null ('orderBy="$key"&endAt="' + $mk + '"&limitToLast=1')
+          foreach ($rw in @($rows.PSObject.Properties | ForEach-Object { $_.Value })) { $lr = ' | last reading: CPU ' + $(if ($rw.tc) { [string]$rw.tc + ' C' } else { '-' }) + ', fans ' + $(if ($rw.fa) { (@($rw.fa) -join '/') + ' rpm' } else { '-' }) + ', 12V ' + $(if ($rw.v12) { $rw.v12 } else { '-' }) + ', CPU load ' + $rw.c + '%' } } catch {}
+        $o += ' - ' + $e.TimeCreated.ToString('dd MMM HH:mm') + ' | code ' + $d.BugcheckCode + ' | ' + $pb + ' | sleep ' + $d.SleepInProgress + $last + $lr + ' | before: ' + $(if ($pre) { $pre } else { 'nothing logged' })
       }
       foreach ($w in @(@('WHEA-Logger (hardware errors)', 'Microsoft-Windows-WHEA-Logger'), @('Kernel-Processor-Power (CPU limited)', 'Microsoft-Windows-Kernel-Processor-Power'), @('disk errors', 'disk'), @('Kernel-Power other', 'Microsoft-Windows-Kernel-Power'))) {
         try { $n = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = $w[1]; StartTime = $from } -ErrorAction Stop | Where-Object { $_.Id -ne 41 }); $o += $w[0] + ': ' + $n.Count + $(if ($n.Count) { ' (last ' + $n[0].TimeCreated.ToString('dd MMM HH:mm') + ' id ' + $n[0].Id + ')' } else { '' }) } catch { $o += $w[0] + ': 0' } }
       try { $pl = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 1074; StartTime = $from } -MaxEvents 5 -ErrorAction Stop | ForEach-Object { $_.TimeCreated.ToString('dd MMM HH:mm') + ' ' + $(($m1 = (($_.Message -split "`n")[0] -replace '\s+', ' ')).Substring(0, [math]::Min(110, $m1.Length))) }); $o += 'planned restarts (by a program/user): ' + $(if ($pl.Count) { $pl -join ' || ' } else { 'none' }) } catch { $o += 'planned restarts: none' }
+      # 1.57 (user: "Windows PowerShell has stopped working"): the full .NET crash text of PC Doctor's own PowerShell programs
+      try { $nc = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = '.NET Runtime'; Id = 1026; StartTime = $from } -MaxEvents 3 -ErrorAction Stop | Where-Object { $_.Message -match 'powershell' } | ForEach-Object { $mm = ($_.Message -replace '\s+', ' '); $_.TimeCreated.ToString('dd MMM HH:mm') + ' ' + $mm.Substring(0, [math]::Min(700, $mm.Length)) }); $o += 'PowerShell (.NET) crashes: ' + $(if ($nc.Count) { $nc -join ' || ' } else { 'none' }) } catch { $o += 'PowerShell (.NET) crashes: none' }
       @{ ok = $true; txt = ($o -join "`n") } }
     '^(mesh_check)$' {   # 1.52 read-only (user, 05-Nov-2026: Remote screen never connects - the server shows every PC registered but NOT connected): why is this PC's remote agent offline?
       $o = @(); $svc = Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue

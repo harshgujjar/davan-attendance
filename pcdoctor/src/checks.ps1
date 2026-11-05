@@ -32,23 +32,44 @@ function PD-LoggedOnUser { try { $u = (Get-CimInstance Win32_ComputerSystem).Use
 
 # temperature: LibreHardwareMonitor (downloaded once, kept in ThawSpace or re-downloaded), else ACPI thermal zone
 $script:Lhm = $null
+# 1.57 (user, 05-Nov-2026: "build CPU temperature, fan and 12 V in" - option 1 approved): the old reader (LibreHardwareMonitor 0.9.4) used the WinRing0 driver, which
+# Windows Defender blocks ("R0powershell ... contains a virus or potentially unwanted software") - so no PC showed a temperature. Now: PawnIO (signed by namazso.eu, the
+# driver the newest LibreHardwareMonitor uses; tested on the Windows runner: silent install OK, Defender 0 detections) + LibreHardwareMonitor 0.9.6 (.NET Framework edition).
+# Both addresses are data (lab/cfg pawnUrl / lhmUrl). A Frozen PC installs PawnIO only while Thawed (it would be lost at the restart). Tried again every 6 hours.
+function PD-PawnIO {
+  $k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO'
+  if ((Get-ItemProperty $k -ErrorAction SilentlyContinue).DisplayVersion) { return $true }
+  if ($PD.Test) { return $false }
+  if ((PD-DeepFreeze).state -eq 'frozen') { $script:PawnNote = 'Frozen - the temperature driver installs while Thawed'; return $false }
+  $c = PD-Cfg; $u = if ($c -and $c.pawnUrl) { [string]$c.pawnUrl } else { 'https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe' }
+  $f = Join-Path $PD.Root 'dl\PawnIO_setup.exe'
+  try { New-Item -ItemType Directory -Force (Join-Path $PD.Root 'dl') | Out-Null
+    if (!(Test-Path $f)) { Invoke-WebRequest -UseBasicParsing $u -OutFile $f -TimeoutSec 180 }
+    $sg = Get-AuthenticodeSignature $f
+    if ($sg.Status -ne 'Valid' -or [string]$sg.SignerCertificate.Subject -notmatch 'CN=namazso\.eu') { $script:PawnNote = 'driver refused: signature ' + $sg.Status; PD-Log ('PawnIO refused: ' + $sg.Status + ' ' + $sg.SignerCertificate.Subject); return $false }
+    $p = Start-Process $f -ArgumentList '-install -silent' -PassThru -WindowStyle Hidden
+    if (!$p.WaitForExit(120000)) { try { $p.Kill() } catch {}; $script:PawnNote = 'driver install timed out'; return $false }
+    $ok = [bool](Get-ItemProperty $k -ErrorAction SilentlyContinue).DisplayVersion; PD-Log ('PawnIO install exit ' + $p.ExitCode + ', installed ' + $ok)
+    if ($ok) { PD-Event 'install' 'T' 'Temperature driver PawnIO (signed) installed - CPU temperature, fans and 12 V are read from now on' | Out-Null } else { $script:PawnNote = 'driver install failed (exit ' + $p.ExitCode + ')' }
+    return $ok } catch { $script:PawnNote = 'driver download failed: ' + $_.Exception.Message; PD-Log ('PawnIO: ' + $_.Exception.Message); return $false }
+}
 function PD-Temp {
+  if ($script:Lhm -eq $false -and $script:LhmAt -and ((Get-Date) - $script:LhmAt).TotalHours -ge 6) { $script:Lhm = $null }
   try {
-    if ($null -eq $script:Lhm) { $script:Lhm = $false
-      $dir = Join-Path $PD.Root 'dl\lhm'; $dll = Join-Path $dir 'LibreHardwareMonitorLib.dll'
-      $t = PD-ThawPath; if ($t -and (Test-Path "$t\lhm\LibreHardwareMonitorLib.dll") -and !(Test-Path $dll)) { New-Item -ItemType Directory -Force $dir | Out-Null; Copy-Item "$t\lhm\*" $dir -Force }
+    if ($null -eq $script:Lhm) { $script:Lhm = $false; $script:LhmAt = Get-Date
+      if (!(PD-PawnIO)) { throw 'no PawnIO' }
+      $dir = Join-Path $PD.Root 'dl\lhm096'; $dll = Join-Path $dir 'LibreHardwareMonitorLib.dll'
       if (!(Test-Path $dll)) {
-        $z = Join-Path $PD.Root 'dl\lhm.zip'
-        Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.4/LibreHardwareMonitor-net472.zip' -OutFile $z -TimeoutSec 120
-        Expand-Archive $z $dir -Force; Remove-Item $z -Force
-        if ($t) { New-Item -ItemType Directory -Force "$t\lhm" | Out-Null; Copy-Item "$dir\*.dll" "$t\lhm" -Force }
-      }
+        $c = PD-Cfg; $u = if ($c -and $c.lhmUrl) { [string]$c.lhmUrl } else { 'https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.6/LibreHardwareMonitor.zip' }
+        $z = Join-Path $PD.Root 'dl\lhm096.zip'; Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $z -TimeoutSec 180
+        New-Item -ItemType Directory -Force $dir | Out-Null; Expand-Archive $z $dir -Force
+        $in = Get-ChildItem $dir -Recurse -Filter LibreHardwareMonitorLib.dll | Select-Object -First 1; if ($in -and $in.DirectoryName -ne $dir) { Copy-Item "$($in.DirectoryName)\*" $dir -Recurse -Force } }
       Add-Type -Path $dll
       $comp = New-Object LibreHardwareMonitor.Hardware.Computer; $comp.IsCpuEnabled = $true; $comp.IsMotherboardEnabled = $true; $comp.IsStorageEnabled = $true; $comp.Open()
-      $script:Lhm = $comp
+      $script:Lhm = $comp; $script:PawnNote = ''
     }
     if ($script:Lhm) {
-      $r = @{ cpu = $null; disk = $null; fans = @(); volt = @() }
+      $r = @{ cpu = $null; disk = $null; fans = @(); volt = @(); v12 = $null }
       foreach ($h in $script:Lhm.Hardware) { $h.Update(); foreach ($sh in $h.SubHardware) { $sh.Update() }
         foreach ($s in @($h.Sensors) + @($h.SubHardware | ForEach-Object { $_.Sensors })) {
           if ($null -eq $s.Value) { continue }
@@ -56,6 +77,7 @@ function PD-Temp {
           elseif ($s.SensorType -eq 'Temperature' -and $h.HardwareType -eq 'Storage') { $r.disk = [math]::Max([double]$r.disk, [math]::Round($s.Value)) }
           elseif ($s.SensorType -eq 'Fan') { $r.fans += [int]$s.Value }
           elseif ($s.SensorType -eq 'Voltage' -and $s.Name -match '12V|5V|3\.3V|Vcore|CPU') { $r.volt += ($s.Name + ' ' + [math]::Round($s.Value, 2)) }
+          if ($s.SensorType -eq 'Voltage' -and $s.Name -match '12' -and $s.Value -gt 9 -and $s.Value -lt 15) { $r.v12 = [math]::Round($s.Value, 2) }
         } }
       return $r
     }

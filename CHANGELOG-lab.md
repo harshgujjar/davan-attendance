@@ -2,6 +2,11 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.57 / tray 1.35 -- The user approved option 1 for CPU temperature: the old reader's WinRing0 driver is blocked by Windows Defender ("R0powershell ...
+  potentially unwanted software" on both GUJJAR PCs) so no temperature showed. Now PawnIO 2.2.0 (signed namazso.eu, silent "-install -silent", signature checked before running;
+  tested on the Windows runner: installs, Defender 0 detections) + LibreHardwareMonitor 0.9.6 (.NET Framework edition); addresses in lab/cfg pawnUrl / lhmUrl; a Frozen PC installs it
+  only while Thawed; retried every 6 h. Minute rows get fans (fa) + 12 V (v12), now.json fans / v12 / tnote; tray "Temperature" row says why it is missing + a "Fan / power" row;
+  crash_info shows the last reading before each power-off and the .NET crash text of PowerShell programs. PD-PawnIO, PD-Temp, A-Now, A-Live, crash_info, Refresh.
 - 05-Nov-2026 · Agent 1.56 -- The user wants CPU temperature, fan speed and the 12 V line to tell why GUJJARHOME switches off (the tray says "not available"). Step 1, read-only command
   temp_check: is the built-in sensor reader (LibreHardwareMonitor) there, did it fail and why, every temperature / fan / voltage sensor the board gives, Windows thermal zone, antivirus blocks.
 - 05-Nov-2026 · Agent 1.54 -- The user: GUJJARHOME switches off by itself - "learn it so we can fix the others too". New read-only command crash_info: every sudden power-off of 14 days with
