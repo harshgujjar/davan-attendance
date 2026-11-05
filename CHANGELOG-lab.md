@@ -2,6 +2,11 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.23 / tray 1.14 -- The user: "when downloading a new update show the progress in the tray so I know what is happening".
+  The updater (loader) writes each step to state/updp.json (looking, downloading file i of n, installing, starting); the tray's Updates tab
+  shows a bar + the step every second while it runs, also on This PC's message line and the icon's text, with a notification when an update
+  starts by itself and when the new version is running. Update now starts within 5 s (the loader looked once a minute). The new loader is
+  used from the next PC start (it updates itself). L-P, L-Fetch, UpdProgress, UpdNow.
 - 05-Nov-2026 · Agent 1.22 / Console 1.9 -- The user's Dashboard: "Thaw needed: GUJJAR, GUJJAR" and "2 PCs on an old version". Both laptops
   have no Deep Freeze; a thaw queue from an early wrong Frozen reading waited forever - the agent now clears it on a PC without Deep Freeze
   (logged 🧹, nothing run by itself) and the Console never says Thaw needed for such a PC. "Old version" counts only after the missing

@@ -46,16 +46,43 @@ $tabs.TabPages.Add($tMe); $form.Controls.Add($tabs)
 $tUp = New-Object Windows.Forms.TabPage -Property @{ Text = '⬆ Updates'; BackColor = $CL.bg }; $tabs.TabPages.Add($tUp)
 $uVer = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 10; Width = 420; Height = 26; Font = $FT.big; ForeColor = $CL.ac; Text = 'PC Doctor' }
 $uWhen = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 40; Width = 420; Height = 40; Font = $FT.s; ForeColor = $CL.mu }
-$uRes = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 122; Width = 420; Height = 36; Font = $FT.s; ForeColor = $CL.ac }
+$uBar = New-Object Windows.Forms.ProgressBar -Property @{ Left = 12; Top = 122; Width = 420; Height = 14; Maximum = 100; Style = 'Continuous'; Visible = $false }
+$uRes = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 140; Width = 420; Height = 38; Font = $FT.s; ForeColor = $CL.ac }
 $uBtn = New-Object Windows.Forms.Button -Property @{ Text = '⬆ Update now'; Left = 12; Top = 84; Width = 200; Height = 32; FlatStyle = 'Flat'; BackColor = $CL.ac; ForeColor = [Drawing.Color]::Black; Font = $FT.n }
-$uNewT = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 162; Width = 260; Height = 22; Font = $FT.n; Text = "What's new" }
-$uAll = New-Object Windows.Forms.Button -Property @{ Text = 'Show all ▾'; Left = 312; Top = 158; Width = 120; Height = 26; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
-$uNews = New-Object Windows.Forms.TextBox -Property @{ Left = 12; Top = 188; Width = 420; Height = 360; Multiline = $true; ReadOnly = $true; ScrollBars = 'Vertical'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None' }
+$uNewT = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 184; Width = 260; Height = 22; Font = $FT.n; Text = "What's new" }
+$uAll = New-Object Windows.Forms.Button -Property @{ Text = 'Show all ▾'; Left = 312; Top = 180; Width = 120; Height = 26; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
+$uNews = New-Object Windows.Forms.TextBox -Property @{ Left = 12; Top = 210; Width = 420; Height = 338; Multiline = $true; ReadOnly = $true; ScrollBars = 'Vertical'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None' }
 $uBtn.FlatAppearance.BorderColor = $CL.ac; $uAll.FlatAppearance.BorderColor = $CL.bd
-$tUp.Controls.AddRange(@($uVer, $uWhen, $uBtn, $uRes, $uNewT, $uAll, $uNews))
+$tUp.Controls.AddRange(@($uVer, $uWhen, $uBtn, $uBar, $uRes, $uNewT, $uAll, $uNews))
 $script:showAll = $false; $script:askedAt = 0
+# 1.14 (user, 05-Nov-2026: "when downloading a new update show the progress in the tray so I know what is happening"): the updater
+# (loader) writes every step to state\updp.json; while an update runs the tray reads it every second: bar + step + file, the tray
+# icon's text, This PC's message line, and a notification when it starts by itself and when the new version is running
+$script:upKey = ''
+function UpdProgress {
+  $pp = J 'updp.json'; $u = J 'upd.json'; $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $fresh = $pp -and ($now - [int64]$pp.t) -lt 300000 -and (!$script:askedAt -or [int64]$pp.t -ge $script:askedAt - 2000)
+  $ended = $fresh -and $pp.ph -ne 'restart' -and $u -and [int64]$u.at -ge [int64]$pp.t
+  $to = if ($pp -and $pp.to) { [string]$pp.to } else { '' }
+  if (!$fresh -or $ended) {
+    if ($script:askedAt -and !$fresh) { $uBar.Visible = $true; $uBar.Value = 5; return }   # asked; the updater has not started yet
+    $uBar.Visible = $false; $tp.Stop(); return }
+  $hb = 0; try { $hb = [int64](J 'hb.txt') } catch {}
+  switch ([string]$pp.ph) {
+    'check'    { $pc = 10; $tx = 'Step 2/5 · Looking for a new version ...' }
+    'download' { $pc = 10 + [int](70 * $pp.i / [math]::Max(1, $pp.n)); $tx = "Step 3/5 · Downloading $to - file $($pp.i) of $($pp.n): $($pp.file)" }
+    'install'  { $pc = 85; $tx = "Step 4/5 · Installing $to (checked: every file matches its fingerprint) ..." }
+    'restart'  { if ($hb -gt [int64]$pp.t) { $pc = 100; $tx = "Done - PC Doctor $to is running." } else { $pc = 95; $tx = "Step 5/5 · Starting PC Doctor $to - about a minute ..." } }
+    default    { $pc = 5; $tx = 'Updating ...' }
+  }
+  $uBar.Visible = $true; $uBar.Value = [math]::Min(100, [math]::Max(0, $pc)); $uRes.Text = $(if ($pc -ge 100) { '✅ ' } else { '⏳ ' }) + $tx
+  $msg.Text = 'Update: ' + $tx; $t2 = "PC Doctor - updating $pc%"; if ($pc -ge 100) { $t2 = "PC Doctor $to" }; $ni.Text = $t2.Substring(0, [math]::Min(63, $t2.Length))
+  $k = [string]$pp.t; if ($pp.ph -eq 'download' -and $script:upKey -ne ('s' + $to) -and !$script:askedAt -and $pc -lt 100) { $script:upKey = 's' + $to; $ni.ShowBalloonTip(5000, 'PC Doctor', "Updating to $to - open the tray to see the progress.", 'Info') }
+  if ($pc -ge 100) { $uBtn.Enabled = $true; $script:askedAt = 0; if ($script:upKey -ne ('d' + $to)) { $script:upKey = 'd' + $to; $ni.ShowBalloonTip(5000, 'PC Doctor', "Updated - PC Doctor $to is running.", 'Info') }; $tp.Stop() }
+}
+$tp = New-Object Windows.Forms.Timer -Property @{ Interval = 1000 }; $tp.Add_Tick({ try { UpdProgress } catch {} })
 function UpdNow { try { Set-Content "$Rq\update.flag" '1' } catch { $uRes.Text = '❌ Could not ask the updater: ' + $_.Exception.Message; return }
-  $script:askedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $uRes.Text = '⏳ Checking for an update - about a minute ...'; $uBtn.Enabled = $false }
+  $script:askedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); $uRes.Text = '⏳ Step 1/5 · Asked the updater - it starts within a few seconds ...'; $uBtn.Enabled = $false; $uBar.Visible = $true; $uBar.Value = 5; $tp.Start() }
 $uBtn.Add_Click({ UpdNow })
 $uAll.Add_Click({ $script:showAll = !$script:showAll; UpdRefresh })
 function UpdRefresh {
@@ -236,7 +263,7 @@ function SelfUpdate { $b = try { [int](J 'running.json').build } catch { 0 }
     $ni.Visible = $false; try { $mtx.ReleaseMutex(); $mtx.Dispose() } catch {}
     if (Test-Path "$Root\tray-start.vbs") { Start-Process wscript.exe -ArgumentList "`"$Root\tray-start.vbs`" /now" } else { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`"" }
     [Environment]::Exit(0) } }
-$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
+$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { if (!$tp.Enabled) { $pp = J 'updp.json'; if ($pp -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$pp.t) -lt 300000) { $tp.Start() } } } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
 try { Refresh } catch {}; try { UpdRefresh } catch {}
 Sharp $form; Corner
 if ($args -contains '-show') { OpenWin }

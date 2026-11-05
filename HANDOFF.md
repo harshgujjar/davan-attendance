@@ -123,6 +123,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov: Agent 1.21 / tray 1.13 - task "Davan PC Doctor Tray" (Users, logon + every 10 min) restarts a closed tray (1DAVAN tray was closed with its console, agent fine).
 - 05-Nov: Agent 1.22 / Console 1.9 - stale thaw queue cleared on PCs without Deep Freeze; "old version" after 3 h. ASUS Windows name is now GUJJAR;
   user still to Assign 1DAVAN (ASUS) + GUJJARSONY (Sony) on 📥 New PCs.
+- 05-Nov: Agent 1.23 / tray 1.14 - update progress in the tray (loader state/updp.json; new loader active after the next PC start).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
