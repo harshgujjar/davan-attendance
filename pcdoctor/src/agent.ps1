@@ -282,6 +282,9 @@ function A-Metrics {
     $list = @(); if ($ev) { $list = @($ev.PSObject.Properties | ForEach-Object { $_.Value }) }
     $S.ev7 = $list }
   $cnt = { param($k) @($list | Where-Object { $_.k -eq $k }).Count }
+  # 1.65: service start failures in the 10 minutes after a crash restart (blue screen / switched off) are the crash's own after-effects, not a damaged Windows
+  $crashT = @($list | Where-Object { $_.k -in 'bsod','kp41','unexpected' } | ForEach-Object { [double]$_.t })
+  $scmN = @($list | Where-Object { $e = $_; $_.k -eq 'scm' -and -not (@($crashT | Where-Object { ([double]$e.t - $_) -ge 0 -and ([double]$e.t - $_) -le 600000 }).Count) }).Count
   $hang = $list | Where-Object { $_.k -eq 'hang' -and $_.prog } | Group-Object prog | Sort-Object Count -Descending | Select-Object -First 1
   $inv = $S.inv; $sm = @(); if ($inv) { $sm = @($inv.disks) }
   $sysDisk = $sm | Select-Object -First 1
@@ -299,7 +302,7 @@ function A-Metrics {
   $tmax = ($perf | ForEach-Object { $_.tc } | Where-Object { $_ } | Measure-Object -Maximum).Maximum
   @{
     smart = @{ realloc = [int]($sm | Measure-Object realloc -Sum).Sum; pending = [int]($sm | Measure-Object pending -Sum).Sum; uncorr = [int]($sm | Measure-Object uncorr -Sum).Sum; crc = [int]($sm | Measure-Object crc -Maximum).Maximum; wear = [int]($sm | Measure-Object wear -Maximum).Maximum }
-    ev = @{ disk7 = @($list | Where-Object { $_.k -eq 'disk' -and $_.id -eq 7 }).Count; whea = (& $cnt 'whea'); scm = (& $cnt 'scm'); apperr = (& $cnt 'apperr'); throttle = $(if ($tmax -ge 80) { & $cnt 'throttle' } else { 0 })
+    ev = @{ disk7 = @($list | Where-Object { $_.k -eq 'disk' -and $_.id -eq 7 }).Count; whea = (& $cnt 'whea'); scm = $scmN; apperr = (& $cnt 'apperr'); throttle = $(if ($tmax -ge 80) { & $cnt 'throttle' } else { 0 })
             hangTop = [string]$hang.Name; hangTopN = [int]$hang.Count; kp41nob = @($list | Where-Object { $_.k -eq 'kp41' -and $_.nobsod }).Count; clockJump = @($list | Where-Object { $_.k -eq 'clock' -and $_.jump -lt -60 }).Count }
     mdiag = @{ fail = @($list | Where-Object { $_.k -eq 'mdiag' -and $_.id -in 1202,1102 }).Count }
     bsod = @{ n7 = $bs.Count; ram = $(if ([int]$bsk['ram'] -ge 2) { [int]$bsk['ram'] } else { 0 }); ram1 = $(if ([int]$bsk['ram'] -eq 1) { 1 } else { 0 }); windows = [int]$bsk['windows']; last = $(if ($bs.Count) { ($bs | Select-Object -Last 1).code } else { '' }) }

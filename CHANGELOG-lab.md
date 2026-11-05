@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.65 -- The Sony showed "Windows damaged 70%: sfc found ? damaged files; 23 service start failures": sfc found none - the 23 failures were the boot right after
+  the 4 Nov blue screen (services starting before the network), and "?" was a bug that printed every 0 as "?" (PowerShell: 0 -eq ''). Service failures in the 10 minutes after a crash restart are no longer
+  counted, and 0 is shown as 0 (WHEA ?, sfc ? ...). No extra DB reads. A-Health (ev.scm), PD-Verdict text.
 - 05-Nov-2026 · Agent 1.64 -- GUJJARSONY (the Sony) showed a red "RAM error": the DB5 data shows WHEA and memory-test counts empty, only ONE blue screen in 7 days whose code is
   memory-type (these are often a driver, not a bad stick). One such blue screen now gives an orange "Watch RAM" (new rule ram_bsod1); the red RAM error needs WHEA, a failed memory test, or 2+ of them. No extra DB reads. A-Health (bsod.ram / bsod.ram1).
 - 05-Nov-2026 · Agent 1.63 / tray 1.39 -- The user: "give a Refresh option so any new change shows". This PC tab: Refresh (next to Open Console) - the agent takes fresh readings at once

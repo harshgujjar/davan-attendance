@@ -338,7 +338,7 @@ function PD-Verdict([hashtable]$m) {
       if ($pass) { $ok++ } }
     $fire = if ($mode -eq 'any') { $ok -gt 0 } else { $conds.Count -gt 0 -and $ok -eq $conds.Count }
     if ($fire) {
-      $why = [regex]::Replace([string]$r.why, '\{([a-zA-Z0-9_.]+)\}', { param($mm) $v = PD-Get $m $mm.Groups[1].Value; if ($null -eq $v -or $v -eq '') { '?' } else { [string]$v } })
+      $why = [regex]::Replace([string]$r.why, '\{([a-zA-Z0-9_.]+)\}', { param($mm) $v = PD-Get $m $mm.Groups[1].Value; if ($null -eq $v -or [string]$v -eq '') { '?' } else { [string]$v } })
       $conf = [int]$r.conf; if ($mode -eq 'any' -and $ok -gt 1) { $conf = [math]::Min(98, $conf + 5 * ($ok - 1)) }
       $hits += @{ id = $r.id; lv = $r.lv; vk = $r.vk; v = $r.v; why = $why; conf = $conf; fix = $r.fix }
     }
