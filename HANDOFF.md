@@ -143,6 +143,9 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov: Agent 1.36 / tray 1.21 / worker v24 - tray All PCs tab: How much it frees / Clean now / Delete old history (via worker /lab/cmd, /lab/cmdres, /lab/purge); PCs poll lab/cmd every 14 s.
 - 05-Nov: Agent 1.37 / tray 1.22 / Console 1.13 - "Show me this PC": big name pop-up on the PC (also when Remote screen is opened). Needs someone signed in (the tray is a user app).
 - 05-Nov 13:39: DFC.exe FINAL: not on C: at all (DF Standard 8.60) -> automatic Thaw/Freeze is NOT possible. Do not build it; Thawed round by hand.
+- 05-Nov 14:40: Agent 1.44 / Console 1.15 - B1 + B3 read Frozen with Deep Freeze OFF (first Thawed boot after Frozen always reads Frozen), Check disk
+  waited in Thaw needed. New button "✅ It is Thawed - run now" (cmd thawed_now). OPEN (not built, user to say go): disk_smart rule shows 0 as "?"
+  (checks.ps1 why-format: 0 -eq '' is true in PowerShell) and 1 pending sector alone = red 90% (suggested orange 'Disk warning - watch').
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

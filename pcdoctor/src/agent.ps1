@@ -362,6 +362,14 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   switch -regex ($kind) {
     '^(agent_log)$'  { $lf = Join-Path $PD.Root 'log\agent.log'; $rq = @(Get-ChildItem (Join-Path $PD.Root 'req') -ErrorAction SilentlyContinue | ForEach-Object { $_.Name + ' ' + $_.Length + ' bytes ' + $_.LastWriteTime.ToString('HH:mm:ss') })
                        @{ ok = $true; txt = ('Agent ' + (A-Ver) + ', laptop mode ' + [bool]$S.laptop + ', req folder: ' + ($rq -join '; ')); data = @($(if (Test-Path $lf) { Get-Content $lf -Tail 40 } else { 'no log' })) } }   # 1.43 read-only: Claude reads a PC's own log (no screenshot needed)
+    # 1.44 (user, 05-Nov-2026: "B1 is not Frozen, I turned Deep Freeze off" - Check disk stayed in "Thaw needed"): the first Thawed boot after a
+    # Frozen time always reads Frozen (the marker went back to the frozen image), so the Console's "✅ It is Thawed - run now" tells the agent so:
+    # this boot counts as Thawed (df_state.json) and the waiting fixes run at once
+    '^(thawed_now)$' { $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('s'); PD-WriteJson (Join-Path $PD.Root 'state\df_state.json') @{ boot = $boot; state = 'thawed'; by = $by }
+                       Set-Content (Join-Path $PD.Root 'state\df_marker.txt') $boot; PD-Db PATCH ('lab/pcs/' + $h) @{ dfBoot = $boot } | Out-Null
+                       $n = @(PD-ReadJson (Join-Path $PD.Root 'state\thawq.json') | Where-Object { $_ }).Count; if (!$n) { $dbq = PD-Db GET ('lab/pcs/' + $h + '/thawq'); if ($dbq) { $n = @($dbq).Count } }
+                       PD-Event 'thaw' '🔥' ('Marked Thawed by ' + $by + ' - ' + $n + ' waiting fix(es) run now') | Out-Null; A-ThawRun; A-Minute
+                       @{ ok = $true; txt = $(if ($n) { "Thawed - $n waiting fix(es) ran now (Check disk: restart the PC once, it runs at the start)" } else { 'Thawed - nothing was waiting' }) } }
     '^(identify)$'   { PD-WriteJson (Join-Path $PD.Root 'state\identify.json') @{ t = (PD-NowMs); by = $by; name = $(if ($S.pc -and $S.pc.name) { [string]$S.pc.name } else { $env:COMPUTERNAME }) }; @{ ok = $true; txt = 'Name shown on the PC screen' } }   # 1.37 read-only
     '^(check)$'      { A-Verdict; @{ ok = $true; txt = $S.verdict.v + ' - ' + $S.verdict.why } }
     '^(report|send|inventory|deep)$' { A-Daily -Force; A-Verdict; @{ ok = $true; txt = 'Full report sent (inventory, deep checks, verdict)' } }
