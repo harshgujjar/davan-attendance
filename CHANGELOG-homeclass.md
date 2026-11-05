@@ -1,5 +1,13 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 05-Nov-2026 · kids v58 · parent v47 · app h27 (user: "the child app still has many problems - it is not recognising properly - 7 7 zaa / how much - check the log and the sound and fix"): log 05-Nov:
+  (1) THE MOTOROLA PHONE HAS NO SOUND: h26 logged "voice engine ready · default sia.netttsengine.ttslexx · installed: com.google.android.tts sia.netttsengine.ttslexx" - the phone's default speech
+  engine is not Google's and speaks nothing; Google's was installed. h27 asks for com.google.android.tts BY NAME whenever it is installed (default only when not), checks every sentence
+  (a voice that does not START within 4 s switches to the next installed engine, max 2, and says the sentence again), and shows the engine in ⚙️ (kids) and in the parent app's device list.
+  (2) the h26 "did not start speaking" line fired on every short sentence (it compared with the LAST started id) -> now a per-utterance set. (3) cfg/joiner is "is" (left from the tests): the voice asks
+  "seven, seven is?" - the parent chooses ja / za / zaa in Settings (🔊 Hear it on the parent phone). Recognition: the Redmi's table 4 / 7 recitations (85 s, 110 s, restarts and corrections) were heard
+  as noise ("four four four [unk] four two eight forty za twelve ...") but the single-line follow-up questions counted both tables (right 2, wrong 0). Functions: initTts, speakNow, ttsEngine.
+
 - 05-Nov-2026 · kids v57 (user: the voice says "7 7 how much" instead of "7 7 zaa"): the question line "a b ja?" ended with a question mark right after the joiner, which the speech engine turned into a question phrase. rawSay now replaces "<joiner>?" with "<joiner> ..." before speaking (screen text unchanged). No data/cost change. Phone logs could not be read in this session (Firebase blocked) - listening complaints need the log copy (⚙️ → 🩺 Log → 📋 Copy). Functions: rawSay.
 
 - 04-Nov-2026 · kids v56 · parent v46 · app h26 (user photo 11:48: "sound is not coming - Hello ... on my phone where the child app is installed"): the log of that phone (Motorola edge 50 pro, Android 16, h25 freshly installed)
