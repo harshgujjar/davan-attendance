@@ -77,7 +77,11 @@ if (!(Test-Path "$Bin\agent.ps1") -and (Test-Path "$Root\setup\agent.ps1")) { Co
 $p = $null; $lastCheck = [datetime]::MinValue; $newAt = $null
 while ($true) {
   try {
-    if (((Get-Date) - $lastCheck).TotalMinutes -ge 60 -or (Test-Path "$Root\req\update.flag") -or ($script:failAt -and ((Get-Date) - $script:failAt).TotalMinutes -ge 5)) { $script:failAt = $null
+    # 1.32 (user, 05-Nov-2026: "for my laptop and PC make the update reach in 5 min, not one hour"): the Super Admin laptop and the test PCs
+    # (lab/cfg test list) look every 5 minutes (cfg fastMin changes it); every other PC keeps the hourly look
+    $ivm = 60; $c0 = L-Json "$Root\state\cfg.json"; $id0 = L-Json "$Root\id.json"
+    if ((Test-Path "$Root\state\laptop.flag") -or ($c0 -and (@($c0.test) -contains $env:COMPUTERNAME -or ($id0 -and @($c0.test) -contains $id0.hwid)))) { $ivm = $(if ($c0 -and $c0.fastMin) { [double]$c0.fastMin } else { 5 }) }
+    if (((Get-Date) - $lastCheck).TotalMinutes -ge $ivm -or (Test-Path "$Root\req\update.flag") -or ($script:failAt -and ((Get-Date) - $script:failAt).TotalMinutes -ge 5)) { $script:failAt = $null
       $man = Test-Path "$Root\req\update.flag"; Remove-Item "$Root\req\update.flag" -Force -ErrorAction SilentlyContinue; $lastCheck = Get-Date
       $nv = L-Fetch -Manual:$man
       if ($nv) { L-P 'restart' 0 0 '' ([string]$nv.agent.ver); if ($p -and !$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }; $p = $null; $newAt = Get-Date }

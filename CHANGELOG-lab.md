@@ -2,6 +2,13 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.32 / tray 1.20 / Console 1.11 -- The user: (1) update reach the laptop + test PCs in 5 min not 1 h; (2) a footer so everybody
+  knows who built it; (3) install on a lab PC with no internet. (1) loader: Super Admin laptop + lab/cfg test PCs look every 5 min (cfg fastMin);
+  the agent restarts a loader that is older than loader.ps1 (service starts it again in ~30 s) so the new loader needs no PC restart. (2) tray footer
+  "Built by Harsh Gujjar for Davan College, Davangere - built with Claude" (cfg footer overrides). (3) Console Rescue page "Make offline install
+  pendrive" (PCDoctor-Setup.cmd + src with lab-version.json); install.ps1 offline branch checks every fingerprint, writes running.json, copies
+  notes.txt; registration failing = installs anyway and the agent registers by itself when internet comes (Thawed!). Notes tab updated.
+  Loader, agent start, install.ps1 Step 2/3, makeOfflineSetup.
 - 05-Nov-2026 · tray 1.19 -- The user: "keep all these steps in new notes in the tray so I know how it works after some days". New Notes tab
   (copy button) showing src/notes.txt - install, passwords, Command Prompt steps, tray / agent not working, updates + update pendrive, Deep Freeze
   behaviour, the DFC.exe test for an automatic Thaw / Freeze in lab hours (planned, not built), buttons, who to ask. notes.txt is downloaded

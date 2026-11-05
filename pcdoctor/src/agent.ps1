@@ -477,7 +477,13 @@ if ($Mode -eq 'test') {
 }
 
 PD-Log ('agent start, version ' + (A-Ver))
-while (!(PD-LoadId)) { PD-Log 'no id.json yet - waiting for PCDoctor-Setup'; Start-Sleep 300 }
+# 1.32: a new loader.ps1 (e.g. the 5-minute check) is used by the running loader only after it restarts - the service restarts it within 30 s,
+# so: when loader.ps1 on disk is newer than the running loader, stop that loader and end this agent; the new loader starts a fresh agent
+try { $lf = Get-Item (Join-Path $PD.Root 'loader.ps1') -ErrorAction Stop; $svc = Get-Service PCDoctorSvc -ErrorAction SilentlyContinue
+  if ($svc -and $svc.Status -eq 'Running') { $stale = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'DavanPCDoctor\\loader\.ps1' -and $_.CreationDate -lt $lf.LastWriteTime })
+    if ($stale.Count) { foreach ($pp in $stale) { Invoke-CimMethod -InputObject $pp -MethodName Terminate | Out-Null }; PD-Log 'loader.ps1 is newer than the running loader - loader restarted by the service, agent restarts with it'; exit 0 } } } catch {}
+# 1.32: installed with no internet (offline pendrive install) = no id.json yet: register by itself as soon as there is internet (keep a Deep Freeze PC THAWED until it shows on the Console)
+while (!(PD-LoadId)) { PD-Log 'no id.json yet - registering when the internet is there'; try { PD-Register -New | Out-Null } catch { PD-Log ('register failed: ' + $_.Exception.Message) }; if (PD-LoadId) { break }; Start-Sleep 120 }
 $first = $true
 while ($true) {
   try {

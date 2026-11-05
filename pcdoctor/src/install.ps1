@@ -26,22 +26,33 @@ if ($v) {
     Invoke-WebRequest -UseBasicParsing ($Raw + 'src/' + $f.Name + '?v=' + $f.Value) -OutFile $o -TimeoutSec 120
     if ((Get-FileHash -Algorithm SHA256 $o).Hash.ToLower() -ne $f.Value) { Say "REFUSED $($f.Name) - its SHA-256 does not match" Red; exit 1 } }
   @{ ver = $v.agent.ver; build = $v.agent.build; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); prev = 0 } | ConvertTo-Json | Set-Content "$Root\state\running.json" -Encoding UTF8
-} elseif ($Here -and (Test-Path "$Here\src\agent.ps1")) { Copy-Item "$Here\src\*.ps1" "$Root\setup" -Force }
+} elseif ($Here -and (Test-Path "$Here\src\agent.ps1")) {
+  # 1.32 offline install (pendrive: PCDoctor-Setup.cmd + the src folder from the Console's "Make offline install pendrive"): every file is
+  # checked against the lab-version.json that came with it, then the same steps as online
+  Say 'No internet - installing from the pendrive (src folder).' Yellow
+  $lvf = "$Here\src\lab-version.json"; $lv = $null; try { $lv = Get-Content $lvf -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+  if ($lv -and $lv.files) { foreach ($f in $lv.files.PSObject.Properties) { $o = "$Here\src\" + $f.Name
+      if (!(Test-Path $o) -or (Get-FileHash -Algorithm SHA256 $o).Hash.ToLower() -ne $f.Value) { Say "REFUSED $($f.Name) - missing or not the same as lab-version.json (make the pendrive again)" Red; exit 1 }
+      Copy-Item $o "$Root\setup" -Force }
+    @{ ver = $lv.agent.ver; build = $lv.agent.build; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); prev = 0 } | ConvertTo-Json | Set-Content "$Root\state\running.json" -Encoding UTF8
+    Copy-Item $lvf "$Root\state\labver.json" -Force; Say ('version ' + $lv.agent.ver + ' (build ' + $lv.agent.build + ') from the pendrive') }
+  else { Copy-Item "$Here\src\*.ps1" "$Root\setup" -Force; Copy-Item "$Here\src\notes.txt" "$Root\setup" -Force -ErrorAction SilentlyContinue } }
 else { Say 'No internet - connect the PC and run again.' Red; exit 1 }
-Copy-Item "$Root\setup\*.ps1" "$Root\bin" -Force; Copy-Item "$Root\setup\loader.ps1" "$Root\loader.ps1" -Force
+Copy-Item "$Root\setup\*.ps1" "$Root\bin" -Force; Copy-Item "$Root\setup\notes.txt" "$Root\bin" -Force -ErrorAction SilentlyContinue; Copy-Item "$Root\setup\loader.ps1" "$Root\loader.ps1" -Force
 # rights: id.json (the per-PC key) only SYSTEM + Administrators; the tray (a normal user) reads state\ and writes requests to req\
 icacls $Root /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' 'Users:(OI)(CI)RX' /Q | Out-Null
 icacls "$Root\req" /grant 'Users:(OI)(CI)M' /Q | Out-Null
 . "$Root\bin\common.ps1"
 Step 3 'Registering this PC with DB5' 'about 5 s'
 $old = PD-LoadId
-$r = PD-Register
-if ($r.known) { Say ("♻️ Known PC: " + $r.name + ' - its name, group, notes and history are kept') Green }
+$r = $null; try { $r = PD-Register } catch { $r = $null; Say ('Could not register now (' + $_.Exception.Message + ')') Yellow }
+if (!$r) { Say 'PC Doctor is installed; this PC registers by itself as soon as it has internet. Keep a Deep Freeze PC THAWED until it shows on the Console.' Yellow }
+elseif ($r.known) { Say ("♻️ Known PC: " + $r.name + ' - its name, group, notes and history are kept') Green }
 elseif ($r.merge) { Say ('New PC - looks like a known PC (same disk / RAM). The Console asks "Merge?"') Yellow }
 else { Say ('New PC: ' + $env:COMPUTERNAME + ' (hwid ' + $r.hwid + ')') Green }
-icacls "$Root\id.json" /inheritance:r /grant:r 'SYSTEM:F' 'Administrators:F' /Q | Out-Null
+if (Test-Path "$Root\id.json") { icacls "$Root\id.json" /inheritance:r /grant:r 'SYSTEM:F' 'Administrators:F' /Q | Out-Null }
 # a known PC whose Windows name differs -> give Windows its old name back (at the next restart)
-if ($r.known -and $r.name -and $r.name -ne $env:COMPUTERNAME -and $r.name -match '^[A-Z0-9-]{1,15}$') { try { Rename-Computer -NewName $r.name -Force; Say ("Windows will be named " + $r.name + ' after the restart') Green } catch {} }
+if ($r -and $r.known -and $r.name -and $r.name -ne $env:COMPUTERNAME -and $r.name -match '^[A-Z0-9-]{1,15}$') { try { Rename-Computer -NewName $r.name -Force; Say ("Windows will be named " + $r.name + ' after the restart') Green } catch {} }
 # service (Safe Mode too): a tiny service built HERE from C# source (no downloaded .exe) that keeps loader.ps1 running
 Step 4 'Building the PC Doctor service (also runs in Safe Mode)' 'about 10 s'
 # a re-run must not leave the OLD copies running (they hold their locks, so the new loader / tray would quit at once): stop them first

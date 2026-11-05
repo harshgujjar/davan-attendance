@@ -36,12 +36,15 @@ function Pw([string]$why) {
   [Windows.Forms.MessageBox]::Show('Wrong password.', 'PC Doctor') | Out-Null; $false
 }
 # ---------- the window ----------
-$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 700; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
+$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 738; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
 function Corner { $wa = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $form.Left = $wa.Right - $form.Width - 12; $form.Top = [math]::Max($wa.Top, $wa.Bottom - $form.Height - 12) }
 Corner; $form.Add_Shown({ Corner })   # after the DPI scaling the window is bigger - keep it in the corner, fully on screen
 $tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $FT.n }
 $tMe = New-Object Windows.Forms.TabPage -Property @{ Text = 'This PC'; BackColor = $CL.bg }
 $tabs.TabPages.Add($tMe); $form.Controls.Add($tabs)
+# 1.20 (user, 05-Nov-2026): a footer on every tab so everybody knows who built it (text can be changed in DB5 lab/cfg footer)
+$foot = New-Object Windows.Forms.Label -Property @{ Dock = 'Bottom'; Height = 38; TextAlign = 'MiddleCenter'; Font = $FT.s; ForeColor = $CL.mu; BackColor = $CL.bg; Text = 'Davan PC Doctor' + [char]13 + [char]10 + 'Built by Harsh Gujjar for Davan College, Davangere  -  built with Claude' }
+$form.Controls.Add($foot)
 # ---------- Notes tab (user, 05-Nov-2026: "keep all these steps in new notes in the tray icon so I know how it works after some days") ----------
 # the text is the file notes.txt (pcdoctor/src/notes.txt on GitHub), downloaded like every other PC Doctor file, so it reads offline and
 # a change to the notes never needs a new tray
@@ -116,6 +119,8 @@ $uAll.Add_Click({ $script:showAll = !$script:showAll; UpdRefresh })
 function UpdRefresh {
   $r = J 'running.json'; $lv = J 'labver.json'; $u = J 'upd.json'
   $ux = J 'usbupd.json'; if ($ux -and $script:usbAt -and [int64]$ux.t -ge $script:usbAt) { $script:usbAt = 0; $uRes.Text = $(if ($ux.ok) { '✅ ' } else { '❌ ' }) + [string]$ux.msg; $msg.Text = [string]$ux.msg; if (!$ux.ok) { $uBar.Visible = $false; $tp.Stop() } }
+  $fc = J 'cfg.json'; $ft2 = if ($fc -and $fc.footer) { [string]$fc.footer } else { 'Built by Harsh Gujjar for Davan College, Davangere  -  built with Claude' }
+  $foot.Text = 'Davan PC Doctor' + $(if ($r -and $r.ver) { ' v' + $r.ver } else { '' }) + "`r`n" + $ft2
   $form.Text = 'PC Doctor' + $(if ($r -and $r.ver) { ' v' + $r.ver } else { '' }) + ' - ' + $env:COMPUTERNAME   # 1.15 (user, 05-Nov-2026): version always in the title
   $uVer.Text = if ($r) { 'PC Doctor ' + $r.ver + '  ·  build ' + $r.build } else { 'PC Doctor (first start)' }
   $newest = if ($lv -and $lv.agent) { [string]$lv.agent.ver + ' (build ' + $lv.agent.build + ', ' + $lv.agent.ist + ')' } else { '' }

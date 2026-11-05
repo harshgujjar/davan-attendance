@@ -132,6 +132,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov: tray 1.19 Notes tab (pcdoctor/src/notes.txt - update it whenever a PC Doctor step / behaviour changes). PLAN (not built, wait for the user's DFC.exe test
   result): lab-hours Thaw -> run queued fixes -> Freeze with Deep Freeze's DFC.exe (needs the DF password in Console Settings, only on PCs with nobody
   signed in, inside lab hours - the 30 lab PCs are off at night, so NOT a night job). Lab PCs not installed yet (test 2 lab + 1 office PC first).
+- 05-Nov: Agent 1.32 / tray 1.20 / Console 1.11 - laptop + test PCs check updates every 5 min (cfg fastMin), tray footer (cfg footer), offline INSTALL pendrive
+  (Console Rescue page; install.ps1 offline branch; agent registers later when internet comes - Deep Freeze PC must stay Thawed until it shows on the Console).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
