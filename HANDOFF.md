@@ -139,6 +139,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   Agent 1.33: heat rule fixed (false "Overheating" on cool PCs). User must set B1's group to Lab 2 (Console 1.12 does it by the name).
 - 05-Nov 13:10: 2 identical lab PCs (H610M, UUID 03000200-0400-0500-0006-000700080009) merged into hwid 7b4bff0d83c3c5f1 (B1) - fixed in worker v23 + Agent 1.34;
   user to run Setup again on both Thawed. Deep Freeze service DFServ is RUNNING on the lab PC; DFC.exe still not found (user typed `where /r C:\DFC.exe` wrongly).
+- 05-Nov 13:40: Deep Freeze state detection rewritten (Agent 1.35, DB5 lab/pcs/<h>/dfBoot + state\df_state.json); DF Standard 8.60 has NO DFC.exe (confirmed on the PC) - no automatic Thaw/Freeze possible.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

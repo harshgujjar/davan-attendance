@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.35 -- The user: a lab PC set to Boot Thawed (Deep Freeze Standard 8.60 dialog) was shown "Frozen". PD-DeepFreeze guessed from a marker
+  file and only counted the first minute after a boot. Now once per boot: the boot id written to a local file last session is compared with the one kept in DB5
+  (lab/pcs/<h>/dfBoot): same = the write survived the restart = Thawed, different = Frozen; kept for the whole boot. The Boot Control tab in the Deep Freeze
+  window shows "Status on NEXT boot", not the state now. PD-DeepFreeze.
 - 05-Nov-2026 · Agent 1.34 / worker v23 -- The user installed 2 identical lab PCs and the Console showed ONE PC. DB5 lab/fp: both have the cheap H610M board's
   placeholder BIOS UUID 03000200-0400-... (+ "Default string" board serial, same CPU id = 45 points), so the second took the first one's hwid and a new key.
   Worker: those placeholder UUIDs never count, and different MAC + different disks = different PC (fpScore). Agent / Setup: a PC whose key does not match

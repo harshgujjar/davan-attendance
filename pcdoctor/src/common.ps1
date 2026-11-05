@@ -43,11 +43,21 @@ function PD-DeepFreeze {
     $r.state = 'frozen'
     try { $k = Get-ItemProperty 'HKLM:\SOFTWARE\Faronics\Deep Freeze 6' -ErrorAction Stop; if ($k.'DF Status' -eq 0 -or $k.'DF Status' -eq 'Thawed') { $r.state = 'thawed' } } catch {}
     try { $f = Get-Item "$env:SystemRoot\System32\DFC.exe","$env:ProgramFiles\Faronics\Deep Freeze\Install C-0\DF5Serv.exe" -ErrorAction SilentlyContinue | Select-Object -First 1; if ($f) { $r.ver = $f.VersionInfo.ProductVersion } } catch {}
-    # a write to a frozen disk vanishes at restart: compare a marker written last boot
-    $m = "$env:ProgramData\DavanPCDoctor\state\df_marker.txt"
-    try { $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('s')
-      if (Test-Path $m) { $old = Get-Content $m -Raw; if ($old -and $old.Trim() -ne $boot) { $r.state = 'thawed' } }
-      Set-Content $m $boot } catch {}
+    # 1.35 (user, 05-Nov-2026: "it is Thawed but PC Doctor says Frozen"): the old marker test said "thawed" only for the FIRST minute after a boot and
+    # "frozen" for the rest (and a Frozen PC could read "thawed" from the marker kept in the frozen image). Now ONCE per boot, from what really survived:
+    # this boot's first run compares the boot id it wrote last session into a file (L) with the one it told DB5 (R). Same = the write survived the
+    # restart = Thawed. Different = the file went back to the frozen image = Frozen. The answer is kept for the whole boot (state\df_state.json).
+    # (The very first boot after you set Boot Frozen reads Thawed once: Deep Freeze keeps everything written until that restart.)
+    if (!$PD.Test -and $r.state -ne 'thawed') {
+      try { $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('s'); $cf = Join-Path $PD.Root 'state\df_state.json'; $c = PD-ReadJson $cf
+        if ($c -and [string]$c.boot -eq $boot -and $c.state) { $r.state = [string]$c.state }
+        else { $m = Join-Path $PD.Root 'state\df_marker.txt'; $loc = ''; if (Test-Path $m) { $loc = (Get-Content $m -Raw).Trim() }
+          $hw = PD-Hwid; $rem = ''; if ($hw) { $rem = [string](PD-Db GET ('lab/pcs/' + $hw + '/dfBoot')) }
+          if ($hw -and $PD.Online) {
+            $r.state = $(if (!$rem -or ($loc -and $loc -eq $rem)) { 'thawed' } else { 'frozen' })
+            PD-Db PATCH ('lab/pcs/' + $hw) @{ dfBoot = $boot } | Out-Null
+            Set-Content $m $boot; PD-WriteJson $cf @{ boot = $boot; state = $r.state } } } } catch {}
+    }
   }
   $r
 }
