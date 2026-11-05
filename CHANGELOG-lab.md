@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · tray 1.34 -- First look at the tray's real pictures (Windows test now draws every tab): the This PC list was cut off (Last 7 days hidden), the Windows-name row was truncated
+  and Open Console showed an empty box instead of an icon. List taller (292), top block tighter, Thaw needed merged into the Deep Freeze row, shorter Windows-name text, no icon on Open Console.
 - 05-Nov-2026 · Console 1.19 -- The user still could not connect the remote desktop ("unable to perform authentication", then a login box). The remote screen was drawn INSIDE the
   Console page - a third-party frame whose login cookie browsers block. Remote screen now opens in a NEW TAB (a normal page for the remote server, signs in by itself); the frame stays only
   as the fallback when pop-ups are blocked; the page says user admin + the Settings password if a login box still shows. openMesh.

@@ -36,7 +36,7 @@ function Pw([string]$why) {
   [Windows.Forms.MessageBox]::Show('Wrong password.', 'PC Doctor') | Out-Null; $false
 }
 # ---------- the window ----------
-$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 738; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
+$form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 748; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
 function Corner { $wa = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $form.Left = $wa.Right - $form.Width - 12; $form.Top = [math]::Max($wa.Top, $wa.Bottom - $form.Height - 12) }
 Corner; $form.Add_Shown({ Corner })   # after the DPI scaling the window is bigger - keep it in the corner, fully on screen
 $tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $FT.n }
@@ -137,17 +137,17 @@ function UpdRefresh {
   $uAll.Visible = $news.Count -gt 5; $uAll.Text = if ($script:showAll) { 'Hide ▴' } else { 'Show all (' + $news.Count + ') ▾' }
 }
 $head = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 10; Width = 420; Height = 26; Font = $FT.big; ForeColor = $CL.ac; Text = 'PC Doctor' }
-$verd = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 40; Width = 420; Height = 62; Font = $FT.n }
+$verd = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 40; Width = 420; Height = 46; Font = $FT.n }
 $tMe.Controls.AddRange(@($head, $verd))
-$bars = @{}; $y = 106
+$bars = @{}; $y = 92
 foreach ($k in @(@('cpu','CPU'), @('ram','RAM'), @('busy','Disk busy'), @('cfree','C: free'))) {
   $l = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $y; Width = 90; Text = $k[1]; Font = $FT.s; ForeColor = $CL.mu }
   $p = New-Object Windows.Forms.ProgressBar -Property @{ Left = 104; Top = $y; Width = 250; Height = 14; Maximum = 100; Style = 'Continuous' }
   $v = New-Object Windows.Forms.Label -Property @{ Left = 360; Top = $y - 2; Width = 70; Font = $FT.m }
-  $tMe.Controls.AddRange(@($l, $p, $v)); $bars[$k[0]] = @($p, $v); $y += 24 }
+  $tMe.Controls.AddRange(@($l, $p, $v)); $bars[$k[0]] = @($p, $v); $y += 22 }
 # 1.17 (user, 05-Nov-2026: "make it properly aligned so the points look neat, I do not want to miss any point"): a two-column list -
 # what on the left (grey), the value on the right, one fact per row, RAM programs and the last-7-days findings one per row (coloured)
-$facts = New-Object Windows.Forms.ListView -Property @{ Left = 12; Top = $y + 4; Width = 420; Height = 250; View = 'Details'; HeaderStyle = 'None'; FullRowSelect = $false; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None'; Scrollable = $true; MultiSelect = $false; HideSelection = $true }
+$facts = New-Object Windows.Forms.ListView -Property @{ Left = 12; Top = $y + 4; Width = 420; Height = 292; View = 'Details'; HeaderStyle = 'None'; FullRowSelect = $false; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None'; Scrollable = $true; MultiSelect = $false; HideSelection = $true }
 [void]$facts.Columns.Add('', [int](30 * $DPIK)); [void]$facts.Columns.Add('', [int](98 * $DPIK)); [void]$facts.Columns.Add('', [int](270 * $DPIK))
 $script:factNo = 0
 $tMe.Controls.Add($facts)
@@ -159,7 +159,7 @@ function FactRow([string]$lab, [string]$val, $col) { $script:factNo++; $it = New
   [void]$it.SubItems.Add($lab); [void]$it.SubItems.Add($val); $it.SubItems[1].ForeColor = $CL.mu; $it.SubItems[2].ForeColor = $(if ($col) { $col } else { $CL.tx }); [void]$facts.Items.Add($it) }
 function Btn($t, $x, $yy, $w, $on) { $b = New-Object Windows.Forms.Button -Property @{ Text = $t; Left = $x; Top = $yy; Width = $w; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
   $b.FlatAppearance.BorderColor = $CL.bd; $b.Add_Click($on); $tMe.Controls.Add($b); $b }
-$by = $y + 262   # 1.17: buttons right under the facts list
+$by = $y + 304   # 1.17: buttons right under the facts list
 $msg = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $by + 144; Width = 420; Height = 36; Font = $FT.s; ForeColor = $CL.ac }; $tMe.Controls.Add($msg)
 function Report {
   $n = J 'now.json'; $v = J 'verdict.json'; $p = J 'pc.json'
@@ -176,7 +176,7 @@ Btn 'Check now' 152 $by 136 { Set-Content "$Rq\now.flag" '1'; $msg.Text = 'Check
 Btn 'Copy' 292 $by 140 { [Windows.Forms.Clipboard]::SetText((Report)); $msg.Text = 'Report copied - paste it in WhatsApp / chat.' } | Out-Null
 Btn 'Save report to pendrive' 12 ($by + 36) 200 { Set-Content "$Rq\usb.flag" '1'; $msg.Text = 'Saving to the pendrive ...' } | Out-Null
 Btn 'Fix from pendrive' 216 ($by + 36) 216 { if ($script:unlocked -or (Pw 'Fix from pendrive')) { Set-Content "$Rq\usbfix.flag" '1'; $msg.Text = 'Running the approved fixes from the pendrive ...' } } | Out-Null
-Btn '🖥 Open Console' 12 ($by + 108) 420 { OpenConsole } | Out-Null
+Btn 'Open Console' 12 ($by + 108) 420 { OpenConsole } | Out-Null
 Btn '⚙ Name / group / notes' 12 ($by + 72) 316 { if ($script:unlocked -or (Pw 'changing this PC')) { Edit } } | Out-Null
 # 1.11 (user, 05-Nov-2026): Uninstall with the password - shows exactly what is removed, the agent (SYSTEM) does it and checks the password again
 Btn 'Uninstall' 332 ($by + 72) 100 { Uninstall } | Out-Null
@@ -348,11 +348,11 @@ function Refresh {
   foreach ($k in 'cpu','ram','busy','cfree') { $x = [int]$n.$k; $bars[$k][0].Value = [math]::Max(0, [math]::Min(100, $x)); $bars[$k][1].Text = "$x%" }
   $run = J 'running.json'; $iv = J 'inv.json'
   $facts.BeginUpdate(); $facts.Items.Clear(); $script:factNo = 0
-  FactRow 'Name' $(if ($pn.same) { $pn.con } else { $pn.con + '   (Console name)' }) $CL.ac
-  if (!$pn.same) { FactRow 'Windows name' ($pn.win + '   - becomes ' + $pn.con + ' at the next Thawed restart') $CL.wa }
+  FactRow 'Name' $(if ($pn.same) { $pn.con } else { $pn.con + '  (Console name)' }) $CL.ac
+  if (!$pn.same) { FactRow 'Windows name' ($pn.win + '  ->  ' + $pn.con + ' after a Thawed restart') $CL.wa }
   FactRow 'Temperature' $(if ($n.temp) { 'CPU ' + [string]$n.temp + ' °C' } else { 'not available' })
-  FactRow 'Deep Freeze' $(if ($n.df -eq 'thawed') { 'Thawed' } elseif ($n.df -eq 'frozen') { 'Frozen' } else { 'No Deep Freeze on this PC' }) $null
-  if ($n.thawQ -and $n.df -ne 'none') { FactRow '' ("Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' })) $CL.wa }
+  $dfT = $(if ($n.df -eq 'thawed') { 'Thawed' } elseif ($n.df -eq 'frozen') { 'Frozen' } else { 'No Deep Freeze on this PC' }); $dfW = ($n.thawQ -and $n.df -ne 'none')
+  FactRow 'Deep Freeze' ($dfT + $(if ($dfW) { "  -  Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' }) } else { '' })) $(if ($dfW) { $CL.wa } else { $null })
   FactRow 'Internet' $(if ($n.online) { 'OK' } else { 'No internet - saved, sends later' }) $(if ($n.online) { $CL.ok } else { $CL.wa })
   FactRow 'Last sent' ((IST $n.t) + $(if ($n.q) { "   ($($n.q) waiting)" } else { '' }))
   FactRow 'C: drive' "$($n.cfreeGB) GB free   ·   answers in $($n.lat) ms"
