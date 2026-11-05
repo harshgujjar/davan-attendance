@@ -201,6 +201,21 @@ function A-LabPoll {
     A-LabOut @{ op = 'send'; ok = $true; kind = $script:LabKind; rows = @($script:LabRows.Values); done = (!$left.Count -or $over) }
   } catch {}
 }
+# 1.48 (user, 05-Nov-2026: "Show me this PC is not working" - the agent answered but the PC showed nothing: an OLD tray was still running, e.g. its window left open
+# since before an update). The tray writes req\tray_run.json {sha} at its start; if the file on disk is different (or an old tray wrote nothing), the agent stops that
+# tray and starts the "Davan PC Doctor Tray" task (runs in the signed-in user's session). Tried at most once per 30 minutes; a window open is closed once.
+function A-TrayFresh {
+  try { $f = Join-Path $PD.Root 'bin\tray.ps1'; if (!(Test-Path $f)) { return }
+    $want = (Get-FileHash $f -Algorithm SHA256).Hash; $tr = PD-ReadJson (Join-Path $PD.Root 'req\tray_run.json')
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'DavanPCDoctor\\bin\\tray\.ps1' })
+    if (!$procs.Count) { Start-ScheduledTask -TaskName 'Davan PC Doctor Tray' -ErrorAction SilentlyContinue; return }
+    if ($tr -and [string]$tr.sha -eq $want) { return }
+    if ($script:trayKill -and ((Get-Date) - $script:trayKill).TotalMinutes -lt 30) { return }
+    $script:trayKill = Get-Date
+    foreach ($pp in $procs) { Invoke-CimMethod -InputObject $pp -MethodName Terminate | Out-Null }
+    PD-Log 'an old tray was running - stopped; the tray task starts the new one'; Start-Sleep 2; Start-ScheduledTask -TaskName 'Davan PC Doctor Tray' -ErrorAction SilentlyContinue
+  } catch { PD-Log ('tray check: ' + $_.Exception.Message) }
+}
 function A-TrayEdits {
   foreach ($f in @(Get-ChildItem (Join-Path $PD.Root 'req') -Filter 'edit*.json' -ErrorAction SilentlyContinue)) {
     $e = PD-ReadJson $f.FullName; Remove-Item $f.FullName -Force
@@ -361,7 +376,8 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   $h = A-Hwid
   switch -regex ($kind) {
     '^(agent_log)$'  { $lf = Join-Path $PD.Root 'log\agent.log'; $rq = @(Get-ChildItem (Join-Path $PD.Root 'req') -ErrorAction SilentlyContinue | ForEach-Object { $_.Name + ' ' + $_.Length + ' bytes ' + $_.LastWriteTime.ToString('HH:mm:ss') })
-                       @{ ok = $true; txt = ('Agent ' + (A-Ver) + ', laptop mode ' + [bool]$S.laptop + ', req folder: ' + ($rq -join '; ')); data = @($(if (Test-Path $lf) { Get-Content $lf -Tail 40 } else { 'no log' })) } }   # 1.43 read-only: Claude reads a PC's own log (no screenshot needed)
+                       $trs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'DavanPCDoctor\\bin\\tray\.ps1' } | ForEach-Object { 'tray pid ' + $_.ProcessId + ' since ' + $_.CreationDate.ToString('HH:mm:ss') }); $trj = PD-ReadJson (Join-Path $PD.Root 'req\tray_run.json')
+                       @{ ok = $true; txt = ('Agent ' + (A-Ver) + ', trays: ' + ($trs -join ', ') + ', tray file ' + ((Get-Item (Join-Path $PD.Root 'bin\tray.ps1')).LastWriteTime.ToString('HH:mm:ss')) + ', tray said sha ' + $(if ($trj) { ([string]$trj.sha).Substring(0, 8) } else { 'none (old tray)' }) + ', laptop mode ' + [bool]$S.laptop + ', req folder: ' + ($rq -join '; ')); data = @($(if (Test-Path $lf) { Get-Content $lf -Tail 40 } else { 'no log' })) } }   # 1.43 read-only: Claude reads a PC's own log (no screenshot needed)
     # 1.45 (user, 05-Nov-2026: "B1 is not Frozen, I turned Deep Freeze off" - Check disk stayed in "Thaw needed"): the first Thawed boot after a
     # Frozen time always reads Frozen (the marker went back to the frozen image), so the Console's "✅ It is Thawed - run now" tells the agent so:
     # this boot counts as Thawed (df_state.json) and the waiting fixes run at once
@@ -576,7 +592,7 @@ while ($true) {
       $mn = PD-MeshNode; if ($mn -and $mn -ne [string]$S.meshSent) { PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn; PD-Log 'remote agent id sent' }
     }
     A-Events; A-Minute; A-Cmds; A-TrayEdits; A-TrayReq
-    if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
+    if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-TrayFresh; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
     $first = $false
     foreach ($i in 1..4) { Start-Sleep -Seconds 14; if (Test-Path (Join-Path $PD.Root 'req\now.flag')) { Remove-Item (Join-Path $PD.Root 'req\now.flag') -Force; A-Daily -Force; A-Verdict; A-Minute }; A-TrayEdits; A-TrayReq; A-Cmds; A-LabPoll }   # 1.36: commands are picked up every 14 s (was once a minute)
   } catch { PD-Log ('loop error: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber); Start-Sleep 30 }

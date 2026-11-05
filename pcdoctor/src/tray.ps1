@@ -261,6 +261,8 @@ function LabUi {
 $tl = New-Object Windows.Forms.Timer -Property @{ Interval = 2000 }; $tl.Add_Tick({ try { LabUi } catch {} })
 # 1.22 (user, 05-Nov-2026: "which of the 30 PCs am I working on from the web? a pop-up on the PC when I press it"): the Console's "Show me this PC"
 # (and opening Remote screen) makes the agent write state\identify.json; this PC shows its name BIG on its own screen for 10 seconds, with a sound
+# 1.25: the tray tells the agent which file it runs (sha) - the agent replaces a tray that runs an OLDER file (A-TrayFresh)
+try { @{ t = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); sha = (Get-FileHash "$Root\bin\tray.ps1" -Algorithm SHA256).Hash; pid = $PID } | ConvertTo-Json -Compress | Set-Content "$Rq\tray_run.json" -Encoding UTF8 } catch {}
 $script:idSeen = 0; try { $i0 = J 'identify.json'; if ($i0) { $script:idSeen = [int64]$i0.t } } catch {}
 function IdentifyShow($nm, $by) {
   $f = New-Object Windows.Forms.Form -Property @{ FormBorderStyle = 'None'; StartPosition = 'CenterScreen'; Width = 620; Height = 270; TopMost = $true; ShowInTaskbar = $false; BackColor = $CL.ac }
