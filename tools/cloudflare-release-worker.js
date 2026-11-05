@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v23 (05-Nov-2026): PC identity - the placeholder BIOS UUIDs of cheap boards never count, and different MAC + different disks = a different PC (two identical lab PCs were merged).
  *  - v22 (04-Nov-2026): PC Doctor Console has its OWN password (POST /lab/tok {pw}, /lab/setpw) - opening it never logs in to the staff app.
  *  - v21 (04-Nov-2026): PC Doctor hourly MeshCentral check tries https then http (302 = alive) and saves the error text (no false "offline" alert).
  *  - v18 (04-Nov-2026): 🖥️ Davan PC Doctor - POST /lab/tok, /lab/pc, /lab/alert, /lab/ai + the hourly lab check (secret DB5_SA).
@@ -614,7 +615,7 @@ async function labTok(env, b) {
   return { ok: true, token: await mint5(env, 'sa_' + who.uid, { sa: true }), apiKey: 'AIzaSyAdebhgQpyjd3ZQgUl_UNhLXYUDRJK1C1s', db: DB5 };
 }
 // ---- PC identity: scored hardware fingerprint (5. identity survives an OS reinstall) ----
-const BLANK_SERIAL = /^(|0+|f+|none|null|default string|to be filled by o\.?e\.?m\.?|system serial number|not specified|not applicable|n\/a|base board serial number|chassis serial number|123456789|0{8}-0{4}-0{4}-0{4}-0{12}|f{8}-f{4}-f{4}-f{4}-f{12})$/i;
+const BLANK_SERIAL = /^(|0+|f+|none|null|default string|to be filled by o\.?e\.?m\.?|system serial number|not specified|not applicable|n\/a|base board serial number|chassis serial number|123456789|0{8}-0{4}-0{4}-0{4}-0{12}|f{8}-f{4}-f{4}-f{4}-f{12}|03000200-0400-0500-0006-000700080009|00020003-0004-0005-0006-000700080009|12345678-1234-5678-9abc-def012345678|11111111-2222-3333-4444-555555555555)$/i;
 const fpClean = v => { v = String(v == null ? '' : v).trim(); return BLANK_SERIAL.test(v) ? '' : v.toUpperCase(); };
 const fpList = a => (Array.isArray(a) ? a : []).map(fpClean).filter(Boolean);
 function fpScore(a, b) {
@@ -625,6 +626,10 @@ function fpScore(a, b) {
   const da = fpList(a.disks), db = fpList(b.disks), ra = fpList(a.ram), rb = fpList(b.ram);
   m.disk = da.filter(x => db.includes(x)).length; m.ram = ra.filter(x => rb.includes(x)).length;
   s += Math.min(20, m.disk * 10) + Math.min(10, m.ram * 5);
+  // v23 (user, 05-Nov-2026: two new lab PCs of the same board model were taken for ONE PC - the cheap H610M board gives every unit the same BIOS
+  // UUID 03000200-0400-0500-0006-000700080009, "Default string" as its board serial and the same CPU id): two PCs whose onboard MACs differ AND
+  // whose disk serials share nothing are different PCs, whatever else matches
+  const ma = fpClean(a.mac), mb = fpClean(b.mac); if (ma && mb && ma !== mb && da.length && db.length && !m.disk) return { s: 0, m: { bu: 0, bb: 0, mac: 0, cpu: 0, disk: 0, ram: 0 }, conflict: true };
   return { s, m };
 }
 const rid = n => hex(crypto.getRandomValues(new Uint8Array(n)));

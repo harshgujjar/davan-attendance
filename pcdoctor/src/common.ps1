@@ -89,7 +89,9 @@ function PD-Token {
       $PD.Tok = $t.id_token; $PD.TokExp = (Get-Date).AddSeconds([int]$t.expires_in - 300); return $PD.Tok
     } catch { PD-Log ('refresh failed: ' + $_.Exception.Message) }
   }
-  PD-Register | Out-Null; $PD.Tok
+  # 1.34: a PC whose key was replaced (two PCs were once merged by mistake) registers again as a NEW PC by itself
+  try { PD-Register | Out-Null } catch { if ($_.Exception.Message -match 'key does not match') { PD-Log 'key lost - registering again as a new PC'; PD-Register -New | Out-Null } else { throw } }
+  $PD.Tok
 }
 function PD-Hwid { if (!$PD.Id) { PD-LoadId | Out-Null }; if ($PD.Id) { $PD.Id.hwid } else { '' } }
 

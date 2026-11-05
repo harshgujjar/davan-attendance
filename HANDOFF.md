@@ -137,6 +137,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov 12:50: DFC.exe NOT found on lab PC B1 (Deep Freeze frozen, hwid 7b4bff0d83c3c5f1, Win name DESKTOP-H25PRDD, rename queued) -> automatic Thaw/Freeze via
   DFC.exe is NOT possible on this Deep Freeze (maybe another path: user to run `where /r C:\ DFC.exe` + `sc query DFServ`). Fallback = Thawed maintenance by hand.
   Agent 1.33: heat rule fixed (false "Overheating" on cool PCs). User must set B1's group to Lab 2 (Console 1.12 does it by the name).
+- 05-Nov 13:10: 2 identical lab PCs (H610M, UUID 03000200-0400-0500-0006-000700080009) merged into hwid 7b4bff0d83c3c5f1 (B1) - fixed in worker v23 + Agent 1.34;
+  user to run Setup again on both Thawed. Deep Freeze service DFServ is RUNNING on the lab PC; DFC.exe still not found (user typed `where /r C:\DFC.exe` wrongly).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

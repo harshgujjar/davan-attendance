@@ -45,7 +45,8 @@ icacls "$Root\req" /grant 'Users:(OI)(CI)M' /Q | Out-Null
 . "$Root\bin\common.ps1"
 Step 3 'Registering this PC with DB5' 'about 5 s'
 $old = PD-LoadId
-$r = $null; try { $r = PD-Register } catch { $r = $null; Say ('Could not register now (' + $_.Exception.Message + ')') Yellow }
+$r = $null; try { $r = PD-Register } catch { $r = $null; $em = $_.Exception.Message
+  if ($em -match 'key does not match') { try { $r = PD-Register -New } catch { $em = $_.Exception.Message } } else { Say ('Could not register now (' + $em + ')') Yellow } }
 if (!$r) { Say 'PC Doctor is installed; this PC registers by itself as soon as it has internet. Keep a Deep Freeze PC THAWED until it shows on the Console.' Yellow }
 elseif ($r.known) { Say ("♻️ Known PC: " + $r.name + ' - its name, group, notes and history are kept') Green }
 elseif ($r.merge) { Say ('New PC - looks like a known PC (same disk / RAM). The Console asks "Merge?"') Yellow }

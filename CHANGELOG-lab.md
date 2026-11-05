@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.34 / worker v23 -- The user installed 2 identical lab PCs and the Console showed ONE PC. DB5 lab/fp: both have the cheap H610M board's
+  placeholder BIOS UUID 03000200-0400-... (+ "Default string" board serial, same CPU id = 45 points), so the second took the first one's hwid and a new key.
+  Worker: those placeholder UUIDs never count, and different MAC + different disks = different PC (fpScore). Agent / Setup: a PC whose key does not match
+  registers again as a NEW PC by itself (PD-Token, install Step 3). Both lab PCs: run PCDoctor-Setup.cmd again (or wait - the agent re-registers).
 - 05-Nov-2026 · Agent 1.33 / Console 1.12 -- The user ran the DFC.exe test on new lab PC B1 (not found) and showed "Overheating" at 41-45 C + "Thaw needed" +
   B1 in Lab 1. Overheating: an idle CPU's low speed (power saving) and Windows' "speed limited" events counted as heat - now speed counts only while
   the CPU is busy (50%+) and the slow-down events only when the CPU reached 80 C. Thaw needed: the Windows rename to B1 (a Frozen PC waits for Thawed -
