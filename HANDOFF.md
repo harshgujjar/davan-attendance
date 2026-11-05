@@ -150,6 +150,11 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   Screen on a PC without one sends mesh_install. MeshCentral server checked OK (infra check). B1's Thaw queue = rename only (Check disk went to B6, ran there).
 - 05-Nov 15:00: Agent 1.47 / Console 1.17 - B1 mesh installed but meshId empty: PD-MeshNode now scans all HKLM Open Source keys for NodeId; Remote screen
   shows a live install log (lab/res steps). B1/B3/B6 were still on agent 1.39 at 14:50 (hourly loader) - the log asks update_now first. If still no id: read the log's registry line.
+- 05-Nov evening: REMOTE SCREEN root cause (davan-scraper Action "PC Doctor - Mesh diag", read-only): MeshCentral 1.3.1 up, 8 PCs registered, NONE connected (meshctrl conn absent).
+  mesh_check (Agent 1.52, read-only, queued for ALL PCs 20:46) answers WHY when each PC starts: read lab/res/<hwid> filter mesh_check, then fix that cause only.
+  Plan agreed with the user (go): 1 remote screen, 2 trustworthy findings (two signals before red, "Wrong" button, "What to do this week" page), 3 Thawed clean round (Android SDK/AVD,
+  WU cleanup, install updates once to end the update loop). Tray pictures: Windows test prints PNGs into its log (PNGBEGIN..PNGEND) - read them before shipping tray changes.
+  User is short on weekly tokens: facts first, one complete pass, short answers.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
