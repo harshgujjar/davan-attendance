@@ -6,6 +6,10 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 # stretches it on a 125-200% screen (blurry). DPI-aware + every form scales its own layout (Sharp) = sharp text at any scaling.
 try { Add-Type -Namespace PDT -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();' -ErrorAction Stop; [void][PDT.Dpi]::SetProcessDPIAware() } catch {}
 [Windows.Forms.Application]::EnableVisualStyles()
+# 1.36 (user, 05-Nov-2026: "Windows PowerShell has stopped working" - the Sony's crash text: an error inside a button / timer, then Windows could not even draw its
+# error box, which killed the tray): every such error is caught and written to %TEMP%\pcdoctor-tray-errors.log - the tray keeps running
+try { [Windows.Forms.Application]::SetUnhandledExceptionMode([Windows.Forms.UnhandledExceptionMode]::CatchException) } catch {}
+[Windows.Forms.Application]::add_ThreadException({ param($s0, $e0) try { Add-Content "$env:TEMP\pcdoctor-tray-errors.log" ((Get-Date).ToString('dd MMM HH:mm:ss') + '  ' + [string]$e0.Exception.Message) } catch {} })
 # 1.8 (user, 05-Nov-2026: "the tray items are small and the window is big, not aligned"): Windows' AutoScale grew only the window, not
 # its buttons / bars. Now every form is scaled by hand ONCE, after all its controls are in (Sharp), by the real screen DPI.
 $DPIK = try { $g0 = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $d = $g0.DpiX / 96; $g0.Dispose(); [math]::Max(1, [math]::Min(3, $d)) } catch { 1 }
@@ -347,7 +351,9 @@ function Refresh {
   $verd.Text = $(if ($v) { $v.why + "  (" + $v.conf + "% sure)" } else { '' })
   foreach ($k in 'cpu','ram','busy','cfree') { $x = [int]$n.$k; $bars[$k][0].Value = [math]::Max(0, [math]::Min(100, $x)); $bars[$k][1].Text = "$x%" }
   $run = J 'running.json'; $iv = J 'inv.json'
-  $facts.BeginUpdate(); $facts.Items.Clear(); $script:factNo = 0
+  # 1.36 (user, 05-Nov-2026: "no data is showing now" - one failing row left the WHOLE list blank: BeginUpdate without EndUpdate): the list is always finished,
+  # and a row that fails shows its error text in red instead of hiding everything
+  $facts.BeginUpdate(); try { $facts.Items.Clear(); $script:factNo = 0
   FactRow 'Name' $(if ($pn.same) { $pn.con } else { $pn.con + '  (Console name)' }) $CL.ac
   if (!$pn.same) { FactRow 'Windows name' ($pn.win + '  ->  ' + $pn.con + ' after a Thawed restart') $CL.wa }
   # 1.35 (user, 05-Nov-2026): CPU temperature + fan speed + 12 V (the three that tell overheating from a weak power supply), or WHY they are missing
@@ -355,7 +361,10 @@ function Refresh {
   if (@($n.fans | Where-Object { $_ -ne $null }).Count -or $n.v12) { FactRow 'Fan / power' ($(if (@($n.fans).Count) { 'fans ' + ((@($n.fans) | ForEach-Object { [string]$_ }) -join ' / ') + ' rpm' } else { 'fans -' }) + '   ·   12 V line ' + $(if ($n.v12) { [string]$n.v12 + ' V' } else { '-' })) $(if (($n.v12 -and $n.v12 -lt 11.4) -or (@($n.fans).Count -and !(@($n.fans) | Where-Object { $_ -gt 0 }))) { $CL.wa } else { $null }) }
   $dfT = $(if ($n.df -eq 'thawed') { 'Thawed' } elseif ($n.df -eq 'frozen') { 'Frozen' } else { 'No Deep Freeze on this PC' }); $dfW = ($n.thawQ -and $n.df -ne 'none')
   FactRow 'Deep Freeze' ($dfT + $(if ($dfW) { "  -  Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' }) } else { '' })) $(if ($dfW) { $CL.wa } else { $null })
-  FactRow 'Internet' $(if ($n.online) { 'OK' } else { 'No internet - saved, sends later' }) $(if ($n.online) { $CL.ok } else { $CL.wa })
+  # 1.36 (user, 05-Nov-2026: "Internet OK - show Wi-Fi or LAN and the download speed"): connection type, Wi-Fi name + signal, link speed, measured download speed
+  $nt = $n.nt
+  FactRow 'Internet' ($(if ($n.online) { 'OK' } else { 'No internet - saved, sends later' }) + $(if ($nt -and $nt.type) { '   ·   ' + [string]$nt.type + $(if ($nt.ssid) { ' "' + [string]$nt.ssid + '"' } else { '' }) + $(if ($nt.sig) { ' ' + [string]$nt.sig + '%' } else { '' }) + $(if ($nt.link) { '   ·   link ' + [string]$nt.link } else { '' }) } else { '' })) $(if ($n.online) { $CL.ok } else { $CL.wa })
+  if ($nt -and ($nt.dl -or $nt.dlErr)) { FactRow 'Download' $(if ($nt.dl) { [string]$nt.dl + ' Mbps   (tested ' + (IST $nt.dlAt) + ')' } else { 'test failed: ' + [string]$nt.dlErr }) $(if ($nt.dl -and $nt.dl -lt 2) { $CL.wa } else { $null }) }
   FactRow 'Last sent' ((IST $n.t) + $(if ($n.q) { "   ($($n.q) waiting)" } else { '' }))
   FactRow 'C: drive' "$($n.cfreeGB) GB free   ·   answers in $($n.lat) ms"
   $rt = @($n.rtop); for ($k = 0; $k -lt $rt.Count; $k++) { FactRow $(if ($k -eq 0) { 'RAM used by' } else { '' }) ([string]$rt[$k].n + '   ' + $(if ($rt[$k].m -ge 1024) { [string][math]::Round($rt[$k].m / 1024, 1) + ' GB' } else { [string]$rt[$k].m + ' MB' }) + $(if ($rt[$k].k -gt 1) { '   (' + $rt[$k].k + ' copies)' } else { '' })) }
@@ -364,7 +373,7 @@ function Refresh {
   if ($iv -and $iv.disks) { $dk = @($iv.disks); for ($k = 0; $k -lt $dk.Count; $k++) { FactRow $(if ($k -eq 0) { 'Disk health' } else { '' }) ($dk[$k].model + '   ' + $dk[$k].health) } }
   $wk = if ($v -and $v.all) { @($v.all) } else { @() }
   if (!$wk.Count) { FactRow 'Last 7 days' 'Nothing found' $CL.ok } else { for ($k = 0; $k -lt $wk.Count; $k++) { $wl = $LVL[[string]$wk[$k].lv]; if (!$wl) { $wl = $LVL.green }; FactRow $(if ($k -eq 0) { 'Last 7 days' } else { '' }) ($wl[0] + ' ' + $wk[$k].v) $wl[1] } }
-  $facts.EndUpdate()
+  } catch { try { FactRow 'Error' ([string]$_.Exception.Message + '  (line ' + $_.InvocationInfo.ScriptLineNumber + ')') $CL.er } catch {} } finally { $facts.EndUpdate() }
   $ni.Text = ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Substring(0, [math]::Min(63, ('PC Doctor - ' + $(if ($v) { $v.v } else { '' })).Length))
   if ($lv -ne $lastLv) { $ni.Icon = Ico $e[1]; $script:lastLv = $lv }
   $un = J 'uninst.json'; if ($un -and $script:unAsked -and [int64]$un.t -ge $script:unAsked) { $script:unAsked = 0; $msg.Text = [string]$un.msg }

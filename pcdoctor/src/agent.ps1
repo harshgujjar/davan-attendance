@@ -19,7 +19,7 @@ function A-Now([hashtable]$smp) {
   if ($df.state -eq 'thawed' -and !$S.dfSince) { $S.dfSince = PD-NowMs } elseif ($df.state -ne 'thawed') { $S.dfSince = 0 }
   $tq = @(PD-ReadJson (Join-Path $PD.Root 'state\thawq.json')).Count
   $ip = ''; try { $ip = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).IPv4Address.IPAddress } catch {}
-  @{ t = $smp.t; cpu = $smp.cpu; ram = $smp.ram; busy = $smp.busy; lat = $smp.lat; cfree = $smp.cfree; cfreeGB = $smp.cfreeGB; temp = $(if ($smp.temp) { $smp.temp.cpu } else { $null }); fans = $(if ($smp.temp) { @($smp.temp.fans | Select-Object -First 3) } else { @() }); v12 = $(if ($smp.temp) { $smp.temp.v12 } else { $null }); tnote = [string]$script:PawnNote
+  @{ t = $smp.t; cpu = $smp.cpu; ram = $smp.ram; busy = $smp.busy; lat = $smp.lat; cfree = $smp.cfree; cfreeGB = $smp.cfreeGB; temp = $(if ($smp.temp) { $smp.temp.cpu } else { $null }); fans = $(if ($smp.temp) { @($smp.temp.fans | Select-Object -First 3) } else { @() }); v12 = $(if ($smp.temp) { $smp.temp.v12 } else { $null }); tnote = [string]$script:PawnNote; nt = $S.net2
      freq = $smp.freq; net = $smp.net; user = $smp.user; top = @($smp.top | Select-Object -First 3); rtop = @($smp.ramTop | Select-Object -First 3)
      lv = $v.lv; v = $v.v; vk = $v.vk; why = $v.why; conf = $v.conf; fix = $v.fix
      df = $df.state; dfSince = $S.dfSince; thaw = [bool]$df.thaw; thawQ = $tq; boot = [int64](([datetimeoffset]$S.boot).ToUnixTimeMilliseconds())
@@ -216,6 +216,24 @@ function A-TrayFresh {
     PD-Log 'an old tray was running - stopped; the tray task starts the new one'; Start-Sleep 2; Start-ScheduledTask -TaskName 'Davan PC Doctor Tray' -ErrorAction SilentlyContinue
   } catch { PD-Log ('tray check: ' + $_.Exception.Message) }
 }
+# 1.59 (user, 05-Nov-2026: "Internet says OK - show Wi-Fi or LAN and the download speed"): every 5 minutes the connection (Wi-Fi name + signal or LAN, link speed);
+# a 1 MB download test every speedH hours (lab/cfg, default 3) and on Check now - a lab of 30 PCs uses about 240 MB a day. Test address: lab/cfg speedUrl.
+function A-NetInfo([switch]$Speed) {
+  $old = $S.net2; $n2 = @{}
+  try { $ipc = Get-NetIPConfiguration -ErrorAction Stop | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1
+    $ad = Get-NetAdapter -InterfaceIndex $ipc.InterfaceIndex -ErrorAction Stop
+    $n2.type = $(if ([string]$ad.PhysicalMediaType -match '802\.11|Wireless' -or [string]$ad.InterfaceDescription -match 'Wi-?Fi|Wireless|802\.11|WLAN') { 'Wi-Fi' } else { 'LAN' })
+    $n2.link = [string]$ad.LinkSpeed
+    if ($n2.type -eq 'Wi-Fi') { $wl = (netsh wlan show interfaces) -join "`n"; if ($wl -match '(?m)^\s*SSID\s*:\s*(.+)$') { $n2.ssid = $Matches[1].Trim() }; if ($wl -match '(?m)^\s*Signal\s*:\s*(\d+)\s*%') { $n2.sig = [int]$Matches[1] } }
+  } catch {}
+  if ($old) { foreach ($kk in 'dl', 'dlAt', 'dlErr') { if ($null -ne $old.$kk) { $n2[$kk] = $old.$kk } } }
+  $c = PD-Cfg; $hrs = $(if ($c -and $c.speedH) { [double]$c.speedH } else { 3 })
+  if ($Speed -or !$n2.dlAt -or ((PD-NowMs) - [int64]$n2.dlAt) -gt $hrs * 3600000) {
+    try { $u = $(if ($c -and $c.speedUrl) { [string]$c.speedUrl } else { 'https://speed.cloudflare.com/__down?bytes=1000000' })
+      $sw = [Diagnostics.Stopwatch]::StartNew(); $wc = New-Object Net.WebClient; $by = $wc.DownloadData($u); $sw.Stop(); $wc.Dispose()
+      $n2.dl = [math]::Round(($by.Length * 8 / 1000000) / [math]::Max(0.05, $sw.Elapsed.TotalSeconds), 1); $n2.dlAt = PD-NowMs; $n2.Remove('dlErr') } catch { $n2.dlErr = $_.Exception.Message; $n2.dlAt = PD-NowMs } }
+  $S.net2 = $n2
+}
 function A-TrayEdits {
   foreach ($f in @(Get-ChildItem (Join-Path $PD.Root 'req') -Filter 'edit*.json' -ErrorAction SilentlyContinue)) {
     $e = PD-ReadJson $f.FullName; Remove-Item $f.FullName -Force
@@ -376,7 +394,9 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   $h = A-Hwid
   switch -regex ($kind) {
     '^(temp_check)$' {   # 1.56 read-only (user, 05-Nov-2026: "build CPU temperature, fan, 12 V so it tells why GUJJARHOME switches off"): why the built-in sensor reader gives nothing
-      $o = @(); $ld = Join-Path $PD.Root 'dl\lhm'; $ll = Join-Path $ld 'LibreHardwareMonitorLib.dll'
+      $o = @(); $ld = Join-Path $PD.Root 'dl\lhm096'; $ll = Join-Path $ld 'LibreHardwareMonitorLib.dll'
+      $o += 'PawnIO driver: ' + $(if ((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO' -ErrorAction SilentlyContinue).DisplayVersion) { 'installed' } else { 'NOT installed' }) + ' | note: ' + [string]$script:PawnNote
+      try { $o += '.NET Framework release: ' + (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' -ErrorAction Stop).Release + ' (461808+ = 4.7.2 needed)' } catch {}
       $o += 'reader file: ' + $(if (Test-Path $ll) { 'present, version ' + (Get-Item $ll).VersionInfo.FileVersion } else { 'MISSING (download failed or removed)' })
       $o += 'reader folder: ' + ((Get-ChildItem $ld -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ', ')
       $o += 'reader in the running agent: ' + $(if ($script:Lhm -eq $false) { 'FAILED earlier' } elseif ($script:Lhm) { 'loaded' } else { 'not tried yet' })
@@ -649,8 +669,8 @@ while ($true) {
       $mn = PD-MeshNode; if ($mn -and $mn -ne [string]$S.meshSent) { PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn; PD-Log 'remote agent id sent' }
     }
     A-Events; A-Minute; A-Cmds; A-TrayEdits; A-TrayReq
-    if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-TrayFresh; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
+    if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-TrayFresh; A-NetInfo; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
     $first = $false
-    foreach ($i in 1..4) { Start-Sleep -Seconds 14; if (Test-Path (Join-Path $PD.Root 'req\now.flag')) { Remove-Item (Join-Path $PD.Root 'req\now.flag') -Force; A-Daily -Force; A-Verdict; A-Minute }; A-TrayEdits; A-TrayReq; A-Cmds; A-LabPoll }   # 1.36: commands are picked up every 14 s (was once a minute)
+    foreach ($i in 1..4) { Start-Sleep -Seconds 14; if (Test-Path (Join-Path $PD.Root 'req\now.flag')) { Remove-Item (Join-Path $PD.Root 'req\now.flag') -Force; A-NetInfo -Speed; A-Daily -Force; A-Verdict; A-Minute }; A-TrayEdits; A-TrayReq; A-Cmds; A-LabPoll }   # 1.36: commands are picked up every 14 s (was once a minute)
   } catch { PD-Log ('loop error: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber); Start-Sleep 30 }
 }

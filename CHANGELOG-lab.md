@@ -2,6 +2,11 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.59 / tray 1.36 -- From the PCs' own checks: (1) the Sony's list went blank - one failing row left BeginUpdate open; the list now always finishes and a
+  failing row shows its error in red. (2) "PowerShell has stopped working" = an error in a tray button / timer, then Windows could not draw its error box - the tray now catches every such
+  error (SetUnhandledExceptionMode + ThreadException -> %TEMP%\pcdoctor-tray-errors.log). (3) GUJJARHOME: the reader needs .NET 4.7.2, Windows 10 build 10240 has 4.6 - the tray says
+  "needs a newer Windows" instead of "the board gives no reading". (4) Internet row: Wi-Fi name + signal or LAN, link speed; Download row = 1 MB test every 3 h (lab/cfg speedH /
+  speedUrl) and on Check now (~240 MB a day for 30 PCs); now.json nt. A-NetInfo, PD-Temp, temp_check, Refresh.
 - 05-Nov-2026 · Agent 1.57 / tray 1.35 -- The user approved option 1 for CPU temperature: the old reader's WinRing0 driver is blocked by Windows Defender ("R0powershell ...
   potentially unwanted software" on both GUJJAR PCs) so no temperature showed. Now PawnIO 2.2.0 (signed namazso.eu, silent "-install -silent", signature checked before running;
   tested on the Windows runner: installs, Defender 0 detections) + LibreHardwareMonitor 0.9.6 (.NET Framework edition); addresses in lab/cfg pawnUrl / lhmUrl; a Frozen PC installs it

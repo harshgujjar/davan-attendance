@@ -81,7 +81,9 @@ function PD-Temp {
         } }
       return $r
     }
-  } catch { $script:Lhm = $false }
+  } catch { $script:Lhm = $false; $em = [string]$_.Exception.Message; if ($_.Exception.InnerException) { $em += ' ' + $_.Exception.InnerException.Message }
+    # 1.59: say WHY in the tray (GUJJARHOME: Windows 10 build 10240 has .NET 4.6 - the reader needs 4.7.2: "Could not load type 'System.ValueTuple'")
+    if (!$script:PawnNote -or $em -notmatch 'no PawnIO') { $script:PawnNote = $(if ($em -match 'ValueTuple|System\.Runtime') { 'needs a newer Windows (.NET 4.7.2) - update Windows 10' } elseif ($em -match 'no PawnIO') { [string]$script:PawnNote } else { 'reader error: ' + $em.Substring(0, [math]::Min(80, $em.Length)) }) } }
   try { $z = Get-CimInstance -Namespace root/wmi MSAcpi_ThermalZoneTemperature -ErrorAction Stop | Select-Object -First 1; return @{ cpu = [math]::Round($z.CurrentTemperature / 10 - 273.15) } } catch {}
   $null
 }
