@@ -293,6 +293,7 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
     '^(clean_plan)$' { $p = PD-AndroidPlan; $S.cleanGB = $p.gb; @{ ok = $true; txt = "Clean now will free ≈ $($p.gb) GB ($($p.items.Count) folders)"; data = @{ gb = $p.gb; items = @($p.items | Select-Object -First 60) } } }
     '^(undo)$'       { @{ ok = $true; txt = (PD-Undo $a.undo) } }
     '^(save_usb)$'   { $u = A-Usb -Force; @{ ok = [bool]$u; txt = $(if ($u) { "Saved to $u" } else { 'No pendrive' }) } }
+    '^(loader_log)$' { $lf = Join-Path $PD.Root 'log\loader.log'; @{ ok = $true; txt = 'Last updater log lines'; data = @($(if (Test-Path $lf) { Get-Content $lf -Tail 30 } else { 'no log' })) } }   # 1.25 read-only
     '^(update_now)$' { Set-Content (Join-Path $PD.Root 'req\update.flag') '1'; @{ ok = $true; txt = 'Update check asked' } }
     '^(mesh_install)$' { @{ ok = $true; txt = (A-MeshInstall) } }
     '^(laptop)$'     { $S.laptop = $true; @{ ok = $true; txt = 'Super Admin laptop mode on' } }

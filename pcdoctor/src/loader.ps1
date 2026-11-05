@@ -19,9 +19,20 @@ function L-Res([string]$t, [bool]$m) { @{ at = [DateTimeOffset]::UtcNow.ToUnixTi
 # 1.23 (user, 05-Nov-2026: "show the update progress in the tray so I know what is happening"): every step goes to state\updp.json
 function L-P([string]$ph, [int]$i = 0, [int]$n = 0, [string]$file = '', [string]$to = '') {
   try { @{ t = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); ph = $ph; i = $i; n = $n; file = $file; to = $to } | ConvertTo-Json -Compress | Set-Content "$Root\state\updp.json" -Encoding UTF8 } catch {} }
+# 1.25 (user, 05-Nov-2026: "Update now says no internet" while the PC was online): one try at one address was all - now 3 tries, then
+# GitHub's API as a second road (another server), the real reason in the message, and a failed check tries again in 5 minutes
+function L-Get([string]$path, [string]$out = '') {
+  $urls = @(($Raw + $path), ('https://api.github.com/repos/harshgujjar/davan-attendance/contents/pcdoctor/' + ($path -replace '\?.*$', '') + '?ref=main')); $err = ''
+  foreach ($n in 1..3) { foreach ($u in $urls) {
+    try { $h = @{ 'User-Agent' = 'DavanPCDoctor'; 'Cache-Control' = 'no-cache' }; if ($u -like '*api.github.com*') { $h.Accept = 'application/vnd.github.raw' }
+      if ($out) { Invoke-WebRequest -UseBasicParsing -Uri $u -Headers $h -OutFile $out -TimeoutSec 120; return $true }
+      return (Invoke-RestMethod -Uri $u -Headers $h -TimeoutSec 30) } catch { $err = $_.Exception.Message } }
+    Start-Sleep -Seconds (3 * $n) }
+  $script:lastErr = $err; L-Log ("could not get $path : $err"); $null }
 function L-Fetch([switch]$Manual) {
   L-P 'check'
-  try { $v = Invoke-RestMethod -Uri ($Raw + 'lab-version.json?t=' + [DateTime]::UtcNow.Ticks) -TimeoutSec 30 } catch { L-Log ('version file not reached: ' + $_.Exception.Message); L-Res 'No internet - could not reach the update server' $Manual; return $null }
+  $v = L-Get ('lab-version.json?t=' + [DateTime]::UtcNow.Ticks); if ($v -is [string]) { try { $v = $v | ConvertFrom-Json } catch { $v = $null } }
+  if (!$v -or !$v.agent) { $script:failAt = Get-Date; L-Res ('Could not reach the update server (' + $script:lastErr + ') - tries again in 5 minutes') $Manual; return $null }
   try { $v | ConvertTo-Json -Depth 6 | Set-Content "$Root\state\labver.json" -Encoding UTF8 } catch {}
   $run = L-Json "$Root\state\running.json"
   if ($run -and $run.build -ge $v.agent.build) { L-Res ('Already the newest: ' + $run.ver + ' (build ' + $run.build + ')') $Manual; return $null }
@@ -38,7 +49,7 @@ function L-Fetch([switch]$Manual) {
   $tmp = "$Root\dl\new"; Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force $tmp | Out-Null
   foreach ($f in $v.files.PSObject.Properties) {
     $o = Join-Path $tmp $f.Name; $k++; L-P 'download' $k $nf $f.Name $to
-    try { Invoke-WebRequest -UseBasicParsing -Uri ($Raw + 'src/' + $f.Name + '?v=' + $f.Value) -OutFile $o -TimeoutSec 120 } catch { L-Log "download $($f.Name) failed"; L-Res 'Download failed - will try again in an hour' $Manual; return $null }
+    if (!(L-Get ('src/' + $f.Name + '?v=' + $f.Value) $o)) { $script:failAt = Get-Date; L-Res ('Download of ' + $f.Name + ' failed (' + $script:lastErr + ') - tries again in 5 minutes') $Manual; return $null }
     if ((L-Sha $o) -ne $f.Value) { L-Log "REFUSED $($f.Name): SHA-256 does not match lab-version.json"; L-Res 'Update refused: a file did not match its fingerprint (safety check)' $Manual; return $null }
   }
   L-P 'install' $nf $nf '' $to
@@ -66,7 +77,7 @@ if (!(Test-Path "$Bin\agent.ps1") -and (Test-Path "$Root\setup\agent.ps1")) { Co
 $p = $null; $lastCheck = [datetime]::MinValue; $newAt = $null
 while ($true) {
   try {
-    if (((Get-Date) - $lastCheck).TotalMinutes -ge 60 -or (Test-Path "$Root\req\update.flag")) {
+    if (((Get-Date) - $lastCheck).TotalMinutes -ge 60 -or (Test-Path "$Root\req\update.flag") -or ($script:failAt -and ((Get-Date) - $script:failAt).TotalMinutes -ge 5)) { $script:failAt = $null
       $man = Test-Path "$Root\req\update.flag"; Remove-Item "$Root\req\update.flag" -Force -ErrorAction SilentlyContinue; $lastCheck = Get-Date
       $nv = L-Fetch -Manual:$man
       if ($nv) { L-P 'restart' 0 0 '' ([string]$nv.agent.ver); if ($p -and !$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }; $p = $null; $newAt = Get-Date }

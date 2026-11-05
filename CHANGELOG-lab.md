@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.25 -- The user: "Update now says no internet" - 1DAVAN online (agent reporting) but its updater could not reach
+  raw.githubusercontent.com (stuck on 1.19). The loader now tries 3 times, then GitHub's API as a second road, says the real reason, and a failed
+  check retries in 5 minutes (was 1 hour). New read-only command loader_log (last 30 updater log lines). L-Get, L-Fetch, A-Cmd.
 - 05-Nov-2026 · tray 1.15 -- The user: "show the version here always" - the tray window title reads "PC Doctor v1.24 - GUJJAR" and follows
   every update by itself (state/running.json). UpdRefresh.
 - 05-Nov-2026 · Agent 1.23 / tray 1.14 -- The user: "when downloading a new update show the progress in the tray so I know what is happening".
