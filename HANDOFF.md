@@ -167,6 +167,9 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   Read-only checks added: temp_check, crash_info (now with last reading before each cut + .NET crash text), mesh_check (db5_cmd READ_ONLY list in davan-scraper).
   GUJJARHOME: 13 power-offs in 14 days, 3-10 min after start under load, no BSOD/WHEA -> cooling or PSU; run crash_info after its next cut to see CPU C / fans / 12 V.
   Open: "PowerShell has stopped working" on the Sony (fc7e8983...) at 21:16/21:58/22:19 - crash_info prints the .NET text; fix that program.
+- 05-Nov 23:10: Agent 1.63 / tray 1.39 - Refresh button; Internet row = real route (LAN / Wi-Fi + "also on"), Download test; list rows isolated (FactSafe; never name a helper R =
+  Invoke-History); tray catches UI errors (log %TEMP%\pcdoctor-tray-errors.log). Sony: CPU temp works (70-72 C), its board reports NO fans / 12 V (laptop). GUJJARHOME: reader needs
+  .NET 4.7.2 -> Windows 10 22H2 update needed before temperature can be read. Always look at the tray picture of the Windows test before telling the user it is done.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
