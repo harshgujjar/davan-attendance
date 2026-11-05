@@ -130,10 +130,12 @@ foreach ($k in @(@('cpu','CPU'), @('ram','RAM'), @('busy','Disk busy'), @('cfree
 # 1.17 (user, 05-Nov-2026: "make it properly aligned so the points look neat, I do not want to miss any point"): a two-column list -
 # what on the left (grey), the value on the right, one fact per row, RAM programs and the last-7-days findings one per row (coloured)
 $facts = New-Object Windows.Forms.ListView -Property @{ Left = 12; Top = $y + 4; Width = 420; Height = 250; View = 'Details'; HeaderStyle = 'None'; FullRowSelect = $false; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None'; Scrollable = $true; MultiSelect = $false; HideSelection = $true }
-[void]$facts.Columns.Add('', [int](104 * $DPIK)); [void]$facts.Columns.Add('', [int](296 * $DPIK))
+[void]$facts.Columns.Add('', [int](30 * $DPIK)); [void]$facts.Columns.Add('', [int](98 * $DPIK)); [void]$facts.Columns.Add('', [int](270 * $DPIK))
+$script:factNo = 0
 $tMe.Controls.Add($facts)
-function FactRow([string]$lab, [string]$val, $col) { $it = New-Object Windows.Forms.ListViewItem($lab); $it.UseItemStyleForSubItems = $false; $it.ForeColor = $CL.mu
-  [void]$it.SubItems.Add($val); $it.SubItems[1].ForeColor = $(if ($col) { $col } else { $CL.tx }); [void]$facts.Items.Add($it) }
+# 1.18 (user, 05-Nov-2026: "give every point a serial number"): No. | what | value - every row numbered 1, 2, 3 ...
+function FactRow([string]$lab, [string]$val, $col) { $script:factNo++; $it = New-Object Windows.Forms.ListViewItem([string]$script:factNo); $it.UseItemStyleForSubItems = $false; $it.ForeColor = $CL.ac
+  [void]$it.SubItems.Add($lab); [void]$it.SubItems.Add($val); $it.SubItems[1].ForeColor = $CL.mu; $it.SubItems[2].ForeColor = $(if ($col) { $col } else { $CL.tx }); [void]$facts.Items.Add($it) }
 function Btn($t, $x, $yy, $w, $on) { $b = New-Object Windows.Forms.Button -Property @{ Text = $t; Left = $x; Top = $yy; Width = $w; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
   $b.FlatAppearance.BorderColor = $CL.bd; $b.Add_Click($on); $tMe.Controls.Add($b); $b }
 $by = $y + 262   # 1.17: buttons right under the facts list
@@ -254,7 +256,7 @@ function Refresh {
   $verd.Text = $(if ($v) { $v.why + "  (" + $v.conf + "% sure)" } else { '' })
   foreach ($k in 'cpu','ram','busy','cfree') { $x = [int]$n.$k; $bars[$k][0].Value = [math]::Max(0, [math]::Min(100, $x)); $bars[$k][1].Text = "$x%" }
   $run = J 'running.json'; $iv = J 'inv.json'
-  $facts.BeginUpdate(); $facts.Items.Clear()
+  $facts.BeginUpdate(); $facts.Items.Clear(); $script:factNo = 0
   FactRow 'Temperature' $(if ($n.temp) { 'CPU ' + [string]$n.temp + ' °C' } else { 'not available' })
   FactRow 'Deep Freeze' $(if ($n.df -eq 'thawed') { 'Thawed' } elseif ($n.df -eq 'frozen') { 'Frozen' } else { 'No Deep Freeze on this PC' }) $null
   if ($n.thawQ -and $n.df -ne 'none') { FactRow '' ("Thaw needed: $($n.thawQ) fix" + $(if ($n.thawQ -ne 1) { 'es' })) $CL.wa }

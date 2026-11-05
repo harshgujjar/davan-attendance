@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · tray 1.18 -- The user: "give every point a serial number" - the This PC facts list has a No. column (1, 2, 3 ...), then what | value.
+  FactRow.
 - 05-Nov-2026 · Agent 1.29 / tray 1.17 / Console 1.10 -- The user: neat, aligned tray facts + "build the update pendrive". Tray This PC: the facts are
   now a two-column list (what | value), one fact per row, RAM programs and the last-7-days findings one per row, coloured, PC Doctor version
   from the running build. Offline update: Console Rescue page -> "Make PC Doctor update pendrive" (DavanUpdate folder: lab-version.json +
