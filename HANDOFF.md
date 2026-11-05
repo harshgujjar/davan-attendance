@@ -146,6 +146,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov 14:40: Agent 1.45 / tray 1.30 / Console 1.15 - B1 + B3 read Frozen with Deep Freeze OFF (first Thawed boot after Frozen always reads Frozen), Check disk
   waited in Thaw needed. New button "✅ It is Thawed - run now" (cmd thawed_now). OPEN (not built, user to say go): disk_smart rule shows 0 as "?"
   (checks.ps1 why-format: 0 -eq '' is true in PowerShell) and 1 pending sector alone = red 90% (suggested orange 'Disk warning - watch').
+- 05-Nov 14:50: Agent 1.46 / Console 1.16 - Remote screen: no PC had meshId (sent only by daily inventory, before mesh install) -> sent hourly on change;
+  Screen on a PC without one sends mesh_install. MeshCentral server checked OK (infra check). B1's Thaw queue = rename only (Check disk went to B6, ran there).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

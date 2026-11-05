@@ -385,7 +385,7 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
     '^(save_usb)$'   { $u = A-Usb -Force; @{ ok = [bool]$u; txt = $(if ($u) { "Saved to $u" } else { 'No pendrive' }) } }
     '^(loader_log)$' { $lf = Join-Path $PD.Root 'log\loader.log'; @{ ok = $true; txt = 'Last updater log lines'; data = @($(if (Test-Path $lf) { Get-Content $lf -Tail 30 } else { 'no log' })) } }   # 1.25 read-only
     '^(update_now)$' { Set-Content (Join-Path $PD.Root 'req\update.flag') '1'; @{ ok = $true; txt = 'Update check asked' } }
-    '^(mesh_install)$' { @{ ok = $true; txt = (A-MeshInstall) } }
+    '^(mesh_install)$' { $t = A-MeshInstall; $mn = PD-MeshNode; if ($mn) { PD-Db PATCH ('lab/pcs/' + $h) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn }; @{ ok = $true; txt = $t + $(if ($mn) { ' - remote screen ready' } else { ' - no remote agent id yet' }) } }
     '^(laptop)$'     { $S.laptop = $true; @{ ok = $true; txt = 'Super Admin laptop mode on' } }
     default {
       $fx = $kind -replace '^fix:',''
@@ -545,6 +545,9 @@ while ($true) {
       # 7: restart-needing work (chkdsk / RAM test / updates / rename) waits for a free period with nobody logged in - never a PC in use
       if (!$first -and (PD-ReadJson (Join-Path $PD.Root 'state\fixhist.json')) -and [string]$S.pc.autoRst -ne (PD-ISTDate) -and (A-NeedRestart) -and (A-FreePeriod)) { PD-Log 'free period, nobody logged in - restart for the waiting fixes'; PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ autoRst = (PD-ISTDate) } | Out-Null; Fix-restart @{} | Out-Null }   # once a day at most (a Frozen PC can never clear its flags)
       if ($S.pc.mesh -ne $false -and !(Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue)) { PD-Log (A-MeshInstall) }
+      # 1.46 (user, 05-Nov-2026: "can't connect B1 Remote screen" - no PC had a meshId): the remote agent's id was sent only with the daily
+      # inventory, which runs BEFORE the agent installs it (and a Frozen PC installs it again, with a new id, at every start) - now sent every hour
+      $mn = PD-MeshNode; if ($mn -and $mn -ne [string]$S.meshSent) { PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn; PD-Log 'remote agent id sent' }
     }
     A-Events; A-Minute; A-Cmds; A-TrayEdits; A-TrayReq
     if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
