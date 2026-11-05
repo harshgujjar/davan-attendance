@@ -270,16 +270,16 @@ function IdentifyShow($nm, $by) {
   $l1 = New-Object Windows.Forms.Label -Property @{ Text = 'THIS PC IS'; Left = 0; Top = 16; Width = 608; Height = 30; TextAlign = 'MiddleCenter'; Font = (New-Object Drawing.Font('Segoe UI Semibold', 14)); ForeColor = $CL.mu }
   $l2 = New-Object Windows.Forms.Label -Property @{ Text = [string]$nm; Left = 0; Top = 50; Width = 608; Height = 110; TextAlign = 'MiddleCenter'; Font = (New-Object Drawing.Font('Segoe UI Semibold', 66)); ForeColor = $CL.ac }
   $l3 = New-Object Windows.Forms.Label -Property @{ Text = ('Windows name ' + $env:COMPUTERNAME + '  -  the Super Admin is working on this PC from the Console'); Left = 0; Top = 180; Width = 608; Height = 28; TextAlign = 'MiddleCenter'; Font = $FT.n; ForeColor = $CL.tx }
-  $l4 = New-Object Windows.Forms.Label -Property @{ Text = '(click to close)'; Left = 0; Top = 218; Width = 608; Height = 24; TextAlign = 'MiddleCenter'; Font = $FT.s; ForeColor = $CL.mu }
+  $l4 = New-Object Windows.Forms.Label -Property @{ Text = 'stays here until you click it, or the Super Admin taps Hide on the Console'; Left = 0; Top = 218; Width = 608; Height = 24; TextAlign = 'MiddleCenter'; Font = $FT.s; ForeColor = $CL.mu }
   $in.Controls.AddRange(@($l1, $l2, $l3, $l4)); $f.Controls.Add($in)
   foreach ($c2 in $f, $in, $l1, $l2, $l3, $l4) { $c2.Add_Click({ try { $this.FindForm().Close() } catch {} }) }   # handlers run after this function has ended: no local variables in them
   if ($DPIK -gt 1.01) { $f.Scale((New-Object Drawing.SizeF($DPIK, $DPIK))) }
   try { if ($script:idForm) { $script:idForm.Close() } } catch {}; $script:idForm = $f; try { [Media.SystemSounds]::Exclamation.Play() } catch {}
-  $f.Show(); $f.Activate(); if (!$script:idTimer) { $script:idTimer = New-Object Windows.Forms.Timer -Property @{ Interval = 10000 }; $script:idTimer.Add_Tick({ $script:idTimer.Stop(); try { $script:idForm.Close() } catch {} }) }; $script:idTimer.Stop(); $script:idTimer.Start()
+  $f.Show(); $f.Activate(); if (!$script:idTimer) { $script:idTimer = New-Object Windows.Forms.Timer -Property @{ Interval = 21600000 }; $script:idTimer.Add_Tick({ $script:idTimer.Stop(); try { $script:idForm.Close() } catch {} }) }; $script:idTimer.Stop(); $script:idTimer.Start()
 }
 $ti = New-Object Windows.Forms.Timer -Property @{ Interval = 2000 }
 $ti.Add_Tick({ try { $x1 = J 'identify.json'; if ($x1 -and [int64]$x1.t -gt $script:idSeen) { $script:idSeen = [int64]$x1.t
-      if (([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$x1.t) -lt 90000) { IdentifyShow ([string]$x1.name) ([string]$x1.by) } } } catch {} })
+      if ($x1.off) { try { if ($script:idForm) { $script:idForm.Close() } } catch {} } elseif (([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$x1.t) -lt 90000) { IdentifyShow ([string]$x1.name) ([string]$x1.by) } } } catch {} })
 $ti.Start()
 function LaptopTabs {
   if ($tGrid) { return }

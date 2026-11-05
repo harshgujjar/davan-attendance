@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.49 / tray 1.33 / Console 1.18 -- The user: the "Show me this PC" name vanished after 10 s - keep it until cancelled; and Remote screen said "unable to perform
+  authentication, click to reconnect". The name now stays on the PC's screen until it is clicked, or the Console's new "🙈 Hide the name" is tapped (6 h safety). The Remote screen
+  panel has "🔄 Reconnect (new login)" which gets a fresh login and reloads (the Console's login for the remote server is made new each time). identify (off), IdentifyShow, openMesh.
 - 05-Nov-2026 · Agent 1.48 / tray 1.32 -- The user: "Show me this PC" still shows nothing on B1. DB5: B1 answered the command "done" (the agent wrote the pop-up request) -
   the tray that draws it was an OLD one (a window left open since before an update does not replace itself). The tray now writes req/tray_run.json {sha} at its start;
   the agent (every 5 min) stops a tray that runs a different / unknown file and starts the "Davan PC Doctor Tray" task in the user's session (at most once per 30 min).
