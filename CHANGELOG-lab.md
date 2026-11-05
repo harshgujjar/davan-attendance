@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Console 1.19 -- The user still could not connect the remote desktop ("unable to perform authentication", then a login box). The remote screen was drawn INSIDE the
+  Console page - a third-party frame whose login cookie browsers block. Remote screen now opens in a NEW TAB (a normal page for the remote server, signs in by itself); the frame stays only
+  as the fallback when pop-ups are blocked; the page says user admin + the Settings password if a login box still shows. openMesh.
 - 05-Nov-2026 · Agent 1.49 / tray 1.33 / Console 1.18 -- The user: the "Show me this PC" name vanished after 10 s - keep it until cancelled; and Remote screen said "unable to perform
   authentication, click to reconnect". The name now stays on the PC's screen until it is clicked, or the Console's new "🙈 Hide the name" is tapped (6 h safety). The Remote screen
   panel has "🔄 Reconnect (new login)" which gets a fresh login and reloads (the Console's login for the remote server is made new each time). identify (off), IdentifyShow, openMesh.
