@@ -3,7 +3,7 @@ Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console 
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
 - 05-Nov-2026 · tray 1.37 -- The Sony's list stopped at Temperature with "Error: Cannot compare "" to "0"": its empty fan list came back as an object. Every row of the list now runs on
-  its own (R) so one bad value spoils only its own row, and temperature / fans / 12 V are used only when they really are numbers ("fans: not reported"). Refresh, R.
+  its own (FactSafe - first named R, which is PowerShell's alias for Invoke-History; the tray pictures caught it) so one bad value spoils only its own row, and temperature / fans / 12 V are used only when they really are numbers ("fans: not reported"). Refresh, FactSafe.
 - 05-Nov-2026 · Agent 1.59 / tray 1.36 -- From the PCs' own checks: (1) the Sony's list went blank - one failing row left BeginUpdate open; the list now always finishes and a
   failing row shows its error in red. (2) "PowerShell has stopped working" = an error in a tray button / timer, then Windows could not draw its error box - the tray now catches every such
   error (SetUnhandledExceptionMode + ThreadException -> %TEMP%\pcdoctor-tray-errors.log). (3) GUJJARHOME: the reader needs .NET 4.7.2, Windows 10 build 10240 has 4.6 - the tray says
