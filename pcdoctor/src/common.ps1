@@ -161,3 +161,15 @@ function PD-Event([string]$k, [string]$icon, [string]$txt, $extra = $null) {
   PD-Db PUT ('lab/events/' + (PD-Hwid) + '/e' + $t) $e | Out-Null
   $e
 }
+
+# 05-Nov-2026 (user: "a PowerShell window opens at start with red Get-Content errors"): Windows 11 opens "powershell -WindowStyle Hidden" in
+# Windows Terminal, which ignores Hidden - so the tray showed a console. The tray now starts through wscript (window style 0 = never shown).
+# Run as SYSTEM by the agent at every start (old installs fix themselves) and by install.ps1.
+function PD-TrayLauncher {
+  $v = Join-Path $PD.Root 'tray-start.vbs'
+  $body = 'CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + (Join-Path $PD.Root 'bin\tray.ps1') + '""", 0, False'
+  try { if (!(Test-Path $v) -or (Get-Content $v -Raw -ErrorAction Stop).Trim() -ne $body) { [IO.File]::WriteAllText($v, $body, [Text.Encoding]::ASCII) } } catch {}
+  $run = 'wscript.exe "' + $v + '"'; $k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+  try { if ((Get-ItemProperty $k -Name DavanPCDoctor -ErrorAction SilentlyContinue).DavanPCDoctor -ne $run) { Set-ItemProperty $k 'DavanPCDoctor' $run } } catch {}
+  $v
+}

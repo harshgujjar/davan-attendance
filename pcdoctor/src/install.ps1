@@ -76,11 +76,11 @@ $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnB
 Register-ScheduledTask -TaskName 'Davan PC Doctor' -Action $act -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $set -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
 # tray app for every user
 Step 6 'Tray app (the 🖥️ icon, password 2531)' 'a second'
-Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'DavanPCDoctor' "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`""
+$trayVbs = PD-TrayLauncher   # wscript launcher: no console window (Windows 11 Terminal ignores -WindowStyle Hidden)
 Step 7 'Starting PC Doctor' 'a few seconds'
 Start-Service PCDoctorSvc
 Start-ScheduledTask -TaskName 'Davan PC Doctor' -ErrorAction SilentlyContinue   # same loader (its lock keeps one copy)
 Say 'The first full check (inventory + deep checks) and the remote-screen agent now run by themselves in the background.' DarkGray
 Say 'This PC shows on the Console in about 2 minutes. Tray -> 🔍 Check now runs a deep check any time.' DarkGray
-Start-Process powershell.exe -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`""
+Start-Process wscript.exe -ArgumentList "`"$trayVbs`""
 Write-Host ''; Say ('✅ Davan PC Doctor is installed on ' + $env:COMPUTERNAME + ' in ' + [int]((Get-Date) - $T0).TotalSeconds + ' s.' + $(if (Get-Service DFServ -ErrorAction SilentlyContinue) { ' Now set the PC back to Boot Frozen.' } else { '' })) Green; Write-Host ''

@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 05-Nov-2026 · Agent 1.20 / tray 1.12 -- The user: "at start a PowerShell window opens with red Get-Content errors". Windows 11 opens
+  "powershell -WindowStyle Hidden" in Windows Terminal, which ignores Hidden. The tray now starts through wscript (tray-start.vbs, window
+  style 0); the agent (SYSTEM) rewrites the launcher + HKLM Run key at every start, so installed PCs fix themselves; install.ps1 and the
+  tray's self-restart use it too. J returns a quiet null for a missing state file. PD-TrayLauncher, J, SelfUpdate.
 - 05-Nov-2026 · Agent 1.19 / tray 1.11 / Console 1.8 -- The user: "an option with a password to uninstall the tray software on a laptop or
   desktop". Tray This PC -> Uninstall: password, "also remove MeshCentral?", then the exact list of what goes (service + boot task, tray for
   every user, the ProgramData folder, MeshCentral if chosen); a Frozen PC is refused (Deep Freeze would bring it back). The agent (SYSTEM)

@@ -118,6 +118,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 - 05-Nov: tray 1.9 Ask AI fixed (handler lost LaptopTabs locals); Agent 1.18 / tray 1.10 / Console 1.7 = RAM per program (lab/now rtop).
   1DAVAN 05-Nov: RAM 97% of 15 GB, disk busy 100%, up ~6 days - user to restart + check "RAM used by" after the update.
 - 05-Nov: Agent 1.19 / tray 1.11 / Console 1.8 - tray Uninstall (password, list, agent removes via task "Davan PC Doctor Uninstall"; DB5 old + uninstalled).
+- 05-Nov: Agent 1.20 / tray 1.12 - tray starts via wscript tray-start.vbs (no console window on Win 11). Laptop restarted and Windows is now
+  GUJJAR (the waiting rename ran before 1.16). rtop: firefox 31 copies 5.5 GB; AddInProcess 39% CPU - asked the user to check its path.
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).

@@ -12,7 +12,7 @@ $DPIK = try { $g0 = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $d = $g0.DpiX 
 function Sharp($f) { $f.AutoScaleMode = [Windows.Forms.AutoScaleMode]::None; if ($DPIK -gt 1.01) { $f.Scale((New-Object Drawing.SizeF($DPIK, $DPIK))) } }
 $Root = "$env:ProgramData\DavanPCDoctor"; $St = "$Root\state"; $Rq = "$Root\req"
 $mtx = New-Object Threading.Mutex($false, 'Local\DavanPCDoctorTray'); if (!$mtx.WaitOne(0)) { exit 0 }
-function J($f) { try { Get-Content "$St\$f" -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $null } }
+function J($f) { $p = "$St\$f"; if (!(Test-Path $p)) { return $null }; try { Get-Content $p -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { $null } }   # 1.12: a missing file = quiet null (no red errors)
 function W($f, $o) { try { [IO.File]::WriteAllText("$Rq\$f", ($o | ConvertTo-Json -Depth 6 -Compress), (New-Object Text.UTF8Encoding($false))) } catch {} }
 function IST($ms) { if (!$ms) { return '-' }; ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$ms)).ToOffset([TimeSpan]::FromHours(5.5)).ToString('dd MMM, h:mm tt') + ' IST' }
 function Hash($s) { -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes('davanlab:' + $s)) | ForEach-Object { $_.ToString('x2') }) }
@@ -234,7 +234,7 @@ $script:myBuild = try { [int](J 'running.json').build } catch { 0 }
 function SelfUpdate { $b = try { [int](J 'running.json').build } catch { 0 }
   if ($b -and $script:myBuild -and $b -ne $script:myBuild -and !$form.Visible -and (Test-Path "$Root\bin\tray.ps1")) {
     $ni.Visible = $false; try { $mtx.ReleaseMutex(); $mtx.Dispose() } catch {}
-    Start-Process powershell.exe -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`""
+    if (Test-Path "$Root\tray-start.vbs") { Start-Process wscript.exe -ArgumentList "`"$Root\tray-start.vbs`"" } else { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`"" }
     [Environment]::Exit(0) } }
 $tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
 try { Refresh } catch {}; try { UpdRefresh } catch {}

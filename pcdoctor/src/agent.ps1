@@ -413,6 +413,7 @@ function A-Laptop {
 }
 
 if ($Mode -eq 'mesh') { PD-LoadId | Out-Null; A-MeshInstall; exit 0 }
+try { PD-TrayLauncher | Out-Null } catch {}
 if ($Mode -eq 'once') { PD-Token | Out-Null; A-SyncPc; A-Daily -Force; A-Events; A-Verdict; A-Minute; A-Peers; exit 0 }
 if ($Mode -eq 'test') {
   $S.test = $true; $PD.Test = $true
