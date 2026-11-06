@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 06-Nov-2026 · Agent 1.70 -- "Only NUTANANEW is not letting in": every PC installs other PCs' shared printers, but NUTANANEW's give 0x709 (Windows 10) / 0x40 (Windows 11). New read-only command share_diag
+  (Claude / DB5 cmd) reads the sharing side of a PC: spooler remote-connection + Protected Print + RPC policies, shared printers + driver type, SMB server, users / blank passwords, firewall,
+  and the last hours' failed logons, SMB server and print events. No DB reads except its one answer. A-Do share_diag; davan-scraper db5_cmd READ_ONLY.
 - 05-Nov-2026 · Agent 1.69 -- GUJJARHOME showed "driver install failed (exit 50)" and no temperature / fan: exit 50 = "not supported" - that desktop runs the very first Windows 10 (build 10240), too old for the
   signed temperature driver. The tray now says so ("this Windows (build N) is too old ... update Windows 10 to 22H2") instead of a code. No DB reads. PD-PawnIO.
 - 05-Nov-2026 · tray 1.44 -- The PC Doctor version is now shown without the password: in the tray icon's tooltip ("PC Doctor v1.67 - Windows damaged"), in a pop-up on left click (version + verdict)

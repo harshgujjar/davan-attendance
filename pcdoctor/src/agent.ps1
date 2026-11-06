@@ -399,6 +399,35 @@ function A-Cmds {
 function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   $h = A-Hwid
   switch -regex ($kind) {
+    '^(share_diag)$' {   # 1.70 read-only (user, 06-Nov-2026: "only NUTANANEW is not letting in" - every other PC's shared printers install, NUTANANEW gives 0x709): the printer-SHARING side of this PC
+      $o = @(); $since = (Get-Date).AddHours(-[double]$(if ($a.hours) { $a.hours } else { 3 }))
+      $rv = { param($k) try { $q = Get-ItemProperty $k -ErrorAction Stop; ($q.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | ForEach-Object { $_.Name + '=' + $_.Value }) -join ', ' } catch { '(none)' } }
+      $o += 'Windows: ' + (Get-CimInstance Win32_OperatingSystem).Caption + ' build ' + [Environment]::OSVersion.Version.Build + ' | name ' + $env:COMPUTERNAME
+      $o += 'Policies Printers: ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers')
+      $o += 'Policies Printers\RPC: ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC')
+      $o += 'Policies Printers\WPP (Protected Print): ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\WPP')
+      $o += 'Policies PointAndPrint: ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint')
+      $o += 'Control\Print: ' + (& $rv 'HKLM:\SYSTEM\CurrentControlSet\Control\Print')
+      $o += 'Spooler: ' + [string](Get-Service Spooler).Status + ' / ' + [string](Get-Service Spooler).StartType
+      foreach ($pr in @(Get-Printer -ErrorAction SilentlyContinue)) { $dv = Get-PrinterDriver -Name $pr.DriverName -ErrorAction SilentlyContinue
+        $o += 'Printer "' + $pr.Name + '" shared=' + $pr.Shared + ' share="' + $pr.ShareName + '" port=' + $pr.PortName + ' driver="' + $pr.DriverName + '" v' + $dv.MajorVersion + ' pkg=' + $dv.IsPackageAware + ' env=' + $dv.PrinterEnvironment + ' status=' + [string]$pr.PrinterStatus }
+      try { $sc = Get-SmbServerConfiguration -ErrorAction Stop; $o += 'SMB server: signReq=' + $sc.RequireSecuritySignature + ' encrypt=' + $sc.EncryptData + ' rejectUnenc=' + $sc.RejectUnencryptedAccess + ' smb2=' + $sc.EnableSMB2Protocol + ' nullPipes=' + ($sc.NullSessionPipes -join ';') + ' authRateLimiter=' + $sc.InvalidAuthenticationDelayTimeInMs } catch { $o += 'SMB server: ' + $_.Exception.Message }
+      $o += 'LanmanServer: ' + (& $rv 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters')
+      $o += 'Lsa: ' + ((& $rv 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa') -split ', ' | Where-Object { $_ -match '^(LimitBlankPasswordUse|everyoneincludesanonymous|restrictanonymous|restrictanonymoussam|forceguest|LmCompatibilityLevel|RunAsPPL|disabledomaincreds)=' }) -join ', '
+      try { foreach ($u in @(Get-LocalUser -ErrorAction Stop)) { $o += 'User "' + $u.Name + '" enabled=' + $u.Enabled + ' pwRequired=' + $u.PasswordRequired + ' pwSet=' + $(if ($u.PasswordLastSet) { $u.PasswordLastSet.ToString('dd MMM yyyy') } else { 'never' }) + ' msAccount=' + ($u.PrincipalSource -eq 'MicrosoftAccount') } } catch {}
+      $o += 'Logged-on user: ' + [string](Get-CimInstance Win32_ComputerSystem).UserName
+      $o += 'Network: ' + ((Get-NetConnectionProfile -ErrorAction SilentlyContinue | ForEach-Object { $_.InterfaceAlias + '=' + $_.NetworkCategory }) -join ', ')
+      $o += 'Firewall F&P Sharing: ' + ((Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' -Direction Inbound -ErrorAction SilentlyContinue | ForEach-Object { $_.DisplayName + '[' + $_.Profile + ':' + $_.Enabled + ']' }) -join '; ')
+      $o += 'Other firewall rules that BLOCK inbound: ' + ((Get-NetFirewallRule -Direction Inbound -Action Block -Enabled True -ErrorAction SilentlyContinue | Select-Object -First 15 | ForEach-Object { $_.DisplayName }) -join '; ')
+      try { $o += 'Firewall profiles: ' + ((Get-NetFirewallProfile | ForEach-Object { $_.Name + ' on=' + $_.Enabled + ' in=' + $_.DefaultInboundAction }) -join ', ') } catch {}
+      try { $o += 'Spooler listens on TCP: ' + ((Get-NetTCPConnection -State Listen -OwningProcess (Get-Process spoolsv).Id -ErrorAction Stop | ForEach-Object { $_.LocalPort }) -join ', ') } catch { $o += 'Spooler listens on TCP: none' }
+      try { $o += 'Third-party firewall / antivirus: ' + ((Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop | ForEach-Object { $_.displayName }) -join ', ') } catch {}
+      foreach ($q in @(@{ n = 'Failed logons (4625)'; f = @{ LogName = 'Security'; Id = 4625; StartTime = $since } }, @{ n = 'SMB server security'; f = @{ LogName = 'Microsoft-Windows-SMBServer/Security'; StartTime = $since } },
+                       @{ n = 'SMB server operational'; f = @{ LogName = 'Microsoft-Windows-SMBServer/Operational'; StartTime = $since; Level = 1,2,3 } }, @{ n = 'Print admin'; f = @{ LogName = 'Microsoft-Windows-PrintService/Admin'; StartTime = $since } },
+                       @{ n = 'Print operational'; f = @{ LogName = 'Microsoft-Windows-PrintService/Operational'; StartTime = $since; Level = 1,2,3 } })) {
+        $ev = @(Get-WinEvent -FilterHashtable $q.f -MaxEvents 8 -ErrorAction SilentlyContinue)
+        $o += $q.n + ': ' + $ev.Count + $(if ($ev.Count) { "`n   " + (($ev | ForEach-Object { $_.TimeCreated.ToString('HH:mm') + ' [' + $_.Id + '] ' + ((($_.Message -replace '\s+', ' ')).Substring(0, [math]::Min(330, ($_.Message -replace '\s+', ' ').Length))) }) -join "`n   ") } else { '' }) }
+      @{ ok = $true; txt = ($o -join "`n") } }
     '^(temp_check)$' {   # 1.56 read-only (user, 05-Nov-2026: "build CPU temperature, fan, 12 V so it tells why GUJJARHOME switches off"): why the built-in sensor reader gives nothing
       $o = @(); $ld = Join-Path $PD.Root 'dl\lhm096'; $ll = Join-Path $ld 'LibreHardwareMonitorLib.dll'
       $o += 'PawnIO driver: ' + $(if ((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO' -ErrorAction SilentlyContinue).DisplayVersion) { 'installed' } else { 'NOT installed' }) + ' | note: ' + [string]$script:PawnNote
