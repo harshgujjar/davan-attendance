@@ -171,7 +171,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   Invoke-History); tray catches UI errors (log %TEMP%\pcdoctor-tray-errors.log). Sony: CPU temp works (70-72 C), its board reports NO fans / 12 V (laptop). GUJJARHOME: reader needs
   .NET 4.7.2 -> Windows 10 22H2 update needed before temperature can be read. Always look at the tray picture of the Windows test before telling the user it is done.
 - 06-Nov: OFFICE PRINTING: ASHOK (Win10 19045, be83e7..) could not print to NUTANANEW's shared printers (Win11 25H2 26200, d6e3ca..; Brother DCP-7080 (Copy 2) + Canon LBP2900 CAPT).
-  Cause: both PCs network Public + 0 File & Printer Sharing rules; 25H2 RPC / admin-only driver install (ASHOK event 800702e4). User OK'd: queued (DB5 cmd, wait for ✅ Approve)
+  Cause: both PCs network Public + 0 File & Printer Sharing rules; 25H2 RPC / admin-only driver install (ASHOK event 800702e4). User approved, all 5 DONE + verified 15:20 IST (both Private, 16-17 FPS rules, RPC keys set, 0 stuck):
   spooler on NUTANANEW (3 stuck jobs cleared), net_private + rpc_print on both. Then on ASHOK add \\NUTANANEW\<printer>; Canon CAPT may need its driver installed on ASHOK as admin.
 
 ## Side projects (user's own)
