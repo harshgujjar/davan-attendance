@@ -174,6 +174,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   Cause: both PCs network Public + 0 File & Printer Sharing rules; 25H2 RPC / admin-only driver install (ASHOK event 800702e4). User approved, all 5 DONE + verified 15:20 IST (both Private, 16-17 FPS rules, RPC keys set, 0 stuck):
   spooler on NUTANANEW (3 stuck jobs cleared), net_private + rpc_print on both. Then on ASHOK add \\NUTANANEW\<printer>; Canon CAPT may need its driver installed on ASHOK as admin.
 
+  STILL 0x709 (ASHOK) / 0x40 (laptop) - only NUTANANEW. Agent 1.70 share_diag found: NUTANANEW Security 4625 "client" from DESKTOP-C94KOUK (=ASHOK) unknown user -> only Guest, and Guest cannot
+  open printers. Fix given to user: on each client save a Windows credential NUTANANEW -> NUTANANEW\ADMIN (or a new local user on NUTANANEW), then double-click the printer.
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
   v1.6.1 APPROVED + listed on addons.mozilla.org (slug usage-meter-for-claude; user checked 05-Nov) - install from the store page. 05-Nov: user's "Claude Counter" (someone else's extension, v0.4.2, Feb 2026) showed no bar - told to switch to ours. Heartbeat -> DB4
