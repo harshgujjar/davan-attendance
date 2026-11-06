@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2001 · 06-Nov-2026 IST
+User: "why can't you block the widget also till they update - make it for students also". Staff: stwPublish gives staff widgets below staff_widget_min.webFloor (362) one "⛔ UPDATE THIS WIDGET" class a day instead of their classes (DB2 davan_pub/staff_pub/fac/<key>; the real node kept in fac_real/<key>, list in fac_stub); stfUnstub / the worker (v21, hourly) put it back once updated. Students: stuWidgetLatestRaise sets student_widget_latest.minApkVersion to the worker's davan_pub/wupd_minblock (🤖 Auto = newest public build out for the soft days, 🔴 Hard = public build, else 133) - every student widget since w109 then shows its built-in "⬆ UPDATE NEEDED". 1 extra read per publish / admin login. Functions: stwPublish, stfUnstub (new), stfWebLock, stuWidgetLatestRaise, gswMinShow, gswStuMinShow; worker wupdHourly.
+
 ## v2000 · 04-Nov-2026 IST
 User: "build Davan PC Doctor (ROADMAP-pcdoctor.md)". New Super Admin side-menu item 🖥️ PC Doctor opens the PC Doctor Console (lab.html?embed=1) with the
 same staff login; 6 new 🔔 registry rows (lab_red / lab_wide / lab_thaw / lab_mesh / lab_update / lab_sum, ON by default, DB2 davan_pub/notif_off/stf/<key>,

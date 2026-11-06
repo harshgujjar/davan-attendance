@@ -306,6 +306,24 @@ async function wupdHourly() {
     const was = snap && snap.t ? snap.t[code] : undefined;
     if (snap && was && v > was) { ups.push({ n: String(r.name).trim(), c: 'Staff', from: was, to: v, via: r.upd && r.upd.res === 'tap' ? 'with a tap' : 'by itself', staff: 1 }); d.stf++; } }
   await db2('PUT', 'davan_pub/wupd_snap', { at: now, s: nowS, t: nowT });
+  // v21 (user, 06-Nov-2026: "block the widget also till they update - students too"): the student widgets' built-in block (minApkVersion,
+  // every build since w109 shows "UPDATE NEEDED") follows the switch: 🔴 hard = public build, 🤖 auto = newest public build out for softDays,
+  // else 133 (the old floor). Written with _w (DB2 rule). Never above the public build.
+  try { const BASE = 133, mode0 = (cfg && cfg.mode) || 'off'; let floor = BASE;
+    if (mode0 === 'hard') floor = pv;
+    else if (mode0 === 'auto') for (const [b, t] of Object.entries((sp && sp.times) || {})) { const at = Date.parse(String(t).replace(/(\d+) (\w+) (\d+), (.*)/, '$2 $1 $3 $4') + ' GMT+0530');
+      if (at && now - at > (+cfg.softDays || 2) * 864e5 && +b > floor && +b <= pv) floor = +b; }
+    const cur = await db2('GET', 'davan_pub/student_widget_latest');
+    await db2('PUT', 'davan_pub/wupd_minblock', { v: floor, mode: mode0, at: now });
+    if (cur && +cur.minApkVersion !== floor && pv) await db2('PATCH', 'davan_pub/student_widget_latest', { minApkVersion: floor, _w: Math.max(now, (+cur._w || 0) + 1), minBy: 'Cloudflare v21 (' + mode0 + ')' });
+  } catch (e) { console.log('min block', e && e.message); }
+  // v21: a staff widget that was given the "UPDATE THIS WIDGET" data and is now updated gets its real data back (fac_real -> fac)
+  try { const stub = await db2('GET', 'davan_pub/staff_pub/fac_stub'), floorT = +((await db2('GET', 'davan_pub/staff_widget_min/webFloor')) || 362);
+    for (const [k, name] of Object.entries(stub || {})) { const nm = String(name).toLowerCase().replace(/[^a-z]/g, '');
+      const ok = Object.values(trep).some(r => r && String(r.name || '').toLowerCase().replace(/[^a-z]/g, '') === nm && (+r.v || 0) >= floorT);
+      if (!ok) continue; const real = await db2('GET', 'davan_pub/staff_pub/fac_real/' + k); if (!real) continue;
+      await db2('PATCH', 'davan_pub/staff_pub', { ['fac/' + k]: real, ['fac_stub/' + k]: null, ver: now }); }
+  } catch (e) { console.log('staff unstub', e && e.message); }
   await db2('PUT', 'davan_pub/wupd_day/' + today, d);
   if (!snap || !ups.length) return;
   const mode = (cfg && cfg.alert) || 'on'; if (mode === 'off') return;
