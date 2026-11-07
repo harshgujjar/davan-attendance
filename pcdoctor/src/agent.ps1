@@ -785,13 +785,19 @@ if ($Mode -eq 'test') {
     $bt += 'probs=' + @($script:BookCache.Values | Where-Object { $_.type -eq 'prob' }).Count
     A-SnapCheck; $bt += 'snap=' + (Test-Path (Join-Path $PD.Root 'state\snap.json')) + '/book.json=' + (Test-Path (Join-Path $PD.Root 'state\book.json'))
     $bt += 'evidence=' + (PD-Evidence 1).Length + ' chars'
-    # 1.74 no-password printing on the runner: share 'Microsoft Print to PDF', offer its driver, add it back through \\localhost\<share> as a direct port, then undo both
-    try { Set-Printer -Name 'Microsoft Print to PDF' -Shared $true -ShareName 'PDTEST' -ErrorAction Stop
-      $d1 = Fix-driver_share @{}; $g1 = Fix-printer_guest @{ host = 'localhost'; shares = @('PDTEST'); forceDriver = $true }; $v1 = PD-Verify 'printer_guest' @{ host = 'localhost' }
-      $bt += 'drivers=' + $d1.ok + '/guestPrinter=' + $g1.ok + '/check=' + [bool]$v1.ok; if (!$g1.ok) { $bt += 'guestTxt=' + $g1.txt }
-      if ($g1.undo) { PD-Undo $g1.undo | Out-Null }; if ($d1.undo) { PD-Undo $d1.undo | Out-Null }
-    } catch { $bt += 'printtest=' + $_.Exception.Message }
-    $ok = ($script:BookCache[$b1].st -eq 'undone') -and ($bt[0] -match '^run=done/check=True/undo=True/cmd=True') -and ($bt[1] -match 'prob=1/ev=True') -and ($bt -contains 'probs=2') -and ($bt -contains 'drivers=True/guestPrinter=True/check=True')
+    # 1.74 no-password printing on the runner: a shared test printer, its driver offered, added back through \\localhost\<share> as a direct port, then undone.
+    # GitHub's runner may refuse printer sharing - then the port + printer part is tested on its own (pt = which way ran)
+    $pt = ''; $sok = $false
+    try { Add-Printer -Name 'PDTEST' -DriverName 'Microsoft Print To PDF' -PortName 'PORTPROMPT:' -Shared -ShareName 'PDTEST' -ErrorAction Stop; $sok = $true } catch { $pt = 'share refused on runner (' + $_.Exception.Message.Substring(0, [math]::Min(60, $_.Exception.Message.Length)) + ')' }
+    if ($sok) { try { $d1 = Fix-driver_share @{}; $g1 = Fix-printer_guest @{ host = 'localhost'; shares = @('PDTEST'); forceDriver = $true }; $v1 = PD-Verify 'printer_guest' @{ host = 'localhost' }
+        $pt = 'full'; $bt += 'print=' + $(if ($d1.ok -and $g1.ok -and $v1.ok) { 'OK' } else { 'BAD ' + $d1.txt + ' / ' + $g1.txt })
+        if ($g1.undo) { PD-Undo $g1.undo | Out-Null }; if ($d1.undo) { PD-Undo $d1.undo | Out-Null } } catch { $bt += 'print=BAD ' + $_.Exception.Message } }
+    else { try { Add-PrinterPort -Name '\\localhost\PDTEST' -ErrorAction Stop; Add-Printer -Name 'PDTEST (localhost)' -DriverName 'Microsoft Print To PDF' -PortName '\\localhost\PDTEST' -ErrorAction Stop
+        $v1 = PD-Verify 'printer_guest' @{ host = 'localhost' }; $bt += 'print=' + $(if ($v1.ok) { 'OK' } else { 'BAD ' + $v1.txt }); PD-Undo @{ fix = 'printer_guest'; names = @('PDTEST (localhost)') } | Out-Null
+      } catch { $bt += 'print=BAD ' + $_.Exception.Message } }
+    try { Remove-Printer -Name 'PDTEST' -ErrorAction SilentlyContinue } catch {}
+    $bt += 'printWay=' + $pt
+    $ok = ($script:BookCache[$b1].st -eq 'undone') -and ($bt[0] -match '^run=done/check=True/undo=True/cmd=True') -and ($bt[1] -match 'prob=1/ev=True') -and ($bt -contains 'probs=2') -and ($bt -contains 'print=OK')
     $r.bookTest = $(if ($ok) { 'BOOK OK: ' } else { 'BOOK FAILED: ' }) + ($bt -join ' | ')
   } catch { $r.bookTest = 'BOOK FAILED: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber }
   $r | ConvertTo-Json -Depth 6 | Set-Content "$env:TEMP\pd_test.json" -Encoding UTF8

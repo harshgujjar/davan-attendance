@@ -192,7 +192,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   #autofix or #fixes=<pc>); approved + run = a ✅ / ❌ push (tap -> that PC). Tapping any ☁️ push opens its link (saOpen(key) / saFollow, sw.js sak).
 
 - 07-Nov NUTANANEW printing (user chose "truly no password"): ADMIN HAS a password (auto sign-in), so blank login failed and locked ADMIN for ~10 min; guest +
-  double-click = 0x40 (Win11 printer service refuses guests). Built Agent 1.74 driver_share (NUTANANEW) + printer_guest (ASHOK, 1DAVAN laptop; args host NUTANANEW).
+  double-click = 0x40 (Win11 printer service refuses guests). Built Agent 1.75 driver_share (NUTANANEW) + printer_guest (ASHOK, 1DAVAN laptop; args host NUTANANEW).
   ASHOK: smb_share guest done; its save_login still needs ↩ Undo pressed (else ADMIN lockouts). Laptop: smb_share guest added.
 
 ## Side projects (user's own)
