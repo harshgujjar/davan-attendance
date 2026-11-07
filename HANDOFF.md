@@ -71,6 +71,13 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   a GitHub run URL -> the browser; no link -> the ☁️ alerts list as now. Same for the 🩺 pushes (kinds fx / pb / cm, 🔔 lab_fix) and the amber
   "waiting for your OK" pushes. Build it WITH the next staff widget change, test on page 2 rule n/a (Super Admin only), add to BuildInfo.NEWS.
 
+## ⏳ QUEUED: PC Doctor 🔧 Fix buttons (user, 07-Nov-2026: "keep in memory, build with another build" - NOT now)
+- Per-PC 🔧 Fix section in every tray (works alone, offline) + the same per PC in the Console. Each button = a recipe: check -> only needed fixes -> check again
+  -> ✅ / ❌ + why -> 🩺 book line + push. Buttons: 🖨️ Connect to a shared printer (Private net, saved print login, add printer, test page), 🖨️ Share my
+  printers (sharing, print user, RPC), 🧾 Stuck print jobs, 🌐 Network / sharing, 🔓 Account locked out, 🧹 Disk full (asks first), 🐢 PC slow,
+  🔄 Windows Update stuck, 🛠️ Repair Windows, 💽 Disk check. Button list = DATA (lab/cfg/recipes) so every new solved problem becomes a button in the
+  Console + all trays with the normal update. Win7 PCs (4 in office) cannot run PC Doctor (upgrade not possible now) - manual printing steps only.
+
 ## 🔐 Native widget login + queued widget builds - PLAN ONLY (user, 24-Oct-2026: "keep it .md, we ll discuss later") - read ROADMAP-native-login.md
 - Built this session: portal v11.99 only (admin-view popup: Cancel = link as that student). Everything else in the roadmap waits for the user.
 - 30-Oct-2026: staff widget native login DEFERRED by the user (plan + options in ROADMAP-native-login.md section 5). Do not build until asked.
