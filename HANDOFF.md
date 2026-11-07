@@ -78,6 +78,16 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   🔄 Windows Update stuck, 🛠️ Repair Windows, 💽 Disk check. Button list = DATA (lab/cfg/recipes) so every new solved problem becomes a button in the
   Console + all trays with the normal update. Win7 PCs (4 in office) cannot run PC Doctor (upgrade not possible now) - manual printing steps only.
 
+## ⏳ QUEUED: PC Doctor 🧽 Lab clean (user, 07-Nov-2026 - plan agreed, build in a NEW session)
+- Lab PCs only: student-made data of Android Studio (projects, .gradle, build, extra AVDs), Eclipse workspaces, R/RStudio files + .RData, Spyder .py, Notepad++
+  backups, Office files of the STUDENT account, VirtualBox VMs, Turbo C++ user .c/.cpp/.obj/.exe, SQL*Plus .sql, student Desktop/Downloads/Documents, Recycle Bin,
+  temp. Never software / SDK / Program Files. Rules list = DATA lab/cfg/labclean. Scan (read-only) -> you tick -> password -> Clean = move to a hidden PC Doctor
+  recycle folder on the same PC (7 days, ↩ Restore) -> then emptied (list approved). Locks: per-PC 🔒 "Office PC - never clean" flag (sticky, not the group),
+  lab group + lab-name check, office-signs check in the scan (Word/Excel of a non-student user, Outlook, Tally -> stop + type PC name), never while in use.
+  Tray "🧽 Make this PC fresh" = THIS PC only; Console "🧽 Lab clean" = many PCs, after lab hours; 🩺 book line + push. Windows test with fake student + office files.
+  Roll-out: scan B2 first, clean one PC, then lab, then Deep Freeze Frozen. OPEN QUESTIONS: student Windows account (read it when a B PC is on - B1-B3 off since
+  05/06-Nov), VMs/emulators to keep, Oracle tables or only .sql, keep last N days? Also: B2/B3 SSD "Disk failing" (16 / 1 pending sectors), B3 C: 7.6 GB free.
+
 ## 🔐 Native widget login + queued widget builds - PLAN ONLY (user, 24-Oct-2026: "keep it .md, we ll discuss later") - read ROADMAP-native-login.md
 - Built this session: portal v11.99 only (admin-view popup: Cancel = link as that student). Everything else in the roadmap waits for the user.
 - 30-Oct-2026: staff widget native login DEFERRED by the user (plan + options in ROADMAP-native-login.md section 5). Do not build until asked.
