@@ -156,6 +156,14 @@ write W<nn>_CHANGES.md, build, then release as above. Do NOT send the user the A
 - PC Doctor: fixes that delete or remove anything (`del = $true` in pcdoctor/src/fixes.ps1) never run by themselves - they are suggested and run
   only when the Super Admin taps them; the Super Admin laptop runs no fix by itself. Never weaken PD-FixAllowed / PD-Fix's locks.
 
+## PC Doctor 🩺 Fixes - every PC's fix book (user, 07-Nov-2026 - standing rule)
+Before working on ANY PC (or when the user says "check PC Doctor"), read its fix book first: davan-scraper Action "DB5 book" (op list, pcs) or DB5 peek
+`lab/book/<hwid>` - open problems (❌ / 🆘 with choice, words, photo), waiting fixes, what was tried and whether it worked; the logs at report time are in
+`lab/evid/<hwid>/<id>`, settings changes in `lab/chg/<hwid>`. Never try a fix that already failed there. Every fix Claude finds goes INTO that PC's book as a
+one-click fix ("DB5 book" op add: fix key + args, need auto / person / user; st wait = the Super Admin approves, ready only when the user OK'd it in the chat) -
+never a command to type. A manual command that is not a PC Doctor fix yet: add it as a new fix in pcdoctor/src/fixes.ps1 (with ↩ undo, PD-Verify, $PD_CMD) first.
+Claude works only when asked (no automatic chats); the Console's 🔁 Auto loop stays OFF unless the user turns it on.
+
 ## Faculty without classes (user, 03-Oct-2026)
 
 A faculty member (full-time / visiting / VP) with **no subject allocated** this semester is left out of every list, count and report

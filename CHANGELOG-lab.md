@@ -2,6 +2,20 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 07-Nov-2026 · Agent 1.71 / tray 1.45 / Console 1.20 / worker v26 -- 🩺 FIXES per PC (user: "keep every fix of a PC on that PC and on the server - the command, the undo,
+  did it work; one click for the manager; he can say it is still not working; I fix late at night and once the PC is on it fixes itself; tell me with a push").
+  Tray tab 🩺 Fixes: the PC's fix book (to-do first) with result, PD-Verify check, ↩ Undo, 📋 command / undo command; ▶ Fix now = one click (the SYSTEM agent runs it;
+  a saved login runs in the user's own session via CredWrite, password typed on the PC only); ✅ Worked / ❌ Still not working (4 choices + words + 📷 screenshot or
+  picture -> Cloudinary) / 🆘 Report a problem (7 kinds). Each report saves an evidence pack (PD-Evidence: printing, network, settings, sharing side, errors) at once.
+  Approved fixes (st ready, need auto) run by themselves as soon as the PC is on; push after every fix / report (worker /lab/alert kind fx / pb -> 🔔 lab_fix, own kind
+  per entry so never held back); a push that fails offline is kept and sent later. Only CHANGED settings go up (PD-Snap -> lab/chg + lab/snap); event upload resumes from
+  the last sent time after a restart (state\lastev.txt). New fixes blank_pw_net (LimitBlankPasswordUse 0, with undo) and save_login (user). Every fix that runs anywhere
+  also lands in the book. Read-only commands evidence / snap. Console page 🩺 Fixes: Needs you (✅ Approve Claude's fixes, open problems with photo + 📜 logs), per-PC
+  history, ➕ Add a fix (auto / person / user), 🤖 let the PC run it itself, ↩ Undo, what changed, settings now, 🔁 Auto loop switch (OFF; ON = a push while problems wait).
+  DB5 (new): lab/book/<h> (.indexOn st, t), lab/evid/<h>, lab/snap/<h>, lab/chg/<h>, lab/pcs/<h>.openProbs/openTitles, lab/cfg/autoLoop, lab/cfg/cloudinary (optional).
+  Cost: one small book read a minute per PC, writes only on a change. davan-scraper: Action "DB5 book" (Claude adds fixes - they wait for ✅ Approve), db5_cmd read-only
+  evidence / snap. Functions: A-BookSync / A-BookRun / A-BookRunOne / A-BookReq / A-BookUndo / A-BookEvidence / A-BookAlert / A-AlertRetry / A-SnapCheck, PD-Book*,
+  PD-Verify, PD-FixCmd, PD-Snap, PD-Evidence, PD-ShareDiag; tray Fx*; Console pageFixes / bookAdd / bookSet / bookEvid / bookOverview.
 - 06-Nov-2026 · Agent 1.70 -- "Only NUTANANEW is not letting in": every PC installs other PCs' shared printers, but NUTANANEW's give 0x709 (Windows 10) / 0x40 (Windows 11). New read-only command share_diag
   (Claude / DB5 cmd) reads the sharing side of a PC: spooler remote-connection + Protected Print + RPC policies, shared printers + driver type, SMB server, users / blank passwords, firewall,
   and the last hours' failed logons, SMB server and print events. No DB reads except its one answer. A-Do share_diag; davan-scraper db5_cmd READ_ONLY.

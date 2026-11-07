@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths: ['pcdoctor/**', '.github/workflows/pcdoctor-test.yml']
   workflow_dispatch:
+    inputs:
+      only: { description: 'Print only the tray pictures whose name contains this (as a small JPEG), e.g. Fixes - empty = all PNGs', default: '' }
 jobs:
   win:
     runs-on: windows-latest
@@ -97,8 +99,14 @@ jobs:
           $p = Start-Process powershell -ArgumentList '-NoProfile -STA -ExecutionPolicy Bypass -File pcdoctor\src\tray.ps1 -selftest' -PassThru -Wait -NoNewWindow
           Get-ChildItem $env:PDT_OUT | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           # the pictures also go into THIS run's log as text (PNGBEGIN name ... PNGEND), so Claude can read them from the log - the artifact host is not reachable from Claude's session. Nothing is stored anywhere else.
-          Get-ChildItem $env:PDT_OUT -Filter *.png | ForEach-Object { 'PNGBEGIN ' + $_.Name; [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)); 'PNGEND' }
           Get-ChildItem $env:PDT_OUT -Filter error-*.txt | ForEach-Object { 'ERRFILE ' + $_.Name; Get-Content $_.FullName -Raw }
+          # 07-Nov-2026: 'only' (Run workflow input) = just those pictures, as a small JPEG at the very end of this step (cheap to read from the log tail)
+          $only = '${{ inputs.only }}'
+          if ($only) { Add-Type -AssemblyName System.Drawing; $enc = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+            $ep = New-Object Drawing.Imaging.EncoderParameters 1; $ep.Param[0] = New-Object Drawing.Imaging.EncoderParameter ([Drawing.Imaging.Encoder]::Quality), ([int64]60)
+            Get-ChildItem $env:PDT_OUT -Filter *.png | Where-Object { $_.Name -like "*$only*" } | ForEach-Object { $im = [Drawing.Image]::FromFile($_.FullName); $k = [math]::Min(1, 520 / $im.Width); $sm = New-Object Drawing.Bitmap $im, ([int]($im.Width * $k)), ([int]($im.Height * $k)); $f2 = "$env:RUNNER_TEMP\small.jpg"; $sm.Save($f2, $enc, $ep); $im.Dispose(); $sm.Dispose()
+              'JPGBEGIN ' + $_.Name; [Convert]::ToBase64String([IO.File]::ReadAllBytes($f2)); 'JPGEND' } }
+          else { Get-ChildItem $env:PDT_OUT -Filter *.png | ForEach-Object { 'PNGBEGIN ' + $_.Name; [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)); 'PNGEND' } }
       - name: Upload the tray pictures
         if: always()
         uses: actions/upload-artifact@v4
