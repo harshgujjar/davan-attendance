@@ -197,7 +197,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 
 - 07-Nov later: user found ADMIN's password (weak, typed in chat - advised to change). Guest printer fix (anonymous spooler) was REFUSED (safety) - not built.
   User chose OPTION 1: Agent 1.79 print_user ("print" user on NUTANANEW, password only in Console Settings -> Printer login, encrypted) + save_login args.secret
-  on the other PCs (no typing, password changes follow). Pending: user sets the password in the Console, approves print_user on NUTANANEW, presses ▶ on the PCs.
+  on the other PCs (no typing, password changes follow). Queued 07-Nov: NUTANANEW print_user (st wait), ASHOK + 1DAVAN save_login secret printPw (ready, need user), NUTANANEW blank_pw_net -> undo, driver_share marked not needed, update_now x3. Pending: user sets password in Console Settings, approves, presses ▶ on the PCs. Also suggest undoing the smb_share guest fixes later (not needed with option 1).
 
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
