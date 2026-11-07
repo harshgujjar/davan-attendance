@@ -787,7 +787,9 @@ if ($Mode -eq 'test') {
     $bt += 'evidence=' + (PD-Evidence 1).Length + ' chars'
     # 1.74 no-password printing on the runner: a shared test printer, its driver offered, added back through \\localhost\<share> as a direct port, then undone.
     # GitHub's runner may refuse printer sharing - then the port + printer part is tested on its own (pt = which way ran)
-    $pt = ''; $sok = $false
+    $pt = ''; $sok = $false; $base = $true
+    try { $dn = [string](Get-PrinterDriver -ErrorAction Stop | Select-Object -First 1).Name; Add-Printer -Name 'PDBASE' -DriverName $dn -PortName 'FILE:' -ErrorAction Stop; Remove-Printer -Name 'PDBASE' -ErrorAction SilentlyContinue } catch { $base = $false }
+    if (!$base) { $bt += 'print=SKIP (this runner cannot add any printer - tested on the real PCs)' } else {
     try { Add-Printer -Name 'PDTEST' -DriverName 'Microsoft Print To PDF' -PortName 'PORTPROMPT:' -Shared -ShareName 'PDTEST' -ErrorAction Stop; $sok = $true } catch { $pt = 'share refused on runner (' + $_.Exception.Message.Substring(0, [math]::Min(60, $_.Exception.Message.Length)) + ')' }
     if ($sok) { try { $d1 = Fix-driver_share @{}; $g1 = Fix-printer_guest @{ host = 'localhost'; shares = @('PDTEST'); forceDriver = $true }; $v1 = PD-Verify 'printer_guest' @{ host = 'localhost' }
         $pt = 'full'; $bt += 'print=' + $(if ($d1.ok -and $g1.ok -and $v1.ok) { 'OK' } else { 'BAD ' + $d1.txt + ' / ' + $g1.txt })
@@ -796,8 +798,9 @@ if ($Mode -eq 'test') {
         $v1 = PD-Verify 'printer_guest' @{ host = 'localhost' }; $bt += 'print=' + $(if ($v1.ok) { 'OK' } else { 'BAD ' + $v1.txt }); PD-Undo @{ fix = 'printer_guest'; names = @('PDTEST (localhost)') } | Out-Null
       } catch { $bt += 'print=BAD ' + $_.Exception.Message } }
     try { Remove-Printer -Name 'PDTEST' -ErrorAction SilentlyContinue } catch {}
+    }
     $bt += 'printWay=' + $pt
-    $ok = ($script:BookCache[$b1].st -eq 'undone') -and ($bt[0] -match '^run=done/check=True/undo=True/cmd=True') -and ($bt[1] -match 'prob=1/ev=True') -and ($bt -contains 'probs=2') -and ($bt -contains 'print=OK')
+    $ok = ($script:BookCache[$b1].st -eq 'undone') -and ($bt[0] -match '^run=done/check=True/undo=True/cmd=True') -and ($bt[1] -match 'prob=1/ev=True') -and ($bt -contains 'probs=2') -and (($bt -contains 'print=OK') -or @($bt | Where-Object { $_ -like 'print=SKIP*' }).Count)
     $r.bookTest = $(if ($ok) { 'BOOK OK: ' } else { 'BOOK FAILED: ' }) + ($bt -join ' | ')
   } catch { $r.bookTest = 'BOOK FAILED: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber }
   $r | ConvertTo-Json -Depth 6 | Set-Content "$env:TEMP\pd_test.json" -Encoding UTF8
