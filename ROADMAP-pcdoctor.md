@@ -184,6 +184,14 @@ changelog + version in the same commit, commit + merge main). Keep the user info
 - [ ] Then all 30 lab + 9 office + laptop. The user sets the MeshCentral password and types the Deep Freeze password on ⚙️ Settings.
 - [ ] Final check per CLAUDE.md: "Will this still work in 2 years with nobody touching it?"
 
+## 🩺 Fixes per PC (user, 07-Nov-2026)
+- [x] Fix book per PC (DB5 lab/book) - tray tab 🩺 Fixes + Console page; result, own check, ↩ Undo, 📋 command (Agent 1.72 / tray 1.46 / Console 1.20)
+- [x] One click for the manager (▶ Fix now); saved login runs in the user's session (password stays on the PC)
+- [x] ✅ Worked / ❌ Still not working (choices + words + photo -> Cloudinary) / 🆘 Report a problem; evidence pack saved at once
+- [x] Approved fixes run by themselves when the PC is on; push after every fix / report (🔔 lab_fix, worker v26); offline pushes sent later
+- [x] Only changes go up (lab/chg + lab/snap; events resume after a restart); 🔁 Auto loop switch (OFF)
+- [ ] User test: NUTANANEW's ADMIN-without-password fix runs by itself; ▶ Fix now "Save the login" on ASHOK + the laptop; then print
+
 ## Still with the user
 - Name the PCs in Windows (A1.., B1.., PUC1.., D1..) or rename later from the Console.
 - Blue-screen PC: Ventoy pendrive (Hiren's + Memtest86+), photo of the stop code / Minidump files -> Claude reads them.
