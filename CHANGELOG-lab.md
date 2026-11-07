@@ -2,7 +2,7 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
-- 07-Nov-2026 · Agent 1.71 / tray 1.45 / Console 1.20 / worker v26 -- 🩺 FIXES per PC (user: "keep every fix of a PC on that PC and on the server - the command, the undo,
+- 07-Nov-2026 · Agent 1.72 / tray 1.46 / Console 1.20 / worker v26 -- 🩺 FIXES per PC (user: "keep every fix of a PC on that PC and on the server - the command, the undo,
   did it work; one click for the manager; he can say it is still not working; I fix late at night and once the PC is on it fixes itself; tell me with a push").
   Tray tab 🩺 Fixes: the PC's fix book (to-do first) with result, PD-Verify check, ↩ Undo, 📋 command / undo command; ▶ Fix now = one click (the SYSTEM agent runs it;
   a saved login runs in the user's own session via CredWrite, password typed on the PC only); ✅ Worked / ❌ Still not working (4 choices + words + 📷 screenshot or

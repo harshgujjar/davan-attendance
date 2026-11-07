@@ -176,7 +176,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
 
   STILL 0x709 (ASHOK) / 0x40 (laptop) - only NUTANANEW. Agent 1.70 share_diag found: NUTANANEW Security 4625 "client" from DESKTOP-C94KOUK (=ASHOK) unknown user -> only Guest, and Guest cannot
   open printers. Fix given to user: on each client save a Windows credential NUTANANEW -> NUTANANEW\ADMIN (or a new local user on NUTANANEW), then double-click the printer.
-- 07-Nov: 🩺 FIXES per PC BUILT (Agent 1.71 / tray 1.45 / Console 1.20 / worker v26 / staff app v2002; CHANGELOG-lab). Every PC's fix book = DB5 lab/book/<hwid>
+- 07-Nov: 🩺 FIXES per PC BUILT (Agent 1.72 / tray 1.46 / Console 1.20 / worker v26 / staff app v2002; CHANGELOG-lab). Every PC's fix book = DB5 lab/book/<hwid>
   (tray tab 🩺 Fixes + Console 🩺 Fixes). READ IT FIRST for any PC (CLAUDE.md rule): davan-scraper Action "DB5 book" op list. Add fixes there (op add, st wait = user
   approves in Console; ready only when the user said yes in chat). Reports (❌ / 🆘 + choice, words, Cloudinary photo) push at once + evidence lab/evid/<h>/<id>.
   Only changes go up: lab/chg + lab/snap. Auto loop switch lab/cfg/autoLoop OFF. Seeded today's entries (NUTANANEW, ASHOK, 1DAVAN laptop) - see below.

@@ -641,6 +641,15 @@ if ($args -contains '-selftest') {
   try { Refresh } catch { Set-Content "$out\error-refresh.txt" ($_ | Out-String) }; try { UpdRefresh } catch { Set-Content "$out\error-upd.txt" ($_ | Out-String) }; [Windows.Forms.Application]::DoEvents()
   function Shot([Windows.Forms.Control]$c, [string]$name) { try { $b = New-Object Drawing.Bitmap $c.Width, $c.Height; $c.DrawToBitmap($b, (New-Object Drawing.Rectangle 0, 0, $c.Width, $c.Height)); $b.Save("$out\$name.png", [Drawing.Imaging.ImageFormat]::Png); $b.Dispose() } catch { Set-Content "$out\error-$name.txt" ($_ | Out-String) } }
   foreach ($tp0 in @($tabs.TabPages)) { $tabs.SelectedTab = $tp0; [Windows.Forms.Application]::DoEvents(); Shot $form ('tab-' + ($tp0.Text -replace '[^A-Za-z0-9]', '')) }
+  # 1.45: a text layout check per tab (cheap to read from the log): each control, its box, text cut off (wider than its box), overlaps, off the tab
+  foreach ($tp0 in @($tabs.TabPages)) { $tabs.SelectedTab = $tp0; [Windows.Forms.Application]::DoEvents(); $ly = @('tab ' + $tp0.Text + ' ' + $tp0.ClientSize.Width + 'x' + $tp0.ClientSize.Height); $cs = @($tp0.Controls)
+    foreach ($c2 in $cs) { $tw = if ($c2 -is [Windows.Forms.Button] -or $c2 -is [Windows.Forms.Label]) { [Windows.Forms.TextRenderer]::MeasureText([string]$c2.Text, $c2.Font).Width } else { 0 }
+      $fl = @(); if ($tw -gt $c2.Width -and ($c2 -is [Windows.Forms.Button] -or ($c2 -is [Windows.Forms.Label] -and $c2.Height -lt 2 * $c2.Font.Height))) { $fl += 'TEXT-CUT(' + $tw + '>' + $c2.Width + ')' }
+      if ($c2.Right -gt $tp0.ClientSize.Width -or $c2.Bottom -gt $tp0.ClientSize.Height) { $fl += 'OFF-TAB' }
+      foreach ($c3 in $cs) { if ($c3 -ne $c2 -and $c2.Visible -and $c3.Visible -and $c2.Bounds.IntersectsWith($c3.Bounds)) { $fl += 'OVERLAP:' + ([string]$c3.Text).Substring(0, [math]::Min(14, ([string]$c3.Text).Length)) } }
+      $ly += ('  ' + $c2.GetType().Name + ' [' + ([string]$c2.Text -replace "`r?`n", ' ').Substring(0, [math]::Min(34, ([string]$c2.Text).Length)) + '] ' + $c2.Left + ',' + $c2.Top + ' ' + $c2.Width + 'x' + $c2.Height + ' ' + ($fl -join ' ')) }
+    if ($tp0 -eq $tFx) { $ly += '  list rows: ' + $fxList.Items.Count + ' | head: ' + $fxHead.Text + ' | info: ' + ($fxInfo.Text -replace "`r?`n", ' / ').Substring(0, [math]::Min(300, $fxInfo.Text.Length)) + ' | buttons on: ' + ((@($fxRun, $fxOk, $fxNot, $fxUndo, $fxCp, $fxCpU, $fxSolved, $fxCpAll) | Where-Object Enabled | ForEach-Object { $_.Text }) -join ', ') }
+    Set-Content ("$out\layout-" + ($tp0.Text -replace '[^A-Za-z0-9]', '') + '.txt') ($ly -join "`n") }
   try { IdentifyShow 'B1' 'Super Admin'; [Windows.Forms.Application]::DoEvents(); Shot $script:idForm 'identify-popup' } catch { Set-Content "$out\error-identify.txt" ($_ | Out-String) }
   [Environment]::Exit(0)
 }
