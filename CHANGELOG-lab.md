@@ -2,6 +2,11 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 07-Nov-2026 · Agent 1.74 / Console 1.22 -- "Truly no password": Windows 11 refuses a GUEST printer install (0x40 / 0x709 - the printer service needs a real login),
+  so two new one-click fixes: driver_share (on the sharing PC: each shared printer's driver package -> ProgramData\DavanPCDoctor\drivers-share + manifest.json, shared
+  read-only as PCDoctor-Drivers, ↩ undo = share off) and printer_guest (on the other PCs: driver from \\PC\PCDoctor-Drivers, then a printer "<share> (<PC>)" whose port is
+  \\PC\<printer share> - prints straight to the shared printer as a guest, no password; ↩ undo removes those printers). Both with PD-Verify. Windows test: shares Microsoft
+  Print to PDF, offers its driver, adds it back via \\localhost, undoes both. Fix-driver_share, Fix-printer_guest, PD-FindPrinterInf; Console fixArgs printer_guest.
 - 07-Nov-2026 · Agent 1.73 / Console 1.21 / worker v27 -- User: "when you queue something send me a push - tap goes to that place - and another push when it is
   approved and done". A command that waited for ✅ Approve (lab/cmd okBy) now pushes when it has run (kind cm<id> -> 🔔 lab_fix); 🩺 pushes open lab.html#fixes=<pc>
   (new Console address), other PC pushes #pc=<pc>. davan-scraper: db5_cmd (waiting command) and DB5 book (fix waiting / queued) send a push at once with the link

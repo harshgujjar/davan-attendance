@@ -785,7 +785,13 @@ if ($Mode -eq 'test') {
     $bt += 'probs=' + @($script:BookCache.Values | Where-Object { $_.type -eq 'prob' }).Count
     A-SnapCheck; $bt += 'snap=' + (Test-Path (Join-Path $PD.Root 'state\snap.json')) + '/book.json=' + (Test-Path (Join-Path $PD.Root 'state\book.json'))
     $bt += 'evidence=' + (PD-Evidence 1).Length + ' chars'
-    $ok = ($script:BookCache[$b1].st -eq 'undone') -and ($bt[0] -match '^run=done/check=True/undo=True/cmd=True') -and ($bt[1] -match 'prob=1/ev=True') -and ($bt -contains 'probs=2')
+    # 1.74 no-password printing on the runner: share 'Microsoft Print to PDF', offer its driver, add it back through \\localhost\<share> as a direct port, then undo both
+    try { Set-Printer -Name 'Microsoft Print to PDF' -Shared $true -ShareName 'PDTEST' -ErrorAction Stop
+      $d1 = Fix-driver_share @{}; $g1 = Fix-printer_guest @{ host = 'localhost'; shares = @('PDTEST'); forceDriver = $true }; $v1 = PD-Verify 'printer_guest' @{ host = 'localhost' }
+      $bt += 'drivers=' + $d1.ok + '/guestPrinter=' + $g1.ok + '/check=' + [bool]$v1.ok; if (!$g1.ok) { $bt += 'guestTxt=' + $g1.txt }
+      if ($g1.undo) { PD-Undo $g1.undo | Out-Null }; if ($d1.undo) { PD-Undo $d1.undo | Out-Null }
+    } catch { $bt += 'printtest=' + $_.Exception.Message }
+    $ok = ($script:BookCache[$b1].st -eq 'undone') -and ($bt[0] -match '^run=done/check=True/undo=True/cmd=True') -and ($bt[1] -match 'prob=1/ev=True') -and ($bt -contains 'probs=2') -and ($bt -contains 'drivers=True/guestPrinter=True/check=True')
     $r.bookTest = $(if ($ok) { 'BOOK OK: ' } else { 'BOOK FAILED: ' }) + ($bt -join ' | ')
   } catch { $r.bookTest = 'BOOK FAILED: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber }
   $r | ConvertTo-Json -Depth 6 | Set-Content "$env:TEMP\pd_test.json" -Encoding UTF8

@@ -31,6 +31,10 @@ $PD_FIX = [ordered]@{
   # gave 0x709 / 0x40. user = runs in the logged-in user's own Windows session (a saved login belongs to that user): only the tray's ▶ Fix now runs it.
   'blank_pw_net'  = @{ k = 'light';   l = 'Let other PCs log in without a password (printer / folder sharing)'; sw = $null; perm = $true }
   'save_login'    = @{ k = 'user';    l = 'Save the login for a sharing PC (this user)'; sw = $null; user = $true }
+  # 1.74 (user, 07-Nov-2026: "truly no password"): Windows 11 refuses a GUEST printer install (0x40 / 0x709 - the printer service needs a real login since 2021).
+  # So the sharing PC offers its printer DRIVERS in a read-only share, and each other PC adds the printer as a direct port to \\PC\printer (no printer service, no password).
+  'driver_share'  = @{ k = 'light';   l = 'Share this PC''s printer drivers with the other PCs (no-password printing)'; sw = $null; perm = $true }
+  'printer_guest' = @{ k = 'light';   l = 'Add the shared printers of another PC without a password'; sw = $null; perm = $true }
 }
 function PD-FixLog([string]$fix, $res, [string]$by, [string]$cid = '') {
   $t = PD-NowMs
@@ -291,6 +295,58 @@ function Fix-blank_pw_net($a) {
   @{ ok = $true; txt = 'Other PCs can now log in to accounts without a password (printer / folder sharing). ↩ Undo puts the protection back.'; undo = @{ fix = 'blank_pw_net'; old = $old } }
 }
 function Fix-save_login($a) { @{ ok = $false; txt = 'A saved login belongs to the person logged in - press ▶ Fix now in the PC Doctor tray (🩺 Fixes) on this PC.' } }
+# ---------- 1.74 no-password printing (user, 07-Nov-2026) ----------
+$PD_DRVSHARE = 'PCDoctor-Drivers'
+function PD-FindPrinterInf([string]$name) {
+  foreach ($f in @(Get-ChildItem "$env:windir\INF\oem*.inf" -ErrorAction SilentlyContinue)) { if (Select-String -Path $f.FullName -SimpleMatch -Pattern ('"' + $name + '"') -Quiet -ErrorAction SilentlyContinue) { return $f.Name } }
+  ''
+}
+# on the SHARING PC: every shared printer's driver package -> ProgramData\DavanPCDoctor\drivers-share\<printer> + manifest.json, shared read-only as PCDoctor-Drivers
+function Fix-driver_share($a) {
+  $dir = Join-Path $env:ProgramData 'DavanPCDoctor\drivers-share'; New-Item -ItemType Directory -Force $dir | Out-Null
+  $man = @(); $got = @(); $miss = @()
+  foreach ($p in @(Get-Printer -ErrorAction SilentlyContinue | Where-Object Shared)) {
+    $dv = Get-PrinterDriver -Name $p.DriverName -ErrorAction SilentlyContinue; $fd = ([string]$p.ShareName -replace '[^A-Za-z0-9]', '_'); $dst = Join-Path $dir $fd
+    New-Item -ItemType Directory -Force $dst | Out-Null
+    if (!@(Get-ChildItem $dst -Recurse -Filter *.inf -ErrorAction SilentlyContinue).Count) {
+      $inf = [string]$dv.InfPath
+      if ($inf -and (Test-Path $inf)) { Copy-Item -Path (Join-Path (Split-Path $inf) '*') -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue }
+      else { $o = PD-FindPrinterInf ([string]$p.DriverName); if ($o) { pnputil /export-driver $o $dst 2>&1 | Out-Null } } }
+    $n = @(Get-ChildItem $dst -Recurse -Filter *.inf -ErrorAction SilentlyContinue).Count
+    $man += @{ share = [string]$p.ShareName; printer = [string]$p.Name; driver = [string]$p.DriverName; folder = $fd; ok = ($n -gt 0) }
+    if ($n) { $got += [string]$p.ShareName } else { $miss += [string]$p.ShareName } }
+  PD-WriteJson (Join-Path $dir 'manifest.json') @{ t = (PD-NowMs); host = $env:COMPUTERNAME; printers = $man }
+  $new = !(Get-SmbShare -Name $PD_DRVSHARE -ErrorAction SilentlyContinue)
+  if ($new) { New-SmbShare -Name $PD_DRVSHARE -Path $dir -ReadAccess 'Everyone' -Description 'Davan PC Doctor - printer drivers for no-password printing (read-only)' -ErrorAction Stop | Out-Null }
+  icacls $dir /grant '*S-1-1-0:(OI)(CI)RX' '*S-1-5-32-546:(OI)(CI)RX' /T /Q 2>&1 | Out-Null
+  @{ ok = ($got.Count -gt 0); txt = 'Drivers ready for the other PCs: ' + $(if ($got.Count) { $got -join ', ' } else { 'none' }) + $(if ($miss.Count) { ' | no driver package found: ' + ($miss -join ', ') } else { '' }) + ' (share \\' + $env:COMPUTERNAME + '\' + $PD_DRVSHARE + ', read-only)'; undo = $(if ($new) { @{ fix = 'driver_share' } } else { $null }) }
+}
+# on the OTHER PCs: driver from \\host\PCDoctor-Drivers, then a printer whose port is \\host\<printer share> (args: host, shares = only these, else all)
+function Fix-printer_guest($a) {
+  $hst = ([string]$a.host).Trim().ToUpper(); if (!$hst) { return @{ ok = $false; txt = 'Which PC shares the printers? (args.host)' } }
+  $src = "\\$hst\$PD_DRVSHARE"
+  $m0 = $null; $er0 = ''
+  try { $m0 = Get-Content "$src\manifest.json" -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { $er0 = $_.Exception.Message }
+  if (!$m0) { return @{ ok = $false; txt = "Cannot open $src - run 'Share this PC's printer drivers' on $hst first, and allow guest connections here ($er0)" } }
+  $want = @($a.shares | Where-Object { $_ }); $added = @(); $out = @()
+  foreach ($m in @($m0.printers)) {
+    if ($want.Count -and [string]$m.share -notin $want) { continue }
+    $pn = [string]$m.share + ' (' + $hst + ')'; $port = '\\' + $hst + '\' + [string]$m.share
+    try {
+      if ($a.forceDriver -or !(Get-PrinterDriver -Name ([string]$m.driver) -ErrorAction SilentlyContinue)) {
+        if (!$m.ok) { $out += "$($m.share): $hst has no driver package for it"; continue }
+        $loc = Join-Path $PD.Root ('drv\' + $hst + '_' + [string]$m.folder); New-Item -ItemType Directory -Force $loc | Out-Null
+        Copy-Item -Path ("$src\" + [string]$m.folder + '\*') -Destination $loc -Recurse -Force -ErrorAction Stop
+        foreach ($i in @(Get-ChildItem $loc -Recurse -Filter *.inf)) { pnputil /add-driver $i.FullName /install 2>&1 | Out-Null }
+        Add-PrinterDriver -Name ([string]$m.driver) -ErrorAction Stop }
+      if (!(Get-PrinterPort -Name $port -ErrorAction SilentlyContinue)) { Add-PrinterPort -Name $port -ErrorAction Stop }
+      if (!(Get-Printer -Name $pn -ErrorAction SilentlyContinue)) { Add-Printer -Name $pn -DriverName ([string]$m.driver) -PortName $port -ErrorAction Stop; $added += $pn }
+      $out += "$pn ready"
+    } catch { $out += "$($m.share): " + $_.Exception.Message }
+  }
+  $ok = @($out | Where-Object { $_ -match ' ready$' }).Count -gt 0
+  @{ ok = $ok; txt = ($out -join ' | ') + $(if ($ok) { ' - print to it like any printer (no password)' } else { '' }); undo = $(if ($added.Count) { @{ fix = 'printer_guest'; names = $added } } else { $null }) }
+}
 # ---------- 🩺 Fixes: did the fix really change what it should? (read-only, right after the fix) - $null = cannot be checked by itself ----------
 function PD-Verify([string]$fix, $a) {
   try {
@@ -305,6 +361,10 @@ function PD-Verify([string]$fix, $a) {
                        return @{ ok = ($x -eq 0); txt = "LimitBlankPasswordUse=$x (0 = other PCs may log in without a password)"; t = (PD-NowMs) } }
       'printer_ip'   { $n = if ($a -and $a.name) { [string]$a.name } elseif ($a -and $a.ip) { 'Printer ' + $a.ip } else { '' }; if (!$n) { return $null }
                        $p = Get-Printer $n -ErrorAction SilentlyContinue; return @{ ok = [bool]$p; txt = $(if ($p) { "Printer '$n' is there ($($p.PrinterStatus))" } else { "Printer '$n' not found" }); t = (PD-NowMs) } }
+      'driver_share' { $sh = Get-SmbShare -Name $PD_DRVSHARE -ErrorAction SilentlyContinue; $mf = PD-ReadJson (Join-Path $env:ProgramData 'DavanPCDoctor\drivers-share\manifest.json')
+                       $n = @($mf.printers | Where-Object ok).Count; return @{ ok = ([bool]$sh -and $n -gt 0); txt = $(if ($sh) { "Share $PD_DRVSHARE is on, drivers for $n printer(s)" } else { 'Share not found' }); t = (PD-NowMs) } }
+      'printer_guest' { if (!$a -or !$a.host) { return $null }; $hs = ([string]$a.host).ToUpper(); $ps = @(Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*($hs)" })
+                       return @{ ok = ($ps.Count -gt 0); txt = $(if ($ps.Count) { 'Printers here: ' + (($ps | ForEach-Object { $_.Name + ' [' + $_.PrinterStatus + ']' }) -join ', ') } else { "No printer of $hs here" }); t = (PD-NowMs) } }
       'printer_driver' { if (!$a -or !$a.driver) { return $null }; $d = Get-PrinterDriver -Name ([string]$a.driver) -ErrorAction SilentlyContinue; return @{ ok = [bool]$d; txt = $(if ($d) { 'Driver installed' } else { 'Driver not found' }); t = (PD-NowMs) } }
     }
   } catch { return @{ ok = $false; txt = 'check failed: ' + $_.Exception.Message; t = (PD-NowMs) } }
@@ -318,6 +378,8 @@ $PD_CMD = @{
                      u = "Remove-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Print' RpcAuthnLevelPrivacyEnabled; Remove-ItemProperty 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC' RpcUseNamedPipeProtocol,RpcProtocols; Restart-Service Spooler -Force" }
   'blank_pw_net' = @{ c = 'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LimitBlankPasswordUse /t REG_DWORD /d 0 /f'; u = 'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LimitBlankPasswordUse /t REG_DWORD /d 1 /f' }
   'save_login'   = @{ c = 'cmdkey /add:{host} /user:{user} /pass:THE-PASSWORD   (normal Command Prompt, NOT as admin; leave /pass: empty for no password)'; u = 'cmdkey /delete:{host}' }
+  'printer_guest' = @{ c = 'Add-PrinterPort -Name "\\{host}\<printer share>"; Add-Printer -Name "<printer share> ({host})" -DriverName "<driver name>" -PortName "\\{host}\<printer share>"   (driver installed first)'; u = 'Remove-Printer -Name "<printer share> ({host})"' }
+  'driver_share' = @{ c = '(PC Doctor fix: copies each shared printer''s driver to ProgramData\DavanPCDoctor\drivers-share and shares it read-only as PCDoctor-Drivers)'; u = 'Remove-SmbShare -Name PCDoctor-Drivers -Force' }
   'restart'      = @{ c = 'shutdown /r /t 60'; u = '' }
   'repair_windows' = @{ c = 'DISM /Online /Cleanup-Image /RestoreHealth; sfc /scannow'; u = '' }
   'check_disk'   = @{ c = 'echo Y | chkdsk C: /scan /perf'; u = '' }
@@ -365,6 +427,8 @@ function PD-Undo($u) {
     'startup_on'  { foreach ($k in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run') { $v = (Get-ItemProperty "$k-DavanOff" -ErrorAction SilentlyContinue).($u.name); if ($v) { Set-ItemProperty $k $u.name $v; Remove-ItemProperty "$k-DavanOff" $u.name } }; "startup item $($u.name) back on" }
     'rename'      { Rename-Computer -NewName $u.old -Force; "name back to $($u.old) at restart" }
     'blank_pw_net' { Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' LimitBlankPasswordUse $(if ($null -eq $u.old) { 1 } else { [int]$u.old }) -Type DWord; 'other PCs need a password again (no-password logins blocked)' }
+    'driver_share' { Remove-SmbShare -Name $PD_DRVSHARE -Force -ErrorAction SilentlyContinue; 'driver share PCDoctor-Drivers switched off (the copied driver files stay)' }
+    'printer_guest' { foreach ($n in @($u.names)) { Remove-Printer -Name ([string]$n) -ErrorAction SilentlyContinue }; 'printers removed: ' + (@($u.names) -join ', ') }
     default       { 'nothing to undo' }
   }
 }
