@@ -251,9 +251,13 @@ function A-TrayEdits {
 
 # ---------- events ----------
 function A-Events {
-  $since = if ($S.lastEv) { $S.lastEv } else { $S.boot.AddMinutes(-2) }
+  # 1.71 🩺 (user, 07-Nov-2026: "when a PC turns on, send only what is new"): the last sent time is kept on disk, so after a restart / an agent update
+  # the events from the gap are sent too (up to 7 days back) - each event has a fixed key, so nothing is ever stored twice
+  $lf = Join-Path $PD.Root 'state\lastev.txt'
+  if (!$S.lastEv) { $S.lastEv = $S.boot.AddMinutes(-2); try { $lt = [datetime]::FromFileTimeUtc([int64](Get-Content $lf -ErrorAction Stop)).ToLocalTime(); if ($lt -lt $S.lastEv -and ((Get-Date) - $lt).TotalDays -lt 7) { $S.lastEv = $lt } } catch {} }
+  $since = $S.lastEv
   $evs = @(PD-ReadEvents $since)
-  $S.lastEv = Get-Date
+  $S.lastEv = Get-Date; try { Set-Content $lf ([string]$S.lastEv.ToFileTimeUtc()) -ErrorAction Stop } catch {}
   $h = A-Hwid
   foreach ($e in $evs) {
     PD-Db PUT ('lab/events/' + $h + '/e' + $e.t + $e.id) $e | Out-Null
@@ -399,35 +403,9 @@ function A-Cmds {
 function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   $h = A-Hwid
   switch -regex ($kind) {
-    '^(share_diag)$' {   # 1.70 read-only (user, 06-Nov-2026: "only NUTANANEW is not letting in" - every other PC's shared printers install, NUTANANEW gives 0x709): the printer-SHARING side of this PC
-      $o = @(); $since = (Get-Date).AddHours(-[double]$(if ($a.hours) { $a.hours } else { 3 }))
-      $rv = { param($k) try { $q = Get-ItemProperty $k -ErrorAction Stop; ($q.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | ForEach-Object { $_.Name + '=' + $_.Value }) -join ', ' } catch { '(none)' } }
-      $o += 'Windows: ' + (Get-CimInstance Win32_OperatingSystem).Caption + ' build ' + [Environment]::OSVersion.Version.Build + ' | name ' + $env:COMPUTERNAME
-      $o += 'Policies Printers: ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers')
-      $o += 'Policies Printers\RPC: ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC')
-      $o += 'Policies Printers\WPP (Protected Print): ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\WPP')
-      $o += 'Policies PointAndPrint: ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint')
-      $o += 'Control\Print: ' + (& $rv 'HKLM:\SYSTEM\CurrentControlSet\Control\Print')
-      $o += 'Spooler: ' + [string](Get-Service Spooler).Status + ' / ' + [string](Get-Service Spooler).StartType
-      foreach ($pr in @(Get-Printer -ErrorAction SilentlyContinue)) { $dv = Get-PrinterDriver -Name $pr.DriverName -ErrorAction SilentlyContinue
-        $o += 'Printer "' + $pr.Name + '" shared=' + $pr.Shared + ' share="' + $pr.ShareName + '" port=' + $pr.PortName + ' driver="' + $pr.DriverName + '" v' + $dv.MajorVersion + ' pkg=' + $dv.IsPackageAware + ' env=' + $dv.PrinterEnvironment + ' status=' + [string]$pr.PrinterStatus }
-      try { $sc = Get-SmbServerConfiguration -ErrorAction Stop; $o += 'SMB server: signReq=' + $sc.RequireSecuritySignature + ' encrypt=' + $sc.EncryptData + ' rejectUnenc=' + $sc.RejectUnencryptedAccess + ' smb2=' + $sc.EnableSMB2Protocol + ' nullPipes=' + ($sc.NullSessionPipes -join ';') + ' authRateLimiter=' + $sc.InvalidAuthenticationDelayTimeInMs } catch { $o += 'SMB server: ' + $_.Exception.Message }
-      $o += 'LanmanServer: ' + (& $rv 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters')
-      $o += 'Lsa: ' + ((& $rv 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa') -split ', ' | Where-Object { $_ -match '^(LimitBlankPasswordUse|everyoneincludesanonymous|restrictanonymous|restrictanonymoussam|forceguest|LmCompatibilityLevel|RunAsPPL|disabledomaincreds)=' }) -join ', '
-      try { foreach ($u in @(Get-LocalUser -ErrorAction Stop)) { $o += 'User "' + $u.Name + '" enabled=' + $u.Enabled + ' pwRequired=' + $u.PasswordRequired + ' pwSet=' + $(if ($u.PasswordLastSet) { $u.PasswordLastSet.ToString('dd MMM yyyy') } else { 'never' }) + ' msAccount=' + ($u.PrincipalSource -eq 'MicrosoftAccount') } } catch {}
-      $o += 'Logged-on user: ' + [string](Get-CimInstance Win32_ComputerSystem).UserName
-      $o += 'Network: ' + ((Get-NetConnectionProfile -ErrorAction SilentlyContinue | ForEach-Object { $_.InterfaceAlias + '=' + $_.NetworkCategory }) -join ', ')
-      $o += 'Firewall F&P Sharing: ' + ((Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' -Direction Inbound -ErrorAction SilentlyContinue | ForEach-Object { $_.DisplayName + '[' + $_.Profile + ':' + $_.Enabled + ']' }) -join '; ')
-      $o += 'Other firewall rules that BLOCK inbound: ' + ((Get-NetFirewallRule -Direction Inbound -Action Block -Enabled True -ErrorAction SilentlyContinue | Select-Object -First 15 | ForEach-Object { $_.DisplayName }) -join '; ')
-      try { $o += 'Firewall profiles: ' + ((Get-NetFirewallProfile | ForEach-Object { $_.Name + ' on=' + $_.Enabled + ' in=' + $_.DefaultInboundAction }) -join ', ') } catch {}
-      try { $o += 'Spooler listens on TCP: ' + ((Get-NetTCPConnection -State Listen -OwningProcess (Get-Process spoolsv).Id -ErrorAction Stop | ForEach-Object { $_.LocalPort }) -join ', ') } catch { $o += 'Spooler listens on TCP: none' }
-      try { $o += 'Third-party firewall / antivirus: ' + ((Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop | ForEach-Object { $_.displayName }) -join ', ') } catch {}
-      foreach ($q in @(@{ n = 'Failed logons (4625)'; f = @{ LogName = 'Security'; Id = 4625; StartTime = $since } }, @{ n = 'SMB server security'; f = @{ LogName = 'Microsoft-Windows-SMBServer/Security'; StartTime = $since } },
-                       @{ n = 'SMB server operational'; f = @{ LogName = 'Microsoft-Windows-SMBServer/Operational'; StartTime = $since; Level = 1,2,3 } }, @{ n = 'Print admin'; f = @{ LogName = 'Microsoft-Windows-PrintService/Admin'; StartTime = $since } },
-                       @{ n = 'Print operational'; f = @{ LogName = 'Microsoft-Windows-PrintService/Operational'; StartTime = $since; Level = 1,2,3 } })) {
-        $ev = @(Get-WinEvent -FilterHashtable $q.f -MaxEvents 8 -ErrorAction SilentlyContinue)
-        $o += $q.n + ': ' + $ev.Count + $(if ($ev.Count) { "`n   " + (($ev | ForEach-Object { $_.TimeCreated.ToString('HH:mm') + ' [' + $_.Id + '] ' + ((($_.Message -replace '\s+', ' ')).Substring(0, [math]::Min(330, ($_.Message -replace '\s+', ' ').Length))) }) -join "`n   ") } else { '' }) }
-      @{ ok = $true; txt = ($o -join "`n") } }
+    '^(evidence)$'   { @{ ok = $true; txt = (PD-Evidence $(if ($a.hours) { [double]$a.hours } else { 2 })) } }   # 1.71 🩺 read-only: the evidence pack on demand
+    '^(snap)$'       { try { A-SnapCheck } catch {}; $sn = PD-Snap; @{ ok = $true; txt = (($sn.Keys | ForEach-Object { $_ + ': ' + $sn[$_] }) -join "`n") } }   # 1.71 read-only: settings now (+ changes sent)
+    '^(share_diag)$' { @{ ok = $true; txt = (PD-ShareDiag $(if ($a.hours) { [double]$a.hours } else { 3 })) } }   # 1.70 read-only; the code is PD-ShareDiag (checks.ps1, 1.71)
     '^(temp_check)$' {   # 1.56 read-only (user, 05-Nov-2026: "build CPU temperature, fan, 12 V so it tells why GUJJARHOME switches off"): why the built-in sensor reader gives nothing
       $o = @(); $ld = Join-Path $PD.Root 'dl\lhm096'; $ll = Join-Path $ld 'LibreHardwareMonitorLib.dll'
       $o += 'PawnIO driver: ' + $(if ((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO' -ErrorAction SilentlyContinue).DisplayVersion) { 'installed' } else { 'NOT installed' }) + ' | note: ' + [string]$script:PawnNote
@@ -523,6 +501,119 @@ function A-Do([string]$kind, $a, [string]$by, [string]$id) {
   }
 }
 
+# ---------- 🩺 Fixes (1.71, user, 07-Nov-2026): this PC's fix book ----------
+# "As soon as the manager notes a problem it goes to the server and stays there, even if the PC is off; I fix late at night and once the PC is on
+# PC Doctor fixes it by itself first; the manager only when a person is needed; then tell me with a notification that the job is done."
+# The book is DB5 lab/book/<hwid> (+ state\book.json for the tray). Fixes the Super Admin approved (st ready, need auto) run here as soon as the PC is on;
+# need person = the manager presses ▶ Fix now in the tray (req\book*.json, this SYSTEM agent runs it); need user = the tray runs it in the user's own
+# session (a saved login). After each fix: PD-Verify + a push to the Super Admin (worker /lab/alert, kind fx<id> -> 🔔 lab_fix).
+$script:AlertQ = @(PD-ReadJson (Join-Path $PD.Root 'state\alertq.json') | Where-Object { $_ })
+function A-BookAlert([string]$kind, [string]$title, [string]$body, [string]$color) {
+  if ($PD.Test) { return }
+  $x = @{ kind = $kind; title = $title; body = $body; color = $color; at = (PD-NowMs) }
+  try { Invoke-RestMethod -Method Post -Uri ($PD.Worker + '/lab/alert') -Body (PD-Json @{ idToken = (PD-Token); kind = $kind; title = $title; body = $body; color = $color }) -ContentType 'text/plain' -TimeoutSec 30 | Out-Null }
+  catch { $script:AlertQ = @($script:AlertQ) + @($x); PD-WriteJson (Join-Path $PD.Root 'state\alertq.json') @($script:AlertQ); PD-Log ('alert kept for later: ' + $title) }
+}
+function A-AlertRetry {
+  if (!@($script:AlertQ).Count -or $PD.Test) { return }
+  $left = @(); foreach ($x in @($script:AlertQ)) { if (((PD-NowMs) - [int64]$x.at) -gt 3 * 86400000) { continue }
+    try { Invoke-RestMethod -Method Post -Uri ($PD.Worker + '/lab/alert') -Body (PD-Json @{ idToken = (PD-Token); kind = [string]$x.kind; title = [string]$x.title + ' (sent late - the PC was offline)'; body = [string]$x.body; color = [string]$x.color }) -ContentType 'text/plain' -TimeoutSec 30 | Out-Null } catch { $left += $x } }
+  $script:AlertQ = $left; PD-WriteJson (Join-Path $PD.Root 'state\alertq.json') @($left)
+}
+function A-BookSync {
+  $h = A-Hwid; $db = PD-Db GET ('lab/book/' + $h) $null 'orderBy="t"&limitToLast=80'
+  if ($null -eq $db -and !$PD.Online) { PD-BookSave; return }
+  $seen = @{}
+  if ($db) { foreach ($pp in $db.PSObject.Properties) { $id = [string]$pp.Name; $seen[$id] = 1; $x = PD-H $pp.Value; $x.id = $id
+      $c = $script:BookCache[$id]; if ($c -and [int64]$c.u -gt [int64]$x.u) { continue }   # a newer local change is still on its way (offline queue)
+      if ($x.type -eq 'fix' -and !$x.cmd -and $x.fix) { $cx = PD-FixCmd ([string]$x.fix) $x.args; $x.cmd = $cx.c; $x.undoCmd = $cx.u; PD-Db PATCH ('lab/book/' + $h + '/' + $id) @{ cmd = $cx.c; undoCmd = $cx.u } | Out-Null }
+      $script:BookCache[$id] = $x } }
+  foreach ($id in @($script:BookCache.Keys)) { if (!$seen[$id] -and ((PD-NowMs) - [int64]$script:BookCache[$id].t) -gt 2 * 86400000) { $script:BookCache.Remove($id) } }   # local copy only
+  PD-BookSave
+  # the count of open problems on the PC's own row (lab/pcs) - the Console badge and the worker's Auto loop read it without extra queries
+  $op = @($script:BookCache.Values | Where-Object { $_.type -eq 'prob' -and $_.st -eq 'open' } | Sort-Object { -[int64]$_.t })
+  $sig = [string]$op.Count + '|' + (($op | Select-Object -First 3 | ForEach-Object { [string]$_.title }) -join '|')
+  if ($sig -ne [string]$script:OpenSig -and ($null -ne $db -or $PD.Online)) { PD-Db PATCH ('lab/pcs/' + $h) @{ openProbs = $op.Count; openTitles = @($op | Select-Object -First 3 | ForEach-Object { [string]$_.title }) } | Out-Null; $script:OpenSig = $sig }
+}
+function A-BookTitle($e) { if ($e.title) { [string]$e.title } elseif ($e.fix -and $PD_FIX.Contains([string]$e.fix)) { $PD_FIX[[string]$e.fix].l } else { [string]$e.fix } }
+function A-BookRunOne([string]$id, [string]$by) {
+  $e = PD-H $script:BookCache[$id]; if (!$e.fix -or !$PD_FIX.Contains([string]$e.fix)) { PD-BookPatch $id @{ st = 'failed'; res = @{ ok = $false; txt = 'This PC Doctor does not know the fix ' + $e.fix + ' yet (it updates within the hour).'; t = (PD-NowMs) } }; return }
+  PD-BookPatch $id @{ st = 'running'; runAt = (PD-NowMs); runBy = $by }
+  $fa = if ($e.args) { $e.args } else { [pscustomobject]@{} }
+  $script:PDBookCur = $id; $S.fixing = [string]$e.fix
+  $r = try { PD-Fix ([string]$e.fix) $fa ($(if ($e.by) { [string]$e.by } else { 'Super Admin' }) + ' (🩺 ' + $by + ')') $id } catch { @{ ok = $false; txt = 'error: ' + $_.Exception.Message } }
+  $script:PDBookCur = $null; $S.fixing = $null
+  $chk = if ($r.ok -and !$r.queued) { Start-Sleep 3; PD-Verify ([string]$e.fix) $fa } else { $null }
+  $st = if ($r.queued) { 'thaw' } elseif ($r.ok) { 'done' } else { 'failed' }
+  PD-BookPatch $id @{ st = $st; res = @{ ok = [bool]$r.ok; txt = [string]$r.txt; t = (PD-NowMs) }; chk = $chk; undo = $r.undo }
+  $nm = [string]$S.pc.name; if (!$nm) { $nm = $env:COMPUTERNAME }; $ti = A-BookTitle $e
+  $good = $r.ok -and (!$chk -or $chk.ok)
+  $head = if ($r.queued) { '⏳ waits for Thawed' } elseif ($good) { '✅ done' } elseif ($r.ok) { '⚠️ done, but the check failed' } else { '❌ failed' }
+  $body = [string]$r.txt + $(if ($chk) { ' · Check: ' + $chk.txt } else { ' · (cannot be checked by itself - ask the person to try it)' }) + $(if ($e.prob) { ' · Problem still open until somebody presses ✅ Worked.' } else { '' }) + ' Open PC Doctor -> 🩺 Fixes.'
+  A-BookAlert ('fx' + $id) ("🩺 $nm`: $ti - $head") $body $(if ($good) { 'green' } elseif ($r.ok -or $r.queued) { 'amber' } else { 'red' })
+  try { A-SnapCheck } catch {}
+}
+function A-BookRun {
+  foreach ($id in @($script:BookCache.Keys)) { $e = $script:BookCache[$id]
+    if ($e.type -ne 'fix') { continue }
+    if ($e.st -eq 'ready' -and ([string]$e.need -in '', 'auto')) { A-BookRunOne $id 'by itself'; return }   # one per pass - the loop stays responsive
+    if ($e.st -eq 'undo' -and [string]$e.need -ne 'user') { A-BookUndo $id 'Super Admin'; return }
+    if ($e.st -eq 'running' -and ((PD-NowMs) - [int64]$e.runAt) -gt 6 * 3600000) { PD-BookPatch $id @{ st = 'failed'; res = @{ ok = $false; txt = 'Stopped in the middle (PC restarted or switched off) - press ▶ again'; t = (PD-NowMs) } } } }
+}
+function A-BookUndo([string]$id, [string]$who) {
+  $e = PD-H $script:BookCache[$id]; if (!$e.undo) { PD-BookPatch $id @{ st = 'done'; undoRes = 'Nothing to undo for this fix' }; return }
+  $txt = try { [string](PD-Undo $e.undo) } catch { 'undo error: ' + $_.Exception.Message }
+  PD-BookPatch $id @{ st = 'undone'; undoRes = $txt; undoAt = (PD-NowMs); undoBy = $who }
+  $nm = [string]$S.pc.name; if (!$nm) { $nm = $env:COMPUTERNAME }
+  A-BookAlert ('fx' + $id + 'u') ("↩ $nm`: undone - " + (A-BookTitle $e)) ($txt + ' (by ' + $who + ')') 'amber'; try { A-SnapCheck } catch {}
+}
+function A-BookEvidence([string]$pid0) {
+  $txt = try { PD-Evidence 2 } catch { 'evidence error: ' + $_.Exception.Message }
+  PD-Db PUT ('lab/evid/' + (A-Hwid) + '/' + $pid0) @{ t = (PD-NowMs); txt = $txt } | Out-Null
+  PD-BookPatch $pid0 @{ ev = $true }
+}
+function A-BookReq {
+  foreach ($f in @(Get-ChildItem (Join-Path $PD.Root 'req') -Filter 'book*.json' -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    $q = PD-ReadJson $f.FullName; Remove-Item $f.FullName -Force -ErrorAction SilentlyContinue; if (!$q) { continue }
+    $who = if ($q.who) { ([string]$q.who).Substring(0, [math]::Min(40, ([string]$q.who).Length)) } else { [string]$env:USERNAME }
+    $nm = [string]$S.pc.name; if (!$nm) { $nm = $env:COMPUTERNAME }
+    $id = [string]$q.id; $e = if ($id) { PD-H $script:BookCache[$id] } else { @{} }
+    try {
+      switch ([string]$q.op) {
+        'run'    { if ($e.type -eq 'fix' -and $e.st -in 'ready', 'failed' -and [string]$e.need -ne 'user') { A-BookRunOne $id ('▶ ' + $who) } }
+        'result' { if ($e.type -eq 'fix') { PD-BookPatch $id @{ st = $(if ($q.ok) { 'done' } else { 'failed' }); res = @{ ok = [bool]$q.ok; txt = [string]$q.txt; t = (PD-NowMs) }; chk = $(if ($q.chk) { @{ ok = [bool]$q.chk.ok; txt = [string]$q.chk.txt; t = (PD-NowMs) } } else { $null }); runBy = '▶ ' + $who; runAt = (PD-NowMs) }
+                     A-BookAlert ('fx' + $id) ("🩺 $nm`: " + (A-BookTitle $e) + $(if ($q.ok) { ' - ✅ done' } else { ' - ❌ failed' })) ([string]$q.txt + ' (▶ by ' + $who + ')') $(if ($q.ok) { 'green' } else { 'red' }) } }
+        'undone' { if ($e.type -eq 'fix') { PD-BookPatch $id @{ st = 'undone'; undoRes = [string]$q.txt; undoAt = (PD-NowMs); undoBy = $who }; A-BookAlert ('fx' + $id + 'u') ("↩ $nm`: undone - " + (A-BookTitle $e)) ([string]$q.txt + ' (by ' + $who + ')') 'amber' } }
+        'undo'   { if ($e.type -eq 'fix' -and $e.st -in 'done', 'thaw') { A-BookUndo $id $who } }
+        'fb'     { if ($e.type -ne 'fix') { break }
+                   if ($q.ok) { PD-BookPatch $id @{ user = 'worked'; userAt = (PD-NowMs); userWho = $who }
+                     foreach ($k in @($script:BookCache.Keys)) { $x = $script:BookCache[$k]; if ($x.type -eq 'prob' -and $x.st -eq 'open' -and ([string]$x.fix -eq $id -or [string]$x.id -eq [string]$e.prob)) { PD-BookPatch $k @{ st = 'fixed'; closedAt = (PD-NowMs); closedBy = $who } } }
+                     if ($e.prob -and $script:BookCache[[string]$e.prob]) { PD-BookPatch ([string]$e.prob) @{ st = 'fixed'; closedAt = (PD-NowMs); closedBy = $who } }
+                     A-BookAlert ('pb' + $id + 'ok') ("✅ $nm`: it works now - " + (A-BookTitle $e)) ($who + ' pressed ✅ Worked. The problem is closed.') 'green' }
+                   else { PD-BookPatch $id @{ user = 'not'; userAt = (PD-NowMs); userWho = $who }
+                     $pid0 = PD-BookNew 'prob' @{ fix = $id; cat = 'After a fix'; choice = [string]$q.choice; text = [string]$q.text; photo = [string]$q.photo; who = $who; st = 'open'; title = 'Still not working after: ' + (A-BookTitle $e) }
+                     A-BookEvidence $pid0
+                     A-BookAlert ('pb' + $pid0) ("❌ $nm`: still not working - " + (A-BookTitle $e)) ([string]$q.choice + $(if ($q.text) { ' · "' + [string]$q.text + '"' } else { '' }) + $(if ($q.photo) { ' · 📷 photo' } else { '' }) + ' · by ' + $who + '. Logs saved - open PC Doctor -> 🩺 Fixes.') 'red' } }
+        'report' { $pid0 = PD-BookNew 'prob' @{ cat = [string]$q.cat; choice = [string]$q.choice; text = [string]$q.text; photo = [string]$q.photo; who = $who; st = 'open'; title = [string]$q.cat + $(if ($q.choice) { ': ' + [string]$q.choice } else { '' }) }
+                   A-BookEvidence $pid0
+                   A-BookAlert ('pb' + $pid0) ("🆘 $nm`: " + [string]$q.cat + $(if ($q.choice) { ' - ' + [string]$q.choice } else { '' })) ($(if ($q.text) { '"' + [string]$q.text + '" · ' } else { '' }) + $(if ($q.photo) { '📷 photo · ' } else { '' }) + 'by ' + $who + '. Logs saved - open PC Doctor -> 🩺 Fixes.') 'red' }
+        'solved' { if ($e.type -eq 'prob' -and $e.st -eq 'open') { PD-BookPatch $id @{ st = 'fixed'; closedAt = (PD-NowMs); closedBy = $who }; A-BookAlert ('pb' + $id + 'ok') ("✅ $nm`: problem solved - " + [string]$e.title) ($who + ' marked it solved.') 'green' } }
+      }
+    } catch { PD-Log ('book request: ' + $_.Exception.Message) }
+  }
+}
+# only what CHANGED goes to the server (lab/chg/<hwid>); lab/snap/<hwid> = the current values. Frozen PCs lose state\ at every start: then the
+# last copy is read back from DB5 once, so a restart is not reported as "everything changed".
+function A-SnapCheck {
+  $now0 = PD-Snap; $cur = @{}; foreach ($k in $now0.Keys) { $cur[$k] = [string]$now0[$k] }
+  $f = Join-Path $PD.Root 'state\snap.json'; $old = PD-ReadJson $f
+  if (!$old) { $d = PD-Db GET ('lab/snap/' + (A-Hwid) + '/v'); if ($d) { $old = $d } }
+  $ch = @{}; if ($old) { $oh = PD-H $old; foreach ($k in $cur.Keys) { if ($oh.ContainsKey($k) -and [string]$oh[$k] -ne $cur[$k]) { $ch[$k] = @([string]$oh[$k], $cur[$k]) } elseif (!$oh.ContainsKey($k)) { $ch[$k] = @('', $cur[$k]) } } }
+  if ($ch.Count -or !$old) { $t = PD-NowMs
+    if ($ch.Count -and $old) { PD-Db PUT ('lab/chg/' + (A-Hwid) + '/c' + $t) @{ t = $t; ch = $ch; why = $(if ($S.fixing) { 'fix ' + $S.fixing } else { '' }) } | Out-Null }
+    PD-Db PUT ('lab/snap/' + (A-Hwid)) @{ t = $t; v = $cur } | Out-Null }
+  PD-WriteJson $f $cur
+}
 # ---------- auto-fix (7): limits from lab/cfg/fix; heavy work pauses when busy; max N PCs at once ----------
 function A-AutoFix {
   $c = PD-Cfg; if ($c.fix.auto -eq $false) { return }
@@ -676,6 +767,23 @@ if ($Mode -eq 'test') {
   $r.verdictTest = $v.v + ' | ' + $v.why
   $S.ev7 = @(PD-ReadEvents (Get-Date).AddDays(-7) 20 | ConvertTo-Json -Depth 4 | ConvertFrom-Json); $S.startup = $r.startup; $S.net = $r.net; $S.prn = $r.prn; $S.sfc = $r.sfc
   $mm = A-Metrics; $r.metricsTest = 'C: free ' + $mm.disk.cFreePct + '% · RAM sticks ' + $mm.inv.ramSticks + ' · hang top ' + $mm.ev.hangTop; $r.verdictNow = (PD-Verdict $mm).v
+  # 1.71 🩺 Fixes: the whole book flow on the runner (no DB5): ▶ Fix now -> result + check, ❌ Still not working -> problem + evidence, ↩ Undo, 🆘 report, snapshot
+  try {
+    $PD.Root = Join-Path $env:TEMP 'pdbook'; New-Item -ItemType Directory -Force (Join-Path $PD.Root 'state'), (Join-Path $PD.Root 'req') | Out-Null; $script:BookCache = @{}
+    $bt = @(); $b1 = PD-BookNew 'fix' @{ fix = 'blank_pw_net'; title = 'Let other PCs log in without a password'; st = 'ready'; need = 'person'; by = 'test' }
+    $rq = Join-Path $PD.Root 'req'
+    PD-WriteJson "$rq\book1.json" @{ op = 'run'; id = $b1; who = 'Tester' }; A-BookReq
+    $x = $script:BookCache[$b1]; $bt += 'run=' + $x.st + '/check=' + [bool]$x.chk.ok + '/undo=' + [bool]$x.undo + '/cmd=' + [bool]$x.cmd
+    PD-WriteJson "$rq\book2.json" @{ op = 'fb'; id = $b1; ok = $false; choice = 'Same error as before'; text = 'test'; who = 'Tester' }; A-BookReq
+    $pb = @($script:BookCache.Values | Where-Object { $_.type -eq 'prob' -and $_.fix -eq $b1 }); $bt += 'prob=' + $pb.Count + '/ev=' + [bool]$pb[0].ev
+    PD-WriteJson "$rq\book3.json" @{ op = 'undo'; id = $b1; who = 'Tester' }; A-BookReq; $bt += 'undo=' + $script:BookCache[$b1].st
+    PD-WriteJson "$rq\book4.json" @{ op = 'report'; cat = 'Printer'; text = 'test'; who = 'Tester' }; A-BookReq
+    $bt += 'probs=' + @($script:BookCache.Values | Where-Object { $_.type -eq 'prob' }).Count
+    A-SnapCheck; $bt += 'snap=' + (Test-Path (Join-Path $PD.Root 'state\snap.json')) + '/book.json=' + (Test-Path (Join-Path $PD.Root 'state\book.json'))
+    $bt += 'evidence=' + (PD-Evidence 1).Length + ' chars'
+    $ok = ($script:BookCache[$b1].st -eq 'undone') -and ($bt[0] -match '^run=done/check=True/undo=True/cmd=True') -and ($bt[1] -match 'prob=1/ev=True') -and ($bt -contains 'probs=2')
+    $r.bookTest = $(if ($ok) { 'BOOK OK: ' } else { 'BOOK FAILED: ' }) + ($bt -join ' | ')
+  } catch { $r.bookTest = 'BOOK FAILED: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber }
   $r | ConvertTo-Json -Depth 6 | Set-Content "$env:TEMP\pd_test.json" -Encoding UTF8
   "sample cpu=$($r.sample.cpu) ram=$($r.sample.ram) busy=$($r.sample.busy) | inv model=$($r.inv.model) disks=$(@($r.inv.disks).Count) sw=$(@($r.inv.software).Count) | events=$($r.events) | verdict test: $($r.verdictTest) | metrics: $($r.metricsTest) | this PC: $($r.verdictNow)"
   exit 0
@@ -695,6 +803,7 @@ while ($true) {
     $t0 = Get-Date
     if ($first -or ($t0 - $S.lastHour).TotalMinutes -ge 60) {
       PD-Cfg -Force | Out-Null; A-SyncPc; A-VerReport; A-Daily; $S.verdict = $null; $S.lastHour = $t0
+      try { A-SnapCheck } catch { PD-Log ('snapshot: ' + $_.Exception.Message) }   # 1.71 🩺: only what changed goes to the server
       if (!$first) { A-AutoFix }
       # 7: restart-needing work (chkdsk / RAM test / updates / rename) waits for a free period with nobody logged in - never a PC in use
       if (!$first -and (PD-ReadJson (Join-Path $PD.Root 'state\fixhist.json')) -and [string]$S.pc.autoRst -ne (PD-ISTDate) -and (A-NeedRestart) -and (A-FreePeriod)) { PD-Log 'free period, nobody logged in - restart for the waiting fixes'; PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ autoRst = (PD-ISTDate) } | Out-Null; Fix-restart @{} | Out-Null }   # once a day at most (a Frozen PC can never clear its flags)
@@ -704,9 +813,10 @@ while ($true) {
       $mn = PD-MeshNode; if ($mn -and $mn -ne [string]$S.meshSent) { PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn; PD-Log 'remote agent id sent' }
     }
     A-Events; try { A-NetInfo } catch {}; A-Minute; A-Cmds; A-TrayEdits; A-TrayReq
-    if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-TrayFresh; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
+    try { A-BookReq; A-BookSync; A-BookRun } catch { PD-Log ('book: ' + $_.Exception.Message) }   # 1.71 🩺 Fixes: approved fixes run by themselves once the PC is on
+    if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-AlertRetry; A-TrayFresh; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
     $first = $false
     foreach ($i in 1..4) { Start-Sleep -Seconds 14; if (Test-Path (Join-Path $PD.Root 'req\refresh.flag')) { Remove-Item (Join-Path $PD.Root 'req\refresh.flag') -Force -ErrorAction SilentlyContinue; try { PD-Cfg -Force | Out-Null } catch {}; try { A-NetInfo } catch {}; A-Minute; try { A-Events } catch {}; try { A-Peers } catch {}; try { PD-FlushQueue | Out-Null } catch {}; try { A-TrayFresh } catch {}; try { A-Verdict } catch {} }   # 1.63: tray Refresh = fresh read; 1.67 (user, 05-Nov-2026: "refresh should check all possible areas"): + settings, new events, other PCs, unsent rows, the verdictings at once
-      if (Test-Path (Join-Path $PD.Root 'req\now.flag')) { Remove-Item (Join-Path $PD.Root 'req\now.flag') -Force; A-NetInfo -Speed; A-Daily -Force; A-Verdict; A-Minute }; A-TrayEdits; A-TrayReq; A-Cmds; A-LabPoll }   # 1.36: commands are picked up every 14 s (was once a minute)
+      if (Test-Path (Join-Path $PD.Root 'req\now.flag')) { Remove-Item (Join-Path $PD.Root 'req\now.flag') -Force; A-NetInfo -Speed; A-Daily -Force; A-Verdict; A-Minute }; A-TrayEdits; A-TrayReq; try { A-BookReq } catch {}; A-Cmds; A-LabPoll }   # 1.36: commands are picked up every 14 s (was once a minute)
   } catch { PD-Log ('loop error: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber); Start-Sleep 30 }
 }

@@ -27,12 +27,20 @@ $PD_FIX = [ordered]@{
   'rollback_driver'=@{ k = 'restart'; l = 'Roll back driver';               sw = $null; perm = $true; del = $true }
   'uninstall_update'=@{ k = 'restart'; l = 'Uninstall update + block it';   sw = $null; perm = $true; del = $true }
   'crash_reader'  = @{ k = 'heavy';   l = 'Install the crash reader (cdb)'; sw = $null }
+  # 1.71 (user, 07-Nov-2026 - 🩺 Fixes): NUTANANEW's ADMIN has no password and Windows refuses a no-password login from another PC -> printers
+  # gave 0x709 / 0x40. user = runs in the logged-in user's own Windows session (a saved login belongs to that user): only the tray's ▶ Fix now runs it.
+  'blank_pw_net'  = @{ k = 'light';   l = 'Let other PCs log in without a password (printer / folder sharing)'; sw = $null; perm = $true }
+  'save_login'    = @{ k = 'user';    l = 'Save the login for a sharing PC (this user)'; sw = $null; user = $true }
 }
 function PD-FixLog([string]$fix, $res, [string]$by, [string]$cid = '') {
   $t = PD-NowMs
   PD-Db PUT ('lab/fixlog/' + (PD-ISTDate $t) + '/' + (PD-Hwid) + '/f' + $t) @{ t = $t; fix = $fix; label = $PD_FIX[$fix].l; ok = [bool]$res.ok; txt = [string]$res.txt; by = $by; cid = $cid; undo = $res.undo } | Out-Null
   $hist = PD-ReadJson (Join-Path $PD.Root 'state\fixhist.json'); if (!$hist) { $hist = @{} } else { $h2 = @{}; $hist.PSObject.Properties | ForEach-Object { $h2[$_.Name] = $_.Value }; $hist = $h2 }
   $hist[$fix] = $t; PD-WriteJson (Join-Path $PD.Root 'state\fixhist.json') $hist
+  # 1.71 🩺 Fixes: every fix that ran (auto-fix, Console, Claude, tray) also goes into this PC's fix book with its result, check and ↩ Undo.
+  # A fix started FROM the book updates its own entry instead (A-BookRun) - no second line.
+  if (!$script:PDBookCur -and !$res.queued) { try { PD-BookNew 'fix' @{ fix = $fix; args = $script:PDFixArgs; title = $PD_FIX[$fix].l; by = $by; st = $(if ($res.ok) { 'done' } else { 'failed' }); need = 'auto'
+      res = @{ ok = [bool]$res.ok; txt = [string]$res.txt; t = $t }; chk = (PD-Verify $fix $script:PDFixArgs); undo = $res.undo } | Out-Null } catch { PD-Log ('book: ' + $_.Exception.Message) } }
 }
 function PD-FixAllowed([string]$fix, [switch]$Auto) {
   $c = PD-Cfg; $f = $c.fix
@@ -84,7 +92,7 @@ function PD-ThawQueue([string]$fix, $fargs, [string]$by) {
 
 function PD-Fix([string]$fix, $a, [string]$by = 'auto', [string]$cid = '') {
   if (!$PD_FIX.Contains($fix)) { return @{ ok = $false; txt = 'unknown fix ' + $fix } }
-  $meta = $PD_FIX[$fix]
+  $meta = $PD_FIX[$fix]; $script:PDFixArgs = $a   # 1.71: the fix book keeps the arguments too
   if ($meta.del -and $by -eq 'auto') { return @{ ok = $false; txt = 'not run: it deletes files - only after the Super Admin''s OK' } }   # strict rule, 2nd lock
   if ($meta.perm -and $meta.k -ne 'light' -and (PD-Frozen) -and !$a.now) { $r = PD-ThawQueue $fix $a $by; PD-FixLog $fix $r $by $cid; return $r }
   PD-Log "fix $fix by $by"
@@ -275,6 +283,74 @@ function Fix-uninstall_update($a) {
   try { $s = New-Object -ComObject Microsoft.Update.Session; foreach ($u in $s.CreateUpdateSearcher().Search('IsInstalled=0').Updates) { if ($u.KBArticleIDs -contains $kb) { $u.IsHidden = $true } } } catch {}
   @{ ok = ($r.code -in 0, 3010); txt = "KB$kb uninstalled + hidden (code $($r.code))"; restart = $true }
 }
+# 1.71 (user, 07-Nov-2026): Windows never lets another PC log in to an account without a password (LimitBlankPasswordUse = 1). NUTANANEW's
+# ADMIN has none and the user wants to keep it that way - this lets the other PCs in (they then use it for printers / folders). ↩ Undo puts it back.
+function Fix-blank_pw_net($a) {
+  $k = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'; $old = (Get-ItemProperty $k -ErrorAction SilentlyContinue).LimitBlankPasswordUse
+  Set-ItemProperty $k LimitBlankPasswordUse 0 -Type DWord
+  @{ ok = $true; txt = 'Other PCs can now log in to accounts without a password (printer / folder sharing). ↩ Undo puts the protection back.'; undo = @{ fix = 'blank_pw_net'; old = $old } }
+}
+function Fix-save_login($a) { @{ ok = $false; txt = 'A saved login belongs to the person logged in - press ▶ Fix now in the PC Doctor tray (🩺 Fixes) on this PC.' } }
+# ---------- 🩺 Fixes: did the fix really change what it should? (read-only, right after the fix) - $null = cannot be checked by itself ----------
+function PD-Verify([string]$fix, $a) {
+  try {
+    switch ($fix) {
+      'spooler'      { $sp = [string](Get-Service Spooler).Status; $n = @(Get-ChildItem "$env:SystemRoot\System32\spool\PRINTERS\*" -ErrorAction SilentlyContinue).Count
+                       return @{ ok = ($sp -eq 'Running'); txt = "Print spooler $sp, $n job file(s) waiting"; t = (PD-NowMs) } }
+      { $_ -in 'net_private', 'smb_share' } { $pr = @(Get-NetConnectionProfile -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.NetworkCategory }); $fw = @(Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' -Direction Inbound -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq 'True' -and $_.Profile -match 'Private|Any' }).Count
+                       return @{ ok = (($pr -notcontains 'Public') -and $fw -gt 0); txt = 'Network ' + ($pr -join ', ') + ', ' + $fw + ' sharing rules on'; t = (PD-NowMs) } }
+      'rpc_print'    { $x = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Print' -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled; $y = (Get-ItemProperty 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC' -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+                       return @{ ok = ($x -eq 0 -and $y -eq 1); txt = "RpcAuthnLevelPrivacyEnabled=$x, RpcUseNamedPipeProtocol=$y"; t = (PD-NowMs) } }
+      'blank_pw_net' { $x = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -ErrorAction SilentlyContinue).LimitBlankPasswordUse
+                       return @{ ok = ($x -eq 0); txt = "LimitBlankPasswordUse=$x (0 = other PCs may log in without a password)"; t = (PD-NowMs) } }
+      'printer_ip'   { $n = if ($a -and $a.name) { [string]$a.name } elseif ($a -and $a.ip) { 'Printer ' + $a.ip } else { '' }; if (!$n) { return $null }
+                       $p = Get-Printer $n -ErrorAction SilentlyContinue; return @{ ok = [bool]$p; txt = $(if ($p) { "Printer '$n' is there ($($p.PrinterStatus))" } else { "Printer '$n' not found" }); t = (PD-NowMs) } }
+      'printer_driver' { if (!$a -or !$a.driver) { return $null }; $d = Get-PrinterDriver -Name ([string]$a.driver) -ErrorAction SilentlyContinue; return @{ ok = [bool]$d; txt = $(if ($d) { 'Driver installed' } else { 'Driver not found' }); t = (PD-NowMs) } }
+    }
+  } catch { return @{ ok = $false; txt = 'check failed: ' + $_.Exception.Message; t = (PD-NowMs) } }
+  $null
+}
+# ---------- 🩺 Fixes: the same fix as a command (📋 Copy in the tray / Console) - for somebody who prefers the terminal (PowerShell as admin) ----------
+$PD_CMD = @{
+  'spooler'      = @{ c = 'Stop-Service Spooler -Force; Remove-Item "$env:SystemRoot\System32\spool\PRINTERS\*" -Force; Start-Service Spooler'; u = '' }
+  'net_private'  = @{ c = "Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private; Enable-NetFirewallRule -DisplayGroup 'Network Discovery','File and Printer Sharing'"; u = 'Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Public' }
+  'rpc_print'    = @{ c = "Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Print' RpcAuthnLevelPrivacyEnabled 0 -Type DWord; `$p='HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC'; New-Item `$p -Force | Out-Null; Set-ItemProperty `$p RpcUseNamedPipeProtocol 1 -Type DWord; Set-ItemProperty `$p RpcProtocols 7 -Type DWord; Restart-Service Spooler -Force"
+                     u = "Remove-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Print' RpcAuthnLevelPrivacyEnabled; Remove-ItemProperty 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC' RpcUseNamedPipeProtocol,RpcProtocols; Restart-Service Spooler -Force" }
+  'blank_pw_net' = @{ c = 'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LimitBlankPasswordUse /t REG_DWORD /d 0 /f'; u = 'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LimitBlankPasswordUse /t REG_DWORD /d 1 /f' }
+  'save_login'   = @{ c = 'cmdkey /add:{host} /user:{user} /pass:THE-PASSWORD   (normal Command Prompt, NOT as admin; leave /pass: empty for no password)'; u = 'cmdkey /delete:{host}' }
+  'restart'      = @{ c = 'shutdown /r /t 60'; u = '' }
+  'repair_windows' = @{ c = 'DISM /Online /Cleanup-Image /RestoreHealth; sfc /scannow'; u = '' }
+  'check_disk'   = @{ c = 'echo Y | chkdsk C: /scan /perf'; u = '' }
+  'win_update_dl' = @{ c = 'UsoClient StartScan; UsoClient StartDownload'; u = '' }
+  'winget'       = @{ c = 'winget upgrade --all --silent --accept-package-agreements --accept-source-agreements'; u = '' }
+}
+function PD-FixCmd([string]$fix, $a) {
+  $x = $PD_CMD[$fix]; if (!$x) { return @{ c = '(PC Doctor fix - no single command; press ▶ Fix now)'; u = '' } }
+  $c = [string]$x.c; $u = [string]$x.u
+  foreach ($k in 'host', 'user', 'name', 'ip', 'driver', 'kb', 'inf') { $v = if ($a -and $null -ne $a.$k) { [string]$a.$k } else { '' }; if ($v) { $c = $c.Replace('{' + $k + '}', $v); $u = $u.Replace('{' + $k + '}', $v) } }
+  @{ c = $c; u = $u }
+}
+# ---------- 🩺 Fixes: this PC's fix book = DB5 lab/book/<hwid>/<id> + state\book.json (the tray reads it, also offline) ----------
+# type fix: { fix, args, title, why, by, need: auto | person | user, st: wait | ready | running | done | failed | undo | undone, res, chk, undo, cmd, undoCmd, prob, user: worked | not }
+# type prob: { cat, choice, text, photo (Cloudinary link), who, st: open | fixed, fix (the fix it is about), ev (evidence saved) }
+$script:BookCache = @{}; $script:PDBookCur = $null
+function PD-H($o) { if ($null -eq $o) { return @{} }; if ($o -is [hashtable]) { return $o }; $h2 = @{}; foreach ($pp in $o.PSObject.Properties) { $h2[$pp.Name] = $pp.Value }; $h2 }
+function PD-BookLoad { $b = PD-ReadJson (Join-Path $PD.Root 'state\book.json'); $script:BookCache = @{}; if ($b -and $b.items) { foreach ($x in @($b.items)) { if ($x.id) { $script:BookCache[[string]$x.id] = (PD-H $x) } } } }
+function PD-BookSave {
+  $it = @($script:BookCache.Values | Sort-Object { -[int64]$_.t } | Select-Object -First 80)
+  PD-WriteJson (Join-Path $PD.Root 'state\book.json') @{ t = (PD-NowMs); online = [bool]$PD.Online; items = $it }
+}
+function PD-BookNew([string]$type, [hashtable]$e) {
+  $id = 'b' + (PD-NowMs) + (Get-Random -Minimum 10 -Maximum 99); $e.id = $id; $e.type = $type; if (!$e.t) { $e.t = PD-NowMs }
+  if ($null -ne $e.args) { $ah = PD-H $e.args; if ($ah.ContainsKey('pass')) { $ah.pass = '***' }; $e.args = $ah }   # passwords never go to DB5
+  if ($type -eq 'fix' -and !$e.cmd) { $cx = PD-FixCmd ([string]$e.fix) $e.args; $e.cmd = $cx.c; $e.undoCmd = $cx.u }
+  $e.u = PD-NowMs; PD-Db PUT ('lab/book/' + (PD-Hwid) + '/' + $id) $e | Out-Null; $script:BookCache[$id] = $e; PD-BookSave; $id
+}
+function PD-BookPatch([string]$id, [hashtable]$p) {
+  $p.u = PD-NowMs; PD-Db PATCH ('lab/book/' + (PD-Hwid) + '/' + $id) $p | Out-Null
+  $e = PD-H $script:BookCache[$id]; foreach ($k in $p.Keys) { $e[$k] = $p[$k] }; $e.id = $id; $script:BookCache[$id] = $e; PD-BookSave
+}
+PD-BookLoad
 # ---------- ↩ Undo for settings ----------
 function PD-Undo($u) {
   switch ($u.fix) {
@@ -288,6 +364,7 @@ function PD-Undo($u) {
     'smb_share'   { Set-SmbClientConfiguration -EnableInsecureGuestLogons ([bool]$u.old.guest) -Force -ErrorAction SilentlyContinue; 'sharing settings put back' }
     'startup_on'  { foreach ($k in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run') { $v = (Get-ItemProperty "$k-DavanOff" -ErrorAction SilentlyContinue).($u.name); if ($v) { Set-ItemProperty $k $u.name $v; Remove-ItemProperty "$k-DavanOff" $u.name } }; "startup item $($u.name) back on" }
     'rename'      { Rename-Computer -NewName $u.old -Force; "name back to $($u.old) at restart" }
+    'blank_pw_net' { Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' LimitBlankPasswordUse $(if ($null -eq $u.old) { 1 } else { [int]$u.old }) -Type DWord; 'other PCs need a password again (no-password logins blocked)' }
     default       { 'nothing to undo' }
   }
 }

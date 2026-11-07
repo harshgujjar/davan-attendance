@@ -353,3 +353,78 @@ function PD-Verdict([hashtable]$m) {
   $top = $hits[0]
   @{ lv = $top.lv; vk = $top.vk; v = $top.v; why = $top.why; conf = $top.conf; fix = $top.fix; all = @($hits | Select-Object -First 6) }
 }
+# 1.70 / 1.71 (user, 06-Nov-2026: "only NUTANANEW is not letting in"): the printer-SHARING side of this PC, read-only - command share_diag and the 🩺 evidence pack
+function PD-ShareDiag([double]$Hours = 3) {
+      $o = @(); $since = (Get-Date).AddHours(-[double]$Hours)
+      $rv = { param($k) try { $q = Get-ItemProperty $k -ErrorAction Stop; ($q.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | ForEach-Object { $_.Name + '=' + $_.Value }) -join ', ' } catch { '(none)' } }
+      $o += 'Windows: ' + (Get-CimInstance Win32_OperatingSystem).Caption + ' build ' + [Environment]::OSVersion.Version.Build + ' | name ' + $env:COMPUTERNAME
+      $o += 'Policies Printers: ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers')
+      $o += 'Policies Printers\RPC: ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC')
+      $o += 'Policies Printers\WPP (Protected Print): ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\WPP')
+      $o += 'Policies PointAndPrint: ' + (& $rv 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint')
+      $o += 'Control\Print: ' + (& $rv 'HKLM:\SYSTEM\CurrentControlSet\Control\Print')
+      $o += 'Spooler: ' + [string](Get-Service Spooler).Status + ' / ' + [string](Get-Service Spooler).StartType
+      foreach ($pr in @(Get-Printer -ErrorAction SilentlyContinue)) { $dv = Get-PrinterDriver -Name $pr.DriverName -ErrorAction SilentlyContinue
+        $o += 'Printer "' + $pr.Name + '" shared=' + $pr.Shared + ' share="' + $pr.ShareName + '" port=' + $pr.PortName + ' driver="' + $pr.DriverName + '" v' + $dv.MajorVersion + ' pkg=' + $dv.IsPackageAware + ' env=' + $dv.PrinterEnvironment + ' status=' + [string]$pr.PrinterStatus }
+      try { $sc = Get-SmbServerConfiguration -ErrorAction Stop; $o += 'SMB server: signReq=' + $sc.RequireSecuritySignature + ' encrypt=' + $sc.EncryptData + ' rejectUnenc=' + $sc.RejectUnencryptedAccess + ' smb2=' + $sc.EnableSMB2Protocol + ' nullPipes=' + ($sc.NullSessionPipes -join ';') + ' authRateLimiter=' + $sc.InvalidAuthenticationDelayTimeInMs } catch { $o += 'SMB server: ' + $_.Exception.Message }
+      $o += 'LanmanServer: ' + (& $rv 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters')
+      $o += 'Lsa: ' + ((& $rv 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa') -split ', ' | Where-Object { $_ -match '^(LimitBlankPasswordUse|everyoneincludesanonymous|restrictanonymous|restrictanonymoussam|forceguest|LmCompatibilityLevel|RunAsPPL|disabledomaincreds)=' }) -join ', '
+      try { foreach ($u in @(Get-LocalUser -ErrorAction Stop)) { $o += 'User "' + $u.Name + '" enabled=' + $u.Enabled + ' pwRequired=' + $u.PasswordRequired + ' pwSet=' + $(if ($u.PasswordLastSet) { $u.PasswordLastSet.ToString('dd MMM yyyy') } else { 'never' }) + ' msAccount=' + ($u.PrincipalSource -eq 'MicrosoftAccount') } } catch {}
+      $o += 'Logged-on user: ' + [string](Get-CimInstance Win32_ComputerSystem).UserName
+      $o += 'Network: ' + ((Get-NetConnectionProfile -ErrorAction SilentlyContinue | ForEach-Object { $_.InterfaceAlias + '=' + $_.NetworkCategory }) -join ', ')
+      $o += 'Firewall F&P Sharing: ' + ((Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' -Direction Inbound -ErrorAction SilentlyContinue | ForEach-Object { $_.DisplayName + '[' + $_.Profile + ':' + $_.Enabled + ']' }) -join '; ')
+      $o += 'Other firewall rules that BLOCK inbound: ' + ((Get-NetFirewallRule -Direction Inbound -Action Block -Enabled True -ErrorAction SilentlyContinue | Select-Object -First 15 | ForEach-Object { $_.DisplayName }) -join '; ')
+      try { $o += 'Firewall profiles: ' + ((Get-NetFirewallProfile | ForEach-Object { $_.Name + ' on=' + $_.Enabled + ' in=' + $_.DefaultInboundAction }) -join ', ') } catch {}
+      try { $o += 'Spooler listens on TCP: ' + ((Get-NetTCPConnection -State Listen -OwningProcess (Get-Process spoolsv).Id -ErrorAction Stop | ForEach-Object { $_.LocalPort }) -join ', ') } catch { $o += 'Spooler listens on TCP: none' }
+      try { $o += 'Third-party firewall / antivirus: ' + ((Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop | ForEach-Object { $_.displayName }) -join ', ') } catch {}
+      foreach ($q in @(@{ n = 'Failed logons (4625)'; f = @{ LogName = 'Security'; Id = 4625; StartTime = $since } }, @{ n = 'SMB server security'; f = @{ LogName = 'Microsoft-Windows-SMBServer/Security'; StartTime = $since } },
+                       @{ n = 'SMB server operational'; f = @{ LogName = 'Microsoft-Windows-SMBServer/Operational'; StartTime = $since; Level = 1,2,3 } }, @{ n = 'Print admin'; f = @{ LogName = 'Microsoft-Windows-PrintService/Admin'; StartTime = $since } },
+                       @{ n = 'Print operational'; f = @{ LogName = 'Microsoft-Windows-PrintService/Operational'; StartTime = $since; Level = 1,2,3 } })) {
+        $ev = @(Get-WinEvent -FilterHashtable $q.f -MaxEvents 8 -ErrorAction SilentlyContinue)
+        $o += $q.n + ': ' + $ev.Count + $(if ($ev.Count) { "`n   " + (($ev | ForEach-Object { $_.TimeCreated.ToString('HH:mm') + ' [' + $_.Id + '] ' + ((($_.Message -replace '\s+', ' ')).Substring(0, [math]::Min(330, ($_.Message -replace '\s+', ' ').Length))) }) -join "`n   ") } else { '' }) }
+  $o -join "`n"
+}
+# ---------- 🩺 Fixes (1.71, user, 07-Nov-2026: "when any of my PCs turns on, send only what is new / changed, not the whole log again") ----------
+# The settings that decide most office problems (sharing, printing, network, logins, security), as short text. The agent keeps the last copy;
+# only CHANGED keys go to DB5 (lab/chg/<hwid>), and lab/snap/<hwid> always holds the current values for the Console and Claude.
+function PD-Snap {
+  $v = [ordered]@{}
+  $rd = { param($k, $n) try { [string](Get-ItemProperty $k -Name $n -ErrorAction Stop).$n } catch { '' } }
+  try { $v.windows = [string](Get-CimInstance Win32_OperatingSystem).Caption + ' ' + [Environment]::OSVersion.Version.Build } catch {}
+  try { $v.network = ((Get-NetConnectionProfile -ErrorAction Stop | ForEach-Object { $_.InterfaceAlias + '=' + $_.NetworkCategory }) -join ', ') } catch {}
+  try { $v.ip = ((Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | Where-Object { $_.IPAddress -notmatch '^(127|169\.254)\.' } | ForEach-Object { $_.IPAddress }) -join ', ') } catch {}
+  try { $v.sharingRules = [string]@(Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' -Direction Inbound -ErrorAction Stop | Where-Object { $_.Enabled -eq 'True' -and $_.Profile -match 'Private|Any' }).Count + ' on (Private)' } catch {}
+  try { $v.firewall = ((Get-NetFirewallProfile -ErrorAction Stop | ForEach-Object { $_.Name + '=' + $_.Enabled }) -join ', ') } catch {}
+  try { $sp = Get-Service Spooler -ErrorAction Stop; $v.spooler = [string]$sp.Status + ' / ' + [string]$sp.StartType } catch {}
+  try { $v.printers = ((Get-Printer -ErrorAction Stop | Sort-Object Name | ForEach-Object { $_.Name + $(if ($_.Shared) { ' [shared as ' + $_.ShareName + ']' } else { '' }) + ' (' + $_.DriverName + ', ' + $_.PortName + ')' }) -join ' | ') } catch {}
+  try { $v.defaultPrinter = [string](Get-CimInstance Win32_Printer -Filter 'Default=True' -ErrorAction Stop | Select-Object -First 1).Name } catch {}
+  $v.printRpc = 'privacy=' + (& $rd 'HKLM:\SYSTEM\CurrentControlSet\Control\Print' 'RpcAuthnLevelPrivacyEnabled') + ' namedPipe=' + (& $rd 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC' 'RpcUseNamedPipeProtocol') + ' protocols=' + (& $rd 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC' 'RpcProtocols')
+  $v.driverInstallAdminOnly = & $rd 'HKLM:\Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint' 'RestrictDriverInstallationToAdministrators'
+  $v.blankPasswordNetworkBlocked = & $rd 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' 'LimitBlankPasswordUse'
+  try { $c = Get-SmbClientConfiguration -ErrorAction Stop; $v.smbClient = 'guest=' + $c.EnableInsecureGuestLogons + ' signReq=' + $c.RequireSecuritySignature } catch {}
+  try { $c = Get-SmbServerConfiguration -ErrorAction Stop; $v.smbServer = 'signReq=' + $c.RequireSecuritySignature + ' smb1=' + $c.EnableSMB1Protocol } catch {}
+  try { $v.shares = ((Get-SmbShare -ErrorAction Stop | Where-Object { $_.Name -notmatch '\$$' } | ForEach-Object { $_.Name + '=' + $_.Path }) -join ' | ') } catch {}
+  try { $v.users = ((Get-LocalUser -ErrorAction Stop | Where-Object Enabled | ForEach-Object { $_.Name + $(if (!$_.PasswordRequired) { ' (no password needed)' } else { '' }) }) -join ', ') } catch {}
+  try { $m = Get-MpComputerStatus -ErrorAction Stop; $v.defender = 'on=' + $m.AntivirusEnabled + ' realtime=' + $m.RealTimeProtectionEnabled } catch {}
+  try { $v.remoteAgent = [string](Get-Service 'Mesh Agent' -ErrorAction Stop).Status } catch { $v.remoteAgent = 'not installed' }
+  $v.pcDoctor = [string](PD-AgentVer)
+  $v.restartPending = [string]((Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'))
+  $v
+}
+# The evidence pack: saved at the moment somebody presses ❌ Still not working / 🆘 Report a problem, so the logs are on the server even when the PC
+# is switched off right after. Read-only. Errors of the last hours from Windows, printing, sharing, network, logins + the current settings.
+function PD-Evidence([double]$Hours = 2) {
+  $o = @('=== ' + $env:COMPUTERNAME + ' · ' + (PD-IST (PD-NowMs)) + ' · logged on: ' + [string](Get-CimInstance Win32_ComputerSystem).UserName + ' · PC Doctor ' + (PD-AgentVer))
+  $since = (Get-Date).AddHours(-$Hours)
+  try { $pc = PD-PrintCheck; $o += '--- printing: spooler ' + $pc.spooler + ', ' + $pc.stuck + ' stuck job(s), ' + $pc.err + ' error(s) ' + $pc.code; foreach ($x in @($pc.jobs)) { $o += '   job: ' + $x.prn + ' - ' + $x.doc + ' - ' + $x.st }; foreach ($x in @($pc.last)) { $o += '   ' + $x } } catch { $o += '--- printing: ' + $_.Exception.Message }
+  try { $nc = PD-NetCheck; $o += '--- network: gateway ' + $nc.gw + ' ' + $nc.gwMs + ' ms (loss ' + $nc.loss + '%), internet ' + $nc.netMs + ' ms, DNS ' + $nc.dnsMs + ' ms, profile ' + (@($nc.prof) -join ',') + ', sharing rules ' + $nc.fpsRules + ', saved logins: ' + (@($nc.creds) -join '; ') } catch { $o += '--- network: ' + $_.Exception.Message }
+  $o += '--- settings now:'; try { $sn = PD-Snap; foreach ($k in $sn.Keys) { $o += '   ' + $k + ': ' + $sn[$k] } } catch {}
+  $o += '--- sharing side (last ' + $Hours + ' h):'; try { $o += (PD-ShareDiag $Hours) } catch { $o += $_.Exception.Message }
+  foreach ($q in @(@{ n = 'System errors'; f = @{ LogName = 'System'; StartTime = $since; Level = 1,2 } }, @{ n = 'Application errors'; f = @{ LogName = 'Application'; StartTime = $since; Level = 1,2 } },
+                   @{ n = 'SMB client problems'; f = @{ LogName = 'Microsoft-Windows-SmbClient/Connectivity'; StartTime = $since } }, @{ n = 'Network profile changes'; f = @{ LogName = 'Microsoft-Windows-NetworkProfile/Operational'; StartTime = $since } })) {
+    $ev = @(Get-WinEvent -FilterHashtable $q.f -MaxEvents 12 -ErrorAction SilentlyContinue)
+    $o += '--- ' + $q.n + ': ' + $ev.Count
+    foreach ($e in $ev) { $mm = ([string]$e.Message -replace '\s+', ' '); $o += '   ' + $e.TimeCreated.ToString('dd MMM HH:mm') + ' [' + $e.ProviderName + ' ' + $e.Id + '] ' + $mm.Substring(0, [math]::Min(260, $mm.Length)) } }
+  $txt = $o -join "`n"; if ($txt.Length -gt 30000) { $txt = $txt.Substring(0, 30000) + "`n... (cut at 30000 characters)" }
+  $txt
+}

@@ -21,6 +21,8 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v26 (07-Nov-2026): 🩺 PC Doctor Fixes - pushes of kind fx<id> / pb<id> (a fix done / a problem reported) go to the 🔔 switch lab_fix, never held back by
+ *    the 6-hour gap (each fix / problem has its own kind); lab/cfg autoLoop = true -> a push every alert gap listing the problems that still wait.
  *  - v25 (05-Nov-2026): GET /lab/raw?p=lab-version.json | src/<file> - PC Doctor files through the worker for PCs that cannot reach raw.githubusercontent.com (the loader's 3rd road).
  *  - v24 (05-Nov-2026): POST /lab/cmd, /lab/cmdres, /lab/purge - the Super Admin laptop's tray sends clean / how-much / delete-old-history to lab PCs (laptop key + salap checked).
  *  - v23 (05-Nov-2026): PC identity - the placeholder BIOS UUIDs of cheap boards never count, and different MAC + different disks = a different PC (two identical lab PCs were merged).
@@ -698,7 +700,7 @@ async function labPc(env, b) {
   return { ok: true, hwid, key, known, name: pcs.name || name, merge, token: await mint5(env, 'pc_' + hwid, { pc: hwid }) };
 }
 // the staff app's 🔔 page switches (NOTIF_REGISTRY a:'stf' lab_*): DB2 davan_pub/notif_off/stf/<key> = true -> not sent
-const labNotifKey = k => /^(wide_)/.test(k) ? 'lab_wide' : /^(thaw)/.test(k) ? 'lab_thaw' : /^mesh/.test(k) ? 'lab_mesh' : k === 'rollback' ? 'lab_update' : k === 'sum' ? 'lab_sum' : 'lab_red';
+const labNotifKey = k => /^(fx|pb)/.test(k) ? 'lab_fix' : /^(wide_)/.test(k) ? 'lab_wide' : /^(thaw)/.test(k) ? 'lab_thaw' : /^mesh/.test(k) ? 'lab_mesh' : k === 'rollback' ? 'lab_update' : k === 'sum' ? 'lab_sum' : 'lab_red';
 async function labNotifOff(k) { try { return (await db2('GET', 'davan_pub/notif_off/stf/' + labNotifKey(k))) === true; } catch (e) { return false; } }
 async function labAlertSend(env, hwid, a, cfg, noGrid) {
   if (await labNotifOff(String(a.kind || ''))) return { ok: true, skipped: 'switched off on the 🔔 page' };
@@ -902,6 +904,12 @@ async function labHourly(env) {
   for (const [vk, list] of Object.entries(same)) if (list.length >= labN)
     alerts.push({ h: 'lab', kind: 'wide_' + vk.slice(0, 20), color: 'purple', title: '🟣 Lab-wide: ' + list.length + ' PCs - ' + vk.replace(/_/g, ' '), body: list.slice(0, 15).join(', ') + ' - check the network, server or a Windows update.' });
   if (cfg.alertsOn !== false) for (const a of alerts.slice(0, 3)) await labAlertSend(env, a.h, a, cfg, true).catch(() => {});   // free plan: 50 calls a run - at most 3 new alerts an hour (the rest come next hour)
+  // v26 🩺 Auto loop (Console switch, OFF by default): while problems wait, a push lists them (one per alert gap). Reads only the open problems of each PC.
+  if (cfg.autoLoop === true && cfg.alertsOn !== false) {   // lab/pcs/<h>.openProbs + openTitles are kept by each PC's agent and the Console (no extra reads here)
+    const open = [];
+    for (const [h, p] of Object.entries(pcs)) if (p && !p.old && +p.openProbs > 0) open.push(nm(h) + ': ' + (Array.isArray(p.openTitles) && p.openTitles.length ? p.openTitles.slice(0, 2).map(x => clip(x, 50)).join(', ') : p.openProbs + ' open'));
+    if (open.length) await labAlertSend(env, 'lab', { kind: 'pbsum', color: 'amber', title: '🩺 ' + open.length + ' PC' + (open.length === 1 ? ' has' : 's have') + ' open problems', body: open.slice(0, 10).join(' · ') + ' - open PC Doctor -> 🩺 Fixes, or ask Claude.' }, cfg, true).catch(() => {});
+  }
   // morning summary at lab/cfg sumHour (IST, default 9 -> the :35 tick = 9:35 am), once a day: counts + fixes of the last 24 h + ✨ AI paragraph
   const ist = new Date(now + 5.5 * 3600000), day = istDate(now);
   if (ist.getUTCHours() === (+cfg.sumHour || 9) && st.sumDay !== day) {

@@ -66,6 +66,207 @@ function NotesLoad { $f = "$Root\bin\notes.txt"
   try { $nTxt.Text = ((Get-Content $f -Raw -Encoding UTF8) -replace "`r?`n", "`r`n"); $nTxt.SelectionStart = 0; $nTxt.SelectionLength = 0 } catch {} }
 # ---------- ⬆️ Updates tab (user, 04-Nov-2026): Update now + this PC's version, when it came, what's new (5 newest, Show all / Hide) ----------
 $tUp = New-Object Windows.Forms.TabPage -Property @{ Text = '⬆ Updates'; BackColor = $CL.bg }; $tabs.TabPages.Add($tUp); $tabs.TabPages.Add($tNote)
+# ---------- 🩺 Fixes tab (1.71, user, 07-Nov-2026: "keep every fix of this PC on this PC and on the server - what we did, the command, the undo, did it work;
+# one click for the manager; he can say it is still not working (choices + words + photo); every new problem too") ----------
+# The list is state\book.json (written by the agent from DB5 lab/book/<hwid>), so it shows offline too. Every button sends a request file
+# (req\book*.json) - the agent (SYSTEM) does the work and saves it on the server; a saved login runs here (it belongs to the person logged in).
+# Photos go to Cloudinary (never into DB5): screenshot of this PC or a picture file. The same PC Doctor password opens the window.
+$tFx = New-Object Windows.Forms.TabPage -Property @{ Text = '🩺 Fixes'; BackColor = $CL.bg }; $tabs.TabPages.Add($tFx)
+$fxHead = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 8; Width = 420; Height = 22; Font = $FT.n; ForeColor = $CL.ac; Text = '🩺 Fixes for this PC' }
+$fxList = New-Object Windows.Forms.ListView -Property @{ Left = 12; Top = 70; Width = 420; Height = 210; View = 'Details'; FullRowSelect = $true; HideSelection = $false; MultiSelect = $false; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None' }
+foreach ($c0 in @(@('When', 92), @('What', 212), @('Status', 112))) { [void]$fxList.Columns.Add($c0[0], [int]($c0[1] * $DPIK)) }
+$fxInfo = New-Object Windows.Forms.TextBox -Property @{ Left = 12; Top = 286; Width = 420; Height = 150; Multiline = $true; ReadOnly = $true; ScrollBars = 'Vertical'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s; BorderStyle = 'None'; Text = 'Tap a line above to see what was done, the command, the undo and the result.' }
+$fxMsg = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 582; Width = 420; Height = 34; Font = $FT.s; ForeColor = $CL.ac }
+$tFx.Controls.AddRange(@($fxHead, $fxList, $fxInfo, $fxMsg))
+function FxBtn($t0, $x, $yy, $w, $on) { $b = New-Object Windows.Forms.Button -Property @{ Text = $t0; Left = $x; Top = $yy; Width = $w; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
+  $b.FlatAppearance.BorderColor = $CL.bd; $b.Add_Click($on); $tFx.Controls.Add($b); $b }
+$fxRep = FxBtn '🆘 Report a problem' 12 34 206 { FxAsk 'report' $null }
+$fxRep.BackColor = $CL.ac; $fxRep.ForeColor = [Drawing.Color]::Black
+$null = FxBtn '⟳ Refresh' 226 34 206 { try { Set-Content "$Rq\refresh.flag" '1' } catch {}; $script:fxAt = 0; FxLoad; $fxMsg.Text = 'Asked PC Doctor for the newest list - it comes within about 15 s.' }
+$fxRun = FxBtn '▶ Fix now' 12 442 136 { FxRun }
+$fxOk = FxBtn '✅ Worked' 154 442 136 { FxFeedback $true }
+$fxNot = FxBtn '❌ Still not working' 296 442 136 { FxAsk 'not' (FxSel) }
+$fxUndo = FxBtn '↩ Undo' 12 476 136 { FxUndo }
+$fxCp = FxBtn '📋 Copy command' 154 476 136 { $e = FxSel; if ($e -and $e.cmd) { try { [Windows.Forms.Clipboard]::SetText([string]$e.cmd); $fxMsg.Text = '📋 Command copied - paste it in PowerShell (as admin), or in Command Prompt for a saved login.' } catch {} } }
+$fxCpU = FxBtn '📋 Copy undo' 296 476 136 { $e = FxSel; if ($e -and $e.undoCmd) { try { [Windows.Forms.Clipboard]::SetText([string]$e.undoCmd); $fxMsg.Text = '📋 Undo command copied.' } catch {} } }
+$fxSolved = FxBtn '✅ Problem solved' 12 510 136 { FxSolved }
+$fxCpAll = FxBtn '📋 Copy all details' 154 510 136 { try { [Windows.Forms.Clipboard]::SetText($fxInfo.Text); $fxMsg.Text = '📋 Details copied.' } catch {} }
+$null = FxBtn '📋 Copy whole list' 296 510 136 { try { [Windows.Forms.Clipboard]::SetText((FxAllText)); $fxMsg.Text = '📋 Whole list copied.' } catch {} }
+$script:fxAt = 0; $script:fxItems = @{}
+function FxStatus($e) {
+  if ($e.type -eq 'prob') { if ($e.st -eq 'fixed') { return '✅ solved' }; return '🆘 open' }
+  if ($e.user -eq 'worked') { return '✅ worked' }
+  if ($e.user -eq 'not') { return '❌ not working' }
+  switch ([string]$e.st) { 'wait' { '⏳ waits for OK' } 'ready' { if ([string]$e.need -in '', 'auto') { '⏳ runs by itself' } else { '👉 press ▶ Fix now' } } 'running' { '⚙️ running' }
+    'done' { if ($e.chk -and !$e.chk.ok) { '⚠️ check failed' } else { '✅ done' } } 'failed' { '❌ failed' } 'thaw' { '🧊 needs Thawed' } 'undo' { '↩ undo asked' } 'undone' { '↩ undone' } default { [string]$e.st } }
+}
+function FxTodo($e) { ($e.type -eq 'fix' -and (($e.st -eq 'ready' -and [string]$e.need -notin '', 'auto') -or ($e.st -eq 'undo' -and $e.need -eq 'user'))) -or ($e.type -eq 'prob' -and $e.st -eq 'open') }
+function FxSel { if (!$fxList.SelectedItems.Count) { return $null }; $script:fxItems[[string]$fxList.SelectedItems[0].Tag] }
+function FxDetail($e) {
+  if (!$e) { return '' }
+  $o = @(([string]$e.title), ('Status: ' + (FxStatus $e)), ('When: ' + (IST $e.t) + $(if ($e.by) { '  ·  by ' + $e.by } elseif ($e.who) { '  ·  by ' + $e.who } else { '' })))
+  if ($e.type -eq 'prob') {
+    if ($e.cat) { $o += 'Kind: ' + $e.cat }; if ($e.choice) { $o += 'Answer: ' + $e.choice }; if ($e.text) { $o += 'Words: ' + $e.text }; if ($e.photo) { $o += 'Photo: ' + $e.photo }
+    if ($e.fix -and $script:fxItems[[string]$e.fix]) { $o += 'About the fix: ' + $script:fxItems[[string]$e.fix].title }
+    $o += 'Logs saved for the Super Admin: ' + $(if ($e.ev) { 'yes' } else { 'being saved…' })
+    if ($e.closedAt) { $o += 'Solved: ' + (IST $e.closedAt) + ' by ' + $e.closedBy }
+  } else {
+    if ($e.why) { $o += 'Why: ' + $e.why }
+    $o += 'Who does it: ' + $(switch ([string]$e.need) { 'person' { 'a person presses ▶ Fix now here' } 'user' { 'the person logged in presses ▶ Fix now (it is their own login)' } default { 'PC Doctor, by itself, as soon as this PC is on' } })
+    if ($e.res) { $o += 'Result: ' + $e.res.txt + '  (' + (IST $e.res.t) + $(if ($e.runBy) { ', ' + $e.runBy } else { '' }) + ')' }
+    if ($e.chk) { $o += 'Check: ' + $(if ($e.chk.ok) { '✅ ' } else { '⚠️ ' }) + $e.chk.txt }
+    if ($e.user) { $o += 'Person says: ' + $(if ($e.user -eq 'worked') { '✅ worked' } else { '❌ still not working' }) + ' (' + $e.userWho + ', ' + (IST $e.userAt) + ')' }
+    if ($e.undoRes) { $o += 'Undo: ' + $e.undoRes + ' (' + (IST $e.undoAt) + ')' }
+    if ($e.cmd) { $o += ''; $o += 'Command: ' + $e.cmd }
+    if ($e.undoCmd) { $o += 'Undo command: ' + $e.undoCmd }
+    $pr = @($script:fxItems.Values | Where-Object { $_.type -eq 'prob' -and [string]$_.fix -eq [string]$e.id })
+    foreach ($x in $pr) { $o += ''; $o += '❌ ' + (IST $x.t) + ' ' + $x.who + ': ' + $x.choice + $(if ($x.text) { ' - ' + $x.text } else { '' }) }
+  }
+  $o -join "`r`n"
+}
+function FxAllText { $o = @('PC Doctor 🩺 Fixes - ' + $env:COMPUTERNAME + ' - ' + (IST ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()))); foreach ($e in @($script:fxItems.Values | Sort-Object { -[int64]$_.t })) { $o += ''; $o += (FxDetail $e) }; $o -join "`r`n" }
+function FxButtons {
+  $e = FxSel; $isF = $e -and $e.type -eq 'fix'
+  $fxRun.Enabled = [bool]($isF -and $e.st -in 'ready', 'failed')
+  $fxOk.Enabled = [bool]($isF -and $e.st -in 'done', 'thaw' -and $e.user -ne 'worked')
+  $fxNot.Enabled = [bool]($isF -and $e.st -in 'done', 'failed', 'thaw')
+  $fxUndo.Enabled = [bool]($isF -and (($e.st -in 'done', 'thaw' -and ($e.undo -or $e.need -eq 'user')) -or ($e.st -eq 'undo' -and $e.need -eq 'user')))
+  $fxCp.Enabled = [bool]($isF -and $e.cmd); $fxCpU.Enabled = [bool]($isF -and $e.undoCmd)
+  $fxSolved.Enabled = [bool]($e -and $e.type -eq 'prob' -and $e.st -eq 'open'); $fxCpAll.Enabled = [bool]$e
+}
+function FxLoad {
+  $b = J 'book.json'; if (!$b) { $fxHead.Text = '🩺 Fixes for ' + $env:COMPUTERNAME + ' - nothing yet'; FxButtons; return }
+  if ([int64]$b.t -eq [int64]$script:fxAt) { return }; $script:fxAt = [int64]$b.t
+  $keep = if ($fxList.SelectedItems.Count) { [string]$fxList.SelectedItems[0].Tag } else { '' }
+  $script:fxItems = @{}; foreach ($x in @($b.items)) { if ($x -and $x.id) { $script:fxItems[[string]$x.id] = $x } }
+  $all = @($script:fxItems.Values | Sort-Object @{ e = { if (FxTodo $_) { 0 } else { 1 } } }, @{ e = { -[int64]$_.t } })
+  $fxList.BeginUpdate(); $fxList.Items.Clear()
+  foreach ($e in $all) { $it = New-Object Windows.Forms.ListViewItem((IST $e.t) -replace ' IST$', ''); $it.Tag = [string]$e.id
+    [void]$it.SubItems.Add($(if ($e.type -eq 'prob') { '🆘 ' } else { '' }) + [string]$e.title); [void]$it.SubItems.Add((FxStatus $e)); $it.UseItemStyleForSubItems = $false
+    $st0 = FxStatus $e; $it.SubItems[2].ForeColor = $(if ($st0 -match '^(✅)') { $CL.ok } elseif ($st0 -match '^(❌|🆘)') { $CL.er } elseif ($st0 -match '^(👉|⚠️)') { $CL.wa } else { $CL.mu })
+    if (FxTodo $e) { $it.SubItems[1].ForeColor = $CL.ac }
+    [void]$fxList.Items.Add($it); if ($it.Tag -eq $keep) { $it.Selected = $true } }
+  $fxList.EndUpdate()
+  $nTodo = @($all | Where-Object { FxTodo $_ }).Count; $nOpen = @($all | Where-Object { $_.type -eq 'prob' -and $_.st -eq 'open' }).Count
+  $fxHead.Text = '🩺 ' + $env:COMPUTERNAME + ' - ' + $(if ($nTodo) { [string]$nTodo + ' to do' } else { 'nothing to do' }) + $(if ($nOpen) { ' · ' + $nOpen + ' open problem' + $(if ($nOpen -ne 1) { 's' } else { '' }) } else { '' }) + $(if (!$b.online) { ' · offline (saved, sent later)' } else { '' })
+  $tFx.Text = $(if ($nTodo) { '🩺 Fixes (' + $nTodo + ')' } else { '🩺 Fixes' })
+  $fxInfo.Text = $(if ($fxList.SelectedItems.Count) { FxDetail (FxSel) } elseif ($all.Count) { 'Tap a line above to see what was done, the command, the undo and the result.' } else { 'No fixes yet. When something is not working, press 🆘 Report a problem - the Super Admin gets it at once, with this PC''s logs.' })
+  FxButtons
+}
+$fxList.Add_SelectedIndexChanged({ try { $fxInfo.Text = FxDetail (FxSel); FxButtons } catch {} })
+function FxWho { try { $f = "$env:LOCALAPPDATA\DavanPCDoctor\who.txt"; if (Test-Path $f) { return ([string](Get-Content $f -Raw)).Trim() } } catch {}; [string]$env:USERNAME }
+function FxWhoSave([string]$n) { try { New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\DavanPCDoctor" | Out-Null; Set-Content "$env:LOCALAPPDATA\DavanPCDoctor\who.txt" $n } catch {} }
+function FxSend($o) { W ('book' + [DateTime]::UtcNow.Ticks + '.json') $o }
+try { Add-Type -ErrorAction Stop -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+namespace PDC { public static class Cred {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct CREDENTIAL { public int Flags; public int Type; public string TargetName; public string Comment; public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten; public int CredentialBlobSize; public IntPtr CredentialBlob; public int Persist; public int AttributeCount; public IntPtr Attributes; public string TargetAlias; public string UserName; }
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool CredWriteW(ref CREDENTIAL c, int flags);
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool CredDeleteW(string t, int type, int flags);
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool CredReadW(string t, int type, int flags, out IntPtr c);
+  [DllImport("advapi32.dll")] static extern void CredFree(IntPtr p);
+  public static int Add(string target, string user, string pass) { CREDENTIAL c = new CREDENTIAL(); c.Type = 2; c.TargetName = target; c.UserName = user; c.Persist = 2;
+    byte[] b = System.Text.Encoding.Unicode.GetBytes(pass ?? ""); c.CredentialBlobSize = b.Length; c.CredentialBlob = IntPtr.Zero;
+    if (b.Length > 0) { c.CredentialBlob = Marshal.AllocHGlobal(b.Length); Marshal.Copy(b, 0, c.CredentialBlob, b.Length); }
+    bool ok = CredWriteW(ref c, 0); int e = ok ? 0 : Marshal.GetLastWin32Error(); if (c.CredentialBlob != IntPtr.Zero) Marshal.FreeHGlobal(c.CredentialBlob); return e; }
+  public static bool Has(string target) { IntPtr p; if (!CredReadW(target, 2, 0, out p)) return false; CredFree(p); return true; }
+  public static int Del(string target) { return CredDeleteW(target, 2, 0) ? 0 : Marshal.GetLastWin32Error(); } } }
+'@ } catch {}
+# need user (a saved login for a sharing PC): runs HERE, in the person's own Windows login. The password is typed on this PC and never leaves it.
+function FxUserRun($e) {
+  if ([string]$e.fix -ne 'save_login') { $fxMsg.Text = 'This fix has no one-click version for the user yet.'; return }
+  $hst = [string]$e.args.host; $usr = [string]$e.args.user; if (!$hst -or !$usr) { $fxMsg.Text = 'The fix has no PC name / user - ask the Super Admin.'; return }
+  $f = New-Object Windows.Forms.Form -Property @{ Text = '🔑 Save the login for ' + $hst; Width = 360; Height = 220; StartPosition = 'CenterScreen'; BackColor = $CL.bg; ForeColor = $CL.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
+  $l = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 10; Width = 320; Height = 44; Font = $FT.s; Text = "This PC will log in to $hst as $usr (for its printers / folders). Type that password - it stays on this PC." }
+  $nb = New-Object Windows.Forms.CheckBox -Property @{ Left = 12; Top = 58; Width = 320; Font = $FT.s; Text = 'That account has no password'; Checked = [bool]$e.args.blank }
+  $tb = New-Object Windows.Forms.TextBox -Property @{ Left = 12; Top = 86; Width = 320; UseSystemPasswordChar = $true; Font = $FT.n; Enabled = ![bool]$e.args.blank }
+  $nb.Add_CheckedChanged({ $tb.Enabled = !$nb.Checked; if ($nb.Checked) { $tb.Text = '' } })
+  $ok = New-Object Windows.Forms.Button -Property @{ Text = 'Save login'; Left = 222; Top = 124; Width = 110; Height = 30; DialogResult = 'OK'; FlatStyle = 'Flat'; BackColor = $CL.ac; ForeColor = [Drawing.Color]::Black }
+  $f.Controls.AddRange(@($l, $nb, $tb, $ok)); $f.AcceptButton = $ok; Sharp $f
+  if ($f.ShowDialog() -ne 'OK') { return }
+  $pw = if ($nb.Checked) { '' } else { $tb.Text }
+  $err = try { [PDC.Cred]::Add($hst, $usr, $pw) } catch { -1 }
+  $has = try { [PDC.Cred]::Has($hst) } catch { $false }
+  $txt = if ($err -eq 0 -and $has) { "Login for $hst saved ($usr) for Windows user $env:USERNAME. Sign out and back in (or restart), then open \\$hst and double-click the printer." } else { "Could not save the login (error $err)." }
+  FxSend @{ op = 'result'; id = [string]$e.id; ok = ($err -eq 0 -and $has); txt = $txt; who = (FxWho); chk = @{ ok = [bool]$has; txt = $(if ($has) { "Windows has a saved login for $hst" } else { "No saved login for $hst" }) } }
+  $fxMsg.Text = $(if ($err -eq 0 -and $has) { '✅ ' } else { '❌ ' }) + $txt
+}
+function FxRun {
+  $e = FxSel; if (!$e -or $e.type -ne 'fix') { return }
+  if ($e.need -eq 'user') { FxUserRun $e; return }
+  if ([Windows.Forms.MessageBox]::Show("Run now on this PC?`r`n`r`n" + [string]$e.title + $(if ($e.why) { "`r`n`r`nWhy: " + $e.why } else { '' }), 'PC Doctor - ▶ Fix now', 'YesNo', 'Question') -ne 'Yes') { return }
+  FxSend @{ op = 'run'; id = [string]$e.id; who = (FxWho) }
+  $fxMsg.Text = '▶ Sent - PC Doctor runs it within about 15 s; the result shows here and the Super Admin gets it.'
+}
+function FxFeedback([bool]$good) {
+  $e = FxSel; if (!$e) { return }
+  FxSend @{ op = 'fb'; id = [string]$e.id; ok = $good; who = (FxWho) }
+  $fxMsg.Text = '✅ Thank you - saved. The Super Admin gets it now and the problem is closed.'
+}
+function FxSolved { $e = FxSel; if (!$e -or $e.type -ne 'prob') { return }
+  if ([Windows.Forms.MessageBox]::Show('Is this problem solved now?', 'PC Doctor', 'YesNo', 'Question') -ne 'Yes') { return }
+  FxSend @{ op = 'solved'; id = [string]$e.id; who = (FxWho) }; $fxMsg.Text = '✅ Marked solved - the Super Admin gets it now.' }
+function FxUndo {
+  $e = FxSel; if (!$e -or $e.type -ne 'fix') { return }
+  if ([Windows.Forms.MessageBox]::Show("Undo this fix on this PC?`r`n`r`n" + [string]$e.title, 'PC Doctor - ↩ Undo', 'YesNo', 'Question') -ne 'Yes') { return }
+  if ($e.need -eq 'user' -and [string]$e.fix -eq 'save_login') { $hst = [string]$e.args.host; $r0 = try { [PDC.Cred]::Del($hst) } catch { -1 }
+    FxSend @{ op = 'undone'; id = [string]$e.id; who = (FxWho); txt = $(if ($r0 -eq 0) { "Saved login for $hst removed (Windows user $env:USERNAME)" } else { "No saved login for $hst to remove (code $r0)" }) }
+    $fxMsg.Text = '↩ Done - the saved login for ' + $hst + ' is removed.'; return }
+  FxSend @{ op = 'undo'; id = [string]$e.id; who = (FxWho) }; $fxMsg.Text = '↩ Sent - PC Doctor puts it back within about 15 s.'
+}
+function FxShot {
+  $vs = [Windows.Forms.SystemInformation]::VirtualScreen; $bm = New-Object Drawing.Bitmap $vs.Width, $vs.Height; $gr = [Drawing.Graphics]::FromImage($bm); $gr.CopyFromScreen($vs.Left, $vs.Top, 0, 0, $bm.Size); $gr.Dispose()
+  if ($bm.Width -gt 1920) { $k = 1920 / $bm.Width; $b2 = New-Object Drawing.Bitmap $bm, ([int]($bm.Width * $k)), ([int]($bm.Height * $k)); $bm.Dispose(); $bm = $b2 }
+  $out = Join-Path $env:TEMP ('pcdoctor-shot-' + [DateTime]::Now.Ticks + '.jpg')
+  $enc = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+  $ep = New-Object Drawing.Imaging.EncoderParameters 1; $ep.Param[0] = New-Object Drawing.Imaging.EncoderParameter ([Drawing.Imaging.Encoder]::Quality), ([int64]70)
+  $bm.Save($out, $enc, $ep); $bm.Dispose(); $out
+}
+# Cloudinary (the same account as the staff app's photos; names in DB5 lab/cfg cloudinary {cloud, preset} - a change needs no new tray)
+function FxUpload([string]$file) {
+  $cfg = J 'cfg.json'; $cl = if ($cfg -and $cfg.cloudinary -and $cfg.cloudinary.cloud) { [string]$cfg.cloudinary.cloud } else { 'dat0khbet' }; $pre = if ($cfg -and $cfg.cloudinary -and $cfg.cloudinary.preset) { [string]$cfg.cloudinary.preset } else { 'davan_students' }
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+  Add-Type -AssemblyName System.Net.Http
+  $hc = New-Object Net.Http.HttpClient; $hc.Timeout = [TimeSpan]::FromSeconds(90)
+  $mp = New-Object Net.Http.MultipartFormDataContent
+  $bc = New-Object Net.Http.ByteArrayContent (, [IO.File]::ReadAllBytes($file)); $bc.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::Parse($(if ($file -match '\.png$') { 'image/png' } else { 'image/jpeg' }))
+  $mp.Add($bc, 'file', [IO.Path]::GetFileName($file)); $mp.Add((New-Object Net.Http.StringContent($pre)), 'upload_preset'); $mp.Add((New-Object Net.Http.StringContent('pcdoctor_' + $env:COMPUTERNAME)), 'tags')
+  $rs = $hc.PostAsync("https://api.cloudinary.com/v1_1/$cl/image/upload", $mp).Result; $tx = $rs.Content.ReadAsStringAsync().Result; $hc.Dispose()
+  $j = $tx | ConvertFrom-Json; if (!$j.secure_url) { throw ('Cloudinary: ' + $tx.Substring(0, [math]::Min(160, $tx.Length))) }; [string]$j.secure_url
+}
+# ❌ Still not working (about a fix) / 🆘 Report a problem: tap a choice, optional words, optional photo, your name -> the agent saves it on the server,
+# saves this PC's logs (evidence pack) and the Super Admin gets a push at once. Offline: kept and sent when the internet is back.
+function FxAsk([string]$mode, $e) {
+  if ($mode -eq 'not' -and !$e) { return }
+  $ch = if ($mode -eq 'not') { @('Same error as before', 'A different error now', 'Works sometimes, not always', 'Worked, but something else broke') } else { @('Printer', 'Internet / network', 'Slow', 'Will not start / restarts by itself', 'A program will not open', 'Sound / screen', 'Other') }
+  $f = New-Object Windows.Forms.Form -Property @{ Text = $(if ($mode -eq 'not') { '❌ Still not working' } else { '🆘 Report a problem' }); Width = 400; Height = 300 + 26 * $ch.Count; StartPosition = 'CenterScreen'; BackColor = $CL.bg; ForeColor = $CL.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
+  $hd = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 8; Width = 360; Height = 34; Font = $FT.s; ForeColor = $CL.ac; Text = $(if ($mode -eq 'not') { 'After: ' + [string]$e.title } else { 'What is not working on ' + $env:COMPUTERNAME + '?' }) }
+  $f.Controls.Add($hd); $yy = 44; $rb = @()
+  foreach ($c1 in $ch) { $r = New-Object Windows.Forms.RadioButton -Property @{ Left = 16; Top = $yy; Width = 350; Height = 24; Text = $c1; Font = $FT.s; ForeColor = $CL.tx }; $f.Controls.Add($r); $rb += $r; $yy += 26 }
+  $rb[0].Checked = $true
+  $f.Controls.Add((New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $yy + 4; Width = 360; Font = $FT.s; ForeColor = $CL.mu; Text = 'Details / the error words (optional)' }))
+  $tx = New-Object Windows.Forms.TextBox -Property @{ Left = 12; Top = $yy + 26; Width = 360; Height = 54; Multiline = $true; Font = $FT.s }; $f.Controls.Add($tx)
+  $f.Controls.Add((New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $yy + 88; Width = 90; Font = $FT.s; ForeColor = $CL.mu; Text = 'Your name' }))
+  $wn = New-Object Windows.Forms.TextBox -Property @{ Left = 104; Top = $yy + 85; Width = 268; Font = $FT.s; Text = (FxWho) }; $f.Controls.Add($wn)
+  $script:fxPhoto = ''
+  $pl = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = $yy + 152; Width = 360; Font = $FT.s; ForeColor = $CL.mu; Text = 'No photo (optional)' }
+  $bs = New-Object Windows.Forms.Button -Property @{ Text = '📷 Screenshot'; Left = 12; Top = $yy + 116; Width = 176; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
+  $bp = New-Object Windows.Forms.Button -Property @{ Text = '📁 Picture file…'; Left = 196; Top = $yy + 116; Width = 176; Height = 30; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.s }
+  $bs.Add_Click({ try { $f.Opacity = 0; $form.Opacity = 0; [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 700; $script:fxPhoto = FxShot } catch { $pl.Text = 'Screenshot failed: ' + $_.Exception.Message } finally { $f.Opacity = 1; $form.Opacity = 1 }
+    if ($script:fxPhoto) { $pl.Text = '📷 Screenshot of this screen added'; $pl.ForeColor = $CL.ok } })
+  $bp.Add_Click({ $od = New-Object Windows.Forms.OpenFileDialog -Property @{ Filter = 'Pictures|*.jpg;*.jpeg;*.png'; Title = 'Choose a picture of the problem' }; if ($od.ShowDialog() -eq 'OK') { $script:fxPhoto = $od.FileName; $pl.Text = '📁 ' + [IO.Path]::GetFileName($od.FileName); $pl.ForeColor = $CL.ok } })
+  $ok = New-Object Windows.Forms.Button -Property @{ Text = 'Send'; Left = 262; Top = $yy + 180; Width = 110; Height = 32; DialogResult = 'OK'; FlatStyle = 'Flat'; BackColor = $CL.ac; ForeColor = [Drawing.Color]::Black }
+  $cn = New-Object Windows.Forms.Button -Property @{ Text = 'Cancel'; Left = 146; Top = $yy + 180; Width = 110; Height = 32; DialogResult = 'Cancel'; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx }
+  $f.Controls.AddRange(@($bs, $bp, $pl, $ok, $cn)); $f.CancelButton = $cn; Sharp $f
+  if ($f.ShowDialog() -ne 'OK') { return }
+  $pick = ($rb | Where-Object Checked | Select-Object -First 1).Text; $who = $wn.Text.Trim(); if (!$who) { $who = [string]$env:USERNAME }; FxWhoSave $who
+  $url = ''; $note = ''
+  if ($script:fxPhoto) { $fxMsg.Text = '📤 Sending the photo…'; [Windows.Forms.Application]::DoEvents()
+    try { $url = FxUpload $script:fxPhoto } catch { $note = ' (the photo could not be sent: ' + $_.Exception.Message + ' - the report went without it)' } }
+  if ($mode -eq 'not') { FxSend @{ op = 'fb'; id = [string]$e.id; ok = $false; choice = $pick; text = $tx.Text.Trim(); photo = $url; who = $who } }
+  else { FxSend @{ op = 'report'; cat = $pick; choice = ''; text = $tx.Text.Trim(); photo = $url; who = $who } }
+  $fxMsg.Text = '✅ Sent - the Super Admin gets it now, with this PC''s logs.' + $note
+}
 $uVer = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 10; Width = 420; Height = 26; Font = $FT.big; ForeColor = $CL.ac; Text = 'PC Doctor' }
 $uWhen = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 40; Width = 420; Height = 40; Font = $FT.s; ForeColor = $CL.mu }
 $uUsb = New-Object Windows.Forms.Button -Property @{ Text = 'Update from pendrive'; Left = 220; Top = 84; Width = 212; Height = 32; FlatStyle = 'Flat'; BackColor = $CL.card; ForeColor = $CL.tx; Font = $FT.n }
@@ -428,14 +629,15 @@ function SelfUpdate { $b = TrayId
     $ni.Visible = $false; try { $mtx.ReleaseMutex(); $mtx.Dispose() } catch {}
     if (Test-Path "$Root\tray-start.vbs") { Start-Process wscript.exe -ArgumentList ("`"$Root\tray-start.vbs`" " + $(if ($show) { '/show' } else { '/now' })) } else { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`"" }
     [Environment]::Exit(0) } }
-$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}; try { if (!$tp.Enabled) { $pp = J 'updp.json'; if ($pp -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$pp.t) -lt 300000) { $tp.Start() } } } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
-try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}
+$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}; try { FxLoad } catch {}; try { if (!$tp.Enabled) { $pp = J 'updp.json'; if ($pp -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$pp.t) -lt 300000) { $tp.Start() } } } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
+try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}; try { FxLoad } catch {}
 Sharp $form; Corner
 if ($args -contains '-show') { OpenWin }
 # Windows test (GitHub runner): draw every tab + the "Show me this PC" pop-up into PNG files (PDT_OUT) so the layout can be LOOKED AT before a release
 if ($args -contains '-selftest') {
   $out = $env:PDT_OUT; New-Item -ItemType Directory -Force $out | Out-Null; $script:unlocked = $true
   $form.StartPosition = 'Manual'; $form.Left = 10; $form.Top = 10; $form.Show(); [Windows.Forms.Application]::DoEvents()
+  try { FxLoad; if ($fxList.Items.Count) { $fxList.Items[0].Selected = $true } } catch { Set-Content "$out\error-fixes.txt" ($_ | Out-String) }
   try { Refresh } catch { Set-Content "$out\error-refresh.txt" ($_ | Out-String) }; try { UpdRefresh } catch { Set-Content "$out\error-upd.txt" ($_ | Out-String) }; [Windows.Forms.Application]::DoEvents()
   function Shot([Windows.Forms.Control]$c, [string]$name) { try { $b = New-Object Drawing.Bitmap $c.Width, $c.Height; $c.DrawToBitmap($b, (New-Object Drawing.Rectangle 0, 0, $c.Width, $c.Height)); $b.Save("$out\$name.png", [Drawing.Imaging.ImageFormat]::Png); $b.Dispose() } catch { Set-Content "$out\error-$name.txt" ($_ | Out-String) } }
   foreach ($tp0 in @($tabs.TabPages)) { $tabs.SelectedTab = $tp0; [Windows.Forms.Application]::DoEvents(); Shot $form ('tab-' + ($tp0.Text -replace '[^A-Za-z0-9]', '')) }

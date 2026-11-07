@@ -2,6 +2,11 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2002 · 07-Nov-2026 IST
+User: "push notifications from widget or PWA are okay" for the new PC Doctor 🩺 Fixes. New 🔔 registry row lab_fix (Super Admin, ON by default, switch DB2
+davan_pub/notif_off/stf/lab_fix, read by worker v26): a push when a fix queued for a PC ran (result + its own check), or the person at a PC pressed
+🆘 Report a problem / ❌ Still not working / ✅ Worked. No new DB1/DB2 reads. Pairs with Agent 1.71 / tray 1.45, Console build 20, worker v26. Functions: NOTIF_REGISTRY.
+
 ## v2001 · 06-Nov-2026 IST
 User: "why can't you block the widget also till they update - make it for students also". Staff: stwPublish gives staff widgets below staff_widget_min.webFloor (362) one "⛔ UPDATE THIS WIDGET" class a day instead of their classes (DB2 davan_pub/staff_pub/fac/<key>; the real node kept in fac_real/<key>, list in fac_stub); stfUnstub / the worker (v21, hourly) put it back once updated. Students: stuWidgetLatestRaise sets student_widget_latest.minApkVersion to the worker's davan_pub/wupd_minblock (🤖 Auto = newest public build out for the soft days, 🔴 Hard = public build, else 133) - every student widget since w109 then shows its built-in "⬆ UPDATE NEEDED". 1 extra read per publish / admin login. Functions: stwPublish, stfUnstub (new), stfWebLock, stuWidgetLatestRaise, gswMinShow, gswStuMinShow; worker wupdHourly.
 
