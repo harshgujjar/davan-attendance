@@ -64,6 +64,13 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
 - Not phone-tested. wupd_idx is empty until the first 6:05 pm run (the student app then uses only this phone's own widget link).
 - Survey tools (read only): davan-scraper Actions -> Widget stats. No class-teacher option (user).
 
+## ⏳ QUEUED for the NEXT staff widget build (user, 07-Nov-2026: "keep in mind while building the next fix on the widget - add this also; not now")
+- Staff widget SaEv (☁️ Super Admin alerts on the phone): a tap on the alert's notification must open the alert's own `link` (davan_pub/sa_ev/<key>.link),
+  like the PWA does from v2003 (saOpen(key) / saFollow): `lab.html#fixes=<pc>` / `#autofix` / `#pc=<pc>` -> open the PC Doctor Console at that spot
+  (in-app browser / the staff app `index.html?go=pcdoctor` + that hash, or lab.html in the browser); `index.html?go=<panel>` -> the staff app page;
+  a GitHub run URL -> the browser; no link -> the ☁️ alerts list as now. Same for the 🩺 pushes (kinds fx / pb / cm, 🔔 lab_fix) and the amber
+  "waiting for your OK" pushes. Build it WITH the next staff widget change, test on page 2 rule n/a (Super Admin only), add to BuildInfo.NEWS.
+
 ## 🔐 Native widget login + queued widget builds - PLAN ONLY (user, 24-Oct-2026: "keep it .md, we ll discuss later") - read ROADMAP-native-login.md
 - Built this session: portal v11.99 only (admin-view popup: Cancel = link as that student). Everything else in the roadmap waits for the user.
 - 30-Oct-2026: staff widget native login DEFERRED by the user (plan + options in ROADMAP-native-login.md section 5). Do not build until asked.
