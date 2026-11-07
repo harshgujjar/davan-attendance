@@ -2,7 +2,7 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
-- 07-Nov-2026 · Agent 1.76 / Console 1.22 -- "Truly no password": Windows 11 refuses a GUEST printer install (0x40 / 0x709 - the printer service needs a real login),
+- 07-Nov-2026 · Agent 1.77 / Console 1.22 -- "Truly no password": Windows 11 refuses a GUEST printer install (0x40 / 0x709 - the printer service needs a real login),
   so two new one-click fixes: driver_share (on the sharing PC: each shared printer's driver package -> ProgramData\DavanPCDoctor\drivers-share + manifest.json, shared
   read-only as PCDoctor-Drivers, ↩ undo = share off) and printer_guest (on the other PCs: driver from \\PC\PCDoctor-Drivers, then a printer "<share> (<PC>)" whose port is
   \\PC\<printer share> - prints straight to the shared printer as a guest, no password; ↩ undo removes those printers). Both with PD-Verify. Windows test: shares Microsoft

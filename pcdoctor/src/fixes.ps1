@@ -297,6 +297,15 @@ function Fix-blank_pw_net($a) {
 function Fix-save_login($a) { @{ ok = $false; txt = 'A saved login belongs to the person logged in - press ▶ Fix now in the PC Doctor tray (🩺 Fixes) on this PC.' } }
 # ---------- 1.74 no-password printing (user, 07-Nov-2026) ----------
 $PD_DRVSHARE = 'PCDoctor-Drivers'
+# a "Local Port" named \\PC\printer: Add-PrinterPort first; some Windows builds refuse a UNC name there, then the classic way (Ports key + spooler restart)
+function PD-AddLocalPort([string]$port) {
+  if (Get-PrinterPort -Name $port -ErrorAction SilentlyContinue) { return 'exists' }
+  try { Add-PrinterPort -Name $port -ErrorAction Stop; return 'added' } catch { $e1 = $_.Exception.Message }
+  New-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Ports' -Name $port -Value '' -PropertyType String -Force | Out-Null
+  Restart-Service Spooler -Force -ErrorAction SilentlyContinue; Start-Sleep 3
+  if (Get-PrinterPort -Name $port -ErrorAction SilentlyContinue) { return 'added (Ports key)' }
+  throw ('could not add the port ' + $port + ': ' + $e1)
+}
 function PD-FindPrinterInf([string]$name) {
   foreach ($f in @(Get-ChildItem "$env:windir\INF\oem*.inf" -ErrorAction SilentlyContinue)) { if (Select-String -Path $f.FullName -SimpleMatch -Pattern ('"' + $name + '"') -Quiet -ErrorAction SilentlyContinue) { return $f.Name } }
   ''
@@ -328,7 +337,7 @@ function Fix-printer_guest($a) {
   $m0 = $null; $er0 = ''
   try { $m0 = Get-Content "$src\manifest.json" -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { $er0 = $_.Exception.Message }
   if (!$m0) { return @{ ok = $false; txt = "Cannot open $src - run 'Share this PC's printer drivers' on $hst first, and allow guest connections here ($er0)" } }
-  $want = @($a.shares | Where-Object { $_ }); $added = @(); $out = @()
+  $want = @($a.shares | Where-Object { $_ }); $added = @(); $ports = @(); $out = @()
   foreach ($m in @($m0.printers)) {
     if ($want.Count -and [string]$m.share -notin $want) { continue }
     $pn = [string]$m.share + ' (' + $hst + ')'; $port = '\\' + $hst + '\' + [string]$m.share
@@ -339,13 +348,13 @@ function Fix-printer_guest($a) {
         Copy-Item -Path ("$src\" + [string]$m.folder + '\*') -Destination $loc -Recurse -Force -ErrorAction Stop
         foreach ($i in @(Get-ChildItem $loc -Recurse -Filter *.inf)) { pnputil /add-driver $i.FullName /install 2>&1 | Out-Null }
         Add-PrinterDriver -Name ([string]$m.driver) -ErrorAction Stop }
-      if (!(Get-PrinterPort -Name $port -ErrorAction SilentlyContinue)) { Add-PrinterPort -Name $port -ErrorAction Stop }
-      if (!(Get-Printer -Name $pn -ErrorAction SilentlyContinue)) { Add-Printer -Name $pn -DriverName ([string]$m.driver) -PortName $port -ErrorAction Stop; $added += $pn }
+      $null = PD-AddLocalPort $port
+      if (!(Get-Printer -Name $pn -ErrorAction SilentlyContinue)) { Add-Printer -Name $pn -DriverName ([string]$m.driver) -PortName $port -ErrorAction Stop; $added += $pn; $ports += $port }
       $out += "$pn ready"
     } catch { $out += "$($m.share): " + $_.Exception.Message }
   }
   $ok = @($out | Where-Object { $_ -match ' ready$' }).Count -gt 0
-  @{ ok = $ok; txt = ($out -join ' | ') + $(if ($ok) { ' - print to it like any printer (no password)' } else { '' }); undo = $(if ($added.Count) { @{ fix = 'printer_guest'; names = $added } } else { $null }) }
+  @{ ok = $ok; txt = ($out -join ' | ') + $(if ($ok) { ' - print to it like any printer (no password)' } else { '' }); undo = $(if ($added.Count) { @{ fix = 'printer_guest'; names = $added; ports = $ports } } else { $null }) }
 }
 # ---------- 🩺 Fixes: did the fix really change what it should? (read-only, right after the fix) - $null = cannot be checked by itself ----------
 function PD-Verify([string]$fix, $a) {
@@ -428,7 +437,7 @@ function PD-Undo($u) {
     'rename'      { Rename-Computer -NewName $u.old -Force; "name back to $($u.old) at restart" }
     'blank_pw_net' { Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' LimitBlankPasswordUse $(if ($null -eq $u.old) { 1 } else { [int]$u.old }) -Type DWord; 'other PCs need a password again (no-password logins blocked)' }
     'driver_share' { Remove-SmbShare -Name $PD_DRVSHARE -Force -ErrorAction SilentlyContinue; 'driver share PCDoctor-Drivers switched off (the copied driver files stay)' }
-    'printer_guest' { foreach ($n in @($u.names)) { Remove-Printer -Name ([string]$n) -ErrorAction SilentlyContinue }; 'printers removed: ' + (@($u.names) -join ', ') }
+    'printer_guest' { foreach ($n in @($u.names)) { Remove-Printer -Name ([string]$n) -ErrorAction SilentlyContinue }; foreach ($pq in @($u.ports)) { Remove-PrinterPort -Name ([string]$pq) -ErrorAction SilentlyContinue }; 'printers removed: ' + (@($u.names) -join ', ') }
     default       { 'nothing to undo' }
   }
 }
