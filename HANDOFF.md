@@ -196,7 +196,7 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   ASHOK: smb_share guest done; its save_login still needs ↩ Undo pressed (else ADMIN lockouts). Laptop: smb_share guest added.
 
 - 07-Nov later: user found ADMIN's password (weak, typed in chat - advised to change). Guest printer fix (anonymous spooler) was REFUSED (safety) - not built.
-  User chose OPTION 1: Agent 1.78 print_user ("print" user on NUTANANEW, password only in Console Settings -> Printer login, encrypted) + save_login args.secret
+  User chose OPTION 1: Agent 1.79 print_user ("print" user on NUTANANEW, password only in Console Settings -> Printer login, encrypted) + save_login args.secret
   on the other PCs (no typing, password changes follow). Pending: user sets the password in the Console, approves print_user on NUTANANEW, presses ▶ on the PCs.
 
 ## Side projects (user's own)

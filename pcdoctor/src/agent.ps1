@@ -809,7 +809,7 @@ if ($Mode -eq 'test') {
         $pt = 'full'; $bt += 'print=' + $(if ($d1.ok -and $g1.ok -and $v1.ok) { 'OK' } else { 'BAD ' + $d1.txt + ' / ' + $g1.txt })
         if ($g1.undo) { PD-Undo $g1.undo | Out-Null }; if ($d1.undo) { PD-Undo $d1.undo | Out-Null } } catch { $bt += 'print=BAD ' + $_.Exception.Message } }
     else { $stg = 'port'; try { $pw0 = PD-AddLocalPort '\\localhost\PDTEST'; $stg = 'printer (port ' + $pw0 + ')'; Add-Printer -Name 'PDTEST (localhost)' -DriverName $dn -PortName '\\localhost\PDTEST' -ErrorAction Stop
-        $v1 = PD-Verify 'printer_guest' @{ host = 'localhost' }; $bt += 'print=' + $(if ($v1.ok) { 'OK' } else { 'BAD ' + $v1.txt }); PD-Undo @{ fix = 'printer_guest'; names = @('PDTEST (localhost)') } | Out-Null
+        $v1 = PD-Verify 'printer_guest' @{ host = 'localhost' }; $bt += 'print=' + $(if ($v1.ok) { 'OK' } else { 'BAD ' + $v1.txt }); PD-Undo @{ fix = 'printer_guest'; names = @('PDTEST (localhost)'); ports = @('\\localhost\PDTEST') } | Out-Null
       } catch { $bt += 'print=BAD at ' + $stg + ': ' + $_.Exception.Message } }
     try { Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Ports' -Name '\\localhost\PDTEST' -ErrorAction SilentlyContinue } catch {}
     try { Remove-Printer -Name 'PDTEST' -ErrorAction SilentlyContinue } catch {}

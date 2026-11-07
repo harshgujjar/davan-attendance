@@ -325,7 +325,7 @@ function Fix-print_user($a) {
   if (!$sp -or !$sp.pw) { return @{ ok = $false; txt = 'Set the printer login password first: PC Doctor Console -> Settings -> Printer login. Then press ▶ again.' } }
   $sec = ConvertTo-SecureString $sp.pw -AsPlainText -Force
   $u0 = Get-LocalUser -Name $nm -ErrorAction SilentlyContinue; $new = !$u0
-  if ($new) { New-LocalUser -Name $nm -Password $sec -FullName 'Printer login (PC Doctor)' -Description 'Other PCs use it for the shared printers and folder' -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -ErrorAction Stop | Out-Null
+  if ($new) { New-LocalUser -Name $nm -Password $sec -FullName 'Printer login (PC Doctor)' -Description 'PC Doctor: shared printers + folder login' -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -ErrorAction Stop | Out-Null
     $grp = (Get-LocalGroup -SID 'S-1-5-32-545').Name; Add-LocalGroupMember -Group $grp -Member $nm -ErrorAction SilentlyContinue }
   else { Set-LocalUser -Name $nm -Password $sec -PasswordNeverExpires $true -ErrorAction Stop; Enable-LocalUser -Name $nm -ErrorAction SilentlyContinue }
   $ul = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList'; New-Item $ul -Force | Out-Null; New-ItemProperty $ul -Name $nm -Value 0 -PropertyType DWord -Force | Out-Null
@@ -463,7 +463,7 @@ function PD-Undo($u) {
     'blank_pw_net' { Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' LimitBlankPasswordUse $(if ($null -eq $u.old) { 1 } else { [int]$u.old }) -Type DWord; 'other PCs need a password again (no-password logins blocked)' }
     'print_user'   { if ($u.new) { Remove-LocalUser -Name ([string]$u.user) -ErrorAction SilentlyContinue; Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList' -Name ([string]$u.user) -ErrorAction SilentlyContinue; Remove-Item (Join-Path $PD.Root 'state\printuser.json') -ErrorAction SilentlyContinue; 'printer login ' + $u.user + ' removed' } else { 'the user was there before - left as it was' } }
     'driver_share' { Remove-SmbShare -Name $PD_DRVSHARE -Force -ErrorAction SilentlyContinue; 'driver share PCDoctor-Drivers switched off (the copied driver files stay)' }
-    'printer_guest' { foreach ($n in @($u.names)) { Remove-Printer -Name ([string]$n) -ErrorAction SilentlyContinue }; foreach ($pq in @($u.ports)) { Remove-PrinterPort -Name ([string]$pq) -ErrorAction SilentlyContinue }; 'printers removed: ' + (@($u.names) -join ', ') }
+    'printer_guest' { foreach ($n in @($u.names | Where-Object { $_ })) { Remove-Printer -Name ([string]$n) -ErrorAction SilentlyContinue }; foreach ($pq in @($u.ports | Where-Object { $_ })) { Remove-PrinterPort -Name ([string]$pq) -ErrorAction SilentlyContinue }; 'printers removed: ' + (@($u.names) -join ', ') }
     default       { 'nothing to undo' }
   }
 }
