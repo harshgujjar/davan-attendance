@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 07-Nov-2026 · Agent 1.73 / Console 1.21 / worker v27 -- User: "when you queue something send me a push - tap goes to that place - and another push when it is
+  approved and done". A command that waited for ✅ Approve (lab/cmd okBy) now pushes when it has run (kind cm<id> -> 🔔 lab_fix); 🩺 pushes open lab.html#fixes=<pc>
+  (new Console address), other PC pushes #pc=<pc>. davan-scraper: db5_cmd (waiting command) and DB5 book (fix waiting / queued) send a push at once with the link
+  (db5.sa_note link). A-Cmds, labAlertSend, start() hash fixes=.
 - 07-Nov-2026 · Agent 1.72 / tray 1.46 / Console 1.20 / worker v26 -- 🩺 FIXES per PC (user: "keep every fix of a PC on that PC and on the server - the command, the undo,
   did it work; one click for the manager; he can say it is still not working; I fix late at night and once the PC is on it fixes itself; tell me with a push").
   Tray tab 🩺 Fixes: the PC's fix book (to-do first) with result, PD-Verify check, ↩ Undo, 📋 command / undo command; ▶ Fix now = one click (the SYSTEM agent runs it;

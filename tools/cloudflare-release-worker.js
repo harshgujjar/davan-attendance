@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v27 (07-Nov-2026): PC Doctor pushes carry the exact place (🩺 Fixes of that PC / the PC page) - a tap on the push opens it; kind cm<id> = an approved command finished.
  *  - v26 (07-Nov-2026): 🩺 PC Doctor Fixes - pushes of kind fx<id> / pb<id> (a fix done / a problem reported) go to the 🔔 switch lab_fix, never held back by
  *    the 6-hour gap (each fix / problem has its own kind); lab/cfg autoLoop = true -> a push every alert gap listing the problems that still wait.
  *  - v25 (05-Nov-2026): GET /lab/raw?p=lab-version.json | src/<file> - PC Doctor files through the worker for PCs that cannot reach raw.githubusercontent.com (the loader's 3rd road).
@@ -700,7 +701,7 @@ async function labPc(env, b) {
   return { ok: true, hwid, key, known, name: pcs.name || name, merge, token: await mint5(env, 'pc_' + hwid, { pc: hwid }) };
 }
 // the staff app's 🔔 page switches (NOTIF_REGISTRY a:'stf' lab_*): DB2 davan_pub/notif_off/stf/<key> = true -> not sent
-const labNotifKey = k => /^(fx|pb)/.test(k) ? 'lab_fix' : /^(wide_)/.test(k) ? 'lab_wide' : /^(thaw)/.test(k) ? 'lab_thaw' : /^mesh/.test(k) ? 'lab_mesh' : k === 'rollback' ? 'lab_update' : k === 'sum' ? 'lab_sum' : 'lab_red';
+const labNotifKey = k => /^(fx|pb|cm)/.test(k) ? 'lab_fix' : /^(wide_)/.test(k) ? 'lab_wide' : /^(thaw)/.test(k) ? 'lab_thaw' : /^mesh/.test(k) ? 'lab_mesh' : k === 'rollback' ? 'lab_update' : k === 'sum' ? 'lab_sum' : 'lab_red';
 async function labNotifOff(k) { try { return (await db2('GET', 'davan_pub/notif_off/stf/' + labNotifKey(k))) === true; } catch (e) { return false; } }
 async function labAlertSend(env, hwid, a, cfg, noGrid) {
   if (await labNotifOff(String(a.kind || ''))) return { ok: true, skipped: 'switched off on the 🔔 page' };
@@ -713,7 +714,7 @@ async function labAlertSend(env, hwid, a, cfg, noGrid) {
   await db5(env, 'PUT', 'lab/alerts/day/' + day, n + 1);
   await db5(env, 'POST', 'lab/alerts/log', { t: now, h: hwid, kind, title: clip(a.title, 120), body: clip(a.body, 400) });
   if (!noGrid) try { await labGridPublish(env); } catch (e) {}
-  return saEvent({ kind: 'lab', color: a.color || 'red', title: clip(a.title, 120), body: clip(a.body, 400), by: 'PC Doctor', link: 'lab.html' + (hwid !== 'lab' ? '#pc=' + hwid : '') });
+  return saEvent({ kind: 'lab', color: a.color || 'red', title: clip(a.title, 120), body: clip(a.body, 400), by: 'PC Doctor', link: 'lab.html' + (/^(fx|pb)/.test(kind) ? '#fixes' + (hwid !== 'lab' ? '=' + hwid : '') : hwid !== 'lab' ? '#pc=' + hwid : '') });   // v27: a tap opens that PC's 🩺 Fixes
 }
 async function labAlert(env, b) {
   const t = await idTokBody(b.idToken, DB5_PROJECT).catch(() => null);

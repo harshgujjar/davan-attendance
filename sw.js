@@ -155,7 +155,7 @@ self.addEventListener('push', e => {
     options.image = APP_URL + 'sa-' + col + '.png';
     options.requireInteraction = col === 'red';
     options.vibrate = col === 'red' ? [400, 150, 400, 150, 400] : [120, 80, 120, 80, 120];
-    options.data = Object.assign({}, options.data, { sa: 1 });
+    options.data = Object.assign({}, options.data, { sa: 1, sak: tg.split('-').slice(2).join('-') });   // 07-Nov-2026: the alert's key -> a tap opens its own place
     e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(l => l.forEach(c => { try { c.postMessage({ type: 'SA_SOUND', col }); } catch (x) {} })).catch(() => {}));   // v1856: own tone while the app is open
     e.waitUntil(caches.open(SA_CACHE).then(c => c.match(APP_URL + '__sa_photo')).then(r => r ? r.text() : '').catch(() => '')
       .then(ph => { if (ph) options.icon = ph; return self.registration.showNotification('☁️ ' + (data.title || 'Davan'), options); }));
@@ -173,11 +173,11 @@ self.addEventListener('notificationclick', e => {
       for (const client of list) {
         const p = new URL(client.url).pathname;
         if ((p === '/davan-attendance/' || p === '/davan-attendance/index.html') && 'focus' in client) {
-          if (sa) try { client.postMessage({ type: 'SA_OPEN' }); } catch (x) {}   // v1853: open ☁️ Cloud alerts
+          if (sa) try { client.postMessage({ type: 'SA_OPEN', key: (e.notification.data || {}).sak || '' }); } catch (x) {}   // v1853: open ☁️ Cloud alerts
           return client.focus();
         }
       }
-      if (clients.openWindow) return clients.openWindow(APP_URL + 'index.html' + (sa ? '?sa=1' : ''));
+      if (clients.openWindow) return clients.openWindow(APP_URL + 'index.html' + (sa ? '?sa=1&sak=' + encodeURIComponent((e.notification.data || {}).sak || '') : ''));
     })
   );
 });

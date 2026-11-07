@@ -181,6 +181,9 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   approves in Console; ready only when the user said yes in chat). Reports (❌ / 🆘 + choice, words, Cloudinary photo) push at once + evidence lab/evid/<h>/<id>.
   Only changes go up: lab/chg + lab/snap. Auto loop switch lab/cfg/autoLoop OFF. Seeded: NUTANANEW = spooler / net_private / rpc_print (done) + problem b179402931223434 + blank_pw_net READY (auto, user OK'd) ; ASHOK = net_private / rpc_print (done) + save_login READY (user, NUTANANEW\ADMIN, no password) ; 1DAVAN laptop = save_login READY. They run when each PC has Agent 1.72 (test PCs first, then the rest after lab/cfg testHoldH).
 
+- 07-Nov: pushes for queued work (Agent 1.73 / Console 1.21 / worker v27 / staff app v2003): Claude queueing a fix / command = an amber push at once (tap -> Console
+  #autofix or #fixes=<pc>); approved + run = a ✅ / ❌ push (tap -> that PC). Tapping any ☁️ push opens its link (saOpen(key) / saFollow, sw.js sak).
+
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
   v1.6.1 APPROVED + listed on addons.mozilla.org (slug usage-meter-for-claude; user checked 05-Nov) - install from the store page. 05-Nov: user's "Claude Counter" (someone else's extension, v0.4.2, Feb 2026) showed no bar - told to switch to ours. Heartbeat -> DB4

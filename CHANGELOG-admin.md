@@ -2,6 +2,12 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2003 · 07-Nov-2026 IST
+User: "when you queue something send me a push; clicking it takes me directly to that place; when it is approved and fixed, another push". Tapping a ☁️ Super Admin
+push now opens the alert's own link: a PC Doctor alert opens the 🖥️ PC Doctor page at that spot (lab.html#fixes=<pc> / #autofix / #pc=<pc>), a cloud-job alert opens
+its run. sw.js passes the alert key (tag sa-<colour>-<key>) on click; the app reads DB2 davan_pub/sa_ev/<key> once (1 small read per tap). Pairs with worker v27,
+Agent 1.73, Console 1.21, davan-scraper db5_cmd / DB5 book. Functions: saOpen(key), saFollow, sw.js notificationclick.
+
 ## v2002 · 07-Nov-2026 IST
 User: "push notifications from widget or PWA are okay" for the new PC Doctor 🩺 Fixes. New 🔔 registry row lab_fix (Super Admin, ON by default, switch DB2
 davan_pub/notif_off/stf/lab_fix, read by worker v26): a push when a fix queued for a PC ran (result + its own check), or the person at a PC pressed

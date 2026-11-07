@@ -398,6 +398,10 @@ function A-Cmds {
     PD-Db PUT ('lab/res/' + $h + '/' + $id) @{ st = 'running'; t = (PD-NowMs); kind = $c.kind } | Out-Null
     $out = try { A-Do ([string]$c.kind) $c.args ([string]$c.by) $id } catch { @{ ok = $false; txt = 'error: ' + $_.Exception.Message } }
     PD-Db PUT ('lab/res/' + $h + '/' + $id) @{ st = $(if ($out.ok -eq $false) { 'failed' } else { 'done' }); t = (PD-NowMs); kind = $c.kind; txt = [string]$out.txt; data = $out.data } | Out-Null
+    # 1.73 (user, 07-Nov-2026: "once it is approved and done, another notification so I know the job is done"): a command that waited for the Super Admin's
+    # ✅ Approve (okBy) sends a push when it has run - tap = this PC's page on the Console
+    if ($c.okBy -and !$c.ro) { $nm = [string]$S.pc.name; if (!$nm) { $nm = $env:COMPUTERNAME }
+      A-BookAlert ('cm' + $id) ("$(if ($out.ok -eq $false) { '❌' } else { '✅' }) $nm`: " + [string]$c.kind + $(if ($out.ok -eq $false) { ' failed' } else { ' done' })) ([string]$out.txt + $(if ($c.why) { ' · ' + [string]$c.why } else { '' })) $(if ($out.ok -eq $false) { 'red' } else { 'green' }) }
   }
 }
 function A-Do([string]$kind, $a, [string]$by, [string]$id) {
