@@ -35,6 +35,8 @@ $PD_FIX = [ordered]@{
   # So the sharing PC offers its printer DRIVERS in a read-only share, and each other PC adds the printer as a direct port to \\PC\printer (no printer service, no password).
   'driver_share'  = @{ k = 'light';   l = 'Share this PC''s printer drivers with the other PCs (no-password printing)'; sw = $null; perm = $true }
   'printer_guest' = @{ k = 'light';   l = 'Add the shared printers of another PC without a password'; sw = $null; perm = $true }
+  # 1.78 (user, 07-Nov-2026, option 1): one normal Windows user "print" on the printer PC; every other PC saves that login once (PC Doctor fills the password in)
+  'print_user'    = @{ k = 'light';   l = 'Printer login "print" for the other PCs (shared printers + folder)'; sw = $null; perm = $true }
 }
 function PD-FixLog([string]$fix, $res, [string]$by, [string]$cid = '') {
   $t = PD-NowMs
@@ -310,6 +312,26 @@ function PD-FindPrinterInf([string]$name) {
   foreach ($f in @(Get-ChildItem "$env:windir\INF\oem*.inf" -ErrorAction SilentlyContinue)) { if (Select-String -Path $f.FullName -SimpleMatch -Pattern ('"' + $name + '"') -Quiet -ErrorAction SilentlyContinue) { return $f.Name } }
   ''
 }
+# ---------- 1.78 option 1: the office printer login (password = Console Settings, encrypted; worker /lab/pcsecret) ----------
+function PD-GetPrintPw {
+  if ($PD.Test) { return $null }
+  try { $r = Invoke-RestMethod -Method Post -Uri ($PD.Worker + '/lab/pcsecret') -Body (PD-Json @{ idToken = (PD-Token) }) -ContentType 'text/plain' -TimeoutSec 30
+    if ($r.ok -and $r.has) { return @{ pw = [string]$r.text; at = [int64]$r.at } } } catch { PD-Log ('printer login password not read: ' + $_.Exception.Message) }
+  $null
+}
+function Fix-print_user($a) {
+  $nm = if ($a -and $a.user) { [string]$a.user } else { 'print' }
+  $sp = if ($a -and $a.pwTest) { @{ pw = [string]$a.pwTest; at = 1 } } else { PD-GetPrintPw }
+  if (!$sp -or !$sp.pw) { return @{ ok = $false; txt = 'Set the printer login password first: PC Doctor Console -> Settings -> Printer login. Then press ▶ again.' } }
+  $sec = ConvertTo-SecureString $sp.pw -AsPlainText -Force
+  $u0 = Get-LocalUser -Name $nm -ErrorAction SilentlyContinue; $new = !$u0
+  if ($new) { New-LocalUser -Name $nm -Password $sec -FullName 'Printer login (PC Doctor)' -Description 'Other PCs use it for the shared printers and folder' -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -ErrorAction Stop | Out-Null
+    $grp = (Get-LocalGroup -SID 'S-1-5-32-545').Name; Add-LocalGroupMember -Group $grp -Member $nm -ErrorAction SilentlyContinue }
+  else { Set-LocalUser -Name $nm -Password $sec -PasswordNeverExpires $true -ErrorAction Stop; Enable-LocalUser -Name $nm -ErrorAction SilentlyContinue }
+  $ul = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList'; New-Item $ul -Force | Out-Null; New-ItemProperty $ul -Name $nm -Value 0 -PropertyType DWord -Force | Out-Null
+  if (!($a -and $a.pwTest)) { PD-WriteJson (Join-Path $PD.Root 'state\printuser.json') @{ user = $nm; at = $sp.at } }
+  @{ ok = $true; txt = "Printer login $env:COMPUTERNAME\$nm " + $(if ($new) { 'made' } else { 'updated' }) + ' (normal user, hidden from the login screen, password from the Console). The other PCs: "Save the login" once.'; undo = @{ fix = 'print_user'; user = $nm; new = $new } }
+}
 # on the SHARING PC: every shared printer's driver package -> ProgramData\DavanPCDoctor\drivers-share\<printer> + manifest.json, shared read-only as PCDoctor-Drivers
 function Fix-driver_share($a) {
   $dir = Join-Path $env:ProgramData 'DavanPCDoctor\drivers-share'; New-Item -ItemType Directory -Force $dir | Out-Null
@@ -370,6 +392,8 @@ function PD-Verify([string]$fix, $a) {
                        return @{ ok = ($x -eq 0); txt = "LimitBlankPasswordUse=$x (0 = other PCs may log in without a password)"; t = (PD-NowMs) } }
       'printer_ip'   { $n = if ($a -and $a.name) { [string]$a.name } elseif ($a -and $a.ip) { 'Printer ' + $a.ip } else { '' }; if (!$n) { return $null }
                        $p = Get-Printer $n -ErrorAction SilentlyContinue; return @{ ok = [bool]$p; txt = $(if ($p) { "Printer '$n' is there ($($p.PrinterStatus))" } else { "Printer '$n' not found" }); t = (PD-NowMs) } }
+      'print_user'   { $nm = if ($a -and $a.user) { [string]$a.user } else { 'print' }; $u0 = Get-LocalUser -Name $nm -ErrorAction SilentlyContinue
+                       return @{ ok = [bool]($u0 -and $u0.Enabled); txt = $(if ($u0) { "User $nm is there (enabled: $($u0.Enabled), password never expires: $(!$u0.PasswordExpires))" } else { "No user $nm" }); t = (PD-NowMs) } }
       'driver_share' { $sh = Get-SmbShare -Name $PD_DRVSHARE -ErrorAction SilentlyContinue; $mf = PD-ReadJson (Join-Path $env:ProgramData 'DavanPCDoctor\drivers-share\manifest.json')
                        $n = @($mf.printers | Where-Object ok).Count; return @{ ok = ([bool]$sh -and $n -gt 0); txt = $(if ($sh) { "Share $PD_DRVSHARE is on, drivers for $n printer(s)" } else { 'Share not found' }); t = (PD-NowMs) } }
       'printer_guest' { if (!$a -or !$a.host) { return $null }; $hs = ([string]$a.host).ToUpper(); $ps = @(Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*($hs)" })
@@ -388,6 +412,7 @@ $PD_CMD = @{
   'blank_pw_net' = @{ c = 'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LimitBlankPasswordUse /t REG_DWORD /d 0 /f'; u = 'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LimitBlankPasswordUse /t REG_DWORD /d 1 /f' }
   'save_login'   = @{ c = 'cmdkey /add:{host} /user:{user} /pass:THE-PASSWORD   (normal Command Prompt, NOT as admin; leave /pass: empty for no password)'; u = 'cmdkey /delete:{host}' }
   'printer_guest' = @{ c = 'Add-PrinterPort -Name "\\{host}\<printer share>"; Add-Printer -Name "<printer share> ({host})" -DriverName "<driver name>" -PortName "\\{host}\<printer share>"   (driver installed first)'; u = 'Remove-Printer -Name "<printer share> ({host})"' }
+  'print_user'   = @{ c = 'net user print THE-PASSWORD /add /passwordchg:no /expires:never   (PC Doctor fills the password in from the Console)'; u = 'net user print /delete' }
   'driver_share' = @{ c = '(PC Doctor fix: copies each shared printer''s driver to ProgramData\DavanPCDoctor\drivers-share and shares it read-only as PCDoctor-Drivers)'; u = 'Remove-SmbShare -Name PCDoctor-Drivers -Force' }
   'restart'      = @{ c = 'shutdown /r /t 60'; u = '' }
   'repair_windows' = @{ c = 'DISM /Online /Cleanup-Image /RestoreHealth; sfc /scannow'; u = '' }
@@ -436,6 +461,7 @@ function PD-Undo($u) {
     'startup_on'  { foreach ($k in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run') { $v = (Get-ItemProperty "$k-DavanOff" -ErrorAction SilentlyContinue).($u.name); if ($v) { Set-ItemProperty $k $u.name $v; Remove-ItemProperty "$k-DavanOff" $u.name } }; "startup item $($u.name) back on" }
     'rename'      { Rename-Computer -NewName $u.old -Force; "name back to $($u.old) at restart" }
     'blank_pw_net' { Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' LimitBlankPasswordUse $(if ($null -eq $u.old) { 1 } else { [int]$u.old }) -Type DWord; 'other PCs need a password again (no-password logins blocked)' }
+    'print_user'   { if ($u.new) { Remove-LocalUser -Name ([string]$u.user) -ErrorAction SilentlyContinue; Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList' -Name ([string]$u.user) -ErrorAction SilentlyContinue; Remove-Item (Join-Path $PD.Root 'state\printuser.json') -ErrorAction SilentlyContinue; 'printer login ' + $u.user + ' removed' } else { 'the user was there before - left as it was' } }
     'driver_share' { Remove-SmbShare -Name $PD_DRVSHARE -Force -ErrorAction SilentlyContinue; 'driver share PCDoctor-Drivers switched off (the copied driver files stay)' }
     'printer_guest' { foreach ($n in @($u.names)) { Remove-Printer -Name ([string]$n) -ErrorAction SilentlyContinue }; foreach ($pq in @($u.ports)) { Remove-PrinterPort -Name ([string]$pq) -ErrorAction SilentlyContinue }; 'printers removed: ' + (@($u.names) -join ', ') }
     default       { 'nothing to undo' }

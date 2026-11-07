@@ -195,6 +195,10 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   double-click = 0x40 (Win11 printer service refuses guests). Built Agent 1.77 driver_share (NUTANANEW) + printer_guest (ASHOK, 1DAVAN laptop; args host NUTANANEW).
   ASHOK: smb_share guest done; its save_login still needs ↩ Undo pressed (else ADMIN lockouts). Laptop: smb_share guest added.
 
+- 07-Nov later: user found ADMIN's password (weak, typed in chat - advised to change). Guest printer fix (anonymous spooler) was REFUSED (safety) - not built.
+  User chose OPTION 1: Agent 1.78 print_user ("print" user on NUTANANEW, password only in Console Settings -> Printer login, encrypted) + save_login args.secret
+  on the other PCs (no typing, password changes follow). Pending: user sets the password in the Console, approves print_user on NUTANANEW, presses ▶ on the PCs.
+
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
   v1.6.1 APPROVED + listed on addons.mozilla.org (slug usage-meter-for-claude; user checked 05-Nov) - install from the store page. 05-Nov: user's "Claude Counter" (someone else's extension, v0.4.2, Feb 2026) showed no bar - told to switch to ours. Heartbeat -> DB4

@@ -176,6 +176,10 @@ namespace PDC { public static class Cred {
 function FxUserRun($e) {
   if ([string]$e.fix -ne 'save_login') { $fxMsg.Text = 'This fix has no one-click version for the user yet.'; return }
   $hst = [string]$e.args.host; $usr = [string]$e.args.user; if (!$hst -or !$usr) { $fxMsg.Text = 'The fix has no PC name / user - ask the Super Admin.'; return }
+  # 1.78 option 1: the office printer login - PC Doctor fills the password in (state\printlogin.json, from the Console's encrypted copy); nobody types it
+  if ($e.args.secret) { $pl = J 'printlogin.json'
+    if (!$pl -or !$pl.pw) { try { Set-Content "$Rq\refresh.flag" '1' } catch {}; $fxMsg.Text = '⏳ PC Doctor is fetching the printer login password - press ▶ Fix now again in a minute. (Not set yet? Console -> Settings -> Printer login.)'; return }
+    FxCredSave $e ([string]$pl.host) ([string]$pl.user) ([string]$pl.pw) ([int64]$pl.at) 'saved'; return }
   $f = New-Object Windows.Forms.Form -Property @{ Text = '🔑 Save the login for ' + $hst; Width = 360; Height = 220; StartPosition = 'CenterScreen'; BackColor = $CL.bg; ForeColor = $CL.tx; FormBorderStyle = 'FixedDialog'; MaximizeBox = $false; MinimizeBox = $false; TopMost = $true }
   $l = New-Object Windows.Forms.Label -Property @{ Left = 12; Top = 10; Width = 320; Height = 44; Font = $FT.s; Text = "This PC will log in to $hst as $usr (for its printers / folders). Type that password - it stays on this PC." }
   $nb = New-Object Windows.Forms.CheckBox -Property @{ Left = 12; Top = 58; Width = 320; Font = $FT.s; Text = 'That account has no password'; Checked = [bool]$e.args.blank }
@@ -190,6 +194,21 @@ function FxUserRun($e) {
   $txt = if ($err -eq 0 -and $has) { "Login for $hst saved ($usr) for Windows user $env:USERNAME. Sign out and back in (or restart), then open \\$hst and double-click the printer." } else { "Could not save the login (error $err)." }
   FxSend @{ op = 'result'; id = [string]$e.id; ok = ($err -eq 0 -and $has); txt = $txt; who = (FxWho); chk = @{ ok = [bool]$has; txt = $(if ($has) { "Windows has a saved login for $hst" } else { "No saved login for $hst" }) } }
   $fxMsg.Text = $(if ($err -eq 0 -and $has) { '✅ ' } else { '❌ ' }) + $txt
+}
+function FxCredSave($e, [string]$hst, [string]$usr, [string]$pw, [int64]$at, [string]$how) {
+  $err = try { [PDC.Cred]::Add($hst, $usr, $pw) } catch { -1 }; $has = try { [PDC.Cred]::Has($hst) } catch { $false }
+  if ($err -eq 0 -and $has) { try { New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\DavanPCDoctor" | Out-Null; Set-Content "$env:LOCALAPPDATA\DavanPCDoctor\printlogin_at.txt" ([string]$at) } catch {} }
+  $txt = if ($err -eq 0 -and $has) { "Login for $hst $how ($usr) for Windows user $env:USERNAME. " + $(if ($how -eq 'saved') { "Sign out and back in (or restart), then open \\$hst and double-click a printer - it installs by itself, no password." } else { 'The new password from the Console is in - nothing to do.' }) } else { "Could not save the login (error $err)." }
+  FxSend @{ op = 'result'; id = [string]$e.id; ok = ($err -eq 0 -and $has); txt = $txt; who = (FxWho); chk = @{ ok = [bool]$has; txt = $(if ($has) { "Windows has a saved login for $hst" } else { "No saved login for $hst" }) } }
+  $fxMsg.Text = $(if ($err -eq 0 -and $has) { '✅ ' } else { '❌ ' }) + $txt
+}
+# a changed password (Console) is saved again by itself - only for a login this user already saved
+function FxCredAuto {
+  $pl = J 'printlogin.json'; if (!$pl -or !$pl.pw) { return }
+  $f = "$env:LOCALAPPDATA\DavanPCDoctor\printlogin_at.txt"; if (!(Test-Path $f)) { return }
+  if ([string](Get-Content $f -Raw).Trim() -eq [string]$pl.at) { return }
+  $e = @($script:fxItems.Values | Where-Object { $_.type -eq 'fix' -and $_.fix -eq 'save_login' -and $_.args -and $_.args.secret -and $_.st -eq 'done' }) | Select-Object -First 1
+  if ($e) { FxCredSave $e ([string]$pl.host) ([string]$pl.user) ([string]$pl.pw) ([int64]$pl.at) 'updated' }
 }
 function FxRun {
   $e = FxSel; if (!$e -or $e.type -ne 'fix') { return }
@@ -629,7 +648,7 @@ function SelfUpdate { $b = TrayId
     $ni.Visible = $false; try { $mtx.ReleaseMutex(); $mtx.Dispose() } catch {}
     if (Test-Path "$Root\tray-start.vbs") { Start-Process wscript.exe -ArgumentList ("`"$Root\tray-start.vbs`" " + $(if ($show) { '/show' } else { '/now' })) } else { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\bin\tray.ps1`"" }
     [Environment]::Exit(0) } }
-$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}; try { FxLoad } catch {}; try { if (!$tp.Enabled) { $pp = J 'updp.json'; if ($pp -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$pp.t) -lt 300000) { $tp.Start() } } } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
+$tm = New-Object Windows.Forms.Timer -Property @{ Interval = 15000 }; $tm.Add_Tick({ try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}; try { FxLoad; FxCredAuto } catch {}; try { if (!$tp.Enabled) { $pp = J 'updp.json'; if ($pp -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]$pp.t) -lt 300000) { $tp.Start() } } } catch {}; try { SelfUpdate } catch {} }); $tm.Start()
 try { Refresh } catch {}; try { UpdRefresh } catch {}; try { NotesLoad } catch {}; try { FxLoad } catch {}
 Sharp $form; Corner
 if ($args -contains '-show') { OpenWin }

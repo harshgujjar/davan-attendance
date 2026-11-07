@@ -606,6 +606,20 @@ function A-BookReq {
     } catch { PD-Log ('book request: ' + $_.Exception.Message) }
   }
 }
+# 1.78 option 1: the printer login password follows the Console. On the printer PC (state\printuser.json) a new password is set on the "print" user;
+# on a PC with a "Save the login" that uses it (args.secret), state\printlogin.json gets the new one and the tray saves it again by itself.
+$script:PwAt = [datetime]::MinValue
+function A-PrintPwSync([switch]$Force) {
+  $pu = PD-ReadJson (Join-Path $PD.Root 'state\printuser.json'); $pl = Join-Path $PD.Root 'state\printlogin.json'
+  $need = @($script:BookCache.Values | Where-Object { $_.type -eq 'fix' -and $_.fix -eq 'save_login' -and $_.args -and $_.args.secret -and $_.st -in 'ready', 'done', 'failed' })
+  if (!$pu -and !$need.Count) { return }
+  if (!$Force -and ((Get-Date) - $script:PwAt).TotalMinutes -lt 55 -and ($pu -or (Test-Path $pl))) { return }
+  $script:PwAt = Get-Date; $sp = PD-GetPrintPw; if (!$sp) { return }
+  if ($pu -and [int64]$pu.at -ne $sp.at) { try { Set-LocalUser -Name ([string]$pu.user) -Password (ConvertTo-SecureString $sp.pw -AsPlainText -Force) -ErrorAction Stop; PD-WriteJson (Join-Path $PD.Root 'state\printuser.json') @{ user = [string]$pu.user; at = $sp.at }
+      $nm = [string]$S.pc.name; if (!$nm) { $nm = $env:COMPUTERNAME }; A-BookAlert ('fxpw' + $sp.at) ("🔑 $nm`: printer login password changed") 'The new password from the Console is set on the "print" user. PC Doctor PCs save it again by themselves; other PCs type it once.' 'blue' } catch { PD-Log ('print user password: ' + $_.Exception.Message) } }
+  if ($need.Count) { $x = $need[0]; $cur = PD-ReadJson $pl
+    if (!$cur -or [int64]$cur.at -ne $sp.at) { PD-WriteJson $pl @{ host = [string]$x.args.host; user = [string]$x.args.user; pw = $sp.pw; at = $sp.at } } }
+}
 # only what CHANGED goes to the server (lab/chg/<hwid>); lab/snap/<hwid> = the current values. Frozen PCs lose state\ at every start: then the
 # last copy is read back from DB5 once, so a restart is not reported as "everything changed".
 function A-SnapCheck {
@@ -801,7 +815,9 @@ if ($Mode -eq 'test') {
     try { Remove-Printer -Name 'PDTEST' -ErrorAction SilentlyContinue } catch {}
     }
     $bt += 'printWay=' + $pt
-    $ok = ($script:BookCache[$b1].st -eq 'undone') -and ($bt[0] -match '^run=done/check=True/undo=True/cmd=True') -and ($bt[1] -match 'prob=1/ev=True') -and ($bt -contains 'probs=2') -and (($bt -contains 'print=OK') -or @($bt | Where-Object { $_ -like 'print=SKIP*' }).Count)
+    try { $pu1 = Fix-print_user @{ user = 'pdtestprint'; pwTest = 'Test#' + (Get-Random -Minimum 100000 -Maximum 999999) }; $pv1 = PD-Verify 'print_user' @{ user = 'pdtestprint' }; $pud = PD-Undo $pu1.undo
+      $bt += 'printUser=' + $(if ($pu1.ok -and $pv1.ok -and !(Get-LocalUser 'pdtestprint' -ErrorAction SilentlyContinue)) { 'OK' } else { 'BAD ' + $pu1.txt + ' / ' + $pv1.txt + ' / ' + $pud }) } catch { $bt += 'printUser=BAD ' + $_.Exception.Message }
+    $ok = ($script:BookCache[$b1].st -eq 'undone') -and ($bt[0] -match '^run=done/check=True/undo=True/cmd=True') -and ($bt[1] -match 'prob=1/ev=True') -and ($bt -contains 'probs=2') -and ($bt -contains 'printUser=OK') -and (($bt -contains 'print=OK') -or @($bt | Where-Object { $_ -like 'print=SKIP*' }).Count)
     $r.bookTest = $(if ($ok) { 'BOOK OK: ' } else { 'BOOK FAILED: ' }) + ($bt -join ' | ')
   } catch { $r.bookTest = 'BOOK FAILED: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber }
   $r | ConvertTo-Json -Depth 6 | Set-Content "$env:TEMP\pd_test.json" -Encoding UTF8
@@ -824,6 +840,7 @@ while ($true) {
     if ($first -or ($t0 - $S.lastHour).TotalMinutes -ge 60) {
       PD-Cfg -Force | Out-Null; A-SyncPc; A-VerReport; A-Daily; $S.verdict = $null; $S.lastHour = $t0
       try { A-SnapCheck } catch { PD-Log ('snapshot: ' + $_.Exception.Message) }   # 1.71 🩺: only what changed goes to the server
+      try { A-PrintPwSync } catch {}   # 1.78: printer login password follows the Console
       if (!$first) { A-AutoFix }
       # 7: restart-needing work (chkdsk / RAM test / updates / rename) waits for a free period with nobody logged in - never a PC in use
       if (!$first -and (PD-ReadJson (Join-Path $PD.Root 'state\fixhist.json')) -and [string]$S.pc.autoRst -ne (PD-ISTDate) -and (A-NeedRestart) -and (A-FreePeriod)) { PD-Log 'free period, nobody logged in - restart for the waiting fixes'; PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ autoRst = (PD-ISTDate) } | Out-Null; Fix-restart @{} | Out-Null }   # once a day at most (a Frozen PC can never clear its flags)
@@ -833,7 +850,7 @@ while ($true) {
       $mn = PD-MeshNode; if ($mn -and $mn -ne [string]$S.meshSent) { PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn; PD-Log 'remote agent id sent' }
     }
     A-Events; try { A-NetInfo } catch {}; A-Minute; A-Cmds; A-TrayEdits; A-TrayReq
-    try { A-BookReq; A-BookSync; A-BookRun } catch { PD-Log ('book: ' + $_.Exception.Message) }   # 1.71 🩺 Fixes: approved fixes run by themselves once the PC is on
+    try { A-BookReq; A-BookSync; A-BookRun; A-PrintPwSync } catch { PD-Log ('book: ' + $_.Exception.Message) }   # 1.71 🩺 Fixes: approved fixes run by themselves once the PC is on
     if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-AlertRetry; A-TrayFresh; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
     $first = $false
     foreach ($i in 1..4) { Start-Sleep -Seconds 14; if (Test-Path (Join-Path $PD.Root 'req\refresh.flag')) { Remove-Item (Join-Path $PD.Root 'req\refresh.flag') -Force -ErrorAction SilentlyContinue; try { PD-Cfg -Force | Out-Null } catch {}; try { A-NetInfo } catch {}; A-Minute; try { A-Events } catch {}; try { A-Peers } catch {}; try { PD-FlushQueue | Out-Null } catch {}; try { A-TrayFresh } catch {}; try { A-Verdict } catch {} }   # 1.63: tray Refresh = fresh read; 1.67 (user, 05-Nov-2026: "refresh should check all possible areas"): + settings, new events, other PCs, unsent rows, the verdictings at once

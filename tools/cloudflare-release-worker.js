@@ -21,6 +21,7 @@
  *    davan_pub/sa_push (staff app -> ☁️ Cloud alerts -> "This laptop"). Cloud jobs must send {repo, run} = their own running GitHub run,
  *    which is checked with GH_TOKEN, so nobody else can post job alerts. 9:30 pm IST (cron 0,15 16 = 9:30 usage + 9:45 backup release):
  *    DB2 usage of the day as one alert; events older than 30 days are deleted. A timer that cannot start a job sends a red alert.
+ *  - v28 (07-Nov-2026): secret printPw (the office printer login, Console Settings) + POST /lab/pcsecret so PC Doctor PCs fill it in by themselves.
  *  - v27 (07-Nov-2026): PC Doctor pushes carry the exact place (🩺 Fixes of that PC / the PC page) - a tap on the push opens it; kind cm<id> = an approved command finished.
  *  - v26 (07-Nov-2026): 🩺 PC Doctor Fixes - pushes of kind fx<id> / pb<id> (a fix done / a problem reported) go to the 🔔 switch lab_fix, never held back by
  *    the 6-hour gap (each fix / problem has its own kind); lab/cfg autoLoop = true -> a push every alert gap listing the problems that still wait.
@@ -841,18 +842,28 @@ async function labSecret(env, b) {
   if (st) ok = await staffIsSuper(b.token, st);
   if (!ok) { const t = await idTokBody(b.token, DB5_PROJECT).catch(() => null); ok = !!(t && t.sa === true); }
   if (!ok) return { ok: false, msg: 'Super Admin only.' };
-  const name = ['dfPw', 'meshPass'].includes(b.name) ? b.name : '';
+  const name = ['dfPw', 'meshPass', 'printPw'].includes(b.name) ? b.name : '';
   if (!name) return { ok: false, msg: 'unknown secret' };
-  if (typeof b.set === 'string' && name === 'dfPw') {
-    if (!b.set) { await db5(env, 'PUT', 'lab/secret/dfPw', null); return { ok: true, saved: false }; }
+  if (typeof b.set === 'string' && (name === 'dfPw' || name === 'printPw')) {
+    if (!b.set) { await db5(env, 'PUT', 'lab/secret/' + name, null); return { ok: true, saved: false }; }
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await secretKey(env), new TextEncoder().encode(clip(b.set, 200))));
-    await db5(env, 'PUT', 'lab/secret/dfPw', { iv: btoa(String.fromCharCode(...iv)), ct: btoa(String.fromCharCode(...ct)), at: Date.now(), n: b.set.length });
+    await db5(env, 'PUT', 'lab/secret/' + name, { iv: btoa(String.fromCharCode(...iv)), ct: btoa(String.fromCharCode(...ct)), at: Date.now(), n: b.set.length });
     return { ok: true, saved: true };
   }
   const v = await db5(env, 'GET', 'lab/secret/' + name);
   if (!v) return { ok: true, has: false };
   if (name === 'meshPass') return { ok: true, has: true, text: String(v) };
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: Uint8Array.from(atob(v.iv), c => c.charCodeAt(0)) }, await secretKey(env), Uint8Array.from(atob(v.ct), c => c.charCodeAt(0)));
+  return { ok: true, has: true, text: new TextDecoder().decode(pt), at: v.at };
+}
+// v28 (user, 07-Nov-2026: option 1 - one "print" login for NUTANANEW's printers + folder, saved once per PC): POST /lab/pcsecret {idToken (a PC)} -> the
+// printer-login password (lab/secret/printPw, AES-GCM, set by the Super Admin in the Console). Any registered PC may read it - it is the office's shared login.
+async function labPcSecret(env, b) {
+  const t = await idTokBody(b.idToken, DB5_PROJECT).catch(() => null);
+  if (!t || !String(t.sub || '').startsWith('pc_')) return { ok: false, msg: 'not a PC Doctor login' };
+  const v = await db5(env, 'GET', 'lab/secret/printPw');
+  if (!v) return { ok: true, has: false };
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: Uint8Array.from(atob(v.iv), c => c.charCodeAt(0)) }, await secretKey(env), Uint8Array.from(atob(v.ct), c => c.charCodeAt(0)));
   return { ok: true, has: true, text: new TextDecoder().decode(pt), at: v.at };
 }
@@ -1004,7 +1015,7 @@ export default {
     }
     if (request.method === 'POST' && u.pathname.startsWith('/lab/')) {   // v18: 🖥️ PC Doctor (DB5)
       let b = {}; try { b = JSON.parse(await request.text()); } catch (e) {}
-      const fn = { '/lab/tok': labTok, '/lab/pc': labPc, '/lab/alert': labAlert, '/lab/ai': labAi, '/lab/cmd': labCmd, '/lab/cmdres': labCmdRes, '/lab/purge': labPurge, '/lab/mesh': labMesh, '/lab/secret': labSecret, '/lab/setpw': labSetPw }[u.pathname];
+      const fn = { '/lab/tok': labTok, '/lab/pc': labPc, '/lab/alert': labAlert, '/lab/ai': labAi, '/lab/cmd': labCmd, '/lab/cmdres': labCmdRes, '/lab/purge': labPurge, '/lab/mesh': labMesh, '/lab/secret': labSecret, '/lab/pcsecret': labPcSecret, '/lab/setpw': labSetPw }[u.pathname];
       let r; try { r = fn ? await fn(env, b) : { ok: false, msg: 'unknown /lab route' }; } catch (e) { r = { ok: false, msg: String(e.message || e) }; }
       return new Response(JSON.stringify(r), { headers: CORS });
     }

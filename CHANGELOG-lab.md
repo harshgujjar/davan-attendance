@@ -2,6 +2,11 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 07-Nov-2026 · Agent 1.78 / Console 1.23 / worker v28 -- Option 1 (user: "every PC, any Windows, print + shared folder, no password typed"; guest printing
+  is refused by Windows 11): fix print_user makes a normal hidden user "print" on the printer PC with the password from the Console (Settings -> Printer login,
+  DB5 lab/secret/printPw AES-GCM; worker POST /lab/pcsecret lets a PC read it). save_login with args.secret: the tray fills the password in (state\printlogin.json),
+  no typing; a password changed in the Console is set on the printer PC and saved again on the PCs within the hour (A-PrintPwSync, FxCredAuto). ↩ Undo removes the
+  user. Windows test makes + checks + removes a test user. Fix-print_user, PD-GetPrintPw, A-PrintPwSync, tray FxCredSave / FxCredAuto, Console setPrintPw.
 - 07-Nov-2026 · Agent 1.77 / Console 1.22 -- "Truly no password": Windows 11 refuses a GUEST printer install (0x40 / 0x709 - the printer service needs a real login),
   so two new one-click fixes: driver_share (on the sharing PC: each shared printer's driver package -> ProgramData\DavanPCDoctor\drivers-share + manifest.json, shared
   read-only as PCDoctor-Drivers, ↩ undo = share off) and printer_guest (on the other PCs: driver from \\PC\PCDoctor-Drivers, then a printer "<share> (<PC>)" whose port is
