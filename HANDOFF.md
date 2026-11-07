@@ -199,6 +199,8 @@ password once; set test PCs on Versions. Not tested on a real lab PC yet (only G
   User chose OPTION 1: Agent 1.79 print_user ("print" user on NUTANANEW, password only in Console Settings -> Printer login, encrypted) + save_login args.secret
   on the other PCs (no typing, password changes follow). Queued 07-Nov: NUTANANEW print_user (st wait), ASHOK + 1DAVAN save_login secret printPw (ready, need user), NUTANANEW blank_pw_net -> undo, driver_share marked not needed, update_now x3. Pending: user sets password in Console Settings, approves, presses ▶ on the PCs. Also suggest undoing the smb_share guest fixes later (not needed with option 1).
 
+- 07-Nov ✅ WORKS: laptop (1DAVAN) printed to NUTANANEW's Canon LBP2900 via option 1 (print login). Next: ASHOK + other PCs the same; later undo the smb_share guest fixes (not needed).
+
 ## Side projects (user's own)
 - **Usage Meter for Claude** (browser extension): source davan-scraper `extensions/usage-meter/` (build.sh -> -firefox / -chrome zips).
   v1.6.1 APPROVED + listed on addons.mozilla.org (slug usage-meter-for-claude; user checked 05-Nov) - install from the store page. 05-Nov: user's "Claude Counter" (someone else's extension, v0.4.2, Feb 2026) showed no bar - told to switch to ours. Heartbeat -> DB4
