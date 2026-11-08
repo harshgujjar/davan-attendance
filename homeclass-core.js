@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 36;
+  C.VER = 37;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -410,6 +410,9 @@
     [p, p - a, p + a, p - b, p + b, p - 1, p + 1, p - 2, p + 2, p - 10, p + 10, a + b].forEach(function (n) { if (n >= 0 && n <= 999) ns[n] = 1; });
     var q = W(a) + ' ' + W(b) + ' ';
     Object.keys(ns).forEach(function (n) { var w = W(+n); ph.push(w, q + w, q + 'ja ' + w, q + 'into ' + w, 'ja ' + w, a + b === +n ? w : 'is ' + w); });
+    /* v63 (08-Nov, TV: he said "twenty one" for 9 x 3 and the app heard "twenty seven" = right): a grammar that holds only the right answer and its neighbours
+       forces ANY number onto the nearest one. Every number 1-100 is now allowed as a bare answer (and after the line), so a different number is heard as it is. */
+    for (var m = 1; m <= 100; m++) if (!ns[m]) { var wm = W(m); ph.push(wm, 'ja ' + wm, q + wm, q + 'ja ' + wm); }
     ph = ph.concat(W(a).split(' '), W(b).split(' '), ['ja', 'za', 'times', 'ready', 'yes', 'stop', 'repeat', '[unk]']);
     return JSON.stringify(ph.filter(function (x, i) { return ph.indexOf(x) === i; }));
   };
