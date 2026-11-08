@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 08-Nov-2026 · kids v59 (user: "child keeps telling the word but the app could not hear" / "when it asks again after a wrong table, hide the answer - he reads it, not remembers"): log 08-Nov, Vihaan's Redmi, class 17:35: 7x5 and 7x2 heard as "[unk]" / "into" / "seven two za" / "seven two [unk]" - he says the line ("seven two ja") and the number after it is lost, then repeats the whole line (the Vosk run on the saved WAVs gives the same, so it is the sound, not the judge). Now: first time that happens the app says "Just say the answer." (log: "line heard, answer lost"). A question asked AGAIN after a wrong answer hides the answer on the board (the row kept its answer shown after "Not quite"). Functions: askTable.
+
 - 05-Nov-2026 · kids v58 · parent v47 · app h27 (user: "the child app still has many problems - it is not recognising properly - 7 7 zaa / how much - check the log and the sound and fix"): log 05-Nov:
   (1) THE MOTOROLA PHONE HAS NO SOUND: h26 logged "voice engine ready · default sia.netttsengine.ttslexx · installed: com.google.android.tts sia.netttsengine.ttslexx" - the phone's default speech
   engine is not Google's and speaks nothing; Google's was installed. h27 asks for com.google.android.tts BY NAME whenever it is installed (default only when not), checks every sentence
