@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 37;
+  C.VER = 38;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -763,6 +763,9 @@
     c.innerHTML = html; c.style.display = '';
     clearTimeout(c._t); if (ms) c._t = setTimeout(function () { c.style.display = 'none'; }, ms);
     c.onclick = function () { c.style.display = 'none'; };
+    if (!upCard._k) { upCard._k = 1; document.addEventListener('keydown', function (e) {   /* v38 (user, 08-Nov: "tap to close does not work on the TV"): any remote key closes it */
+      var cc = document.getElementById('hcUpCard'); if (cc && cc.style.display !== 'none') { cc.style.display = 'none'; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); } }
+    }, true); }
   }
   C.upCard = upCard;
   function newsHTML(list) {
