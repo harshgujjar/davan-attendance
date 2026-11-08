@@ -380,7 +380,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 59;
+var KID_VER = 60;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -1007,7 +1007,8 @@ async function tablesLearn(k) {
       S.testOK = false;
     } else if (st.st === 1 && reciteOk()) {
       SES.title = 'Table of ' + cur + ' · say it all'; setSect('recite');
-      var rr = await reciteTable(cur, up, { mode: 'test' });
+      var ro = { mode: 'test' }, rr = await reciteTable(cur, up, ro);
+      if (rr === true) rr = await randomCheck(cur, ro.unsure || [], up);
       if (rr === true) {
         st.st = 3; st.at = C.day(); st.ok = rounds(); SES.mastered.push(cur); confetti();
         logAns('r', 'Table of ' + cur + ' (said all)', 'all right', 'perfect', true, true);
@@ -1468,6 +1469,22 @@ function reciteListen(t, up) {
 function waitStart(label) {
   return new Promise(function (res) { S.reciteWait = res; hbShow(); hbLabel(label || '▶ Start saying'); $('kHold').classList.remove('on'); });
 }
+/* v60 (user, 08-Nov-2026): after he said the whole table from memory, a SHORT random check - at most 5 questions: the lines the app was unsure about first,
+   the rest random; lines 1 and 10 are never asked (he knows them). All right -> true (learnt + stars). A wrong line is told and comes back (round()). */
+async function randomCheck(t, unsure, up) {
+  var skipB = function (b) { return b === 1 || b === 10; }, pool = [];
+  for (var b = 1; b <= up; b++) if (!skipB(b)) pool.push(b);
+  var us = shuffle((unsure || []).filter(function (b) { return !skipB(b) && pool.indexOf(b) >= 0; })).slice(0, 5);
+  var rest = shuffle(pool.filter(function (b) { return us.indexOf(b) < 0; })).slice(0, 5 - us.length);
+  var l = shuffle(us.concat(rest)).map(function (b) { return [t, b]; });
+  if (!l.length) return true;
+  C.diag('check ' + t + ': ' + l.length + ' lines (' + us.length + ' unsure)');
+  stage('✅ Quick check', 'Table of ' + t);
+  await say('Super! You said the whole table of ' + t + '. Now a quick check: ' + (l.length === 1 ? 'one question.' : l.length + ' questions.'));
+  var r = await round(l, 'Table of ' + t + ' · quick check');
+  if (r === false) await say('Good work. We will do the table of ' + t + ' once more to make it perfect.');
+  return r;
+}
 async function reciteTable(t, up, o) {
   o = o || {}; var mode = o.mode || 'test', tries = o.tries || (mode === 'answers' ? 2 : 3);
   var lines = []; for (var b = 1; b <= up; b++) lines.push([t, b]);
@@ -1492,17 +1509,20 @@ async function reciteTable(t, up, o) {
     C.diag('recite ' + t + ' (try ' + attempt + '): "' + text + '" -> ' + (r.ok ? 'PERFECT' : 'wrong ' + JSON.stringify(r.wrong) + ' unsure ' + JSON.stringify(r.unsure) + ' missing ' + JSON.stringify(r.missing)));
     if (!text) { await say("I did not hear you. Let's try again."); continue; }
     if (!r.facts.length) { await say('I could not follow that. Say it slowly: ' + t + ' one ja ' + t + '.'); continue; }
-    if (r.ok) { r.done.forEach(function (b) { bSet(t, b, 1, 1); }); drawBoard(); return true; }
+    if (r.ok) { o.unsure = []; r.done.forEach(function (b) { bSet(t, b, 1, 1); }); drawBoard(); return true; }
+    /* v60 (user, 08-Nov, option B): a line the app was only UNSURE about counts as right (green) and is not asked again; it goes into the short check after the table */
+    var uns = (o.unsure || []).concat(r.unsure.map(function (w) { return w.b; }));
+    r.unsure.forEach(function (w) { bSet(t, w.b, 1, 1); });
     r.wrong.forEach(function (w) { bSet(t, w.b, 2, 1); }); drawBoard();
     var fix = [];
     r.wrong.slice(0, 3).forEach(function (w) { fix.push({ b: w.b, msg: 'You said ' + t + ' ' + w.b + ' ja ' + w.said + '. That is wrong. ' + t + ' ' + w.b + ' ja ' + (t * w.b) + '. Say it with me.' }); });
-    r.unsure.slice(0, 6).forEach(function (w) { fix.push({ b: w.b, hide: 1, msg: 'I am not sure I heard ' + t + ' ' + w.b + '. Say that line again.' }); });
     r.missing.concat(r.unclear).slice(0, 6).forEach(function (b) { fix.push({ b: b, msg: 'You missed ' + t + ' ' + b + '. ' + t + ' ' + b + ' ja ' + (t * b) + '. Say it.' }); });
     var nWrong = r.wrong.length, nMiss = r.missing.length + r.unclear.length, allFixed = true;
     /* v33 (user, 01-Nov-2026: "it stays back till it understands"): lines the app did not catch (missed / not sure) are asked one by
        one; if that was all and he says each one right, the table counts - no whole table again. A WRONG answer still means the whole table once more. */
-    var onlyCatch = !nWrong && fix.length === r.unsure.length + nMiss;
-    await say(nWrong ? 'Good try! ' + (nWrong === 1 ? 'One line was wrong.' : nWrong + ' lines were wrong.') : (nMiss ? 'Almost! ' + (nMiss === 1 ? 'One line was missing.' : nMiss + ' lines were missing.') : 'Almost!'));
+    var onlyCatch = !nWrong && fix.length === nMiss;
+    o.unsure = uns;
+    if (fix.length) await say(nWrong ? 'Good try! ' + (nWrong === 1 ? 'One line was wrong.' : nWrong + ' lines were wrong.') : (nMiss ? 'Almost! ' + (nMiss === 1 ? 'One line was missing.' : nMiss + ' lines were missing.') : 'Almost!'));
     for (var i = 0; i < fix.length; i++) {
       var f = fix[i]; bCur(t, f.b);
       $('kQ').className = 'q'; $('kQ').textContent = t + ' × ' + f.b + ' = ' + (f.hide ? '?' : (t * f.b));   /* a doubtful line is a real question: the answer is not shown / said until he has tried */
@@ -1521,6 +1541,7 @@ async function reciteTable(t, up, o) {
       C.diag('recite ' + t + ': only missed / unsure lines - each said right one by one, table counts');
       r.done.forEach(function (b) { bSet(t, b, 1, 1); }); drawBoard(); return true;
     }
+    o.unsure = [];
     logAns('r', 'Table of ' + t + ' (said all)', 'all right', text.slice(0, 120), false, true);
   }
   await say(mode === 'answers' ? 'Good practice! Keep practising, then take the test without seeing.' : 'Well done for trying! We will say the table of ' + t + ' again next time.');
@@ -1549,7 +1570,8 @@ async function practice0(kid, o) {
     S.testOK = false; setSect('recite');
     o.mode = 'test';
   }
-  var ok = await reciteTable(t, up, { mode: o.mode });
+  var ro = { mode: o.mode }, ok = await reciteTable(t, up, ro);
+  if (ok && o.mode === 'test') ok = await randomCheck(t, ro.unsure || [], up);
   if (ok && o.mode === 'test') {
     var p = SES.prog, st = p.t[t] || (p.t[t] = { st: 0, ok: 0 });
     st.st = 3; st.ok = rounds(); st.at = C.day(); SES.mastered.push(t); saveProg(); confetti();
