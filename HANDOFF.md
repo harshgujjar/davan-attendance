@@ -71,6 +71,10 @@ Keep THIS file short: replace old lines, do not append history (history goes in 
   a GitHub run URL -> the browser; no link -> the ☁️ alerts list as now. Same for the 🩺 pushes (kinds fx / pb / cm, 🔔 lab_fix) and the amber
   "waiting for your OK" pushes. Build it WITH the next staff widget change, test on page 2 rule n/a (Super Admin only), add to BuildInfo.NEWS.
 
+## 🔵 PC Doctor Bluetooth fixes (08-Nov-2026, Agent 1.80 / Console 1.24)
+Gujjar laptop's "BT DONGLE10 - Driver error": added bt_check / bt_restart / bt_reinstall (del = true, tap only). NOT yet run on the laptop - next: run bt_check from the Console
+(read the result + hardware id), then restart, then reinstall. Not syntax-tested with pwsh (none in the cloud box). Read the laptop's DB5 fix book first (not done this session).
+
 ## ⏳ QUEUED: PC Doctor 🔧 Fix buttons (user, 07-Nov-2026: "keep in memory, build with another build" - NOT now)
 - Per-PC 🔧 Fix section in every tray (works alone, offline) + the same per PC in the Console. Each button = a recipe: check -> only needed fixes -> check again
   -> ✅ / ❌ + why -> 🩺 book line + push. Buttons: 🖨️ Connect to a shared printer (Private net, saved print login, add printer, test page), 🖨️ Share my

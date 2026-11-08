@@ -37,6 +37,11 @@ $PD_FIX = [ordered]@{
   'printer_guest' = @{ k = 'light';   l = 'Add the shared printers of another PC without a password'; sw = $null; perm = $true }
   # 1.78 (user, 07-Nov-2026, option 1): one normal Windows user "print" on the printer PC; every other PC saves that login once (PC Doctor fills the password in)
   'print_user'    = @{ k = 'light';   l = 'Printer login "print" for the other PCs (shared printers + folder)'; sw = $null; perm = $true }
+  # 1.80 (user, 08-Nov-2026: Gujjar laptop, "BT DONGLE10 - Driver error"): Bluetooth fixes. bt_check = read-only; bt_restart removes nothing;
+  # bt_reinstall removes the device so Windows installs the driver again -> del = $true: only after the Super Admin taps it.
+  'bt_check'      = @{ k = 'light';   l = 'Check Bluetooth (devices + driver error code)'; sw = $null }
+  'bt_restart'    = @{ k = 'light';   l = 'Restart Bluetooth (service + dongle off / on)'; sw = $null }
+  'bt_reinstall'  = @{ k = 'restart'; l = 'Reinstall the Bluetooth driver (remove device + rescan)'; sw = $null; perm = $true; del = $true }
 }
 function PD-FixLog([string]$fix, $res, [string]$by, [string]$cid = '') {
   $t = PD-NowMs
@@ -379,6 +384,30 @@ function Fix-printer_guest($a) {
   @{ ok = $ok; txt = ($out -join ' | ') + $(if ($ok) { ' - print to it like any printer (no password)' } else { '' }); undo = $(if ($added.Count) { @{ fix = 'printer_guest'; names = $added; ports = $ports } } else { $null }) }
 }
 # ---------- 🩺 Fixes: did the fix really change what it should? (read-only, right after the fix) - $null = cannot be checked by itself ----------
+# ---------- 1.80 Bluetooth ----------
+function PD-BtDevices { @(Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -notmatch 'Enumerator|RFCOMM|Device \(|Service|Protocol|LE Generic' -or $_.Status -ne 'OK' }) }
+function Fix-bt_check($a) {
+  $d = PD-BtDevices; $sv = Get-Service bthserv -ErrorAction SilentlyContinue
+  if (!$d.Count) { return @{ ok = $false; txt = 'No Bluetooth device found - dongle not plugged in or not seen by Windows (try another USB port)' } }
+  $l = foreach ($x in $d) { $c = (Get-PnpDeviceProperty -InstanceId $x.InstanceId -KeyName 'DEVPKEY_Device_ProblemCode' -ErrorAction SilentlyContinue).Data
+    $dv = (Get-PnpDeviceProperty -InstanceId $x.InstanceId -KeyName 'DEVPKEY_Device_DriverProvider' -ErrorAction SilentlyContinue).Data
+    "$($x.FriendlyName): $($x.Status), problem code $c, driver by $dv" }
+  @{ ok = (@($d | Where-Object { $_.Status -ne 'OK' }).Count -eq 0); txt = (($l -join "`n") + "`nBluetooth Support Service: " + $(if ($sv) { [string]$sv.Status } else { 'missing' })) }
+}
+function Fix-bt_restart($a) {
+  Set-Service bthserv -StartupType Manual -ErrorAction SilentlyContinue; Restart-Service bthserv -Force -ErrorAction SilentlyContinue
+  $n = 0; foreach ($x in @(Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne 'OK' -and $_.InstanceId -match '^USB' })) {
+    try { Disable-PnpDevice -InstanceId $x.InstanceId -Confirm:$false -ErrorAction Stop; Start-Sleep 2; Enable-PnpDevice -InstanceId $x.InstanceId -Confirm:$false -ErrorAction Stop; $n++ } catch {} }
+  Start-Sleep 3; $bad = @(PD-BtDevices | Where-Object { $_.Status -ne 'OK' }).Count
+  @{ ok = ($bad -eq 0); txt = "Bluetooth service restarted, $n dongle(s) switched off / on, $bad device(s) still in error"; undo = 'Nothing to undo (only a restart)' }
+}
+function Fix-bt_reinstall($a) {
+  $n = 0; $o = ''; foreach ($x in @(Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne 'OK' -and $_.InstanceId -match '^USB' })) {
+    $o += pnputil /remove-device $x.InstanceId 2>&1 | Out-String; $n++ }
+  pnputil /scan-devices 2>&1 | Out-Null; Start-Sleep 5; $bad = @(PD-BtDevices | Where-Object { $_.Status -ne 'OK' }).Count
+  @{ ok = ($n -gt 0 -and $bad -eq 0); txt = "$n Bluetooth dongle device(s) removed + rescanned, $bad still in error. If it stays in error the chipset driver is wrong - send the check (hardware id) to Claude"; restart = $true; undo = 'Windows installs the driver again by itself on the rescan' }
+}
+
 function PD-Verify([string]$fix, $a) {
   try {
     switch ($fix) {
@@ -398,6 +427,7 @@ function PD-Verify([string]$fix, $a) {
                        $n = @($mf.printers | Where-Object ok).Count; return @{ ok = ([bool]$sh -and $n -gt 0); txt = $(if ($sh) { "Share $PD_DRVSHARE is on, drivers for $n printer(s)" } else { 'Share not found' }); t = (PD-NowMs) } }
       'printer_guest' { if (!$a -or !$a.host) { return $null }; $hs = ([string]$a.host).ToUpper(); $ps = @(Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*($hs)" })
                        return @{ ok = ($ps.Count -gt 0); txt = $(if ($ps.Count) { 'Printers here: ' + (($ps | ForEach-Object { $_.Name + ' [' + $_.PrinterStatus + ']' }) -join ', ') } else { "No printer of $hs here" }); t = (PD-NowMs) } }
+      { $_ -in 'bt_check', 'bt_restart', 'bt_reinstall' } { $bad = @(PD-BtDevices | Where-Object { $_.Status -ne 'OK' }).Count; return @{ ok = ($bad -eq 0); txt = "Bluetooth devices in error: $bad"; t = (PD-NowMs) } }
       'printer_driver' { if (!$a -or !$a.driver) { return $null }; $d = Get-PrinterDriver -Name ([string]$a.driver) -ErrorAction SilentlyContinue; return @{ ok = [bool]$d; txt = $(if ($d) { 'Driver installed' } else { 'Driver not found' }); t = (PD-NowMs) } }
     }
   } catch { return @{ ok = $false; txt = 'check failed: ' + $_.Exception.Message; t = (PD-NowMs) } }

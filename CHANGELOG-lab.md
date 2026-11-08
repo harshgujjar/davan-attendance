@@ -2,6 +2,9 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 08-Nov-2026 · Agent 1.80 / Console 1.24 -- Bluetooth fixes (user: Gujjar laptop, "BT DONGLE10 - Driver error"): bt_check (read-only: devices, problem code, driver
+  provider, service), bt_restart (service + dongle off/on, deletes nothing), bt_reinstall (remove device + rescan; del = true, so only after the Super Admin taps it).
+  Console buttons 🔵 on each PC's Actions. No DB cost beyond the normal fix log. Functions: Fix-bt_check / Fix-bt_restart / Fix-bt_reinstall, PD-BtDevices, PD-Verify.
 - 07-Nov-2026 · Agent 1.79 / Console 1.23 / worker v28 -- Option 1 (user: "every PC, any Windows, print + shared folder, no password typed"; guest printing
   is refused by Windows 11): fix print_user makes a normal hidden user "print" on the printer PC with the password from the Console (Settings -> Printer login,
   DB5 lab/secret/printPw AES-GCM; worker POST /lab/pcsecret lets a PC read it). save_login with args.secret: the tray fills the password in (state\printlogin.json),
