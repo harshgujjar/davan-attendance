@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 08-Nov-2026 · Tray 1.81 -- The "This PC" main screen was hidden: with 6 tabs (Gujjar laptop) the tab strip scrolled and only arrows reached it. The tab strip now wraps
+  to two rows so every tab always shows (TabControl Multiline). No data / cost. Change: tray.ps1 tab control.
 - 08-Nov-2026 · Agent 1.80 / Console 1.24 -- Bluetooth fixes (user: Gujjar laptop, "BT DONGLE10 - Driver error"): bt_check (read-only: devices, problem code, driver
   provider, service), bt_restart (service + dongle off/on, deletes nothing), bt_reinstall (remove device + rescan; del = true, so only after the Super Admin taps it).
   Console buttons 🔵 on each PC's Actions. No DB cost beyond the normal fix log. Functions: Fix-bt_check / Fix-bt_restart / Fix-bt_reinstall, PD-BtDevices, PD-Verify.

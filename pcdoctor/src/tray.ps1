@@ -45,7 +45,7 @@ function Pw([string]$why) {
 $form = New-Object Windows.Forms.Form -Property @{ Text = 'PC Doctor - ' + $env:COMPUTERNAME; Width = 460; Height = 748; BackColor = $CL.bg; ForeColor = $CL.tx; StartPosition = 'Manual'; FormBorderStyle = 'FixedSingle'; MaximizeBox = $false; ShowInTaskbar = $true }
 function Corner { $wa = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $form.Left = $wa.Right - $form.Width - 12; $form.Top = [math]::Max($wa.Top, $wa.Bottom - $form.Height - 12) }
 Corner; $form.Add_Shown({ Corner })   # after the DPI scaling the window is bigger - keep it in the corner, fully on screen
-$tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $FT.n }
+$tabs = New-Object Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = $FT.n; Multiline = $true }
 $tMe = New-Object Windows.Forms.TabPage -Property @{ Text = 'This PC'; BackColor = $CL.bg }
 $tabs.TabPages.Add($tMe); $form.Controls.Add($tabs)
 # 1.20 (user, 05-Nov-2026): a footer on every tab so everybody knows who built it (text can be changed in DB5 lab/cfg footer)
