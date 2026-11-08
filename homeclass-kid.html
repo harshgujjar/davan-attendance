@@ -396,7 +396,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 70;
+var KID_VER = 71;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -531,21 +531,24 @@ function syncType() { var b = $('kType'); if (b) b.textContent = useKeys() ? 'ðŸ
 var tvMicOk = 0, tvMicTries = 0;
 function tvListen(ms) {
   return new Promise(function (res) {
-    var until = Date.now() + 60000, stop = false;
+    var until = Date.now() + 60000, me = { stop: false };
+    if (tvListen.cur) tvListen.cur.stop = true; tvListen.cur = me;      /* v71: only ONE listening loop at a time (log 21:51: two loops -> "TV mic: busy" x17) */
     (function loop() {
-      if (stop || typedRes === null && false) return;
+      if (me.stop || !S.running || S.stop || document.hidden) { res({ alts: [], err: 'stop' }); return; }   /* v71 (user: "I closed the app and the mic goes on and off"): the loop ended with the question / class / app */
       micListen(ms || 6000).then(function (r) {   /* v69: SHORT windows - TV sound 21:37-21:40: the remote's Bluetooth mic sends sound only for a few seconds after each open, so v67's 45 s window went deaf; each new window wakes the remote mic again */
         tvMicTries++;
         if (r.alts && r.alts.length) { tvMicOk++; C.diag('TV mic heard: "' + r.alts[0] + '" (' + tvMicOk + ' of ' + tvMicTries + ' tries)'); res(r); return; }
         if (tvMicTries <= 3 || r.err !== 'silence') C.diag('TV mic: ' + (r.err || 'nothing') + ' (try ' + tvMicTries + ')', r.err && r.err !== 'silence' && r.err !== 'stop' ? 'w' : '');
         if (r.err && /nomic|not-allowed|service|client|audio/.test(String(r.err))) micBroken++;
-        if (micBroken >= 3 || Date.now() > until || S.stop) { res({ alts: [], err: 'silence' }); return; }
+        if (micBroken >= 3 || Date.now() > until || S.stop || me.stop || !S.running || document.hidden) { res({ alts: [], err: 'silence' }); return; }
         setTimeout(loop, 300);
       });
     })();
-    tvListen.cancel = function () { stop = true; };
+    tvListen.cancel = function () { me.stop = true; };
   });
 }
+/* v71: the app went to the background (Home button / closed) or the class ended -> no listening at all */
+document.addEventListener('visibilitychange', function () { if (document.hidden) { if (tvListen.cur) tvListen.cur.stop = true; try { if (A && A.stopListen) A.stopListen(); } catch (e) {} C.diag('app hidden - mic closed'); } });
 window.hcMicKey = function () { C.diag('TV remote mic button reached the app'); if (A && A.stopListen) A.stopListen(); };   /* h9: restart listening at once */
 function showCdn(n) { var el = $('kCdn'); el.textContent = n > 0 ? n : ''; el.className = 'cdn' + (n > 0 ? ' on' : ''); }
 function ansLimit() { var c = S.cfg || {}; var t = c.ansTime === undefined ? 20 : +c.ansTime; return t > 0 ? t * 1000 : 0; }
@@ -589,6 +592,7 @@ async function hear(opts) {
     }));
   }
   var r = await Promise.race(p);
+  if (tvBoth && tvListen.cur && !tvListen.cur.stop) { tvListen.cur.stop = true; if (!(r.alts && r.alts.length)) { try { A.stopListen(); } catch (x) {} } }   /* v71: answer typed / time up / skipped -> the TV mic closes */
   if (tmr) { clearInterval(tmr); tmr = null; } showCdn(0); if (timedOut) r.timeout = true;
   typedRes = null;
   $('kOrb').classList.remove('l');
