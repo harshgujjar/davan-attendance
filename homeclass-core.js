@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 38;
+  C.VER = 39;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -683,7 +683,10 @@
   };
   C.diagFlush = function () {
     dTimer = null;
-    if (window.HCA && window.HCA.takeLog) { try { JSON.parse(window.HCA.takeLog() || '[]').forEach(function (e) { e.m = '📱 ' + e.m; DQ.push(e); }); } catch (x) {} }
+    /* v39: app h28 writes "mic: no sound ... reopened it" every 1.5 s on the TV - 70+ lines a class filled the 800-lines-a-day log (08-Nov: the screen's own
+       lines stopped at 22:55). Those lines are counted and sent as ONE summary line per flush. */
+    if (window.HCA && window.HCA.takeLog) { try { var reo = 0, reoT = 0; JSON.parse(window.HCA.takeLog() || '[]').forEach(function (e) { if (/reopened it/.test(e.m)) { reo++; reoT = e.t; return; } e.m = '📱 ' + e.m; DQ.push(e); });
+      if (reo) DQ.push({ t: reoT, m: '📱 mic: no sound - reopened ' + reo + ' times (TV remote asleep)' }); } catch (x) {} }
     if (!DQ.length || !C.fam() || !navigator.onLine) { if (DQ.length) dTimer = setTimeout(C.diagFlush, 30000); return; }
     var batch = {}, part = DQ.splice(0, 80);
     part.forEach(function (e) { batch[pushId()] = e; });
