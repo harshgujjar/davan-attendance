@@ -380,7 +380,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 61;
+var KID_VER = 62;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -476,7 +476,9 @@ var canMic = A ? (A.canListen ? A.canListen() : true) : !!(window.SpeechRecognit
 var micBroken = 0;
 function micListen(ms) {
   return new Promise(function (res) {
-    var id = ++nid, done = false, fin = function (r) { if (!done) { done = true; res(r); } };
+    var id = ++nid, done = false, t0 = Date.now(); S.pFirst = 0; S.pLast = 0;
+    /* v62: how he spoke - started after / spoke for / listening ended after (seconds), for the log line of the answer */
+    var fin = function (r) { if (!done) { done = true; var e = Date.now(); S.lastTm = S.pFirst ? 'started after ' + ((S.pFirst - t0) / 1000).toFixed(1) + ' s · spoke ' + (Math.max(0.1, (S.pLast - S.pFirst) / 1000)).toFixed(1) + ' s · ended ' + ((e - S.pLast) / 1000).toFixed(1) + ' s after the last word' : 'no word at all in ' + ((e - t0) / 1000).toFixed(1) + ' s'; res(r); } };
     /* fix 01-Nov (log 18:38: "mic: stop" 3 s after a right answer): this safety timer used to stop the NEXT question's listening too -
        it now stops only its own listening, and only if that is still open */
     setTimeout(function () { if (done) return; fin({ alts: [], err: 'timeout' }); if (A && A.stopListen && heardCb[id]) { delete heardCb[id]; A.stopListen(); } }, (ms || 9000) + 6000);
@@ -594,9 +596,10 @@ function hbDeliver(r) {
   if (HB.waiter) { var w = HB.waiter; HB.waiter = null; w(r); } else HB.pending = r;
 }
 function hbListen(tap) {
-  var id = String(++nid); HB.id = id; HB.tap = tap;
+  var id = String(++nid), t0 = Date.now(); HB.id = id; HB.tap = tap; S.pFirst = 0; S.pLast = 0;
   heardCb[id] = function (r) {
     if (HB.id !== id) return; HB.id = null;
+    var e = Date.now(); S.lastTm = S.pFirst ? 'started after ' + ((S.pFirst - t0) / 1000).toFixed(1) + ' s · spoke ' + (Math.max(0.1, (S.pLast - S.pFirst) / 1000)).toFixed(1) + ' s · ended ' + ((e - S.pLast) / 1000).toFixed(1) + ' s after the last word' : 'no word at all in ' + ((e - t0) / 1000).toFixed(1) + ' s';
     $('kHold').classList.remove('on'); hbLabel('Hold or tap');
     if (r.alts && r.alts.length) { hbDeliver(r); return; }
     if (HB.pressed && !S.stop) { hbListen(false); $('kHold').classList.add('on'); hbLabel('Let go when done'); return; }   /* still holding */
@@ -706,7 +709,7 @@ function drawBoard() {
 }
 var pT = 0, pTimer = null;
 function onPartial(t) {
-  if (t) { S.lastPart = t; S.lastPartAt = Date.now(); }
+  if (t) { S.lastPart = t; S.lastPartAt = Date.now(); if (!S.pFirst) S.pFirst = S.lastPartAt; S.pLast = S.lastPartAt; }
   if (!SES || !t) return;
   SES.partial = t;
   $('kHeard').innerHTML = '🎤 <b>' + C.esc(t) + '</b>';
@@ -818,7 +821,7 @@ async function askTable(a, b, info) {
       return false;
     }
     var jd = C.tableJudge(r.alts || [], a, b), n = jd.n;
-    if (r.text) C.diag('heard ' + a + '×' + b + ': "' + (r.alts || [r.text]).slice(0, 3).join('" / "') + '" → ' + (jd.ok ? '✓' : (n === null ? '?' : '✗ ' + n)));
+    if (r.text) C.diag('heard ' + a + '×' + b + ': "' + (r.alts || [r.text]).slice(0, 3).join('" / "') + '" → ' + (jd.ok ? '✓' : (n === null ? '?' : '✗ ' + n)) + (S.lastTm ? ' · ' + S.lastTm : ''));
     if (!r.text) {
       silent++;
       if (b === 1 && silent >= 1) return true;                    /* v48: x 1 is not worth a "I could not hear" - accepted */
@@ -833,8 +836,8 @@ async function askTable(a, b, info) {
     if (n === null) {
       unclear++;
       if (b === 1 && unclear >= 1 && !C.isRepeat(r.text)) return true;
-      /* v59 (08-Nov, Vihaan's recordings): he says "seven two ja" and the number after it is lost ("seven two za", "seven two [unk]") - he then repeats the whole line again and again. Tell him once: just the answer. */
-      if (unclear === 1 && /^\s*(\S+\s+){0,2}(ja|za|jha|jaa|zaa|\[unk\])\s*$/i.test(r.text)) { C.diag('line heard, answer lost: "' + r.text + '" - asking for just the answer'); await say('Just say the answer.'); continue; }
+      /* v62: he says "seven two ja" and then stops - the app does NOT talk over him: the screen says what to do and it listens again quietly */
+      if (unclear === 1 && /^\s*(\S+\s+){0,2}(ja|za|jha|jaa|zaa|\[unk\])\s*$/i.test(r.text)) { C.diag('line heard, answer not said: "' + r.text + '" - waiting quietly'); $('kHeard').innerHTML = '🎤 Now say the <b>answer</b>'; continue; }
       if (unclear === 1 && !C.isRepeat(r.text)) continue;      /* "Ja", "the", "computer": just listen again quietly */
       if (unclear === 2) { var cv2 = await notHeard(a, b, ans, q); if (cv2 === 'yes') return true; if (cv2 === 'skip') throw SKIPQ; await say(spoken + '?'); continue; }
       if (C.isRepeat(r.text) || unclear < 4) { await say(unclear === 1 && !C.isRepeat(r.text) ? 'Say the number. ' + spoken + '?' : spoken + '?'); continue; }
