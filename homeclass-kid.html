@@ -190,6 +190,7 @@ body.bOn #sClass .cact .btn{padding:8px 12px;font-size:14px}
 body.bOn.hasHold #sClass .cact{padding-right:min(120px,17dvh)}
 /* v64 (user, 08-Nov: the TV shows no Skip / Stop buttons - the page was taller than the screen): the fit-to-screen class layout now also runs on the TV, with bigger buttons for the remote */
 body.tv .hold{right:70px;bottom:50px}
+.spw{display:inline-block;color:#ffb703;background:rgba(255,183,3,.16);border:2px solid rgba(255,183,3,.55);border-radius:12px;padding:0 12px;margin:0 4px;letter-spacing:4px;font-size:1.35em;font-weight:900}
 /* v69 (user's TV photo: the number keys sat on top of Skip / Pause / Stop and the question was pushed off the top): on the TV the keys go to the right of the board */
 body.tv.bOn #sClass .stage{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:48px;align-content:start;justify-items:center;grid-auto-flow:row dense}
 body.tv.bOn #sClass .stage>*{grid-column:1}
@@ -275,6 +276,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
     <button class="btn soft" id="kTestNow" style="display:none">🙈 Test me now</button>
     <button class="btn soft" id="kNextT" style="display:none">⏭ Next table</button>
     <button class="btn soft" id="kJump" style="display:none">🔢 Go to table</button>
+    <button class="btn soft" id="kMic" style="display:none">🎤 Mic on</button>
     <button class="btn soft" id="kType">⌨️ Type</button>
     <button class="btn soft" id="kPause">⏸ Pause</button>
     <button class="btn soft" id="kStop">⏹ Stop</button>
@@ -394,7 +396,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 69;
+var KID_VER = 70;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -481,7 +483,12 @@ function confirmSheet(text) {
 }
 async function say(text, capEl) {
   chk();
-  if (capEl !== false) $(capEl || 'kCap').textContent = text;
+  if (capEl !== false) {
+    var ce = $(capEl || 'kCap'), bw = !capEl && SES && SES.board && SES.board.k === 's' ? String(SES.board.w || '') : '';
+    /* v70 (user, 08-Nov): the spelling word stands out - CAPITALS, its own colour, highlighted */
+    if (bw && text.toLowerCase().indexOf(bw.toLowerCase()) >= 0) ce.innerHTML = C.esc(text).split(new RegExp(bw.replace(/[^a-z0-9]/gi, '\\$&'), 'i')).join('<b class="spw">' + C.esc(bw.toUpperCase()) + '</b>');
+    else ce.textContent = text;
+  }
   await rawSay(text);
   chk();
   await sleep(castOn() ? 350 : 120);               /* voice finished -> open the mic quickly (Wi-Fi speaker a bit later) */
@@ -557,7 +564,7 @@ async function hear(opts) {
   /* v54 (user, 03-Nov: "a countdown near the END of the answer time - 3 / 5 / 10 s, chosen in the parent app"): quiet until the last seconds, then 5-4-3-2-1;
      it waits while the engine is hearing him speak; at zero the question times out */
   var tmr = null, timedOut = false, clk = opts && opts.clock;       /* one clock for the whole question (it runs across several listens) */
-  if (clk && !keys && !tvBoth && !holdMode()) {
+  if (clk && !keys && !holdMode()) {   /* v70: the TV gets the countdown too */
     var cnt = ansCount();
     tmr = setInterval(function () {
       if (S.pause) { clk.dl += 250; return; }
@@ -599,6 +606,7 @@ async function hear(opts) {
 function holdMode() { return !IS_TV && !!(A && A.listenHold) && C.LS.get('hc_ans', 'hold') === 'hold'; }
 var HB = { pressed: false, id: null, t0: 0, pending: null, waiter: null, tap: false };
 function hbShow() { syncType(); var inC = S.screen === 'sClass' && S.running, sc = S.sect || '', inT = sc === 'learn' || sc === 'recite' || sc === 'q';
+  $('kMic').style.display = inC && IS_TV ? '' : 'none';
   $('kSkip').style.display = inC ? '' : 'none'; $('kSkip').textContent = sc === 'spell' ? '⏭ Skip word' : '⏭ Skip';
   $('kWarm').style.display = inC && sc === 'warm' && S.warmOK ? '' : 'none';
   $('kTestNow').style.display = inC && sc === 'learn' && S.testOK ? '' : 'none';
@@ -965,7 +973,7 @@ async function round(list, info) {
     var f = queue.shift(), key = f[0] + 'x' + f[1];
     i++;
     var ok = await inQ(function () { return askTable(f[0], f[1], info + ' · ' + Math.min(i, total) + ' of ' + total); });
-    if (ok === 'skip') continue;
+    if (ok === 'skip') { clean = false; bad[key] = 1; continue; }   /* v70 (user, 08-Nov: "I skipped all and it said I finished the table, 5 stars"): a skipped line is not learnt */
     weakAdj(key, ok);
     if (ok) delete bad[key]; else bad[key] = 1;
     if (!ok) { clean = false; tries[key] = (tries[key] || 0) + 1; if (tries[key] < 3) queue.splice(Math.min(2, queue.length), 0, f); }
@@ -1121,8 +1129,13 @@ async function askOral(it, first) {
   bNew('o', { title: SES.title, keys: C.keysOf(it) });
   setLive({ mode: 'set', title: SES.title, q: it.q });
   await say(it.q);
+  var oclk = ansLimit() ? { dl: Date.now() + Math.max(ansLimit(), 20000) } : null;     /* v70: answer time + countdown like the tables */
   for (var t = 0; ; t++) {
-    var r = await hear({ ms: 12000 });
+    var r = await hear({ ms: 12000, clock: oclk });
+    if (r.timeout && !r.text) {
+      C.diag('time up: ' + it.q); logAns('o', it.q, it.a, '(time up)', false, first); SES.board.res = 2; SES.board.a = it.a;
+      flash(false, "Time's up", 'Answer: ' + it.a, 5000); await say("Time's up. The answer is: " + it.a + '.', false); hideFlash(); return false;
+    }
     if (!r.text) { if (t < 2) { await say(t === 0 ? 'Take your time. ' + it.q : it.q); continue; } await sleepy(); await say(it.q); t = 0; continue; }
     if (C.isRepeat(r.text) && r.text.split(' ').length < 4) { await say(it.q); continue; }
     var best = null;
@@ -1242,8 +1255,14 @@ async function askSpellG(it, first) {
   bNew('s', { title: SES.title, w: w });
   setLive({ mode: 'set', title: SES.title, q: 'Spell: ' + w });
   await say('Spell the word: ' + w + '.' + sen + ' Say the letters one by one.');
+  var sclk = ansLimit() ? { dl: Date.now() + Math.max(ansLimit(), 20000) } : null;     /* v70: the same answer time + countdown as the tables (at least 20 s to spell) */
   for (var t = 0; ; t++) {
-    var r = await hear({ ms: 14000 });
+    var r = await hear({ ms: 14000, clock: sclk });
+    if (r.timeout && !r.text) {
+      C.diag('time up: spell ' + w); logAns('s', 'Spell ' + w, w, '(time up)', false, first); SES.board.res = 2; SES.board.got = '';
+      $('kQ').textContent = w; flash(false, "Time's up", w + ' = ' + w.toUpperCase().split('').join(' - '), 5000);
+      await say("Time's up. " + w + ' is spelt: ' + w.toUpperCase().split('').join(', ') + '.', false); hideFlash(); return false;
+    }
     if (!r.text) { if (t < 2) { await say('Spell: ' + w + '.'); continue; } await sleepy(); await say('Spell: ' + w + '.'); t = 0; continue; }
     if (C.isRepeat(r.text) && r.text.split(' ').length < 3) { await say(w + '.' + sen); continue; }
     var best = null;
@@ -1401,6 +1420,8 @@ $('kPause').onclick = function () {
   if (S.pause) { if (A) { try { A.stopListen(); } catch (e) {} } toast('Paused - press ▶ Go on'); setLive({ mode: 'paused', title: 'Paused' }); }
 };
 $('kClear').onclick = function () { S.clearSpell = true; SES.partial = ''; if (RC && !RC.stopping) { RC.stopping = true; RC.text = ''; A.reciteStop(); } };
+/* v70 (user, 08-Nov: "give one button to press in all places so the mic comes on if it is off"): opens a fresh listening window at once - that wakes the remote's mic again */
+$('kMic').onclick = function () { C.diag('🎤 Mic on pressed'); $('kHeard').innerHTML = '🎤 <b>Listening - say it now</b>'; try { if (A && A.stopListen) A.stopListen(); } catch (e) {} };
 $('kSkip').onclick = function () { S.skipSpell = true; S.skipQ = true; releaseWaits(); };
 $('kNextT').onclick = function () { S.nextT = true; releaseWaits(); };
 $('vhSet').onclick = function () { try { A.openTtsSettings(); } catch (e) { toast('Open: phone Settings > Languages > Text-to-speech output', 6000); } };
