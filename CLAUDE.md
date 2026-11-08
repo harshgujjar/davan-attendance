@@ -255,6 +255,7 @@ data DB3 `homeclass/<familyKey>`. Every change: entry in `CHANGELOG-homeclass.md
 a homeclass-core.js change also bumps `?v=` on its <script> tag in both pages. APK builds also raise kidApk / parApk there. Java changes: new APK version
 (source + keystore in davan-scraper widgets/homeclass), HomeClass.apk + homeclass-version.json (apkVersion + ?v=) - it installs itself.
 No login by design (the user: "no login, I want it open"). English only for now; Kannada / Hindi later.
+**After every Home Class build (user, 08-Nov-2026): end the reply with the version line - kids screen vNN · core vNN · app hNN · parent vNN - and say per point what is fixed / not fixed.**
 **A Home Class problem is reported ("check the log", "no sound", "not recognising", "stuck"): FIRST read the phones' log, the phone list and the saved recordings from DB3
 yourself (HOMECLASS.md "A problem is reported - DO THIS FIRST": tools hc-log.sh / hc-rec.sh / hc-test.py in davan-scraper widgets/homeclass/tools) - never say you cannot
 read the log, never ask for a screenshot first, never ask for the family key (get it with the DB3 peek Action). Test fixes on the real recordings, then publish.
