@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 40;
+  C.VER = 41;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -169,7 +169,14 @@
   /* v40 (user, 09-Nov-2026: other families test the app): app name + family name everywhere */
   C.famName = function (cfg) { var n = cfg && String(cfg.famName || '').trim(); return n || ''; };
   C.appTitle = function (cfg) { var n = C.famName(cfg); return n ? n + ' Home Class' : 'Home Class'; };
-  C.newFamCfg = function (name) { return { v2: 1, famName: String(name || '').trim().slice(0, 30), upto: 10, rec: false, at: Date.now() }; };
+  C.newFamCfg = function (name) { return { v2: 1, famName: String(name || '').trim().slice(0, 30), upto: 10, rec: true, joiner: 'zaa', at: Date.now() }; };   /* v41: testing phase - voice clips always on; "zaa" by default */
+  C.JOIN_DEF = 'zaa';
+  /* v41 (user, 09-Nov: "a refresh button in both apps, every build uses it"): clears the page caches and loads the newest copy */
+  C.hardRefresh = function () {
+    var go = function () { var q = location.search.replace(/[?&](v|r)=\d+/g, '').replace(/^&/, '?'); location.replace(location.pathname + (q ? q + '&' : '?') + 'r=' + Date.now() + location.hash); };
+    try { LS.del('hc_try_kid'); LS.del('hc_try_par'); } catch (e) {}
+    if (window.caches && caches.keys) caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return !/^dv-/.test(k); }).map(function (k) { return caches.delete(k); })); }).then(go, go); else go();
+  };
   C.stdName = function (n) { n = +n; if (!n) return ''; var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]) + ' std'; };
   C.styleName = function (s) { return s === 'learn' ? 'Learn step by step' : 'Quick revision (mixed)'; };
   C.STAGES = ['Learning', 'In order', 'Mixed', 'Mastered'];
