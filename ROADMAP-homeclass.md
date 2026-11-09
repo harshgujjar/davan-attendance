@@ -8,6 +8,10 @@ Read this first in every Home Class session. Tick a step when done (with version
 - Same screens / core files for both; only an "edition" switch differs (self-update, payment, database, data collected).
 - Version line after every build: screen vNN · core vNN · family app hNN · play app pNN · parent vNN.
 
+## Phase -1 - quick test version for other families - DONE 09-Nov-2026 (kids v77 / parent v48 / core v40 / admin v1)
+- [x] New family = family name + no children, ➕ add / 🗑 remove child, voice clips off by default, app name per family.
+- [x] 🆘 Report a problem (note, voice note, log) + WhatsApp 9844542132; mini admin page (encrypted family list, reports, children, devices, live, log).
+
 ## Phase 0 - approve the mockup  (mockups/mockup-homeclass-admin.html)
 - [ ] User approves / corrects the single-app + admin + "small details" screens.
 
