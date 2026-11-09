@@ -14,7 +14,7 @@ Read this first in every Home Class session. Tick a step when done (with version
 
 ## MAIN RULE (user, 09-Nov-2026): Home Class is a VOICE app - hearing the child by voice is the core; every change must keep or improve voice recognition.
 ## Later (agreed, not built yet)
-- [ ] Permanent family link code always visible on the parent Home (🔁 New code to change it; linked devices listed with Remove).
+- [x] Permanent family link code always visible on the parent Home (🔁 New code) - parent v52.
 - [ ] C: weekly hearing tuning from the testers' saved clips (hc-test.py on real WAVs; add the words children really say - "tree", "fourty", zaa/jaa/ja, Kannada-accented numbers).
 - [ ] D: clearer sound on quiet phones (Android gain / noise suppression in a new APK) - only if the saved clips prove it helps.
 - [ ] Backup: tap a grey line on the board to say just that line again (only for lines the voice still missed).

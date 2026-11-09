@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 41;
+  C.VER = 42;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -122,6 +122,21 @@
     var body = { fam: C.fam(), exp: Date.now() + 15 * 60000 };
     return fetch(C.DB + 'hcpair/' + code + '.json', { method: 'PUT', body: JSON.stringify(body) })
       .then(function (r) { if (!r.ok) throw new Error('code ' + r.status); return { code: code, exp: body.exp }; });
+  };
+  /* v42 (user, 09-Nov-2026: "one permanent family code, always visible"): the family keeps ONE code (cfg.code). It is renewed for 5 more years every time a parent
+     app opens (the DB3 rule lets the same family rewrite its own code), so it never runs out; 🔁 New code makes a fresh one and frees the old one. */
+  C.famCode = function (cfg, renew) {
+    var old = cfg && cfg.code, exp = Date.now() + 5 * 365 * 864e5;
+    function put(code) { return fetch(C.DB + 'hcpair/' + code + '.json', { method: 'PUT', body: JSON.stringify({ fam: C.fam(), exp: exp, perm: 1 }) }).then(function (r) { if (!r.ok) throw new Error('code ' + r.status); return code; }); }
+    if (old && !renew) return put(old).catch(function () { return C.famCode(cfg, true); });
+    var code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    return fetch(C.DB + 'hcpair/' + code + '.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
+      if (v && v.fam && v.fam !== C.fam() && v.exp > Date.now()) return C.famCode(cfg, true);      /* taken by another family: pick again */
+      return put(code).then(function () {
+        if (old && old !== code) fetch(C.DB + 'hcpair/' + old + '.json', { method: 'DELETE' }).catch(function () {});
+        C.patch('cfg', { code: code }); if (cfg) cfg.code = code; C.diag('family code ' + (old ? 'changed' : 'made') + ': …' + code.slice(-2)); return code;
+      });
+    });
   };
   C.useCode = function (code) {
     return fetch(C.DB + 'hcpair/' + code + '.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
