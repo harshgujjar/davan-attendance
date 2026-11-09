@@ -347,3 +347,9 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - 05-Nov: Agent 1.67 - tray Refresh = readings + settings + events + peers + queue + verdict + update check (Check now still does the daily inventory).
 - 05-Nov: tray 1.44 - version (running.json ver) in the icon tooltip, a left-click pop-up before the password, and the password box title.
 - 05-Nov: Agent 1.69 - GUJJARHOME temp driver exit 50 = Windows 10 build 10240 too old (note now says so). Same PC: 8 unexpected power-offs in 7 days; its Windows needs updating to 22H2.
+
+## Meter app (meter.html) - 09-Nov-2026
+- v2.10.54: Cap guard card (renderCapGuard / capRate) on the dashboard: projects units at the reader's best (9th) / worst (10th) day, warns early, units/day to stay under, Call reader button, hot-month note, UPS log, daily notification, summary in DB1 harsha_home_bills/electric/capAlert (for a future widget build).
+- User facts (in Firebase settings, not in source): meter reader phone settings.readerPhone, readerDay 9, UPS log settings.upsLog = OFF 07-Nov 07:43, ON again 09-Nov 14:30 (UPS saves ~1 unit/day, settings.upsSavePerDay).
+- Cycle 09-Oct to 09-Nov = 196.6 units (3.4 under 200); a reading on the 10th would have been ~203. Summer (Mar-May) is the danger time.
+- Still to do: Meter Tracker widget (source in davan-scraper widgets/meter) should read capAlert and show the warning; spare phone as pulse counter FAILED (user) -> ESP32 pulse counter proposed (user will buy); watt calculator: formula correct, appliance watts are catalogue guesses and stored only in localStorage.
