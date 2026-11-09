@@ -12,6 +12,14 @@ Read this first in every Home Class session. Tick a step when done (with version
 - [x] New family = family name + no children, ➕ add / 🗑 remove child, voice clips off by default, app name per family.
 - [x] 🆘 Report a problem (note, voice note, log) + WhatsApp 9844542132; mini admin page (encrypted family list, reports, children, devices, live, log).
 
+## MAIN RULE (user, 09-Nov-2026): Home Class is a VOICE app - hearing the child by voice is the core; every change must keep or improve voice recognition.
+## Later (agreed, not built yet)
+- [ ] Permanent family link code always visible on the parent Home (🔁 New code to change it; linked devices listed with Remove).
+- [ ] C: weekly hearing tuning from the testers' saved clips (hc-test.py on real WAVs; add the words children really say - "tree", "fourty", zaa/jaa/ja, Kannada-accented numbers).
+- [ ] D: clearer sound on quiet phones (Android gain / noise suppression in a new APK) - only if the saved clips prove it helps.
+- [ ] Backup: tap a grey line on the board to say just that line again (only for lines the voice still missed).
+- [x] A + B follow-along recitation + missed lines asked by voice - kids v83.
+
 ## Phase 0 - approve the mockup  (mockups/mockup-homeclass-admin.html)
 - [ ] User approves / corrects the single-app + admin + "small details" screens.
 

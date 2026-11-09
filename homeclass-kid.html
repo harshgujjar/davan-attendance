@@ -451,7 +451,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 82;
+var KID_VER = 83;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -1203,7 +1203,7 @@ async function tablesLearn(k) {
     } else if (st.st === 1 && reciteOk()) {
       SES.title = 'Table of ' + cur + ' · say it all'; setSect('recite');
       var ro = { mode: 'test' }, rr = await reciteTable(cur, up, ro);
-      if (rr === true) rr = await randomCheck(cur, ro.unsure || [], up);
+      if (rr === true && !ro.proven) rr = await randomCheck(cur, ro.unsure || [], up);
       if (rr === true) {
         st.st = 3; st.at = C.day(); st.ok = rounds(); SES.mastered.push(cur); confetti();
         logAns('r', 'Table of ' + cur + ' (said all)', 'all right', 'perfect', true, true);
@@ -1693,8 +1693,59 @@ async function randomCheck(t, unsure, up) {
   if (r === false) await say('Good work. We will do the table of ' + t + ' once more to make it perfect.');
   return r;
 }
+/* v83 (user, 09-Nov-2026: "voice is the main rule of my app - build A and B"): FOLLOW-ALONG recitation. The long non-stop recitation lost lines ([unk]) while
+   single questions were heard well (Poorvika 12 of 12). Now the board lights up one line at a time and the app listens ONLY for that line's words (the
+   same strong grammar as a single question); heard = green and the next line lights up - no tap, no Start button. (B) A line not heard is asked by voice
+   at once ("5 2 zaa?") and listened to again. Lines still not heard go to the short check; all lines heard = the table is proven, no check needed. */
+async function followLine(t, b) {
+  for (var k = 0; k < 2; k++) {
+    var r = await hear({ num: true, ms: 7000 });
+    if (r.switched) { k--; continue; }
+    if (!r.text) return null;
+    var jd = C.tableJudge(r.alts || [], t, b);
+    C.diag('follow ' + t + '×' + b + ': "' + (r.alts || [r.text]).slice(0, 2).join('" / "') + '" → ' + (jd.ok ? '✓' : (jd.n === null ? '?' : '✗ ' + jd.n)) + (S.lastTm ? ' · ' + S.lastTm : ''));
+    if (jd.ok) return true;
+    if (jd.n !== null) return false;
+    return null;
+  }
+  return null;
+}
+async function followTable(t, up, o) {
+  var mode = o.mode || 'test', lines = []; for (var b0 = 1; b0 <= up; b0++) lines.push([t, b0]);
+  bTable(lines, (mode === 'answers' ? '👀 Answers shown' : '🙈 From memory') + ' · ' + t + ' × 1 to ' + t + ' × ' + up + ' · line by line');
+  if (mode === 'answers') SES.board.rows.forEach(function (r) { r[3] = 1; });
+  setLive({ mode: 'recite', title: SES.title, q: 'Table of ' + t + (mode === 'test' ? ' (from memory)' : ' (answers shown)') });
+  $('kQ').className = 'q txt'; $('kQ').textContent = (mode === 'answers' ? '👀 ' : '🙈 ') + 'Say the table of ' + t; drawBoard();
+  await say('Say the table of ' + t + (mode === 'answers' ? ', looking at the answers' : ' from memory') + ', line by line. Say each line when it lights up.');
+  var miss = [], todo = lines.map(function (l) { return l[1]; });
+  for (var pass = 1; pass <= 2 && todo.length; pass++) {
+    var next = [];
+    for (var i = 0; i < todo.length; i++) {
+      var b = todo[i]; chk();
+      bCur(t, b); S.curQ = 'f' + t + 'x' + b + '#' + (++S.qn);
+      $('kQ').className = 'q'; $('kQ').textContent = t + ' × ' + b + ' = ' + (mode === 'answers' ? t * b : '?');
+      $('kHeard').innerHTML = '🎤 <b>' + t + ' × ' + b + '</b>'; drawBoard();
+      if (A && A.setGrammar) A.setGrammar(C.qGrammar(t, b));
+      if (i === 0) ding();
+      var got = await inQ(function () { return followLine(t, b); });
+      if (got !== true && got !== 'skip') { await say(t + ' ' + b + ' ja?'); got = await inQ(function () { return followLine(t, b); }); }   /* (B) asked by voice at once */
+      if (got === true) { bSet(t, b, 1, 1); setLive({ mode: 'recite', title: SES.title, q: t + ' × ' + b + ' ✓' }); }
+      else next.push(b);
+      drawBoard();
+    }
+    todo = next;
+    if (todo.length && pass === 1 && todo.length >= Math.ceil(up / 2)) { await say('I could not hear some lines. Let us say them once more.'); continue; }
+    break;
+  }
+  miss = todo; bCur(t, -1); drawBoard();
+  C.diag('follow ' + t + ': ' + (up - miss.length) + ' of ' + up + ' heard' + (miss.length ? ' · not heard ' + miss.join(', ') : ' · all proven'));
+  o.unsure = miss; o.proven = !miss.length;
+  if (miss.length >= Math.ceil(up / 2)) { await say('I could not hear enough lines. We will try the table of ' + t + ' again later.'); return false; }
+  return true;
+}
 async function reciteTable(t, up, o) {
-  o = o || {}; var mode = o.mode || 'test', tries = o.tries || (mode === 'answers' ? 2 : 3);
+  o = o || {}; if (!o.long) return followTable(t, up, o);
+  var mode = o.mode || 'test', tries = o.tries || (mode === 'answers' ? 2 : 3);
   var lines = []; for (var b = 1; b <= up; b++) lines.push([t, b]);
   for (var attempt = 1; attempt <= tries; attempt++) {
     bTable(lines, (mode === 'answers' ? '👀 Say it - the answers are shown' : '🙈 From memory') + ' · ' + t + ' × 1 to ' + t + ' × ' + up);
@@ -1801,7 +1852,7 @@ async function practice0(kid, o) {
     if (!ok) await say('Good try! We will practise the table of ' + t + ' again.');
   } else {
     ok = await reciteTable(t, up, ro);
-    if (ok && o.mode === 'test') ok = await randomCheck(t, ro.unsure || [], up);
+    if (ok && o.mode === 'test' && !ro.proven) ok = await randomCheck(t, ro.unsure || [], up);
   }
   if (ok && o.mode === 'test') {
     var p = SES.prog, st = p.t[t] || (p.t[t] = { st: 0, ok: 0 });
