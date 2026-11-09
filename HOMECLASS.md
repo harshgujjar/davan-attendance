@@ -48,6 +48,9 @@ screenshot first: the app UPLOADS its own log, the phone list and the child's re
    - `class start/end ... right N wrong N`, `warm-up skipped`, `table N skipped`, `question skipped`, `not heard (app)` / `confirmed` = what the family did.
 5. Then fix, test (browser tests with a mock window.HCA, Vosk on the real WAVs), publish (see the rules above), and tell the user what the log showed in plain words.
 
+## 🛠️ Admin page + other families (v77, 09-Nov-2026)
+`homeclass-admin.html` (admin link #d=<private key>, kept only on the admin phone). Families register themselves ENCRYPTED at DB3 `homeclass/hcreg-admin-family-list-encrypted-v1/<id>` (C.register, public key C.ADMIN_PUB in core). 🆘 reports: `homeclass/<fam>/reports/<id>`. New family cfg: {v2:1, famName, rec:false}. To read another family's log with the tools, get its key from the admin page (family → key …xxxx) or DB3 peek.
+
 ## 🔊 Speaker (h6)
 Kids app prefs "spk" {mode phone|cast, name, host, port, model}. Cast = Google Cast v2 to the Default Media Receiver (from the staff
 widget's HomeCast), one TLS connection per class (reader thread answers PING, closed after 90 s idle), Google translate_tts MP3 first,

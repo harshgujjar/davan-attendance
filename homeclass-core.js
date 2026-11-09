@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 39;
+  C.VER = 40;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -163,9 +163,13 @@
     upto: 10
   };
   C.kidList = function (cfg) {
-    var k = (cfg && cfg.kids) || C.DEFAULT_CFG.kids;
+    var k = (cfg && cfg.kids) || (cfg && cfg.v2 ? {} : C.DEFAULT_CFG.kids);   /* v40: a new family (cfg.v2) starts with no children - never the Gujjar children */
     return Object.keys(k).sort().map(function (id) { var o = k[id]; o.id = id; return o; });
   };
+  /* v40 (user, 09-Nov-2026: other families test the app): app name + family name everywhere */
+  C.famName = function (cfg) { var n = cfg && String(cfg.famName || '').trim(); return n || ''; };
+  C.appTitle = function (cfg) { var n = C.famName(cfg); return n ? n + ' Home Class' : 'Home Class'; };
+  C.newFamCfg = function (name) { return { v2: 1, famName: String(name || '').trim().slice(0, 30), upto: 10, rec: false, at: Date.now() }; };
   C.stdName = function (n) { n = +n; if (!n) return ''; var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]) + ' std'; };
   C.styleName = function (s) { return s === 'learn' ? 'Learn step by step' : 'Quick revision (mixed)'; };
   C.STAGES = ['Learning', 'In order', 'Mixed', 'Mastered'];
@@ -860,5 +864,44 @@
     window.addEventListener('focus', function () { check(false); });
     setTimeout(function () { check(false); }, 4000);
     return { check: function () { check(true); }, retry: function () { if (pending) go(pending); } };
+  };
+
+  /* v40: the admin's family list (only the admin's phone can read it). Every device registers its family once a day at homeclass/<C.REG>/<id>:
+     the family key + name are ENCRYPTED for the admin (ECDH P-256 + AES-GCM), so the list is useless to anyone else. */
+  C.REG = 'hcreg-admin-family-list-encrypted-v1';   /* under homeclass/ (the existing DB3 rules allow 24+ character keys) - every value is encrypted */
+  C.ADMIN_PUB = { kty: 'EC', crv: 'P-256', x: '6xVF-sTOmfFzgmQdWRcSAJHWSJH0Zh6n1fvaWHNIGxM', y: '5y_KX5FMfUMkSKZQdfj9_e0I6Je1C8F4BoytX-o3p14' };
+  function b64(u8) { var s = ''; for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return btoa(s); }
+  C.register = function (cfg, role) {
+    try {
+      if (!C.fam() || !window.crypto || !crypto.subtle || !window.TextEncoder) return;
+      var last = LS.get('hc_reg', {}); if (last.f === C.fam() && last.n === C.famName(cfg) && Date.now() - last.at < 864e5) return;
+      var enc = new TextEncoder(), sub = crypto.subtle, fam = C.fam(), name = C.famName(cfg), id, pubK, eph, aes, iv, ct;
+      sub.digest('SHA-256', enc.encode('hc:' + fam))
+        .then(function (h) { id = Array.prototype.map.call(new Uint8Array(h), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('').slice(0, 20);
+          return sub.importKey('jwk', C.ADMIN_PUB, { name: 'ECDH', namedCurve: 'P-256' }, false, []); })
+        .then(function (k) { pubK = k; return sub.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']); })
+        .then(function (k) { eph = k; return sub.deriveBits({ name: 'ECDH', public: pubK }, eph.privateKey, 256); })
+        .then(function (bits) { return sub.digest('SHA-256', bits); })
+        .then(function (kraw) { return sub.importKey('raw', kraw, 'AES-GCM', false, ['encrypt']); })
+        .then(function (k) { aes = k; iv = crypto.getRandomValues(new Uint8Array(12));
+          return sub.encrypt({ name: 'AES-GCM', iv: iv }, aes, enc.encode(JSON.stringify({ f: fam, n: name, r: role || '', at: Date.now() }))); })
+        .then(function (c) { ct = new Uint8Array(c); return sub.exportKey('jwk', eph.publicKey); })
+        .then(function (ej) { return fetch(C.DB + 'homeclass/' + C.REG + '/' + id + '.json', { method: 'PUT', body: JSON.stringify(JSON.stringify({ x: ej.x, y: ej.y, i: b64(iv), c: b64(ct) })) }); })
+        .then(function (r) { if (r.ok) LS.set('hc_reg', { f: fam, n: name, at: Date.now() }); else C.diag('register: DB ' + r.status, 'w'); })
+        .catch(function (e) { C.diag('register: ' + e.message, 'w'); });
+    } catch (e) {}
+  };
+  /* v40: 🆘 Report a problem - note (+ voice note) + the last log lines, to homeclass/<fam>/reports; the admin page shows the family 🔴 */
+  C.ADMIN_WA = '919844542132';
+  C.report = function (o) {
+    var ring = (LS.get('hc_diag', []) || []).slice(-150).map(function (e) { return new Date(e.t).toTimeString().slice(0, 8) + ' ' + e.m; }).join('\n');
+    var id = Date.now() + '_' + C.newKey(4);
+    var r = { at: Date.now(), st: 'open', dev: C.devId(), devName: o.devName || '', who: o.who || '', note: String(o.note || '').slice(0, 1000),
+      heard: String(o.heard || '').slice(0, 1000), aud: o.aud || null, recFrom: o.recFrom || 0, recTo: o.recTo || 0, ver: o.ver || '', app: o.app || '', model: o.model || '', log: ring.slice(-20000) };
+    return fetch(C.url('reports/' + id), { method: 'PUT', body: JSON.stringify(r) }).then(function (x) { if (!x.ok) throw new Error('DB ' + x.status); C.diag('🆘 problem reported: ' + r.note.slice(0, 80)); return id; });
+  };
+  C.waLink = function (cfg, note) {
+    var t = '🆘 Home Class' + (C.famName(cfg) ? ' - ' + C.famName(cfg) + ' family' : '') + ': ' + (note || 'I reported a problem in the app') + ' (…' + C.fam().slice(-4) + ')';
+    return 'https://wa.me/' + C.ADMIN_WA + '?text=' + encodeURIComponent(t);
   };
 })();
