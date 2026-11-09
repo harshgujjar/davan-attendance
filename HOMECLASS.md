@@ -48,6 +48,16 @@ screenshot first: the app UPLOADS its own log, the phone list and the child's re
    - `class start/end ... right N wrong N`, `warm-up skipped`, `table N skipped`, `question skipped`, `not heard (app)` / `confirmed` = what the family did.
 5. Then fix, test (browser tests with a mock window.HCA, Vosk on the real WAVs), publish (see the rules above), and tell the user what the log showed in plain words.
 
+## ✅ Before saying "done" - every Home Class build (user, 09-Nov-2026: "why so many problems, can't you be perfect")
+Run ALL of these, not only the changed screen (scripts in the session scratchpad are throw-away; re-create them):
+1. Syntax: node --check on core + every <script> of kids / parent / admin pages.
+2. Browser walk-through with the DB mocked (Playwright route on firebasedatabase.app, never write test data to real families) at 360x740 phone AND 960x540 TV:
+   NEW family (parent: family name -> Start -> add child with the form -> settings -> add device), kids home empty / 1 child / 3 children, start class,
+   practise a table, lesson + spelling, 🆘 report (kids + parent), ⚙️ settings, 🔄 refresh, admin list + family tabs. Zero page errors, no text cut / overlapping.
+3. Old families: the Gujjar family (no cfg.v2) must look and work exactly as before.
+4. Things the Android apps do differently from a browser: no prompt()/alert reliance for anything important, taps near the keyboard, small screens, old app versions.
+5. Only then publish, and list honestly what was NOT tested on a real phone.
+
 ## 🛠️ Admin page + other families (v77, 09-Nov-2026)
 `homeclass-admin.html` (admin link #d=<private key>, kept only on the admin phone). Families register themselves ENCRYPTED at DB3 `homeclass/hcreg-admin-family-list-encrypted-v1/<id>` (C.register, public key C.ADMIN_PUB in core). 🆘 reports: `homeclass/<fam>/reports/<id>`. New family cfg: {v2:1, famName, rec:false}. To read another family's log with the tools, get its key from the admin page (family → key …xxxx) or DB3 peek.
 
