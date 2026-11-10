@@ -2,6 +2,13 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2008 · 10-Nov-2026 IST
+User: "when a student taps can't update show a chat; FAQ first; if not solved I come live; only me; screenshot only when I switch it on; everything noted". New side-menu page 💬 Student help (Super Admin only,
+nav-shelp, ?go=shelp): chat list (All / Unread / Waiting / Solved, photo, class, 📞, last line), one chat (student card tap, phone model / widget build / steps / reason, quick-answer buttons from the problem list,
+📷 Ask for screenshot, ✅ Mark solved, live every 6 s while open), ✏️ editable common-problems list (davan_pub/help_faq, "Question | English | Kannada" lines) and Most asked problems (davan_pub/shelp_stat: asked / fixed).
+📲 Widget update report rows get a 💬 Chat button (same chat). Worker v21: ☁️ alert on a new student message. Data: DB2 davan_pub/shelp/<URN> (card), shelp_m/<URN>/<ts> (messages), help_faq, shelp_stat; pictures are Cloudinary
+links (folder davan_help). Reads: the list = one small read; a chat = its own 2 reads / 6 s. Pairs with portal v11.116, worker v21. Functions: shpInit, shpOpen, shpSend, shpAsk, shpFaqEdit, shpGo.
+
 ## v2007 · 10-Nov-2026 IST
 User: test students should show the phone number and open the student card when tapped. Test-student chips and search hits (Global Switches + 📲 report) show 📞 phone (allStudents, no reads); tapping the name calls scOpen(urn). Functions: wuTestChips, wuTestSearch, wurTestDraw, wurTestSearch.
 
