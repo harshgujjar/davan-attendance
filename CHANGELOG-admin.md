@@ -2,6 +2,11 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2004 · 10-Nov-2026 IST
+User: the 54 students who tapped "My phone can't install it" all have modern Android 10+ phones (none slow), so they must be locked like everyone else. In 📲 Widget update report,
+the 📵 box now means "Slow phone" (app-detected only); a student's own "can't" tap is ignored, and a new "✅ Done by Director" button (noapp.dir, with ↩ Undo - lock again) marks a student the
+Director installed for. Data: DB2 davan_pub/wupd/<URN>/noapp (read as before, one tiny write on tap; no new reads). Pairs with student portal v11.114. Functions: wurDirDone, wurNoAppUndo, wurView rows.
+
 ## v2003 · 07-Nov-2026 IST
 User: "when you queue something send me a push; clicking it takes me directly to that place; when it is approved and fixed, another push". Tapping a ☁️ Super Admin
 push now opens the alert's own link: a PC Doctor alert opens the 🖥️ PC Doctor page at that spot (lab.html#fixes=<pc> / #autofix / #pc=<pc>), a cloud-job alert opens
