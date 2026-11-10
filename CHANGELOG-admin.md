@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2009 · 10-Nov-2026 IST
+User: AMULYA B M (opened on his phone) still showed ✅ Updated in the report list. Rows whose widget code (wupd/<URN>.code or wupd_idx code) is a 📱 test-phone code (wupd_cfg.testCodes) now count as no widget: v = 0, kind none, "updated" steps ignored. Function: wurInit rows / done.
+
 ## v2008 · 10-Nov-2026 IST
 User: "when a student taps can't update show a chat; FAQ first; if not solved I come live; only me; screenshot only when I switch it on; everything noted". New side-menu page 💬 Student help (Super Admin only,
 nav-shelp, ?go=shelp): chat list (All / Unread / Waiting / Solved, photo, class, 📞, last line), one chat (student card tap, phone model / widget build / steps / reason, quick-answer buttons from the problem list,
