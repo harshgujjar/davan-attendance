@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2007 · 10-Nov-2026 IST
+User: test students should show the phone number and open the student card when tapped. Test-student chips and search hits (Global Switches + 📲 report) show 📞 phone (allStudents, no reads); tapping the name calls scOpen(urn). Functions: wuTestChips, wuTestSearch, wurTestDraw, wurTestSearch.
+
 ## v2006 · 10-Nov-2026 IST
 User screenshot: the counts of the 402-student table were off the right edge of the phone screen. The table is now rows (number first, label wraps, percent last) - nothing leaves the screen; the test search / code inputs use border-box. The no-widget switch text in Global Switches no longer says "countdown till then" (it locks at once since v2004). Function: wurCensus, wurTestDraw, gswStuMinShow.
 
