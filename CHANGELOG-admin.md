@@ -2,6 +2,13 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2005 · 10-Nov-2026 IST
+User: "402 students - how many installed, updated, iPhone; the total must add up" and "students I open on my phone count as having the widget". 📲 Widget update report now opens with a
+table of ALL current students (allStudents), each in one group: widget on the newest 24-h-old build / old (seen or not seen 7 days) / Android no widget (locked) / iPhone / laptop / slow phone /
+Done by Director / not opened in 7 days, with the total. The old "Old widgets -> saw the card ..." summary stays below it. Test students (add / remove by name) and 📱 test phones (wupd_cfg.testCodes:
+the Super Admin's own widget codes, ignored so a student opened on his phone gets the real card) are on this page too. Data: DB2 davan_pub/wupd_cfg (1 tiny read + patch), davan_pub/usage last 7 days (7 reads
+per open, kept 10 min). Pairs with portal v11.115. Functions: wurCensus, wurNeed, wurTestDraw / wurTestAdd / wurCodeAdd.
+
 ## v2004 · 10-Nov-2026 IST
 User: the 54 students who tapped "My phone can't install it" all have modern Android 10+ phones (none slow), so they must be locked like everyone else. In 📲 Widget update report,
 the 📵 box now means "Slow phone" (app-detected only); a student's own "can't" tap is ignored, and a new "✅ Done by Director" button (noapp.dir, with ↩ Undo - lock again) marks a student the
