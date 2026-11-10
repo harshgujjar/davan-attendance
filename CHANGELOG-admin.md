@@ -2,6 +2,13 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2010 · 11-Nov-2026 IST
+User: "make the help a real chat - student sees his photo and details, personal lines, WhatsApp ticks, I show live / typing only when I am live, pop-up for replies, and show me everything about his install so I can solve it". 💬 Student help rebuilt:
+chat header (photo tap-to-zoom, name, class + section, 📞, student card), 🔎 Install check (phone / Android / RAM / browser, widget build + last report, times he saw the card with first / last, downloads, Update taps, Android asked / install started / cancelled / failed, install permission, battery, last error,
+his own words, plus "What to tell him" hints), ticks ✓ / ✓✓ / blue ✓✓ (delA / seenS / seenA), 🟢 live (heartbeat shelp_live, Go offline / I'm live) and typing both ways, the chat checks every 3 s, the list every 10 s, unread number in the menu + tab title + a beep (30 s poll),
+auto lines are tagged "automatic" for you only, ✏️ problem list answers become "Dear name, …". Data: DB2 davan_pub/shelp, shelp_m, shelp_live, help_faq, shelp_stat; the Install check reads wupd/<URN>, wupd_idx/<URN>, the widget report and 2 usage days (only when a chat is opened). Pairs with portal v11.118, worker v22.
+Functions: shpInit / shpList / shpOpen / shpDiag / shpSend / shpTyping / shpToggleLive / shpGlobalPoll / shpHeartbeat.
+
 ## v2009 · 10-Nov-2026 IST
 User: AMULYA B M (opened on his phone) still showed ✅ Updated in the report list. Rows whose widget code (wupd/<URN>.code or wupd_idx code) is a 📱 test-phone code (wupd_cfg.testCodes) now count as no widget: v = 0, kind none, "updated" steps ignored. Function: wurInit rows / done.
 

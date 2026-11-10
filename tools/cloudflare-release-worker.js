@@ -30,6 +30,7 @@
  *  - v23 (05-Nov-2026): PC identity - the placeholder BIOS UUIDs of cheap boards never count, and different MAC + different disks = a different PC (two identical lab PCs were merged).
  *  - v22 (04-Nov-2026): PC Doctor Console has its OWN password (POST /lab/tok {pw}, /lab/setpw) - opening it never logs in to the staff app.
  *  - v21 (04-Nov-2026): PC Doctor hourly MeshCentral check tries https then http (302 = alive) and saves the error text (no false "offline" alert).
+ *  - v22 (11-Nov-2026): shelpAlert also stamps delA (delivered ✓✓ on the student's message).
  *  - v21 (10-Nov-2026): POST /sa kind 'shelp' = ☁️ alert when a student writes in the 🆘 Help chat (shelpAlert; one per student per 10 min).
  *  - v18 (04-Nov-2026): 🖥️ Davan PC Doctor - POST /lab/tok, /lab/pc, /lab/alert, /lab/ai + the hourly lab check (secret DB5_SA).
  *  - v14 (23-Oct-2026): POST /ai also answers widgets for ONE task (fb_reply), checked by the widget code.
@@ -280,8 +281,8 @@ async function wupdDaily() {
 async function shelpAlert(b) {
   const urn = clip(b.urn, 20).toUpperCase().replace(/[^A-Z0-9_]/g, ''); if (!urn) return { ok: false, msg: 'no urn' };
   const m = await db2('GET', 'davan_pub/shelp/' + urn); if (!m || m.lastW !== 's' || Date.now() - (+m.last || 0) > 5 * 60000) return { ok: false, msg: 'no fresh message' };
-  if (m.alertAt && Date.now() - m.alertAt < 10 * 60000) return { ok: true, msg: 'already told' };
-  await db2('PATCH', 'davan_pub/shelp/' + urn, { alertAt: Date.now() });
+  if (m.alertAt && Date.now() - m.alertAt < 10 * 60000) { await db2('PATCH', 'davan_pub/shelp/' + urn, { delA: Date.now() }); return { ok: true, msg: 'already told' }; }   // v22: the Super Admin was told a moment ago = delivered (✓✓)
+  await db2('PATCH', 'davan_pub/shelp/' + urn, { alertAt: Date.now(), delA: Date.now() });
   return saEvent({ kind: 'widgets', color: 'blue', who: clip(m.name, 60), title: '💬 ' + clip(m.name || urn, 60) + ' wrote in Student help',
     body: clip(m.cls, 30) + ' · ' + urn + (m.model ? ' · ' + clip(m.model, 30) : '') + '\n"' + clip(m.lastT, 120) + '"',
     by: 'student app', link: 'https://harshgujjar.github.io/davan-attendance/index.html?go=shelp' });
