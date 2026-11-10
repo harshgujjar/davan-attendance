@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2006 · 10-Nov-2026 IST
+User screenshot: the counts of the 402-student table were off the right edge of the phone screen. The table is now rows (number first, label wraps, percent last) - nothing leaves the screen; the test search / code inputs use border-box. The no-widget switch text in Global Switches no longer says "countdown till then" (it locks at once since v2004). Function: wurCensus, wurTestDraw, gswStuMinShow.
+
 ## v2005 · 10-Nov-2026 IST
 User: "402 students - how many installed, updated, iPhone; the total must add up" and "students I open on my phone count as having the widget". 📲 Widget update report now opens with a
 table of ALL current students (allStudents), each in one group: widget on the newest 24-h-old build / old (seen or not seen 7 days) / Android no widget (locked) / iPhone / laptop / slow phone /
