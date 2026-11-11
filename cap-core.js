@@ -43,7 +43,7 @@
     var anchors = all.filter(function (r) { return r.type === 'bill' || r.type === 'meter'; }).sort(function (a, b) { return rdt(b) - rdt(a); });
     if (!rs.length || !anchors.length) return null;
     var a = anchors[0], lat = rs[rs.length - 1], cap = +s.subsidy || 200, bd = +rdt(a), latDT = +rdt(lat);
-    var used = Math.max(0, lat.u - a.u), elapsedMs = Math.max(0, now - bd), elapsed = elapsedMs / DAY, R = rate(rs, s, now), rd = +s.readerDay || 9;
+    var used = Math.max(0, lat.u - a.u), elapsedMs = Math.max(0, now - bd), elapsed = elapsedMs / DAY, R = rate(rs, s, now), rd = +s.billDay || +s.readerDay || 9;   /* ONE day: Config "Bill Date" = the day the reader comes */
     var bp = parts(bd), m = bp.m, y = bp.y, best = +istNoon(y, m, rd);
     while (best <= bd + 10 * DAY) { m++; best = +istNoon(y, m, rd); }
     var worst = best + DAY, totalDays = (worst - bd) / DAY;
