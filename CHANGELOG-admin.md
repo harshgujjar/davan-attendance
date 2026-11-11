@@ -2,6 +2,13 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2011 · 11-Nov-2026 IST
+User: "collect boy / girl for every student (mandatory, no pass), a page where I add must-answer questions, summary per class and section, later questions the same". New side-menu page 📝 Student questions (Super Admin only, nav-sq, ?go=sq):
+list of questions (options, On / Off, answered x of all students), + New question (English, optional Kannada, 2 to 4 options, always must-answer), and ONE SUB PAGE PER QUESTION: header (answered / total %, one tile per option, not answered, bar),
+table by class + section (students, answered, each option, left) with the college total, student list sorted class / section / name with photo, filters (All / Answered / Not answered / each option), Excel / PDF / Copy and a dropdown to change an answer
+("set by Admin", the earlier answer kept as prev). Nothing is deleted: an answer can be changed not removed, a question can be switched Off not deleted. Only current students are counted. The first question (gender: Boy / Girl) is set up by the page / the "SQ seed" job.
+For now the data is only collected. Data: DB2 davan_pub/sq/def/<id>, sq_a/<id>/<URN>. Reads: the page reads the definitions + one answers node per question. Pairs with portal v11.119. Functions: sqInit / sqList / sqOpenQ / sqSet / sqAdd / sqNewForm / sqToggle / sqData / sqRows.
+
 ## v2010 · 11-Nov-2026 IST
 User: "make the help a real chat - student sees his photo and details, personal lines, WhatsApp ticks, I show live / typing only when I am live, pop-up for replies, and show me everything about his install so I can solve it". 💬 Student help rebuilt:
 chat header (photo tap-to-zoom, name, class + section, 📞, student card), 🔎 Install check (phone / Android / RAM / browser, widget build + last report, times he saw the card with first / last, downloads, Update taps, Android asked / install started / cancelled / failed, install permission, battery, last error,
