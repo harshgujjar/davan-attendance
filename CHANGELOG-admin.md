@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2013 · 12-Nov-2026 IST
+User: "I am on Cloud alerts but the side menu doesn't show it - open the side menu showing that tab only, rest closed as now."
+Pages not in the group map (Cloud alerts, Scraper, PC Doctor, ...) now open their own menu group (found from the menu item), and opening the phone side menu scrolls the active item into view. No data touched, no Firebase cost. Functions: secOpenForPanel, mobToggleSidebar.
+
 ## v2012 · 12-Nov-2026 IST
 User: "in the web app faculty alert page add a per-person on/off switch that breaks data, sound etc. without a new native build" (Veeresh Patil's widget).
 Faculty Alerts table: each person has ⏸ Pause widget / ▶ Resume widget (also in the "other staff" rows). Pause saves the person's link record(s) to DB2 `davan_pub/widget_paused/<login>` and empties `student_widget_active/<S-code>` - installed staff widgets drop the link at their next refresh (no data, no voice, no notifications); `swLink` refuses to link a paused login. Resume writes the saved record(s) back. Cost: 1 small read when the panel opens, a few writes per press. Works with every installed staff widget, no new build; not phone-tested (an old widget's reaction to an emptied link is as for "My widget > Unlink"). Functions: facWidPause, facPausedLoad, facPauseKey, facPauseUser, facAlertRenderSubs, swLink.
