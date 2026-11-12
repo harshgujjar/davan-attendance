@@ -3,6 +3,8 @@
 **New session? Read `HANDOFF.md` first** (current versions, open items, how the user works) - then work without asking the user to
 repeat anything. Update HANDOFF.md at the end of every session, in the same commit.
 
+**Every session: attach `harshgujjar/davan-scraper` at the start (add_repo, access push, then ONE `git clone --depth 1` into /home/user/davan-scraper, then register_repo_root) - user, 12-Nov-2026: "always attach davan-scraper here and future also". Needed to read DB2 / DB5 (peek Actions) yourself.**
+
 ## Save tokens (user, 15-Oct-2026 - every session)
 - HANDOFF.md / big files: read only the part needed (grep, `sed -n a,bp`), never a whole big file; never re-read a file just edited.
   src/index.src.html is ~90k lines: always grep first, then read a small range.
