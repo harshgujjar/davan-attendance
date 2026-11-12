@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2014 · 12-Nov-2026 IST
+User: "2nd internals removed and cancelled in staff app; student widget doesn't show it but student web still does."
+Cause: the staff app only published eligibility to davan_pub/ia_live_status/IA2 and never removed it when the internal was cancelled, so the web portal kept reading the old list. Now iaePublishLiveStatus deletes that node (once) and bumps pub_ver when the window has no cutoff. DB2 davan_pub/ia_live_status/<IA>, 1 write. Student web needs no change.
+
 ## v2013 · 12-Nov-2026 IST
 User: "I am on Cloud alerts but the side menu doesn't show it - open the side menu showing that tab only, rest closed as now."
 Pages not in the group map (Cloud alerts, Scraper, PC Doctor, ...) now open their own menu group (found from the menu item), and opening the phone side menu scrolls the active item into view. No data touched, no Firebase cost. Functions: secOpenForPanel, mobToggleSidebar.
