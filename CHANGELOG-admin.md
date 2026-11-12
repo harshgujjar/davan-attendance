@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2012 · 12-Nov-2026 IST
+User: "in the web app faculty alert page add a per-person on/off switch that breaks data, sound etc. without a new native build" (Veeresh Patil's widget).
+Faculty Alerts table: each person has ⏸ Pause widget / ▶ Resume widget (also in the "other staff" rows). Pause saves the person's link record(s) to DB2 `davan_pub/widget_paused/<login>` and empties `student_widget_active/<S-code>` - installed staff widgets drop the link at their next refresh (no data, no voice, no notifications); `swLink` refuses to link a paused login. Resume writes the saved record(s) back. Cost: 1 small read when the panel opens, a few writes per press. Works with every installed staff widget, no new build; not phone-tested (an old widget's reaction to an emptied link is as for "My widget > Unlink"). Functions: facWidPause, facPausedLoad, facPauseKey, facPauseUser, facAlertRenderSubs, swLink.
+
 ## v2011 · 11-Nov-2026 IST
 User: "collect boy / girl for every student (mandatory, no pass), a page where I add must-answer questions, summary per class and section, later questions the same". New side-menu page 📝 Student questions (Super Admin only, nav-sq, ?go=sq):
 list of questions (options, On / Off, answered x of all students), + New question (English, optional Kannada, 2 to 4 options, always must-answer), and ONE SUB PAGE PER QUESTION: header (answered / total %, one tile per option, not answered, bar),
