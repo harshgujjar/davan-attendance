@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2015 · 12-Nov-2026 IST
+User: "make these 'What to tell him' messages a copy / one button to send to the student, proper prefixes, ready to send."
+💬 Student help › 🔎 Install check: each step has 📤 Send to student (saved to the student's chat as "Dear <first name>, …", ≤300 letters) and 📋 Copy. Data: DB2 davan_pub/shelp_m/<URN> (1 write per send, same as typing). Functions: shpDiag (hp helper), shpHintSend.
+
 ## v2014 · 12-Nov-2026 IST
 User: "2nd internals removed and cancelled in staff app; student widget doesn't show it but student web still does."
 Cause: the staff app only published eligibility to davan_pub/ia_live_status/IA2 and never removed it when the internal was cancelled, so the web portal kept reading the old list. Now iaePublishLiveStatus deletes that node (once) and bumps pub_ver when the window has no cutoff. DB2 davan_pub/ia_live_status/<IA>, 1 write. Student web needs no change.
