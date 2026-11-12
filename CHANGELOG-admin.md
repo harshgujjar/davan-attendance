@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2016 · 12-Nov-2026 IST
+User: "build Ask Admin for all students, with topic chips."
+Student help chats now carry a topic: the chat list shows a green topic tag on each chat and each message shows its topic. Data: DB2 davan_pub/shelp/<URN>.tpL, shelp_m/<URN>/<ts>.tp - no extra reads or writes. Pairs with student portal v11.123. Functions: shpList, shpOpen.
+
 ## v2015 · 12-Nov-2026 IST
 User: "make these 'What to tell him' messages a copy / one button to send to the student, proper prefixes, ready to send."
 💬 Student help › 🔎 Install check: each step has 📤 Send to student (saved to the student's chat as "Dear <first name>, …", ≤300 letters) and 📋 Copy. Data: DB2 davan_pub/shelp_m/<URN> (1 write per send, same as typing). Functions: shpDiag (hp helper), shpHintSend.
