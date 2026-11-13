@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2021 · 13-Nov-2026 IST
+User: "below the legend show how many old, iPhone, updated ... today 402."
+Student questions page: a "📊 Today" line under the legend counts every student once per group (updated, old, iPhone, laptop, slow, Director, Android no widget, not opened) and shows the total, so it adds up to all students. Same data as the phone mark, no extra reads. Function: sqOpenQ.
+
 ## v2020 · 13-Nov-2026 IST
 User: "no widget = no emoji; by default show the emoji for students who answered, the switch shows it for all; switch button green when On, yellow when Off - same pattern for every build."
 Student questions page: the phone mark is on by default for students who answered boy / girl; "All students: On" (green, the app's usual On style; yellow when Off) shows it for everyone. Android with no widget and not-opened students get no emoji. Reads (widget list, steps, 7 days of visits) now happen once when the page opens (cached 10 min) because answered students show the mark by default. Excel / Copy always carry the Phone column. Functions: sqOpenQ, sqEmoToggle, sqRows.
