@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2023 · 13-Nov-2026 IST
+2nd internal marks never showed because the scraper had them hardcoded off. The 🕷 Scraper page has a new "2nd internal (Int 2)" switch (on by default) saved in DB2 `davan_pub/scraper/cfg.marks2`; no extra reads/writes beyond the marks scrape. Pairs with davan-scraper v112. Changed: `SCR_CFG_DEF`, Scraper settings card.
+
 ## v2022 · 13-Nov-2026 IST
 User: "add DB3 DB4 DB5 DB6 ... table of all, daily usage per day like attendance"; the Meter boxes showed only a guessed 403.
 New table "Downloaded per day (MB)" on 🧮 Claude Meter: a row per day, a column per DB, plus Total. Numbers come from the apps' own meter (marked ~, split by the DB3~/DB4~/DB5~ tags, untagged = DB2) or Firebase's own number when Cloud Monitoring works. DB1 has no app meter yet.
