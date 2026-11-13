@@ -2,6 +2,12 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2022 · 13-Nov-2026 IST
+User: "add DB3 DB4 DB5 DB6 ... table of all, daily usage per day like attendance"; the Meter boxes showed only a guessed 403.
+New table "Downloaded per day (MB)" on 🧮 Claude Meter: a row per day, a column per DB, plus Total. Numbers come from the apps' own meter (marked ~, split by the DB3~/DB4~/DB5~ tags, untagged = DB2) or Firebase's own number when Cloud Monitoring works. DB1 has no app meter yet.
+Data: DB4 claude_meter/db_usage/daily (35 days, written by davan-scraper db_usage_save.py every 3 h; reads only today's DB2 meter). No new app reads. Monitoring errors now show Google's real text.
+Functions: cmtrDbInit.
+
 ## v2021 · 13-Nov-2026 IST
 User: "below the legend show how many old, iPhone, updated ... today 402."
 Student questions page: a "📊 Today" line under the legend counts every student once per group (updated, old, iPhone, laptop, slow, Director, Android no widget, not opened) and shows the total, so it adds up to all students. Same data as the phone mark, no extra reads. Function: sqOpenQ.
