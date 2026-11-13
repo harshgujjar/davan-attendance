@@ -93,7 +93,9 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG                                                                    ║
 ║  v4.7.6  2026-11-13 — Marks table: Tab in a test column moves DOWN to the   ║
-║                    next subject (Shift+Tab up). Fn: renderMarksEditor.      ║
+║                    next subject (Shift+Tab up). Typed marks AUTO-SAVE   ║
+║                    to ptm_manual_marks/{AY}/{class}/{student}/{subject}/{test}  ║
+║                    with a Saved status. Fn: adSub, adApplyManualMarks.      ║
 ║  v4.7.5  2026-11-13 — A test whose source is "none" now takes its exam    ║
 ║                    from its name (Test 3 -> IA - 3, Mid Term -> Mid Term),  ║
 ║                    so the column fills. Fn: ptmGuessSource, adFillStudent.  ║
@@ -2178,6 +2180,7 @@
       <pre id="ad-debug" style="display:none;background:#0b0f14;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:10px;max-height:260px;overflow:auto;white-space:pre-wrap;color:#9cc4f5"></pre>
       <div id="ad-sslc-line" style="margin-bottom:10px;"></div>
       <div style="overflow-x:auto"><table class="edit" id="ad-marks"></table></div>
+      <div class="mini" id="ad-marks-status" style="margin-top:6px;color:var(--mut)">Marks you type here save by themselves.</div>
     </div>
 
     <div class="pcard">
@@ -2424,7 +2427,7 @@ let   AY = CUR_AY;           // active AY — same for 1PUC & 2PUC this year
 //                  version during a same-day round of fixes.
 // APP_VERSION_FULL is what gets shown to humans and printed on every PDF,
 // so an audit can tie any sheet a parent holds back to an exact build.
-const APP_VERSION   = 'v4.7.6';   // v4.7.6: Tab in a test column goes down to the next subject; v4.7.5: a test with source none takes its exam from its name (Test 3 -> IA - 3); v4.7.4: a fee-blocked student (0 held) takes the last good attendance day; v4.7.3: Apply max / pass to published cards; v4.7.2: student missing from an exam bucket filled from All Exams; v4.7.1 (16-Oct-2026): Mid Term round in Active / Viewing round; v4.7.0 (15-Oct-2026): Mid-Term marks (+ "All Exams" scrape, portal task names read as one name per exam); v4.6.4 (30-Sep-2026): installable as its own PWA (manifest-parent_ptm.json + page-only worker)
+const APP_VERSION   = 'v4.7.6';   // v4.7.6: typed marks auto-save (ptm_manual_marks) + status; Tab in a test column goes down to the next subject; v4.7.5: a test with source none takes its exam from its name (Test 3 -> IA - 3); v4.7.4: a fee-blocked student (0 held) takes the last good attendance day; v4.7.3: Apply max / pass to published cards; v4.7.2: student missing from an exam bucket filled from All Exams; v4.7.1 (16-Oct-2026): Mid Term round in Active / Viewing round; v4.7.0 (15-Oct-2026): Mid-Term marks (+ "All Exams" scrape, portal task names read as one name per exam); v4.6.4 (30-Sep-2026): installable as its own PWA (manifest-parent_ptm.json + page-only worker)
 const BUILD_STAMP   = '2026-10-17 05:00 UTC';
 const APP_VERSION_FULL = APP_VERSION + ' · build ' + BUILD_STAMP;
 // PTM ROUND: single switch controlling which round's logs the app reads
@@ -4732,6 +4735,7 @@ async function buildStudentSubjects(){
   // in adFetchClassData), so this should normally be a no-op.
   subs=subs.filter(r=>!isExcludedSubject(r.sub, r.code));
   if(!subs.length) subs=[{sub:'',fac:'',ca:'',ct:'',p1:null}];
+  await adApplyManualMarks(cls, s.urn||s.name, subs);
   window._adSubs=Object.assign(subs,{_for:s.urn});
 
   window._adFacultyMap = data.facultyMap||{};
@@ -5252,7 +5256,7 @@ function renderMarksEditor(){
     <td><input type="number" value="${r.ca??''}" onchange="adSub(${i},'ca',this.value)"></td>
     <td><input type="number" value="${r.ct??''}" onchange="adSub(${i},'ct',this.value)"></td>
     ${showP1?`<td><input value="${r.p1??''}" title="number or AB" onchange="adSub(${i},'p1',this.value)"></td>`:''}
-    ${T.map(t=>`<td><input data-col="${t.key}" value="${r[t.key]??''}" title="number or AB" onchange="adSub(${i},'${t.key}',this.value)"></td>`).join('')}
+    ${T.map(t=>`<td><input data-col="${t.key}" value="${r[t.key]??''}" title="number or AB" oninput="adSub(${i},'${t.key}',this.value)" onchange="adSub(${i},'${t.key}',this.value)"></td>`).join('')}
     <td><button class="btn" style="padding:2px 6px" onclick="adDelSub(${i})">✕</button></td></tr>`;
   }).join('');
   document.getElementById('ad-marks').innerHTML=head+body+`<tr><td colspan="${(showP1?6:5)+T.length}"><button class="btn" style="padding:4px 8px" onclick="adAddSub()">＋ Add subject</button></td></tr>`;
@@ -5269,7 +5273,38 @@ function renderMarksEditor(){
     if(n){ e.preventDefault(); n.focus(); n.select&&n.select(); }
   });
 })();
-function adSub(i,k,v){ window._adSubs[i][k]=v; }
+// v4.7.6: typed test marks AUTO-SAVE (0.6 s after the last key) to ptm_manual_marks/{AY}/{class}/{student}/{subject}/{testKey}
+// (one tiny write per edit) and are put back over the scraped marks on every load. Status line under the table.
+const _adPend={}; let _adMarkTimer=null;
+const _adFbKey=x=>String(x==null?'':x).trim().replace(/[.#$\/\[\]]/g,'_')||'_';
+function adMarkStudentKey(){ const s=AD_STUDENTS[+document.getElementById('ad-student').value]||{}; return _adFbKey(s.urn||s.name); }
+function adSub(i,k,v){
+  const r=window._adSubs[i]; r[k]=v;
+  const T=window._adTests||DEFAULT_TESTS;
+  if(!T.some(t=>t.key===k) || !r.sub) return;
+  const cls=document.getElementById('ad-class').value;
+  _adPend[_adFbKey(cls)+'/'+adMarkStudentKey()+'/'+_adFbKey(r.sub)+'/'+k]=String(v).trim();
+  const st=document.getElementById('ad-marks-status');
+  if(st){ st.textContent='⏳ Saving…'; st.style.color='var(--mut)'; }
+  clearTimeout(_adMarkTimer);
+  _adMarkTimer=setTimeout(async()=>{
+    const batch={...Object.fromEntries(Object.keys(_adPend).map(q=>[q,_adPend[q]]))};
+    try{
+      await rtdb.ref('ptm_manual_marks/'+AY).update(batch);
+      Object.keys(batch).forEach(q=>{ if(_adPend[q]===batch[q]) delete _adPend[q]; });
+      if(st && !Object.keys(_adPend).length){ st.textContent='✓ Saved · '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); st.style.color='var(--ok)'; }
+    }catch(e){
+      if(st){ st.textContent='⚠ NOT saved: '+(e.message||e)+' (will retry on the next change)'; st.style.color='var(--bad,#e5534b)'; }
+    }
+  },600);
+}
+async function adApplyManualMarks(cls, urnOrName, subs){
+  try{
+    const node=(await rtdb.ref('ptm_manual_marks/'+AY+'/'+_adFbKey(cls)+'/'+_adFbKey(urnOrName)).once('value')).val();
+    if(!node) return;
+    subs.forEach(r=>{ const m=node[_adFbKey(r.sub)]; if(m) Object.keys(m).forEach(k=>{ r[k]=m[k]; }); });
+  }catch(e){ console.warn('manual marks not read:',e.message); }
+}
 function adAddSub(){ window._adSubs.push({sub:'',fac:'',ca:'',ct:'',p1:null}); renderMarksEditor(); }
 function adDelSub(i){ window._adSubs.splice(i,1); renderMarksEditor(); }
 async function adReload(){
