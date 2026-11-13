@@ -270,3 +270,6 @@ home Wi-Fi) lives in the staff widget (HomeCast.java + HomeActivity, davan-scrap
 the kids 🔊 Speaker page + parent ⚙️ → Devices → 🔊). Every new Google Home option or fix (speed, volume, modes, TV words, warm-up,
 re-find by name, error handling ...) goes into BOTH in the same session, same names and same values (Slower 0.85 / Normal 1 /
 Faster 1.2 / Fastest 1.4; Auto / Always Google Home / Phone only). Staff widget still to get: class-style warm-up + volume (from Home Class h7).
+
+## On / Off buttons: green when On, yellow when Off (user, 13-Nov-2026 - rule for every build)
+Every on/off switch button in any app: the WHOLE button is green when On (staff app: `background:#1E7B3A;border-color:#1E7B3A;color:#fff;font-weight:800;` with a "✅ " before the label, the existing pattern) and the normal yellow button when Off. One pattern everywhere - copy the existing `b(lab, fn, on)` helpers.

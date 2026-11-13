@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2020 · 13-Nov-2026 IST
+User: "no widget = no emoji; by default show the emoji for students who answered, the switch shows it for all; switch button green when On, yellow when Off - same pattern for every build."
+Student questions page: the phone mark is on by default for students who answered boy / girl; "All students: On" (green, the app's usual On style; yellow when Off) shows it for everyone. Android with no widget and not-opened students get no emoji. Reads (widget list, steps, 7 days of visits) now happen once when the page opens (cached 10 min) because answered students show the mark by default. Excel / Copy always carry the Phone column. Functions: sqOpenQ, sqEmoToggle, sqRows.
+
 ## v2019 · 13-Nov-2026 IST
 User: "one emoji showing widget / iPhone / slow phone next to the students on the boy-or-girl page, a switch default off, without making the app heavy (the 🏨 mark made it slow)."
 Student questions page: 📱 Phone mark switch (Off by default, stored on this phone only: localStorage sq_emo). On = one emoji per student drawn inside the row (own span, no text scan), legend line, and a Phone column in Excel / Copy. Data: reads wupd_idx + wupd + 7 days of usage once when switched On (same as the Widget update report page, kept 10 min); nothing when Off; no writes. Functions: sqGrpLoad, sqEmoToggle, sqOpenQ, sqRows.
