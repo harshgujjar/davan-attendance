@@ -3,6 +3,9 @@
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
 ## v2017 · 13-Nov-2026 IST
+User: "from admin I sent mark as resolved, nothing shows on the student's chat."
+Mark solved only set the chat to solved (no message). It now also writes an admin message to the student ("Dear <name>, your problem is marked as solved ✅ ... + Kannada"), shown in the chat, on the Ask Admin icon and the menu mark. DB2 davan_pub/shelp/<URN>, shelp_m/<URN>/<ts> {solved:1}: 2 writes. Pairs with portal v11.126. Function: shpSolve.
+
 User screenshot: "after DOB it's hidden, I can't tap any icon."
 The side menu's Admin group was capped at 800px, so the items after DOB (Fees Structure, Perfect Attendance, Widget Version) were cut off. The cap is now 4000px. No data touched, no Firebase cost. CSS: .sidebar-sec-items.sec-open.
 
