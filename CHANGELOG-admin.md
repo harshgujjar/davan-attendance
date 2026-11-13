@@ -2,6 +2,10 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2017 · 13-Nov-2026 IST
+User: "from admin I sent mark as resolved, nothing shows on the student's chat."
+Mark solved only set the chat to solved (no message). It now also writes an admin message to the student ("Dear <name>, your problem is marked as solved ✅ ... + Kannada"), shown in the chat, on the Ask Admin icon and the menu mark. DB2 davan_pub/shelp/<URN>, shelp_m/<URN>/<ts> {solved:1}: 2 writes. Pairs with portal v11.126. Function: shpSolve.
+
 ## v2016 · 12-Nov-2026 IST
 User: "build Ask Admin for all students, with topic chips."
 Student help chats now carry a topic: the chat list shows a green topic tag on each chat and each message shows its topic. Data: DB2 davan_pub/shelp/<URN>.tpL, shelp_m/<URN>/<ts>.tp - no extra reads or writes. Pairs with student portal v11.123. Functions: shpList, shpOpen.
