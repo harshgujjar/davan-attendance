@@ -251,6 +251,7 @@ apkVersion / name / ?v=) and the phones install it themselves within ~5 min when
 Android's installer of record and makes the next update ask for one tap. Send the APK only when the user asks for it (e.g. a new phone).
 
 ## Gujjar Home Class (user's kids app, 01-Nov-2026) - read HOMECLASS.md first
+**Home Class Google Play project (user, 14-Nov-2026): the plans, decisions, mockups (v4 + admin-v2) and next steps live in the PRIVATE repo davan-scraper, folder `homeclass-play/` - read its `STATUS.md` + `DECISIONS.md` FIRST in every Home Class session (attach davan-scraper), update them at the end. Two versions always: direct NGP (1.x, auto-update) + Google Play GPV (2.x, one Launch button). Free = any 5 tables + 1 child; Paid by signed online pass. Admin app is a SEPARATE app.**
 Kids screen = `homeclass-kid.html` (a change needs NO new APK - the app downloads it), parent app = `homeclass.html`, shared `homeclass-core.js`,
 data DB3 `homeclass/<familyKey>`. Every change: entry in `CHANGELOG-homeclass.md` + bump KID_VER / PAR_VER AND the same number in
 `homeclass-ver.json` (kid / par, + a short `news` line for the family - every open app shows it and updates itself within a minute);
