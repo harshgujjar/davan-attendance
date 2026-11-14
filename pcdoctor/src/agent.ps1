@@ -747,6 +747,30 @@ function A-MeshInstall([string]$cid = '') {
 }
 
 # ---------- main ----------
+function A-Watch {
+  # 1.82 🔎 "What ran": installer / Windows-upgrade programs that start (with their folder) and 5+ minutes of a PC stuck at ~100% (with the programs doing it).
+  # Only upgrade starts push an alert; the rest is the Console list (lab/events, pruned by the daily job). Each line has a fixed key - never stored twice.
+  $h = A-Hwid; $sf = Join-Path $PD.Root 'state\watchseen.json'
+  if (!$S.wseen) { $S.wseen = @{}; $o = PD-ReadJson $sf; if ($o) { foreach ($pp in $o.PSObject.Properties) { $S.wseen[$pp.Name] = [int64]$pp.Value } } }
+  $cut = (PD-NowMs) - 2 * 86400000; foreach ($kk in @($S.wseen.Keys)) { if ([int64]$S.wseen[$kk] -lt $cut) { $S.wseen.Remove($kk) } }
+  $new = 0
+  foreach ($e in @(PD-WatchProcs)) {
+    $key = [string]$e.prog + '_' + [string]$e.t; if ($S.wseen.ContainsKey($key)) { continue }
+    $S.wseen[$key] = [int64]$e.t; $new++
+    PD-Db PUT ('lab/events/' + $h + '/e' + $e.t + $e.id) $e | Out-Null
+    if ($e.k -eq 'wupg') { PD-Alert ('winupg_' + $e.prog) ("🪟 $env:COMPUTERNAME: " + $e.txt) ($e.prog + ' from ' + $e.dir + ' - a Windows upgrade program is running on this PC') 'amber' }
+  }
+  if ($new) { PD-WriteJson $sf $S.wseen }
+  # stuck at ~100%: the last 5 one-minute samples all high (CPU >= 90 or disk busy >= 95)
+  $r = @($S.ring); if ($r.Count -ge 5) {
+    $last5 = @($r[($r.Count - 5)..($r.Count - 1)]); $hi = @($last5 | Where-Object { [int]$_.cpu -ge 90 -or [int]$_.busy -ge 95 }).Count
+    if ($hi -ge 5 -and !$S.spell) { $S.spell = $true; $lt = $last5[-1]
+      $names = @(); foreach ($x in @($lt.top) + @($lt.ioTop)) { if ($x.n -and $names -notcontains [string]$x.n) { $names += [string]$x.n } }
+      $ev = @{ t = [int64]$lt.t; k = 'wcpu'; icon = '🔥'; txt = ('PC stuck near 100% for 5+ minutes (CPU ' + [int]$lt.cpu + '%, disk ' + [int]$lt.busy + '%) - mostly: ' + (($names | Select-Object -First 4) -join ', ')); id = 0 }
+      PD-Db PUT ('lab/events/' + $h + '/e' + $ev.t + 'w') $ev | Out-Null }
+    elseif ($hi -le 1) { $S.spell = $false }
+  }
+}
 function A-Minute {
   # 1.4: the sample is $smp - PowerShell names are case-blind, "$s =" here replaced the agent state $S (ring null, no minute rows)
   $smp = PD-Sample
@@ -849,7 +873,7 @@ while ($true) {
       # inventory, which runs BEFORE the agent installs it (and a Frozen PC installs it again, with a new id, at every start) - now sent every hour
       $mn = PD-MeshNode; if ($mn -and $mn -ne [string]$S.meshSent) { PD-Db PATCH ('lab/pcs/' + (A-Hwid)) @{ meshId = $mn } | Out-Null; $S.meshSent = $mn; PD-Log 'remote agent id sent' }
     }
-    A-Events; try { A-NetInfo } catch {}; A-Minute; A-Cmds; A-TrayEdits; A-TrayReq
+    A-Events; try { A-NetInfo } catch {}; A-Minute; try { A-Watch } catch { PD-Log ('watch: ' + $_.Exception.Message) }; A-Cmds; A-TrayEdits; A-TrayReq
     try { A-BookReq; A-BookSync; A-BookRun; A-PrintPwSync } catch { PD-Log ('book: ' + $_.Exception.Message) }   # 1.71 🩺 Fixes: approved fixes run by themselves once the PC is on
     if ($first -or ($t0 - $S.last5).TotalMinutes -ge 5) { $S.last5 = $t0; A-Peers; PD-FlushQueue | Out-Null; A-AlertRetry; A-TrayFresh; A-ThawRun; A-Laptop; A-Usb | Out-Null; A-Verdict }
     $first = $false

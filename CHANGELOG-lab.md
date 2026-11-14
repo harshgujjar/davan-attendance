@@ -2,6 +2,10 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 14-Nov-2026 · Agent 1.82 / Console 1.25 -- 🔎 "What ran" log (user, GUJJARSONY: a Windows 11 page + 100% CPU, nobody could say what it was). Every PC now records when
+  an installer / Windows-upgrade program starts (Windows 11 assistant, setup.exe with its folder, Edge update, OneDrive setup, Windows Backup) and when the PC sits near
+  100% CPU or disk for 5+ minutes (with the programs doing it). Shown in each PC's "Last 7 days" with the folder; only a Windows-upgrade start sends a Super Admin alert (amber).
+  Data: lab/events/<hwid> (a few lines a day, pruned by the daily job) + state\watchseen.json on the PC. Reads only, deletes nothing. Functions: A-Watch, PD-WatchProcs, PD-WatchKind.
 - 08-Nov-2026 · Tray 1.81 -- The "This PC" main screen was hidden: with 6 tabs (Gujjar laptop) the tab strip scrolled and only arrows reached it. The tab strip now wraps
   to two rows so every tab always shows (TabControl Multiline). No data / cost. Change: tray.ps1 tab control.
 - 08-Nov-2026 · Agent 1.80 / Console 1.24 -- Bluetooth fixes (user: Gujjar laptop, "BT DONGLE10 - Driver error"): bt_check (read-only: devices, problem code, driver

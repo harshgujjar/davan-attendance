@@ -428,3 +428,29 @@ function PD-Evidence([double]$Hours = 2) {
   $txt = $o -join "`n"; if ($txt.Length -gt 30000) { $txt = $txt.Substring(0, 30000) + "`n... (cut at 30000 characters)" }
   $txt
 }
+
+# ---------- 1.82 🔎 "What ran" log (user, 14-Nov-2026: GUJJARSONY showed a Windows 11 page + 100% CPU, nobody could say what it was) ----------
+# Reads only; sends small lines to lab/events (pruned by the daily job). Installer / upgrade programs that START, with the folder they run from.
+function PD-WatchKind([string]$name, [string]$path) {
+  $n = $name.ToLower() -replace '\.exe$', ''
+  if ($path -match '\$WINDOWS\.~BT|\\Windows10Upgrade|\\Windows11InstallationAssistant|\\WindowsUpdate\\Upgrade') { return @{ k = 'wupg'; icon = '🪟'; w = 'Windows upgrade program' } }
+  if ($n -match '^(windows11installationassistant|windows10upgrader|windows10upgraderapp|setuphost|setupprep|mosetuphost|windowsupdatebox|mediacreationtool.*|pchealthcheck.*|windows11setup)$') { return @{ k = 'wupg'; icon = '🪟'; w = 'Windows 11 / upgrade program' } }
+  if ($n -match '^(windowsbackup.*|onedrivesetup)$') { return @{ k = 'wbak'; icon = '☁️'; w = $(if ($n -eq 'onedrivesetup') { 'OneDrive setup' } else { 'Windows Backup' }) } }
+  if ($path -match '\\Microsoft\\Edge' -and $n -in 'setup', 'microsoftedgeupdate', 'microsoftedgesetup') { return @{ k = 'winst'; icon = '🌐'; w = 'Microsoft Edge update' } }
+  if ($n -in 'setup', 'install', 'installer', 'microsoftedgesetup') { return @{ k = 'winst'; icon = '📦'; w = ('Installer "' + $name + '"') } }
+  $null
+}
+function PD-WatchProcs {
+  $out = @()
+  $ps = @(); try { $ps = @(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId, Name, ExecutablePath, CreationDate) } catch { return $out }
+  foreach ($p in $ps) {
+    $path = [string]$p.ExecutablePath; $w = PD-WatchKind ([string]$p.Name) $path
+    if (!$w) { continue }
+    # Windows' own servicing "setup" under C:\Windows is the update machinery - only Windows-upgrade folders count there
+    if ($w.k -eq 'winst' -and $path -match '^C:\\Windows\\' -and $path -notmatch 'Upgrade') { continue }
+    $t = 0; try { $t = [int64](([datetimeoffset]$p.CreationDate).ToUnixTimeMilliseconds()) } catch { $t = [int64](([datetimeoffset](Get-Date)).ToUnixTimeMilliseconds()) }
+    $dir = ''; try { $dir = Split-Path $path -Parent } catch {}
+    $out += @{ t = $t; k = $w.k; icon = $w.icon; txt = ($w.w + ' started'); prog = [string]$p.Name; dir = $dir; id = [int]$p.ProcessId }
+  }
+  $out
+}
