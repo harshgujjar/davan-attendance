@@ -404,3 +404,6 @@ User asked for a log after GUJJARSONY (Sony, Windows 10) showed a Windows 11 pag
 Built: A-Watch (agent.ps1) + PD-WatchProcs / PD-WatchKind (checks.ps1) -> events k wupg / wbak / winst / wcpu in lab/events; Console timeline shows folder. Alert only for wupg.
 Not testable here (no PowerShell): confirm on a real PC that events appear after the agent updates (DB5 peek lab/events/<hwid>). Backup (wbak) is process-name only, may miss OneDrive folder backup.
 Heat rule: freqMin<60 removed (cfg-default + DB5 migration via lab_cfg_seed.py, run Action 'DB5 rules'); check ASHOK verdict turns green.
+
+## 🏠 Home Class single-app mockup v2 (14-Nov-2026) - NOT approved yet
+mockups/mockup-homeclass-admin.html now has 20 screens: all built hearing / TV / Evs / lessons / speaker / settings / update items from CHANGELOG-homeclass.md (checklist screen at the end). Waiting for the user's approval (ROADMAP-homeclass Phase 0); then build Phase 1 exactly as shown and carry every old fix over. Nothing built in the apps.
