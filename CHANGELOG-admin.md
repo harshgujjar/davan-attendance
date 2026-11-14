@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2025 · 14-Nov-2026 IST
+User: "classes are over but feedback still asked, my two boxes were OFF and are ON again". Cause: a failed read of davan_pub/class_fb_cfg looked like an empty setting, and cfbAutoSum / the switch boxes then wrote or showed on:true / lock:true. Now a failed read changes nothing and shows an error; on / lock defaults are never written; after the semester end date (calendar endDate) the app sets on / lock / unlock OFF by itself; a new semester (calendar start date changed) sets on ON and moves start. Data: davan_pub/class_fb_cfg (same reads, 0 extra). Pairs with student portal v11.128. Functions: cfbAutoSum, cfbCfgLoad, gswInit.
+
 ## v2024 · 14-Nov-2026 IST
 User: "16 devices - I feel it counts the same devices". Every re-subscribe (reinstall / clear data) adds a new push endpoint and old ones stayed. Subscription Status now shows real devices (newest per phone + browser + installed/tab) plus "N old entries"; new 🧹 Clean old devices button (toolbar and Admin row) lists the old entries and deletes only after OK; dead-endpoint pruning now covers every case variant of Admin/admin. Data: Firestore app_data/push_subscriptions (1 read + 1 write only when cleaning). Changed: `facSubGroupKey`, `facSubsSplit`, `facPushCountHtml`, `facAlertCleanOld`, `facAlertPush` prune.
 
