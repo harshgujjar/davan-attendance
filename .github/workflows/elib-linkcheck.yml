@@ -1,0 +1,43 @@
+# E-Library link check (library.html v1.44): every Sunday, when elibrary.json changes, and within 3 h of the librarian's
+# "Check again" button (DB2 library/elib/cfg/checkReq). Writes elibrary-health.json - dead links are hidden from students.
+name: E-Library link check
+on:
+  schedule:
+    - cron: '23 */3 * * *'   # light run: does the full check only when due (Sunday / button / 6.5 days since the last)
+  push:
+    branches: [main]
+    paths: ['elibrary.json']
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+concurrency: elib-linkcheck
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check every e-library link
+        run: python3 tools/elib_linkcheck.py
+      - name: Save the result
+        id: save
+        run: |
+          if git diff --quiet -- elibrary-health.json; then echo "changed=0" >> $GITHUB_OUTPUT; exit 0; fi
+          git config user.name "elib-linkcheck"; git config user.email "actions@users.noreply.github.com"
+          git add elibrary-health.json
+          git commit -m "E-Library link check" -q
+          git pull --rebase --autostash -q origin main || true
+          git push origin HEAD:main
+          echo "changed=1" >> $GITHUB_OUTPUT
+      - name: Rebuild GitHub Pages
+        if: steps.save.outputs.changed == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pages/builds" || true
+      - name: Tell the Super Admin (☁️ Cloud alerts)
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: python3 tools/sa_notify.py "E-Library link check" elib

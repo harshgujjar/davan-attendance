@@ -1,7 +1,22 @@
 # Session handoff - read this first (short, current state only)
 
-Last updated: 03-Nov-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
+Last updated: 14-Nov-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
 Keep THIS file short: replace old lines, do not append history (history goes in the changelogs / commit messages).
+
+## 💻 E-Library - BUILT 14-Nov-2026 (library.html v1.44) - for the university affiliation (credit points)
+- One e-library inside the existing Library app (library.html): new 💻 E-Library tab + cards on Dash / Browse / My Books / Reports / Admin.
+- College by login: URN with NU = NUTANA E-LIBRARY (NIM, logo-nutana.png), DI = DAVAN E-LIBRARY (DIAMS, davan_degree.png); staff pick
+  Davan / Nutana at login, Admin / Manager / VP may pick Both; the phone remembers it (localStorage lib_col). Physical books stay COMMON.
+- Data: elibrary.json (57 curated free links, college names, subject fallback, newUntil for the NEW tags) + DB2 library/elib/items (librarian
+  adds / edits / {del}), library/elib/stats/{YYYY-MM} (student opens), library/elib/cfg/{visit,checkReq}. Subjects = live allocation.
+- Link check: .github/workflows/elib-linkcheck.yml + tools/elib_linkcheck.py -> elibrary-health.json (Sunday, on elibrary.json change, and
+  within 3 h of "Check all links again"); dead twice = hidden from students; new hidden links = Super Admin cloud alert.
+  Tested 14-Nov from the cloud: 39/47 open; DOAJ, Shodhganga, MySQL block robots; NCERT, India.gov.in, Income Tax, e-PG Pathshala did not
+  answer the cloud - user to open these on a phone once.
+- Committee report: Reports -> 📄 Davan PDF / 📄 Nutana PDF (8 pages, live counts, app screen pictures) + Excel (CSV) list.
+- Visit day: Admin -> 🏛 Affiliation visit view (green when On) = login screen shows "Open the E-Library (visitors)" until midnight.
+- Not done: question papers / notes ("coming" until departments upload), N-LIST / DELNET membership (college applies), BEd subjects are
+  from elibrary.json (no BEd allocation in the app).
 
 ## How the user works
 - Plain language, short answers; the user types fast with typos - read for meaning.
