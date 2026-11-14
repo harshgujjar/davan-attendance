@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2029 · 14-Nov-2026 IST
+User: tap any alert in Cloud alerts and go to its place. Every row with a link is tappable (saRowGo -> saFollow); links to this app's own pages (?go=<panel>) click that menu item instead of opening a new tab; the small links stop the tap from firing twice. No extra reads/writes.
+
 ## v2028 · 14-Nov-2026 IST
 User: tapping the alert in Cloud alerts must open the chat. The whole Student help row is now tappable (shpGo(urn) via saShelpUrn). Phones still on v2026 (shown in the top bar) must tap "New version – tap to update" first. No extra reads/writes.
 
