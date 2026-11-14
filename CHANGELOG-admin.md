@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2026 · 14-Nov-2026 IST
+User: tapping a "wrote in Student help" alert should open that student's chat. The alert link is now ?go=shelp&urn=<URN> (Cloudflare worker v23); the staff app opens shpGo(urn) from the page link, the push tap (saFollow) and dvGoNow. No extra reads/writes. Pairs with worker v23.
+
 ## v2025 · 14-Nov-2026 IST
 User: "classes are over but feedback still asked, my two boxes were OFF and are ON again". Cause: a failed read of davan_pub/class_fb_cfg looked like an empty setting, and cfbAutoSum / the switch boxes then wrote or showed on:true / lock:true. Now a failed read changes nothing and shows an error; on / lock defaults are never written; after the semester end date (calendar endDate) the app sets on / lock / unlock OFF by itself; a new semester (calendar start date changed) sets on ON and moves start. Data: davan_pub/class_fb_cfg (same reads, 0 extra). Pairs with student portal v11.128. Functions: cfbAutoSum, cfbCfgLoad, gswInit.
 
