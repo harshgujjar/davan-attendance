@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2024 · 14-Nov-2026 IST
+User: "16 devices - I feel it counts the same devices". Every re-subscribe (reinstall / clear data) adds a new push endpoint and old ones stayed. Subscription Status now shows real devices (newest per phone + browser + installed/tab) plus "N old entries"; new 🧹 Clean old devices button (toolbar and Admin row) lists the old entries and deletes only after OK; dead-endpoint pruning now covers every case variant of Admin/admin. Data: Firestore app_data/push_subscriptions (1 read + 1 write only when cleaning). Changed: `facSubGroupKey`, `facSubsSplit`, `facPushCountHtml`, `facAlertCleanOld`, `facAlertPush` prune.
+
 ## v2023 · 13-Nov-2026 IST
 2nd internal marks never showed because the scraper had them hardcoded off. The 🕷 Scraper page has a new "2nd internal (Int 2)" switch (on by default) saved in DB2 `davan_pub/scraper/cfg.marks2`; no extra reads/writes beyond the marks scrape. Pairs with davan-scraper v112. Changed: `SCR_CFG_DEF`, Scraper settings card.
 
