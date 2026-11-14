@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2027 · 14-Nov-2026 IST
+User: tapping the Veeresh alert opened Cloud alerts, not his chat. Cause: the alert's link had no URN (worker v23 not pasted yet) and the list link said "open the run". Now saShelpUrn() takes the URN from the link or from the alert body, saFollow / saOpen open shpGo(urn), and Cloud alerts shows "open the chat". No extra reads/writes.
+
 ## v2026 · 14-Nov-2026 IST
 User: tapping a "wrote in Student help" alert should open that student's chat. The alert link is now ?go=shelp&urn=<URN> (Cloudflare worker v23); the staff app opens shpGo(urn) from the page link, the push tap (saFollow) and dvGoNow. No extra reads/writes. Pairs with worker v23.
 
