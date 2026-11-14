@@ -410,3 +410,6 @@ mockups/mockup-homeclass-admin.html now has 20 screens: all built hearing / TV /
 
 ## 🏠 Home Class V3 + HC Admin V1 mockups (14-Nov-2026) - waiting for the user's approval
 mockups/mockup-homeclass-v3.html (ONE app: parent / Vihaan's phone / shared phone / TV, clickable class engine = real texts, flows, v89 / h28 / parent v58 / p3 values; planned items marked dashed "planned") and mockups/mockup-homeclass-admin-v1.html (SEPARATE admin app: families, doctor, releases, alerts, settings; stop family / block device / min version / delete = list first + typed name + 30-day soft delete). Data = DB3 now, DB6 later (user, 14-Nov). Tested with Playwright (flows + 350 random clicks x2, 360/480/TV 960x540). The old combined mockup-homeclass-admin.html (v2) is left as is. Next: user approves -> Phase 1 build exactly as shown; carry every v89/h28 fix over.
+
+## 🏠 Home Class Google Play project - notes moved (14-Nov-2026)
+All plans, decisions, audit and the V4 + Admin V2 mockups are in davan-scraper/homeclass-play/ (private). Start there: STATUS.md. The older mockups in this repo (mockup-homeclass-v3 / admin-v1 / admin) stay as history.
