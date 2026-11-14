@@ -2,6 +2,8 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 14-Nov-2026 · Settings (cfg-default.json) -- "Overheating" no longer fires when the CPU only steps down in speed (ASHOK: 53 °C, 0 heat slowdowns, idle 26% speed = power
+  saving). The heat rule now needs 90 °C or more than 5 heat slowdowns. DB5 lab/cfg/rules (the copy the PCs read) is migrated once by davan-scraper tools/lab_cfg_seed.py. No new cost.
 - 14-Nov-2026 · Agent 1.82 / Console 1.25 -- 🔎 "What ran" log (user, GUJJARSONY: a Windows 11 page + 100% CPU, nobody could say what it was). Every PC now records when
   an installer / Windows-upgrade program starts (Windows 11 assistant, setup.exe with its folder, Edge update, OneDrive setup, Windows Backup) and when the PC sits near
   100% CPU or disk for 5+ minutes (with the programs doing it). Shown in each PC's "Last 7 days" with the folder; only a Windows-upgrade start sends a Super Admin alert (amber).
