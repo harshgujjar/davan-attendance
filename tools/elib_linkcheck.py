@@ -1,6 +1,6 @@
 """E-Library link check (library.html v1.44, user 14-Nov-2026: "build properly the log ... links work or not").
 Checks every link of the e-library - elibrary.json (main) + the librarian's own items (DB2 library/elib/items) - and writes
-elibrary-health.json, which library.html reads: a link that is dead / unreachable on 2 checks in a row is hidden from students
+elibrary-health.json, which library.html reads: a page gone (404/410) on 2 checks in a row is hidden from students
 (staff still see it in red). Runs every Sunday by itself, when elibrary.json changes, and within 3 hours of the
 "Check again" button (DB2 library/elib/cfg/checkReq). New hidden links -> Super Admin alert (tools/sa_notify.py)."""
 import json, os, sys, time, urllib.request, urllib.error, urllib.parse, concurrent.futures as cf, datetime
@@ -48,7 +48,8 @@ def check(u):
         try:
             r = urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': UA, 'Accept': 'text/html,*/*'}), timeout=30)
             fin = r.geturl(); h2 = urllib.parse.urlparse(fin).netloc
-            moved = h2.replace('www.', '') != host.replace('www.', '')
+            base = lambda h: h.lower().split(':')[0].removeprefix('www.').removeprefix('m.')   # mobile / www copies are the same site
+            moved = base(h2) != base(host)
             return u, {'st': 'moved' if moved else 'ok', 'code': r.status, 'to': fin if moved else ''}
         except urllib.error.HTTPError as e:
             if e.code in (404, 410): return u, {'st': 'dead', 'code': e.code}
@@ -67,7 +68,9 @@ hidden_new = []
 for u, r in res.items():
     bad = r['st'] in ('dead', 'down')
     r['n'] = (prev.get(u, {}).get('n', 0) + 1) if bad else 0
-    r['hide'] = bad and r['n'] >= 2
+    # hide only a page that is really gone (404/410 twice); 'no answer' is often an Indian govt site refusing
+    # foreign cloud servers while it opens fine on students' phones - it stays visible, staff see it in red
+    r['hide'] = r['st'] == 'dead' and r['n'] >= 2
     if r['hide'] and not prev.get(u, {}).get('hide'): hidden_new.append(u)
 cnt = {k: sum(1 for r in res.values() if r['st'] == k) for k in ('ok', 'moved', 'bot', 'dead', 'down')}
 stamp = ist.strftime('%d-%b %H:%M')
