@@ -1,7 +1,22 @@
 # Session handoff - read this first (short, current state only)
 
-Last updated: 03-Nov-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
+Last updated: 14-Nov-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
 Keep THIS file short: replace old lines, do not append history (history goes in the changelogs / commit messages).
+
+## 💻 E-Library - BUILT 14-Nov-2026 (library.html v1.44) - for the university affiliation (credit points)
+- One e-library inside the existing Library app (library.html): new 💻 E-Library tab + cards on Dash / Browse / My Books / Reports / Admin.
+- College by login: URN with NU = NUTANA E-LIBRARY (NIM, logo-nutana.png), DI = DAVAN E-LIBRARY (DIAMS, davan_degree.png); staff pick
+  Davan / Nutana at login, Admin / Manager / VP may pick Both; the phone remembers it (localStorage lib_col). Physical books stay COMMON.
+- Data: elibrary.json (57 curated free links, college names, subject fallback, newUntil for the NEW tags) + DB2 library/elib/items (librarian
+  adds / edits / {del}), library/elib/stats/{YYYY-MM} (student opens), library/elib/cfg/{visit,checkReq}. Subjects = live allocation.
+- Link check: .github/workflows/elib-linkcheck.yml + tools/elib_linkcheck.py -> elibrary-health.json (Sunday, on elibrary.json change, and
+  within 3 h of "Check all links again"); dead twice = hidden from students; new hidden links = Super Admin cloud alert.
+  Tested 14-Nov from the cloud: 39/47 open; DOAJ, Shodhganga, MySQL block robots; NCERT, India.gov.in, Income Tax, e-PG Pathshala did not
+  answer the cloud - user to open these on a phone once.
+- Committee report: Reports -> 📄 Davan PDF / 📄 Nutana PDF (8 pages, live counts, app screen pictures) + Excel (CSV) list.
+- Visit day: Admin -> 🏛 Affiliation visit view (green when On) = login screen shows "Open the E-Library (visitors)" until midnight.
+- Not done: question papers / notes ("coming" until departments upload), N-LIST / DELNET membership (college applies), BEd subjects are
+  from elibrary.json (no BEd allocation in the app).
 
 ## How the user works
 - Plain language, short answers; the user types fast with typos - read for meaning.
@@ -380,6 +395,7 @@ Tip: peek a phone's log with DB2 peek `davan_pub/widget_logs/<code>` + `davan_pu
 - Meter web v2.10.58 (11-Nov): ONE bill day - settings.billDay (Config "Bill Date" = the day the reader comes) = 9 (set in DB1 settings; was 10); cap-core.js reads billDay first (readerDay only as fallback). Estimated bill card, Smart charging, the 200-unit guard and the widgets (Store.elecStats uses billDay too) all count to the same date. Pending offer (not approved yet): make the "Set Bill Cycle" card (billCycle node, still 10482.7 / 9 May) copy the newest bill reading automatically.
 - Meter web v2.10.59 (11-Nov): "Set Bill Cycle" card (DB1 electric/billCycle) now follows the newest bill reading by itself (billCycleSync, only when newer than the saved date); set once to 11567.2 / 2026-11-09.
 - Meter web v2.10.60 (11-Nov): 4th card "This cycle so far" (refMeasuredDaily...) in a 2 x 2 grid: raw measured units/day (= blend breakdown "Measured"), colour vs 164/200 per-day limits, Chetak units taken out (house only; chgSessions units since the cycle start - metered units include house load during the charge), pace needed from now (s.maxPerDay), forecast weight, UPS-recharge note. Tested in headless Chromium with the user's real data (9.10 / High / house only 6.75).
+- Meter web v2.10.62 (14-Nov): Current Cycle card - purple line on the Projected bar = last month same date + one "higher/lower" line + legend item (lmSameApply, fed by renderCycleCompareChart). Asked-for next: zoom of the 3 graphs should zoom the data range (redraw) not the SVG picture, buttons into the header; replace/rethink 2nd bar was discussed, not built.
 - Meter web v2.10.61 (11-Nov): pinch zoom - viewport no longer user-scalable=no (max 5x, body touch-action: manipulation so double-tap page zoom is off); attachChartZoom() gives every graph (cycleCompareSvg, prevCycleOnlySvg = Safe path, chgGraphSvg) two-finger pinch (toward the fingers), one-finger pan when zoomed, double-tap / dblclick reset and ＋ － ⟲ buttons (CSS transform on the svg, drawing code untouched; wrap touch-action pan-y -> none when zoomed). Bill projection chart keeps its own controller (_billChartZoom; wrapper touch-action now pan-y). Tested in headless Chromium with synthetic two-finger touches (scale 2.67, pan, reset). NOTE: SVG elements have no offsetWidth - use getBoundingClientRect.
 
 ## 🔎 PC Doctor "What ran" log (14-Nov-2026, Agent 1.82 / Console 1.25)
