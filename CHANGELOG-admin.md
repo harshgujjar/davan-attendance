@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2028 · 14-Nov-2026 IST
+User: tapping the alert in Cloud alerts must open the chat. The whole Student help row is now tappable (shpGo(urn) via saShelpUrn). Phones still on v2026 (shown in the top bar) must tap "New version – tap to update" first. No extra reads/writes.
+
 ## v2027 · 14-Nov-2026 IST
 User: tapping the Veeresh alert opened Cloud alerts, not his chat. Cause: the alert's link had no URN (worker v23 not pasted yet) and the list link said "open the run". Now saShelpUrn() takes the URN from the link or from the alert body, saFollow / saOpen open shpGo(urn), and Cloud alerts shows "open the chat". No extra reads/writes.
 
