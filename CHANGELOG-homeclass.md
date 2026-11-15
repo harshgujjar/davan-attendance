@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 15-Nov-2026 · HC Admin v7: 🚀 Releases showed "[object Object]…" (the family news is a list of {k, v, at, t}); now a "📜 What the families were told" card lists the newest 8 with kids / parent / app version and date. Function: newsList, drawRel.
+
 - 15-Nov-2026 · HC Admin v6 (user: the app asked for a login link he no longer has; "u don't collect log from admin"): the admin key alone opens everything - the family list now comes from the pass server (/admin/families) instead of the encrypted registry + #d= link (kept as a fallback); first screen says "paste your admin key" with ⚙️ Open Settings. The page sends its own log (steps, server answers, JS errors + the Android app's log) to the pass server /applog (KV applog:<phone>, 30 days, at most once a minute, errors at once) - Claude reads it with /admin/applogs. Functions: load, LG, sendLog, api.
 
 - 15-Nov-2026 · HC Admin app a2 (fix: the user's phone showed an all-white screen): "⏳ Opening HC Admin…" at once; if the page does not open in 20 s, fails, or stays empty, a page says why with ⟳ Try again, Open in Chrome and the app's log (📋 Copy); redirects stay inside the app; a crashed page renderer reopens the app. a1 updates itself to a2 (first update: one tap).
