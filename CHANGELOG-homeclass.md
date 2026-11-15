@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 15-Nov-2026 · homeclass-app.html (coming one app, NOT used by the live APK yet): "Who uses this phone?" - 👨‍👩‍👧 Parent (opens the parent screens), 🧒 Child (links with the code), 🏠 Shared phone (4-digit parent PIN, saved as a hash; ⚙️ Settings and 🔒 Parents need the PIN); a TV is found by itself and links as a TV. Linking text now says the code is on the parent Home page, then ✓ Allow. Functions: roleScreen, pinSetScreen, pinAsk, pinHash, start (app page). No live change.
+
 - 15-Nov-2026 · homeclass-app.html (coming one app, NOT used by the live APK yet): linking a new phone now goes through the pass server - code -> "⏳ Waiting for your parent… tap ✓ Allow" -> engine -> class home; wrong code shows "Wrong code (n of 5 tries)", Deny shows "Your parent did not allow this phone". Function: tryPair (app page only). No live change.
 
 - 15-Nov-2026 · parent v59: 📱 "<phone> wants to join your family" card with ✓ Allow / ✕ Deny on the parent Home (shows only when a phone of the coming one app types the family code - today's kids app still links the old way), 5-device limit shown; the parent phone gets its own pass from the pass server (first parent phone of the family registers itself) and parent phones are kept out of the kids-device lists. Data: DB3 homeclass/<fam>/joinreq (read), dev/<parent phone> (written once by the server). Functions: drawJoin, hJoin click, dev listener, boot (HCPass.setRole / renew). Loads homeclass-pass.js?v=2.
