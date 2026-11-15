@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 15-Nov-2026 · homeclass-app.html (coming one app, NOT used by the live APK yet): Free plan on the child's screens - 🔒 on tables outside the parent's 5 (home card, Practise-a-table picker, class picker), the 2nd child's card locked ("More children need the Paid plan - ask a parent", no Start button), 🔒 on lessons that are not the free sample, "· Free" next to the version. The engine (from the pass server) enforces the same rules. Functions: uiEnt, uiOk, uiKidOk, uiSetOk, drawHome2 / table pickers (app page). No live change.
+
 - 15-Nov-2026 · homeclass-app.html (coming one app, NOT used by the live APK yet): "Who uses this phone?" - 👨‍👩‍👧 Parent (opens the parent screens), 🧒 Child (links with the code), 🏠 Shared phone (4-digit parent PIN, saved as a hash; ⚙️ Settings and 🔒 Parents need the PIN); a TV is found by itself and links as a TV. Linking text now says the code is on the parent Home page, then ✓ Allow. Functions: roleScreen, pinSetScreen, pinAsk, pinHash, start (app page). No live change.
 
 - 15-Nov-2026 · homeclass-app.html (coming one app, NOT used by the live APK yet): linking a new phone now goes through the pass server - code -> "⏳ Waiting for your parent… tap ✓ Allow" -> engine -> class home; wrong code shows "Wrong code (n of 5 tries)", Deny shows "Your parent did not allow this phone". Function: tryPair (app page only). No live change.
