@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 16-Nov-2026 · kids v91 · parent v62 · core v43 (Vijaya family, Mangala's phone, table 8 test on 15-Nov - read from her phone's log): (1) 8 × 2: she said "sixteen" and noise followed ("sixteen … one", "sixteen twenty six ten") - marked wrong as 1 / 10 twice although the right answer came first; now the right answer said first is right (a changed answer with words like "no" is still judged by the last number). (2) Saying the table line by line: the app moved on to 8 × 4 while she was still saying "eight three ja twenty four" - marked wrong; now a line that names the previous line with its right answer is not wrong, the app asks again. C.tableOne. The one-app engine is rebuilt from core v43 (homeclass-core-app.js, homeclass-app.html, engine on the pass server); 13,288 judge calls equivalent.
+
 - 16-Nov-2026 · HC Admin v8 (user: "duplicate families"): families with no family name and no phone seen for 14+ days (early test copies, e.g. Family …bWYL, …RgoM) are grouped under "💤 Old / unused families (n)", tap to show; counts at the top are the real families only. Nothing deleted. Function: drawList.
 
 - 15-Nov-2026 · HC Admin v7: 🚀 Releases showed "[object Object]…" (the family news is a list of {k, v, at, t}); now a "📜 What the families were told" card lists the newest 8 with kids / parent / app version and date. Function: newsList, drawRel.
