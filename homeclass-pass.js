@@ -82,6 +82,12 @@
   P.code = function (old, fresh) {
     return P.ensure().then(function (e) { var s = P.saved(); if (!s) return e.ok ? { ok: false, err: 'no_pass', msg: 'Go online once.' } : e; return call('/code/set', { pass: s.pass, fam: fam(), old: old || '', fresh: !!fresh }); });
   };
+  /* ---------- codes + invite a family (parent phone; checked on the server) ---------- */
+  function asParent(path, extra) { return P.ensure().then(function (e) { var s = P.saved(); if (!s) return e.ok ? { ok: false, err: 'no_pass', msg: 'Go online once.' } : e; var b = { pass: s.pass, fam: fam() }; for (var k in extra || {}) b[k] = extra[k]; return call(path, b); }); }
+  P.useCode = function (code) { return asParent('/code/use', { code: String(code || '').trim() }).then(function (j) { if (j.ok) { diag('code used'); return P.renew().then(function () { return j; }); } return j; }); };
+  P.invite = function () { return asParent('/invite/new'); };
+  P.inviteUse = function (code) { return asParent('/invite/use', { code: String(code || '').trim() }); };
+  P.inviteDone = function () { var s = P.saved(); if (!s || LS.get('hc_invdone', false)) return Promise.resolve({ ok: true, nothing: true }); return call('/invite/done', { pass: s.pass, fam: fam() }).then(function (j) { if (j.ok) { LS.set('hc_invdone', true); if (j.gift) diag('invite reward given'); } return j; }); };
   /* ---------- class engine: only for a valid pass; the last good copy is kept for offline days ---------- */
   P.engine = function () {
     return P.ensure().then(function (e) {
