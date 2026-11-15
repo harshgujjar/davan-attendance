@@ -46,10 +46,19 @@ var mk = location.hash.match(/[#&]k=([A-Za-z0-9_-]{24,})/);
 if (m || mk) { try { if (mk) localStorage.setItem('hcadm_k', mk[1]); } catch (e) {} history.replaceState(null, '', location.pathname); }
 var D = '', K = ''; try { D = localStorage.getItem('hcadm_d') || ''; K = localStorage.getItem('hcadm_k') || ''; } catch (e) {}
 window.hcAppUpd = function (w, i) { var m = { checking: 'Checking…', uptodate: '✅ Up to date (' + i + ')', downloading: '⬇️ Downloading ' + i + '…', installing: '📦 Installing ' + i + '…', tap: 'Tap Install once (first update only)', done: '✅ Updated', failed: '⚠️ ' + i, oldfile: 'Server still has the old file - trying again soon' }[w]; var e = document.getElementById('updMsg'); if (e && m) e.textContent = m; };
-var ADM_VER = 5, PASS = 'https://homeclass-pass.harshgujjar.workers.dev', ME = null, NAVT = 'fam';
+var LOGT = [], ADEV = ''; try { ADEV = localStorage.getItem('hcadm_dev') || ''; if (!ADEV) { ADEV = 'adm' + Math.random().toString(36).slice(2, 12); localStorage.setItem('hcadm_dev', ADEV); } } catch (e) { ADEV = 'admnostore'; }
+/* v6 (user, 15-Nov: "u don't collect log from admin to check"): the admin app sends its own log to the pass server (/applog) - Claude reads it */
+function LG(m, err) { LOGT.push(new Date(Date.now() + 19800000).toISOString().slice(11, 19) + ' ' + m); if (LOGT.length > 150) LOGT.shift(); if (err) sendLog(1); }
+var logSent = 0;
+function sendLog(err) { if (!err && Date.now() - logSent < 60e3) return; logSent = Date.now();
+  var nat = ''; try { nat = window.HCADM && HCADM.log ? HCADM.log() : ''; } catch (e) {}
+  try { fetch(PASS + '/applog', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dev: ADEV, ver: 'v' + ADM_VER + (window.HCADM ? ' / app ' + HCADM.ver() : ' / web'), who: ME ? ME.name : (K ? 'key …' + K.slice(-4) : 'no key'), err: err ? 1 : 0, log: (nat ? nat + '--- page ---\n' : '') + LOGT.join('\n') }) }).catch(function () {}); } catch (e) {} }
+window.addEventListener('error', function (e) { LG('JS ERROR: ' + (e.message || e) + ' @' + (e.lineno || ''), 1); });
+window.addEventListener('unhandledrejection', function (e) { LG('PROMISE ERROR: ' + (e.reason && e.reason.message || e.reason), 1); });
+var ADM_VER = 6, PASS = 'https://homeclass-pass.harshgujjar.workers.dev', ME = null, NAVT = 'fam';
 /* v3 (15-Nov-2026): admin controls through the pass server (plan, gifts, pause, block a phone, delete requests, security log, 2nd admin login) */
-function api(path, body) { return fetch(PASS + path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-key': K }, body: JSON.stringify(body || {}) })
-  .then(function (r) { return r.json().catch(function () { return { ok: false, msg: 'Server error ' + r.status }; }); }, function () { return { ok: false, msg: 'No internet - try again.' }; }); }
+function api(path, body) { LG('api ' + path); return fetch(PASS + path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-key': K }, body: JSON.stringify(body || {}) })
+  .then(function (r) { return r.json().catch(function () { return { ok: false, msg: 'Server error ' + r.status }; }).then(function (j) { if (!j.ok) LG('api ' + path + ' -> ' + r.status + ' ' + (j.msg || j.err || '')); return j; }); }, function () { LG('api ' + path + ' -> no internet'); return { ok: false, msg: 'No internet - try again.' }; }); }
 function toast(t) { var e = document.createElement('div'); e.className = 'toast'; e.textContent = t; document.body.appendChild(e); setTimeout(function () { e.remove(); }, 2800); }
 function modal(h) { closeM(); $('layer').insertAdjacentHTML('beforeend', '<div class="modal" id="mdl"><div>' + h + '</div></div>'); }
 function closeM() { var x = $('mdl'); if (x) x.remove(); }
@@ -78,12 +87,15 @@ function decrypt(v) {
     .then(function (pt) { return JSON.parse(new TextDecoder().decode(pt)); });
 }
 function load() {
-  NAVT = 'fam'; if (!D) { $('app').innerHTML = '<div class="card"><h2>🔒 Home Class admin</h2><p class="mute">' + (window.HCADM ? 'Open ⚙️ Settings and paste your admin login link once (it carries your keys). After that this phone remembers it.' : 'Open the admin link Claude gave you (it carries your private key). After that this phone remembers it.') + '</p></div>'; return; }
+  NAVT = 'fam';
+  if (!K && !D) { $('app').innerHTML = '<div class="card"><h2>🔒 Home Class admin</h2><p class="mute">Open ⚙️ Settings and paste your admin key (32 letters) once. After that this phone remembers it.</p><button class="btn w" id="goSet">⚙️ Open Settings</button></div>'; $('goSet').onclick = drawSet; return; }
   $('app').innerHTML = '<div class="card">⏳ Loading families…</div>';
-  Promise.all([get('homeclass/' + C.REG), fetch('homeclass-ver.json?t=' + Date.now()).then(function (r) { return r.json(); }).catch(function () { return {}; })]).then(function (a) {
+  /* v6: with the admin key the server gives the family list (no #d= link needed); the old encrypted registry stays as a fallback */
+  var list = K ? api('/admin/families', {}).then(function (r) { if (!r.ok) throw new Error(r.msg || 'The server did not give the family list'); LG('families from server: ' + r.fams.length); return r.fams; })
+    : get('homeclass/' + C.REG).then(function (reg) { reg = reg || {}; return Promise.all(Object.keys(reg).map(function (id) { return decrypt(reg[id]).catch(function () { return null; }); })); });
+  Promise.all([list, fetch('homeclass-ver.json?t=' + Date.now()).then(function (r) { return r.json(); }).catch(function () { return {}; })]).then(function (a) {
     A.kidVer = +(a[1] && a[1].kid) || 0;
-    var reg = a[0] || {}, ids = Object.keys(reg);
-    return Promise.all(ids.map(function (id) { return decrypt(reg[id]).catch(function () { return null; }); }));
+    return a[0];
   }).then(function (l) {
     var seen = {}; A.fams = l.filter(function (x) { if (!x || !x.f || seen[x.f]) return false; seen[x.f] = 1; return true; });
     return Promise.all(A.fams.map(function (f) {
@@ -94,7 +106,7 @@ function load() {
         f.probs = probs(f);
       });
     }));
-  }).then(drawList).catch(function (e) { $('app').innerHTML = '<div class="card">⚠️ ' + E(e.message) + ' <button class="btn soft" onclick="location.reload()">⟳ Try again</button></div>'; });
+  }).then(drawList).then(function () { LG('list drawn: ' + A.fams.length + ' families'); sendLog(); }).catch(function (e) { LG('LOAD FAILED: ' + e.message, 1); $('app').innerHTML = '<div class="card">⚠️ ' + E(e.message) + ' <button class="btn soft" onclick="location.reload()">⟳ Try again</button></div>'; });
 }
 /* problems found by itself: open reports, old app screens, silent voice, devices gone quiet */
 function probs(f) {
@@ -279,7 +291,7 @@ function drawSet() {
   var h = '<h1>⚙️ Settings</h1><div class="card"><b>🔒 Admin key</b><div class="mute">Kept only on this phone. It is never inside the Home Class app.</div>' +
     (K ? '<div class="mute" style="margin-top:6px">Key: ••••••••' + E(K.slice(-4)) + (ME ? ' · you are <b>' + E(ME.name) + '</b> (' + E(ME.role) + ')' : '') + '</div><button class="btn w soft" id="kOut">Remove the key from this phone</button>'
       : '<label class="f">Paste your admin key (32 letters) once</label><input id="kIn" autocomplete="off"><button class="btn w good" id="kSave">Save on this phone</button>') + '</div>';
-  h += '<div class="card"><b>🔗 Login link</b><div class="mute">' + (D ? '✅ Family list key is on this phone.' : 'No family-list key on this phone yet.') + ' In the HC Admin app, paste your admin link (or the link another admin made for you) here once.</div><input id="lnIn" autocomplete="off" placeholder="https://…homeclass-admin.html#d=…"><button class="btn w soft" id="lnSave">Use this link</button></div>';
+  h += '<div class="card"><b>🔗 Login link (only if someone sent you one)</b><div class="mute">' + (D ? '✅ Family list key is on this phone. ' : '') + 'Your admin key above is enough. If another admin sent you a login link, paste it here once.</div><input id="lnIn" autocomplete="off" placeholder="https://…homeclass-admin.html#d=…"><button class="btn w soft" id="lnSave">Use this link</button></div>';
   h += '<div id="adm"></div>' + (window.HCADM ? '<div class="card"><div class="row"><span class="sp"><b>📲 HC Admin app ' + E(HCADM.ver()) + '</b><div class="mute" id="updMsg">Updates itself (checks every 6 h).</div></span><button class="btn soft" id="updNow">Check now</button></div></div>' : '<div class="card"><b>📲 Android app</b><div class="mute">HC Admin as its own Android app (own icon, updates itself). Install once, then paste your login link in its ⚙️ Settings.</div><a class="btn w" style="display:block;text-align:center;text-decoration:none" href="HCAdmin.apk">⬇️ Get HC Admin for Android</a></div>') +
     '<div class="mute" style="text-align:center;margin-top:14px">HC Admin v' + ADM_VER + (window.HCADM ? ' · app ' + E(HCADM.ver()) : '') + ' · Built by Gujjar &amp; Company</div>';
   $('app').innerHTML = h;
@@ -289,7 +301,7 @@ function drawSet() {
     if (md) D = md[1]; if (mk2) K = mk2[1]; A.fams = []; toast('✅ Saved on this phone'); drawSet(); };
   if ($('updNow')) $('updNow').onclick = function () { $('updMsg').textContent = 'Checking…'; HCADM.update(); };
   if ($('kSave')) $('kSave').onclick = function () { var k = $('kIn').value.trim(); if (k.length < 24) { toast('The key is 32 letters'); return; } K = k;
-    api('/admin/whoami', {}).then(function (r) { if (!r.ok) { K = ''; toast('⚠️ That key is not right'); return; } ME = r; try { localStorage.setItem('hcadm_k', k); } catch (e) {} toast('✅ Saved - hello ' + r.name); drawSet(); alCount(); }); };
+    api('/admin/whoami', {}).then(function (r) { if (!r.ok) { K = ''; toast('⚠️ That key is not right'); return; } ME = r; try { localStorage.setItem('hcadm_k', k); } catch (e) {} toast('✅ Saved - hello ' + r.name); LG('key saved: ' + r.name + ' (' + r.role + ')'); A.fams = []; drawSet(); alCount(); sendLog(1); }); };
   if ($('kOut')) $('kOut').onclick = function () { if (!confirm('Remove the admin key from this phone? You need to paste it again to change plans.')) return; K = ''; ME = null; try { localStorage.removeItem('hcadm_k'); } catch (e) {} drawSet(); };
   if (!K) return;
   api('/admin/whoami', {}).then(function (r) { if (!r.ok) { $('adm').innerHTML = '<div class="card">⚠️ ' + E(r.msg || 'Key not accepted') + '</div>'; return; } ME = r;
