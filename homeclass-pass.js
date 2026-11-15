@@ -7,7 +7,7 @@
   var P = {};
   P.URL = 'https://homeclass-pass.harshgujjar.workers.dev';
   P.FREE = { plan: 'free', tables: [1, 2, 3, 4, 5], kids: 1, lessons: 'sample', gh: false, live: false, call: true, follow: false, gifts: [] };
-  var C = window.C || {};
+  var C = window.HCcore || window.C || {};
   var LS = C.LS || { get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del: function (k) { try { localStorage.removeItem(k); } catch (e) {} } };
   function diag(m) { try { if (C.diag) C.diag('pass: ' + m); } catch (e) {} }
   function dev() { return C.devId ? C.devId() : (LS.get('hc_dev', '') || (function () { var d = 'd' + Math.random().toString(36).slice(2, 12); LS.set('hc_dev', d); return d; })()); }
