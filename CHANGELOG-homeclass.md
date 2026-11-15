@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 15-Nov-2026 · HC Admin v6 (user: the app asked for a login link he no longer has; "u don't collect log from admin"): the admin key alone opens everything - the family list now comes from the pass server (/admin/families) instead of the encrypted registry + #d= link (kept as a fallback); first screen says "paste your admin key" with ⚙️ Open Settings. The page sends its own log (steps, server answers, JS errors + the Android app's log) to the pass server /applog (KV applog:<phone>, 30 days, at most once a minute, errors at once) - Claude reads it with /admin/applogs. Functions: load, LG, sendLog, api.
+
 - 15-Nov-2026 · HC Admin app a2 (fix: the user's phone showed an all-white screen): "⏳ Opening HC Admin…" at once; if the page does not open in 20 s, fails, or stays empty, a page says why with ⟳ Try again, Open in Chrome and the app's log (📋 Copy); redirects stay inside the app; a crashed page renderer reopens the app. a1 updates itself to a2 (first update: one tap).
 
 - 15-Nov-2026 · HC Admin Android app a1 (HCAdmin.apk + hcadmin-version.json, app id com.gujjar.hcadmin, Home Class key) + admin page v5: the admin screens open in their own app with the HC Admin icon; paste the login link once in ⚙️ Settings; 📋 Copy and 📤 Send go through the app; the app updates itself (every 6 h, silent on Android 12+ after the first update); no internet -> "📡 Try again". Web version: ⚙️ Settings → ⬇️ Get HC Admin for Android. Functions: copy (HCADM bridge), hcAppUpd, drawSet.
