@@ -413,3 +413,6 @@ mockups/mockup-homeclass-v3.html (ONE app: parent / Vihaan's phone / shared phon
 
 ## 🏠 Home Class Google Play project - notes moved (14-Nov-2026)
 All plans, decisions, audit and the V4 + Admin V2 mockups are in davan-scraper/homeclass-play/ (private). Start there: STATUS.md. The older mockups in this repo (mockup-homeclass-v3 / admin-v1 / admin) stay as history.
+
+## 🏠 Home Class build (15-Nov-2026)
+Stage A1/A2 done: pass server LIVE (https://homeclass-pass.harshgujjar.workers.dev, health db/kv/admin ok). Stage 1a started: homeclass-pass.js (client, NOT loaded yet, 16 end-to-end tests). Details + next steps: davan-scraper/homeclass-play/STATUS.md + BUILD-PLAN.md.
