@@ -132,6 +132,7 @@ details summary::-webkit-details-marker{display:none}
 
   <!-- home -->
   <div class="pg" id="pHome">
+    <div id="hJoin"></div>
     <div class="card" id="hCode" style="display:none"><div class="kc"><div class="sp"><div class="small mute">📲 Link a kids phone, TV or the other parent's phone - type this code there</div><div class="code" id="hCodeN" style="margin:4px 0 0;text-align:left;font-size:34px;letter-spacing:6px">··· ···</div></div><button class="btn soft sm" id="hCodeNew" title="Make a new code (the old one stops working)">🔁 New code</button></div></div>
     <div id="hKids"></div>
     <div class="card" id="hDev"></div>
@@ -251,10 +252,11 @@ details summary::-webkit-details-marker{display:none}
 <div class="toast" id="toast"></div>
 
 <script src="homeclass-core.js?v=42"></script>
+<script src="homeclass-pass.js?v=2"></script>
 <script>
 (function () {
 'use strict';
-var PAR_VER = 58;
+var PAR_VER = 59;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); }, E = C.esc;
 var APK = 'harshgujjar.github.io/davan-attendance/HomeClass.apk';
 var S = { cfg: null, live: {}, today: {}, dev: {}, sets: {}, cmd: null, prog: {}, rKid: null, rDay: null };
@@ -330,6 +332,27 @@ function sendCmd(what, kid, extra) {
 }
 function onCmd(c) { S.cmd = c; if (c && c.id === S.waitCmd && c.took) { S.waitCmd = null; C.diag('cmd taken by ' + (c.tookName || c.took) + ' in ' + Math.round((c.tookAt - c.at) / 1000) + ' s'); toast('✅ ' + (c.tookName || 'Kids device') + ' got it'); } }
 function devOnline(d) { return d && Date.now() - (d.at || 0) < 11 * 60000; }
+function drawJoin() {
+  var box = $('hJoin'); if (!box) return;
+  var q = S.joinreq || {}, now = Date.now(), kidsN = Object.keys(S.dev || {}).filter(function (id) { return !(S.dev[id] || {}).blocked; }).length, parN = Object.keys(S.parentDevs || {}).length;
+  var full = kidsN + parN >= 5, roleName = { kid: 'child', tv: 'TV', parent: 'parent', shared: 'shared' };
+  box.innerHTML = Object.keys(q).filter(function (id) { var r = q[id]; return r && r.st === 'wait' && now - (r.at || 0) < 15 * 60000; }).map(function (id) {
+    var r = q[id];
+    return '<div class="card" style="border:2px solid var(--brand)"><b>📱 ' + E(r.make || 'A phone') + ' wants to join your family</b><div class="small mute">as a ' + (roleName[r.role] || 'child') + ' ' + (r.role === 'tv' ? '' : 'phone ') + '· ' + C.ago(r.at) + ' · it typed your family code' +
+      (full ? '<br><b style="color:#c9184a">Your family already has 5 of 5 devices - remove one in ⚙️ Settings → Devices first.</b>' : '') + '</div>' +
+      '<div class="row" style="gap:8px;margin-top:8px"><button class="btn good" data-jr="' + E(id) + '" data-ok="1"' + (full ? ' disabled' : '') + '>✓ Allow</button><button class="btn" style="background:var(--live)" data-jr="' + E(id) + '" data-ok="0">✕ Deny</button></div>' +
+      '<div class="small mute" style="margin-top:6px">Did not do this? Tap Deny - nothing of your family is shown to that phone.</div></div>';
+  }).join('');
+}
+$('hJoin').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-jr]'); if (!b || !window.HCPass) return;
+  var id = b.getAttribute('data-jr'), allow = b.getAttribute('data-ok') === '1';
+  b.disabled = true;
+  HCPass.answer(id, allow).then(function (j) {
+    if (j.ok) { toast(allow ? '✓ Allowed - it now asks who will learn on it' : '✕ Denied - that phone sees nothing', 4000); C.diag('join ' + (allow ? 'allowed' : 'denied') + ' ' + id); }
+    else { toast('⚠️ ' + (j.msg || 'Could not answer - try again'), 4000); b.disabled = false; }
+  });
+});
 function drawHome() {
   if (S.page !== 'pHome') return;
   var html = '';
@@ -798,7 +821,15 @@ function boot() {
   S.cfg = C.LS.get('hc_cfg', null) || C.DEFAULT_CFG;
   C.listen('cfg', function (v) { if (v && (v.kids || v.v2)) { C.register(v, 'parent'); if (!S.codeAsked) { S.codeAsked = 1; S.cfg = v; showFamCode(false); } else if (v.code && v.code !== S.code) { S.code = v.code; drawFamCode(); } $('tSub').textContent = (C.famName(v) ? C.famName(v) + ' family · ' : '') + 'parents'; S.cfg = v; C.LS.set('hc_cfg', v); if (S.page === 'pHome') drawHome(); if (S.page === 'pSet' && !document.activeElement.matches('input') && !$('codeBox').textContent) drawSettings(); } }, 20);
   C.listen('live', function (v) { S.live = v || {}; drawHome(); });
+  /* v59: 📱 a new phone typed the family code -> Allow / Deny here (pass server homeclass-pass; the phone gets nothing until Allow) */
+  if (window.HCPass) { HCPass.setRole('parent', (navigator.userAgent.match(/;\s*([^;)]+)\s+Build\//) || [])[1] || 'Parent phone'); HCPass.renew().then(function (j) { C.diag('parent pass: ' + (j.ok ? 'ok · ' + j.ent.plan : j.err)); }); }
+  C.listen('joinreq', function (v) { S.joinreq = v || {}; drawJoin(); }, 10);
   C.listen('dev', function (v) {
+    /* v59: parent phones are now in the device list too (they need a pass to Allow / Deny new phones) - keep them OUT of the kids-device lists */
+    var all = v || {}, kidsOnly = {}, parents = {};
+    Object.keys(all).forEach(function (id) { if (all[id] && all[id].role === 'parent') parents[id] = all[id]; else kidsOnly[id] = all[id]; });
+    S.parentDevs = parents; v = kidsOnly;
+    setTimeout(drawJoin, 0);   /* the device count decides whether Allow is possible (5-device limit) */
     var before = Object.keys(S.dev || {}); S.dev = v || {};
     var added = Object.keys(S.dev).filter(function (id) { return before.indexOf(id) < 0; });
     if (added.length && S.devSeen) { clearInterval(codeT); toast('✅ ' + (S.dev[added[0]].name || 'Device') + ' linked!', 4000); }

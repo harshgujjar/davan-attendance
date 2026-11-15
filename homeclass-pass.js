@@ -29,9 +29,13 @@
   P.tableOk = function (n) { var t = P.ent().tables; return t === 'all' || (t || []).indexOf(Number(n)) >= 0; };
   P.daysLeft = function () { var s = P.saved(); return s ? Math.max(0, Math.ceil((s.grace - Date.now()) / 864e5)) : 0; };
   function keep(j) { if (j && j.ok && j.pass) { var g = j.exp + 3 * 864e5; LS.set('hc_pass', { pass: j.pass, exp: j.exp, grace: g, ent: j.ent, at: Date.now() }); diag('pass ok · ' + j.ent.plan + ' · until ' + new Date(j.exp).toISOString().slice(0, 16)); } return j; }
+  /* this phone's role: 'parent' | 'kid' | 'tv' | 'shared' (a parent phone may register itself as the family's first parent phone) */
+  P.setRole = function (r, make) { LS.set('hc_role', r); if (make) LS.set('hc_make', String(make).slice(0, 60)); };
+  P.role = function () { return LS.get('hc_role', ''); };
   P.renew = function () {
     var f = fam(); if (!f) return Promise.resolve({ ok: false, err: 'no_family', msg: 'This phone is not linked to a family yet.' });
-    return call('/pass/renew', { fam: f, dev: dev() }).then(function (j) {
+    var body = { fam: f, dev: dev() }, r = P.role(); if (r) { body.role = r; body.make = LS.get('hc_make', ''); }
+    return call('/pass/renew', body).then(function (j) {
       if (j.ok) return keep(j);
       if (j.err === 'blocked' || j.err === 'unknown_device' || j.err === 'paused') { LS.del('hc_pass'); diag('pass refused: ' + j.err); }
       return j;
