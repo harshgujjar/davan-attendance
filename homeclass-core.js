@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 42;
+  C.VER = 43;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -260,8 +260,14 @@
     var KNOWN = /^(\d+|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fourty|fifty|sixty|seventy|eighty|ninety|hundred|and|won|to|too|tu|for|fore|ate|tree|free|sex|sicks|nein|tin|tan|ja+|za+|jha|is|are|equals?|equal|into|times|multiplied|by|x|ones|the|a|its|it's|answer)$/;
     var w = String(text || '').toLowerCase().replace(/[^a-z0-9' ]/g, ' ').split(/\s+/).filter(Boolean), junk = w.filter(function (x) { return !KNOWN.test(x); }).length;
     if (junk >= 2 && junk > w.length / 2 && nums.indexOf(ans) < 0) return { n: null, ok: false, junk: true };
+    /* v43 (Mangala, log 15-Nov 19:43): "eight three za twenty four" while the app is on 8 x 4 = she is still saying line 3 -> not wrong, listen on */
+    if (nums.length >= 3 && nums[0] === a && nums[1] !== b && nums[1] >= 1 && nums[1] <= 20 && nums[2] === a * nums[1] && nums.indexOf(ans) < 0) return { n: null, ok: false, other: nums[1] };
     var last = nums[nums.length - 1];
     if (last === ans) return { n: ans, ok: true };
+    /* v43 (Mangala, log 15-Nov 19:44-19:45, 8 x 2): the right answer said FIRST, then noise ("sixteen ... one", "sixteen twenty six ten") = right;
+       a changed answer comes with words ("sixteen no eighteen") and stays judged by the last number */
+    var rest = nums.slice(); if ((rest[0] === a && rest[1] === b) || (rest[0] === b && rest[1] === a)) rest = rest.slice(2);
+    if (rest[0] === ans && ans !== a && ans !== b && !/\b(no|not|sorry|wait|mean|actually)\b/.test(String(text).toLowerCase())) return { n: ans, ok: true };
     /* v49 (Aryan, log 03-Nov 21:01: 17 x 10 - "one seventy" was marked 70): in India "one seventy" = 170, "two forty" = 240 (no "hundred") */
     if (ans >= 100) for (var q = 0; q + 1 < nums.length; q++) if (nums[q] >= 1 && nums[q] <= 9 && nums[q + 1] >= 10 && nums[q + 1] <= 99 && nums[q] * 100 + nums[q + 1] === ans) return { n: ans, ok: true };
     /* only the question's own numbers ("7 * 4 =", "4 7 ja ...") = the child is still saying the question, not an answer -> listen on
