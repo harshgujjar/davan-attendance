@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 45;
+  C.VER = 46;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -61,9 +61,12 @@
           /* v45 (user, 16-Nov: "Saving… stays for ever"): a write the database REFUSES (400 / 401 / 403) is dropped and logged - it used to block every
              change behind it; network errors and server errors (5xx) still wait and try again */
           if (/DB 4\d\d/.test(e && e.message)) { Q.shift(); qsave(); try { C.diag('save refused by the database (' + e.message + '): ' + w[0] + ' ' + w[2], 'w'); } catch (x) {} next(); return; }
-          flushing = false; });
+          /* v46 (user, 16-Nov: "⏳ still not Live"): a write that keeps failing another way (5 tries) is dropped too, so it never blocks the rest */
+          w[4] = (w[4] || 0) + 1; if (w[4] >= 5) { Q.shift(); qsave(); try { C.diag('save dropped after 5 tries (' + (e && e.message) + '): ' + w[0] + ' ' + w[2], 'w'); } catch (x) {} next(); return; }
+          qsave(); flushing = false; });
     })();
   };
+  setTimeout(function () { C.flush(); }, 3000); setInterval(function () { C.flush(); }, 30000);   /* v46: saved changes left from before go out by themselves */
   window.addEventListener('online', C.flush);
   setInterval(C.flush, 20000);
   var lastT = 0, seq = 0;
