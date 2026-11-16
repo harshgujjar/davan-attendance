@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 17-Nov-2026 · kids v116 · parent v83 · HC Admin v16 (user: "build it like the staff app, below - above About & rules, not on the front"): the 🔐 Permissions card is always there in ⚙️ Settings (parent: just above ℹ️ About & rules; children's screen: above 🆘 Report a problem; HC Admin: Settings) - green "Permissions · all 5 done ✅" folded (tap to see / fold the list), orange and open with ❌ lines when one is missing; no longer on the Home screens (the old "turn on Display over other apps" hint on the children's Home stays). permCard, admPermCard.
+
 - 17-Nov-2026 · kids v115 · parent v82 (user: "change Parent / Both / Child after the first choice"; "reopen where I was last"): ⚙️ Settings (parent screens and the children's screen in the one app) → "📱 This phone is for": 👨‍👩‍👧 Parent / 🏠 Both / 🧒 Child (chosen one green; Both / Child need the family PIN - set it first if missing). The app remembers the screen used last (hc_last): a parent phone reopens on the children's screen when that was last; a child / both phone reopens on the parent screens when they were last - with a PIN it asks the PIN first (Cancel = children's screen). TV always the children's screen. extract.js start(); parent data-r3, bKids; kids data-r4, drawRole4.
 
 - 17-Nov-2026 · kids v114 (user screenshot: "Speak when the app opens" button empty - on or off?): the switch was drawn by a wrapper that the settings button replaced, so it stayed blank; now drawn when ⚙️ Settings opens - green "✅ ON" / yellow "OFF". drawKWel.
