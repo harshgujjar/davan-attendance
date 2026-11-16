@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2033 · 16-Nov-2026 IST
+User: scrape only the 2nd internal marks. 🕷 Scraper page has a new "1st internal (Int 1)" switch; off = only Int 2 is scraped, saved Int 1 marks are kept. Data: DB2 davan_pub/scraper/cfg.marks1 (default on), no extra reads/writes. Pairs with davan-scraper v113. Functions: SCR_CFG_DEF, Scraper page switches.
+
 ## v2032 · 16-Nov-2026 IST
 User: typing "li" in the side-menu search did not show Library. The search only listed items with a page (`data-panel`); Library opens a window. It now also lists items that have an onclick, using the item id as key. No data touched. Functions: nsBuildIndex.
 
