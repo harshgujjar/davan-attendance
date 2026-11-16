@@ -24,7 +24,11 @@
   P.dev = dev;
   /* ---------- the stored pass ---------- */
   P.saved = function () { return LS.get('hc_pass', null); };
-  P.ent = function () { var s = P.saved(); return s && s.ent && Date.now() < s.grace ? s.ent : P.FREE; };
+  /* 16-Nov (Vijaya family: Paid, but a phone without a pass yet showed "Upgrade"): no valid pass -> the family's saved plan decides what the screen shows
+     (no plan saved = existing family = Paid); the class engine still comes only with a signed pass */
+  P.ent = function () { var s = P.saved(); if (s && s.ent && Date.now() < s.grace) return s.ent;
+    try { var core = window.HCcore || window.C, cfg = core && core.LS ? core.LS.get('hc_cfg', null) : null; if (cfg && cfg.plan !== 'free') return { plan: 'paid', tables: 'all', kids: 99, lessons: 'all', gifts: [] }; } catch (e) {}
+    return P.FREE; };
   P.paid = function () { return P.ent().plan === 'paid'; };
   P.tableOk = function (n) { var t = P.ent().tables; return t === 'all' || (t || []).indexOf(Number(n)) >= 0; };
   P.daysLeft = function () { var s = P.saved(); return s ? Math.max(0, Math.ceil((s.grace - Date.now()) / 864e5)) : 0; };
