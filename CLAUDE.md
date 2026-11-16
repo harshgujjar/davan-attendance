@@ -256,7 +256,7 @@ Kids screen = `homeclass-kid.html` (a change needs NO new APK - the app download
 data DB3 `homeclass/<familyKey>`. Every change: entry in `CHANGELOG-homeclass.md` + bump KID_VER / PAR_VER AND the same number in
 `homeclass-ver.json` (kid / par, + a short `news` line for the family - every open app shows it and updates itself within a minute);
 a homeclass-core.js change also bumps `?v=` on its <script> tag in both pages. APK builds also raise kidApk / parApk there. Java changes: new APK version
-(source + keystore in davan-scraper widgets/homeclass), HomeClass.apk + homeclass-version.json (apkVersion + ?v=) - it installs itself.
+(source + keystore in davan-scraper widgets/homeclass), HomeClass.apk + HomeClass-64.apk + HomeClass-32.apk (build.sh makes all three, from h33) + homeclass-version.json (apkVersion + ?v= on apkUrl / apk64Url / apk32Url) - it installs itself.
 No login by design (the user: "no login, I want it open"). English only for now; Kannada / Hindi later.
 **Home Class for other families (user, 08-Nov-2026): one app (roles Parent / Child / Shared phone with PIN / TV), admin page for the user (all families -> tap a family: children, class timeline, devices, sound, problems with one-tap fixes, live, log). Work in DB2 for now (DB6 later). Every mockup and build carries the small "feel-good" details (buddy, streaks, notes to parents...) and must match the approved mockup exactly; before saying done, test every screen (phone + TV 960x540) so no bug reaches the family.**
 **MAIN RULE (user, 09-Nov-2026): Home Class is a VOICE app - hearing the child by voice is the core. Every change keeps or improves voice recognition; taps / typing are only backups. Later items: ROADMAP-homeclass.md "Later".**
