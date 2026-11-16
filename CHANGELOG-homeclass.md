@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 17-Nov-2026 · kids v113 · parent v81 (user: "3 separate buttons - tables, spelling, questions"): parent ⚙️ Settings → 👁 Hold to see has three green ON / yellow OFF switches (cfg/peekT, peekS, peekQ; the earlier single switch counts as all three); 💬 Questions now also have 👁 Hold to see (shows the answer). peekOn(k), askOral; parent data-pk switches.
+
 - 17-Nov-2026 · kids v112 · parent v80 (Gujjar log 22:16: "bones" spelt right but the word was not seen; user: "hold-to-see icon for spellings and tables, parents can switch it off"): (1) a word spelt right now shows big and green (✅ BONES) until the next word. (2) 👁 Hold to see on the children's screen during a hidden spelling word or a table: while held it shows the word / the whole table with answers, let go = hidden; each peek is counted (days/<date>/<kid>/peeks) and said in the parent summary ("She peeked twice"). (3) Parent ⚙️ Settings → "👁 Hold to see button for children" (green ON default / yellow OFF = hidden; cfg/peekBtn). Not on the TV yet. peekSet, askSpell, askTable, followTable; parent sPeek, kidSay.
 
 - 17-Nov-2026 · kids v111 (user screenshot: "Spell the word: BONES" still written under "Listen and spell"): the spoken sentence shown on screen wrote the word in capitals; in a 🙈 hidden lesson it now shows "🔊 _ _ _ _ _" until the word is spelt right / answered (👀 lessons still show it). say().
