@@ -134,7 +134,7 @@ details summary::-webkit-details-marker{display:none}
   <!-- home -->
   <div class="pg" id="pHome">
     <div id="hJoin"></div>
-    <div id="hMove"></div><div id="hPlan"></div>
+    <div id="hFam"></div><div id="hPerm" style="display:none"></div><div id="hToday"></div><div id="hMove"></div><div id="hPlan"></div>
     <div class="card" id="hCode" style="display:none"><div class="kc"><div class="sp"><div class="small mute">📲 Link a kids phone, TV or the other parent's phone - type this code there</div><div class="code" id="hCodeN" style="margin:4px 0 0;text-align:left;font-size:34px;letter-spacing:6px">··· ···</div></div><button class="btn soft sm" id="hCodeNew" title="Make a new code (the old one stops working)">🔁 New code</button></div></div>
     <div id="hKids"></div>
     <div class="card" id="hDev"></div>
@@ -180,6 +180,7 @@ details summary::-webkit-details-marker{display:none}
   <!-- settings -->
   <div class="pg" id="pSet">
     <div class="card"><div class="kc"><div class="sp"><h3 style="margin:0">📅 Classes for all children</h3><div class="small mute" id="sPauseT"></div></div><button class="btn" id="sPause"></button></div></div>
+    <div class="card"><div class="kc"><div class="sp"><h3 style="margin:0">🔊 Welcome summary</h3><div class="small mute">When this phone opens Home Class or you press 🔄, it says what each child practised. Tap the family banner or a child's photo any time to hear it.</div></div><button class="btn" id="sWel"></button></div></div>
     <div id="sKids"></div>
     <div class="card">
       <h3>✖️ Tables go up to</h3>
@@ -259,7 +260,7 @@ details summary::-webkit-details-marker{display:none}
 <script>
 (function () {
 'use strict';
-var PAR_VER = 71;
+var PAR_VER = 72;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); }, E = C.esc;
 var APK = 'harshgujjar.github.io/davan-attendance/HomeClass.apk';
 var S = { cfg: null, live: {}, today: {}, dev: {}, sets: {}, cmd: null, prog: {}, rKid: null, rDay: null };
@@ -504,13 +505,85 @@ function drawInvite() {
   });
 }
 document.addEventListener('click', function (e) { if (e.target.id !== 'invGo') return; var c = $('invIn').value.trim(); if (!c) return; HCPass.inviteUse(c).then(function (j) { $('invMsg').textContent = j.ok ? '✓ Saved - you both get 1 month free after your first class' : '⚠️ ' + (j.msg || 'Not valid'); }); });
+/* (permissions card) */
+/* v103 / parent v72 (user, 16-Nov: "permissions like the staff app - hidden once all are done, shows when one is missing"): 🔐 Permissions card from the app (HCA.perms, h32+) */
+var PERM_L = [['install', 'Download & install updates'], ['notif', 'Notifications'], ['mic', 'Microphone (hearing the child)'], ['overlay', 'Opens by itself at class time'], ['battery', 'Battery: unrestricted']];
+function permCard(el) {
+  if (!el) return;
+  var A2 = window.HCA; if (!A2 || typeof A2.perms !== 'function') { el.innerHTML = ''; el.style.display = 'none'; return; }
+  var p = {}; try { p = JSON.parse(A2.perms()) || {}; } catch (e) {}
+  var list = PERM_L.filter(function (x) { return !(p.tv && (x[0] === 'overlay' || x[0] === 'battery')); }), miss = list.filter(function (x) { return p[x[0]] === false; });
+  if (!miss.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.innerHTML = '<div style="background:#fff4e5;border:2px solid #ffb703;border-radius:20px;padding:14px 16px;margin:10px 0;text-align:left"><div style="font:800 18px \'Baloo 2\',Nunito,sans-serif">🔐 Permissions · ' + miss.length + ' to allow</div><div style="font-size:13px;opacity:.75;margin-bottom:6px">Tap a ❌ line - Android opens the right screen. This card hides by itself when all are ✅.</div>' +
+    list.map(function (x, i) { var ok = p[x[0]] !== false; return '<div ' + (ok ? '' : 'data-perm="' + x[0] + '" ') + 'style="padding:7px 0;font:700 15px Nunito,sans-serif;' + (ok ? 'color:#1E7B3A' : 'cursor:pointer;color:#c9184a') + '">' + (ok ? '✅' : '❌') + ' ' + (i + 1) + '. ' + x[1] + (ok ? '' : ' <u>Allow</u>') + '</div>'; }).join('') +
+    '<div style="font-size:12px;opacity:.7;margin-top:4px">Tip: on Xiaomi, Vivo, Oppo also allow "Autostart" for Home Class (phone settings → Apps).</div></div>';
+}
+document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-perm]'); if (b && window.HCA && HCA.openPerm) { try { HCA.openPerm(b.getAttribute('data-perm')); } catch (x) {} } });
+document.addEventListener('visibilitychange', function () { if (!document.hidden) setTimeout(function () { permCard(document.getElementById('hPerm')); }, 600); });
+
+/* ================= v72 (user, 16-Nov): family name banner, 📋 Today card, spoken summary (tap the banner / a child's photo, plays on open + 🔄 Refresh when switched on) ================= */
+S.recent = {};
+function loadRecent() {   /* the last 7 days of results per child (days/<date>/<kid>: last, right, wrong, tables, mist, sets) - 7 small reads, once per open */
+  var ds = []; for (var i = 0; i < 7; i++) ds.push(C.day(Date.now() - i * 864e5));
+  return Promise.all(ds.map(function (d) { return C.get('days/' + d).then(function (v) { return [d, v || {}]; }).catch(function () { return [d, {}]; }); })).then(function (a) {
+    var r = {};
+    a.forEach(function (x) { Object.keys(x[1]).forEach(function (kid) { var v = x[1][kid]; if (v && v.last && (!r[kid] || v.last > r[kid].last)) { r[kid] = v; } }); });
+    S.recent = r; S.recentOk = 1; drawHome(); return r;
+  });
+}
+function whenTxt(t) {
+  var d = C.day(t), tm = C.fmtTime(new Date(t + 19800000).toISOString().slice(11, 16));
+  return (d === C.day() ? 'today' : d === C.day(Date.now() - 864e5) ? 'yesterday' : 'on ' + new Date(t).toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'Asia/Kolkata' })) + ' at ' + tm;
+}
+function minsAgo(t) { var m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + (m === 1 ? ' minute' : ' minutes') + ' ago' : ''; }
+function tSay(x) { return String(x || '').replace(/×/g, ' times '); }
+function kidSay(k, short) {
+  var he = k.gender === 'g' ? 'She' : k.gender === 'b' ? 'He' : k.name, l = S.live[k.id] || {}, on = l.on && Date.now() - l.at < 120000;
+  var r = S.recent[k.id], td = S.today[k.id]; if (td && td.last && (!r || td.last > r.last)) r = td;
+  if (on) return k.name + ' is in class right now' + (l.q ? ': ' + tSay(l.q).replace('= ?', '') : '') + '.';
+  if (!r) return k.name + (short ? ' has not practised this week.' : ', ' + C.stdName(k.std) + '. No practice in the last 7 days.') + (S.cfg && S.cfg.pauseAll ? ' Classes are turned off.' : '');
+  var mk = Object.keys(r.mist || {}).sort(function (a, b) { return r.mist[b] - r.mist[a]; }).slice(0, short ? 2 : 4).map(tSay);
+  var ago = minsAgo(r.last), sets = Object.keys(r.sets || {}).map(function (s) { var x = r.sets[s]; return x.title + ', ' + x.ok + ' of ' + x.n; });
+  var t = (short ? k.name : k.name + ', ' + C.stdName(k.std) + '. ' + he) + ' practised ' + (r.tables ? tSay(r.tables) + ' ' : '') + whenTxt(r.last) + (ago ? ', ' + ago : '') + ': ' + (r.right || 0) + ' right' + (r.wrong ? ', ' + r.wrong + ' to practise' : '') + '.';
+  if (mk.length) t += ' Needs practice: ' + mk.join(', ') + '.';
+  if (!short && sets.length) t += ' Lessons: ' + sets.join('; ') + '.';
+  if (!short && r.stars) t += ' ' + r.stars + ' stars.';
+  return t;
+}
+function saySummary(text) {
+  try { if (window.HCA && HCA.inCall && HCA.inCall()) { C.diag('summary not spoken: phone call'); toast('📞 On a call - the summary is not spoken', 3000); return; } } catch (e) {}
+  hearHere(text);
+  var b = document.getElementById('sayStop') || document.body.appendChild(Object.assign(document.createElement('button'), { id: 'sayStop' }));
+  b.textContent = '⏹ Stop'; b.style.cssText = 'position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:60;border:0;border-radius:999px;padding:12px 22px;font:900 16px Nunito,sans-serif;background:#22223b;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.3)';
+  b.onclick = function () { try { if (window.HCA && HCA.stopSpeak) HCA.stopSpeak(); if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {} b.remove(); C.diag('summary stopped'); };
+  clearTimeout(S.sayStopT); S.sayStopT = setTimeout(function () { var x = document.getElementById('sayStop'); if (x) x.remove(); }, Math.min(90000, 2500 + text.length * 75));
+}
+function famSay() { var n = C.famName(S.cfg); return 'Welcome, ' + (n ? n + ' family' : 'family') + '! ' + kids().map(function (k) { return kidSay(k, true); }).join(' '); }
+function sayOn() { return C.LS.get('hc_welcome', true) !== false; }
+function drawFamHi() {
+  var el = $('hFam'); if (!el) return;
+  var n = C.famName(S.cfg);
+  el.innerHTML = '<div data-sayfam="1" title="Tap to hear today" style="cursor:pointer;position:relative;border-radius:22px;padding:16px 18px;margin:0 0 10px;color:#fff;background:linear-gradient(120deg,#5b4bff,#ff7a45);box-shadow:0 8px 22px rgba(91,75,255,.25)">' +
+    '<div style="font:800 13px Nunito,sans-serif;opacity:.9">Welcome 👋</div><div style="font:800 26px \'Baloo 2\',sans-serif;line-height:1.15">🏡 ' + E(n ? n + ' family' : 'Our family') + '</div>' +
+    '<div style="font:700 13px Nunito,sans-serif;opacity:.92;margin-top:4px">' + E(kids().map(function (k) { return k.name; }).join(' · ')) + '</div>' +
+    '<span style="position:absolute;right:14px;top:14px;font-size:20px;background:rgba(255,255,255,.25);border-radius:50%;padding:4px 7px">🔊</span></div>';
+  var tl = kids().map(function (k) { var w = kidSay(k, true); if (w.indexOf(k.name) === 0) w = w.slice(k.name.length).replace(/^[\s,]+/, ''); return '<div style="margin-top:6px"><b>' + E(k.emoji || '') + ' <span>' + E(k.name) + '</span></b> <span class="small">' + E(w) + '</span></div>'; }).join('');
+  if ($('hToday')) $('hToday').innerHTML = kids().length ? '<div class="card"><div class="kc"><h3 class="sp" style="margin:0">📋 Today</h3><button class="chip" data-sayfam="1" title="Hear it">🔊</button></div>' + tl + '</div>' : '';
+}
+document.addEventListener('click', function (e) {
+  var a = e.target.closest('[data-say]'); if (a) { var k = kidById(a.getAttribute('data-say')); if (k) { C.diag('🔊 hear about ' + k.name); saySummary(kidSay(k, false)); } return; }
+  if (e.target.closest('[data-sayfam]')) { C.diag('🔊 hear family summary'); saySummary(famSay()); }
+});
+var welcomed = false;
+function welcomeOnce() { if (welcomed || !S.recentOk || !sayOn() || !C.fam() || !kids().length) return; welcomed = true; setTimeout(function () { C.diag('welcome summary (open / refresh)'); saySummary(famSay()); }, 700); }
 function drawHome() {
   if (S.page !== 'pHome') return;
-  drawPlan();
+  drawPlan(); drawFamHi(); welcomeOnce(); permCard($('hPerm'));
   var html = '';
   kids().forEach(function (k) {
     var l = S.live[k.id] || {}, t = S.today[k.id] || {}, on = l.on && Date.now() - l.at < 120000, calling = l.calling && Date.now() - l.at < 11 * 60000;
-    html += '<div class="card' + (on ? ' live' : '') + '"><div class="kc"><div class="av" style="background:' + E(k.color) + '">' + E(k.emoji) + '</div><div><h2>' + E(k.name) + '</h2><div class="small mute">' + E(C.stdName(k.std)) + ' · ' + E(k.style === 'learn' ? 'tables ' + k.from + '–' + k.to + ', step by step' : 'revision ' + k.from + '–' + k.to) + '</div></div><div class="sp"></div>' +
+    html += '<div class="card' + (on ? ' live' : '') + '"><div class="kc"><div class="av" data-say="' + k.id + '" title="Tap to hear about ' + E(k.name) + '" style="background:' + E(k.color) + ';position:relative;cursor:pointer">' + E(k.emoji) + '<span style="position:absolute;right:-4px;bottom:-4px;font-size:15px;background:#fff;border-radius:50%;padding:1px 3px;box-shadow:0 1px 4px rgba(0,0,0,.2)">🔊</span></div><div><h2>' + E(k.name) + '</h2><div class="small mute">' + E(C.stdName(k.std)) + ' · ' + E(k.style === 'learn' ? 'tables ' + k.from + '–' + k.to + ', step by step' : 'revision ' + k.from + '–' + k.to) + '</div></div><div class="sp"></div>' +
       (on ? '<span class="ldot">LIVE</span>' : calling ? '<span class="chip">📞 ringing…</span>' : '') + callChip(k.id, on, calling, l) + '</div>';
     if (on) {
       var last = l.last && l.last.q === l.q ? l.last : null;
@@ -520,7 +593,7 @@ function drawHome() {
         '<div class="stats"><div class="st"><b class="ok">' + (l.right || 0) + '</b><span>right</span></div><div class="st"><b class="no">' + (l.wrong || 0) + '</b><span>to practise</span></div><div class="st"><b>⭐ ' + (l.stars || 0) + '</b><span>stars</span></div><div class="st"><b>' + (l.n || 0) + '</b><span>answers</span></div></div>' +
         '<div class="row" style="margin-top:12px"><button class="btn bad sm" data-c="stop" data-k="' + k.id + '">⏹ Stop class</button></div>';
     } else {
-      var lineT = t.n ? '✅ Did ' + C.plural(t.n, 'class', 'classes') + ' today · ' + mins(t.sec) : (t.missed ? '😴 Did not come for class at ' + C.fmtTime(k.time) : (k.on ? 'Class at ' + C.fmtTime(k.time) + ((k.days || []).indexOf(C.istNow().wd) < 0 ? ' (not today)' : '') : 'Class time off'));
+      var lineT = t.n ? '✅ Did ' + C.plural(t.n, 'class', 'classes') + ' today · ' + mins(t.sec) : (S.cfg && S.cfg.pauseAll) ? '⏸ Classes are OFF (⚙️ Settings) - no class rings' : (t.missed ? '😴 Did not come for class at ' + C.fmtTime(k.time) : (k.on ? 'Class at ' + C.fmtTime(k.time) + ((k.days || []).indexOf(C.istNow().wd) < 0 ? ' (not today)' : '') : 'Class time off'));
       html += '<div style="margin-top:10px">' + E(lineT) + (calling ? ' · 📣 calling ' + E(k.name) + ' now' : '') + '</div>';
       if (t.n) {
         var mk = Object.keys(t.mist || {}).sort(function (a, b) { return t.mist[b] - t.mist[a]; }).slice(0, 6);
@@ -773,7 +846,8 @@ function drawSettings() {
     '<div class="grid2"><label class="f">Boy or girl<select class="i" id="kAddG"><option value="" selected>Choose</option><option value="b">👦 Boy</option><option value="g">👧 Girl</option></select></label><label class="f">🎂 Date of birth<input class="i" id="kAddDob" type="date" min="2005-01-01" max="' + C.day(Date.now() - 365 * 864e5) + '"></label></div><button class="btn" id="kAdd">➕ Add</button></div>';
   $('sKids').innerHTML = h;
   $('sFam').value = C.famName(S.cfg);
-  var pa = !!(S.cfg && S.cfg.pauseAll); $('sPause').textContent = pa ? '▶ Turn classes on' : '⏸ Turn all off'; $('sPause').className = pa ? 'btn' : 'btn soft';
+  var pa = !!(S.cfg && S.cfg.pauseAll); $('sPause').textContent = pa ? '⏸ OFF - tap to turn on' : '✅ ON - tap to turn off'; $('sPause').className = 'btn'; $('sPause').style.cssText = pa ? 'background:#f3d36b;color:#5a4400;border-color:#f3d36b;font-weight:800' : 'background:#1E7B3A;color:#fff;border-color:#1E7B3A;font-weight:800';
+  var wo = sayOn(); $('sWel').textContent = wo ? '✅ ON' : 'OFF'; $('sWel').style.cssText = wo ? 'background:#1E7B3A;color:#fff;border-color:#1E7B3A;font-weight:800' : 'background:#f3d36b;color:#5a4400;border-color:#f3d36b;font-weight:800';
   $('sPauseT').textContent = pa ? '⏸ All classes are OFF - no class rings until you turn them on' : '✅ ON - each child rings at their own class time';
   Array.prototype.forEach.call($('sAns').children, function (b) { b.classList.toggle('on', +b.getAttribute('data-v') === (S.cfg && S.cfg.ansTime !== undefined ? +S.cfg.ansTime : 20)); });
   Array.prototype.forEach.call($('sCnt').children, function (b) { b.classList.toggle('on', +b.getAttribute('data-v') === +((S.cfg && S.cfg.ansCount) || 5)); });
@@ -801,7 +875,8 @@ $('sKids').addEventListener('click', function (e) {
 });
 $('sKids').addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.id === 'kAddName') { e.preventDefault(); $('kAdd').click(); } });
 /* v51 (user, 09-Nov: "one click to turn all classes off; default as now = on"): cfg.pauseAll - the kids phones start no class and ring no alarm while it is on */
-$('sPause').onclick = function () { S.cfg.pauseAll = !S.cfg.pauseAll; C.patch('cfg', { pauseAll: S.cfg.pauseAll }); C.diag('all classes ' + (S.cfg.pauseAll ? 'OFF' : 'ON')); toast(S.cfg.pauseAll ? '⏸ All classes are off' : '▶ Classes are on again', 3000); drawSettings(); };
+$('sWel').onclick = function () { var v = !sayOn(); C.LS.set('hc_welcome', v); C.diag('welcome summary ' + (v ? 'ON' : 'OFF')); toast(v ? '🔊 Welcome summary on' : 'Welcome summary off', 2500); drawSettings(); };
+$('sPause').onclick = function () { S.cfg = S.cfg || {}; S.cfg.pauseAll = !S.cfg.pauseAll; C.patch('cfg', { pauseAll: S.cfg.pauseAll }); C.diag('all classes ' + (S.cfg.pauseAll ? 'OFF' : 'ON')); toast(S.cfg.pauseAll ? '⏸ All classes are off' : '▶ Classes are on again', 3000); drawSettings(); };
 $('sFam').addEventListener('change', function () { S.cfg.famName = $('sFam').value.trim().slice(0, 30); C.patch('cfg', { famName: S.cfg.famName }); toast('✓ Saved'); $('tSub').textContent = (C.famName(S.cfg) ? C.famName(S.cfg) + ' family · ' : '') + 'parents'; });
 /* v48: 🆘 Report a problem - note + voice note (phone browser recorder, up to 60 s) + this phone's log -> homeclass/<fam>/reports */
 var REP = { rec: null, chunks: [], aud: null, t: null };
@@ -1000,7 +1075,7 @@ window.hcBack = function () {                         /* Android Back: lesson ed
 /* ================= start ================= */
 var booted = false;
 function boot() {
-  setTimeout(drawMove, 0);
+  setTimeout(drawMove, 0); setTimeout(function () { loadRecent().catch(function () { S.recentOk = 1; }); }, 300);
   /* v64: the one app (not the old Parents app) notes "this phone moved"; the old app listens for it */
   try { if (!window.HCP && C.fam()) C.patch('pmove/' + moveKey(), { at: Date.now() }); if (window.HCP && C.fam()) C.listen('pmove/' + moveKey(), function (v) { S.moved = v && v.at ? v.at : 0; drawMove(); }, 30); } catch (e) {}
   if (booted) return; booted = true;
