@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 16-Nov-2026 · kids v98 + app h30 (user: "this old page comes first - it should never show"): the app h30 opens the ONE app (homeclass-app.html) directly; on h29 phones the old kids screen now jumps to the one app before drawing anything (inline check at the top of the page; hc_onapp remembers if the one app was switched off for the family / phone, then the old screen stays). h30 installs itself. hcPageSwitch, MainActivity.onCreate.
+
 - 16-Nov-2026 · parent v69 · HC Admin v14 (user: "make it 50"): tables go up to 50 - the child's Tables from / to already took 50; the Paid plan card now says "All (1-50)" and HC Admin → Children draws up to 50 table boxes. tabKids, upgrade rows.
 
 - 16-Nov-2026 · HC Admin v13 + app a3 (user: "HC Admin takes a lot of time to start"): the last family list shows at once from the phone (hcadm_cache), then ONE pass-server answer (/admin/overview: every family's settings, devices, delete request and 🆘 reports without voice notes) refreshes it - before, about 20 downloads one after another incl. the voice notes; voice notes load only when the 🆘 Reports tab opens. App a3 opens its saved copy of the page at once and reloads it only when hcadmin-version.json "page" is newer (raise "page" with every admin page change). Functions: load, tabRep; a3 MainActivity fresh().
