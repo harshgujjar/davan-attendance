@@ -405,14 +405,9 @@ Built: A-Watch (agent.ps1) + PD-WatchProcs / PD-WatchKind (checks.ps1) -> events
 Not testable here (no PowerShell): confirm on a real PC that events appear after the agent updates (DB5 peek lab/events/<hwid>). Backup (wbak) is process-name only, may miss OneDrive folder backup.
 Heat rule: freqMin<60 removed (cfg-default + DB5 migration via lab_cfg_seed.py, run Action 'DB5 rules'); check ASHOK verdict turns green.
 
-## 🏠 Home Class single-app mockup v2 (14-Nov-2026) - NOT approved yet
-mockups/mockup-homeclass-admin.html now has 20 screens: all built hearing / TV / Evs / lessons / speaker / settings / update items from CHANGELOG-homeclass.md (checklist screen at the end). Waiting for the user's approval (ROADMAP-homeclass Phase 0); then build Phase 1 exactly as shown and carry every old fix over. Nothing built in the apps.
-
-## 🏠 Home Class V3 + HC Admin V1 mockups (14-Nov-2026) - waiting for the user's approval
-mockups/mockup-homeclass-v3.html (ONE app: parent / Vihaan's phone / shared phone / TV, clickable class engine = real texts, flows, v89 / h28 / parent v58 / p3 values; planned items marked dashed "planned") and mockups/mockup-homeclass-admin-v1.html (SEPARATE admin app: families, doctor, releases, alerts, settings; stop family / block device / min version / delete = list first + typed name + 30-day soft delete). Data = DB3 now, DB6 later (user, 14-Nov). Tested with Playwright (flows + 350 random clicks x2, 360/480/TV 960x540). The old combined mockup-homeclass-admin.html (v2) is left as is. Next: user approves -> Phase 1 build exactly as shown; carry every v89/h28 fix over.
-
-## 🏠 Home Class Google Play project - notes moved (14-Nov-2026)
-All plans, decisions, audit and the V4 + Admin V2 mockups are in davan-scraper/homeclass-play/ (private). Start there: STATUS.md. The older mockups in this repo (mockup-homeclass-v3 / admin-v1 / admin) stay as history.
-
-## 🏠 Home Class build (15-Nov-2026)
-Stage A1/A2 done: pass server LIVE (https://homeclass-pass.harshgujjar.workers.dev, health db/kv/admin ok). Stage 1a started: homeclass-pass.js (client, NOT loaded yet, 16 end-to-end tests). Details + next steps: davan-scraper/homeclass-play/STATUS.md + BUILD-PLAN.md.
+## 🏠 Home Class - CURRENT STATE (16-Nov-2026) - start here for any Home Class work
+Everything (live versions, where the code is, how to read logs, deploy the pass server, rebuild the engine, delete a family, open items) is in
+**davan-scraper/homeclass-play/STATUS.md → "▶ NOW"** (attach davan-scraper first). Short version: ONE app for all families is ON (kids v92 · core v43 · app h29 ·
+parent v63 · HC Admin v11 + app a2 · pass server homeclass-pass), old Parents app retired (move card inside it), WhatsApp invite live in HC Admin → Releases.
+Problem reported → read the family's log yourself first (HOMECLASS.md "DO THIS FIRST"); never ask the user for keys or screenshots.
+The older Home Class notes in this file (above, and the 14/15-Nov mockup notes that were here) are history.

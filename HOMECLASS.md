@@ -1,5 +1,8 @@
 # Gujjar Home Class (user's family app, 01-Nov-2026)
 
+> **CURRENT STATE (16-Nov-2026): read davan-scraper/homeclass-play/STATUS.md "▶ NOW" first** - one app for all families is ON, versions, tools, deploy steps, open items. This file = rules + how to read logs.
+
+
 Voice classes for Aryan (7th std) and Vihaan (2nd std): tables, oral test questions and spellings that Mom / Dad type.
 English only (Kannada / Hindi later). No login. Nothing to do by hand after setup: it updates and cleans itself.
 
