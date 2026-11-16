@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 16-Nov-2026 · parent v69 · HC Admin v14 (user: "make it 50"): tables go up to 50 - the child's Tables from / to already took 50; the Paid plan card now says "All (1-50)" and HC Admin → Children draws up to 50 table boxes. tabKids, upgrade rows.
+
 - 16-Nov-2026 · HC Admin v13 + app a3 (user: "HC Admin takes a lot of time to start"): the last family list shows at once from the phone (hcadm_cache), then ONE pass-server answer (/admin/overview: every family's settings, devices, delete request and 🆘 reports without voice notes) refreshes it - before, about 20 downloads one after another incl. the voice notes; voice notes load only when the 🆘 Reports tab opens. App a3 opens its saved copy of the page at once and reloads it only when hcadmin-version.json "page" is newer (raise "page" with every admin page change). Functions: load, tabRep; a3 MainActivity fresh().
 
 - 16-Nov-2026 · kids v97 (user: "don't build old device rows, future also"): once a day a phone takes over its own OLD device row (same model, same kind, last seen before this install and over an hour ago): the child linked to the old row moves to this phone, the old dev/<id> and devcfg/<id> are removed. Two different phones of the same model stay apart. Data: homeclass/<fam>/dev, devcfg, cfg/kids/<k>/dev (1 read a day). takeOverOld.
