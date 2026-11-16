@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 16-Nov-2026 · kids v107: tapping a child's picture writes a log line at once ("🔊 picture tapped: name · voice · speaker phone / Google Home") - the child-screen tap at 21:01 left no trace, so the next tap shows where it stops. Checked in a browser: the tap speaks the child's summary.
+
 - 16-Nov-2026 · kids v106 · parent v75 · core v46 (user: "⏳ still not Live", "no voice on the child's screen when I touch the picture", "child setting on/off like the parents"): (1) a saved change that keeps failing (5 tries) is dropped and logged, and waiting changes are sent every 30 s and 3 s after opening - the parent phone's queue (5 waiting since 20:41, which also held back its log) clears by itself. (2) Children's screen ⚙️ Settings → "🔊 Speak when the app opens" (green ON default / yellow OFF): speaks this phone's child(ren) once per open / 🔄, never during a call or class, ⏹ Stop. (3) When the phone's own voice did not start (the Samsung's log: "engine com.google.android.tts did not start speaking") both screens now say so: "check phone Settings → Text-to-speech and the media volume". C.flush, kidWelcomeOnce, speakKid, voiceOk, saySummary.
 
 - 16-Nov-2026 · kids v105 (user screenshot: 🔒 Parents fell to a second line): the 4 top buttons stay in ONE line - they shrink their padding and text on phones (labels hidden only below 330 px). CSS .tbar.
