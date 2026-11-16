@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 16-Nov-2026 · kids v99 · core v44 (Vijaya family, Mangala's table 12 test 16-Nov 18:12-18:18, read from her log): 12 × 5 = 60 - she said "sixty" but the offline engine heard "sixteen" (3 times), "eighteen / eighty", "sixty six" and she was marked wrong. Now the -ty / -teen twin of the answer (60 / 16, 30 / 13 … 90 / 19) counts as the answer - the twin is never itself the right answer of that line; when only another heard version is the twin, the app asks "Did you say 60?". Fixed for ALL families (old screen + one app; engine rebuilt, 13,288 judge calls equivalent). C.tableOne. Not fixed: words the engine hears as something unrelated ("ten", "one").
+
 - 16-Nov-2026 · kids v98 + app h30 (user: "this old page comes first - it should never show"): the app h30 opens the ONE app (homeclass-app.html) directly; on h29 phones the old kids screen now jumps to the one app before drawing anything (inline check at the top of the page; hc_onapp remembers if the one app was switched off for the family / phone, then the old screen stays). h30 installs itself. hcPageSwitch, MainActivity.onCreate.
 
 - 16-Nov-2026 · parent v69 · HC Admin v14 (user: "make it 50"): tables go up to 50 - the child's Tables from / to already took 50; the Paid plan card now says "All (1-50)" and HC Admin → Children draws up to 50 table boxes. tabKids, upgrade rows.
