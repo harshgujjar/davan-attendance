@@ -7,7 +7,7 @@
   'use strict';
   var C = window.HCcore = {};
   C._installJudge = function (src) { eval(src); return true; };
-  C.VER = 46;
+  C.VER = 47;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -32,7 +32,9 @@
     return fetch(url(p) + (q ? '?' + q : ''), { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('DB ' + r.status); return r.json(); });
   };
   function send(m, p, v) {
-    return fetch(url(p), { method: m, body: v === undefined ? undefined : JSON.stringify(v) }).then(function (r) {
+    /* v47 (user, 17-Nov: "sync still stuck, never Live"): a save that never answers (phone network half-dead) held the queue for ever - every save now gives up after 20 s and is tried again */
+    var ac = window.AbortController ? new AbortController() : null, tm = ac ? setTimeout(function () { ac.abort(); }, 20000) : 0;
+    return fetch(url(p), { method: m, body: v === undefined ? undefined : JSON.stringify(v), signal: ac ? ac.signal : undefined }).then(function (r) { clearTimeout(tm);
       if (!r.ok) throw new Error('DB ' + r.status); return r.json();
     });
   }
@@ -51,8 +53,9 @@
   C.del = function (p) { return C.write('DELETE', p); };
   C.pending = function () { return Q.length; };
   C.flush = function () {
+    if (flushing && Date.now() - (C.flushAt || 0) > 60000) flushing = false;   /* v47: never stuck "busy" */
     if (flushing || !Q.length || !navigator.onLine) return;
-    flushing = true;
+    flushing = true; C.flushAt = Date.now();
     (function next() {
       if (!Q.length) { flushing = false; qsave(); return; }
       var w = Q[0];
