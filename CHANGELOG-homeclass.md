@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 17-Nov-2026 · kids v110 · parent v79 (user: "spelling is missing in the welcome / refresh / per-child summary - use it when assigned, not when not"): every summary (welcome, 🔄, family banner, child photo on both screens, 📋 Today) adds each lesson ASSIGNED to the child today: "Spelling · Evs: 5 of 7 right" when done, "Spelling · Evs: not done yet" when not; a child with no lesson gets no lesson words. lesSay, kidSay, kidSum.
+
 - 17-Nov-2026 · kids v109 · parent v78 (user: "show the spelling word or not - per lesson"): ✏️ Spelling lesson editor → "👀 Show the word on the child's screen" (off by default = a test: the children's screen says "✏️ Listen and spell" with empty letter boxes and shows the word only when it is spelt right or the answer is given; on = learning: "✏️ BONES" from the start). The Lessons list says "👀 word shown" / "🙈 word hidden"; the parent's live card always shows the word. Data: sets/<id>/show. askSpell, askSpellG, runSet; parent eShow, drawLessons. "Stop class did not stop": the Stop is a saved change and that phone's saving was stuck - fixed by core v47.
 
 - 17-Nov-2026 · parent v77 (user: "we fixed Aaryan but the welcome says Aryan"): every voice on the parent screens (welcome summary, family / child taps, 🔊 Hear it) now uses each child's "How to say the name" like the children's screen does (C.sayName in hearHere).
