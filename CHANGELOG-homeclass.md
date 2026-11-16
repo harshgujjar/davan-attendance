@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 16-Nov-2026 · kids v97 (user: "don't build old device rows, future also"): once a day a phone takes over its own OLD device row (same model, same kind, last seen before this install and over an hour ago): the child linked to the old row moves to this phone, the old dev/<id> and devcfg/<id> are removed. Two different phones of the same model stay apart. Data: homeclass/<fam>/dev, devcfg, cfg/kids/<k>/dev (1 read a day). takeOverOld.
+
 - 16-Nov-2026 · HC Admin: version chip next to "Home Class admin" on the family list (v12). Gujjar family: 2 old device rows removed on the user's yes (old Home Class entry + old Parents app) with their logs.
 
 - 16-Nov-2026 · HC Admin v12 + homeclass-guide.json (user: "one app - what are these 2 downloads"; "the WhatsApp message must update by itself, always ready"): Releases shows ONE download "Home Class (parents, children, TV)" + HC Admin; the old Parents app is marked retired (its APK under 📜 Older APKs). The WhatsApp message is now built live: the server template only holds the intro and support text, {guide} = the how-to steps that ship with every release (homeclass-guide.json - CLAUDE.md rule: updated in the same commit as every build that changes what a family does), {news} = the newest 5 release notes, plus links / versions; an old full text without {guide} is ignored so it can never go stale. Functions: drawRel.
