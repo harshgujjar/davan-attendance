@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2030 · 16-Nov-2026 IST
+User: reply to one chat message with a quote, like WhatsApp, in the Student help chat. Each bubble has ↩; the quote bar shows above the box (✕ cancels); the message is saved with `rq {t, w}` (80 letters + who wrote it). Data: DB2 `davan_pub/shelp_m/<URN>/<ts>/rq`, no extra reads or writes. Pairs with student portal v11.131. Functions: shpQuote, shpReply, shpRqBar, shpSend, shpOpen.
+
 ## v2029 · 14-Nov-2026 IST
 User: tap any alert in Cloud alerts and go to its place. Every row with a link is tappable (saRowGo -> saFollow); links to this app's own pages (?go=<panel>) click that menu item instead of opening a new tab; the small links stop the tap from firing twice. No extra reads/writes.
 
