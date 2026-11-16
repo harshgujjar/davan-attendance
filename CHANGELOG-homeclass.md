@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 17-Nov-2026 · kids v115 · parent v82 (user: "change Parent / Both / Child after the first choice"; "reopen where I was last"): ⚙️ Settings (parent screens and the children's screen in the one app) → "📱 This phone is for": 👨‍👩‍👧 Parent / 🏠 Both / 🧒 Child (chosen one green; Both / Child need the family PIN - set it first if missing). The app remembers the screen used last (hc_last): a parent phone reopens on the children's screen when that was last; a child / both phone reopens on the parent screens when they were last - with a PIN it asks the PIN first (Cancel = children's screen). TV always the children's screen. extract.js start(); parent data-r3, bKids; kids data-r4, drawRole4.
+
 - 17-Nov-2026 · kids v114 (user screenshot: "Speak when the app opens" button empty - on or off?): the switch was drawn by a wrapper that the settings button replaced, so it stayed blank; now drawn when ⚙️ Settings opens - green "✅ ON" / yellow "OFF". drawKWel.
 
 - 17-Nov-2026 · kids v113 · parent v81 (user: "3 separate buttons - tables, spelling, questions"): parent ⚙️ Settings → 👁 Hold to see has three green ON / yellow OFF switches (cfg/peekT, peekS, peekQ; the earlier single switch counts as all three); 💬 Questions now also have 👁 Hold to see (shows the answer). peekOn(k), askOral; parent data-pk switches.
