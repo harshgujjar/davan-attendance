@@ -7,7 +7,7 @@
   'use strict';
   var C = window.HCcore = {};
   C._installJudge = function (src) { eval(src); return true; };
-  C.VER = 44;
+  C.VER = 45;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -58,7 +58,11 @@
       var w = Q[0];
       if (w[1] !== C.fam()) { Q.shift(); qsave(); return next(); }
       send(w[0], w[2], w[3]).then(function () { Q.shift(); qsave(); next(); })
-        .catch(function () { flushing = false; });
+        .catch(function (e) {
+          /* v45 (user, 16-Nov: "Saving… stays for ever"): a write the database REFUSES (400 / 401 / 403) is dropped and logged - it used to block every
+             change behind it; network errors and server errors (5xx) still wait and try again */
+          if (/DB 4\d\d/.test(e && e.message)) { Q.shift(); qsave(); try { C.diag('save refused by the database (' + e.message + '): ' + w[0] + ' ' + w[2], 'w'); } catch (x) {} next(); return; }
+          flushing = false; });
     })();
   };
   window.addEventListener('online', C.flush);
