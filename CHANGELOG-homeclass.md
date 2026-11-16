@@ -1,5 +1,7 @@
 # Gujjar Home Class - changelog (newest first)
 
+- 17-Nov-2026 · parent v77 (user: "we fixed Aaryan but the welcome says Aryan"): every voice on the parent screens (welcome summary, family / child taps, 🔊 Hear it) now uses each child's "How to say the name" like the children's screen does (C.sayName in hearHere).
+
 - 17-Nov-2026 · core v47 · kids v108 · parent v76 (user: "sync still stuck, never Live"; "Stop button missing, sometimes on refresh - make it a rule"): (1) every save now gives up after 20 s and is tried again (AbortController), and the save queue can never stay "busy" for more than a minute - a save that never got an answer held every later save (and the phones' logs) for ever; a test write to DB3 worked, so the database was fine. (2) The ⏹ Stop button now stays until the voice really ends (parent: HCA hcSpoke callback for the summary id; child: rawSay done) - before it vanished after a fixed time. Rule added to CLAUDE.md: every spoken summary has ⏹ Stop. C.flush, send, saySummary, hcSpoke, speakKid.
 
 - 16-Nov-2026 · kids v107: tapping a child's picture writes a log line at once ("🔊 picture tapped: name · voice · speaker phone / Google Home") - the child-screen tap at 21:01 left no trace, so the next tap shows where it stops. Checked in a browser: the tap speaks the child's summary.
