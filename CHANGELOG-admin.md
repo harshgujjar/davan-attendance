@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2032 · 16-Nov-2026 IST
+User: typing "li" in the side-menu search did not show Library. The search only listed items with a page (`data-panel`); Library opens a window. It now also lists items that have an onclick, using the item id as key. No data touched. Functions: nsBuildIndex.
+
 ## v2031 · 16-Nov-2026 IST
 User: on Rates & Currencies show which date/time the gold-silver data is for, to be sure it is not yesterday's. A box now shows "Rates are for" (IBJA day + session), "Checked on" (news job time, date + time IST) and today's date. Data: DB3 `widgetConfig/news` read only, no extra cost. Functions: ratesInit.
 
