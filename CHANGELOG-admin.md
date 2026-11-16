@@ -11,6 +11,9 @@ User: typing "li" in the side-menu search did not show Library. The search only 
 ## v2031 · 16-Nov-2026 IST
 User: on Rates & Currencies show which date/time the gold-silver data is for, to be sure it is not yesterday's. A box now shows "Rates are for" (IBJA day + session), "Checked on" (news job time, date + time IST) and today's date. Data: DB3 `widgetConfig/news` read only, no extra cost. Functions: ratesInit.
 
+## v2034 · 16-Nov-2026 IST
+User: the student must get a phone notification when the Admin replies in the Help chat, only the student who has a chat. 🔔 page registry row `help_reply` (switch davan_pub/notif_off/stu/help_reply). Pairs with student widget w314 (HelpN, reads only davan_pub/shelp/<URN>) and portal v11.132.
+
 ## v2030 · 16-Nov-2026 IST
 User: reply to one chat message with a quote, like WhatsApp, in the Student help chat. Each bubble has ↩; the quote bar shows above the box (✕ cancels); the message is saved with `rq {t, w}` (80 letters + who wrote it). Data: DB2 `davan_pub/shelp_m/<URN>/<ts>/rq`, no extra reads or writes. Pairs with student portal v11.131. Functions: shpQuote, shpReply, shpRqBar, shpSend, shpOpen.
 
