@@ -259,7 +259,7 @@ details summary::-webkit-details-marker{display:none}
 <script>
 (function () {
 'use strict';
-var PAR_VER = 65;
+var PAR_VER = 66;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); }, E = C.esc;
 var APK = 'harshgujjar.github.io/davan-attendance/HomeClass.apk';
 var S = { cfg: null, live: {}, today: {}, dev: {}, sets: {}, cmd: null, prog: {}, rKid: null, rDay: null };
@@ -271,7 +271,7 @@ function page(p) {
   Array.prototype.forEach.call(document.querySelectorAll('.nav button'), function (b) { b.classList.toggle('on', b.getAttribute('data-p') === p || (p === 'pEd' && b.getAttribute('data-p') === 'pLes')); });
   S.page = p; try { localStorage.setItem('hc_page', p); } catch (e) {}
   window.scrollTo(0, 0);
-  if (p === 'pHome') drawHome(); if (p === 'pLes') drawLessons(); if (p === 'pRep') drawReport(); if (p === 'pSet') { drawSettings(); drawInvite(); drawAbout(); }
+  if (p === 'pHome') drawHome(); if (p === 'pLes') drawLessons(); if (p === 'pRep') drawReport(); if (p === 'pSet') { drawSettings(); drawPin(); drawInvite(); drawAbout(); }
 }
 $('nav').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) page(b.getAttribute('data-p')); });
 function net() { var on = navigator.onLine, q = C.pending(); $('net').textContent = on ? (q ? '⏳ ' + q + ' to sync' : '🟢 Live') : '🔴 Offline'; }
@@ -301,9 +301,17 @@ $('wJoin').onclick = function () {
 function mins(sec) { var m = Math.round((sec || 0) / 60); return m + ' min'; }
 /* v43 (user, 03-Nov: "I want to hear it on the PARENT phone, not the kids phone"): the parent APK has its own voice (HCP.speak); a browser has speechSynthesis;
    only when neither exists the kids phone plays it */
+/* v66 (user, 16-Nov: "🔊 Hear the first one is not working"): inside the ONE Home Class app the parent screens use that app's own voice (HCA.speak) -
+   an Android WebView has no speechSynthesis voice, so nothing was heard there. Same for 🎤 Speak to type (HCA.listen with Google speech). */
+function hcaVoice() { return !!(window.HCA && !window.HCP && typeof HCA.speak === 'function'); }
+window.hcSpoke = window.hcSpoke || function () {};
+var hcaDict = {};
+window.hcHeard = window.hcHeard || function (id, json) { var f = hcaDict[id]; delete hcaDict[id]; var a = []; try { a = JSON.parse(json); } catch (e) {} if (f) f(a); };
+window.hcHeardErr = window.hcHeardErr || function (id, code) { var f = hcaDict[id]; delete hcaDict[id]; if (f) f([], code); };
 function hearHere(text) {
   var t = C.speakNums(text);
   if (window.HCP && HCP.speak) { HCP.speak(t); return true; }
+  if (hcaVoice()) { try { HCA.speak(t, 'p' + Date.now()); return true; } catch (e) { C.diag('parent voice (app) failed: ' + e.message, 'w'); } }
   try { if (window.speechSynthesis) { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(t); u.lang = 'en-IN'; u.rate = 0.92; speechSynthesis.speak(u); return true; } } catch (x) {}
   sendCmd('say', null, { text: text, raw: 1 }); toast('🔊 This phone has no voice - playing on the kids phone'); return false;
 }
@@ -381,7 +389,7 @@ function callChip(id, on, calling, l) {
   if (!on && !calling && ago > 60000 && ago < 2 * 3600e3 && !(l.at >= ca)) return ' <span class="chip" style="background:#ffe8dc;color:#b4461a">❌ missed - did not answer</span>';
   return '';
 }
-window.HC_PAR_TEST = { callChip: function (id, on, calling, l) { return callChip(id, on, calling, l); }, setCall: function (m) { S.callAt = m; } };   /* used only by the automatic tests */
+window.HC_PAR_TEST = { callChip: function (id, on, calling, l) { return callChip(id, on, calling, l); }, setCall: function (m) { S.callAt = m; }, edit: function (id) { edit(id); } };   /* used only by the automatic tests */
 function ovOpen(h) { $('ovBox').innerHTML = h; $('ov').style.display = ''; }
 function ovClose() { $('ov').style.display = 'none'; $('ovBox').innerHTML = ''; }
 function upgrade() {
@@ -423,6 +431,37 @@ $('ov').addEventListener('click', function (e) {
 document.addEventListener('click', function (e) { var b = e.target.closest('[data-pl]'); if (!b) return; var w = b.getAttribute('data-pl'); if (w === 'up') upgrade(); else if (w === 'tables') freeTables(); else if (w === 'sample') sampleForm(); });
 /* ================= v61: About & rules + delete my family and data (Google Play needs both inside the app) ================= */
 var SITE = 'https://harshgujjar.github.io/homeclass-site/';
+/* v66 (user, 16-Nov: "child settings had the option to set the parent PIN, but the parents' settings show nothing - no way to change the PIN"):
+   inside the ONE app this phone's parent PIN is shown here - set / change / remove. Same hash as the kids screen (hc-pin:<device>:<pin>), same phone storage. */
+function pinHash2(p) { return crypto.subtle.digest('SHA-256', new TextEncoder().encode('hc-pin:' + C.devId() + ':' + p)).then(function (b) { return Array.prototype.map.call(new Uint8Array(b), function (x) { return ('0' + x.toString(16)).slice(-2); }).join(''); }); }
+function drawPin() {
+  var box = $('sPin'); if (!box) return;
+  if (!(window.HCA && !window.HCP)) { box.style.display = 'none'; return; }
+  var has = !!C.LS.get('hc_pin', ''); box.style.display = '';
+  box.innerHTML = '<h3>🔒 Parent PIN on this phone</h3><div class="small mute">' + (has ? '✅ On - the children\'s screen opens this parent part (and its ⚙️ Settings) only with the PIN.' : '⚠️ No PIN yet - anyone on this phone can open the parent part. Set one.') + '</div>' +
+    '<div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn" id="pinCh">' + (has ? '🔁 Change PIN' : '🔒 Set a PIN') + '</button>' + (has ? '<button class="btn soft" id="pinRm">Remove PIN</button>' : '') + '</div>';
+  $('pinCh').onclick = function () { pinForm(has, false); };
+  if ($('pinRm')) $('pinRm').onclick = function () { pinForm(true, true); };
+}
+function pinForm(needOld, remove) {
+  ovOpen('<h3>' + (remove ? 'Remove the parent PIN' : needOld ? '🔁 Change the parent PIN' : '🔒 Set a parent PIN') + '</h3>' +
+    (needOld ? '<label class="f">Current PIN<input class="i" id="pOld" type="password" inputmode="numeric" maxlength="4"></label>' : '') +
+    (remove ? '<div class="small mute">Without a PIN the children can open the parent part on this phone.</div>' : '<label class="f">New PIN (4 digits)<input class="i" id="pN1" type="password" inputmode="numeric" maxlength="4"></label><label class="f">New PIN again<input class="i" id="pN2" type="password" inputmode="numeric" maxlength="4"></label>') +
+    '<div class="no small" id="pMsg" style="margin-top:6px"></div><div class="row" style="gap:8px;margin-top:10px"><button class="btn" id="pOk">' + (remove ? 'Remove PIN' : 'Save PIN') + '</button><button class="btn soft" id="pNo">Cancel</button></div>');
+  $('pNo').onclick = ovClose;
+  $('pOk').onclick = function () {
+    var msg = function (t) { $('pMsg').textContent = t; };
+    var go = function () {
+      if (remove) { C.LS.set('hc_pin', ''); ovClose(); drawPin(); toast('PIN removed'); C.diag('parent PIN removed (parent settings)'); return; }
+      var a = $('pN1').value, b = $('pN2').value;
+      if (!/^\d{4}$/.test(a)) return msg('The PIN has 4 digits.');
+      if (a !== b) return msg('The two PINs are not the same.');
+      pinHash2(a).then(function (h) { C.LS.set('hc_pin', h); C.LS.set('hc_role', 'shared'); ovClose(); drawPin(); toast('✅ PIN saved'); C.diag('parent PIN ' + (needOld ? 'changed' : 'set') + ' (parent settings)'); });
+    };
+    if (!needOld) return go();
+    pinHash2($('pOld').value).then(function (h) { if (h !== C.LS.get('hc_pin', '')) { msg('Wrong current PIN.'); C.diag('parent PIN: wrong current PIN', 'w'); return; } go(); });
+  };
+}
 function drawAbout() {
   var box = $('sAbout'); if (!box) return;
   var dr = S.delreq && S.delreq.st === 'wait' ? S.delreq : null;
@@ -604,6 +643,7 @@ $('eTry').onclick = function () {
   var it = C.parseItems(ED.type, $('eText').value)[0]; if (!it) return toast('Type a question first');
   var say = ED.type === 'spell' ? 'Spell the word: ' + it.q : it.q;
   if (window.HCP) return HCP.speak(say);
+  if (hcaVoice()) { C.diag('🔊 hear the first one (app voice)'); return hearHere(say); }
   if (!window.speechSynthesis) return;
   var u = new SpeechSynthesisUtterance(say); u.lang = 'en-IN'; u.rate = .92; speechSynthesis.cancel(); speechSynthesis.speak(u);
 };
@@ -615,6 +655,12 @@ function addSpoken(t) {
 window.hcDictated = function (t) { $('eMicMsg').textContent = t ? '' : 'Nothing heard - try again.'; if (t) addSpoken(t); };
 $('eMic').onclick = function () {
   if (window.HCP && HCP.dictate) { $('eMicMsg').textContent = ED.type === 'spell' ? 'Say one word.' : 'Say: question … "equals" … answer.'; HCP.dictate(); return; }
+  if (window.HCA && !window.HCP && typeof HCA.listen === 'function') {
+    var id = 'd' + Date.now(); $('eMicMsg').textContent = '🎤 Listening… ' + (ED.type === 'spell' ? 'say one word.' : 'say: question … "equals" … answer.');
+    hcaDict[id] = function (alts, err) { var t = (alts && alts[0]) || ''; if (!t) { $('eMicMsg').textContent = err === 'nomic' ? '🎤 Allow the microphone for Home Class (phone Settings → Apps).' : 'Nothing heard - tap 🎤 and try again.'; return; } $('eMicMsg').textContent = '✓ "' + t + '" - tap 🎤 for the next one.'; addSpoken(t); };
+    try { if (HCA.setGrammar) HCA.setGrammar('google'); HCA.listen(id, 9000); C.diag('🎤 speak to type (app)'); } catch (e) { $('eMicMsg').textContent = 'The microphone did not start.'; }
+    return;
+  }
   var R = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!R) { $('eMicMsg').textContent = 'Speaking to type works in Chrome.'; return; }
   if (dict) { dict.stop(); return; }
@@ -956,7 +1002,7 @@ function boot() {
   C.listen('live', function (v) { S.live = v || {}; drawHome(); });
   /* v59: 📱 a new phone typed the family code -> Allow / Deny here (pass server homeclass-pass; the phone gets nothing until Allow) */
   if (window.HCPass) { HCPass.setRole('parent', (navigator.userAgent.match(/;\s*([^;)]+)\s+Build\//) || [])[1] || 'Parent phone'); HCPass.renew().then(function (j) { C.diag('parent pass: ' + (j.ok ? 'ok · ' + j.ent.plan : j.err)); drawPlan(); if (S.page === 'pLes') drawLessons(); }); }
-  (function () { var d = document.createElement('div'); d.className = 'card'; d.id = 'sInv'; $('pSet').appendChild(d); var a = document.createElement('div'); a.className = 'card'; a.id = 'sAbout'; $('pSet').appendChild(a); })();
+  (function () { var pn = document.createElement('div'); pn.className = 'card'; pn.id = 'sPin'; pn.style.display = 'none'; $('pSet').appendChild(pn); var d = document.createElement('div'); d.className = 'card'; d.id = 'sInv'; $('pSet').appendChild(d); var a = document.createElement('div'); a.className = 'card'; a.id = 'sAbout'; $('pSet').appendChild(a); })();
   C.listen('delreq', function (v) { S.delreq = v || null; drawAbout(); }, 30);
   C.listen('joinreq', function (v) { S.joinreq = v || {}; drawJoin(); }, 10);
   C.listen('dev', function (v) {
