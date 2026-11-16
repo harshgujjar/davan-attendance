@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var C = window.HCcore = {};
-  C.VER = 43;
+  C.VER = 44;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -264,6 +264,9 @@
     if (nums.length >= 3 && nums[0] === a && nums[1] !== b && nums[1] >= 1 && nums[1] <= 20 && nums[2] === a * nums[1] && nums.indexOf(ans) < 0) return { n: null, ok: false, other: nums[1] };
     var last = nums[nums.length - 1];
     if (last === ans) return { n: ans, ok: true };
+    /* v44 (Mangala, log 16-Nov 18:15-18:18, 12 x 5): "sixty" heard as "sixteen" again and again - the -ty / -teen twin of the answer (60 / 16, 30 / 13 ... 90 / 19)
+       is never itself the answer of that line, so it counts as the answer */
+    if (ans % 10 === 0 && ans >= 30 && ans <= 90 && last === 10 + ans / 10 && nums.indexOf(a * b) < 0) return { n: ans, ok: true, twin: true };
     /* v43 (Mangala, log 15-Nov 19:44-19:45, 8 x 2): the right answer said FIRST, then noise ("sixteen ... one", "sixteen twenty six ten") = right;
        a changed answer comes with words ("sixteen no eighteen") and stays judged by the last number */
     var rest = nums.slice(); if ((rest[0] === a && rest[1] === b) || (rest[0] === b && rest[1] === a)) rest = rest.slice(2);

@@ -7,7 +7,7 @@
   'use strict';
   var C = window.HCcore = {};
   C._installJudge = function (src) { eval(src); return true; };
-  C.VER = 43;
+  C.VER = 44;
   C.DB = 'https://davan-student-news-default-rtdb.asia-southeast1.firebasedatabase.app/';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
