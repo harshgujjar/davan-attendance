@@ -289,6 +289,8 @@
         && !/\b(\d+)\s*$/.test(String(text).replace(/[=\s]+$/, '') + ' x') ) return { n: null, ok: false, question: true };
     var digits = nums.join(''), pre = [String(a) + String(b), String(b) + String(a)];
     for (var i = 0; i < pre.length; i++) if (digits.length > pre[i].length && digits.indexOf(pre[i]) === 0 && digits.slice(pre[i].length) === String(ans)) return { n: ans, ok: true };
+    /* v48 (Vihaan, log 17-Nov 11:14, 13 x 9): "one one seven" - the three digits said one by one - is 117 */
+    if (ans >= 100 && nums.length >= 2 && nums.every(function (x) { return x <= 9; }) && digits === String(ans)) return { n: ans, ok: true };
     return { n: last, ok: false };
   };
   /* ---------- 🗣️ reciting a whole table (user, 01-Nov-2026: "he tells the 5 table fast - 5 one ja 5, 5 two ja 10 ... - the app follows,
