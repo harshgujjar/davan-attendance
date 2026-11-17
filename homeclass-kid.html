@@ -467,7 +467,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 117;
+var KID_VER = 118;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -1810,6 +1810,19 @@ async function followLine(t, b) {
     if (r.switched) { k--; continue; }
     if (!r.text) return null;
     var jd = C.tableJudge(r.alts || [], t, b);
+    /* v118 (user, 17-Nov-2026: "if I say the table fast it is not taken"): SMART PACE - a clip with several lines ("13 2 ja 26, 13 3 ja 39") is read line by line;
+       every line said right counts (the current one too), the app then skips the lines already heard */
+    if ((S.fastUp || 0) > b) {
+      var fxBest = [], selfHit = false;
+      (r.alts || [r.text]).slice(0, 3).forEach(function (al) {
+        var ps; try { ps = C.parseRecite(al, t, S.fastUp) || []; } catch (e) { ps = []; }
+        var ex = ps.filter(function (f) { return f.b > b && f.b <= S.fastUp && f.said === t * f.b; }).map(function (f) { return f.b; });
+        if (ex.length > fxBest.length) fxBest = ex;
+        if (ps.some(function (f) { return f.b === b && f.said === t * b; })) selfHit = true;
+      });
+      if (fxBest.length) { S.fastX = (S.fastX || []).concat(fxBest.filter(function (x) { return (S.fastX || []).indexOf(x) < 0; })); C.diag('follow ' + t + ': fast - also heard line' + (fxBest.length > 1 ? 's ' : ' ') + fxBest.join(', ')); }
+      if (!jd.ok && selfHit) { jd = { ok: true, n: t * b, fast: true }; }
+    }
     C.diag('follow ' + t + '×' + b + ': "' + (r.alts || [r.text]).slice(0, 2).join('" / "') + '" → ' + (jd.ok ? '✓' : (jd.n === null ? '?' : '✗ ' + jd.n)) + (S.lastTm ? ' · ' + S.lastTm : ''));
     if (jd.ok) return true;
     if (jd.n !== null) return false;
@@ -1826,17 +1839,24 @@ async function followTable(t, up, o) {
   $('kQ').className = 'q txt'; $('kQ').textContent = (mode === 'answers' ? '👀 ' : '🙈 ') + 'Say the table of ' + t; drawBoard();
   await say('Say the table of ' + t + (mode === 'answers' ? ', looking at the answers' : ' from memory') + ', line by line. Say each line when it lights up.');
   var miss = [], todo = lines.map(function (l) { return l[1]; });
+  S.fastUp = up; S.fastX = [];
   for (var pass = 1; pass <= 2 && todo.length; pass++) {
     var next = [];
     for (var i = 0; i < todo.length; i++) {
       var b = todo[i]; chk();
+      if (S.fastX.indexOf(b) >= 0) continue;                       /* v118: already heard inside an earlier fast clip */
       bCur(t, b); S.curQ = 'f' + t + 'x' + b + '#' + (++S.qn);
       $('kQ').className = 'q'; $('kQ').textContent = t + ' × ' + b + ' = ' + (mode === 'answers' ? t * b : '?');
       $('kHeard').innerHTML = '🎤 <b>' + t + ' × ' + b + '</b>'; drawBoard();
-      if (A && A.setGrammar) A.setGrammar(C.qGrammar(t, b));
+      if (A && A.setGrammar) {                                     /* v118: this line's words + the next two lines', so a fast child is heard too */
+        var gj = JSON.parse(C.qGrammar(t, b));
+        for (var nb = b + 1; nb <= Math.min(up, b + 2); nb++) JSON.parse(C.qGrammar(t, nb)).forEach(function (x) { if (gj.indexOf(x) < 0) gj.push(x); });
+        A.setGrammar(JSON.stringify(gj));
+      }
       if (i === 0) ding();
       var got = await inQ(function () { return followLine(t, b); });
       if (got !== true && got !== 'skip') { await say(t + ' ' + b + ' ja?'); got = await inQ(function () { return followLine(t, b); }); }   /* (B) asked by voice at once */
+      S.fastX.forEach(function (fb) { bSet(t, fb, 1, 1); });
       if (got === true) { bSet(t, b, 1, 1); setLive({ mode: 'recite', title: SES.title, q: t + ' × ' + b + ' ✓' }); }
       else next.push(b);
       drawBoard();
@@ -1845,6 +1865,7 @@ async function followTable(t, up, o) {
     if (todo.length && pass === 1 && todo.length >= Math.ceil(up / 2)) { await say('I could not hear some lines. Let us say them once more.'); continue; }
     break;
   }
+  S.fastUp = 0; S.fastX = [];
   miss = todo; bCur(t, -1); drawBoard();
   C.diag('follow ' + t + ': ' + (up - miss.length) + ' of ' + up + ' heard' + (miss.length ? ' · not heard ' + miss.join(', ') : ' · all proven'));
   o.unsure = miss; o.proven = !miss.length;
