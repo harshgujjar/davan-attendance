@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2037 · 17-Nov-2026 IST
+User: other table lines still did not match the buttons (192 vs Updated 161 etc.). A student in the list is now counted by the list's own status, so each table line equals its button; students not in the list (up to date, old not seen 7 days, Android not shown the card) have their own lines. No extra reads/writes. Function: wurCensus.
+
 ## v2036 · 17-Nov-2026 IST
 User: locked count still 30 vs the No widget button 53. The census now counts every student whose list row is "No widget" (any phone type, even if missing from the student list), so the two always match. No extra reads/writes. Function: wurCensus.
 
