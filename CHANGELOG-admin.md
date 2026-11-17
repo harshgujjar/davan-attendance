@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2036 · 17-Nov-2026 IST
+User: locked count still 30 vs the No widget button 53. The census now counts every student whose list row is "No widget" (any phone type, even if missing from the student list), so the two always match. No extra reads/writes. Function: wurCensus.
+
 ## v2035 · 17-Nov-2026 IST
 User: widget report showed 88 for "Android, no widget → locked" but the "No widget" button said 53 (correct), and wanted serial numbers on student names. The census now takes each Android student's status from the list's own row (No widget = locked; Director / can't and not-in-list-yet get their own lines), and the list and the 7-day names get 1, 2, 3… numbers. No extra reads/writes. Functions: wurCensus, wurList, wurNoWidget.
 
