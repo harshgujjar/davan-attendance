@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2035 · 17-Nov-2026 IST
+User: widget report showed 88 for "Android, no widget → locked" but the "No widget" button said 53 (correct), and wanted serial numbers on student names. The census now takes each Android student's status from the list's own row (No widget = locked; Director / can't and not-in-list-yet get their own lines), and the list and the 7-day names get 1, 2, 3… numbers. No extra reads/writes. Functions: wurCensus, wurList, wurNoWidget.
+
 ## v2033 · 16-Nov-2026 IST
 User: scrape only the 2nd internal marks. 🕷 Scraper page has a new "1st internal (Int 1)" switch; off = only Int 2 is scraped, saved Int 1 marks are kept. Data: DB2 davan_pub/scraper/cfg.marks1 (default on), no extra reads/writes. Pairs with davan-scraper v113. Functions: SCR_CFG_DEF, Scraper page switches.
 
