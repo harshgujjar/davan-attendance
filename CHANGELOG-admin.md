@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2038 · 17-Nov-2026 IST
+User: wanted to know WHO the 34 "did not open the student app in 7 days" students are. Every line of the all-students table is now tappable and lists its students (numbered, photo, class, URN). No extra reads/writes. Function: wurCensus.
+
 ## v2037 · 17-Nov-2026 IST
 User: other table lines still did not match the buttons (192 vs Updated 161 etc.). A student in the list is now counted by the list's own status, so each table line equals its button; students not in the list (up to date, old not seen 7 days, Android not shown the card) have their own lines. No extra reads/writes. Function: wurCensus.
 
