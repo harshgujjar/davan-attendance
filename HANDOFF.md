@@ -412,3 +412,5 @@ Everything (live versions, where the code is, how to read logs, deploy the pass 
 parent v63 · HC Admin v11 + app a2 · pass server homeclass-pass), old Parents app retired (move card inside it), WhatsApp invite live in HC Admin → Releases.
 Problem reported → read the family's log yourself first (HOMECLASS.md "DO THIS FIRST"); never ask the user for keys or screenshots.
 The older Home Class notes in this file (above, and the 14/15-Nov mockup notes that were here) are history.
+
+- 17-Nov-2026 Home Class kids v117 · core v48: Vihaan's 13 table log - (1) practice0 "answers shown" ended after "now try the test" (class stopped) -> now continues into the test; (2) "one one seven" for 13x9 marked wrong -> tableJudge accepts 100+ answers said digit by digit. DB3 family key: DB3 peek Action is in davan-student-news (attached in this session; davan-scraper "DB2 peek" db=3 has no SA_DB3 secret). Gujjar key = dKGAS…SJZR. Engine rebuilt (davan-scraper homeclass-play/server/engine/build), homeclass-app.html updated.
