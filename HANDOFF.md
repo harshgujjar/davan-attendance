@@ -428,3 +428,4 @@ The older Home Class notes in this file (above, and the 14/15-Nov mockup notes t
 - 18-Nov-2026 app h34 LIVE (launch diagnostics for the TV icon problem: next time the icon does not open the app, read the TV log: 'last run ended ... started/lived N s', 'app open ... opened by ... RAM free'). If lived is a few seconds + LOW MEMORY -> memory kill on launch: lighten start (Vosk init after first screen on TV).
 - 18-Nov-2026 kids v125: flash() = small banner (gap under the board / under the question), not a full-screen layer. TV h34 opened fine 20:47 via LEANBACK_LAUNCHER.
 - 18-Nov-2026 kids v126: TV - open .cfm box holds the remote focus (focusables scope), confirmSheet focuses Yes, notHeard listens yes/again/skip (3 tries), Back stays in the box.
+- 18-Nov-2026 kids v127: TV uses followTable (smart pace) for answers + test In order (practice0 tvF); Mixed = questions.
