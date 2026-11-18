@@ -469,7 +469,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 120;
+var KID_VER = 121;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -1006,6 +1006,7 @@ function drawBoard() {
 var pT = 0, pTimer = null;
 function onPartial(t) {
   if (t) { S.lastPart = t; S.lastPartAt = Date.now(); if (!S.pFirst) S.pFirst = S.lastPartAt; S.pLast = S.lastPartAt; tvMicWords(); }
+  if (t && S.liveCb) { try { S.liveCb(t); } catch (e) {} }
   if (!SES || !t) return;
   SES.partial = t;
   $('kHeard').innerHTML = '🎤 <b>' + C.esc(t) + '</b>';
@@ -1817,26 +1818,12 @@ async function followLine(t, b) {
     var jd = C.tableJudge(r.alts || [], t, b);
     /* v118 (user, 17-Nov-2026: "if I say the table fast it is not taken"): SMART PACE - a clip with several lines ("13 2 ja 26, 13 3 ja 39") is read line by line;
        every line said right counts (the current one too), the app then skips the lines already heard */
-    if ((S.fastUp || 0) > b) {
-      var fxBest = [], selfHit = false;
+    if ((S.fastUp || 0) > b && S.fastRead) {
+      var fxBest = [], selfHit = !!S.liveSelf;
       (r.alts || [r.text]).slice(0, 3).forEach(function (al) {
-        var ps; try { ps = C.parseRecite(al, t, S.fastUp) || []; } catch (e) { ps = []; }
-        var ex = ps.filter(function (f) { return f.b > b && f.b <= S.fastUp && f.said === t * f.b; }).map(function (f) { return f.b; });
-        if (ex.length > fxBest.length) fxBest = ex;
-        if (ps.some(function (f) { return f.b === b && f.said === t * b; })) selfHit = true;
-        /* v119 (log 17-Nov 12:16: right answers 39, 52 but the phone heard the line numbers wrong - "thirteen two" for 3): match the ANSWERS in order, whatever line numbers were heard.
-           Credited only when 2+ answers match (or this line's own answer is among them); tiny answers that look like line numbers are left to the parser. */
-        var nm = []; try { nm = C.numbers(al, true) || []; } catch (e) { nm = []; }
-        var pos = 0, oh = [];
-        for (var L = b; L <= S.fastUp; L++) {
-          var want = t * L; if (L === 1 || want <= S.fastUp) continue;
-          for (var q = pos; q < nm.length; q++) if (nm[q] === want) { oh.push(L); pos = q + 1; break; }
-        }
-        if (oh.length >= 2 || (oh.length === 1 && oh[0] === b)) {
-          if (oh.indexOf(b) >= 0) selfHit = true;
-          oh.filter(function (x) { return x > b && ex.indexOf(x) < 0; }).forEach(function (x) { ex.push(x); });
-          if (ex.length > fxBest.length) fxBest = ex;
-        }
+        var fr = S.fastRead(al, t, b, S.fastUp);
+        if (fr.ex.length > fxBest.length) fxBest = fr.ex;
+        if (fr.self) selfHit = true;
       });
       if (fxBest.length) { S.fastX = (S.fastX || []).concat(fxBest.filter(function (x) { return (S.fastX || []).indexOf(x) < 0; })); C.diag('follow ' + t + ': fast - also heard line' + (fxBest.length > 1 ? 's ' : ' ') + fxBest.join(', ')); }
       if (!jd.ok && selfHit) { jd = { ok: true, n: t * b, fast: true }; }
@@ -1857,7 +1844,39 @@ async function followTable(t, up, o) {
   $('kQ').className = 'q txt'; $('kQ').textContent = (mode === 'answers' ? '👀 ' : '🙈 ') + 'Say the table of ' + t; drawBoard();
   await say('Say the table of ' + t + (mode === 'answers' ? ', looking at the answers' : ' from memory') + ', line by line. Say each line when it lights up.');
   var miss = [], todo = lines.map(function (l) { return l[1]; });
-  S.fastUp = up; S.fastX = [];
+  S.fastUp = up; S.fastX = []; S.liveSelf = false; S.liveB = 0;
+  /* v119/v120 helper: what a clip says. ex = later lines said right; self = this line said right. Line numbers are often misheard, so answers are matched in order too (2+ or this line's own). */
+  S.fastRead = function (al, t, b, up) {
+    var ex = [], self = false, ps, nm = [], pos = 0, oh = [];
+    try { ps = C.parseRecite(al, t, up) || []; } catch (e) { ps = []; }
+    ps.forEach(function (f) { if (f.said === t * f.b) { if (f.b > b) ex.push(f.b); else if (f.b === b) self = true; } });
+    try { nm = C.numbers(al, true) || []; } catch (e) { nm = []; }
+    for (var L = b; L <= up; L++) {
+      var want = t * L; if (L === 1 || want <= up) continue;
+      for (var q = pos; q < nm.length; q++) if (nm[q] === want) { oh.push(L); pos = q + 1; break; }
+    }
+    if (oh.length >= 2 || (oh.length === 1 && oh[0] === b)) {
+      if (oh.indexOf(b) >= 0) self = true;
+      oh.forEach(function (x) { if (x > b && ex.indexOf(x) < 0) ex.push(x); });
+    }
+    /* v120 (log 18-Nov 08:08, 14 x 1): line 1's answer IS the table number, so "fourteen fourteen two ja twenty eight ..." = line 1 said, then line 2 */
+    if (b === 1 && !self && ex.length && nm[0] === t && (nm[1] === t || (nm[1] === 1 && nm[2] === t))) self = true;
+    return { ex: ex, self: self };
+  };
+  /* v120 (user, 18-Nov-2026: "as I say the table it does not turn green - it keeps hearing and makes all green at once"): the live words from the mic turn each line green as soon as the NEXT line has begun */
+  S.liveCb = function (txt) {
+    if (!S.liveB || !SES || !SES.board) return;
+    var ps; try { ps = C.parseRecite(txt, t, up) || []; } catch (e) { return; }
+    var hit = false;
+    if (S.liveB === 1 && !S.liveSelf && ps.length >= 2 && S.fastRead(txt, t, 1, up).self) { S.liveSelf = true; bSet(t, 1, 1, 1); hit = true; }   /* line 1 = "fourteen fourteen ..." */
+    ps.slice(0, -1).forEach(function (f) {
+      if (f.said !== t * f.b || f.b < S.liveB) return;
+      if (f.b === S.liveB) { if (!S.liveSelf) { S.liveSelf = true; bSet(t, f.b, 1, 1); hit = true; } }
+      else if (S.fastX.indexOf(f.b) < 0) { S.fastX.push(f.b); bSet(t, f.b, 1, 1); hit = true; }
+    });
+    if (hit) drawBoard();
+  };
+  try {
   for (var pass = 1; pass <= 2 && todo.length; pass++) {
     var next = [];
     for (var i = 0; i < todo.length; i++) {
@@ -1872,8 +1891,10 @@ async function followTable(t, up, o) {
         A.setGrammar(JSON.stringify(gj));
       }
       if (i === 0) ding();
+      S.liveB = b; S.liveSelf = false;
       var got = await inQ(function () { return followLine(t, b); });
-      if (got !== true && got !== 'skip') { await say(t + ' ' + b + ' ja?'); got = await inQ(function () { return followLine(t, b); }); }   /* (B) asked by voice at once */
+      if (got !== true && got !== 'skip') { S.liveB = 0; await say(t + ' ' + b + ' ja?'); S.liveB = b; got = await inQ(function () { return followLine(t, b); }); }
+      S.liveB = 0;   /* (B) asked by voice at once */
       S.fastX.forEach(function (fb) { bSet(t, fb, 1, 1); });
       if (got === true) { bSet(t, b, 1, 1); setLive({ mode: 'recite', title: SES.title, q: t + ' × ' + b + ' ✓' }); }
       else next.push(b);
@@ -1883,7 +1904,8 @@ async function followTable(t, up, o) {
     if (todo.length && pass === 1 && todo.length >= Math.ceil(up / 2)) { await say('I could not hear some lines. Let us say them once more.'); continue; }
     break;
   }
-  S.fastUp = 0; S.fastX = [];
+  } finally { S.liveCb = null; S.liveB = 0; S.liveSelf = false; S.fastUp = 0; }
+  S.fastX = [];
   miss = todo; bCur(t, -1); drawBoard();
   C.diag('follow ' + t + ': ' + (up - miss.length) + ' of ' + up + ' heard' + (miss.length ? ' · not heard ' + miss.join(', ') : ' · all proven'));
   o.unsure = miss; o.proven = !miss.length;
