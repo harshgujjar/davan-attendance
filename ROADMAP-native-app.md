@@ -53,3 +53,10 @@ Father's name for Neesha in the header (placeholder until given); test phones; r
 - 27 Oct: test-channel auto-update ON (student-widget-test.json = NG build 1009). After any public widget release the nightly job copies next over the test files: re-push the NG APK + json.
 - 27 Oct: app-layout-ng.json on main = the live layout (titles, colours, order, tabs, Today list, challenge tasks); edit it, no build. Build 1013: full class page.
 - 27 Oct (user rule): keep both icons, Davan and Davan (new), never change.
+
+## 18-Nov-2026 (user): release policy + what is built
+- NO public release until the user says (CLAUDE.md rule). Davan (new) IS the next public release; testers see w214.N; release = w215.
+- Test 1030: admin 📲 Students widget report (davan_pub/wupd_report). Test 1031: 🛑 Controls (davan_pub/ng_ctl), web-page card ("web" in app-layout-ng.json), classic-screen button, w214.31 label.
+- User decisions: Ask Davan AI - NOT built. Staff / admin app - later. Admin login inside the app - with the staff / admin app (later); the admin phone link is used now.
+- Still to do (next sessions): real data for Fees and Library cards (today they open the student app); hostel / Placement / results real-data checks; Grow (challenges, Skill Passport) finish;
+  every card checked against the old app on a test phone (testing round); then release when the user says.
