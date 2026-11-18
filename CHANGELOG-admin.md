@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2039 · 18-Nov-2026 IST
+User: the same widget report in the Android staff app, always the same numbers. The web report now saves its finished result (lines + students per line) to DB2 davan_pub/wupd_report whenever the Super Admin opens or Recounts it; the Android app only displays it. Data: 1 write (~30 KB) per open. Pairs with staff widget w371. Function: wurCensus.
+
 ## v2038 · 17-Nov-2026 IST
 User: wanted to know WHO the 34 "did not open the student app in 7 days" students are. Every line of the all-students table is now tappable and lists its students (numbered, photo, class, URN). No extra reads/writes. Function: wurCensus.
 
