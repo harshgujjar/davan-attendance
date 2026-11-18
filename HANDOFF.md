@@ -430,3 +430,5 @@ The older Home Class notes in this file (above, and the 14/15-Nov mockup notes t
 - 18-Nov-2026 kids v125: flash() = small banner (gap under the board / under the question), not a full-screen layer. TV h34 opened fine 20:47 via LEANBACK_LAUNCHER.
 - 18-Nov-2026 kids v126: TV - open .cfm box holds the remote focus (focusables scope), confirmSheet focuses Yes, notHeard listens yes/again/skip (3 tries), Back stays in the box.
 - 18-Nov-2026 kids v127: TV uses followTable (smart pace) for answers + test In order (practice0 tvF); Mixed = questions.
+
+- 18-Nov-2026 rates.html v1.02: top box shows rate date, checked time and now (IST); 🔄 Show present rate, date & time button re-reads DB3 (no cache); small "with 3% GST" amount beside the silver / gold rate. Page only, no widget build; reads same DB3 nodes.
