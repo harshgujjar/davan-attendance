@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2040 · 18-Nov-2026 IST
+User: 71 students on Meet Director, cannot come. The widget report counts "Director" only while the student's Director mark is under 3 days old, so students who never tried (the portal now sends Director only after a real failed try, v11.133) drop back to Saw / Not seen by themselves. No extra reads/writes. Function: wurInit (st).
+
 ## v2039 · 18-Nov-2026 IST
 User: the same widget report in the Android staff app, always the same numbers. The web report now saves its finished result (lines + students per line) to DB2 davan_pub/wupd_report whenever the Super Admin opens or Recounts it; the Android app only displays it. Data: 1 write (~30 KB) per open. Pairs with staff widget w371. Function: wurCensus.
 
