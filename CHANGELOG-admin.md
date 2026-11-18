@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2041 · 18-Nov-2026 IST
+User: stuck students cannot come to the Director; the Android report must stay fresh. Widget report: "📨 Send install guide to this list" (Help chat message to every student shown who is not updated, 2 small writes each) and "🏫 Per class list (for teachers)" (print, grouped by class). wurAutoSave re-makes davan_pub/wupd_report when it is over 1 h old, 7 am-9 pm IST, while the Super Admin's staff app is open (1 tiny read / 10 min, a recount at most hourly). Pairs with Davan (new) test 1031. Functions: wurGuideAll, wurClassPdf, wurAutoSave.
+
 ## v2040 · 18-Nov-2026 IST
 User: 71 students on Meet Director, cannot come. The widget report counts "Director" only while the student's Director mark is under 3 days old, so students who never tried (the portal now sends Director only after a real failed try, v11.133) drop back to Saw / Not seen by themselves. No extra reads/writes. Function: wurInit (st).
 

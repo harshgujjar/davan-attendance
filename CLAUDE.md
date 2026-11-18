@@ -78,6 +78,16 @@ copy the APK to `DavanWidget.apk` on main, and bump `apkVersion` AND the `?v=<n>
 in index.html (old w132 phones). Its data comes from DB2 davan_pub/staff_pub, published by index.html's stwPublish. Its codes are always `S-XXXXXX`; the student
 app must never link them. The old Davan Hostel Staff app (com.davan.hostelstaff, staff.jks, DavanHostelStaff.apk, staff-widget-version.json) is retired.
 
+## NO public release until the user says (user, 18-Nov-2026 - overrides the nightly-release rules below)
+"We stop public release - we don't release till I tell. All updates pile up for me and testing. When we release we update only one number:
+now v100, after 68 fixes testers see v100.68, then we release v101 only - when I say, it may be any number of days."
+- Every student build goes ONLY to the test channel (`Davan.Student-test.apk` + `student-widget-test.json`). Never touch `Davan.Student-next.apk`,
+  `student-widget-next.json`, the public APKs / version files, `LATEST_STUDENT_WIDGET_APK(_V)`. Same for the staff widget: no `-next` / public change unless the user says.
+- The next public student release IS Davan (new) (widgets/student-ng, build-ng.sh, versions 1000+N). Testers see w<public display>.<N> (e.g. w214.30).
+  On release the public number goes up by ONE (w215), done by the nightly job when the user says (then put the build in "-next").
+- The old student widget (widgets/student) gets no new public build; fixes go into it and reach students only through Davan (new) builds.
+- Ask the user to keep Global Switches -> Widget updates -> "Stop until resume" ON (Claude cannot press it).
+
 ## Widget release channels (user, 05-Oct-2026) - read before releasing any widget
 
 A new widget build NEVER goes straight to everyone. Copy it to the "next" files: `Davan.Student-next.apk` + `student-widget-next.json`
