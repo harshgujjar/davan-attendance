@@ -434,3 +434,6 @@ The older Home Class notes in this file (above, and the 14/15-Nov mockup notes t
 - 18-Nov-2026 kids v127: TV uses followTable (smart pace) for answers + test In order (practice0 tvF); Mixed = questions.
 
 - 18-Nov-2026 rates.html v1.02: top box shows rate date, checked time and now (IST); 🔄 Show present rate, date & time button re-reads DB3 (no cache); small "with 3% GST" amount beside the silver / gold rate. Page only, no widget build; reads same DB3 nodes.
+
+## 🩺 Gujjar laptop blank-screen freeze (19-Nov-2026)
+GUJJAR hwid 90e4cc49c04fec48. Froze ~2:26 PM IST, screen blank, no wake, hard restart (EventLog 6008 at boot; also 30 Oct 1:40 PM, 6 Nov 4:37 PM). No bsod/whea/display event logged. ASUS (Armoury Crate), disk often 100%, boot 100-130 s, CPU temp 76 C, C: 90% full. Queued read-only crash_info + temp_check (lab/cmd/90e4cc49c04fec48, c179508138787871 / c179508139073613) - still "queued" (agent not picked up). Next: peek lab/cmd/<hwid> filter crash_info|temp_check (power button? sleep? last temp/fans), then propose fixes via DB5 book.
