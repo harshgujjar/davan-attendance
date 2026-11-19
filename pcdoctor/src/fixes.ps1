@@ -414,13 +414,13 @@ function Fix-bt_reinstall($a) {
 
 function PD-NvCards { @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'NVIDIA' } | ForEach-Object { @{ name = [string]$_.Name; ver = [string]$_.DriverVersion; date = $(if ($_.DriverDate) { ([datetime]$_.DriverDate).ToString('dd MMM yyyy') } else { '' }); status = [string]$_.Status } }) }
 function Fix-nvidia_check($a) {
-  $c = PD-NvCards; if (!$c.Count) { return @{ ok = $false; txt = 'No NVIDIA graphics card seen by Windows' } }
+  $c = @(PD-NvCards); if (!$c.Count) { return @{ ok = $false; txt = 'No NVIDIA graphics card seen by Windows' } }
   $l = foreach ($x in $c) { "$($x.name): driver $($x.ver) ($($x.date)), status $($x.status)" }
   $o = ''; try { $n = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'nvlddmkm'; StartTime = (Get-Date).AddDays(-14) } -ErrorAction Stop).Count; $o = "`nnvlddmkm (NVIDIA driver) errors in 14 days: $n" } catch { $o = "`nnvlddmkm (NVIDIA driver) errors in 14 days: 0" }
   @{ ok = $true; txt = (($l -join "`n") + $o) }
 }
 function Fix-nvidia_update($a) {
-  $before = PD-NvCards; if (!$before.Count) { return @{ ok = $false; txt = 'No NVIDIA graphics card seen by Windows - nothing to update' } }
+  $before = @(PD-NvCards); if (!$before.Count) { return @{ ok = $false; txt = 'No NVIDIA graphics card seen by Windows - nothing to update' } }
   $b0 = "$($before[0].name) driver $($before[0].ver) ($($before[0].date))"
   try { Checkpoint-Computer -Description 'Davan PC Doctor - before NVIDIA driver update' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop } catch {}   # may be off / done in the last 24 h - the update goes on
   $s = New-Object -ComObject Microsoft.Update.Session; $s.ClientApplicationID = 'Davan PC Doctor'
@@ -432,7 +432,7 @@ function Fix-nvidia_update($a) {
   $d = $s.CreateUpdateDownloader(); $d.Updates = $col; $dr = $d.Download()
   if ($dr.ResultCode -ne 2) { return @{ ok = $false; txt = "NVIDIA driver download failed (code $($dr.ResultCode)): $names" } }
   $i = $s.CreateUpdateInstaller(); $i.Updates = $col; $r = $i.Install()
-  $after = PD-NvCards; $a0 = if ($after.Count) { "$($after[0].ver) ($($after[0].date))" } else { 'not read' }
+  $after = @(PD-NvCards); $a0 = if ($after.Count) { "$($after[0].ver) ($($after[0].date))" } else { 'not read' }
   @{ ok = ($r.ResultCode -eq 2); txt = "Was: $b0. Installed: $names. Now: $a0" + $(if ($r.RebootRequired) { ' - restart needed to finish' } else { '' }); restart = [bool]$r.RebootRequired
      undo = 'Device Manager > Display adapters > NVIDIA > Properties > Driver > Roll Back Driver (Windows keeps the old driver), or System Restore point "Davan PC Doctor - before NVIDIA driver update"' }
 }
@@ -456,7 +456,7 @@ function PD-Verify([string]$fix, $a) {
                        $n = @($mf.printers | Where-Object ok).Count; return @{ ok = ([bool]$sh -and $n -gt 0); txt = $(if ($sh) { "Share $PD_DRVSHARE is on, drivers for $n printer(s)" } else { 'Share not found' }); t = (PD-NowMs) } }
       'printer_guest' { if (!$a -or !$a.host) { return $null }; $hs = ([string]$a.host).ToUpper(); $ps = @(Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*($hs)" })
                        return @{ ok = ($ps.Count -gt 0); txt = $(if ($ps.Count) { 'Printers here: ' + (($ps | ForEach-Object { $_.Name + ' [' + $_.PrinterStatus + ']' }) -join ', ') } else { "No printer of $hs here" }); t = (PD-NowMs) } }
-      { $_ -in 'nvidia_check', 'nvidia_update' } { $c = PD-NvCards; if (!$c.Count) { return @{ ok = $false; txt = 'No NVIDIA card seen'; t = (PD-NowMs) } }; return @{ ok = ($c[0].status -eq 'OK'); txt = "$($c[0].name): driver $($c[0].ver) ($($c[0].date)), status $($c[0].status)"; t = (PD-NowMs) } }
+      { $_ -in 'nvidia_check', 'nvidia_update' } { $c = @(PD-NvCards); if (!$c.Count) { return @{ ok = $false; txt = 'No NVIDIA card seen'; t = (PD-NowMs) } }; return @{ ok = ($c[0].status -eq 'OK'); txt = "$($c[0].name): driver $($c[0].ver) ($($c[0].date)), status $($c[0].status)"; t = (PD-NowMs) } }
       { $_ -in 'bt_check', 'bt_restart', 'bt_reinstall' } { $bad = @(PD-BtDevices | Where-Object { $_.Status -ne 'OK' }).Count; return @{ ok = ($bad -eq 0); txt = "Bluetooth devices in error: $bad"; t = (PD-NowMs) } }
       'printer_driver' { if (!$a -or !$a.driver) { return $null }; $d = Get-PrinterDriver -Name ([string]$a.driver) -ErrorAction SilentlyContinue; return @{ ok = [bool]$d; txt = $(if ($d) { 'Driver installed' } else { 'Driver not found' }); t = (PD-NowMs) } }
     }
