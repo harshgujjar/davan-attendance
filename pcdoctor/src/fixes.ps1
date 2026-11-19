@@ -42,6 +42,10 @@ $PD_FIX = [ordered]@{
   'bt_check'      = @{ k = 'light';   l = 'Check Bluetooth (devices + driver error code)'; sw = $null }
   'bt_restart'    = @{ k = 'light';   l = 'Restart Bluetooth (service + dongle off / on)'; sw = $null }
   'bt_reinstall'  = @{ k = 'restart'; l = 'Reinstall the Bluetooth driver (remove device + rescan)'; sw = $null; perm = $true; del = $true }
+  # 1.83 (user, 19-Nov-2026: Gujjar laptop froze with a black screen that would not wake; NVIDIA display driver errors nvlddmkm/14 before the 07 Nov freeze): nvidia_check = read-only; nvidia_update installs the NVIDIA display driver
+  # that Windows Update offers (signed, no download link to maintain). restart-kind: runs at a free period / shutdown or when the Super Admin taps ✅ now (the screen flickers during the install).
+  'nvidia_check'  = @{ k = 'light';   l = 'Check NVIDIA graphics (card + driver version + date)'; sw = $null }
+  'nvidia_update' = @{ k = 'restart'; l = 'Update the NVIDIA graphics driver (Windows Update)'; sw = $null; perm = $true }
 }
 function PD-FixLog([string]$fix, $res, [string]$by, [string]$cid = '') {
   $t = PD-NowMs
@@ -408,6 +412,31 @@ function Fix-bt_reinstall($a) {
   @{ ok = ($n -gt 0 -and $bad -eq 0); txt = "$n Bluetooth dongle device(s) removed + rescanned, $bad still in error. If it stays in error the chipset driver is wrong - send the check (hardware id) to Claude"; restart = $true; undo = 'Windows installs the driver again by itself on the rescan' }
 }
 
+function PD-NvCards { @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'NVIDIA' } | ForEach-Object { @{ name = [string]$_.Name; ver = [string]$_.DriverVersion; date = $(if ($_.DriverDate) { ([datetime]$_.DriverDate).ToString('dd MMM yyyy') } else { '' }); status = [string]$_.Status } }) }
+function Fix-nvidia_check($a) {
+  $c = PD-NvCards; if (!$c.Count) { return @{ ok = $false; txt = 'No NVIDIA graphics card seen by Windows' } }
+  $l = foreach ($x in $c) { "$($x.name): driver $($x.ver) ($($x.date)), status $($x.status)" }
+  $o = ''; try { $n = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'nvlddmkm'; StartTime = (Get-Date).AddDays(-14) } -ErrorAction Stop).Count; $o = "`nnvlddmkm (NVIDIA driver) errors in 14 days: $n" } catch { $o = "`nnvlddmkm (NVIDIA driver) errors in 14 days: 0" }
+  @{ ok = $true; txt = (($l -join "`n") + $o) }
+}
+function Fix-nvidia_update($a) {
+  $before = PD-NvCards; if (!$before.Count) { return @{ ok = $false; txt = 'No NVIDIA graphics card seen by Windows - nothing to update' } }
+  $b0 = "$($before[0].name) driver $($before[0].ver) ($($before[0].date))"
+  try { Checkpoint-Computer -Description 'Davan PC Doctor - before NVIDIA driver update' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop } catch {}   # may be off / done in the last 24 h - the update goes on
+  $s = New-Object -ComObject Microsoft.Update.Session; $s.ClientApplicationID = 'Davan PC Doctor'
+  $q = $s.CreateUpdateSearcher().Search("IsInstalled=0 and Type='Driver' and IsHidden=0")
+  $col = New-Object -ComObject Microsoft.Update.UpdateColl
+  foreach ($u in $q.Updates) { if (([string]$u.DriverManufacturer -match 'NVIDIA' -or $u.Title -match '^NVIDIA') -and ([string]$u.DriverClass -eq 'Display' -or $u.Title -match 'Display')) { [void]$col.Add($u) } }
+  if (!$col.Count) { return @{ ok = $true; txt = "Windows Update offers no newer NVIDIA display driver. Now: $b0. (NVIDIA's own site can be a little newer - send this to Claude if the freezes continue.)"; undo = 'Nothing changed' } }
+  $names = (@($col | ForEach-Object { $_.Title }) -join ' | ')
+  $d = $s.CreateUpdateDownloader(); $d.Updates = $col; $dr = $d.Download()
+  if ($dr.ResultCode -ne 2) { return @{ ok = $false; txt = "NVIDIA driver download failed (code $($dr.ResultCode)): $names" } }
+  $i = $s.CreateUpdateInstaller(); $i.Updates = $col; $r = $i.Install()
+  $after = PD-NvCards; $a0 = if ($after.Count) { "$($after[0].ver) ($($after[0].date))" } else { 'not read' }
+  @{ ok = ($r.ResultCode -eq 2); txt = "Was: $b0. Installed: $names. Now: $a0" + $(if ($r.RebootRequired) { ' - restart needed to finish' } else { '' }); restart = [bool]$r.RebootRequired
+     undo = 'Device Manager > Display adapters > NVIDIA > Properties > Driver > Roll Back Driver (Windows keeps the old driver), or System Restore point "Davan PC Doctor - before NVIDIA driver update"' }
+}
+
 function PD-Verify([string]$fix, $a) {
   try {
     switch ($fix) {
@@ -427,6 +456,7 @@ function PD-Verify([string]$fix, $a) {
                        $n = @($mf.printers | Where-Object ok).Count; return @{ ok = ([bool]$sh -and $n -gt 0); txt = $(if ($sh) { "Share $PD_DRVSHARE is on, drivers for $n printer(s)" } else { 'Share not found' }); t = (PD-NowMs) } }
       'printer_guest' { if (!$a -or !$a.host) { return $null }; $hs = ([string]$a.host).ToUpper(); $ps = @(Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*($hs)" })
                        return @{ ok = ($ps.Count -gt 0); txt = $(if ($ps.Count) { 'Printers here: ' + (($ps | ForEach-Object { $_.Name + ' [' + $_.PrinterStatus + ']' }) -join ', ') } else { "No printer of $hs here" }); t = (PD-NowMs) } }
+      { $_ -in 'nvidia_check', 'nvidia_update' } { $c = PD-NvCards; if (!$c.Count) { return @{ ok = $false; txt = 'No NVIDIA card seen'; t = (PD-NowMs) } }; return @{ ok = ($c[0].status -eq 'OK'); txt = "$($c[0].name): driver $($c[0].ver) ($($c[0].date)), status $($c[0].status)"; t = (PD-NowMs) } }
       { $_ -in 'bt_check', 'bt_restart', 'bt_reinstall' } { $bad = @(PD-BtDevices | Where-Object { $_.Status -ne 'OK' }).Count; return @{ ok = ($bad -eq 0); txt = "Bluetooth devices in error: $bad"; t = (PD-NowMs) } }
       'printer_driver' { if (!$a -or !$a.driver) { return $null }; $d = Get-PrinterDriver -Name ([string]$a.driver) -ErrorAction SilentlyContinue; return @{ ok = [bool]$d; txt = $(if ($d) { 'Driver installed' } else { 'Driver not found' }); t = (PD-NowMs) } }
     }
@@ -448,6 +478,8 @@ $PD_CMD = @{
   'repair_windows' = @{ c = 'DISM /Online /Cleanup-Image /RestoreHealth; sfc /scannow'; u = '' }
   'check_disk'   = @{ c = 'echo Y | chkdsk C: /scan /perf'; u = '' }
   'win_update_dl' = @{ c = 'UsoClient StartScan; UsoClient StartDownload'; u = '' }
+  'nvidia_update' = @{ c = 'Settings > Windows Update > Advanced options > Optional updates > Driver updates > tick NVIDIA ... Display > Download & install'; u = 'Device Manager > Display adapters > NVIDIA > Properties > Driver > Roll Back Driver' }
+  'nvidia_check' = @{ c = 'Get-CimInstance Win32_VideoController | Where-Object Name -match NVIDIA | Select Name, DriverVersion, DriverDate'; u = '' }
   'winget'       = @{ c = 'winget upgrade --all --silent --accept-package-agreements --accept-source-agreements'; u = '' }
 }
 function PD-FixCmd([string]$fix, $a) {

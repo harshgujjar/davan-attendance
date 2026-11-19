@@ -2,6 +2,7 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- 19-Nov-2026 · Agent 1.83 / Console -- 🎮 NVIDIA fixes (Gujjar laptop froze with a black screen that would not wake; NVIDIA driver errors before the 07 Nov freeze). `nvidia_check` (read-only: card, driver version + date, nvlddmkm errors in 14 days) and `nvidia_update` (installs the NVIDIA display driver Windows Update offers, restore point first, restart-kind so it runs at a free period or on ✅ now; undo = Roll Back Driver). Console buttons 🎮. Data: DB5 lab/book + lab/fixlog only. Not run through pwsh (none in the cloud box) - first real run is on the Gujjar laptop. Main names: Fix-nvidia_check, Fix-nvidia_update, PD-NvCards.
 - 14-Nov-2026 · Settings (cfg-default.json) -- "Overheating" no longer fires when the CPU only steps down in speed (ASHOK: 53 °C, 0 heat slowdowns, idle 26% speed = power
   saving). The heat rule now needs 90 °C or more than 5 heat slowdowns. DB5 lab/cfg/rules (the copy the PCs read) is migrated once by davan-scraper tools/lab_cfg_seed.py. No new cost.
 - 14-Nov-2026 · Agent 1.82 / Console 1.25 -- 🔎 "What ran" log (user, GUJJARSONY: a Windows 11 page + 100% CPU, nobody could say what it was). Every PC now records when
