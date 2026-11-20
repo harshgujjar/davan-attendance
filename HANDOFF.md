@@ -443,3 +443,4 @@ UPDATE 19-Nov: crash_info + temp_check DID run (done at 15:13 IST) - results are
 - 20-Nov-2026 kids v128: restored chipsHTML + popWord (lost in v125 flash edit) - spelling was stuck. LESSON: after replacing a code block, compare the function list with the previous version.
 - 20-Nov-2026 kids v129: spoken letter A = 'A.' (was 'ay' -> Sia TTS said 'I'). Spelling sound: child often says the whole word / one letter; recognition is the limit.
 - 20-Nov-2026 HC Admin: fixes v117-v129 + h34 written to KV fix:<Gujjar hash> + fix:all (were never recorded). Rule in davan-scraper homeclass-play/STATUS.md: record every fix there. Doctor does not read logs (offered: diag-reading rule).
+- 20-Nov-2026 pass server doctor v3 deployed (reads phone logs: jserr/crash/voicefail/stuck/notheard). HC Admin v17 weak = last 14 days.
