@@ -624,7 +624,7 @@ function Refresh {
       # popups: a PC turned 🔴 / lab-wide
       $key = $r.h + $r.lv + $r.v; if ($r.lv -in 'red','purple' -and !$seen[$key]) { $seen[$key] = 1; if ($seen.init) { $ni.ShowBalloonTip(8000, ($LVL[$r.lv][0] + ' ' + $r.n), $r.v, 'Warning') } } }
     $grid.EndUpdate(); $seen.init = 1
-    if ($g.sum -and $g.sum.at -and !$seen['sum' + $g.sum.at]) { $seen['sum' + $g.sum.at] = 1; $ni.ShowBalloonTip(15000, '🖥️ PC Doctor morning summary', ([string]$g.sum.base + $(if ($g.sum.ai) { "`n✨ " + $g.sum.ai } else { '' })), 'Info') }
+    if ($g.sum -and $g.sum.at -and !$g.sum.quiet -and !$seen['sum' + $g.sum.at]) { $seen['sum' + $g.sum.at] = 1; $ni.ShowBalloonTip(15000, '🖥️ PC Doctor morning summary', ([string]$g.sum.base + $(if ($g.sum.ai) { "`n✨ " + $g.sum.ai } else { '' })), 'Info') }
     foreach ($fx in @($g.fix.PSObject.Properties | ForEach-Object { $hh = $_.Name; $_.Value.PSObject.Properties | ForEach-Object { [pscustomobject]@{ h = $hh; k = $_.Name; f = $_.Value } } })) {
       if ($seen['fx' + $fx.k] -or $fx.f.fix -ne 'stop_program' -or !$fx.f.ok) { $seen['fx' + $fx.k] = 1; continue }
       $seen['fx' + $fx.k] = 1; if ($seen.init2) { $ni.ShowBalloonTip(6000, ('🛠️ Hang fixed on ' + [string]$g.pcs.($fx.h).name), [string]$fx.f.txt, 'Info') } }
