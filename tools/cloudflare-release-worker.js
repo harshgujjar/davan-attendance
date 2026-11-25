@@ -959,7 +959,7 @@ async function labHourly(env) {
         if (r.text) { ai = r.text; await db5(env, 'PUT', 'lab/ai_use/' + day, used + 1); }
       }
     }
-    await db5(env, 'PUT', 'lab/sum/' + day, { at: now, base, ai, cnt, fixes: fixes.length, bad: bad.slice(0, 30), quiet: !(bad.length || fixes.some(f => !f.ok)) });
+    await db5(env, 'PUT', 'lab/sum/' + day, { at: now, base, ai, cnt, fixes: fixes.length, bad: bad.slice(0, 30), quiet: !(cnt.red || fixes.some(f => !f.ok)) });
     // user 23-Nov-2026: no daily notice - only when a PC has a problem (🟠/🔴) or a fix failed
     if (cfg.alertsOn !== false && total && (bad.length || fixes.some(f => !f.ok)) && !(await labNotifOff('sum'))) await saEvent({ kind: 'lab', color: cnt.red ? 'red' : 'blue', title: '🖥️ PC Doctor morning summary', body: base + (ai ? '\n✨ ' + ai : ''), by: 'PC Doctor', link: 'lab.html' });
   }
