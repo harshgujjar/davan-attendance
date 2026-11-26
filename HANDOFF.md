@@ -3,6 +3,11 @@
 Last updated: 14-Nov-2026. Old detail (history, done items, numbers): `HANDOFF-old.md` - grep it only when a task needs it.
 Keep THIS file short: replace old lines, do not append history (history goes in the changelogs / commit messages).
 
+## 💸 GitHub Actions minutes ran out (26-Nov-2026) - IN PROGRESS
+Free 2,000 min/month used up (resets 1 Dec). Private davan-scraper is the user; public davan-attendance minutes are free. Top users: Instagram posts ~440, PUC scrape ~300, Scrape ~240.
+Done: scraper scrape.yml +45 min backup starts removed, homeclass-doctor every 3 h, sync-seating 3 a day. NEW `.github/workflows/ig-posts.yml` here (public, free; checks out private davan-scraper with secret SCRAPER_PAT; no cron, dispatch only).
+TODO (needs the user): add secrets IG_TOKEN, SA_DB1, SA_DB2, SA_DB4, SCRAPER_PAT (read-only Contents on davan-scraper) in THIS repo; test-run the workflow; THEN point the Cloudflare worker (tools/cloudflare-release-worker.js startIg: repo = this repo, workflow ig-posts.yml; GH_TOKEN must see this repo), and stop davan-scraper ig-posts.yml (remove its cron / file). PUC scrape + Scrape stay private (student data in logs). Suggest a small Actions budget ($5) as a safety net.
+
 ## 💻 E-Library - BUILT 14-Nov-2026 (library.html v1.44) - for the university affiliation (credit points)
 - One e-library inside the existing Library app (library.html): new 💻 E-Library tab + cards on Dash / Browse / My Books / Reports / Admin.
 - College by login: URN with NU = NUTANA E-LIBRARY (NIM, logo-nutana.png), DI = DAVAN E-LIBRARY (DIAMS, davan_degree.png); staff pick
