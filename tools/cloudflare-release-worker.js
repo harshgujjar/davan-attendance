@@ -92,6 +92,37 @@ async function igTimer(env) {
   if (!r.ok && _igAlertDay !== day) { _igAlertDay = day; await saEvent({ kind: 'fail', color: 'red', title: '❌ The hourly Instagram job did not start', body: r.msg, by: 'Cloudflare timer' }); }
   return r;
 }
+// v30 (user, 26-Nov-2026: "put alerts in the Super Admin when this is crossing"): ☁️ alert when this month's GitHub Actions minutes of the PRIVATE
+// repos near the free 2,000. No billing token needed: it adds up the run times (each run rounded up to a minute) of this month - about 5-10 % off,
+// so the levels are 65 / 85 / 100 %. Once a day (19:30 IST), each level once per month, resets itself. Settings (optional, DB2 davan_pub/actions_cap/cfg):
+// {limit: 2000, repos: ["owner/name", ...], on: false}. State: davan_pub/actions_cap/st {m, min, lvl, day}. Costs <= 14 GitHub calls a day.
+async function actionsCapCheck(env) {
+  if (!env.GH_TOKEN) return;
+  const now = new Date(), mon = now.toISOString().slice(0, 7), day = now.toISOString().slice(0, 10);
+  const st = (await db2('GET', 'davan_pub/actions_cap/st')) || {};
+  if (st.day === day) return;
+  const cfg = (await db2('GET', 'davan_pub/actions_cap/cfg')) || {};
+  if (cfg.on === false) return;
+  const limit = Number(cfg.limit) > 0 ? Number(cfg.limit) : 2000, repos = Array.isArray(cfg.repos) && cfg.repos.length ? cfg.repos : [SCR_REPO];
+  let min = 0;
+  for (const repo of repos) for (let p = 1; p <= 14; p++) {
+    const r = await fetch('https://api.github.com/repos/' + repo + '/actions/runs?per_page=100&page=' + p + '&created=>=' + mon + '-01', { headers: GH_HDR(env) });
+    if (!r.ok) return;   // try again next hour
+    const rs = (await r.json()).workflow_runs || [];
+    for (const x of rs) { const t = Date.parse(x.updated_at) - Date.parse(x.run_started_at || x.created_at); if (t > 0) min += Math.max(1, Math.ceil(t / 60000)); }
+    if (rs.length < 100) break;
+  }
+  const pct = Math.round(min * 100 / limit), lvl = pct >= 100 ? 100 : pct >= 85 ? 85 : pct >= 65 ? 65 : 0;
+  const prev = st.m === mon ? Number(st.lvl) || 0 : 0;
+  if (lvl > prev) {
+    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)), reset = next.getUTCDate() + ' ' + next.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' });
+    await saEvent({ kind: 'fail', color: lvl >= 85 ? 'red' : 'amber', by: 'Cloudflare timer', link: 'https://github.com/settings/billing',
+      title: (lvl >= 100 ? '❌ GitHub Actions free minutes used up' : '⚠️ GitHub Actions minutes ' + pct + '% used'),
+      body: 'About ' + min + ' of ' + limit + ' free minutes used this month (' + pct + '%) - an estimate from the run times. Resets on ' + reset + '. ' +
+        (lvl >= 100 ? 'Scheduled jobs may now skip or fail until then, unless a budget is set at github.com/settings/billing/budgets.' : 'Slow a schedule or set a small budget before it runs out.') });
+  }
+  await db2('PUT', 'davan_pub/actions_cap/st', { m: mon, min, pct, lvl: Math.max(lvl, prev), day, at: Date.now() });
+}
 async function startScrape(env, why, wf) {
   if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
   const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + (wf || SCR_WORKFLOW) + '/dispatches', {
@@ -1007,6 +1038,7 @@ export default {
       ctx.waitUntil(wupdHourly().catch(e => console.log('wupd hourly', e && e.message)));
       ctx.waitUntil(labHourly(env).catch(e => console.log('lab hourly', e && e.message)));   // v18: 🖥️ PC Doctor
       if (d.getUTCHours() === 1) ctx.waitUntil(igTimer(env).catch(() => {}));   // user, 26-Nov-2026: Instagram ONCE a day at 6:35 am IST (was hourly; saves free Actions minutes). The staff app "Run now" still starts it any time.
+      if (d.getUTCHours() === 14) ctx.waitUntil(actionsCapCheck(env).catch(e => console.log('actions cap', e && e.message)));   // v30: 7:30 pm IST, once a day
       return; }   // v16: hourly Instagram, every day incl. Sunday
     if (d.getUTCDay() === 0) return;
     const puc = c.split(' ')[0].split(',').indexOf('4') >= 0;   // the PUC timer's minutes are 0,4,18,30,34,48; the college one's 0,15,30,45
