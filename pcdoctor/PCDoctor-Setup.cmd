@@ -7,6 +7,8 @@ echo.
 echo  Davan PC Doctor - setup is starting ...
 echo  Getting the newest installer from GitHub (a few seconds) - the steps show below.
 set "U=https://raw.githubusercontent.com/harshgujjar/davan-attendance/main/pcdoctor/src/install.ps1"
+set "PATH=%SystemRoot%\System32\WindowsPowerShell\v1.0;%SystemRoot%\System32;%SystemRoot%;%PATH%"
+if not exist "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" (echo. & echo  PowerShell is missing on this PC - repair Windows PowerShell first. & echo. & pause & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; $f=\"$env:TEMP\pd_install.ps1\"; try { Invoke-WebRequest -UseBasicParsing ('%U%?t='+[DateTime]::UtcNow.Ticks) -OutFile $f } catch { if (Test-Path '%~dp0src\install.ps1') { Copy-Item '%~dp0src\install.ps1' $f } else { Write-Host 'No internet and no src folder next to this file.'; exit 1 } }; & $f -Here '%~dp0'"
 echo.
 pause
