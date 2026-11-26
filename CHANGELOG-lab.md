@@ -2,6 +2,7 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- **Console 1.26 (26-Nov-2026)** - fix: on the PC grid, long names (GUJJARHOME, GUJJARSONY, NUTANANEW) and the "14% · 13% C:" line ran outside the tile. Tiles are wider (112 px) and text wraps. Display only; no data / Firebase change.
 - **Setup cmd (26-Nov-2026)** - fix: PCDoctor-Setup.cmd said "powershell is not recognized" on a PC whose PATH lacks the PowerShell folder. It now adds System32\WindowsPowerShell\v1.0 to PATH first, and says so if powershell.exe is really missing. No data / Firebase change.
 - **Agent 1.85 (26-Nov-2026)** - fix: PC Doctor setup stopped with "REFUSED tray.ps1 - its SHA-256 does not match". The 23-Nov tray.ps1 edit had no lab-version.json refresh, so every install / update was refused. Hashes regenerated (tools/pcdoctor_version.py). No data / Firebase change.
 - 23-Nov-2026 · Cloud job (davan-release worker) -- The ☁️ morning summary (9:35 am) now goes out only when a PC is 🔴 or a fix failed (🟠 problems have their own alerts, so a repeating 🟠 no longer re-sends it every day); quiet days send nothing (user: "only when there is prob"). The day's record lab/sum/<date> is still saved (field quiet). No new cost. Function: hourly morning-summary block; tray balloon skips quiet days.
