@@ -2,6 +2,7 @@
 Parts: PC Doctor Agent (background), PC Doctor (tray window), PC Doctor Console (lab.html), PC Doctor Rescue (pendrive).
 Versions of every part: pcdoctor/lab-version.json. Plan: ROADMAP-pcdoctor.md.
 
+- **Console 1.27 (26-Nov-2026)** - "Sharing/printer check (read-only)" button added under More checks (PC detail page): runs the existing `share_diag` the agent already understood (1.70/1.71) but the Console had no button for - works straight through Firebase, with no GitHub Action / Actions minutes needed. Pairs: agent 1.85+. Function: CHECKS list.
 - **Console 1.26 (26-Nov-2026)** - fix: on the PC grid, long names (GUJJARHOME, GUJJARSONY, NUTANANEW) and the "14% · 13% C:" line ran outside the tile. Tiles are wider (112 px) and text wraps. Display only; no data / Firebase change.
 - **Setup cmd (26-Nov-2026)** - fix: PCDoctor-Setup.cmd said "powershell is not recognized" on a PC whose PATH lacks the PowerShell folder. It now adds System32\WindowsPowerShell\v1.0 to PATH first, and says so if powershell.exe is really missing. No data / Firebase change.
 - **Agent 1.85 (26-Nov-2026)** - fix: PC Doctor setup stopped with "REFUSED tray.ps1 - its SHA-256 does not match". The 23-Nov tray.ps1 edit had no lab-version.json refresh, so every install / update was refused. Hashes regenerated (tools/pcdoctor_version.py). No data / Firebase change.
