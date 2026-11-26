@@ -1006,7 +1006,7 @@ export default {
     if (c === IG_CRON) {   // v20: the same hourly timer - 📲 widget-update alert every hour, Instagram 5:35 am - 11:35 pm IST as before
       ctx.waitUntil(wupdHourly().catch(e => console.log('wupd hourly', e && e.message)));
       ctx.waitUntil(labHourly(env).catch(e => console.log('lab hourly', e && e.message)));   // v18: 🖥️ PC Doctor
-      if (d.getUTCHours() <= 18) ctx.waitUntil(igTimer(env).catch(() => {}));
+      if (d.getUTCHours() === 1) ctx.waitUntil(igTimer(env).catch(() => {}));   // user, 26-Nov-2026: Instagram ONCE a day at 6:35 am IST (was hourly; saves free Actions minutes). The staff app "Run now" still starts it any time.
       return; }   // v16: hourly Instagram, every day incl. Sunday
     if (d.getUTCDay() === 0) return;
     const puc = c.split(' ')[0].split(',').indexOf('4') >= 0;   // the PUC timer's minutes are 0,4,18,30,34,48; the college one's 0,15,30,45
