@@ -291,6 +291,11 @@
     for (var i = 0; i < pre.length; i++) if (digits.length > pre[i].length && digits.indexOf(pre[i]) === 0 && digits.slice(pre[i].length) === String(ans)) return { n: ans, ok: true };
     /* v48 (Vihaan, log 17-Nov 11:14, 13 x 9): "one one seven" - the three digits said one by one - is 117 */
     if (ans >= 100 && nums.length >= 2 && nums.every(function (x) { return x <= 9; }) && digits === String(ans)) return { n: ans, ok: true };
+    /* v49 core (Aryan, TV log 27-Nov 22:09, 25 x 6): "one twenty five" was read as 25 (then "not sure, say it again" again and again) - in India it is 125:
+       a big answer said the short way is read as that number, so a WRONG answer is told as wrong at once */
+    if (ans >= 100 && nums.length >= 2) { var p1 = nums[nums.length - 2], p2 = nums[nums.length - 1]; if (p1 >= 1 && p1 <= 9 && p2 >= 10 && p2 <= 99 && !/hundred/.test(String(text).toLowerCase())) last = p1 * 100 + p2; }
+    /* v49 core (TV log 27-Nov 22:05, 12 x 9): "one hundred" ... "eight" - the pause cut the answer in two; only the hundreds of the answer = not finished yet, listen on */
+    if (ans > 100 && ans % 100 && last === Math.floor(ans / 100) * 100 && /hundred\s*$/.test(String(text).toLowerCase().replace(/[^a-z ]/g, ' ').trim())) return { n: null, ok: false, part: true };
     return { n: last, ok: false };
   };
   /* ---------- 🗣️ reciting a whole table (user, 01-Nov-2026: "he tells the 5 table fast - 5 one ja 5, 5 two ja 10 ... - the app follows,
@@ -460,7 +465,7 @@
     /* v63 (08-Nov, TV: he said "twenty one" for 9 x 3 and the app heard "twenty seven" = right): a grammar that holds only the right answer and its neighbours
        forces ANY number onto the nearest one. Every number 1-100 is now allowed as a bare answer (and after the line), so a different number is heard as it is. */
     for (var m = 1; m <= 100; m++) if (!ns[m]) { var wm = W(m); ph.push(wm, 'ja ' + wm, q + wm, q + 'ja ' + wm); }
-    ph = ph.concat(W(a).split(' '), W(b).split(' '), ['ja', 'za', 'times', 'ready', 'yes', 'stop', 'repeat', '[unk]']);
+    ph = ph.concat(W(a).split(' '), W(b).split(' '), ['ja', 'za', 'times', 'ready', 'yes', 'stop', 'repeat', 'skip', 'pass', "i don't know", "don't know", 'no idea', '[unk]']);   /* v49: skip / I don't know heard */
     return JSON.stringify(ph.filter(function (x, i) { return ph.indexOf(x) === i; }));
   };
   C.grammar = function (t, up) {
@@ -514,7 +519,7 @@
     for (var i = 1; i < alts.length; i++) { var r = C.tableOne(alts[i], a, b); if (r.ok && first.n === null) return { ok: true, n: r.n, s: alts[i] }; }
     if (first.n === null) for (var j = 1; j < alts.length; j++) { var r2 = C.tableOne(alts[j], a, b); if (r2.n !== null) return { ok: false, n: r2.n, s: alts[j] }; }
     var altOk = alts.slice(1).some(function (x) { return C.tableOne(x, a, b).ok; });   /* another guess was right: ask again ("Did you say 72?") */
-    return { ok: false, n: first.n, s: alts[0] || '', altOk: altOk };
+    return { ok: false, n: first.n, s: alts[0] || '', altOk: altOk, part: !!first.part && !altOk };   /* v49: "one hundred" for 108 = only the start - listen on */
   };
 
   var STOP = ' a an the is are was were be of to in on at for and or it its this that these those with by as from i we you he she they my our your his her their do does did has have had will can so but not no yes what which who whom why how when where there here '.split(' ');
@@ -677,6 +682,8 @@
     return out;
   };
   C.isSkip = function (said) { return /\b(skip|next|pass)\b/.test(String(said || '').toLowerCase()); };
+  /* v49 core (user, 27-Nov: "if I don't know I say skip / I don't know - it won't take") */
+  C.isDontKnow = function (said) { var s = String(said || '').toLowerCase(); return /\b(skip|pass)\b/.test(s) || /\b(don'?t|do not|dont) know\b/.test(s) || /\bno idea\b/.test(s); };
   C.wordGrammar = function (words) { return JSON.stringify(words.map(function (w) { return String(w).toLowerCase(); }).concat(['stop', 'finish', '[unk]'])); };
   /* yes / ready / start words */
   C.isReady = function (t) { return /\b(ready|yes|yeah|yup|start|ok|okay|i am here|i'm here|here|come|coming|let's go|lets go|go)\b/i.test(t || ''); };

@@ -339,6 +339,8 @@
      the target: st 'g' = the letter fits, 'a' = sound-alike (accepted), 'x' = a different letter, 'u' = not understood, 'n' = no target */
   
   
+  /* v49 core (user, 27-Nov: "if I don't know I say skip / I don't know - it won't take") */
+  C.isDontKnow = function (said) { var s = String(said || '').toLowerCase(); return /\b(skip|pass)\b/.test(s) || /\b(don'?t|do not|dont) know\b/.test(s) || /\bno idea\b/.test(s); };
   
   /* yes / ready / start words */
   
