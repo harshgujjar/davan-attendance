@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2042 · 27-Nov-2026 IST
+After the semester end date (Session Configuration) the staff widgets get no degree timetable, so faculty stop getting "classes today" alerts and class cards; it resumes by itself when the next semester's dates are saved. Reported: semester ended, students quiet but faculty still alerted. Data: davan_pub/staff_pub board/fac become empty for degree (fewer bytes). Function: stwPublish (`_semOver`).
+
 ## v2041 · 18-Nov-2026 IST
 User: stuck students cannot come to the Director; the Android report must stay fresh. Widget report: "📨 Send install guide to this list" (Help chat message to every student shown who is not updated, 2 small writes each) and "🏫 Per class list (for teachers)" (print, grouped by class). wurAutoSave re-makes davan_pub/wupd_report when it is over 1 h old, 7 am-9 pm IST, while the Super Admin's staff app is open (1 tiny read / 10 min, a recount at most hourly). Pairs with Davan (new) test 1031. Functions: wurGuideAll, wurClassPdf, wurAutoSave.
 
