@@ -1,5 +1,7 @@
 # Davan attendance — working rules
 
+**Who the user is + how he likes answers: read `PROFILE.md` in the PRIVATE repo davan-scraper (attached every session) before replying. Update it when he shares new facts. Never copy its contents into this public repo.**
+
 **New session? Read `HANDOFF.md` first** (current versions, open items, how the user works) - then work without asking the user to
 repeat anything. Update HANDOFF.md at the end of every session, in the same commit.
 
