@@ -465,7 +465,9 @@
     /* v63 (08-Nov, TV: he said "twenty one" for 9 x 3 and the app heard "twenty seven" = right): a grammar that holds only the right answer and its neighbours
        forces ANY number onto the nearest one. Every number 1-100 is now allowed as a bare answer (and after the line), so a different number is heard as it is. */
     for (var m = 1; m <= 100; m++) if (!ns[m]) { var wm = W(m); ph.push(wm, 'ja ' + wm, q + wm, q + 'ja ' + wm); }
-    ph = ph.concat(W(a).split(' '), W(b).split(' '), ['ja', 'za', 'times', 'ready', 'yes', 'stop', 'repeat', 'skip', 'pass', "i don't know", "don't know", 'no idea', '[unk]']);   /* v49: skip / I don't know heard */
+    /* v50 core (user, TV 27-Nov: "one four zero" for 140 was heard "one four four" - "zero" was not a listening word): big answers said digit by digit */
+    if (p >= 100) [p, p - a, p + a].forEach(function (n) { if (n >= 100 && n <= 999) { var dg = String(n).split('').map(function (d) { return d === '0' ? 'zero' : W(+d); }).join(' '); ph.push(dg, q + dg, q + 'ja ' + dg, q + 'za ' + dg); } });
+    ph = ph.concat(W(a).split(' '), W(b).split(' '), ['ja', 'za', 'times', 'ready', 'yes', 'stop', 'repeat', 'skip', 'pass', "i don't know", "don't know", 'no idea', 'zero', 'oh', '[unk]']);   /* v49: skip / I don't know heard; v50: zero / oh */
     return JSON.stringify(ph.filter(function (x, i) { return ph.indexOf(x) === i; }));
   };
   C.grammar = function (t, up) {
