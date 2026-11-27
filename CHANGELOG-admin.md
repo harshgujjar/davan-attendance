@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2043 · 27-Nov-2026 IST
+Sends davan_pub/staff_pub/pucEnd = {com, sci} (each PUC stream's 'Last Working Day for Students', only when nothing but holidays follows it) so staff widgets w374+ stop PUC classes / notices after the year end and resume with the next year's calendar. Data: one tiny node on each staff publish. Pairs with staff widget w374. Function: stwPublish (pucEnd).
+
 ## v2042 · 27-Nov-2026 IST
 After the semester end date (Session Configuration) the staff widgets get no degree timetable, so faculty stop getting "classes today" alerts and class cards; it resumes by itself when the next semester's dates are saved. Reported: semester ended, students quiet but faculty still alerted. Data: davan_pub/staff_pub board/fac become empty for degree (fewer bytes). Function: stwPublish (`_semOver`).
 
