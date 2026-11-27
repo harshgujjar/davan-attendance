@@ -536,7 +536,7 @@ body.bOn:not(.tv) .hold .hi{font-size:min(38px,5dvh)}
 <script>
 (function () {
 'use strict';
-var KID_VER = 129;
+var KID_VER = 130;
 var C = window.HCcore, $ = function (id) { return document.getElementById(id); };
 var A = window.HCA || null;                       /* Android bridge (Gujjar Home Class app) */
 var IS_TV = !!(A && A.isTv && A.isTv()) || /\b(tv|aft|bravia|googletv|crkey)\b/i.test(navigator.userAgent) || /[?&]tv=1/.test(location.search);
@@ -1933,6 +1933,16 @@ async function followLine(t, b) {
       if (fxBest.length) { S.fastX = (S.fastX || []).concat(fxBest.filter(function (x) { return (S.fastX || []).indexOf(x) < 0; })); C.diag('follow ' + t + ': fast - also heard line' + (fxBest.length > 1 ? 's ' : ' ') + fxBest.join(', ')); }
       if (!jd.ok && selfHit) { jd = { ok: true, n: t * b, fast: true }; }
     }
+    /* v130 (TV log 27-Nov 21:54-21:55, 12 table: line 4 was missed, the app moved on while he was still saying "12 4 ja 48" - heard at line 5, and line 5's "60" at line 6):
+       the answer of a line missed just before, said late, counts for THAT line (big answers only, never the current line's answer) */
+    if ((S.fastMiss || []).length && (S.fastUp || 0)) {
+      var late = [];
+      (r.alts || [r.text]).slice(0, 3).forEach(function (al) {
+        var nm2 = []; try { nm2 = C.numbers(al, true) || []; } catch (e) { nm2 = []; }
+        S.fastMiss.forEach(function (L) { var want = t * L; if (want > S.fastUp && want !== t * b && nm2.indexOf(want) >= 0 && late.indexOf(L) < 0) late.push(L); });
+      });
+      if (late.length) { S.fastLate = (S.fastLate || []).concat(late); C.diag('follow ' + t + ': late - line' + (late.length > 1 ? 's ' : ' ') + late.join(', ') + ' said now, counted'); }
+    }
     C.diag('follow ' + t + '×' + b + ': "' + (r.alts || [r.text]).slice(0, 2).join('" / "') + '" → ' + (jd.ok ? '✓' : (jd.n === null ? '?' : '✗ ' + jd.n)) + (S.lastTm ? ' · ' + S.lastTm : ''));
     if (jd.ok) return true;
     if (jd.n !== null) return false;
@@ -1983,7 +1993,7 @@ async function followTable(t, up, o) {
   };
   try {
   for (var pass = 1; pass <= 2 && todo.length; pass++) {
-    var next = [];
+    var next = []; S.fastMiss = next; S.fastLate = [];
     for (var i = 0; i < todo.length; i++) {
       var b = todo[i]; chk();
       if (S.fastX.indexOf(b) >= 0) continue;                       /* v118: already heard inside an earlier fast clip */
@@ -1993,12 +2003,14 @@ async function followTable(t, up, o) {
       if (A && A.setGrammar) {                                     /* v118: this line's words + the next two lines', so a fast child is heard too */
         var gj = JSON.parse(C.qGrammar(t, b));
         for (var nb = b + 1; nb <= Math.min(up, b + 2); nb++) JSON.parse(C.qGrammar(t, nb)).forEach(function (x) { if (gj.indexOf(x) < 0) gj.push(x); });
+        if (next.length) JSON.parse(C.qGrammar(t, next[next.length - 1])).forEach(function (x) { if (gj.indexOf(x) < 0) gj.push(x); });   /* v130: the line missed just before, said late */
         A.setGrammar(JSON.stringify(gj));
       }
       if (i === 0) ding();
       S.liveB = b; S.liveSelf = false;
-      var got = await inQ(function () { return followLine(t, b); });
-      if (got !== true && got !== 'skip') { S.liveB = 0; await say(t + ' ' + b + ' ja?'); S.liveB = b; got = await inQ(function () { return followLine(t, b); }); }
+      var lateIn = function () { (S.fastLate || []).forEach(function (L) { var ix = next.indexOf(L); if (ix >= 0) next.splice(ix, 1); bSet(t, L, 1, 1); }); S.fastLate = []; drawBoard(); };
+      var got = await inQ(function () { return followLine(t, b); }); lateIn();
+      if (got !== true && got !== 'skip') { S.liveB = 0; await say(t + ' ' + b + ' ja?'); S.liveB = b; got = await inQ(function () { return followLine(t, b); }); lateIn(); }
       S.liveB = 0;   /* (B) asked by voice at once */
       S.fastX.forEach(function (fb) { bSet(t, fb, 1, 1); });
       if (got === true) { bSet(t, b, 1, 1); setLive({ mode: 'recite', title: SES.title, q: t + ' × ' + b + ' ✓' }); }
@@ -2009,7 +2021,7 @@ async function followTable(t, up, o) {
     if (todo.length && pass === 1 && todo.length >= Math.ceil(up / 2)) { await say('I could not hear some lines. Let us say them once more.'); continue; }
     break;
   }
-  } finally { S.liveCb = null; S.liveB = 0; S.liveSelf = false; S.fastUp = 0; }
+  } finally { S.liveCb = null; S.liveB = 0; S.liveSelf = false; S.fastUp = 0; S.fastMiss = null; S.fastLate = []; }
   S.fastX = [];
   miss = todo; bCur(t, -1); drawBoard();
   C.diag('follow ' + t + ': ' + (up - miss.length) + ' of ' + up + ' heard' + (miss.length ? ' · not heard ' + miss.join(', ') : ' · all proven'));
