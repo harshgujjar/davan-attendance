@@ -7,6 +7,8 @@ repeat anything. Update HANDOFF.md at the end of every session, in the same comm
 
 **Every session: attach `harshgujjar/davan-scraper` at the start (add_repo, access push, then ONE `git clone --depth 1` into /home/user/davan-scraper, then register_repo_root) - user, 12-Nov-2026: "always attach davan-scraper here and future also". Needed to read DB2 / DB5 (peek Actions) yourself.**
 
+**GitHub Actions minutes are OVER till 1-Dec-2026 (user, 27-Nov-2026): private davan-scraper Actions (DB2 peek, DB5 ...) fail by default - expected, don't debug / retry; work without them and say so once. Details + hand-release steps: HANDOFF.md top. Remove this line on 1-Dec.**
+
 ## Save tokens (user, 15-Oct-2026 - every session)
 - HANDOFF.md / big files: read only the part needed (grep, `sed -n a,bp`), never a whole big file; never re-read a file just edited.
   src/index.src.html is ~90k lines: always grep first, then read a small range.
