@@ -2,6 +2,9 @@
 
 Newest first. The newest entries are also shown in the app (HTML_CHANGELOG in index.html, "What's new").
 
+## v2044 · 28-Nov-2026 IST
+User: the PC Doctor daily job used up free GitHub Actions minutes and is not needed every night. PC Doctor page: new button "▶ Run PC Doctor daily job now" (staff app `pcdRunDaily`, worker v31 `?labdaily=1` starts davan-scraper lab-daily.yml); its nightly timer is removed. No database use; saves ~30 Actions min/month. Pairs with worker v31.
+
 ## v2043 · 27-Nov-2026 IST
 Sends davan_pub/staff_pub/pucEnd = {com, sci} (each PUC stream's 'Last Working Day for Students', only when nothing but holidays follows it) so staff widgets w374+ stop PUC classes / notices after the year end and resume with the next year's calendar. Data: one tiny node on each staff publish. Pairs with staff widget w374. Function: stwPublish (pucEnd).
 

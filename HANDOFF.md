@@ -9,6 +9,9 @@ Free 2,000 min/month used up (resets 1 Dec). Private davan-scraper is the user; 
 Done: scraper scrape.yml +45 min backup starts removed, homeclass-doctor every 3 h, sync-seating 3 a day. NEW `.github/workflows/ig-posts.yml` here (public, free; checks out private davan-scraper with secret SCRAPER_PAT; no cron, dispatch only).
 UPDATE 26-Nov: user cannot recover the keys -> Instagram move NOT done; instead Instagram now runs ONCE a day (worker igTimer at UTC 01 = 6:35 am IST + staff app Run now; GitHub hourly timer removed). The ig-posts.yml here stays unused. Old TODO: add secrets IG_TOKEN, SA_DB1, SA_DB2, SA_DB4, SCRAPER_PAT (read-only Contents on davan-scraper) in THIS repo; test-run the workflow; THEN point the Cloudflare worker (tools/cloudflare-release-worker.js startIg: repo = this repo, workflow ig-posts.yml; GH_TOKEN must see this repo), and stop davan-scraper ig-posts.yml (remove its cron / file). PUC scrape + Scrape stay private (student data in logs). Suggest a small Actions budget ($5) as a safety net.
 
+## 🖥️ PC Doctor daily job (28-Nov-2026, staff v2044 / worker v31)
+No timer any more (user: run only when I want). Button "▶ Run PC Doctor daily job now" on the PC Doctor page -> worker `?labdaily=1` -> davan-scraper lab-daily.yml.
+
 ## 🔔 Actions-minutes alert (26-Nov-2026, worker v30)
 Worker `actionsCapCheck` (hourly timer at UTC 14 = 7:30 pm IST, once a day) adds up this month's run minutes of private davan-scraper (estimate, no billing token) and sends a Super Admin ☁️ alert at 65 / 85 / 100 % of 2,000, each level once a month. State DB2 davan_pub/actions_cap/st; optional cfg {limit, repos[], on:false}. If the alert never shows / repeats daily, check that DB2 rules allow davan_pub/actions_cap (not tested - the write test was blocked). Exact numbers need a billing token (not done).
 

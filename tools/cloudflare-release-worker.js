@@ -123,6 +123,15 @@ async function actionsCapCheck(env) {
   }
   await db2('PUT', 'davan_pub/actions_cap/st', { m: mon, min, pct, lvl: Math.max(lvl, prev), day, at: Date.now() });
 }
+// v31 (user, 28-Nov-2026: "PC Doctor daily - run only when I want"): the staff app's PC Doctor page button starts davan-scraper lab-daily.yml (no timer any more).
+let _labDailyLast = 0;
+async function startLabDaily(env) {
+  if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
+  if (Date.now() - _labDailyLast < 45000) return { ok: true, msg: 'already started a moment ago' };
+  _labDailyLast = Date.now();
+  const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/lab-daily.yml/dispatches', { method: 'POST', headers: GH_HDR(env), body: JSON.stringify({ ref: 'main' }) });
+  return { ok: r.status === 204, msg: r.status === 204 ? 'lab-daily.yml started' : 'GitHub said ' + r.status };
+}
 async function startScrape(env, why, wf) {
   if (!env.GH_TOKEN) return { ok: false, msg: 'GH_TOKEN secret is not set' };
   const r = await fetch('https://api.github.com/repos/' + SCR_REPO + '/actions/workflows/' + (wf || SCR_WORKFLOW) + '/dispatches', {
@@ -1075,6 +1084,7 @@ export default {
     if (u.searchParams.get('marks')) return new Response(JSON.stringify(await startMarks(env, String(u.searchParams.get('marks')).trim(), u.searchParams.get('cls') || '')), { headers: CORS });
     if (u.searchParams.get('log')) return new Response(JSON.stringify(await logRequest(env, String(u.searchParams.get('log')).trim().toUpperCase())), { headers: CORS });
     if (u.searchParams.get('ig') === '1') return new Response(JSON.stringify(await startIg(env)), { headers: CORS });   // v10: the staff app's Instagram page - Run now / after a command
+    if (u.searchParams.get('labdaily') === '1') return new Response(JSON.stringify(await startLabDaily(env)), { headers: CORS });   // v31: PC Doctor page button
     if (u.searchParams.get('now') === '1') return new Response(JSON.stringify(await startRelease(env, 'Release now button')), { headers: CORS });
     // 07-Oct-2026 (user: "show whether my new Cloudflare worker is connected"): gh = the GitHub key really opens the release job
     // (one read-only GitHub call); the staff app's Faculty Class Alerts page and Widget updates card show it. crons = its timers.
